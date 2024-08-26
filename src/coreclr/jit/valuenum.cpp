@@ -100,9 +100,9 @@ private:
     void NumberCmpXchg(GenTreeCmpXchg* node);
     void NumberInterlocked(GenTreeOp* node);
     void NumberConv(GenTreeUnOp* node);
+    void NumberOvfConv(GenTreeUnOp* node);
     void NumberOvfUnsigned(GenTreeUnOp* node);
     void NumberOvfTruncate(GenTreeUnOp* node);
-    void NumberOvfConv(GenTreeUnOp* node);
     void NumberFloatToInt(GenTreeUnOp* node);
     void NumberIntToFloat(GenTreeUnOp* node);
     void NumberBitCast(GenTreeUnOp* bitcast);
@@ -1182,31 +1182,6 @@ ValueNum ValueNumStore::VNForByrefCon(target_size_t value)
     return VnForConst<target_size_t, ByrefVNMap>(value, m_byrefVNMap, TYP_BYREF, m_currentByrefConstChunk);
 }
 
-ValueNum ValueNumStore::VNForBitCastOper(var_types castToType)
-{
-    assert(castToType != TYP_STRUCT);
-
-    uint32_t packedCastType = int32_t(castToType) << int32_t(VCA_BitCount);
-    assert((packedCastType & int32_t(VCA_ReservedBits)) == 0);
-
-    return VNForIntCon(static_cast<int32_t>(packedCastType));
-}
-
-ValueNum ValueNumStore::VNForCastOper(var_types castToType, bool castFromUnsigned)
-{
-    assert(castToType != TYP_STRUCT);
-
-    uint32_t packedCastType = static_cast<uint32_t>(castToType) << VCA_BitCount;
-    assert((packedCastType & VCA_ReservedBits) == 0);
-
-    if (castFromUnsigned)
-    {
-        packedCastType |= VCA_UnsignedSrc;
-    }
-
-    return VNForIntCon(static_cast<int32_t>(packedCastType));
-}
-
 ValueNum ValueNumStore::VNZeroForType(var_types type)
 {
     switch (type)
@@ -1368,37 +1343,13 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 
     if (CanEvalForConstantArgs(func) && IsVNConstant(arg0) && IsVNConstant(arg1))
     {
-        bool canFold = true;
-
         // It is possible for us to have mismatched types (see Bug 750863)
         // We don't try to fold a binary operation when one of the constant operands
         // is a floating-point constant and the other is not, except for casts.
         // For casts, the second operand just carries the information about the source.
 
-        bool arg0IsFloating = varTypeIsFloating(TypeOfVN(arg0));
-        bool arg1IsFloating = varTypeIsFloating(TypeOfVN(arg1));
-
-        if (arg0IsFloating != arg1IsFloating)
-        {
-            canFold = false;
-        }
-
-        if (type == TYP_BYREF)
-        {
-            // We don't want to fold expressions that produce TYP_BYREF
-            canFold = false;
-        }
-
-        bool shouldFold = canFold;
-
-        if (canFold)
-        {
-            // We can fold the expression, but we don't want to fold
-            // when the expression will always throw an exception
-            shouldFold = VNEvalShouldFold(type, func, arg0, arg1);
-        }
-
-        if (shouldFold)
+        if ((type != TYP_BYREF) && (varTypeIsFloating(TypeOfVN(arg0)) == varTypeIsFloating(TypeOfVN(arg1))) &&
+            VNEvalShouldFold(type, func, arg0, arg1))
         {
             return EvalFuncForConstantArgs(type, func, arg0, arg1);
         }
@@ -1940,7 +1891,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
             int64_t resVal = EvalOp<int64_t>(func, argVal);
             return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForLongCon(resVal);
         }
-
         case TYP_FLOAT:
         {
             float argVal = ConstantValue<float>(arg0VN);
@@ -4721,6 +4671,36 @@ bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
     }
 }
 
+bool ValueNumStore::IsIntConstant(ValueNum vn, int64_t* value) const
+{
+    assert(!HasExset(vn));
+
+    switch (GetConstantType(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            return true;
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ValueNumStore::IsInt64Constant(ValueNum vn, int64_t* value) const
+{
+    assert(!HasExset(vn));
+
+    if (GetConstantType(vn) == TYP_LONG)
+    {
+        *value = ConstantValue<int64_t>(vn);
+        return true;
+    }
+
+    return false;
+}
+
 HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
 {
     assert(IsVNHandle(vn));
@@ -5725,7 +5705,7 @@ void ValueNumStore::DumpBitCast(const VNFuncApp& cast)
     assert(cast.m_func == VNF_BitCast);
 
     uint32_t  packedCastType = static_cast<uint32_t>(GetConstantInt32(cast[1]));
-    var_types toType         = static_cast<var_types>(packedCastType >> VCA_BitCount);
+    var_types toType         = static_cast<var_types>(packedCastType >> 1);
     var_types fromType       = varActualType(TypeOfVN(cast[0]));
 
     printf("BitCast<%s, %s>(" FMT_VN ", " FMT_VN ")", varTypeName(fromType), varTypeName(toType), cast[0], cast[1]);
@@ -7008,20 +6988,20 @@ void ValueNumbering::NumberNode(GenTree* node)
             // We know nothing about the value of a caught expression.
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            NumberOvfConv(node->AsUnOp());
+            break;
+        case GT_OVF_U:
+            NumberOvfUnsigned(node->AsUnOp());
+            break;
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
             NumberOvfTruncate(node->AsUnOp());
             break;
-        case GT_OVF_U:
-            NumberOvfUnsigned(node->AsUnOp());
-            break;
         case GT_CONV:
             NumberConv(node->AsUnOp());
-            break;
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            NumberOvfConv(node->AsUnOp());
             break;
         case GT_STOF:
         case GT_UTOF:
@@ -7360,42 +7340,73 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
         // "parse" the BITCAST operand VN(Func) probably...
     }
 
-    return VNForFunc(toType, VNF_BitCast, valueVN, VNForBitCastOper(toType));
+    return VNForFunc(toType, VNF_BitCast, valueVN, VNForIntCon(static_cast<int32_t>(toType)));
 }
 
-void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
+void ValueNumbering::NumberOvfConv(GenTreeUnOp* node)
 {
-    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
-    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+    assert(node->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(node->GetType()));
+
+    var_types fromType = node->GetOp(0)->GetType();
+    var_types toType   = node->GetType();
 
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
-    vnp              = vnStore->VNPairForFunc(TYP_INT, VNOP_TRUNC, vnp);
+    VNFunc       vnf;
+    VNFunc       exc;
+    int64_t      min;
+    int64_t      max;
 
-    ValueNum castTypeVN;
-
-    switch (node->GetOper())
+    switch (node->GetType())
     {
-        case GT_OVF_TRUNC:
-            castTypeVN = vnStore->VNForCastOper(TYP_INT, true);
+        case TYP_BYTE:
+            vnf = VNF_CONVS8;
+            exc = VNF_ConvS8OverflowExc;
+            min = node->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+            max = INT8_MAX;
             break;
-        case GT_OVF_STRUNC:
-            castTypeVN = vnStore->VNForCastOper(TYP_INT, false);
+        case TYP_UBYTE:
+            vnf = VNF_CONVU8;
+            exc = VNF_ConvU8OverflowExc;
+            min = 0;
+            max = UINT8_MAX;
+            break;
+        case TYP_SHORT:
+            vnf = VNF_CONVS16;
+            exc = VNF_ConvS16OverflowExc;
+            min = node->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+            max = INT16_MAX;
             break;
         default:
-            castTypeVN = vnStore->VNForCastOper(TYP_UINT, true);
+            assert(node->TypeIs(TYP_USHORT));
+            vnf = VNF_CONVU16;
+            exc = VNF_ConvU16OverflowExc;
+            min = 0;
+            max = UINT16_MAX;
             break;
     }
 
-    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
+    int64_t value;
+
+    if (vnStore->IsIntConstant(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
+        vnp.SetLiberal(vnStore->VNForFunc(TYP_INT, vnf, vnp.GetLiberal()));
+    }
+    else
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, exc, vnp.GetLiberal());
+        vnp.SetLiberal(vnStore->VNForFunc(TYP_INT, static_cast<VNFunc>(node->GetOper()), vnp.GetLiberal()));
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (!vnStore->IsVNConstant(vnp.GetConservative()))
+    if (vnStore->IsIntConstant(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
+        vnp.SetConservative(vnStore->VNForFunc(TYP_INT, vnf, vnp.GetConservative()));
+    }
+    else
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, exc, vnp.GetConservative());
+        vnp.SetConservative(vnStore->VNForFunc(TYP_INT, static_cast<VNFunc>(node->GetOper()), vnp.GetConservative()));
         exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
     }
 
@@ -7410,139 +7421,150 @@ void ValueNumbering::NumberOvfUnsigned(GenTreeUnOp* node)
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
 
-    // TODO-MIKE-Cleanup: OVF_U doesn't change the value so there's no need to use VNOP_OVF_U.
-    // But if we keep the original value CSE has problems - the original value acts like a def
-    // and then OVF_U attempts to be an use, but fails due to OVF_U VN having extra exceptions.
-    // This also prevents OVF_U from being a def for a subsequent OVF_U so we're basically fail
-    // to CSE OVF_U(x) and instead CSE just x.
-    vnp = vnStore->VNPairForFunc(node->GetType(), VNOP_OVF_U, vnp);
+    int64_t value;
 
-    ValueNum castTypeVN = vnStore->VNForCastOper(node->GetType(), true);
-
-    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
+    if (!vnStore->IsIntConstant(vnp.GetLiberal(), &value) || (value < 0))
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
+        // TODO-MIKE-Cleanup: OVF_U doesn't change the value so there's no need to use VNOP_OVF_U.
+        // But if we keep the original value CSE has problems - the original value acts like a def
+        // and then OVF_U attempts to be an use, but fails due to OVF_U VN having extra exceptions.
+        // This also prevents OVF_U from being a def for a subsequent OVF_U so we're basically fail
+        // to CSE OVF_U(x) and instead CSE just x.
+
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_UOverflowExc, vnp.GetLiberal());
+        vnp.SetLiberal(vnStore->VNForFunc(node->GetType(), VNOP_OVF_U, vnp.GetLiberal()));
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (!vnStore->IsVNConstant(vnp.GetConservative()))
+    if (!vnStore->IsIntConstant(vnp.GetConservative(), &value) || (value < 0))
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_UOverflowExc, vnp.GetConservative());
+        vnp.SetConservative(vnStore->VNForFunc(node->GetType(), VNOP_OVF_U, vnp.GetConservative()));
         exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
     }
 
     node->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
-void ValueNumbering::NumberConv(GenTreeUnOp* cast)
+void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
     ValueNumPair exset;
-    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    VNFunc       vnf;
+    ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
 
-    switch (cast->GetType())
+    VNFunc  exc;
+    int64_t min;
+    int64_t max;
+
+    switch (node->GetOper())
     {
-        case TYP_UBYTE:
-            vnf = VNF_CONVU8;
+        case GT_OVF_TRUNC:
+            exc = VNF_TruncOverflowExc;
+            min = 0;
+            max = INT32_MAX;
             break;
-        case TYP_BYTE:
-            vnf = VNF_CONVS8;
-            break;
-        case TYP_SHORT:
-            vnf = VNF_CONVS16;
+        case GT_OVF_STRUNC:
+            exc = VNF_STruncOverflowExc;
+            min = INT32_MIN;
+            max = INT32_MAX;
             break;
         default:
-            assert(cast->TypeIs(TYP_USHORT));
-            vnf = VNF_CONVU16;
+            exc = VNF_UTruncOverflowExc;
+            min = 0;
+            max = UINT32_MAX;
             break;
     }
 
-    vnp = vnStore->VNPairForFunc(TYP_INT, vnf, vnp);
-    cast->SetVNP(vnStore->PackExset(vnp, exset));
-}
+    int64_t value;
 
-void ValueNumbering::NumberOvfConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
-
-    var_types fromType = cast->GetOp(0)->GetType();
-    var_types toType   = cast->GetType();
-
-    ValueNumPair exset;
-    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    VNFunc       vnf;
-
-    switch (cast->GetType())
+    if (vnStore->IsInt64Constant(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
     {
-        case TYP_UBYTE:
-            vnf = VNF_CONVU8;
-            break;
-        case TYP_BYTE:
-            vnf = VNF_CONVS8;
-            break;
-        case TYP_SHORT:
-            vnf = VNF_CONVS16;
-            break;
-        default:
-            assert(cast->TypeIs(TYP_USHORT));
-            vnf = VNF_CONVU16;
-            break;
+        vnp.SetLiberal(vnStore->VNForIntCon(static_cast<int32_t>(value)));
     }
-
-    vnp = vnStore->VNPairForFunc(TYP_INT, vnf, vnp);
-
-    ValueNum castTypeVN = vnStore->VNForCastOper(toType, cast->OperIs(GT_OVF_UCONV));
-
-    // Do not add exceptions for folded casts. We only fold checked casts that do not overflow.
-    if (!vnStore->IsVNConstant(vnp.GetLiberal()))
+    else
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetLiberal(), castTypeVN);
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, exc, vnp.GetLiberal());
+        vnp.SetLiberal(vnStore->VNForFunc(TYP_INT, static_cast<VNFunc>(node->GetOper()), vnp.GetLiberal()));
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (!vnStore->IsVNConstant(vnp.GetConservative()))
+    if (vnStore->IsInt64Constant(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
     {
-        ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_ConvOverflowExc, vnp.GetConservative(), castTypeVN);
+        vnp.SetConservative(vnStore->VNForIntCon(static_cast<int32_t>(value)));
+    }
+    else
+    {
+        ValueNum ex = vnStore->VNForFunc(TYP_REF, exc, vnp.GetConservative());
+        vnp.SetConservative(vnStore->VNForFunc(TYP_INT, static_cast<VNFunc>(node->GetOper()), vnp.GetConservative()));
         exset.SetConservative(vnStore->ExsetUnion(exset.GetConservative(), vnStore->ExsetCreate(ex)));
     }
 
-    cast->SetVNP(vnStore->PackExset(vnp, exset));
+    node->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
-void ValueNumbering::NumberFloatToInt(GenTreeUnOp* cast)
+void ValueNumbering::NumberConv(GenTreeUnOp* node)
 {
-    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+    assert(node->OperIs(GT_CONV) && varTypeIsSmallInt(node->GetType()));
 
     ValueNumPair exset;
-    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    VNFunc       vnf = static_cast<VNFunc>(cast->GetOper());
+    ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
+    VNFunc       vnf;
 
-    if (cast->TypeIs(TYP_LONG))
+    switch (node->GetType())
+    {
+        case TYP_UBYTE:
+            vnf = VNF_CONVU8;
+            break;
+        case TYP_BYTE:
+            vnf = VNF_CONVS8;
+            break;
+        case TYP_SHORT:
+            vnf = VNF_CONVS16;
+            break;
+        default:
+            assert(node->TypeIs(TYP_USHORT));
+            vnf = VNF_CONVU16;
+            break;
+    }
+
+    vnp = vnStore->VNPairForFunc(TYP_INT, vnf, vnp);
+    node->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberFloatToInt(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTOS, GT_FTOU) && node->TypeIs(TYP_INT, TYP_LONG));
+
+    ValueNumPair exset;
+    ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
+    VNFunc       vnf = static_cast<VNFunc>(node->GetOper());
+
+    if (node->TypeIs(TYP_LONG))
     {
         vnf = vnf == VNOP_FTOS ? VNF_FTOSL : VNF_FTOUL;
     }
 
-    vnp = vnStore->VNPairForFunc(cast->GetType(), vnf, vnp);
-    cast->SetVNP(vnStore->PackExset(vnp, exset));
+    vnp = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
+    node->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
-void ValueNumbering::NumberIntToFloat(GenTreeUnOp* cast)
+void ValueNumbering::NumberIntToFloat(GenTreeUnOp* node)
 {
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && cast->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+    assert(node->OperIs(GT_STOF, GT_UTOF) && node->TypeIs(TYP_FLOAT, TYP_DOUBLE));
 
     ValueNumPair exset;
-    ValueNumPair vnp = vnStore->UnpackExset(cast->GetOp(0)->GetVNP(), &exset);
-    VNFunc       vnf = static_cast<VNFunc>(cast->GetOper());
+    ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
+    VNFunc       vnf = static_cast<VNFunc>(node->GetOper());
 
-    if (cast->TypeIs(TYP_DOUBLE))
+    if (node->TypeIs(TYP_DOUBLE))
     {
         vnf = vnf == VNOP_STOF ? VNF_STOFD : VNF_UTOFD;
     }
 
-    vnp = vnStore->VNPairForFunc(cast->GetType(), vnf, vnp);
-    cast->SetVNP(vnStore->PackExset(vnp, exset));
+    vnp = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
+    node->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
 ValueNum ValueNumStore::VNForCast(ValueNum vn, var_types toType)
