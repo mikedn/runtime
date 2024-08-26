@@ -539,7 +539,6 @@ private:
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0);
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalFuncForConstantFPArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
-    ValueNum EvalCastForConstantArgs(var_types type, VNFunc vnf, ValueNum valVN, ValueNum typeVN);
 
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
@@ -598,12 +597,7 @@ public:
 
     ValueNum VNForBitCastOper(var_types castToType);
 
-    // Packs information about the cast into an integer constant represented by the returned value number,
-    // to be used as the second operand of VNF_CastOvf.
     ValueNum VNForCastOper(var_types castToType, bool castFromUnsigned = false);
-
-    // Unpacks the information stored by VNForCastOper in the constant represented by the value number.
-    void GetCastOperFromVN(ValueNum vn, var_types* pCastToType, bool* pSrcIsUnsigned);
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
