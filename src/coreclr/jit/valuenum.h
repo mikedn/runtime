@@ -506,7 +506,6 @@ private:
     void RecordLoopMemoryDependence(GenTree* tree, BasicBlock* block, ValueNum memoryVN);
 
     static bool IsLegalVNFuncOper(genTreeOps oper);
-    static bool VNFuncIsCommutative(VNFunc vnf);
     static bool VNFuncIsComparison(VNFunc vnf);
 
     // Returns "true" iff "vnf" can be evaluated for constant arguments.
@@ -516,6 +515,8 @@ private:
     bool VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN);
 
 public:
+    static bool VNFuncIsCommutative(VNFunc vnf);
+
     // Given an constant value number return its value.
     int GetConstantInt32(ValueNum argVN);
     int64_t GetConstantInt64(ValueNum argVN);
