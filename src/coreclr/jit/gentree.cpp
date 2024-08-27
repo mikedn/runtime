@@ -10192,52 +10192,46 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_INT;
 
                 case GT_OVF_SADD:
-                    if (CheckedOps::SAddOverflows(i1, i2))
+                    if (CheckedOps::SAdd(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 + i2;
-                    goto CNS_INT;
-
+                    goto INTEGRAL_OVF;
+                    
                 case GT_OVF_UADD:
-                    if (CheckedOps::UAddOverflows(i1, i2))
+                    if (CheckedOps::UAdd(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 + i2;
-                    goto CNS_INT;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_SSUB:
-                    if (CheckedOps::SSubOverflows(i1, i2))
+                    if (CheckedOps::SSub(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 - i2;
-                    goto CNS_INT;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_USUB:
-                    if (CheckedOps::USubOverflows(i1, i2))
+                    if (CheckedOps::USub(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 - i2;
-                    goto CNS_INT;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_SMUL:
-                    if (CheckedOps::SMulOverflows(i1, i2))
+                    if (CheckedOps::SMul(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 * i2;
-                    goto CNS_INT;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_UMUL:
-                    if (CheckedOps::UMulOverflows(i1, i2))
+                    if (CheckedOps::UMul(i1, i2, &i))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_INT;
                     }
-                    i = i1 * i2;
-                    goto CNS_INT;
+                    goto INTEGRAL_OVF;
 
                 case GT_DIV:
                 case GT_MOD:
@@ -10364,52 +10358,46 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     goto CNS_LONG;
 
                 case GT_OVF_SADD:
-                    if (CheckedOps::SAddOverflows(l1, l2))
+                    if (CheckedOps::SAdd(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 + l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_UADD:
-                    if (CheckedOps::UAddOverflows(l1, l2))
+                    if (CheckedOps::UAdd(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 + l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_SSUB:
-                    if (CheckedOps::SSubOverflows(l1, l2))
+                    if (CheckedOps::SSub(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 - l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_USUB:
-                    if (CheckedOps::USubOverflows(l1, l2))
+                    if (CheckedOps::USub(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 - l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_SMUL:
-                    if (CheckedOps::SMulOverflows(l1, l2))
+                    if (CheckedOps::SMul(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 * l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_OVF_UMUL:
-                    if (CheckedOps::UMulOverflows(l1, l2))
+                    if (CheckedOps::UMul(l1, l2, &l))
                     {
-                        goto INTEGRAL_OVF;
+                        goto CNS_LONG;
                     }
-                    l = l1 * l2;
-                    goto CNS_LONG;
+                    goto INTEGRAL_OVF;
 
                 case GT_DIV:
                 case GT_MOD:

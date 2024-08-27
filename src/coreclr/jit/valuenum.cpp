@@ -103,6 +103,7 @@ private:
     void NumberOvfConv(GenTreeUnOp* node);
     void NumberOvfUnsigned(GenTreeUnOp* node);
     void NumberOvfTruncate(GenTreeUnOp* node);
+    void NumberOvfBinOp(GenTreeOp* node);
     void NumberFloatToInt(GenTreeUnOp* node);
     void NumberIntToFloat(GenTreeUnOp* node);
     void NumberBitCast(GenTreeUnOp* bitcast);
@@ -153,7 +154,6 @@ private:
     ValueNum AddNullRefExset(ValueNum addrVN);
     ValueNumPair AddNullRefExset(ValueNumPair addrVNP);
     void AddNullRefExset(GenTree* node, GenTree* addr);
-    void AddOverflowExset(GenTreeOp* node);
     bool UsesDivideByConstOptimized(GenTreeOp* div);
 
 #ifdef DEBUG
@@ -516,43 +516,11 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
 
     switch (vnf)
     {
-        case VNOP_OVF_SADD:
-            assert(!CheckedOps::SAddOverflows(v0, v1));
-            break;
-        case VNOP_OVF_UADD:
-            assert(!CheckedOps::UAddOverflows(v0, v1));
-            break;
-        case VNOP_OVF_SSUB:
-            assert(!CheckedOps::SSubOverflows(v0, v1));
-            break;
-        case VNOP_OVF_USUB:
-            assert(!CheckedOps::USubOverflows(v0, v1));
-            break;
-        case VNOP_OVF_SMUL:
-            assert(!CheckedOps::SMulOverflows(v0, v1));
-            break;
-        case VNOP_OVF_UMUL:
-            assert(!CheckedOps::UMulOverflows(v0, v1));
-            break;
-        default:
-            break;
-    }
-
-    switch (vnf)
-    {
         case VNOP_ADD:
-        case VNOP_OVF_SADD:
-        case VNOP_OVF_UADD:
             return v0 + v1;
-
         case VNOP_SUB:
-        case VNOP_OVF_SSUB:
-        case VNOP_OVF_USUB:
             return v0 - v1;
-
         case VNOP_MUL:
-        case VNOP_OVF_SMUL:
-        case VNOP_OVF_UMUL:
             return v0 * v1;
 
         case VNOP_DIV:
@@ -2226,14 +2194,8 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNOP_BSWAP16:
         case VNOP_BSWAP:
         case VNOP_ADD:
-        case VNOP_OVF_SADD:
-        case VNOP_OVF_UADD:
         case VNOP_SUB:
-        case VNOP_OVF_SSUB:
-        case VNOP_OVF_USUB:
         case VNOP_MUL:
-        case VNOP_OVF_SMUL:
-        case VNOP_OVF_UMUL:
         case VNOP_DIV:
         case VNOP_MOD:
         case VNOP_UDIV:
@@ -2352,63 +2314,7 @@ bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN
         }
     }
 
-    // Is this a checked operation that will always throw an exception?
-    if (VNFuncIsOverflowArithmetic(func))
-    {
-        if (typ == TYP_INT)
-        {
-            int32_t op1 = ConstantValue<int32_t>(arg0VN);
-            int32_t op2 = ConstantValue<int32_t>(arg1VN);
-
-            switch (func)
-            {
-                case VNOP_OVF_SADD:
-                    return !CheckedOps::SAddOverflows(op1, op2);
-                case VNOP_OVF_UADD:
-                    return !CheckedOps::UAddOverflows(op1, op2);
-                case VNOP_OVF_SSUB:
-                    return !CheckedOps::SSubOverflows(op1, op2);
-                case VNOP_OVF_USUB:
-                    return !CheckedOps::USubOverflows(op1, op2);
-                case VNOP_OVF_SMUL:
-                    return !CheckedOps::SMulOverflows(op1, op2);
-                case VNOP_OVF_UMUL:
-                    return !CheckedOps::UMulOverflows(op1, op2);
-                default:
-                    assert(!"Unexpected checked operation in VNEvalShouldFold");
-                    return false;
-            }
-        }
-        else if (typ == TYP_LONG)
-        {
-            int64_t op1 = ConstantValue<int64_t>(arg0VN);
-            int64_t op2 = ConstantValue<int64_t>(arg1VN);
-
-            switch (func)
-            {
-                case VNOP_OVF_SADD:
-                    return !CheckedOps::SAddOverflows(op1, op2);
-                case VNOP_OVF_UADD:
-                    return !CheckedOps::UAddOverflows(op1, op2);
-                case VNOP_OVF_SSUB:
-                    return !CheckedOps::SSubOverflows(op1, op2);
-                case VNOP_OVF_USUB:
-                    return !CheckedOps::USubOverflows(op1, op2);
-                case VNOP_OVF_SMUL:
-                    return !CheckedOps::SMulOverflows(op1, op2);
-                case VNOP_OVF_UMUL:
-                    return !CheckedOps::UMulOverflows(op1, op2);
-                default:
-                    assert(!"Unexpected checked operation in VNEvalShouldFold");
-                    return false;
-            }
-        }
-        else
-        {
-            assert(!"Unexpected type in VNEvalShouldFold for overflow arithmetic");
-            return false;
-        }
-    }
+    assert(!VNFuncIsOverflowArithmetic(func));
 
     return true;
 }
@@ -2426,15 +2332,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
         ValueNum  oneVN;
         var_types argType;
 
-        case VNOP_FADD:
-        case VNOP_FSUB:
-        case VNOP_FMUL:
-        case VNOP_FDIV:
-            break;
-
         case VNOP_ADD:
-        case VNOP_OVF_SADD:
-        case VNOP_OVF_UADD:
             zeroVN = VNZeroForType(type);
 
             if (arg0VN == zeroVN)
@@ -2449,8 +2347,6 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             break;
 
         case VNOP_SUB:
-        case VNOP_OVF_SSUB:
-        case VNOP_OVF_USUB:
             zeroVN = VNZeroForType(type);
 
             if (arg1VN == zeroVN)
@@ -2465,8 +2361,6 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             break;
 
         case VNOP_MUL:
-        case VNOP_OVF_SMUL:
-        case VNOP_OVF_UMUL:
             zeroVN = VNZeroForType(type);
 
             if (arg0VN == zeroVN)
@@ -7097,6 +6991,14 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_UMOD:
             NumberDivMod(node->AsOp());
             break;
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+            NumberOvfBinOp(node->AsOp());
+            break;
         case GT_ADD:
             ValueNum addrVN;
             addrVN = AddField(node->AsOp());
@@ -7110,11 +7012,14 @@ void ValueNumbering::NumberNode(GenTree* node)
             }
             FALLTHROUGH;
         default:
+            assert(!node->IsOverflowOp());
+
             if (GenTree::OperIsUnary(oper))
             {
+                assert(!node->OperMayThrow(compiler));
+
                 VNFunc vnf = static_cast<VNFunc>(node->GetOper());
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
-                assert(!node->OperMayThrow(compiler));
 
                 ValueNumPair exset;
                 ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
@@ -7122,6 +7027,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             }
             else if (GenTree::OperIsBinary(oper))
             {
+                assert(!node->OperMayThrow(compiler));
+
                 VNFunc vnf = node->OperIsRelop() ? GetRelopVNFunc(node) : static_cast<VNFunc>(node->GetOper());
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
 
@@ -7131,15 +7038,6 @@ void ValueNumbering::NumberNode(GenTree* node)
                 ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
                 ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
                 node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-
-                if (node->IsOverflowOp())
-                {
-                    AddOverflowExset(node->AsOp());
-                }
-                else
-                {
-                    assert(!node->OperMayThrow(compiler));
-                }
             }
             else
             {
@@ -7502,6 +7400,151 @@ void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
     }
 
     node->SetVNP(vnStore->PackExset(vnp, exset));
+}
+
+void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB, GT_OVF_SMUL, GT_OVF_UMUL));
+
+    VNFunc       vnf  = static_cast<VNFunc>(node->GetOper());
+    ValueNumPair vnp1 = node->AsOp()->GetOp(0)->GetVNP();
+    ValueNumPair vnp2 = node->AsOp()->GetOp(1)->GetVNP();
+    ValueNumPair vnp;
+
+    const ValueNumKind vnKinds[]{VNK_Liberal, VNK_Conservative};
+
+    for (ValueNumKind kind : vnKinds)
+    {
+        ValueNum exset1;
+        ValueNum vn1 = vnStore->UnpackExset(vnp1.Get(kind), &exset1);
+        ValueNum exset2;
+        ValueNum vn2   = vnStore->UnpackExset(vnp2.Get(kind), &exset2);
+        ValueNum exset = vnStore->ExsetUnion(exset1, exset2);
+        ValueNum vn    = NoVN;
+
+        int64_t val1;
+        bool    isConst1 = vnStore->IsIntConstant(vn1, &val1);
+        int64_t val2;
+        bool    isConst2 = vnStore->IsIntConstant(vn2, &val2);
+
+        if (isConst1 && isConst2)
+        {
+            if (node->TypeIs(TYP_INT))
+            {
+                int32_t i1        = static_cast<int32_t>(val1);
+                int32_t i2        = static_cast<int32_t>(val2);
+                bool    overflows = true;
+                int32_t result;
+
+                switch (vnf)
+                {
+                    case VNOP_OVF_SADD:
+                        overflows = !CheckedOps::SAdd(i1, i2, &result);
+                        break;
+                    case VNOP_OVF_UADD:
+                        overflows = !CheckedOps::UAdd(i1, i2, &result);
+                        break;
+                    case VNOP_OVF_SSUB:
+                        overflows = !CheckedOps::SSub(i1, i2, &result);
+                        break;
+                    case VNOP_OVF_USUB:
+                        overflows = !CheckedOps::USub(i1, i2, &result);
+                        break;
+                    case VNOP_OVF_SMUL:
+                        overflows = !CheckedOps::SMul(i1, i2, &result);
+                        break;
+                    default:
+                        assert(vnf == VNOP_OVF_UMUL);
+                        overflows = !CheckedOps::UMul(i1, i2, &result);
+                        break;
+                }
+
+                if (!overflows)
+                {
+                    vn = vnStore->VNForIntCon(result);
+                }
+            }
+            else if (node->TypeIs(TYP_LONG))
+            {
+                bool    overflows = true;
+                int64_t result;
+
+                switch (vnf)
+                {
+                    case VNOP_OVF_SADD:
+                        overflows = !CheckedOps::SAdd(val1, val2, &result);
+                        break;
+                    case VNOP_OVF_UADD:
+                        overflows = !CheckedOps::UAdd(val1, val2, &result);
+                        break;
+                    case VNOP_OVF_SSUB:
+                        overflows = !CheckedOps::SSub(val1, val2, &result);
+                        break;
+                    case VNOP_OVF_USUB:
+                        overflows = !CheckedOps::USub(val1, val2, &result);
+                        break;
+                    case VNOP_OVF_SMUL:
+                        overflows = !CheckedOps::SMul(val1, val2, &result);
+                        break;
+                    default:
+                        assert(vnf == VNOP_OVF_UMUL);
+                        overflows = !CheckedOps::UMul(val1, val2, &result);
+                        break;
+                }
+
+                if (!overflows)
+                {
+                    vn = vnStore->VNForLongCon(result);
+                }
+            }
+        }
+        else
+        {
+            if (isConst1 && !isConst2 && ValueNumStore::VNFuncIsCommutative(vnf))
+            {
+                isConst2 = true;
+                val2     = val1;
+                vn1      = vn2;
+            }
+
+            if (isConst2)
+            {
+                switch (vnf)
+                {
+                    case VNOP_OVF_SADD:
+                    case VNOP_OVF_UADD:
+                    case VNOP_OVF_SSUB:
+                    case VNOP_OVF_USUB:
+                        if (val2 == 0)
+                        {
+                            vn = vn1;
+                        }
+                        break;
+                    default:
+                        assert((vnf == VNOP_OVF_SMUL) || (vnf == VNOP_OVF_UMUL));
+                        if (val2 == 1)
+                        {
+                            vn = vn1;
+                        }
+                        else if (val2 == 0)
+                        {
+                            vn = vnStore->VNZeroForType(node->GetType());
+                        }
+                        break;
+                }
+            }
+        }
+
+        if (vn == NoVN)
+        {
+            vn    = vnStore->VNForFunc(node->GetType(), vnf, vn1, vn2);
+            exset = vnStore->ExsetUnion(exset, vnStore->ExsetCreate(vnStore->VNForFunc(TYP_REF, VNF_OverflowExc, vn)));
+        }
+
+        vnp.Set(kind, vnStore->PackExset(vn, exset));
+    }
+
+    node->SetVNP(vnp);
 }
 
 void ValueNumbering::NumberConv(GenTreeUnOp* node)
@@ -8333,48 +8376,6 @@ bool ValueNumbering::UsesDivideByConstOptimized(GenTreeOp* div)
     }
 
     return (divisor >= 3) || !div->OperIs(GT_DIV, GT_MOD);
-}
-
-void ValueNumbering::AddOverflowExset(GenTreeOp* node)
-{
-    assert(node->IsOverflowOp());
-
-    VNFunc vnf = static_cast<VNFunc>(node->GetOper());
-    assert(ValueNumStore::VNFuncIsOverflowArithmetic(vnf));
-
-    ValueNumPair vnp = node->GetVNP();
-
-    const ValueNumKind vnKinds[]{VNK_Liberal, VNK_Conservative};
-    for (ValueNumKind kind : vnKinds)
-    {
-        ValueNum exset;
-        ValueNum vn = vnStore->UnpackExset(vnp.Get(kind), &exset);
-
-        // Don't add exceptions if the normal VN represents a constant.
-        // We only fold to constant VNs for operations that provably cannot overflow.
-        if (vnStore->IsVNConstant(vn))
-        {
-            continue;
-        }
-
-        // Don't add exceptions if the tree's normal VN has been derived from an identity.
-        // This takes care of x + 0 == x, 0 + x == x, x - 0 == x, x * 1 == x, 1 * x == x.
-        // The x - x == 0 and x * 0 == 0, 0 * x == 0 cases are handled by the "IsVNConstant" check above.
-        if ((vnStore->ExtractValue(node->GetOp(0)->GetVN(kind)) == vn) ||
-            (vnStore->ExtractValue(node->GetOp(1)->GetVN(kind))) == vn)
-        {
-            continue;
-        }
-
-        // The normal value number function should now be the same overflow checking ALU operation as 'vnf'.
-        INDEBUG(VNFuncApp funcApp);
-        assert(vnStore->GetVNFunc(vn, &funcApp) == vnf);
-
-        ValueNum overflowExset = vnStore->ExsetCreate(vnStore->VNForFunc(TYP_REF, VNF_OverflowExc, vn));
-        vnp.Set(kind, vnStore->PackExset(vn, vnStore->ExsetUnion(exset, overflowExset)));
-    }
-
-    node->SetVNP(vnp);
 }
 
 void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
