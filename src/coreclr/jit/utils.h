@@ -618,30 +618,17 @@ unsigned CountDigits(float num, unsigned base = 10);
 
 #endif // DEBUG
 
-/*****************************************************************************
-* Floating point utility class
-*/
-class FloatingPointUtils
+struct FloatingPointUtils
 {
-public:
-    static double convertUInt64ToDouble(unsigned __int64 u64);
-
-    static float convertUInt64ToFloat(unsigned __int64 u64);
-
-    static unsigned __int64 convertDoubleToUInt64(double d);
-
+    static double convertUInt64ToDouble(uint64_t u64);
+    static float convertUInt64ToFloat(uint64_t u64);
+    static uint64_t convertDoubleToUInt64(double d);
     static double round(double x);
-
     static float round(float x);
-
     static bool isNormal(double x);
-
     static bool isNormal(float x);
-
     static bool hasPreciseReciprocal(double x);
-
     static bool hasPreciseReciprocal(float x);
-
     static float infinite_float();
 };
 
@@ -687,7 +674,7 @@ private:
     CritSecObject& operator=(const CritSecObject&) = delete;
 };
 
-// Stack-based holder for a critial section lock.
+// Stack-based holder for a critical section lock.
 // Ensures lock is released.
 
 class CritSecHolder
@@ -710,6 +697,8 @@ private:
     CritSecHolder& operator=(const CritSecHolder&) = delete;
 };
 
+double CachedCyclesPerSecond();
+
 namespace MagicDivide
 {
 uint32_t GetUnsigned32Magic(uint32_t d, bool* increment /*out*/, int* preShift /*out*/, int* postShift /*out*/);
@@ -723,11 +712,12 @@ int64_t GetSigned64Magic(int64_t d, int* shift /*out*/);
 #endif
 }
 
-//
-// Profiling helpers
-//
-
-double CachedCyclesPerSecond();
+// Enforce float narrowing for buggy compilers (notably preWhidbey VC)
+inline float forceCastToFloat(double d)
+{
+    Volatile<float> f = static_cast<float>(d);
+    return f;
+}
 
 namespace CheckedOps
 {
@@ -828,10 +818,19 @@ bool UMul(T x, T y, T* result)
     return !(ClrSafeInt<UT>(static_cast<UT>(x)) * ClrSafeInt<UT>(static_cast<UT>(y))).IsOverflow();
 }
 
-bool CastFromIntOverflows(int32_t fromValue, var_types toType, bool fromUnsigned);
-bool CastFromLongOverflows(int64_t fromValue, var_types toType, bool fromUnsigned);
-bool CastFromFloatOverflows(float fromValue, var_types toType);
-bool CastFromDoubleOverflows(double fromValue, var_types toType);
+bool SConv32(int32_t fromValue, var_types toType, int32_t* result);
+bool UConv32(int32_t fromValue, var_types toType, int32_t* result);
+bool SConv64(int64_t fromValue, var_types toType, int32_t* result);
+bool UConv64(int64_t fromValue, var_types toType, int32_t* result);
+
+bool F32ToS32(double value, int32_t* result);
+bool F32ToS64(double value, int64_t* result);
+bool F32ToU32(double value, int32_t* result);
+bool F32ToU64(double value, int64_t* result);
+bool F64ToS32(double value, int32_t* result);
+bool F64ToS64(double value, int64_t* result);
+bool F64ToU32(double value, int32_t* result);
+bool F64ToU64(double value, int64_t* result);
 }
 
 // Windows x86 and Windows ARM/ARM64 may not define _isnanf() but they do define _isnan().

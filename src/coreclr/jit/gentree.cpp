@@ -9687,24 +9687,18 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         break;
 
                     case GT_OVF_SCONV:
-                        assert(varTypeIsSmall(tree->GetType()));
-
-                        if (CheckedOps::CastFromIntOverflows(i1, tree->GetType(), false))
+                        if (CheckedOps::SConv32(i1, tree->GetType(), &i))
                         {
-                            goto INTEGRAL_OVF;
+                            goto CNS_INT;
                         }
-                        i = i1;
-                        goto CNS_INT;
+                        goto INTEGRAL_OVF;
 
                     case GT_OVF_UCONV:
-                        assert(varTypeIsSmall(tree->GetType()));
-
-                        if (CheckedOps::CastFromIntOverflows(i1, tree->GetType(), true))
+                        if (CheckedOps::UConv32(i1, tree->GetType(), &i))
                         {
-                            goto INTEGRAL_OVF;
+                            goto CNS_INT;
                         }
-                        i = i1;
-                        goto CNS_INT;
+                        goto INTEGRAL_OVF;
 
                     case GT_OVF_U:
                         assert(tree->TypeIs(TYP_INT));
@@ -9819,26 +9813,18 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         break;
 
                     case GT_OVF_SCONV:
-                        assert(varTypeIsSmall(tree->GetType()));
-
-                        if (CheckedOps::CastFromLongOverflows(l1, tree->GetType(), false))
+                        if (CheckedOps::SConv64(l1, tree->GetType(), &i))
                         {
-                            goto INTEGRAL_OVF;
+                            goto CNS_INT;
                         }
-
-                        i = static_cast<int32_t>(l1);
-                        goto CNS_INT;
+                        goto INTEGRAL_OVF;
 
                     case GT_OVF_UCONV:
-                        assert(varTypeIsSmall(tree->GetType()));
-
-                        if (CheckedOps::CastFromLongOverflows(l1, tree->GetType(), true))
+                        if (CheckedOps::UConv64(l1, tree->GetType(), &i))
                         {
-                            goto INTEGRAL_OVF;
+                            goto CNS_INT;
                         }
-
-                        i = static_cast<int32_t>(l1);
-                        goto CNS_INT;
+                        goto INTEGRAL_OVF;
 
                     case GT_OVF_TRUNC:
                         assert(tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_LONG));
@@ -9960,56 +9946,52 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                     case GT_OVF_FTOS:
                     case GT_FTOS:
-                        if (op1->TypeIs(TYP_FLOAT)
-                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1), tree->GetType())
-                                : CheckedOps::CastFromDoubleOverflows(d1, tree->GetType()))
-                        {
-                            // The conversion overflows. The ECMA spec says, in III 3.27, that
-                            // "...if overflow occurs converting a floating point type to an integer, ...,
-                            // the value returned is unspecified." However, it would at least be
-                            // desirable to have the same value returned for casting an overflowing
-                            // constant to an int as would be obtained by passing that constant as
-                            // a parameter and then casting that parameter to an int type.
-
-                            // Don't fold overflowing conversions, as the value returned by
-                            // JIT's codegen doesn't always match with the C compiler's cast result.
-                            // We want the behavior to be the same with or without folding.
-
-                            break;
-                        }
+                        // The ECMA spec says, in III 3.27, that "...if overflow occurs converting a floating point
+                        // type to an integer, ..., the value returned is unspecified."
+                        // However, it would at least be desirable to have the same value returned for casting an
+                        // overflowing constant to an int as would be obtained by passing that constant as a
+                        // parameter and then casting that parameter to an int type.
+                        // Don't fold overflowing conversions, as the value returned by
+                        // JIT's codegen doesn't always match with the C compiler's cast result.
+                        // We want the behavior to be the same with or without folding.
 
                         if (tree->TypeIs(TYP_INT))
                         {
-                            i = static_cast<int32_t>(d1);
-                            goto CNS_INT;
+                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToS32(d1, &i) : CheckedOps::F64ToS32(d1, &i))
+                            {
+                                goto CNS_INT;
+                            }
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_LONG));
-                            l = static_cast<int64_t>(d1);
-                            goto CNS_LONG;
-                        }
 
+                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToS64(d1, &l) : CheckedOps::F64ToS64(d1, &l))
+                            {
+                                goto CNS_LONG;
+                            }
+                        }
+                        break;
+
+                    case GT_OVF_FTOU:
                     case GT_FTOU:
-                        if (op1->TypeIs(TYP_FLOAT)
-                                ? CheckedOps::CastFromFloatOverflows(forceCastToFloat(d1),
-                                                                     varTypeToUnsigned(tree->GetType()))
-                                : CheckedOps::CastFromDoubleOverflows(d1, varTypeToUnsigned(tree->GetType())))
-                        {
-                            break;
-                        }
-
                         if (tree->TypeIs(TYP_INT))
                         {
-                            i = forceCastToUInt32(d1);
-                            goto CNS_INT;
+                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToU32(d1, &i) : CheckedOps::F64ToU32(d1, &i))
+                            {
+                                goto CNS_INT;
+                            }
                         }
                         else
                         {
                             assert(tree->TypeIs(TYP_LONG));
-                            l = FloatingPointUtils::convertDoubleToUInt64(d1);
-                            goto CNS_LONG;
+
+                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToU64(d1, &l) : CheckedOps::F64ToU64(d1, &l))
+                            {
+                                goto CNS_LONG;
+                            }
                         }
+                        break;
 
                     default:
                         break;
@@ -10197,7 +10179,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         goto CNS_INT;
                     }
                     goto INTEGRAL_OVF;
-                    
+
                 case GT_OVF_UADD:
                     if (CheckedOps::UAdd(i1, i2, &i))
                     {
