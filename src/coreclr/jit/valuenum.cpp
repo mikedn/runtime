@@ -1309,18 +1309,10 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
     }
 
-    if (CanEvalForConstantArgs(func) && IsVNConstant(arg0) && IsVNConstant(arg1))
+    if ((type != TYP_BYREF) && CanEvalForConstantArgs(func) && IsVNConstant(arg0) && IsVNConstant(arg1) &&
+        VNEvalShouldFold(type, func, arg0, arg1))
     {
-        // It is possible for us to have mismatched types (see Bug 750863)
-        // We don't try to fold a binary operation when one of the constant operands
-        // is a floating-point constant and the other is not, except for casts.
-        // For casts, the second operand just carries the information about the source.
-
-        if ((type != TYP_BYREF) && (varTypeIsFloating(TypeOfVN(arg0)) == varTypeIsFloating(TypeOfVN(arg1))) &&
-            VNEvalShouldFold(type, func, arg0, arg1))
-        {
-            return EvalFuncForConstantArgs(type, func, arg0, arg1);
-        }
+        return EvalFuncForConstantArgs(type, func, arg0, arg1);
     }
 
     // We canonicalize commutative operations.
@@ -2245,76 +2237,43 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
     }
 }
 
-//----------------------------------------------------------------------------------------
-//  VNEvalShouldFold - Returns true if we should perform the folding operation.
-//                     It returns false if we don't want to fold the expression,
-//                     because it will always throw an exception.
-//
-// Arguments:
-//    typ            - The type of the resulting ValueNum produced by 'func'
-//    func           - Any binary VNFunc
-//    arg0VN         - The ValueNum of the first argument to 'func'
-//    arg1VN         - The ValueNum of the second argument to 'func'
-//
-// Return Value:     - Returns true if we should perform a folding operation.
-//
-// Notes:            - Does not handle operations producing TYP_BYREF.
-//
-bool ValueNumStore::VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
+bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1) const
 {
-    assert(typ != TYP_BYREF);
+    assert(type != TYP_BYREF);
+    assert(!VNFuncIsOverflowArithmetic(func));
+    assert(IsVNConstant(arg0));
+    assert(IsVNConstant(arg1));
 
-    // We have some arithmetic operations that will always throw
-    // an exception given particular constant argument(s).
-    // (i.e. integer division by zero)
-    //
-    // We will avoid performing any constant folding on them
-    // since they won't actually produce any result.
-    // Instead they always will throw an exception.
+    var_types type0 = TypeOfVN(arg0);
+    var_types type1 = TypeOfVN(arg1);
 
-    // Floating point operations do not throw exceptions.
-    if (varTypeIsFloating(typ))
+    // It is possible for us to have mismatched types (see Bug 750863)
+    // We don't try to fold a binary operation when one of the constant operands
+    // is a floating-point constant and the other is not.
+
+    if (varTypeIsFloating(type0) != varTypeIsFloating(type1))
     {
-        return true;
+        return false;
     }
 
-    genTreeOps oper = genTreeOps(func);
-    // Is this an integer divide/modulo that will always throw an exception?
-    if (GenTree::StaticOperIs(oper, GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+    if ((func == VNOP_DIV) || (func == VNOP_MOD) || (func == VNOP_UDIV) || (func == VNOP_UMOD))
     {
-        if (!((typ == TYP_INT) || (typ == TYP_LONG)))
-        {
-            assert(!"Unexpected type in VNEvalShouldFold for integer division/modulus");
-            return false;
-        }
-        // Just in case we have mismatched types.
-        if ((TypeOfVN(arg0VN) != typ) || (TypeOfVN(arg1VN) != typ))
-        {
-            return false;
-        }
+        assert((type == TYP_INT) || (type == TYP_LONG));
+        assert((type == type0) && (type == type1));
 
-        int64_t divisor = CoercedConstantValue<int64_t>(arg1VN);
+        int64_t divisor = CoercedConstantValue<int64_t>(arg1);
 
         if (divisor == 0)
         {
-            // Don't fold, we have a divide by zero.
             return false;
         }
-        else if ((oper == GT_DIV || oper == GT_MOD) && (divisor == -1))
-        {
-            // Don't fold if we have a division of INT32_MIN or INT64_MIN by -1.
-            // Note that while INT_MIN % -1 is mathematically well-defined (and equal to 0),
-            // we still give up on folding it because the "idiv" instruction is used to compute it on x64.
-            // And "idiv" raises an exception on such inputs.
-            int64_t dividend    = CoercedConstantValue<int64_t>(arg0VN);
-            int64_t badDividend = typ == TYP_INT ? INT32_MIN : INT64_MIN;
 
-            // Only fold if our dividend is good.
-            return dividend != badDividend;
+        if ((func == VNOP_DIV || func == VNOP_MOD) && (divisor == -1) &&
+            (CoercedConstantValue<int64_t>(arg0) == (type == TYP_INT ? INT32_MIN : INT64_MIN)))
+        {
+            return false;
         }
     }
-
-    assert(!VNFuncIsOverflowArithmetic(func));
 
     return true;
 }

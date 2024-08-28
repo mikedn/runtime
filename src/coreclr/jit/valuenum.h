@@ -512,7 +512,7 @@ private:
     static bool CanEvalForConstantArgs(VNFunc vnf);
 
     // Returns "true" iff "vnf" should be folded by evaluating the func with constant arguments.
-    bool VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN);
+    bool VNEvalShouldFold(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN) const;
 
 public:
     static bool VNFuncIsCommutative(VNFunc vnf);
