@@ -1578,13 +1578,13 @@ unsigned CountDigits(float num, unsigned base /* = 10 */)
 
 #endif // DEBUG
 
-double FloatingPointUtils::convertUInt64ToDouble(unsigned __int64 uIntVal)
+double FloatingPointUtils::convertUInt64ToDouble(uint64_t u64)
 {
-    __int64 s64 = uIntVal;
-    double  d;
+    int64_t s64 = static_cast<int64_t>(u64);
+
     if (s64 < 0)
     {
-#if defined(TARGET_XARCH)
+#ifdef TARGET_XARCH
         // RyuJIT codegen and clang (or gcc) may produce different results for casting uint64 to
         // double, and the clang result is more accurate. For example,
         //    1) (double)0x84595161401484A0UL --> 43e08b2a2c280290  (RyuJIT codegen or VC++)
@@ -1596,47 +1596,46 @@ double FloatingPointUtils::convertUInt64ToDouble(unsigned __int64 uIntVal)
         // result is always consistent.
 
         // d = (double)(int64_t)uint64 + 0x1p64
-        uint64_t adjHex = 0x43F0000000000000UL;
-        d               = (double)s64 + *(double*)&adjHex;
+        return static_cast<double>(s64) + jitstd::bit_cast<double>(0x43F0000000000000ULL);
 #else
-        d = (double)uIntVal;
+        return static_cast<double>(u64);
 #endif
     }
     else
     {
-        d = (double)uIntVal;
+        return static_cast<double>(u64);
     }
-    return d;
 }
 
-float FloatingPointUtils::convertUInt64ToFloat(unsigned __int64 u64)
+float FloatingPointUtils::convertUInt64ToFloat(uint64_t u64)
 {
     double d = convertUInt64ToDouble(u64);
-    return (float)d;
+    return static_cast<float>(d);
 }
 
-unsigned __int64 FloatingPointUtils::convertDoubleToUInt64(double d)
+uint64_t FloatingPointUtils::convertDoubleToUInt64(double d)
 {
-    unsigned __int64 u64;
+    uint64_t u64;
+
     if (d >= 0.0)
     {
         // Work around a C++ issue where it doesn't properly convert large positive doubles
         const double two63 = 2147483648.0 * 4294967296.0;
+
         if (d < two63)
         {
-            u64 = UINT64(d);
+            u64 = static_cast<uint64_t>(d);
         }
         else
         {
             // subtract 0x8000000000000000, do the convert then add it back again
-            u64 = INT64(d - two63) + I64(0x8000000000000000);
+            u64 = static_cast<int64_t>(d - two63) + 0x8000000000000000LL;
         }
         return u64;
     }
 
 #ifdef TARGET_XARCH
-
-    // While the Ecma spec does not specifically call this out,
+    // While the ECMA spec does not specifically call this out,
     // the case of conversion from negative double to unsigned integer is
     // effectively an overflow and therefore the result is unspecified.
     // With MSVC for x86/x64, such a conversion results in the bit-equivalent
@@ -1645,10 +1644,10 @@ unsigned __int64 FloatingPointUtils::convertDoubleToUInt64(double d)
     // To make the behavior consistent across OS's on TARGET_XARCH,
     // this double cast is needed to conform MSVC behavior.
 
-    u64 = UINT64(INT64(d));
+    u64 = static_cast<uint64_t>(static_cast<int64_t>(d));
 #else
-    u64   = UINT64(d);
-#endif // TARGET_XARCH
+    u64 = static_cast<uint64_t>(d);
+#endif
 
     return u64;
 }
@@ -2254,57 +2253,77 @@ int64_t GetSigned64Magic(int64_t d, int* shift /*out*/)
 
 namespace CheckedOps
 {
-bool CastFromIntOverflows(int32_t fromValue, var_types toType, bool fromUnsigned)
+bool SConv32(int32_t value, var_types type, int32_t* result)
 {
-    switch (toType)
+    *result = value;
+
+    switch (type)
     {
         case TYP_BYTE:
-            return ((int8_t)fromValue != fromValue) || (fromUnsigned && fromValue < 0);
-        case TYP_BOOL:
+            return INT8_MIN <= value && value <= INT8_MAX;
         case TYP_UBYTE:
-            return (uint8_t)fromValue != fromValue;
+            return 0 <= value && value <= UINT8_MAX;
         case TYP_SHORT:
-            return ((int16_t)fromValue != fromValue) || (fromUnsigned && fromValue < 0);
+            return INT16_MIN <= value && value <= INT16_MAX;
         case TYP_USHORT:
-            return (uint16_t)fromValue != fromValue;
-        case TYP_INT:
-            return fromUnsigned && (fromValue < 0);
-        case TYP_UINT:
-        case TYP_ULONG:
-            return !fromUnsigned && (fromValue < 0);
-        case TYP_LONG:
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return false;
+            return 0 <= value && value <= UINT16_MAX;
         default:
             unreached();
     }
 }
 
-bool CastFromLongOverflows(int64_t fromValue, var_types toType, bool fromUnsigned)
+bool UConv32(int32_t value, var_types type, int32_t* result)
 {
-    switch (toType)
+    *result = value;
+
+    switch (type)
     {
         case TYP_BYTE:
-            return ((int8_t)fromValue != fromValue) || (fromUnsigned && fromValue < 0);
-        case TYP_BOOL:
+            return 0 <= value && value <= INT8_MAX;
         case TYP_UBYTE:
-            return (uint8_t)fromValue != fromValue;
+            return 0 <= value && value <= UINT8_MAX;
         case TYP_SHORT:
-            return ((int16_t)fromValue != fromValue) || (fromUnsigned && fromValue < 0);
+            return 0 <= value && value <= INT16_MAX;
         case TYP_USHORT:
-            return (uint16_t)fromValue != fromValue;
-        case TYP_INT:
-            return ((int32_t)fromValue != fromValue) || (fromUnsigned && fromValue < 0);
-        case TYP_UINT:
-            return (uint32_t)fromValue != fromValue;
-        case TYP_LONG:
-            return fromUnsigned && (fromValue < 0);
-        case TYP_ULONG:
-            return !fromUnsigned && (fromValue < 0);
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return false;
+            return 0 <= value && value <= UINT16_MAX;
+        default:
+            unreached();
+    }
+}
+
+bool SConv64(int64_t value, var_types type, int32_t* result)
+{
+    *result = static_cast<int32_t>(value);
+
+    switch (type)
+    {
+        case TYP_BYTE:
+            return INT8_MIN <= value && value <= INT8_MAX;
+        case TYP_UBYTE:
+            return 0 <= value && value <= UINT8_MAX;
+        case TYP_SHORT:
+            return INT16_MIN <= value && value <= INT16_MAX;
+        case TYP_USHORT:
+            return 0 <= value && value <= UINT16_MAX;
+        default:
+            unreached();
+    }
+}
+
+bool UConv64(int64_t value, var_types type, int32_t* result)
+{
+    *result = static_cast<int32_t>(value);
+
+    switch (type)
+    {
+        case TYP_BYTE:
+            return 0 <= value && value <= INT8_MAX;
+        case TYP_UBYTE:
+            return 0 <= value && value <= UINT8_MAX;
+        case TYP_SHORT:
+            return 0 <= value && value <= INT16_MAX;
+        case TYP_USHORT:
+            return 0 <= value && value <= UINT16_MAX;
         default:
             unreached();
     }
@@ -2316,9 +2335,9 @@ bool CastFromLongOverflows(int64_t fromValue, var_types toType, bool fromUnsigne
 // |________________________________________________|
 //
 // The code below uses the following pattern to determine if an overflow would
-// occur when casting from a floating point type to an integer type:
+// not occur when casting from a floating point type to an integer type:
 //
-//     return !(MIN <= fromValue && fromValue <= MAX);
+//     MIN <= fromValue && fromValue <= MAX
 //
 // This section will provide some background on how MIN and MAX were derived
 // and why they are in fact the values to use in that comparison.
@@ -2399,61 +2418,62 @@ bool CastFromLongOverflows(int64_t fromValue, var_types toType, bool fromUnsigne
 //
 // Note: casts from floating point to floating point never overflow.
 
-bool CastFromFloatOverflows(float fromValue, var_types toType)
+// Enforce UInt32 narrowing for buggy compilers (notably Whidbey Beta 2 LKG)
+static uint32_t forceCastToUInt32(double d)
 {
-    switch (toType)
-    {
-        case TYP_BYTE:
-            return !(-129.0f < fromValue && fromValue < 128.0f);
-        case TYP_BOOL:
-        case TYP_UBYTE:
-            return !(-1.0f < fromValue && fromValue < 256.0f);
-        case TYP_SHORT:
-            return !(-32769.0f < fromValue && fromValue < 32768.0f);
-        case TYP_USHORT:
-            return !(-1.0f < fromValue && fromValue < 65536.0f);
-        case TYP_INT:
-            return !(-2147483648.0f <= fromValue && fromValue < 2147483648.0f);
-        case TYP_UINT:
-            return !(-1.0 < fromValue && fromValue < 4294967296.0f);
-        case TYP_LONG:
-            return !(-9223372036854775808.0 <= fromValue && fromValue < 9223372036854775808.0f);
-        case TYP_ULONG:
-            return !(-1.0f < fromValue && fromValue < 18446744073709551616.0f);
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return false;
-        default:
-            unreached();
-    }
+    Volatile<uint32_t> u = static_cast<uint32_t>(d);
+    return u;
 }
 
-bool CastFromDoubleOverflows(double fromValue, var_types toType)
+bool F32ToS32(double value, int32_t* result)
 {
-    switch (toType)
-    {
-        case TYP_BYTE:
-            return !(-129.0 < fromValue && fromValue < 128.0);
-        case TYP_BOOL:
-        case TYP_UBYTE:
-            return !(-1.0 < fromValue && fromValue < 256.0);
-        case TYP_SHORT:
-            return !(-32769.0 < fromValue && fromValue < 32768.0);
-        case TYP_USHORT:
-            return !(-1.0 < fromValue && fromValue < 65536.0);
-        case TYP_INT:
-            return !(-2147483649.0 < fromValue && fromValue < 2147483648.0);
-        case TYP_UINT:
-            return !(-1.0 < fromValue && fromValue < 4294967296.0);
-        case TYP_LONG:
-            return !(-9223372036854775808.0 <= fromValue && fromValue < 9223372036854775808.0);
-        case TYP_ULONG:
-            return !(-1.0 < fromValue && fromValue < 18446744073709551616.0);
-        case TYP_FLOAT:
-        case TYP_DOUBLE:
-            return false;
-        default:
-            unreached();
-    }
+    *result = static_cast<int32_t>(value);
+    float f = forceCastToFloat(value);
+    return -2147483648.0f <= f && f < 2147483648.0f;
+}
+
+bool F32ToS64(double value, int64_t* result)
+{
+    *result = static_cast<int64_t>(value);
+    float f = forceCastToFloat(value);
+    return -9223372036854775808.0f <= f && f < 9223372036854775808.0f;
+}
+
+bool F32ToU32(double value, int32_t* result)
+{
+    *result = static_cast<uint32_t>(forceCastToUInt32(value));
+    float f = forceCastToFloat(value);
+    return -1.0f < f && f < 4294967296.0f;
+}
+
+bool F32ToU64(double value, int64_t* result)
+{
+    float f = forceCastToFloat(value);
+    *result = static_cast<int64_t>(FloatingPointUtils::convertDoubleToUInt64(value));
+    return -1.0f < f && f < 18446744073709551616.0f;
+}
+
+bool F64ToS32(double value, int32_t* result)
+{
+    *result = static_cast<int32_t>(value);
+    return -2147483649.0 < value && value < 2147483648.0;
+}
+
+bool F64ToS64(double value, int64_t* result)
+{
+    *result = static_cast<int64_t>(value);
+    return -9223372036854775808.0 <= value && value < 9223372036854775808.0;
+}
+
+bool F64ToU32(double value, int32_t* result)
+{
+    *result = static_cast<uint32_t>(forceCastToUInt32(value));
+    return -1.0 < value && value < 4294967296.0;
+}
+
+bool F64ToU64(double value, int64_t* result)
+{
+    *result = static_cast<int64_t>(FloatingPointUtils::convertDoubleToUInt64(value));
+    return -1.0 < value && value < 18446744073709551616.0;
 }
 }
