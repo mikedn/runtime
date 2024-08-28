@@ -459,52 +459,6 @@ bool IsOverflowIntDiv(int64_t v0, int64_t v1)
 #endif
 
 template <typename T>
-static T EvalOp(VNFunc vnf, T v0)
-{
-    static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
-
-    switch (vnf)
-    {
-        case VNOP_NEG:
-            return -v0;
-        case VNOP_NOT:
-            return ~v0;
-        case VNOP_BSWAP16:
-            return static_cast<T>(jitstd::byteswap(static_cast<uint16_t>(v0)));
-        case VNOP_BSWAP:
-            return jitstd::byteswap(v0);
-        default:
-            unreached();
-    }
-}
-
-template <typename T, typename Traits>
-static T EvalFloatOp(VNFunc vnf, T v0)
-{
-    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
-
-    switch (vnf)
-    {
-        case VNOP_FNEG:
-            return -v0;
-        default:
-            unreached();
-    }
-}
-
-template <>
-float EvalOp<float>(VNFunc vnf, float v0)
-{
-    return EvalFloatOp<float, FloatTraits>(vnf, v0);
-}
-
-template <>
-double EvalOp<double>(VNFunc vnf, double v0)
-{
-    return EvalFloatOp<double, DoubleTraits>(vnf, v0);
-}
-
-template <typename T>
 static T EvalOp(VNFunc vnf, T v0, T v1)
 {
     // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
@@ -1761,7 +1715,7 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     }
 }
 
-ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN)
+ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN)
 {
     assert(CanEvalForConstantArgs(func));
     assert(IsVNConstant(arg0VN));
@@ -1775,41 +1729,50 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
             switch (func)
             {
                 case VNOP_SXT:
-                    assert(typ == TYP_LONG);
+                    assert(type == TYP_LONG);
                     return VNForLongCon(static_cast<int64_t>(argVal));
                 case VNOP_UXT:
-                    assert(typ == TYP_LONG);
+                    assert(type == TYP_LONG);
                     return VNForLongCon(static_cast<int64_t>(static_cast<uint32_t>(argVal)));
                 case VNF_CONVS8:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<int8_t>(argVal));
                 case VNF_CONVU8:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<uint8_t>(argVal));
                 case VNF_CONVS16:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<int16_t>(argVal));
                 case VNF_CONVU16:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<uint16_t>(argVal));
                 case VNOP_STOF:
-                    assert(typ == TYP_FLOAT);
+                    assert(type == TYP_FLOAT);
                     return VNForFloatCon(static_cast<float>(argVal));
                 case VNOP_UTOF:
-                    assert(typ == TYP_FLOAT);
+                    assert(type == TYP_FLOAT);
                     return VNForFloatCon(static_cast<float>(static_cast<uint32_t>(argVal)));
                 case VNF_STOFD:
-                    assert(typ == TYP_DOUBLE);
+                    assert(type == TYP_DOUBLE);
                     return VNForDoubleCon(static_cast<double>(argVal));
                 case VNF_UTOFD:
-                    assert(typ == TYP_DOUBLE);
+                    assert(type == TYP_DOUBLE);
                     return VNForDoubleCon(static_cast<double>(static_cast<uint32_t>(argVal)));
+                case VNOP_NEG:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(-argVal);
+                case VNOP_NOT:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(~argVal);
+                case VNOP_BSWAP16:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(static_cast<int32_t>(jitstd::byteswap(static_cast<uint16_t>(argVal))));
+                case VNOP_BSWAP:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(jitstd::byteswap(argVal));
                 default:
-                    break;
+                    unreached();
             }
-
-            int32_t resVal = EvalOp<int32_t>(func, argVal);
-            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForIntCon(resVal);
         }
         case TYP_LONG:
         {
@@ -1818,38 +1781,44 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
             switch (func)
             {
                 case VNOP_TRUNC:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<int32_t>(argVal));
                 case VNF_CONVS8:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<int8_t>(argVal));
                 case VNF_CONVU8:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<uint8_t>(argVal));
                 case VNF_CONVS16:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<int16_t>(argVal));
                 case VNF_CONVU16:
-                    assert(typ == TYP_INT);
+                    assert(type == TYP_INT);
                     return VNForIntCon(static_cast<uint16_t>(argVal));
                 case VNOP_STOF:
-                    assert(typ == TYP_FLOAT);
+                    assert(type == TYP_FLOAT);
                     return VNForFloatCon(static_cast<float>(argVal));
                 case VNOP_UTOF:
-                    assert(typ == TYP_FLOAT);
+                    assert(type == TYP_FLOAT);
                     return VNForFloatCon(FloatingPointUtils::convertUInt64ToFloat(argVal));
                 case VNF_STOFD:
-                    assert(typ == TYP_DOUBLE);
+                    assert(type == TYP_DOUBLE);
                     return VNForDoubleCon(static_cast<double>(argVal));
                 case VNF_UTOFD:
-                    assert(typ == TYP_DOUBLE);
+                    assert(type == TYP_DOUBLE);
                     return VNForDoubleCon(FloatingPointUtils::convertUInt64ToDouble(argVal));
+                case VNOP_NEG:
+                    assert(type == TYP_LONG);
+                    return VNForLongCon(-argVal);
+                case VNOP_NOT:
+                    assert(type == TYP_LONG);
+                    return VNForLongCon(~argVal);
+                case VNOP_BSWAP:
+                    assert(type == TYP_LONG);
+                    return VNForLongCon(jitstd::byteswap(argVal));
                 default:
-                    break;
+                    unreached();
             }
-
-            int64_t resVal = EvalOp<int64_t>(func, argVal);
-            return IsVNHandle(arg0VN) ? VNForHandle(ssize_t(resVal), GetHandleKind(arg0VN)) : VNForLongCon(resVal);
         }
         case TYP_FLOAT:
         {
@@ -1865,11 +1834,11 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
                     return VNForLongCon(static_cast<int64_t>(argVal));
                 case VNF_FTOUL:
                     return VNForLongCon(static_cast<uint64_t>(argVal));
+                case VNOP_FNEG:
+                    return VNForFloatCon(-argVal);
                 default:
-                    break;
+                    unreached();
             }
-
-            return VNForFloatCon(EvalOp<float>(func, argVal));
         }
         case TYP_DOUBLE:
         {
@@ -1885,11 +1854,11 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
                     return VNForLongCon(static_cast<int64_t>(argVal));
                 case VNF_FTOUL:
                     return VNForLongCon(static_cast<uint64_t>(argVal));
+                case VNOP_FNEG:
+                    return VNForDoubleCon(-argVal);
                 default:
-                    break;
+                    unreached();
             }
-
-            return VNForDoubleCon(EvalOp<double>(func, argVal));
         }
         default:
             unreached();
