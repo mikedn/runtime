@@ -530,7 +530,7 @@ private:
     // Returns the result of evaluating the function with those constant arguments.
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0);
     ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
-    ValueNum EvalFuncForConstantFPArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
+    ValueNum EvalFloatFunc(var_types resultType, VNFunc vnf, var_types type, ValueNum vn0, ValueNum vn1);
 
     ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 

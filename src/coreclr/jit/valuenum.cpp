@@ -1598,6 +1598,46 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
     }
 }
 
+bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
+{
+    switch (vnf)
+    {
+        case VNOP_ADD:
+        case VNOP_SUB:
+        case VNOP_MUL:
+        case VNOP_DIV:
+        case VNOP_MOD:
+        case VNOP_UDIV:
+        case VNOP_UMOD:
+        case VNOP_AND:
+        case VNOP_OR:
+        case VNOP_XOR:
+        case VNOP_LSH:
+        case VNOP_RSH:
+        case VNOP_RSZ:
+        case VNOP_ROL:
+        case VNOP_ROR:
+        case VNOP_FADD:
+        case VNOP_FSUB:
+        case VNOP_FMUL:
+        case VNOP_FDIV:
+        case VNOP_FMOD:
+        case VNOP_EQ:
+        case VNOP_NE:
+        case VNOP_GT:
+        case VNOP_GE:
+        case VNOP_LT:
+        case VNOP_LE:
+        case VNF_GT_UN:
+        case VNF_GE_UN:
+        case VNF_LT_UN:
+        case VNF_LE_UN:
+            return true;
+        default:
+            return false;
+    }
+}
+
 #ifdef DEBUG
 template <typename T>
 static bool IsOverflowIntDiv(T v0, T v1)
@@ -1680,6 +1720,190 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
         default:
             unreached();
     }
+}
+
+template <typename T>
+static int EvalComparison(VNFunc vnf, T v0, T v1)
+{
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
+
+    using UT = typename std::make_unsigned<T>::type;
+
+    switch (vnf)
+    {
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+            return v0 > v1;
+        case VNOP_GE:
+            return v0 >= v1;
+        case VNOP_LT:
+            return v0 < v1;
+        case VNOP_LE:
+            return v0 <= v1;
+        case VNF_GT_UN:
+            return static_cast<UT>(v0) > static_cast<UT>(v1);
+        case VNF_GE_UN:
+            return static_cast<UT>(v0) >= static_cast<UT>(v1);
+        case VNF_LT_UN:
+            return static_cast<UT>(v0) < static_cast<UT>(v1);
+        case VNF_LE_UN:
+            return static_cast<UT>(v0) <= static_cast<UT>(v1);
+        default:
+            unreached();
+    }
+}
+
+ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
+{
+    assert(CanEvalForConstantArgs2(func));
+    assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
+    assert(!HasExset(arg0VN) && !HasExset(arg1VN)); // Otherwise, would not be constant.
+
+    var_types type0 = TypeOfVN(arg0VN);
+    var_types type1 = TypeOfVN(arg1VN);
+
+    if (varTypeIsFloating(type0))
+    {
+        assert(varTypeIsFloating(type1));
+        return EvalFloatFunc(typ, func, type0, arg0VN, arg1VN);
+    }
+
+    assert(!varTypeIsFloating(type0));
+    assert(!varTypeIsFloating(type1));
+
+    if (varTypeIsSmall(typ))
+    {
+        typ = TYP_INT;
+    }
+
+    ValueNum result; // left uninitialized, we are required to initialize it on all paths below.
+
+    // Are both args of the same type?
+    if (type0 == type1)
+    {
+        if (type0 == TYP_INT)
+        {
+            int arg0Val = ConstantValue<int>(arg0VN);
+            int arg1Val = ConstantValue<int>(arg1VN);
+
+            if (VNFuncIsComparison(func))
+            {
+                assert(typ == TYP_INT);
+                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+            }
+            else
+            {
+                assert(typ == TYP_INT);
+                int resultVal = EvalOp<int>(func, arg0Val, arg1Val);
+                // Bin op on a handle results in a handle.
+                ValueNum handleVN = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
+                if (handleVN != NoVN)
+                {
+                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
+                }
+                else
+                {
+                    result = VNForIntCon(resultVal);
+                }
+            }
+        }
+        else if (type0 == TYP_LONG)
+        {
+            int64_t arg0Val = ConstantValue<int64_t>(arg0VN);
+            int64_t arg1Val = ConstantValue<int64_t>(arg1VN);
+
+            if (VNFuncIsComparison(func))
+            {
+                assert(typ == TYP_INT);
+                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+            }
+            else
+            {
+                assert(typ == TYP_LONG);
+                int64_t  resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
+                ValueNum handleVN  = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
+
+                if (handleVN != NoVN)
+                {
+                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
+                }
+                else
+                {
+                    result = VNForLongCon(resultVal);
+                }
+            }
+        }
+        else // both args are TYP_REF or both args are TYP_BYREF
+        {
+            size_t arg0Val = ConstantValue<size_t>(arg0VN); // We represent ref/byref constants as size_t's.
+            size_t arg1Val = ConstantValue<size_t>(arg1VN); // Also we consider null to be zero.
+
+            if (VNFuncIsComparison(func))
+            {
+                assert(typ == TYP_INT);
+                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+            }
+            else if (typ == TYP_INT) // We could see GT_OR of a constant ByRef and Null
+            {
+                int resultVal = (int)EvalOp<size_t>(func, arg0Val, arg1Val);
+                result        = VNForIntCon(resultVal);
+            }
+            else // We could see GT_OR of a constant ByRef and Null
+            {
+                assert((typ == TYP_BYREF) || (typ == TYP_I_IMPL));
+                size_t resultVal = EvalOp<size_t>(func, arg0Val, arg1Val);
+                result           = VNForByrefCon((target_size_t)resultVal);
+            }
+        }
+    }
+    else // We have args of different types
+    {
+        // We represent ref/byref constants as size_t's.
+        // Also we consider null to be zero.
+        //
+        int64_t arg0Val = GetConstantInt64(arg0VN);
+        int64_t arg1Val = GetConstantInt64(arg1VN);
+
+        if (VNFuncIsComparison(func))
+        {
+            assert(typ == TYP_INT);
+            result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+        }
+        else if (typ == TYP_INT) // We could see GT_OR of an int and constant ByRef or Null
+        {
+            int resultVal = (int)EvalOp<int64_t>(func, arg0Val, arg1Val);
+            result        = VNForIntCon(resultVal);
+        }
+        else
+        {
+            assert(typ != TYP_INT);
+            int64_t resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
+
+            switch (typ)
+            {
+                case TYP_BYREF:
+                    result = VNForByrefCon((target_size_t)resultVal);
+                    break;
+                case TYP_LONG:
+                    result = VNForLongCon(resultVal);
+                    break;
+                case TYP_REF:
+                    assert(resultVal == 0); // Only valid REF constant
+                    result = NullVN();
+                    break;
+                default:
+                    unreached();
+            }
+        }
+    }
+
+    return result;
 }
 
 // We need to use target-specific NaN values when statically compute expressions.
@@ -1896,43 +2120,6 @@ float EvalOp<float>(VNFunc vnf, float v0, float v1)
     return EvalFloatOp<float, FloatTraits>(vnf, v0, v1);
 }
 
-template <typename T>
-static int EvalComparison(VNFunc vnf, T v0, T v1)
-{
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
-
-    using UT = typename std::make_unsigned<T>::type;
-
-    switch (vnf)
-    {
-        case VNOP_EQ:
-            return v0 == v1;
-        case VNOP_NE:
-            return v0 != v1;
-        case VNOP_GT:
-            return v0 > v1;
-        case VNOP_GE:
-            return v0 >= v1;
-        case VNOP_LT:
-            return v0 < v1;
-        case VNOP_LE:
-            return v0 <= v1;
-        case VNF_GT_UN:
-            return static_cast<UT>(v0) > static_cast<UT>(v1);
-        case VNF_GE_UN:
-            return static_cast<UT>(v0) >= static_cast<UT>(v1);
-        case VNF_LT_UN:
-            return static_cast<UT>(v0) < static_cast<UT>(v1);
-        case VNF_LE_UN:
-            return static_cast<UT>(v0) <= static_cast<UT>(v1);
-        default:
-            unreached();
-    }
-}
-
 template <typename T, typename Traits>
 static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 {
@@ -1978,246 +2165,42 @@ int EvalComparison<float>(VNFunc vnf, float v0, float v1)
     return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
 }
 
-bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
+ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_types type, ValueNum vn1, ValueNum vn2)
 {
-    switch (vnf)
+    if (type == TYP_FLOAT)
     {
-        case VNOP_ADD:
-        case VNOP_SUB:
-        case VNOP_MUL:
-        case VNOP_DIV:
-        case VNOP_MOD:
-        case VNOP_UDIV:
-        case VNOP_UMOD:
-        case VNOP_AND:
-        case VNOP_OR:
-        case VNOP_XOR:
-        case VNOP_LSH:
-        case VNOP_RSH:
-        case VNOP_RSZ:
-        case VNOP_ROL:
-        case VNOP_ROR:
-        case VNOP_FADD:
-        case VNOP_FSUB:
-        case VNOP_FMUL:
-        case VNOP_FDIV:
-        case VNOP_FMOD:
-        case VNOP_EQ:
-        case VNOP_NE:
-        case VNOP_GT:
-        case VNOP_GE:
-        case VNOP_LT:
-        case VNOP_LE:
-        case VNF_GT_UN:
-        case VNF_GE_UN:
-        case VNF_LT_UN:
-        case VNF_LE_UN:
-            return true;
-        default:
-            return false;
-    }
-}
-
-ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
-{
-    assert(CanEvalForConstantArgs2(func));
-    assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
-    assert(!HasExset(arg0VN) && !HasExset(arg1VN)); // Otherwise, would not be constant.
-
-    var_types arg0VNtyp = TypeOfVN(arg0VN);
-    var_types arg1VNtyp = TypeOfVN(arg1VN);
-
-    // When both arguments are floating point types
-    // We defer to the EvalFuncForConstantFPArgs()
-    if (varTypeIsFloating(arg0VNtyp) && varTypeIsFloating(arg1VNtyp))
-    {
-        return EvalFuncForConstantFPArgs(typ, func, arg0VN, arg1VN);
-    }
-
-    // after this we shouldn't have to deal with floating point types for arg0VN or arg1VN
-    assert(!varTypeIsFloating(arg0VNtyp));
-    assert(!varTypeIsFloating(arg1VNtyp));
-
-    // Stack-normalize the result type.
-    if (varTypeIsSmall(typ))
-    {
-        typ = TYP_INT;
-    }
-
-    ValueNum result; // left uninitialized, we are required to initialize it on all paths below.
-
-    // Are both args of the same type?
-    if (arg0VNtyp == arg1VNtyp)
-    {
-        if (arg0VNtyp == TYP_INT)
-        {
-            int arg0Val = ConstantValue<int>(arg0VN);
-            int arg1Val = ConstantValue<int>(arg1VN);
-
-            if (VNFuncIsComparison(func))
-            {
-                assert(typ == TYP_INT);
-                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-            }
-            else
-            {
-                assert(typ == TYP_INT);
-                int resultVal = EvalOp<int>(func, arg0Val, arg1Val);
-                // Bin op on a handle results in a handle.
-                ValueNum handleVN = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
-                if (handleVN != NoVN)
-                {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
-                }
-                else
-                {
-                    result = VNForIntCon(resultVal);
-                }
-            }
-        }
-        else if (arg0VNtyp == TYP_LONG)
-        {
-            int64_t arg0Val = ConstantValue<int64_t>(arg0VN);
-            int64_t arg1Val = ConstantValue<int64_t>(arg1VN);
-
-            if (VNFuncIsComparison(func))
-            {
-                assert(typ == TYP_INT);
-                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-            }
-            else
-            {
-                assert(typ == TYP_LONG);
-                int64_t  resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
-                ValueNum handleVN  = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
-
-                if (handleVN != NoVN)
-                {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
-                }
-                else
-                {
-                    result = VNForLongCon(resultVal);
-                }
-            }
-        }
-        else // both args are TYP_REF or both args are TYP_BYREF
-        {
-            size_t arg0Val = ConstantValue<size_t>(arg0VN); // We represent ref/byref constants as size_t's.
-            size_t arg1Val = ConstantValue<size_t>(arg1VN); // Also we consider null to be zero.
-
-            if (VNFuncIsComparison(func))
-            {
-                assert(typ == TYP_INT);
-                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-            }
-            else if (typ == TYP_INT) // We could see GT_OR of a constant ByRef and Null
-            {
-                int resultVal = (int)EvalOp<size_t>(func, arg0Val, arg1Val);
-                result        = VNForIntCon(resultVal);
-            }
-            else // We could see GT_OR of a constant ByRef and Null
-            {
-                assert((typ == TYP_BYREF) || (typ == TYP_I_IMPL));
-                size_t resultVal = EvalOp<size_t>(func, arg0Val, arg1Val);
-                result           = VNForByrefCon((target_size_t)resultVal);
-            }
-        }
-    }
-    else // We have args of different types
-    {
-        // We represent ref/byref constants as size_t's.
-        // Also we consider null to be zero.
-        //
-        int64_t arg0Val = GetConstantInt64(arg0VN);
-        int64_t arg1Val = GetConstantInt64(arg1VN);
+        float f1 = GetConstantSingle(vn1);
+        float f2 = GetConstantSingle(vn2);
 
         if (VNFuncIsComparison(func))
         {
-            assert(typ == TYP_INT);
-            result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+            assert(varActualType(resultType) == TYP_INT);
+
+            return VNForIntCon(EvalComparison<float>(func, f1, f2));
         }
-        else if (typ == TYP_INT) // We could see GT_OR of an int and constant ByRef or Null
-        {
-            int resultVal = (int)EvalOp<int64_t>(func, arg0Val, arg1Val);
-            result        = VNForIntCon(resultVal);
-        }
-        else
-        {
-            assert(typ != TYP_INT);
-            int64_t resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
 
-            switch (typ)
-            {
-                case TYP_BYREF:
-                    result = VNForByrefCon((target_size_t)resultVal);
-                    break;
-                case TYP_LONG:
-                    result = VNForLongCon(resultVal);
-                    break;
-                case TYP_REF:
-                    assert(resultVal == 0); // Only valid REF constant
-                    result = NullVN();
-                    break;
-                default:
-                    unreached();
-            }
-        }
-    }
+        assert(type == resultType);
 
-    return result;
-}
-
-ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
-{
-    assert(CanEvalForConstantArgs2(func));
-    assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
-
-    // We expect both argument types to be floating-point types
-    var_types arg0VNtyp = TypeOfVN(arg0VN);
-    var_types arg1VNtyp = TypeOfVN(arg1VN);
-
-    assert(varTypeIsFloating(arg0VNtyp));
-    assert(varTypeIsFloating(arg1VNtyp));
-
-    // We also expect both arguments to be of the same floating-point type
-    assert(arg0VNtyp == arg1VNtyp);
-
-    ValueNum result; // left uninitialized, we are required to initialize it on all paths below.
-
-    if (VNFuncIsComparison(func))
-    {
-        assert(varActualType(typ) == TYP_INT);
-
-        if (arg0VNtyp == TYP_FLOAT)
-        {
-            result = VNForIntCon(EvalComparison<float>(func, GetConstantSingle(arg0VN), GetConstantSingle(arg1VN)));
-        }
-        else
-        {
-            assert(arg0VNtyp == TYP_DOUBLE);
-            result = VNForIntCon(EvalComparison<double>(func, GetConstantDouble(arg0VN), GetConstantDouble(arg1VN)));
-        }
+        return VNForFloatCon(EvalOp<float>(func, f1, f2));
     }
     else
     {
-        // We expect the return type to be the same as the argument type
-        assert(varTypeIsFloating(typ));
-        assert(arg0VNtyp == typ);
+        assert(type == TYP_DOUBLE);
 
-        if (typ == TYP_FLOAT)
-        {
-            result = VNForFloatCon(EvalOp<float>(func, GetConstantSingle(arg0VN), GetConstantSingle(arg1VN)));
-        }
-        else
-        {
-            assert(typ == TYP_DOUBLE);
+        double d1 = GetConstantDouble(vn1);
+        double d2 = GetConstantDouble(vn2);
 
-            result = VNForDoubleCon(EvalOp<double>(func, GetConstantDouble(arg0VN), GetConstantDouble(arg1VN)));
+        if (VNFuncIsComparison(func))
+        {
+            assert(varActualType(resultType) == TYP_INT);
+
+            return VNForIntCon(EvalComparison<double>(func, d1, d2));
         }
+
+        assert(type == resultType);
+
+        return VNForDoubleCon(EvalOp<double>(func, d1, d2));
     }
-
-    return result;
 }
 
 bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1) const
@@ -2227,17 +2210,9 @@ bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0,
     assert(IsVNConstant(arg0));
     assert(IsVNConstant(arg1));
 
-    var_types type0 = TypeOfVN(arg0);
-    var_types type1 = TypeOfVN(arg1);
-
-    // It is possible for us to have mismatched types (see Bug 750863)
-    // We don't try to fold a binary operation when one of the constant operands
-    // is a floating-point constant and the other is not.
-
-    if (varTypeIsFloating(type0) != varTypeIsFloating(type1))
-    {
-        return false;
-    }
+    INDEBUG(var_types type0 = TypeOfVN(arg0));
+    INDEBUG(var_types type1 = TypeOfVN(arg1));
+    assert(varTypeIsFloating(type0) == varTypeIsFloating(type1));
 
     if ((func == VNOP_DIV) || (func == VNOP_MOD) || (func == VNOP_UDIV) || (func == VNOP_UMOD))
     {
