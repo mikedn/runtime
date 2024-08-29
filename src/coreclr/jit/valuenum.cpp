@@ -786,7 +786,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
     assert((func != VNOP_NONE) && (func != VNF_MemOpaque));
     assert(!HasExset(arg0));
 
-    if (CanEvalForConstantArgs(func) && IsVNConstant(arg0))
+    if (CanEvalForConstantArgs1(func) && IsVNConstant(arg0))
     {
         return EvalFuncForConstantArgs(type, func, arg0);
     }
@@ -836,7 +836,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
     }
 
-    if ((type != TYP_BYREF) && CanEvalForConstantArgs(func) && IsVNConstant(arg0) && IsVNConstant(arg1) &&
+    if ((type != TYP_BYREF) && CanEvalForConstantArgs2(func) && IsVNConstant(arg0) && IsVNConstant(arg1) &&
         VNEvalShouldFold(type, func, arg0, arg1))
     {
         return EvalFuncForConstantArgs(type, func, arg0, arg1);
@@ -1418,7 +1418,7 @@ bool ValueNumStore::IsVNHandle(ValueNum vn) const
     return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
 }
 
-bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
+bool ValueNumStore::CanEvalForConstantArgs1(VNFunc vnf)
 {
     switch (vnf)
     {
@@ -1426,37 +1426,7 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
         case VNOP_NOT:
         case VNOP_BSWAP16:
         case VNOP_BSWAP:
-        case VNOP_ADD:
-        case VNOP_SUB:
-        case VNOP_MUL:
-        case VNOP_DIV:
-        case VNOP_MOD:
-        case VNOP_UDIV:
-        case VNOP_UMOD:
-        case VNOP_AND:
-        case VNOP_OR:
-        case VNOP_XOR:
-        case VNOP_LSH:
-        case VNOP_RSH:
-        case VNOP_RSZ:
-        case VNOP_ROL:
-        case VNOP_ROR:
-        case VNOP_FADD:
-        case VNOP_FSUB:
-        case VNOP_FMUL:
-        case VNOP_FDIV:
-        case VNOP_FMOD:
         case VNOP_FNEG:
-        case VNOP_EQ:
-        case VNOP_NE:
-        case VNOP_GT:
-        case VNOP_GE:
-        case VNOP_LT:
-        case VNOP_LE:
-        case VNF_GT_UN:
-        case VNF_GE_UN:
-        case VNF_LT_UN:
-        case VNF_LE_UN:
         case VNOP_FTOS:
         case VNOP_FTOU:
         case VNOP_STOF:
@@ -1480,7 +1450,7 @@ bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
 
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN)
 {
-    assert(CanEvalForConstantArgs(func));
+    assert(CanEvalForConstantArgs1(func));
     assert(IsVNConstant(arg0VN));
 
     switch (TypeOfVN(arg0VN))
@@ -2008,9 +1978,49 @@ int EvalComparison<float>(VNFunc vnf, float v0, float v1)
     return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
 }
 
+bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
+{
+    switch (vnf)
+    {
+        case VNOP_ADD:
+        case VNOP_SUB:
+        case VNOP_MUL:
+        case VNOP_DIV:
+        case VNOP_MOD:
+        case VNOP_UDIV:
+        case VNOP_UMOD:
+        case VNOP_AND:
+        case VNOP_OR:
+        case VNOP_XOR:
+        case VNOP_LSH:
+        case VNOP_RSH:
+        case VNOP_RSZ:
+        case VNOP_ROL:
+        case VNOP_ROR:
+        case VNOP_FADD:
+        case VNOP_FSUB:
+        case VNOP_FMUL:
+        case VNOP_FDIV:
+        case VNOP_FMOD:
+        case VNOP_EQ:
+        case VNOP_NE:
+        case VNOP_GT:
+        case VNOP_GE:
+        case VNOP_LT:
+        case VNOP_LE:
+        case VNF_GT_UN:
+        case VNF_GE_UN:
+        case VNF_LT_UN:
+        case VNF_LE_UN:
+            return true;
+        default:
+            return false;
+    }
+}
+
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
-    assert(CanEvalForConstantArgs(func));
+    assert(CanEvalForConstantArgs2(func));
     assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
     assert(!HasExset(arg0VN) && !HasExset(arg1VN)); // Otherwise, would not be constant.
 
@@ -2160,7 +2170,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
 
 ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
-    assert(CanEvalForConstantArgs(func));
+    assert(CanEvalForConstantArgs2(func));
     assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
 
     // We expect both argument types to be floating-point types
