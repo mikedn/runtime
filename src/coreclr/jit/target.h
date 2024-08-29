@@ -106,15 +106,15 @@ static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUN
   #error Unsupported or unset target architecture
 #endif
 
-C_ASSERT(REG_FIRST == 0);
-C_ASSERT(REG_INT_FIRST < REG_INT_LAST);
-C_ASSERT(REG_FP_FIRST  < REG_FP_LAST);
+static_assert_no_msg(REG_FIRST == 0);
+static_assert_no_msg(REG_INT_FIRST < REG_INT_LAST);
+static_assert_no_msg(REG_FP_FIRST  < REG_FP_LAST);
 
 // Opportunistic tail call feature converts non-tail prefixed calls into
 // tail calls where possible. It requires fast tail calling mechanism for
 // performance. Otherwise, we are better off not converting non-tail prefixed
 // calls into tail calls.
-C_ASSERT((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
+static_assert_no_msg((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
 
 /*****************************************************************************/
 
@@ -391,18 +391,16 @@ inline regNumber MapVarargsParamIntRegToFloatReg(regNumber intReg)
 }
 #endif // WINDOWS_AMD64_ABI
 
-/*****************************************************************************/
 // Some sanity checks on some of the register masks
 // Stack pointer is never part of RBM_ALLINT
-C_ASSERT((RBM_ALLINT & RBM_SPBASE) == RBM_NONE);
-C_ASSERT((RBM_INT_CALLEE_SAVED & RBM_SPBASE) == RBM_NONE);
+static_assert_no_msg((RBM_ALLINT & RBM_SPBASE) == RBM_NONE);
+static_assert_no_msg((RBM_INT_CALLEE_SAVED & RBM_SPBASE) == RBM_NONE);
 
 #if ETW_EBP_FRAMED
 // Frame pointer isn't either if we're supporting ETW frame chaining
-C_ASSERT((RBM_ALLINT & RBM_FPBASE) == RBM_NONE);
-C_ASSERT((RBM_INT_CALLEE_SAVED & RBM_FPBASE) == RBM_NONE);
+static_assert_no_msg((RBM_ALLINT & RBM_FPBASE) == RBM_NONE);
+static_assert_no_msg((RBM_INT_CALLEE_SAVED & RBM_FPBASE) == RBM_NONE);
 #endif
-/*****************************************************************************/
 
 #ifdef TARGET_64BIT
 
@@ -426,7 +424,7 @@ typedef int32_t  target_ssize_t;
 
 #endif // !TARGET_64BIT
 
-C_ASSERT(sizeof(target_size_t) == TARGET_POINTER_SIZE);
-C_ASSERT(sizeof(target_ssize_t) == TARGET_POINTER_SIZE);
+static_assert_no_msg(sizeof(target_size_t) == TARGET_POINTER_SIZE);
+static_assert_no_msg(sizeof(target_ssize_t) == TARGET_POINTER_SIZE);
 
 #endif // TARGET_H_

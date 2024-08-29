@@ -164,9 +164,10 @@ public:
         m_jitFlags = flags.GetFlagsRaw();
         m_instructionSetFlags.SetFromFlagsRaw(flags.GetInstructionSetFlagsRaw());
 
-        C_ASSERT(sizeof(JitFlags) == sizeof(CORJIT_FLAGS));
+        static_assert(sizeof(JitFlags) == sizeof(CORJIT_FLAGS), "Invalid JitFlags size");
 
-#define FLAGS_EQUAL(a, b) C_ASSERT((unsigned)(a) == (unsigned)(b))
+#define FLAGS_EQUAL(a, b)                                                                                              \
+    static_assert(static_cast<unsigned>(a) == static_cast<unsigned>(b), "Mismatched JitFlags value")
 
         FLAGS_EQUAL(CORJIT_FLAGS::CORJIT_FLAG_SPEED_OPT, JIT_FLAG_SPEED_OPT);
         FLAGS_EQUAL(CORJIT_FLAGS::CORJIT_FLAG_SIZE_OPT, JIT_FLAG_SIZE_OPT);

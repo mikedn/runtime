@@ -7351,7 +7351,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     // This indicates that the var originally in rax is now in its target register.
 
     regNumberSmall location[REG_COUNT];
-    C_ASSERT(sizeof(char) == sizeof(regNumberSmall)); // for memset to work
+    static_assert_no_msg(sizeof(char) == sizeof(regNumberSmall)); // for memset to work
     memset(location, REG_NA, REG_COUNT);
     regNumberSmall source[REG_COUNT];
     memset(source, REG_NA, REG_COUNT);
