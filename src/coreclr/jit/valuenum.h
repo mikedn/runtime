@@ -833,7 +833,6 @@ private:
             case TYP_DOUBLE:
                 if (c->m_kind == ChunkKind::Handle)
                 {
-                    C_ASSERT(offsetof(VNHandle, value) == 0);
                     return (T) static_cast<VNHandle*>(c->m_defs)[offset].value;
                 }
 
