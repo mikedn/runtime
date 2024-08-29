@@ -162,226 +162,6 @@ private:
 #endif
 };
 
-// We need to use target-specific NaN values when statically compute expressions.
-// Otherwise, cross crossgen (e.g. x86_arm) would have different binary outputs
-// from native crossgen (i.e. arm_arm) when the NaN got "embedded" into code.
-//
-// For example, when placing NaN value in r3 register
-// x86_arm crossgen would emit
-//   movw    r3, 0x00
-//   movt    r3, 0xfff8
-// while arm_arm crossgen (and JIT) output is
-//   movw    r3, 0x00
-//   movt    r3, 0x7ff8
-
-struct FloatTraits
-{
-    // Default NaN value returned by expression 0.0f / 0.0f on x86/x64 has
-    // different binary representation (0xffc00000) than NaN on
-    // ARM32/ARM64 (0x7fc00000).
-    static float NaN()
-    {
-#if defined(TARGET_XARCH)
-        unsigned bits = 0xFFC00000u;
-#elif defined(TARGET_ARMARCH)
-        unsigned           bits = 0x7FC00000u;
-#else
-#error Unsupported or unset target architecture
-#endif
-        return jitstd::bit_cast<float>(bits);
-    }
-
-    static bool IsNaN(float f)
-    {
-        return _isnanf(f);
-    }
-};
-
-struct DoubleTraits
-{
-    // Default NaN value returned by expression 0.0 / 0.0 on x86/x64 has
-    // different binary representation (0xfff8000000000000) than NaN on
-    // ARM32/ARM64 (0x7ff8000000000000).
-    static double NaN()
-    {
-#if defined(TARGET_XARCH)
-        unsigned long long bits = 0xFFF8000000000000ull;
-#elif defined(TARGET_ARMARCH)
-        unsigned long long bits = 0x7FF8000000000000ull;
-#else
-#error Unsupported or unset target architecture
-#endif
-        return jitstd::bit_cast<double>(bits);
-    }
-
-    static bool IsNaN(double d)
-    {
-        return _isnan(d);
-    }
-};
-
-//------------------------------------------------------------------------
-// FpAdd: Computes value1 + value2
-//
-// Return Value:
-//    TFpTraits::NaN() - If target ARM32/ARM64 and result value is NaN
-//    value1 + value2  - Otherwise
-//
-// Notes:
-//    See FloatTraits::NaN() and DoubleTraits::NaN() notes.
-
-template <typename TFp, typename TFpTraits>
-TFp FpAdd(TFp value1, TFp value2)
-{
-#ifdef TARGET_ARMARCH
-    // If [value1] is negative infinity and [value2] is positive infinity
-    //   the result is NaN.
-    // If [value1] is positive infinity and [value2] is negative infinity
-    //   the result is NaN.
-
-    if (!_finite(value1) && !_finite(value2))
-    {
-        if (value1 < 0 && value2 > 0)
-        {
-            return TFpTraits::NaN();
-        }
-
-        if (value1 > 0 && value2 < 0)
-        {
-            return TFpTraits::NaN();
-        }
-    }
-#endif // TARGET_ARMARCH
-
-    return value1 + value2;
-}
-
-//------------------------------------------------------------------------
-// FpSub: Computes value1 - value2
-//
-// Return Value:
-//    TFpTraits::NaN() - If target ARM32/ARM64 and result value is NaN
-//    value1 - value2  - Otherwise
-//
-// Notes:
-//    See FloatTraits::NaN() and DoubleTraits::NaN() notes.
-
-template <typename TFp, typename TFpTraits>
-TFp FpSub(TFp value1, TFp value2)
-{
-#ifdef TARGET_ARMARCH
-    // If [value1] is positive infinity and [value2] is positive infinity
-    //   the result is NaN.
-    // If [value1] is negative infinity and [value2] is negative infinity
-    //   the result is NaN.
-
-    if (!_finite(value1) && !_finite(value2))
-    {
-        if (value1 > 0 && value2 > 0)
-        {
-            return TFpTraits::NaN();
-        }
-
-        if (value1 < 0 && value2 < 0)
-        {
-            return TFpTraits::NaN();
-        }
-    }
-#endif // TARGET_ARMARCH
-
-    return value1 - value2;
-}
-
-//------------------------------------------------------------------------
-// FpMul: Computes value1 * value2
-//
-// Return Value:
-//    TFpTraits::NaN() - If target ARM32/ARM64 and result value is NaN
-//    value1 * value2  - Otherwise
-//
-// Notes:
-//    See FloatTraits::NaN() and DoubleTraits::NaN() notes.
-
-template <typename TFp, typename TFpTraits>
-TFp FpMul(TFp value1, TFp value2)
-{
-#ifdef TARGET_ARMARCH
-    // From the ECMA standard:
-    //
-    // If [value1] is zero and [value2] is infinity
-    //   the result is NaN.
-    // If [value1] is infinity and [value2] is zero
-    //   the result is NaN.
-
-    if (value1 == 0 && !_finite(value2) && !_isnan(value2))
-    {
-        return TFpTraits::NaN();
-    }
-    if (!_finite(value1) && !_isnan(value1) && value2 == 0)
-    {
-        return TFpTraits::NaN();
-    }
-#endif // TARGET_ARMARCH
-
-    return value1 * value2;
-}
-
-//------------------------------------------------------------------------
-// FpDiv: Computes value1 / value2
-//
-// Return Value:
-//    TFpTraits::NaN() - If target ARM32/ARM64 and result value is NaN
-//    value1 / value2  - Otherwise
-//
-// Notes:
-//    See FloatTraits::NaN() and DoubleTraits::NaN() notes.
-
-template <typename TFp, typename TFpTraits>
-TFp FpDiv(TFp dividend, TFp divisor)
-{
-#ifdef TARGET_ARMARCH
-    // From the ECMA standard:
-    //
-    // If [dividend] is zero and [divisor] is zero
-    //   the result is NaN.
-    // If [dividend] is infinity and [divisor] is infinity
-    //   the result is NaN.
-
-    if (dividend == 0 && divisor == 0)
-    {
-        return TFpTraits::NaN();
-    }
-    else if (!_finite(dividend) && !_isnan(dividend) && !_finite(divisor) && !_isnan(divisor))
-    {
-        return TFpTraits::NaN();
-    }
-#endif // TARGET_ARMARCH
-
-    return dividend / divisor;
-}
-
-template <typename TFp, typename TFpTraits>
-TFp FpRem(TFp dividend, TFp divisor)
-{
-    // From the ECMA standard:
-    //
-    // If [divisor] is zero or [dividend] is infinity
-    //   the result is NaN.
-    // If [divisor] is infinity,
-    //   the result is [dividend]
-
-    if (divisor == 0 || !_finite(dividend))
-    {
-        return TFpTraits::NaN();
-    }
-    else if (!_finite(divisor) && !_isnan(divisor))
-    {
-        return dividend;
-    }
-
-    return (TFp)fmod((double)dividend, (double)divisor);
-}
-
 VNFunc GetRelopVNFunc(GenTree* node)
 {
     if (node->OperIs(GT_EQ))
@@ -433,211 +213,6 @@ VNFunc GetRelopVNFunc(GenTree* node)
     return static_cast<VNFunc>(node->GetOper());
 }
 
-bool ValueNumStore::VNFuncIsOverflowArithmetic(VNFunc vnf)
-{
-    return (VNOP_OVF_SADD <= vnf) && (vnf <= VNOP_OVF_UMUL);
-}
-
-#ifdef DEBUG
-template <typename T>
-static bool IsOverflowIntDiv(T v0, T v1)
-{
-    return false;
-}
-
-template <>
-bool IsOverflowIntDiv(int32_t v0, int32_t v1)
-{
-    return (v1 == -1) && (v0 == INT32_MIN);
-}
-
-template <>
-bool IsOverflowIntDiv(int64_t v0, int64_t v1)
-{
-    return (v1 == -1) && (v0 == INT64_MIN);
-}
-#endif
-
-template <typename T>
-static T EvalOp(VNFunc vnf, T v0, T v1)
-{
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
-
-    using UT = typename std::make_unsigned<T>::type;
-
-    switch (vnf)
-    {
-        case VNOP_ADD:
-            return v0 + v1;
-        case VNOP_SUB:
-            return v0 - v1;
-        case VNOP_MUL:
-            return v0 * v1;
-
-        case VNOP_DIV:
-            assert(v1 != 0);
-            assert(!IsOverflowIntDiv(v0, v1));
-            return v0 / v1;
-
-        case VNOP_MOD:
-            assert(v1 != 0);
-            assert(!IsOverflowIntDiv(v0, v1));
-            return v0 % v1;
-
-        case VNOP_UDIV:
-            assert(v1 != 0);
-            return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
-
-        case VNOP_UMOD:
-            assert(v1 != 0);
-            return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
-
-        case VNOP_AND:
-            return v0 & v1;
-        case VNOP_OR:
-            return v0 | v1;
-        case VNOP_XOR:
-            return v0 ^ v1;
-
-        case VNOP_LSH:
-            // TODO-MIKE-Review: Why does this mask the shift amount for 64 bit but not for 32 bit shifts?
-            // And why does it do it on ARM?
-            return (sizeof(T) == 8) ? (v0 << (v1 & 63)) : (v0 << v1);
-        case VNOP_RSH:
-            return (sizeof(T) == 8) ? (v0 >> (v1 & 63)) : (v0 >> v1);
-        case VNOP_RSZ:
-            return (sizeof(T) == 8) ? static_cast<T>(static_cast<UT>(v0) >> (v1 & 63))
-                                    : static_cast<T>(static_cast<UT>(v0) >> v1);
-
-        case VNOP_ROL:
-            return static_cast<T>(jitstd::rotl(static_cast<UT>(v0), static_cast<int>(v1)));
-        case VNOP_ROR:
-            return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
-
-        default:
-            unreached();
-    }
-}
-
-template <typename T, typename Traits>
-static T EvalFloatOp(VNFunc vnf, T v0, T v1)
-{
-    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
-
-    switch (vnf)
-    {
-        case VNOP_FADD:
-            return FpAdd<T, Traits>(v0, v1);
-        case VNOP_FSUB:
-            return FpSub<T, Traits>(v0, v1);
-        case VNOP_FMUL:
-            return FpMul<T, Traits>(v0, v1);
-        case VNOP_FDIV:
-            return FpDiv<T, Traits>(v0, v1);
-        case VNOP_FMOD:
-            return FpRem<T, Traits>(v0, v1);
-        default:
-            unreached();
-    }
-}
-
-template <>
-double EvalOp<double>(VNFunc vnf, double v0, double v1)
-{
-    return EvalFloatOp<double, DoubleTraits>(vnf, v0, v1);
-}
-
-template <>
-float EvalOp<float>(VNFunc vnf, float v0, float v1)
-{
-    return EvalFloatOp<float, FloatTraits>(vnf, v0, v1);
-}
-
-template <typename T>
-static int EvalComparison(VNFunc vnf, T v0, T v1)
-{
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
-
-    using UT = typename std::make_unsigned<T>::type;
-
-    switch (vnf)
-    {
-        case VNOP_EQ:
-            return v0 == v1;
-        case VNOP_NE:
-            return v0 != v1;
-        case VNOP_GT:
-            return v0 > v1;
-        case VNOP_GE:
-            return v0 >= v1;
-        case VNOP_LT:
-            return v0 < v1;
-        case VNOP_LE:
-            return v0 <= v1;
-        case VNF_GT_UN:
-            return static_cast<UT>(v0) > static_cast<UT>(v1);
-        case VNF_GE_UN:
-            return static_cast<UT>(v0) >= static_cast<UT>(v1);
-        case VNF_LT_UN:
-            return static_cast<UT>(v0) < static_cast<UT>(v1);
-        case VNF_LE_UN:
-            return static_cast<UT>(v0) <= static_cast<UT>(v1);
-        default:
-            unreached();
-    }
-}
-
-template <typename T, typename Traits>
-static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
-{
-    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
-
-    if (Traits::IsNaN(v0) || Traits::IsNaN(v1))
-    {
-        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
-    }
-
-    switch (vnf)
-    {
-        case VNOP_EQ:
-            return v0 == v1;
-        case VNOP_NE:
-            return v0 != v1;
-        case VNOP_GT:
-        case VNF_GT_UN:
-            return v0 > v1;
-        case VNOP_GE:
-        case VNF_GE_UN:
-            return v0 >= v1;
-        case VNOP_LT:
-        case VNF_LT_UN:
-            return v0 < v1;
-        case VNOP_LE:
-        case VNF_LE_UN:
-            return v0 <= v1;
-        default:
-            unreached();
-    }
-}
-
-template <>
-int EvalComparison<double>(VNFunc vnf, double v0, double v1)
-{
-    return EvalFloatComparison<double, DoubleTraits>(vnf, v0, v1);
-}
-
-template <>
-int EvalComparison<float>(VNFunc vnf, float v0, float v1)
-{
-    return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
-}
-
 ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     : ssa(ssa)
     , compiler(ssa.GetCompiler())
@@ -682,7 +257,7 @@ ValueNumPair ValueNumStore::ExsetCreate(ValueNumPair xp)
 }
 
 #ifdef DEBUG
-bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1)
+bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1) const
 {
     if (xs1 == EmptyExsetVN())
     {
@@ -695,7 +270,7 @@ bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1)
 
     return item < funcXs1[0];
 }
-#endif // DEBUG
+#endif
 
 ValueNum ValueNumStore::ExsetUnion(ValueNum xs0, ValueNum xs1)
 {
@@ -777,7 +352,7 @@ ValueNumPair ValueNumStore::ExsetIntersection(ValueNumPair xs0vnp, ValueNumPair 
             ExsetIntersection(xs0vnp.GetConservative(), xs1vnp.GetConservative())};
 }
 
-bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set)
+bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
 {
     if (subset == EmptyExsetVN())
     {
@@ -843,7 +418,7 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set)
     }
 }
 
-ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset)
+ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset) const
 {
     if (const VNFuncDef2* valueExset = IsVNFunc<VNFuncDef2>(vn, VNF_ValWithExset))
     {
@@ -855,7 +430,7 @@ ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset)
     return vn;
 }
 
-ValueNumPair ValueNumStore::UnpackExset(ValueNumPair vnp, ValueNumPair* exset)
+ValueNumPair ValueNumStore::UnpackExset(ValueNumPair vnp, ValueNumPair* exset) const
 {
     return {UnpackExset(vnp.GetLiberal(), exset->GetLiberalAddr()),
             UnpackExset(vnp.GetConservative(), exset->GetConservativeAddr())};
@@ -867,18 +442,18 @@ ValueNum ValueNumStore::ExtractValue(ValueNum vn) const
     return GetVNFunc(vn, &funcApp) == VNF_ValWithExset ? funcApp[0] : vn;
 }
 
-ValueNumPair ValueNumStore::ExtractValue(ValueNumPair vnp)
+ValueNumPair ValueNumStore::ExtractValue(ValueNumPair vnp) const
 {
     return {ExtractValue(vnp.GetLiberal()), ExtractValue(vnp.GetConservative())};
 }
 
-ValueNum ValueNumStore::ExtractExset(ValueNum vn)
+ValueNum ValueNumStore::ExtractExset(ValueNum vn) const
 {
     VNFuncApp funcApp;
     return GetVNFunc(vn, &funcApp) == VNF_ValWithExset ? funcApp[1] : EmptyExsetVN();
 }
 
-ValueNumPair ValueNumStore::ExtractExset(ValueNumPair vnp)
+ValueNumPair ValueNumStore::ExtractExset(ValueNumPair vnp) const
 {
     return {ExtractExset(vnp.GetLiberal()), ExtractExset(vnp.GetConservative())};
 }
@@ -1161,8 +736,6 @@ ValueNum ValueNumStore::ReadOnlyMemoryMapVN()
     return m_readOnlyMemoryMap;
 }
 
-// Returns the value number for one of the given "typ".
-// It returns NoVN for a "typ" that has no one value, such as TYP_REF.
 ValueNum ValueNumStore::VNOneForType(var_types typ)
 {
     switch (typ)
@@ -1715,6 +1288,196 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     }
 }
 
+int32_t ValueNumStore::GetConstantInt32(ValueNum argVN) const
+{
+    switch (TypeOfVN(argVN))
+    {
+        case TYP_INT:
+            return ConstantValue<int32_t>(argVN);
+#ifndef TARGET_64BIT
+        case TYP_REF:
+        case TYP_BYREF:
+            return static_cast<int32_t>(ConstantValue<size_t>(argVN));
+#endif
+        default:
+            unreached();
+    }
+}
+
+int64_t ValueNumStore::GetConstantInt64(ValueNum argVN) const
+{
+    switch (TypeOfVN(argVN))
+    {
+        case TYP_INT:
+            return static_cast<int64_t>(ConstantValue<int32_t>(argVN));
+        case TYP_LONG:
+            return ConstantValue<int64_t>(argVN);
+        case TYP_REF:
+        case TYP_BYREF:
+            return static_cast<int64_t>(ConstantValue<size_t>(argVN));
+        default:
+            unreached();
+    }
+}
+
+double ValueNumStore::GetConstantDouble(ValueNum argVN) const
+{
+    assert(TypeOfVN(argVN) == TYP_DOUBLE);
+
+    return ConstantValue<double>(argVN);
+}
+
+float ValueNumStore::GetConstantSingle(ValueNum argVN) const
+{
+    assert(TypeOfVN(argVN) == TYP_FLOAT);
+
+    return ConstantValue<float>(argVN);
+}
+
+var_types ValueNumStore::GetConstantType(ValueNum vn) const
+{
+    if ((vn == NoVN) || (vn == VoidVN()))
+    {
+        return TYP_UNDEF;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    return (c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle) ? c->m_type : TYP_UNDEF;
+}
+
+bool ValueNumStore::IsVNConstant(ValueNum vn) const
+{
+    return GetConstantType(vn) != TYP_UNDEF;
+}
+
+bool ValueNumStore::IsVNInt32Constant(ValueNum vn) const
+{
+    return GetConstantType(vn) == TYP_INT;
+}
+
+bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
+{
+    assert(!HasExset(vn));
+
+    switch (GetConstantType(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            return true;
+#ifdef TARGET_64BIT
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            return true;
+#endif
+        default:
+            return false;
+    }
+}
+
+bool ValueNumStore::IsIntConstant(ValueNum vn, int64_t* value) const
+{
+    assert(!HasExset(vn));
+
+    switch (GetConstantType(vn))
+    {
+        case TYP_INT:
+            *value = ConstantValue<int32_t>(vn);
+            return true;
+        case TYP_LONG:
+            *value = ConstantValue<int64_t>(vn);
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ValueNumStore::IsInt64Constant(ValueNum vn, int64_t* value) const
+{
+    assert(!HasExset(vn));
+
+    if (GetConstantType(vn) == TYP_LONG)
+    {
+        *value = ConstantValue<int64_t>(vn);
+        return true;
+    }
+
+    return false;
+}
+
+HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
+{
+    assert(IsVNHandle(vn));
+
+    Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
+    unsigned index = ChunkOffset(vn);
+    return static_cast<VNHandle*>(chunk->m_defs)[index].kind;
+}
+
+bool ValueNumStore::IsVNHandle(ValueNum vn) const
+{
+    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
+}
+
+bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
+{
+    switch (vnf)
+    {
+        case VNOP_NEG:
+        case VNOP_NOT:
+        case VNOP_BSWAP16:
+        case VNOP_BSWAP:
+        case VNOP_ADD:
+        case VNOP_SUB:
+        case VNOP_MUL:
+        case VNOP_DIV:
+        case VNOP_MOD:
+        case VNOP_UDIV:
+        case VNOP_UMOD:
+        case VNOP_AND:
+        case VNOP_OR:
+        case VNOP_XOR:
+        case VNOP_LSH:
+        case VNOP_RSH:
+        case VNOP_RSZ:
+        case VNOP_ROL:
+        case VNOP_ROR:
+        case VNOP_FADD:
+        case VNOP_FSUB:
+        case VNOP_FMUL:
+        case VNOP_FDIV:
+        case VNOP_FMOD:
+        case VNOP_FNEG:
+        case VNOP_EQ:
+        case VNOP_NE:
+        case VNOP_GT:
+        case VNOP_GE:
+        case VNOP_LT:
+        case VNOP_LE:
+        case VNF_GT_UN:
+        case VNF_GE_UN:
+        case VNF_LT_UN:
+        case VNF_LE_UN:
+        case VNOP_FTOS:
+        case VNOP_FTOU:
+        case VNOP_STOF:
+        case VNOP_UTOF:
+        case VNOP_TRUNC:
+        case VNOP_SXT:
+        case VNOP_UXT:
+        case VNF_CONVS8:
+        case VNF_CONVU8:
+        case VNF_CONVS16:
+        case VNF_CONVU16:
+        case VNF_FTOSL:
+        case VNF_FTOUL:
+        case VNF_STOFD:
+        case VNF_UTOFD:
+            return true;
+        default:
+            return false;
+    }
+}
+
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN)
 {
     assert(CanEvalForConstantArgs(func));
@@ -1865,82 +1628,386 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
     }
 }
 
-// Given an integer constant value number return its value as an int.
-//
-int ValueNumStore::GetConstantInt32(ValueNum argVN)
+#ifdef DEBUG
+template <typename T>
+static bool IsOverflowIntDiv(T v0, T v1)
 {
-    assert(IsVNConstant(argVN));
-    var_types argVNtyp = TypeOfVN(argVN);
+    return false;
+}
 
-    int result = 0;
+template <>
+bool IsOverflowIntDiv(int32_t v0, int32_t v1)
+{
+    return (v1 == -1) && (v0 == INT32_MIN);
+}
 
-    switch (argVNtyp)
-    {
-        case TYP_INT:
-            result = ConstantValue<int>(argVN);
-            break;
-#ifndef TARGET_64BIT
-        case TYP_REF:
-        case TYP_BYREF:
-            result = (int)ConstantValue<size_t>(argVN);
-            break;
+template <>
+bool IsOverflowIntDiv(int64_t v0, int64_t v1)
+{
+    return (v1 == -1) && (v0 == INT64_MIN);
+}
 #endif
-        default:
-            unreached();
-    }
-    return result;
-}
 
-// Given an integer constant value number return its value as an int64_t.
-//
-int64_t ValueNumStore::GetConstantInt64(ValueNum argVN)
+template <typename T>
+static T EvalOp(VNFunc vnf, T v0, T v1)
 {
-    assert(IsVNConstant(argVN));
-    var_types argVNtyp = TypeOfVN(argVN);
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
 
-    int64_t result = 0;
+    using UT = typename std::make_unsigned<T>::type;
 
-    switch (argVNtyp)
+    switch (vnf)
     {
-        case TYP_INT:
-            result = (int64_t)ConstantValue<int>(argVN);
-            break;
-        case TYP_LONG:
-            result = ConstantValue<int64_t>(argVN);
-            break;
-        case TYP_REF:
-        case TYP_BYREF:
-            result = (int64_t)ConstantValue<size_t>(argVN);
-            break;
+        case VNOP_ADD:
+            return v0 + v1;
+        case VNOP_SUB:
+            return v0 - v1;
+        case VNOP_MUL:
+            return v0 * v1;
+
+        case VNOP_DIV:
+            assert(v1 != 0);
+            assert(!IsOverflowIntDiv(v0, v1));
+            return v0 / v1;
+
+        case VNOP_MOD:
+            assert(v1 != 0);
+            assert(!IsOverflowIntDiv(v0, v1));
+            return v0 % v1;
+
+        case VNOP_UDIV:
+            assert(v1 != 0);
+            return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
+
+        case VNOP_UMOD:
+            assert(v1 != 0);
+            return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
+
+        case VNOP_AND:
+            return v0 & v1;
+        case VNOP_OR:
+            return v0 | v1;
+        case VNOP_XOR:
+            return v0 ^ v1;
+
+        case VNOP_LSH:
+            // TODO-MIKE-Review: Why does this mask the shift amount for 64 bit but not for 32 bit shifts?
+            // And why does it do it on ARM?
+            return (sizeof(T) == 8) ? (v0 << (v1 & 63)) : (v0 << v1);
+        case VNOP_RSH:
+            return (sizeof(T) == 8) ? (v0 >> (v1 & 63)) : (v0 >> v1);
+        case VNOP_RSZ:
+            return (sizeof(T) == 8) ? static_cast<T>(static_cast<UT>(v0) >> (v1 & 63))
+                                    : static_cast<T>(static_cast<UT>(v0) >> v1);
+
+        case VNOP_ROL:
+            return static_cast<T>(jitstd::rotl(static_cast<UT>(v0), static_cast<int>(v1)));
+        case VNOP_ROR:
+            return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
+
         default:
             unreached();
     }
-    return result;
 }
 
-// Given a double constant value number return its value as a double.
+// We need to use target-specific NaN values when statically compute expressions.
+// Otherwise, cross crossgen (e.g. x86_arm) would have different binary outputs
+// from native crossgen (i.e. arm_arm) when the NaN got "embedded" into code.
 //
-double ValueNumStore::GetConstantDouble(ValueNum argVN)
+// For example, when placing NaN value in r3 register
+// x86_arm crossgen would emit
+//   movw    r3, 0x00
+//   movt    r3, 0xfff8
+// while arm_arm crossgen (and JIT) output is
+//   movw    r3, 0x00
+//   movt    r3, 0x7ff8
+
+struct FloatTraits
 {
-    assert(IsVNConstant(argVN));
-    assert(TypeOfVN(argVN) == TYP_DOUBLE);
+    // Default NaN value returned by expression 0.0f / 0.0f on x86/x64 has
+    // different binary representation (0xffc00000) than NaN on
+    // ARM32/ARM64 (0x7fc00000).
+    static float NaN()
+    {
+#if defined(TARGET_XARCH)
+        unsigned bits = 0xFFC00000u;
+#elif defined(TARGET_ARMARCH)
+        unsigned           bits = 0x7FC00000u;
+#else
+#error Unsupported or unset target architecture
+#endif
+        return jitstd::bit_cast<float>(bits);
+    }
 
-    return ConstantValue<double>(argVN);
-}
+    static bool IsNaN(float f)
+    {
+        return _isnanf(f);
+    }
+};
 
-// Given a float constant value number return its value as a float.
-//
-float ValueNumStore::GetConstantSingle(ValueNum argVN)
+struct DoubleTraits
 {
-    assert(IsVNConstant(argVN));
-    assert(TypeOfVN(argVN) == TYP_FLOAT);
+    // Default NaN value returned by expression 0.0 / 0.0 on x86/x64 has
+    // different binary representation (0xfff8000000000000) than NaN on
+    // ARM32/ARM64 (0x7ff8000000000000).
+    static double NaN()
+    {
+#if defined(TARGET_XARCH)
+        unsigned long long bits = 0xFFF8000000000000ull;
+#elif defined(TARGET_ARMARCH)
+        unsigned long long bits = 0x7FF8000000000000ull;
+#else
+#error Unsupported or unset target architecture
+#endif
+        return jitstd::bit_cast<double>(bits);
+    }
 
-    return ConstantValue<float>(argVN);
+    static bool IsNaN(double d)
+    {
+        return _isnan(d);
+    }
+};
+
+template <typename TFp, typename TFpTraits>
+TFp FpAdd(TFp value1, TFp value2)
+{
+#ifdef TARGET_ARMARCH
+    // If [value1] is negative infinity and [value2] is positive infinity
+    //   the result is NaN.
+    // If [value1] is positive infinity and [value2] is negative infinity
+    //   the result is NaN.
+
+    if (!_finite(value1) && !_finite(value2))
+    {
+        if (value1 < 0 && value2 > 0)
+        {
+            return TFpTraits::NaN();
+        }
+
+        if (value1 > 0 && value2 < 0)
+        {
+            return TFpTraits::NaN();
+        }
+    }
+#endif // TARGET_ARMARCH
+
+    return value1 + value2;
 }
 
-// Compute the proper value number when the VNFunc has all constant arguments
-// This essentially performs constant folding at value numbering time
-//
+template <typename TFp, typename TFpTraits>
+TFp FpSub(TFp value1, TFp value2)
+{
+#ifdef TARGET_ARMARCH
+    // If [value1] is positive infinity and [value2] is positive infinity
+    //   the result is NaN.
+    // If [value1] is negative infinity and [value2] is negative infinity
+    //   the result is NaN.
+
+    if (!_finite(value1) && !_finite(value2))
+    {
+        if (value1 > 0 && value2 > 0)
+        {
+            return TFpTraits::NaN();
+        }
+
+        if (value1 < 0 && value2 < 0)
+        {
+            return TFpTraits::NaN();
+        }
+    }
+#endif // TARGET_ARMARCH
+
+    return value1 - value2;
+}
+
+template <typename TFp, typename TFpTraits>
+TFp FpMul(TFp value1, TFp value2)
+{
+#ifdef TARGET_ARMARCH
+    // From the ECMA standard:
+    //
+    // If [value1] is zero and [value2] is infinity
+    //   the result is NaN.
+    // If [value1] is infinity and [value2] is zero
+    //   the result is NaN.
+
+    if (value1 == 0 && !_finite(value2) && !_isnan(value2))
+    {
+        return TFpTraits::NaN();
+    }
+    if (!_finite(value1) && !_isnan(value1) && value2 == 0)
+    {
+        return TFpTraits::NaN();
+    }
+#endif // TARGET_ARMARCH
+
+    return value1 * value2;
+}
+
+template <typename TFp, typename TFpTraits>
+TFp FpDiv(TFp dividend, TFp divisor)
+{
+#ifdef TARGET_ARMARCH
+    // From the ECMA standard:
+    //
+    // If [dividend] is zero and [divisor] is zero
+    //   the result is NaN.
+    // If [dividend] is infinity and [divisor] is infinity
+    //   the result is NaN.
+
+    if (dividend == 0 && divisor == 0)
+    {
+        return TFpTraits::NaN();
+    }
+    else if (!_finite(dividend) && !_isnan(dividend) && !_finite(divisor) && !_isnan(divisor))
+    {
+        return TFpTraits::NaN();
+    }
+#endif // TARGET_ARMARCH
+
+    return dividend / divisor;
+}
+
+template <typename TFp, typename TFpTraits>
+TFp FpRem(TFp dividend, TFp divisor)
+{
+    // From the ECMA standard:
+    //
+    // If [divisor] is zero or [dividend] is infinity
+    //   the result is NaN.
+    // If [divisor] is infinity,
+    //   the result is [dividend]
+
+    if (divisor == 0 || !_finite(dividend))
+    {
+        return TFpTraits::NaN();
+    }
+    else if (!_finite(divisor) && !_isnan(divisor))
+    {
+        return dividend;
+    }
+
+    return (TFp)fmod((double)dividend, (double)divisor);
+}
+
+template <typename T, typename Traits>
+static T EvalFloatOp(VNFunc vnf, T v0, T v1)
+{
+    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
+
+    switch (vnf)
+    {
+        case VNOP_FADD:
+            return FpAdd<T, Traits>(v0, v1);
+        case VNOP_FSUB:
+            return FpSub<T, Traits>(v0, v1);
+        case VNOP_FMUL:
+            return FpMul<T, Traits>(v0, v1);
+        case VNOP_FDIV:
+            return FpDiv<T, Traits>(v0, v1);
+        case VNOP_FMOD:
+            return FpRem<T, Traits>(v0, v1);
+        default:
+            unreached();
+    }
+}
+
+template <>
+double EvalOp<double>(VNFunc vnf, double v0, double v1)
+{
+    return EvalFloatOp<double, DoubleTraits>(vnf, v0, v1);
+}
+
+template <>
+float EvalOp<float>(VNFunc vnf, float v0, float v1)
+{
+    return EvalFloatOp<float, FloatTraits>(vnf, v0, v1);
+}
+
+template <typename T>
+static int EvalComparison(VNFunc vnf, T v0, T v1)
+{
+    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
+    // need to figure out what effect that may have on sign sensitive operations.
+    static_assert_no_msg(
+        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
+
+    using UT = typename std::make_unsigned<T>::type;
+
+    switch (vnf)
+    {
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+            return v0 > v1;
+        case VNOP_GE:
+            return v0 >= v1;
+        case VNOP_LT:
+            return v0 < v1;
+        case VNOP_LE:
+            return v0 <= v1;
+        case VNF_GT_UN:
+            return static_cast<UT>(v0) > static_cast<UT>(v1);
+        case VNF_GE_UN:
+            return static_cast<UT>(v0) >= static_cast<UT>(v1);
+        case VNF_LT_UN:
+            return static_cast<UT>(v0) < static_cast<UT>(v1);
+        case VNF_LE_UN:
+            return static_cast<UT>(v0) <= static_cast<UT>(v1);
+        default:
+            unreached();
+    }
+}
+
+template <typename T, typename Traits>
+static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
+{
+    static_assert_no_msg((std::is_same<T, float>::value || std::is_same<T, double>::value));
+
+    if (Traits::IsNaN(v0) || Traits::IsNaN(v1))
+    {
+        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
+    }
+
+    switch (vnf)
+    {
+        case VNOP_EQ:
+            return v0 == v1;
+        case VNOP_NE:
+            return v0 != v1;
+        case VNOP_GT:
+        case VNF_GT_UN:
+            return v0 > v1;
+        case VNOP_GE:
+        case VNF_GE_UN:
+            return v0 >= v1;
+        case VNOP_LT:
+        case VNF_LT_UN:
+            return v0 < v1;
+        case VNOP_LE:
+        case VNF_LE_UN:
+            return v0 <= v1;
+        default:
+            unreached();
+    }
+}
+
+template <>
+int EvalComparison<double>(VNFunc vnf, double v0, double v1)
+{
+    return EvalFloatComparison<double, DoubleTraits>(vnf, v0, v1);
+}
+
+template <>
+int EvalComparison<float>(VNFunc vnf, float v0, float v1)
+{
+    return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
+}
+
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
     assert(CanEvalForConstantArgs(func));
@@ -2091,9 +2158,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     return result;
 }
 
-// Compute the proper value number when the VNFunc has all constant floating-point arguments
-// This essentially must perform constant folding at value numbering time
-//
 ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
     assert(CanEvalForConstantArgs(func));
@@ -2146,70 +2210,10 @@ ValueNum ValueNumStore::EvalFuncForConstantFPArgs(var_types typ, VNFunc func, Va
     return result;
 }
 
-bool ValueNumStore::CanEvalForConstantArgs(VNFunc vnf)
-{
-    switch (vnf)
-    {
-        case VNOP_NEG:
-        case VNOP_NOT:
-        case VNOP_BSWAP16:
-        case VNOP_BSWAP:
-        case VNOP_ADD:
-        case VNOP_SUB:
-        case VNOP_MUL:
-        case VNOP_DIV:
-        case VNOP_MOD:
-        case VNOP_UDIV:
-        case VNOP_UMOD:
-        case VNOP_AND:
-        case VNOP_OR:
-        case VNOP_XOR:
-        case VNOP_LSH:
-        case VNOP_RSH:
-        case VNOP_RSZ:
-        case VNOP_ROL:
-        case VNOP_ROR:
-        case VNOP_FADD:
-        case VNOP_FSUB:
-        case VNOP_FMUL:
-        case VNOP_FDIV:
-        case VNOP_FMOD:
-        case VNOP_FNEG:
-        case VNOP_EQ:
-        case VNOP_NE:
-        case VNOP_GT:
-        case VNOP_GE:
-        case VNOP_LT:
-        case VNOP_LE:
-        case VNF_GT_UN:
-        case VNF_GE_UN:
-        case VNF_LT_UN:
-        case VNF_LE_UN:
-        case VNOP_FTOS:
-        case VNOP_FTOU:
-        case VNOP_STOF:
-        case VNOP_UTOF:
-        case VNOP_TRUNC:
-        case VNOP_SXT:
-        case VNOP_UXT:
-        case VNF_CONVS8:
-        case VNF_CONVU8:
-        case VNF_CONVS16:
-        case VNF_CONVU16:
-        case VNF_FTOSL:
-        case VNF_FTOUL:
-        case VNF_STOFD:
-        case VNF_UTOFD:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1) const
 {
     assert(type != TYP_BYREF);
-    assert(!VNFuncIsOverflowArithmetic(func));
+    assert((func < VNOP_OVF_SADD) || (VNOP_OVF_UMUL < func));
     assert(IsVNConstant(arg0));
     assert(IsVNConstant(arg1));
 
@@ -4453,90 +4457,6 @@ var_types ValueNumStore::TypeOfVN(ValueNum vn) const
     return vn == NoVN ? TYP_UNDEF : m_chunks.Get(GetChunkNum(vn))->m_type;
 }
 
-var_types ValueNumStore::GetConstantType(ValueNum vn) const
-{
-    if ((vn == NoVN) || (vn == VoidVN()))
-    {
-        return TYP_UNDEF;
-    }
-
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return (c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle) ? c->m_type : TYP_UNDEF;
-}
-
-bool ValueNumStore::IsVNConstant(ValueNum vn) const
-{
-    return GetConstantType(vn) != TYP_UNDEF;
-}
-
-bool ValueNumStore::IsVNInt32Constant(ValueNum vn) const
-{
-    return GetConstantType(vn) == TYP_INT;
-}
-
-bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
-{
-    assert(!HasExset(vn));
-
-    switch (GetConstantType(vn))
-    {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            return true;
-#ifdef TARGET_64BIT
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            return true;
-#endif
-        default:
-            return false;
-    }
-}
-
-bool ValueNumStore::IsIntConstant(ValueNum vn, int64_t* value) const
-{
-    assert(!HasExset(vn));
-
-    switch (GetConstantType(vn))
-    {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            return true;
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool ValueNumStore::IsInt64Constant(ValueNum vn, int64_t* value) const
-{
-    assert(!HasExset(vn));
-
-    if (GetConstantType(vn) == TYP_LONG)
-    {
-        *value = ConstantValue<int64_t>(vn);
-        return true;
-    }
-
-    return false;
-}
-
-HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
-{
-    assert(IsVNHandle(vn));
-
-    Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
-    unsigned index = ChunkOffset(vn);
-    return static_cast<VNHandle*>(chunk->m_defs)[index].kind;
-}
-
-bool ValueNumStore::IsVNHandle(ValueNum vn) const
-{
-    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
-}
-
 bool ValueNumStore::IsVNCompareCheckedBound(const VNFuncApp& funcApp)
 {
     assert(IsVNCompareCheckedBoundRelop(funcApp));
@@ -5619,7 +5539,7 @@ bool ValueNumStore::IsLegalVNFuncOper(genTreeOps oper)
     return !VNFuncAttrs(static_cast<VNFunc>(oper)).illegal;
 }
 
-bool ValueNumStore::IsKnownNonNull(ValueNum vn)
+bool ValueNumStore::IsKnownNonNull(ValueNum vn) const
 {
     VNFuncApp funcApp;
     return VNFuncAttrs(GetVNFunc(vn, &funcApp)).knownNotNull;
