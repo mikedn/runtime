@@ -518,10 +518,10 @@ public:
     static bool VNFuncIsCommutative(VNFunc vnf);
 
     // Given an constant value number return its value.
-    int GetConstantInt32(ValueNum argVN);
-    int64_t GetConstantInt64(ValueNum argVN);
-    double GetConstantDouble(ValueNum argVN);
-    float GetConstantSingle(ValueNum argVN);
+    int32_t GetConstantInt32(ValueNum argVN) const;
+    int64_t GetConstantInt64(ValueNum argVN) const;
+    double GetConstantDouble(ValueNum argVN) const;
+    float GetConstantSingle(ValueNum argVN) const;
 
 private:
     // Assumes that all the ValueNum arguments of each of these functions have been shown to represent constants.
@@ -542,7 +542,6 @@ public:
 
     static const struct VNFuncAttrs& VNFuncAttrs(VNFunc vnf);
     static bool VNFuncIsLegal(VNFunc vnf);
-    static bool VNFuncIsOverflowArithmetic(VNFunc vnf);
     static unsigned VNFuncArity(VNFunc vnf);
     static bool VNFuncArityIsLegal(VNFunc vnf, unsigned arity);
     static bool VNFuncArityIsVariable(VNFunc vnf);
@@ -637,24 +636,24 @@ public:
 
     ValueNum ExsetCreate(ValueNum x);
     ValueNumPair ExsetCreate(ValueNumPair x);
-    INDEBUG(bool ExsetIsOrdered(ValueNum item, ValueNum xs1);)
+    INDEBUG(bool ExsetIsOrdered(ValueNum item, ValueNum xs1) const;)
     ValueNum ExsetUnion(ValueNum xs0, ValueNum xs1);
     ValueNumPair ExsetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
     ValueNum ExsetIntersection(ValueNum xs0, ValueNum xs1);
     ValueNumPair ExsetIntersection(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
-    bool ExsetIsSubset(ValueNum vnCandidateSet, ValueNum vnFullSet);
+    bool ExsetIsSubset(ValueNum vnCandidateSet, ValueNum vnFullSet) const;
     ValueNum PackExset(ValueNum vn, ValueNum exset);
     ValueNumPair PackExset(ValueNumPair vnp, ValueNumPair exset);
-    ValueNum UnpackExset(ValueNum vn, ValueNum* exset);
-    ValueNumPair UnpackExset(ValueNumPair vnp, ValueNumPair* exset);
+    ValueNum UnpackExset(ValueNum vn, ValueNum* exset) const;
+    ValueNumPair UnpackExset(ValueNumPair vnp, ValueNumPair* exset) const;
     ValueNum ExtractValue(ValueNum vn) const;
-    ValueNumPair ExtractValue(ValueNumPair vnp);
-    ValueNum ExtractExset(ValueNum vn);
-    ValueNumPair ExtractExset(ValueNumPair vn);
+    ValueNumPair ExtractValue(ValueNumPair vnp) const;
+    ValueNum ExtractExset(ValueNum vn) const;
+    ValueNumPair ExtractExset(ValueNumPair vn) const;
     INDEBUG(bool HasExset(ValueNum vn) const;)
 
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
-    bool IsKnownNonNull(ValueNum vn);
+    bool IsKnownNonNull(ValueNum vn) const;
 
     ValueNum VNForFunc(var_types type, VNFunc func);
     ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0);
