@@ -269,17 +269,19 @@ int RangeCheck::GetArrayLength(ValueNum vn) const
         return -1;
     }
 
-    var_types type = vnStore->GetConstantType(funcApp[1]);
+    if (const int32_t* i32 = vnStore->IsConstInt32(funcApp[1]))
+    {
+        return *i32 >= 0 ? *i32 : -1;
+    }
 
 #ifdef TARGET_64BIT
-    if (type == TYP_LONG)
+    if (const int64_t* i64 = vnStore->IsConstInt64(funcApp[1]))
     {
-        int64_t length = vnStore->ConstantValue<int64_t>(funcApp[1]);
-        return length <= INT32_MAX ? static_cast<int>(length) : -1;
+        return (0 <= *i64) && (*i64 <= INT32_MAX) ? static_cast<int32_t>(*i64) : -1;
     }
 #endif
 
-    return type == TYP_INT ? vnStore->ConstantValue<int>(funcApp[1]) : -1;
+    return -1;
 }
 
 bool RangeCheck::IsInBounds(const Range& range, ValueNum lengthVN, int lengthVal)
@@ -332,7 +334,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     ValueNum lengthVN   = vnStore->ExtractValue(lengthExpr->GetConservativeVN());
     ssize_t  lengthVal  = 0;
 
-    if (vnStore->IsIntegralConstant(lengthVN, &lengthVal))
+    if (vnStore->IsConstSize(lengthVN, &lengthVal))
     {
         currentLengthVN = NoVN;
 
@@ -366,7 +368,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     ValueNum indexVN   = vnStore->ExtractValue(indexExpr->GetConservativeVN());
     ssize_t  indexVal;
 
-    if ((lengthVal > 0) && vnStore->IsIntegralConstant(indexVN, &indexVal) && (0 <= indexVal) && (indexVal < lengthVal))
+    if ((lengthVal > 0) && vnStore->IsConstSize(indexVN, &indexVal) && (0 <= indexVal) && (indexVal < lengthVal))
     {
         JITDUMP("Optimize: Constant index " FMT_VN " %d in [0, %d).\n", indexVN, indexVal, lengthVal);
 
@@ -414,7 +416,6 @@ bool RangeCheck::HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* phiArg) const
 {
     GenTree* value = phiArg->GetDef()->GetValue();
     int      step  = 0;
-    int      count = 0;
 
     for (unsigned i = 0; i < 16; i++)
     {
@@ -435,19 +436,20 @@ bool RangeCheck::HasPositiveStep(GenTreePhi* phi, GenTreeLclUse* phiArg) const
             GenTree* op1 = value->AsOp()->GetOp(0);
             GenTree* op2 = value->AsOp()->GetOp(1);
 
-            if (vnStore->IsVNConstant(op1->GetConservativeVN()))
+            if (const int32_t* c1 = vnStore->IsConstInt32(op1->GetConservativeVN()))
             {
-                std::swap(op1, op2);
+                step += *c1;
+                value = op2;
             }
-            else if (!vnStore->IsVNConstant(op2->GetConservativeVN()))
+            else if (const int32_t* c2 = vnStore->IsConstInt32(op2->GetConservativeVN()))
+            {
+                step += *c2;
+                value = op1;
+            }
+            else
             {
                 return false;
             }
-
-            value = op1;
-            step += vnStore->GetConstantInt32(op2->GetConservativeVN());
-
-            count++;
 
             continue;
         }
@@ -522,9 +524,9 @@ bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeCon
     {
         monotonicallyIncreasing = false;
     }
-    else if (vnStore->IsVNInt32Constant(expr->GetConservativeVN()))
+    else if (const int32_t* c = vnStore->IsConstInt32(expr->GetConservativeVN()))
     {
-        monotonicallyIncreasing = !rejectNegativeConst || (vnStore->ConstantValue<int>(expr->GetConservativeVN()) >= 0);
+        monotonicallyIncreasing = !rejectNegativeConst || (*c >= 0);
     }
     else if (expr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
     {
@@ -641,14 +643,15 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 continue;
             }
 
-            if (!vnStore->IsVNInt32Constant(info.arrOp))
+            const int32_t* cons = vnStore->IsConstInt32(info.arrOp);
+
+            if (cons == nullptr)
             {
                 continue;
             }
 
-            int cons = vnStore->ConstantValue<int>(info.arrOp);
-            limit    = Limit::VN(info.vnBound, info.arrOper == GT_SUB ? -cons : cons);
-            cmpOper  = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
+            limit   = Limit::VN(info.vnBound, info.arrOper == GT_SUB ? -*cons : *cons);
+            cmpOper = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
         }
         else if (assertion.IsCompareCheckedBound()) // (i < length) ==/!= 0
         {
@@ -707,14 +710,19 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 continue;
             }
 
-            int constValue = vnStore->CoercedConstantValue<int>(assertion.GetConstantVN());
+            const int32_t* constValue = vnStore->IsConstInt32(assertion.GetConstantVN());
+
+            if (constValue == nullptr)
+            {
+                continue;
+            }
 
             if (assertion.IsEqual())
             {
-                limit   = Limit::Constant(constValue);
+                limit   = Limit::Constant(*constValue);
                 cmpOper = GT_EQ;
             }
-            else if ((constValue == 0) && vnStore->IsVNCheckedBound(assertion.GetVN()))
+            else if ((*constValue == 0) && vnStore->IsVNCheckedBound(assertion.GetVN()))
             {
                 limit   = Limit::Constant(1);
                 cmpOper = GT_GE;
@@ -735,9 +743,9 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         assert(cmpOper != GT_NONE);
 
         // Limits are sometimes VN + constant, where VN is also constant.
-        if (limit.IsVN() && vnStore->IsVNInt32Constant(limit.GetVN()))
+        if (limit.IsVN() && vnStore->IsConstInt32(limit.GetVN()))
         {
-            Limit temp = Limit::Constant(vnStore->ConstantValue<int>(limit.GetVN()));
+            Limit temp = Limit::Constant(vnStore->GetConstInt32(limit.GetVN()));
 
             if (temp.AddConstant(limit.GetConstant()))
             {
@@ -1014,9 +1022,9 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         {
             ValueNum useVN = vnStore->ExtractValue(useNode->GetConservativeVN());
 
-            if (vnStore->IsVNInt32Constant(useVN))
+            if (const int32_t* useVal = vnStore->IsConstInt32(useVN))
             {
-                Range range = Limit::Constant(vnStore->GetConstantInt32(useVN));
+                Range range = Limit::Constant(*useVal);
                 MergePhiArgAssertions(block, useNode, &range);
                 useRange = rangeMap.Emplace(useNode, range);
             }
@@ -1141,13 +1149,13 @@ Range RangeCheck::ComputeLeafRange(GenTree* expr) const
 
 Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 {
-    assert(!expr->OperIs(GT_COMMA) && (varActualType(expr->GetType()) == TYP_INT));
+    assert(!expr->OperIs(GT_COMMA) && varActualTypeIsInt(expr->GetType()));
 
     ValueNum vn = vnStore->ExtractValue(expr->GetConservativeVN());
 
-    if (var_types type = vnStore->GetConstantType(vn))
+    if (const int32_t* c = vnStore->IsConstInt32(vn))
     {
-        return type == TYP_INT ? Limit::Constant(vnStore->ConstantValue<int>(vn)) : Limit::Unknown();
+        return Limit::Constant(*c);
     }
 
     if (expr->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))

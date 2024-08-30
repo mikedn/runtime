@@ -294,18 +294,17 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if (vnStore->IsVNInt32Constant(indexVN))
+        if (const int32_t* indexVal = vnStore->IsConstInt32(indexVN))
         {
-            ssize_t indexVal = vnStore->ConstantValue<int32_t>(indexVN);
-
-            return indexVal == INT32_MAX ? NO_ASSERTION_INDEX : AddRangeAssertion(lengthVN, indexVal + 1, INT32_MAX);
+            return *indexVal == INT32_MAX ? NO_ASSERTION_INDEX
+                                          : AddRangeAssertion(lengthVN, static_cast<ssize_t>(*indexVal) + 1, INT32_MAX);
         }
 
-        if (vnStore->IsVNInt32Constant(lengthVN))
+        if (const int32_t* lengthVal = vnStore->IsConstInt32(lengthVN))
         {
-            ssize_t lengthVal = vnStore->ConstantValue<int32_t>(lengthVN);
-
-            return lengthVal == 0 ? NO_ASSERTION_INDEX : AddRangeAssertion(indexVN, 0, lengthVal - 1);
+            assert(*lengthVal >= 0);
+            return *lengthVal == 0 ? NO_ASSERTION_INDEX
+                                   : AddRangeAssertion(indexVN, 0, static_cast<ssize_t>(*lengthVal) - 1);
         }
 
         return AddBoundsChkAssertion(indexVN, lengthVN);
@@ -368,14 +367,14 @@ private:
 
             while ((vnStore->GetVNFunc(vn, &funcApp) == VNOP_ADD) && (vnStore->TypeOfVN(vn) == TYP_BYREF))
             {
-                if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
+                if (const target_ssize_t* value = vnStore->IsConstIntN(funcApp[1]))
                 {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[1]);
+                    offset += *value;
                     vn = funcApp[0];
                 }
-                else if (vnStore->IsVNConstant(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
+                else if (const target_ssize_t* value = vnStore->IsConstIntN(funcApp[0]))
                 {
-                    offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[0]);
+                    offset += *value;
                     vn = funcApp[1];
                 }
                 else
@@ -667,14 +666,12 @@ private:
         return index;
     }
 
-    AssertionIndex AddRangeAssertions(genTreeOps oper, ValueNum vn, ValueNum limitVN)
+    AssertionIndex AddRangeAssertions(genTreeOps oper, ValueNum vn, ssize_t limit)
     {
         assert((GT_LT <= oper) && (oper <= GT_GT));
-        assert(vnStore->IsVNInt32Constant(limitVN));
 
-        ssize_t limit = vnStore->ConstantValue<int32_t>(limitVN);
-        ssize_t min   = INT32_MIN;
-        ssize_t max   = INT32_MAX;
+        ssize_t min = INT32_MIN;
+        ssize_t max = INT32_MAX;
 
         switch (oper)
         {
@@ -846,16 +843,17 @@ private:
             // "i LT|LE|GE|GT j" where either i or j is constant
             else
             {
-                genTreeOps oper    = static_cast<genTreeOps>(funcApp.m_func);
-                ValueNum   vn      = funcApp[0];
-                ValueNum   limitVN = funcApp[1];
+                genTreeOps     oper    = static_cast<genTreeOps>(funcApp.m_func);
+                ValueNum       vn      = funcApp[0];
+                ValueNum       limitVN = funcApp[1];
+                const int32_t* limitVal;
 
-                if (vnStore->IsVNInt32Constant(vn))
+                if ((limitVal = vnStore->IsConstInt32(vn)) != nullptr)
                 {
                     std::swap(vn, limitVN);
                     oper = GenTree::SwapRelop(oper);
                 }
-                else if (!vnStore->IsVNInt32Constant(limitVN))
+                else if ((limitVal = vnStore->IsConstInt32(limitVN)) == nullptr)
                 {
                     return NO_ASSERTION_INDEX;
                 }
@@ -865,7 +863,7 @@ private:
                     oper = GenTree::ReverseRelop(oper);
                 }
 
-                return AddRangeAssertions(oper, vn, limitVN);
+                return AddRangeAssertions(oper, vn, *limitVal);
             }
 
             AssertionDsc dsc;
@@ -912,29 +910,28 @@ private:
         if (vnStore->IsVNCheckedBound(funcApp[1]))
         {
             // "(uint)i < (uint)len" or "(uint)i >= (uint)len" => BoundsChk(i, len)
-            if (!vnStore->IsVNInt32Constant(funcApp[0]))
-            {
-                index = AddBoundsChkAssertion(funcApp[0], funcApp[1]);
-            }
-            else
+            if (const int32_t* constVal = vnStore->IsConstInt32(funcApp[0]))
             {
                 // "C < (uint)len" or "C >= (uint)len" => len IN [C+1..INT32_MAX]
-                ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[0]);
 
-                if ((constVal < 0) || (constVal == INT32_MAX))
+                if ((*constVal < 0) || (*constVal == INT32_MAX))
                 {
                     return NO_ASSERTION_INDEX;
                 }
 
-                index = AddRangeAssertion(funcApp[1], constVal + 1, INT32_MAX);
+                index = AddRangeAssertion(funcApp[1], static_cast<ssize_t>(*constVal) + 1, INT32_MAX);
+            }
+            else
+            {
+                index = AddBoundsChkAssertion(funcApp[0], funcApp[1]);
             }
 
             isTrue = func == VNF_LT_UN;
         }
-        else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsVNInt32Constant(funcApp[1]))
+        else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsConstInt32(funcApp[1]))
         {
             // "(uint)len < C" or "(uint)len >= C" => len IN [C..INT32_MAX]
-            ssize_t constVal = vnStore->ConstantValue<int32_t>(funcApp[1]);
+            ssize_t constVal = vnStore->GetConstInt32(funcApp[1]);
 
             if (constVal <= 0)
             {
@@ -1019,9 +1016,10 @@ private:
         ValueNum op1VN = vnStore->ExtractValue(op1->GetConservativeVN());
         ValueNum op2VN = vnStore->ExtractValue(op2->GetConservativeVN());
 
-        if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsVNInt32Constant(op2VN))
+        if (vnStore->IsVNCheckedBound(op1VN) && vnStore->IsConstInt32(op2VN))
         {
-            int op2Value = vnStore->ConstantValue<int>(op2VN);
+            int32_t op2Value = vnStore->GetConstInt32(op2VN);
+
             if (op2Value >= 0)
             {
                 AssertionDsc dsc;
@@ -1579,14 +1577,12 @@ private:
         return nullptr;
     }
 
-    AssertionInfo FindRelopRangeAssertion(const ASSERT_TP assertions, genTreeOps oper, ValueNum vn, ValueNum limitVN)
+    AssertionInfo FindRelopRangeAssertion(const ASSERT_TP assertions, genTreeOps oper, ValueNum vn, ssize_t limit)
     {
         assert((GT_LT <= oper) && (oper <= GT_GT));
-        assert(vnStore->IsVNInt32Constant(limitVN));
 
-        ssize_t limit = vnStore->ConstantValue<int32_t>(limitVN);
-        ssize_t min   = INT32_MIN;
-        ssize_t max   = INT32_MAX;
+        ssize_t min = INT32_MIN;
+        ssize_t max = INT32_MAX;
 
         switch (oper)
         {
@@ -1695,21 +1691,22 @@ private:
         }
         else if (!relop->IsRelopUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
         {
-            genTreeOps oper    = relop->GetOper();
-            ValueNum   vn      = vnStore->ExtractValue(relop->GetOp(0)->GetConservativeVN());
-            ValueNum   limitVN = vnStore->ExtractValue(relop->GetOp(1)->GetConservativeVN());
+            genTreeOps     oper    = relop->GetOper();
+            ValueNum       vn      = vnStore->ExtractValue(relop->GetOp(0)->GetConservativeVN());
+            ValueNum       limitVN = vnStore->ExtractValue(relop->GetOp(1)->GetConservativeVN());
+            const int32_t* limitVal;
 
-            if (vnStore->IsVNInt32Constant(vn))
+            if ((limitVal = vnStore->IsConstInt32(vn)) != nullptr)
             {
                 std::swap(vn, limitVN);
                 oper = GenTree::SwapRelop(oper);
             }
-            else if (!vnStore->IsVNInt32Constant(limitVN))
+            else if ((limitVal = vnStore->IsConstInt32(limitVN)) == nullptr)
             {
                 return nullptr;
             }
 
-            AssertionInfo info = FindRelopRangeAssertion(assertions, oper, vn, limitVN);
+            AssertionInfo info = FindRelopRangeAssertion(assertions, oper, vn, *limitVal);
 
             if (!info.HasAssertion())
             {
@@ -1982,16 +1979,9 @@ private:
     {
         assert(div->OperIs(GT_DIV, GT_MOD) && div->TypeIs(TYP_INT));
 
-        ValueNum divisorVN = vnStore->ExtractValue(div->GetOp(1)->GetConservativeVN());
+        const int32_t* divisor = vnStore->IsConstInt32(vnStore->ExtractValue(div->GetOp(1)->GetConservativeVN()));
 
-        if (!vnStore->IsVNInt32Constant(divisorVN))
-        {
-            return nullptr;
-        }
-
-        ssize_t divisor = vnStore->ConstantValue<int32_t>(divisorVN);
-
-        if (divisor < 2)
+        if ((divisor == nullptr) || (*divisor < 2))
         {
             return nullptr;
         }
@@ -2220,8 +2210,8 @@ private:
 
         ValueNum indexVN      = vnStore->ExtractValue(boundsChk->GetIndex()->GetConservativeVN());
         ValueNum lengthVN     = vnStore->ExtractValue(boundsChk->GetLength()->GetConservativeVN());
-        ssize_t  indexVal     = vnStore->IsVNInt32Constant(indexVN) ? vnStore->ConstantValue<int>(indexVN) : -1;
-        ssize_t  lengthVal    = vnStore->IsVNInt32Constant(lengthVN) ? vnStore->ConstantValue<int>(lengthVN) : -1;
+        ssize_t  indexVal     = vnStore->IsConstInt32(indexVN) ? vnStore->GetConstInt32(indexVN) : -1;
+        ssize_t  lengthVal    = vnStore->IsConstInt32(lengthVN) ? vnStore->GetConstInt32(lengthVN) : -1;
         ssize_t  indexMinVal  = INT32_MIN;
         ssize_t  indexMaxVal  = INT32_MAX;
         ValueNum indexMaxVN   = NoVN;
@@ -2338,9 +2328,9 @@ private:
                 // be a range assertion. Problem is, RangeCheck depends on O1K_BOUND_LOOP_BND and
                 // it is a pile of crap that needs serious work.
 
-                if (vnStore->IsVNInt32Constant(funcApp[0]))
+                if (const int32_t* c = vnStore->IsConstInt32(funcApp[0]))
                 {
-                    ssize_t constVal = vnStore->ConstantValue<int>(funcApp[0]);
+                    ssize_t constVal = *c;
 
                     if ((oper == GT_LT) && (constVal != INT32_MAX))
                     {
@@ -2907,29 +2897,6 @@ private:
         BitVecOps::ClearD(countTraits, compiler->fgFirstBB->bbAssertionIn);
     }
 
-    GenTree* ExtractConstantSideEffects(GenTree* tree)
-    {
-        assert(vnStore->IsVNConstant(vnStore->ExtractValue(tree->GetConservativeVN())));
-
-        if ((tree->gtFlags & GTF_SIDE_EFFECT) == 0)
-        {
-            return nullptr;
-        }
-
-        // Do a sanity check to ensure persistent side effects aren't discarded and
-        // tell gtExtractSideEffList to ignore the root of the tree.
-        assert(!compiler->gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
-
-        // Exception side effects may be ignored because the root is known to be a constant
-        // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
-        // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
-        bool ignoreRoot = true;
-
-        GenTree* sideEffects = compiler->gtExtractSideEffList(tree, GTF_SIDE_EFFECT, ignoreRoot);
-        JITDUMPTREE(sideEffects, "Extracted side effects from constant tree [%06u]:\n", tree->GetID());
-        return sideEffects;
-    }
-
     class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
     {
         ValueNumStore* m_vnStore;
@@ -3123,9 +3090,10 @@ private:
                 return stmt;
             }
 
-            ValueNum vn = m_vnStore->ExtractValue(relop->GetConservativeVN());
+            ValueNum       vn    = m_vnStore->ExtractValue(relop->GetConservativeVN());
+            const int32_t* value = m_vnStore->IsConstInt32(vn);
 
-            if (!m_vnStore->IsVNConstant(vn))
+            if (value == nullptr)
             {
                 return stmt;
             }
@@ -3142,7 +3110,7 @@ private:
             GenTree* sideEffects = ExtractConstTreeSideEffects(relop);
             assert(sideEffects != relop);
 
-            relop->ChangeToIntCon(m_vnStore->CoercedConstantValue<int64_t>(vn) != 0 ? 1 : 0);
+            relop->ChangeToIntCon(*value != 0 ? 1 : 0);
             JITDUMP("After JTRUE constant propagation:\n");
             DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(stmt));
 
@@ -3440,7 +3408,7 @@ private:
             var_types vnType  = m_vnStore->TypeOfVN(vn);
             GenTree*  newTree = nullptr;
 
-            if (m_vnStore->IsVNHandle(vn))
+            if (const VNHandle* handle = m_vnStore->IsHandle(vn))
             {
                 assert(vnType == TYP_I_IMPL);
 
@@ -3449,8 +3417,7 @@ private:
                 // sometimes be TYP_BYREF, due to things like Unsafe.As.
                 if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF))
                 {
-                    newTree = m_compiler->gtNewIconHandleNode(m_vnStore->ConstantValue<target_ssize_t>(vn),
-                                                              m_vnStore->GetHandleKind(vn));
+                    newTree = m_compiler->gtNewIconHandleNode(static_cast<size_t>(handle->value), handle->kind);
                 }
             }
             // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
@@ -3461,32 +3428,19 @@ private:
                 switch (vnType)
                 {
                     case TYP_FLOAT:
-                        newTree = m_compiler->gtNewDconNode(m_vnStore->ConstantValue<float>(vn), TYP_FLOAT);
+                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstFloat(vn), TYP_FLOAT);
                         break;
                     case TYP_DOUBLE:
-                        newTree = m_compiler->gtNewDconNode(m_vnStore->ConstantValue<double>(vn), TYP_DOUBLE);
-                        break;
-                    case TYP_UBYTE:
-                    case TYP_BOOL:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<uint8_t>(vn));
-                        break;
-                    case TYP_BYTE:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<int8_t>(vn));
-                        break;
-                    case TYP_USHORT:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<uint16_t>(vn));
-                        break;
-                    case TYP_SHORT:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->CoercedConstantValue<int16_t>(vn));
+                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstDouble(vn), TYP_DOUBLE);
                         break;
                     case TYP_INT:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->ConstantValue<int32_t>(vn));
+                        newTree = m_compiler->gtNewIconNode(m_vnStore->GetConstInt32(vn));
                         break;
                     case TYP_LONG:
-                        newTree = m_compiler->gtNewLconNode(m_vnStore->ConstantValue<int64_t>(vn));
+                        newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
                         break;
                     case TYP_REF:
-                        assert(m_vnStore->ConstantValue<size_t>(vn) == 0);
+                        assert(vn == m_vnStore->NullVN());
                         newTree = m_compiler->gtNewIconNode(0, TYP_REF);
                         break;
                     case TYP_BYREF:
@@ -3559,8 +3513,8 @@ private:
             // This really should be done via SSA. But for now it's good enough to remove a bunch of
             // LEAs that the JIT has been generating from the dawn of time.
 
-            unsigned      lclNum   = m_vnStore->ConstantValue<unsigned>(lclAddr[0]);
-            target_size_t offset   = m_vnStore->ConstantValue<target_size_t>(lclAddr[1]);
+            unsigned      lclNum   = static_cast<unsigned>(m_vnStore->GetConstInt32(lclAddr[0]));
+            target_size_t offset   = static_cast<target_size_t>(m_vnStore->GetConstIntN(lclAddr[1]));
             FieldSeqNode* fieldSeq = m_vnStore->FieldSeqVNToFieldSeq(lclAddr[2]);
             LclVarDsc*    lcl      = m_compiler->lvaGetDesc(lclNum);
 

@@ -786,7 +786,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
     assert((func != VNOP_NONE) && (func != VNF_MemOpaque));
     assert(!HasExset(arg0));
 
-    if (CanEvalForConstantArgs1(func) && IsVNConstant(arg0))
+    if (CanEvalForConstantArgs1(func) && IsConst(arg0))
     {
         return EvalFuncForConstantArgs(type, func, arg0);
     }
@@ -836,10 +836,42 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
     }
 
-    if ((type != TYP_BYREF) && CanEvalForConstantArgs2(func) && IsVNConstant(arg0) && IsVNConstant(arg1) &&
-        VNEvalShouldFold(type, func, arg0, arg1))
+    if ((type != TYP_BYREF) && CanEvalForConstantArgs2(func) && (GetConstType(arg0) != TYP_UNDEF) &&
+        (GetConstType(arg1) != TYP_UNDEF) && VNEvalShouldFold(type, func, arg0, arg1))
     {
         return EvalFuncForConstantArgs(type, func, arg0, arg1);
+    }
+
+    if (const VNHandle* h0 = IsHandle(arg0))
+    {
+        if (const VNHandle* h1 = IsHandle(arg1))
+        {
+            switch (func)
+            {
+                case VNOP_EQ:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(h0->value == h1->value);
+                case VNOP_NE:
+                    assert(type == TYP_INT);
+                    return VNForIntCon(h0->value != h1->value);
+                default:
+                    break;
+            }
+        }
+        else if ((func == VNOP_ADD) && !compiler->opts.compReloc)
+        {
+#ifdef TARGET_64BIT
+            if (const int64_t* ofs = IsConstInt64(arg1))
+            {
+                return VNForHandle(static_cast<int64_t>(h0->value) + *ofs, h0->kind);
+            }
+#elif !defined(HOST_64BIT)
+            if (const int32_t* ofs = IsConstInt32(arg1))
+            {
+                return VNForHandle(static_cast<int32_t>(h0->value) + *ofs, h0->kind);
+            }
+#endif
+        }
     }
 
     // We canonicalize commutative operations.
@@ -1288,134 +1320,284 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     }
 }
 
-int32_t ValueNumStore::GetConstantInt32(ValueNum argVN) const
+size_t ValueNumStore::ConstantValue(ValueNum vn) const
 {
-    switch (TypeOfVN(argVN))
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert(c->m_kind == ChunkKind::Const);
+    unsigned offset = ChunkOffset(vn);
+
+    size_t result;
+
+    switch (c->m_type)
     {
-        case TYP_INT:
-            return ConstantValue<int32_t>(argVN);
-#ifndef TARGET_64BIT
         case TYP_REF:
+            result = reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
+            break;
         case TYP_BYREF:
-            return static_cast<int32_t>(ConstantValue<size_t>(argVN));
-#endif
-        default:
-            unreached();
-    }
-}
-
-int64_t ValueNumStore::GetConstantInt64(ValueNum argVN) const
-{
-    switch (TypeOfVN(argVN))
-    {
+            result = static_cast<size_t>(static_cast<size_t*>(c->m_defs)[offset]);
+            break;
         case TYP_INT:
-            return static_cast<int64_t>(ConstantValue<int32_t>(argVN));
-        case TYP_LONG:
-            return ConstantValue<int64_t>(argVN);
-        case TYP_REF:
-        case TYP_BYREF:
-            return static_cast<int64_t>(ConstantValue<size_t>(argVN));
+            result = static_cast<size_t>(static_cast<int32_t*>(c->m_defs)[offset]);
+            break;
         default:
-            unreached();
+            assert(c->m_type == TYP_LONG);
+            result = static_cast<size_t>(static_cast<int64_t*>(c->m_defs)[offset]);
+            break;
     }
+
+    assert(result == static_cast<size_t*>(c->m_defs)[offset]);
+
+    return result;
 }
 
-double ValueNumStore::GetConstantDouble(ValueNum argVN) const
+var_types ValueNumStore::GetConstType(ValueNum vn) const
 {
-    assert(TypeOfVN(argVN) == TYP_DOUBLE);
-
-    return ConstantValue<double>(argVN);
-}
-
-float ValueNumStore::GetConstantSingle(ValueNum argVN) const
-{
-    assert(TypeOfVN(argVN) == TYP_FLOAT);
-
-    return ConstantValue<float>(argVN);
-}
-
-var_types ValueNumStore::GetConstantType(ValueNum vn) const
-{
-    if ((vn == NoVN) || (vn == VoidVN()))
+    if (vn == NoVN)
     {
         return TYP_UNDEF;
     }
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return (c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle) ? c->m_type : TYP_UNDEF;
+    return c->m_kind == ChunkKind::Const ? c->m_type : TYP_UNDEF;
+}
+
+bool ValueNumStore::IsConst(ValueNum vn) const
+{
+    return GetConstType(vn) != TYP_UNDEF;
+}
+
+int32_t ValueNumStore::GetConstInt32(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_INT));
+    return static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+const int32_t* ValueNumStore::IsConstInt32(ValueNum vn) const
+{
+    if (vn == NoVN)
+    {
+        return nullptr;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_INT))
+    {
+        return nullptr;
+    }
+
+    return &static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+int64_t ValueNumStore::GetConstInt64(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_LONG));
+    return static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+const int64_t* ValueNumStore::IsConstInt64(ValueNum vn) const
+{
+    if (vn == NoVN)
+    {
+        return nullptr;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_LONG))
+    {
+        return nullptr;
+    }
+
+    return &static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+bool ValueNumStore::IsConstInt64(ValueNum vn, int64_t* value) const
+{
+    if (vn == NoVN)
+    {
+        return false;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_LONG))
+    {
+        return false;
+    }
+
+    *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+    return true;
+}
+
+var_types ValueNumStore::IsConstSize(ValueNum vn, ssize_t* value) const
+{
+    if (vn == NoVN)
+    {
+        return TYP_UNDEF;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if (c->m_kind == ChunkKind::Const)
+    {
+        if (c->m_type == TYP_INT)
+        {
+            *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+            return TYP_INT;
+        }
+
+#ifdef TARGET_64BIT
+        if (c->m_type == TYP_LONG)
+        {
+            *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+            return TYP_LONG;
+        }
+#endif
+    }
+
+    return TYP_UNDEF;
+}
+
+int64_t ValueNumStore::GetConstInt(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert(c->m_kind == ChunkKind::Const);
+
+    if (c->m_type == TYP_INT)
+    {
+        return static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+    }
+
+    assert(c->m_type == TYP_LONG);
+    return static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+var_types ValueNumStore::IsConstInt(ValueNum vn, int64_t* value) const
+{
+    if (vn == NoVN)
+    {
+        return TYP_UNDEF;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if (c->m_kind == ChunkKind::Const)
+    {
+        if (c->m_type == TYP_INT)
+        {
+            *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+            return TYP_INT;
+        }
+
+        if (c->m_type == TYP_LONG)
+        {
+            *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+            return TYP_LONG;
+        }
+    }
+
+    return TYP_UNDEF;
+}
+
+target_ssize_t ValueNumStore::GetConstIntN(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_I_IMPL));
+    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+const target_ssize_t* ValueNumStore::IsConstIntN(ValueNum vn) const
+{
+    if (vn == NoVN)
+    {
+        return nullptr;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if (c->m_kind == ChunkKind::Const)
+    {
+#ifndef TARGET_64BIT
+        if (c->m_type == TYP_INT)
+        {
+            return &static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+        }
+
+#else
+        if (c->m_type == TYP_LONG)
+        {
+            return &static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+        }
+#endif
+    }
+
+    return nullptr;
+}
+
+double ValueNumStore::GetConstDouble(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_DOUBLE));
+    return static_cast<double*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+float ValueNumStore::GetConstFloat(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_FLOAT));
+    return static_cast<float*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 bool ValueNumStore::IsVNConstant(ValueNum vn) const
 {
-    return GetConstantType(vn) != TYP_UNDEF;
-}
-
-bool ValueNumStore::IsVNInt32Constant(ValueNum vn) const
-{
-    return GetConstantType(vn) == TYP_INT;
-}
-
-bool ValueNumStore::IsIntegralConstant(ValueNum vn, ssize_t* value) const
-{
-    assert(!HasExset(vn));
-
-    switch (GetConstantType(vn))
+    if ((vn == NoVN) || (vn == VoidVN()))
     {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            return true;
-#ifdef TARGET_64BIT
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            return true;
-#endif
-        default:
-            return false;
-    }
-}
-
-bool ValueNumStore::IsIntConstant(ValueNum vn, int64_t* value) const
-{
-    assert(!HasExset(vn));
-
-    switch (GetConstantType(vn))
-    {
-        case TYP_INT:
-            *value = ConstantValue<int32_t>(vn);
-            return true;
-        case TYP_LONG:
-            *value = ConstantValue<int64_t>(vn);
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool ValueNumStore::IsInt64Constant(ValueNum vn, int64_t* value) const
-{
-    assert(!HasExset(vn));
-
-    if (GetConstantType(vn) == TYP_LONG)
-    {
-        *value = ConstantValue<int64_t>(vn);
-        return true;
+        return false;
     }
 
-    return false;
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    return c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle;
 }
 
 HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
 {
-    assert(IsVNHandle(vn));
-
     Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
     unsigned index = ChunkOffset(vn);
+    assert(chunk->m_kind == ChunkKind::Handle);
     return static_cast<VNHandle*>(chunk->m_defs)[index].kind;
+}
+
+ssize_t ValueNumStore::GetHandleValue(ValueNum vn) const
+{
+    Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
+    unsigned index = ChunkOffset(vn);
+    assert(chunk->m_kind == ChunkKind::Handle);
+    return static_cast<VNHandle*>(chunk->m_defs)[index].value;
 }
 
 bool ValueNumStore::IsVNHandle(ValueNum vn) const
 {
     return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
+}
+
+const VNHandle* ValueNumStore::IsHandle(ValueNum vn) const
+{
+    if (vn == NoVN)
+    {
+        return nullptr;
+    }
+
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+
+    if (c->m_kind != ChunkKind::Handle)
+    {
+        return nullptr;
+    }
+
+    return &static_cast<VNHandle*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 bool ValueNumStore::CanEvalForConstantArgs1(VNFunc vnf)
@@ -1450,14 +1632,11 @@ bool ValueNumStore::CanEvalForConstantArgs1(VNFunc vnf)
 
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN)
 {
-    assert(CanEvalForConstantArgs1(func));
-    assert(IsVNConstant(arg0VN));
-
     switch (TypeOfVN(arg0VN))
     {
         case TYP_INT:
         {
-            int32_t argVal = ConstantValue<int32_t>(arg0VN);
+            int32_t argVal = GetConstInt32(arg0VN);
 
             switch (func)
             {
@@ -1509,7 +1688,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         }
         case TYP_LONG:
         {
-            int64_t argVal = ConstantValue<int64_t>(arg0VN);
+            int64_t argVal = GetConstInt64(arg0VN);
 
             switch (func)
             {
@@ -1555,7 +1734,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         }
         case TYP_FLOAT:
         {
-            float argVal = ConstantValue<float>(arg0VN);
+            float argVal = GetConstFloat(arg0VN);
 
             switch (func)
             {
@@ -1575,7 +1754,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         }
         case TYP_DOUBLE:
         {
-            double argVal = ConstantValue<double>(arg0VN);
+            double argVal = GetConstDouble(arg0VN);
 
             switch (func)
             {
@@ -1759,11 +1938,9 @@ static int EvalComparison(VNFunc vnf, T v0, T v1)
     }
 }
 
-ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
+ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
     assert(CanEvalForConstantArgs2(func));
-    assert(IsVNConstant(arg0VN) && IsVNConstant(arg1VN));
-    assert(!HasExset(arg0VN) && !HasExset(arg1VN)); // Otherwise, would not be constant.
 
     var_types type0 = TypeOfVN(arg0VN);
     var_types type1 = TypeOfVN(arg1VN);
@@ -1771,124 +1948,129 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types typ, VNFunc func, Valu
     if (varTypeIsFloating(type0))
     {
         assert(varTypeIsFloating(type1));
-        return EvalFloatFunc(typ, func, type0, arg0VN, arg1VN);
+        return EvalFloatFunc(type, func, type0, arg0VN, arg1VN);
     }
 
     assert(!varTypeIsFloating(type0));
     assert(!varTypeIsFloating(type1));
 
-    if (varTypeIsSmall(typ))
+    if (varTypeIsSmall(type))
     {
-        typ = TYP_INT;
+        type = TYP_INT;
     }
 
-    ValueNum result; // left uninitialized, we are required to initialize it on all paths below.
+    ValueNum result;
 
-    // Are both args of the same type?
     if (type0 == type1)
     {
         if (type0 == TYP_INT)
         {
-            int arg0Val = ConstantValue<int>(arg0VN);
-            int arg1Val = ConstantValue<int>(arg1VN);
+            int32_t arg0Val = GetConstInt32(arg0VN);
+            int32_t arg1Val = GetConstInt32(arg1VN);
+
+            assert(type == TYP_INT);
 
             if (VNFuncIsComparison(func))
             {
-                assert(typ == TYP_INT);
                 result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
             }
             else
             {
-                assert(typ == TYP_INT);
-                int resultVal = EvalOp<int>(func, arg0Val, arg1Val);
-                // Bin op on a handle results in a handle.
-                ValueNum handleVN = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
-                if (handleVN != NoVN)
-                {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
-                }
-                else
-                {
-                    result = VNForIntCon(resultVal);
-                }
+                result = VNForIntCon(EvalOp<int32_t>(func, arg0Val, arg1Val));
             }
         }
         else if (type0 == TYP_LONG)
         {
-            int64_t arg0Val = ConstantValue<int64_t>(arg0VN);
-            int64_t arg1Val = ConstantValue<int64_t>(arg1VN);
+            int64_t arg0Val = GetConstInt64(arg0VN);
+            int64_t arg1Val = GetConstInt64(arg1VN);
 
             if (VNFuncIsComparison(func))
             {
-                assert(typ == TYP_INT);
+                assert(type == TYP_INT);
                 result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
             }
             else
             {
-                assert(typ == TYP_LONG);
-                int64_t  resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
-                ValueNum handleVN  = IsVNHandle(arg0VN) ? arg0VN : IsVNHandle(arg1VN) ? arg1VN : NoVN;
-
-                if (handleVN != NoVN)
-                {
-                    result = VNForHandle(ssize_t(resultVal), GetHandleKind(handleVN));
-                }
-                else
-                {
-                    result = VNForLongCon(resultVal);
-                }
+                assert(type == TYP_LONG);
+                result = VNForLongCon(EvalOp<int64_t>(func, arg0Val, arg1Val));
             }
-        }
-        else // both args are TYP_REF or both args are TYP_BYREF
-        {
-            size_t arg0Val = ConstantValue<size_t>(arg0VN); // We represent ref/byref constants as size_t's.
-            size_t arg1Val = ConstantValue<size_t>(arg1VN); // Also we consider null to be zero.
-
-            if (VNFuncIsComparison(func))
-            {
-                assert(typ == TYP_INT);
-                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-            }
-            else if (typ == TYP_INT) // We could see GT_OR of a constant ByRef and Null
-            {
-                int resultVal = (int)EvalOp<size_t>(func, arg0Val, arg1Val);
-                result        = VNForIntCon(resultVal);
-            }
-            else // We could see GT_OR of a constant ByRef and Null
-            {
-                assert((typ == TYP_BYREF) || (typ == TYP_I_IMPL));
-                size_t resultVal = EvalOp<size_t>(func, arg0Val, arg1Val);
-                result           = VNForByrefCon((target_size_t)resultVal);
-            }
-        }
-    }
-    else // We have args of different types
-    {
-        // We represent ref/byref constants as size_t's.
-        // Also we consider null to be zero.
-        //
-        int64_t arg0Val = GetConstantInt64(arg0VN);
-        int64_t arg1Val = GetConstantInt64(arg1VN);
-
-        if (VNFuncIsComparison(func))
-        {
-            assert(typ == TYP_INT);
-            result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-        }
-        else if (typ == TYP_INT) // We could see GT_OR of an int and constant ByRef or Null
-        {
-            int resultVal = (int)EvalOp<int64_t>(func, arg0Val, arg1Val);
-            result        = VNForIntCon(resultVal);
         }
         else
         {
-            assert(typ != TYP_INT);
+            size_t arg0Val = ConstantValue(arg0VN);
+            size_t arg1Val = ConstantValue(arg1VN);
+
+            if (VNFuncIsComparison(func))
+            {
+                assert(type == TYP_INT);
+                result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+            }
+            else if (type == TYP_INT) // We could see GT_OR of a constant ByRef and Null
+            {
+                result = VNForIntCon(static_cast<int32_t>(EvalOp<size_t>(func, arg0Val, arg1Val)));
+            }
+            else // We could see GT_OR of a constant ByRef and Null
+            {
+                assert((type == TYP_BYREF) || (type == TYP_I_IMPL));
+                result = VNForByrefCon(static_cast<target_size_t>(EvalOp<size_t>(func, arg0Val, arg1Val)));
+            }
+        }
+    }
+    else
+    {
+        int64_t arg0Val;
+        int64_t arg1Val;
+
+        switch (type0)
+        {
+            case TYP_INT:
+                arg0Val = GetConstInt32(arg0VN);
+                break;
+            case TYP_LONG:
+                arg0Val = GetConstInt64(arg0VN);
+                break;
+            case TYP_REF:
+            case TYP_BYREF:
+                arg0Val = static_cast<int64_t>(ConstantValue(arg0VN));
+                break;
+            default:
+                unreached();
+        }
+
+        switch (type1)
+        {
+            case TYP_INT:
+                arg1Val = GetConstInt32(arg1VN);
+                break;
+            case TYP_LONG:
+                arg1Val = GetConstInt64(arg1VN);
+                break;
+            case TYP_REF:
+            case TYP_BYREF:
+                arg1Val = static_cast<int64_t>(ConstantValue(arg1VN));
+                break;
+            default:
+                unreached();
+        }
+
+        if (VNFuncIsComparison(func))
+        {
+            assert(type == TYP_INT);
+            result = VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+        }
+        else if (type == TYP_INT) // We could see GT_OR of an int and constant ByRef or Null
+        {
+            result = VNForIntCon(static_cast<int32_t>(EvalOp<int64_t>(func, arg0Val, arg1Val)));
+        }
+        else
+        {
+            assert(type != TYP_INT);
             int64_t resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
 
-            switch (typ)
+            switch (type)
             {
                 case TYP_BYREF:
-                    result = VNForByrefCon((target_size_t)resultVal);
+                    result = VNForByrefCon(static_cast<target_size_t>(resultVal));
                     break;
                 case TYP_LONG:
                     result = VNForLongCon(resultVal);
@@ -2169,8 +2351,8 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
 {
     if (type == TYP_FLOAT)
     {
-        float f1 = GetConstantSingle(vn1);
-        float f2 = GetConstantSingle(vn2);
+        float f1 = GetConstFloat(vn1);
+        float f2 = GetConstFloat(vn2);
 
         if (VNFuncIsComparison(func))
         {
@@ -2187,8 +2369,8 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
     {
         assert(type == TYP_DOUBLE);
 
-        double d1 = GetConstantDouble(vn1);
-        double d2 = GetConstantDouble(vn2);
+        double d1 = GetConstDouble(vn1);
+        double d2 = GetConstDouble(vn2);
 
         if (VNFuncIsComparison(func))
         {
@@ -2219,17 +2401,17 @@ bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0,
         assert((type == TYP_INT) || (type == TYP_LONG));
         assert((type == type0) && (type == type1));
 
-        int64_t divisor = CoercedConstantValue<int64_t>(arg1);
+        int64_t divisor;
 
-        if (divisor == 0)
+        if (!IsConstInt(arg1, &divisor) || (divisor == 0))
         {
             return false;
         }
 
-        if ((func == VNOP_DIV || func == VNOP_MOD) && (divisor == -1) &&
-            (CoercedConstantValue<int64_t>(arg0) == (type == TYP_INT ? INT32_MIN : INT64_MIN)))
+        if ((func == VNOP_DIV || func == VNOP_MOD) && (divisor == -1))
         {
-            return false;
+            int64_t dividend;
+            return IsConstInt(arg0, &dividend) && (dividend != (type == TYP_INT ? INT32_MIN : INT64_MIN));
         }
     }
 
@@ -2802,9 +2984,9 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         offsetVN = ExtractValue(arrayInfo.m_elemOffsetExpr->GetLiberalVN());
         assert(varActualType(TypeOfVN(offsetVN)) == TYP_I_IMPL);
 
-        if (IsVNConstant(offsetVN))
+        if (const target_ssize_t* offsetValue = IsConstIntN(offsetVN))
         {
-            offset += CoercedConstantValue<target_size_t>(offsetVN);
+            offset += static_cast<target_size_t>(*offsetValue);
             offsetVN = NoVN;
         }
     }
@@ -2881,41 +3063,32 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
 
         if (offsetVNFunc.m_func == VNOP_MUL)
         {
-            ValueNum scaleVN;
-
-            if (IsVNConstant(offsetVNFunc[1]))
+            if (const target_ssize_t* scaleValue = IsConstIntN(offsetVNFunc[1]))
             {
                 unscaledOffsetVN = offsetVNFunc[0];
-                scaleVN          = offsetVNFunc[1];
+                scale            = static_cast<target_size_t>(*scaleValue);
             }
-            else if (IsVNConstant(offsetVNFunc[0]))
+            else if (const target_ssize_t* scaleValue = IsConstIntN(offsetVNFunc[0]))
             {
-                scaleVN          = offsetVNFunc[0];
+                scale            = static_cast<target_size_t>(*scaleValue);
                 unscaledOffsetVN = offsetVNFunc[1];
             }
             else
             {
                 break;
             }
-
-            scale = CoercedConstantValue<target_size_t>(scaleVN);
         }
         else if (offsetVNFunc.m_func == VNOP_LSH)
         {
-            ValueNum scaleVN;
-
-            if (IsVNConstant(offsetVNFunc[1]))
+            if (const int32_t* scaleValue = IsConstInt32(offsetVNFunc[1]))
             {
                 unscaledOffsetVN = offsetVNFunc[0];
-                scaleVN          = offsetVNFunc[1];
+                scale            = target_size_t(1) << static_cast<uint32_t>(*scaleValue);
             }
             else
             {
                 break;
             }
-
-            scale = CoercedConstantValue<target_size_t>(scaleVN);
-            scale = target_size_t(1) << scale;
         }
         else
         {
@@ -2980,7 +3153,7 @@ ValueNum ValueNumStore::ExtendPtrVN(ValueNum addrVN, FieldSeqNode* fieldSeq, tar
 
     if (func == VNF_LclAddr)
     {
-        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(ConstantValue<target_size_t>(funcApp[1]) + offset);
+        ValueNum newOffsetVN   = VNForUPtrSizeIntCon(static_cast<target_size_t>(GetConstIntN(funcApp[1])) + offset);
         ValueNum newFieldSeqVN = FieldSeqVNAppend(funcApp[2], fieldSeq);
 
         return VNForFunc(TYP_I_IMPL, func, funcApp[0], newOffsetVN, newFieldSeqVN);
@@ -3785,7 +3958,7 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
 
     if (func == VNF_PtrToArrElem)
     {
-        unsigned elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        unsigned elemTypeNum = static_cast<unsigned>(vnStore->GetConstInt32(funcApp[0]));
         summary.AddArrayType(elemTypeNum);
 
         return;
@@ -3793,7 +3966,7 @@ void ValueNumbering::SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopM
 
     if (func == VNF_LclAddr)
     {
-        unsigned lclNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(funcApp[0]));
+        unsigned lclNum = static_cast<unsigned>(vnStore->GetConstInt32(funcApp[0]));
         summary.AddAddressExposedLocal(INDEBUG(compiler->lvaGetDesc(lclNum)));
 
         return;
@@ -3855,7 +4028,7 @@ void ValueNumbering::NumberIndStore(GenTreeIndir* store)
 
     if (func == VNF_LclAddr)
     {
-        assert(compiler->lvaGetDesc(vnStore->ConstantValue<int32_t>(funcApp[0]))->IsAddressExposed());
+        assert(compiler->lvaGetDesc(static_cast<unsigned>(vnStore->GetConstInt32(funcApp[0])))->IsAddressExposed());
         ValueNum memVN = StoreAddressExposedLocal(store, addrVN, value);
         UpdateMemory(store, memVN DEBUGARG("address-exposed local store"));
 
@@ -4204,7 +4377,7 @@ ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& el
     ValueNum      indexVN    = elemAddr[2];
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr[3]);
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->GetConstInt32(elemAddr[0]));
     ClassLayout* elemLayout =
         compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types elemType =
@@ -4266,7 +4439,7 @@ ValueNum ValueNumbering::LoadArrayElem(GenTreeIndir* load, const VNFuncApp& elem
     ValueNum      indexVN    = elemAddr[2];
     FieldSeqNode* fieldSeq   = vnStore->FieldSeqVNToFieldSeq(elemAddr[3]);
 
-    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->ConstantValue<int32_t>(elemAddr[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(vnStore->GetConstInt32(elemAddr[0]));
     ClassLayout* elemLayout =
         compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types elemType =
@@ -4537,10 +4710,10 @@ bool ValueNumStore::IsVNCheckedBound(ValueNum vn)
 void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
 {
     // This is meant to flag VNs for lengths that aren't known at compile time, so we can
-    // form and propagate assertions about them.  Ensure that callers filter out constant
+    // form and propagate assertions about them. Ensure that callers filter out constant
     // VNs since they're not what we're looking to flag, and assertion prop can reason
     // directly about constants.
-    assert(!IsVNConstant(vn));
+    assert(GetConstType(vn) == TYP_UNDEF);
     m_checkedBoundVNs.AddOrUpdate(vn, true);
 }
 
@@ -4560,7 +4733,7 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN
         {
             // Both operand and its result must be of the same floating point type.
             assert(typ == TypeOfVN(arg0VN));
-            double arg0Val = GetConstantDouble(arg0VN);
+            double arg0Val = GetConstDouble(arg0VN);
 
             double res = 0.0;
             switch (gtMathFN)
@@ -4664,7 +4837,7 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN
         {
             // Both operand and its result must be of the same floating point type.
             assert(typ == TypeOfVN(arg0VN));
-            float arg0Val = GetConstantSingle(arg0VN);
+            float arg0Val = GetConstFloat(arg0VN);
 
             float res = 0.0f;
             switch (gtMathFN)
@@ -4775,14 +4948,14 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN
                 {
                     case TYP_DOUBLE:
                     {
-                        double arg0Val = GetConstantDouble(arg0VN);
+                        double arg0Val = GetConstDouble(arg0VN);
                         res            = ilogb(arg0Val);
                         break;
                     }
 
                     case TYP_FLOAT:
                     {
-                        float arg0Val = GetConstantSingle(arg0VN);
+                        float arg0Val = GetConstFloat(arg0VN);
                         res           = ilogbf(arg0Val);
                         break;
                     }
@@ -4799,14 +4972,14 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN
                 {
                     case TYP_DOUBLE:
                     {
-                        double arg0Val = GetConstantDouble(arg0VN);
+                        double arg0Val = GetConstDouble(arg0VN);
                         res            = int(FloatingPointUtils::round(arg0Val));
                         break;
                     }
 
                     case TYP_FLOAT:
                     {
-                        float arg0Val = GetConstantSingle(arg0VN);
+                        float arg0Val = GetConstFloat(arg0VN);
                         res           = int(FloatingPointUtils::round(arg0Val));
                         break;
                     }
@@ -4937,8 +5110,8 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
         {
             assert(typ == TypeOfVN(arg0VN));
             assert(typ == TypeOfVN(arg1VN));
-            double arg0Val = GetConstantDouble(arg0VN);
-            double arg1Val = GetConstantDouble(arg1VN);
+            double arg0Val = GetConstDouble(arg0VN);
+            double arg1Val = GetConstDouble(arg1VN);
             double res;
 
             switch (gtMathFN)
@@ -4963,8 +5136,8 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
             assert(typ == TYP_FLOAT);
             assert(typ == TypeOfVN(arg0VN));
             assert(typ == TypeOfVN(arg1VN));
-            float arg0Val = GetConstantSingle(arg0VN);
-            float arg1Val = GetConstantSingle(arg1VN);
+            float arg0Val = GetConstFloat(arg0VN);
+            float arg1Val = GetConstFloat(arg1VN);
             float res;
 
             switch (gtMathFN)
@@ -5090,23 +5263,17 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
     {
         printf("NoVN");
     }
-    else if (IsVNHandle(vn))
+    else if (const VNHandle* handle = IsHandle(vn))
     {
-        printf("Hnd const: 0x%p", dspPtr(ConstantValue<ssize_t>(vn)));
+        printf("Hnd const: 0x%p", dspPtr(handle->value));
     }
-    else if (IsVNConstant(vn))
+    else if (var_types constType = GetConstType(vn))
     {
-        switch (TypeOfVN(vn))
+        switch (constType)
         {
-            case TYP_BOOL:
-            case TYP_BYTE:
-            case TYP_UBYTE:
-            case TYP_SHORT:
-            case TYP_USHORT:
             case TYP_INT:
-            case TYP_UINT:
             {
-                int val = ConstantValue<int>(vn);
+                int32_t val = GetConstInt32(vn);
                 if (isPtr)
                 {
                     printf("PtrCns[%p]", dspPtr(val));
@@ -5126,9 +5293,8 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
             }
             break;
             case TYP_LONG:
-            case TYP_ULONG:
             {
-                int64_t val = ConstantValue<int64_t>(vn);
+                int64_t val = GetConstInt64(vn);
                 if (isPtr)
                 {
                     printf("LngPtrCns: 0x%p", dspPtr(val));
@@ -5152,10 +5318,10 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
             }
             break;
             case TYP_FLOAT:
-                printf("FltCns[%f]", ConstantValue<float>(vn));
+                printf("FltCns[%f]", GetConstFloat(vn));
                 break;
             case TYP_DOUBLE:
-                printf("DblCns[%f]", ConstantValue<double>(vn));
+                printf("DblCns[%f]", GetConstDouble(vn));
                 break;
             case TYP_REF:
                 if (vn == NullVN())
@@ -5178,22 +5344,16 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
             case TYP_STRUCT:
                 printf("structVal(zero)");
                 break;
-
 #ifdef FEATURE_SIMD
             case TYP_SIMD8:
             case TYP_SIMD12:
             case TYP_SIMD16:
             case TYP_SIMD32:
-            {
                 // Only the zero constant is currently allowed for SIMD types
-                //
-                int64_t val = ConstantValue<int64_t>(vn);
-                assert(val == 0);
+                assert(GetConstInt64(vn) == 0);
                 printf(" 0");
-            }
-            break;
-#endif // FEATURE_SIMD
-
+                break;
+#endif
             // These should be unreached.
             default:
                 unreached();
@@ -5418,8 +5578,8 @@ void ValueNumStore::DumpLclAddr(const VNFuncApp& func)
 {
     assert(func.m_func == VNF_LclAddr);
 
-    unsigned      lclNum     = ConstantValue<unsigned>(func[0]);
-    target_size_t offset     = ConstantValue<target_size_t>(func[1]);
+    unsigned      lclNum     = static_cast<unsigned>(GetConstInt32(func[0]));
+    target_size_t offset     = static_cast<target_size_t>(GetConstIntN(func[1]));
     ValueNum      fieldSeqVN = func[2];
 
     printf("LclAddr(V%02u, @%u,", lclNum, static_cast<unsigned>(offset));
@@ -5427,11 +5587,11 @@ void ValueNumStore::DumpLclAddr(const VNFuncApp& func)
     printf(")");
 }
 
-void ValueNumStore::DumpBitCast(const VNFuncApp& cast)
+void ValueNumStore::DumpBitCast(const VNFuncApp& cast) const
 {
     assert(cast.m_func == VNF_BitCast);
 
-    uint32_t  packedCastType = static_cast<uint32_t>(GetConstantInt32(cast[1]));
+    uint32_t  packedCastType = static_cast<uint32_t>(GetConstInt32(cast[1]));
     var_types toType         = static_cast<var_types>(packedCastType >> 1);
     var_types fromType       = varActualType(TypeOfVN(cast[0]));
 
@@ -5447,7 +5607,7 @@ void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
     ValueNum      indexVN    = elemAddr[2];
     FieldSeqNode* fieldSeq   = FieldSeqVNToFieldSeq(elemAddr[3]);
 
-    unsigned     elemTypeNum = static_cast<unsigned>(ConstantValue<int32_t>(elemAddr[0]));
+    unsigned     elemTypeNum = static_cast<unsigned>(GetConstInt32(elemAddr[0]));
     ClassLayout* elemLayout =
         compiler->typIsLayoutNum(elemTypeNum) ? compiler->typGetLayoutByNum(elemTypeNum) : nullptr;
     var_types elemType =
@@ -5615,37 +5775,29 @@ void ValueNumStore::RunTests(Compiler* comp)
 
     ValueNum vnFor1 = vns->VNForIntCon(1);
     assert(vnFor1 == vns->VNForIntCon(1));
-    assert(vns->TypeOfVN(vnFor1) == TYP_INT);
-    assert(vns->IsVNConstant(vnFor1));
-    assert(vns->ConstantValue<int>(vnFor1) == 1);
+    assert(vns->GetConstInt32(vnFor1) == 1);
 
     ValueNum vnFor100 = vns->VNForIntCon(100);
     assert(vnFor100 == vns->VNForIntCon(100));
     assert(vnFor100 != vnFor1);
-    assert(vns->TypeOfVN(vnFor100) == TYP_INT);
-    assert(vns->IsVNConstant(vnFor100));
-    assert(vns->ConstantValue<int>(vnFor100) == 100);
+    assert(vns->GetConstInt32(vnFor100) == 100);
 
     ValueNum vnFor1F = vns->VNForFloatCon(1.0f);
     assert(vnFor1F == vns->VNForFloatCon(1.0f));
     assert(vnFor1F != vnFor1 && vnFor1F != vnFor100);
-    assert(vns->TypeOfVN(vnFor1F) == TYP_FLOAT);
-    assert(vns->IsVNConstant(vnFor1F));
-    assert(vns->ConstantValue<float>(vnFor1F) == 1.0f);
+    assert(vns->GetConstFloat(vnFor1F) == 1.0f);
 
     ValueNum vnFor1D = vns->VNForDoubleCon(1.0);
     assert(vnFor1D == vns->VNForDoubleCon(1.0));
     assert(vnFor1D != vnFor1F && vnFor1D != vnFor1 && vnFor1D != vnFor100);
-    assert(vns->TypeOfVN(vnFor1D) == TYP_DOUBLE);
-    assert(vns->IsVNConstant(vnFor1D));
-    assert(vns->ConstantValue<double>(vnFor1D) == 1.0);
+    assert(vns->GetConstDouble(vnFor1D) == 1.0);
 
     ValueNum vnRandom1   = vns->VNForExpr(nullptr, TYP_INT);
     ValueNum vnForFunc2a = vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnRandom1);
     assert(vnForFunc2a == vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnRandom1));
     assert(vnForFunc2a != vnFor1D && vnForFunc2a != vnFor1F && vnForFunc2a != vnFor1 && vnForFunc2a != vnRandom1);
     assert(vns->TypeOfVN(vnForFunc2a) == TYP_INT);
-    assert(!vns->IsVNConstant(vnForFunc2a));
+    assert(vns->GetConstType(vnForFunc2a) == TYP_UNDEF);
     VNFuncApp fa2a;
     vns->GetVNFunc(vnForFunc2a, &fa2a);
     assert(fa2a.m_func == VNF_Add && fa2a.m_arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
@@ -5653,11 +5805,7 @@ void ValueNumStore::RunTests(Compiler* comp)
     ValueNum vnForFunc2b = vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100);
     assert(vnForFunc2b == vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100));
     assert(vnForFunc2b != vnFor1D && vnForFunc2b != vnFor1F && vnForFunc2b != vnFor1 && vnForFunc2b != vnFor100);
-    assert(vns->TypeOfVN(vnForFunc2b) == TYP_INT);
-    assert(vns->IsVNConstant(vnForFunc2b));
-    assert(vns->ConstantValue<int>(vnForFunc2b) == 101);
-
-    // printf("Did ValueNumStore::RunTests.\n");
+    assert(vns->GetConstInt32(vnForFunc2b) == 101);
 }
 
 void RunValueNumStoreTests(Compiler* comp)
@@ -7041,28 +7189,26 @@ ValueNum ValueNumStore::VNForBitCast(ValueNum valueVN, var_types toType)
 {
     assert(!HasExset(valueVN));
 
-    if (IsVNConstant(valueVN))
+    if (var_types valueType = GetConstType(valueVN))
     {
-        var_types valueType = TypeOfVN(valueVN);
-
         if ((valueType == TYP_FLOAT) && (toType == TYP_INT))
         {
-            return VNForIntCon(jitstd::bit_cast<int32_t>(ConstantValue<float>(valueVN)));
+            return VNForIntCon(jitstd::bit_cast<int32_t>(GetConstFloat(valueVN)));
         }
 
         if ((valueType == TYP_DOUBLE) && (toType == TYP_LONG))
         {
-            return VNForLongCon(jitstd::bit_cast<int64_t>(ConstantValue<double>(valueVN)));
+            return VNForLongCon(jitstd::bit_cast<int64_t>(GetConstDouble(valueVN)));
         }
 
         if ((valueType == TYP_INT) && (toType == TYP_FLOAT))
         {
-            return VNForFloatCon(jitstd::bit_cast<float>(ConstantValue<int32_t>(valueVN)));
+            return VNForFloatCon(jitstd::bit_cast<float>(GetConstInt32(valueVN)));
         }
 
         if ((valueType == TYP_LONG) && (toType == TYP_DOUBLE))
         {
-            return VNForDoubleCon(jitstd::bit_cast<double>(ConstantValue<int64_t>(valueVN)));
+            return VNForDoubleCon(jitstd::bit_cast<double>(GetConstInt64(valueVN)));
         }
 
         // TODO-MIKE-CQ: Handle BITCAST(Vector2 "constant") for win-x64 ABI needs, at least
@@ -7119,7 +7265,7 @@ void ValueNumbering::NumberOvfConv(GenTreeUnOp* node)
 
     int64_t value;
 
-    if (vnStore->IsIntConstant(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
+    if (vnStore->IsConstInt(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
     {
         vnp.SetLiberal(vnStore->VNForFunc(TYP_INT, vnf, vnp.GetLiberal()));
     }
@@ -7130,7 +7276,7 @@ void ValueNumbering::NumberOvfConv(GenTreeUnOp* node)
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (vnStore->IsIntConstant(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
+    if (vnStore->IsConstInt(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
     {
         vnp.SetConservative(vnStore->VNForFunc(TYP_INT, vnf, vnp.GetConservative()));
     }
@@ -7154,7 +7300,7 @@ void ValueNumbering::NumberOvfUnsigned(GenTreeUnOp* node)
 
     int64_t value;
 
-    if (!vnStore->IsIntConstant(vnp.GetLiberal(), &value) || (value < 0))
+    if (!vnStore->IsConstInt(vnp.GetLiberal(), &value) || (value < 0))
     {
         // TODO-MIKE-Cleanup: OVF_U doesn't change the value so there's no need to use VNOP_OVF_U.
         // But if we keep the original value CSE has problems - the original value acts like a def
@@ -7167,7 +7313,7 @@ void ValueNumbering::NumberOvfUnsigned(GenTreeUnOp* node)
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (!vnStore->IsIntConstant(vnp.GetConservative(), &value) || (value < 0))
+    if (!vnStore->IsConstInt(vnp.GetConservative(), &value) || (value < 0))
     {
         ValueNum ex = vnStore->VNForFunc(TYP_REF, VNF_UOverflowExc, vnp.GetConservative());
         vnp.SetConservative(vnStore->VNForFunc(node->GetType(), VNOP_OVF_U, vnp.GetConservative()));
@@ -7210,7 +7356,7 @@ void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
 
     int64_t value;
 
-    if (vnStore->IsInt64Constant(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
+    if (vnStore->IsConstInt64(vnp.GetLiberal(), &value) && (min <= value) && (value <= max))
     {
         vnp.SetLiberal(vnStore->VNForIntCon(static_cast<int32_t>(value)));
     }
@@ -7221,7 +7367,7 @@ void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
         exset.SetLiberal(vnStore->ExsetUnion(exset.GetLiberal(), vnStore->ExsetCreate(ex)));
     }
 
-    if (vnStore->IsInt64Constant(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
+    if (vnStore->IsConstInt64(vnp.GetConservative(), &value) && (min <= value) && (value <= max))
     {
         vnp.SetConservative(vnStore->VNForIntCon(static_cast<int32_t>(value)));
     }
@@ -7256,9 +7402,9 @@ void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
         ValueNum vn    = NoVN;
 
         int64_t val1;
-        bool    isConst1 = vnStore->IsIntConstant(vn1, &val1);
+        bool    isConst1 = vnStore->IsConstInt(vn1, &val1) != TYP_UNDEF;
         int64_t val2;
-        bool    isConst2 = vnStore->IsIntConstant(vn2, &val2);
+        bool    isConst2 = vnStore->IsConstInt(vn2, &val2) != TYP_UNDEF;
 
         if (isConst1 && isConst2)
         {
@@ -8007,17 +8153,18 @@ ValueNum ValueNumbering::GetBaseAddr(ValueNum addrVN)
     {
         // The arguments in value numbering functions are sorted in increasing order
         // Thus either arg could be the constant.
-        if (vnStore->IsVNConstant(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
+
+        if (const target_ssize_t* value = vnStore->IsConstIntN(funcApp[0]))
         {
-            offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[0]);
+            offset += *value;
             baseVN = funcApp[1];
         }
-        else if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
+        else if (const target_ssize_t* value = vnStore->IsConstIntN(funcApp[1]))
         {
-            offset += vnStore->CoercedConstantValue<ssize_t>(funcApp[1]);
+            offset += *value;
             baseVN = funcApp[0];
         }
-        else // neither argument is a constant
+        else
         {
             break;
         }
@@ -8085,13 +8232,15 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
     const ValueNumKind vnKinds[]{VNK_Liberal, VNK_Conservative};
     for (ValueNumKind kind : vnKinds)
     {
-        bool needDivideByZeroExc = true;
-        bool needArithmeticExc   = isSigned;
+        bool     needDivideByZeroExc = true;
+        bool     needArithmeticExc   = isSigned;
+        ValueNum vn2                 = vnp2.Get(kind);
 
-        if (vnStore->IsVNConstant(vnp2.Get(kind)))
+        if (var_types type2 = vnStore->GetConstType(vn2))
         {
-            int64_t val = (type == TYP_INT) ? vnStore->ConstantValue<int32_t>(vnp2.Get(kind))
-                                            : vnStore->ConstantValue<int64_t>(vnp2.Get(kind));
+            assert(type2 == type);
+
+            int64_t val = type2 == TYP_INT ? vnStore->GetConstInt32(vn2) : vnStore->GetConstInt64(vn2);
 
             if (val != 0)
             {
@@ -8106,19 +8255,14 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
 
         if (needArithmeticExc)
         {
-            if (vnStore->IsVNConstant(vnp1.Get(kind)))
-            {
-                if ((type == TYP_INT) ? (vnStore->ConstantValue<int32_t>(vnp1.Get(kind)) != INT32_MIN)
-                                      : (vnStore->ConstantValue<int64_t>(vnp1.Get(kind)) != INT64_MIN))
-                {
-                    needArithmeticExc = false;
-                }
-            }
+            ValueNum vn1 = vnp1.Get(kind);
 
-            if (vnStore->IsVNConstant(vnp1.Get(kind)))
+            if (var_types type1 = vnStore->GetConstType(vn1))
             {
-                if ((type == TYP_INT) ? (vnStore->ConstantValue<int32_t>(vnp1.Get(kind)) != INT32_MIN)
-                                      : (vnStore->ConstantValue<int64_t>(vnp1.Get(kind)) != INT64_MIN))
+                assert(type1 == type);
+
+                if ((type1 == TYP_INT) ? (vnStore->GetConstInt32(vn1) != INT32_MIN)
+                                       : (vnStore->GetConstInt64(vn1) != INT64_MIN))
                 {
                     needArithmeticExc = false;
                 }
@@ -8228,7 +8372,8 @@ void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
     // so that assertion prop will know that comparisons against them are worth analyzing.
     // TODO-MIKE-Review: Shouldn't this extract the normal value from the conservative VN?
     ValueNum lengthVN = check->GetLength()->GetConservativeVN();
-    if ((lengthVN != NoVN) && !vnStore->IsVNConstant(lengthVN))
+
+    if ((lengthVN != NoVN) && (vnStore->GetConstType(lengthVN) == TYP_UNDEF))
     {
         vnStore->SetVNIsCheckedBound(lengthVN);
     }

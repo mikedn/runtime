@@ -117,6 +117,26 @@ struct VNFuncApp
     }
 };
 
+struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
+{
+    ssize_t    value;
+    HandleKind kind;
+
+    VNHandle(ssize_t value, HandleKind kind) : value(value), kind(kind)
+    {
+    }
+
+    bool operator==(const VNHandle& y) const
+    {
+        return value == y.value && kind == y.kind;
+    }
+
+    static unsigned GetHashCode(const VNHandle& val)
+    {
+        return static_cast<unsigned>(val.value);
+    }
+};
+
 // We use a unique prefix character when printing value numbers in dumps:  i.e.  $1c0
 // This define is used with string concatenation to put this in printf format strings
 #define FMT_VN "$%x"
@@ -299,26 +319,6 @@ class ValueNumStore
     static constexpr int      SmallIntConstMin = -1;
     static constexpr int      SmallIntConstMax = 10;
     static constexpr unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
-
-    struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
-    {
-        ssize_t    value;
-        HandleKind kind;
-
-        VNHandle(ssize_t value, HandleKind kind) : value(value), kind(kind)
-        {
-        }
-
-        bool operator==(const VNHandle& y) const
-        {
-            return value == y.value && kind == y.kind;
-        }
-
-        static unsigned GetHashCode(const VNHandle& val)
-        {
-            return static_cast<unsigned>(val.value);
-        }
-    };
 
     using HandleVNMap = VNMap<VNHandle, VNHandle>;
 
@@ -517,22 +517,33 @@ private:
 public:
     static bool VNFuncIsCommutative(VNFunc vnf);
 
-    // Given an constant value number return its value.
-    int32_t GetConstantInt32(ValueNum argVN) const;
-    int64_t GetConstantInt64(ValueNum argVN) const;
-    double GetConstantDouble(ValueNum argVN) const;
-    float GetConstantSingle(ValueNum argVN) const;
+    bool IsVNConstant(ValueNum vn) const;
+
+    var_types GetConstType(ValueNum vn) const;
+    bool IsConst(ValueNum vn) const;
+    const int32_t* IsConstInt32(ValueNum vn) const;
+    int32_t GetConstInt32(ValueNum vn) const;
+    const int64_t* IsConstInt64(ValueNum vn) const;
+    bool IsConstInt64(ValueNum vn, int64_t* value) const;
+    int64_t GetConstInt64(ValueNum vn) const;
+    var_types IsConstSize(ValueNum vn, ssize_t* value) const;
+    var_types IsConstInt(ValueNum vn, int64_t* value) const;
+    int64_t GetConstInt(ValueNum vn) const;
+    const target_ssize_t* IsConstIntN(ValueNum vn) const;
+    target_ssize_t GetConstIntN(ValueNum vn) const;
+    double GetConstDouble(ValueNum vn) const;
+    float GetConstFloat(ValueNum vn) const;
 
 private:
     // Assumes that all the ValueNum arguments of each of these functions have been shown to represent constants.
     // Assumes that "vnf" is a operator of the appropriate arity (unary for the first, binary for the second).
     // Assume that "CanEvalForConstantArgs(vnf)" is true.
     // Returns the result of evaluating the function with those constant arguments.
-    ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0);
-    ValueNum EvalFuncForConstantArgs(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
+    ValueNum EvalFuncForConstantArgs(var_types type, VNFunc vnf, ValueNum vn0);
+    ValueNum EvalFuncForConstantArgs(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalFloatFunc(var_types resultType, VNFunc vnf, var_types type, ValueNum vn0, ValueNum vn1);
 
-    ValueNum EvalUsingMathIdentity(var_types typ, VNFunc vnf, ValueNum vn0, ValueNum vn1);
+    ValueNum EvalUsingMathIdentity(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
     template <typename T, typename NumMap>
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType, unsigned& currentChunk);
@@ -740,14 +751,6 @@ public:
     // Returns MaxLoopNum if the given value number's loop nest is unknown or ill-defined.
     LoopNum LoopOfVN(ValueNum vn);
 
-    // Returns true iff the VN represents a (non-handle) constant.
-    var_types GetConstantType(ValueNum vn) const;
-    bool IsVNConstant(ValueNum vn) const;
-    bool IsVNInt32Constant(ValueNum vn) const;
-    bool IsIntegralConstant(ValueNum vn, ssize_t* value) const;
-    bool IsIntConstant(ValueNum vn, int64_t* value) const;
-    bool IsInt64Constant(ValueNum vn, int64_t* value) const;
-
     // Returns true if the VN is known or likely to appear as the conservative value number
     // of the length argument to a GT_BOUNDS_CHECK node.
     bool IsVNCheckedBound(ValueNum vn);
@@ -803,99 +806,23 @@ public:
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
     HandleKind GetHandleKind(ValueNum vn) const;
+    ssize_t GetHandleValue(ValueNum vn) const;
 
     // Returns true iff the VN represents a handle constant.
     bool IsVNHandle(ValueNum vn) const;
+    const VNHandle* IsHandle(ValueNum vn) const;
 
-private:
-    template <typename T>
-    T ConstantValueInternal(ValueNum vn DEBUGARG(bool coerce)) const
-    {
-        Chunk* c = m_chunks.Get(GetChunkNum(vn));
-        assert(c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle);
-
-        unsigned offset = ChunkOffset(vn);
-
-        switch (c->m_type)
-        {
-            case TYP_REF:
-                assert(0 <= offset && offset <= 1); // Null or exception.
-                FALLTHROUGH;
-            case TYP_BYREF:
-#ifdef _MSC_VER
-                assert(&typeid(T) == &typeid(size_t)); // We represent ref/byref constants as size_t's.
-#endif
-
-                FALLTHROUGH;
-            case TYP_INT:
-            case TYP_LONG:
-            case TYP_FLOAT:
-            case TYP_DOUBLE:
-                if (c->m_kind == ChunkKind::Handle)
-                {
-                    return (T) static_cast<VNHandle*>(c->m_defs)[offset].value;
-                }
-
-#ifdef DEBUG
-                if (!coerce)
-                {
-                    T val1 = static_cast<T*>(c->m_defs)[offset];
-                    T val2 = SafeGetConstantValue<T>(c, offset);
-
-                    // Detect if there is a mismatch between the VN storage type and explicitly
-                    // passed-in type T.
-                    bool mismatch = false;
-                    if (varTypeIsFloating(c->m_type))
-                    {
-                        mismatch = (memcmp(&val1, &val2, sizeof(val1)) != 0);
-                    }
-                    else
-                    {
-                        mismatch = (val1 != val2);
-                    }
-
-                    if (mismatch)
-                    {
-                        assert(
-                            !"Called ConstantValue<T>(vn), but type(T) != type(vn); Use CoercedConstantValue instead.");
-                    }
-                }
-#endif
-
-                return SafeGetConstantValue<T>(c, offset);
-
-            default:
-                assert(false); // We do not record constants of this typ.
-                return (T)0;
-        }
-    }
-
-public:
     template <typename T>
     T* ConstantHostPtr(ValueNum vn)
     {
 #ifdef HOST_64BIT
-        return reinterpret_cast<T*>(ConstantValue<int64_t>(vn));
+        return reinterpret_cast<T*>(GetConstInt64(vn));
 #else
-        return reinterpret_cast<T*>(ConstantValue<int32_t>(vn));
+        return reinterpret_cast<T*>(GetConstInt32(vn));
 #endif
     }
 
-    // Requires that "vn" is a constant, and that its type is compatible with the explicitly passed
-    // type "T". Also, note that "T" has to have an accurate storage size of the TypeOfVN(vn).
-    template <typename T>
-    T ConstantValue(ValueNum vn) const
-    {
-        return ConstantValueInternal<T>(vn DEBUGARG(false));
-    }
-
-    // Requires that "vn" is a constant, and that its type can be coerced to the explicitly passed
-    // type "T".
-    template <typename T>
-    T CoercedConstantValue(ValueNum vn) const
-    {
-        return ConstantValueInternal<T>(vn DEBUGARG(true));
-    }
+    size_t ConstantValue(ValueNum vn) const;
 
     // Requires "mthFunc" to be an intrinsic math function (one of the allowable values for the "gtMath" field
     // of a GenTreeMath node).  For unary ops, return the value number for the application of this function to
@@ -951,7 +878,7 @@ public:
     void DumpMemOpaque(const VNFuncApp& memOpaque);
     void DumpValWithExc(const VNFuncApp& valWithExc);
     void DumpLclAddr(const VNFuncApp& lclAddr);
-    void DumpBitCast(const VNFuncApp& cast);
+    void DumpBitCast(const VNFuncApp& cast) const;
     void DumpPtrToArrElem(const VNFuncApp& elemAddr);
     void DumpExcSeq(const VNFuncApp& excSeq, bool isHead);
 
@@ -977,12 +904,14 @@ private:
     // value number, i.e., one returned by some VN-producing method of this class).
     static unsigned GetChunkNum(ValueNum vn)
     {
+        assert(vn != NoVN);
         return vn >> LogChunkSize;
     }
 
     // Returns the offset of the given "vn" within its chunk.
     static unsigned ChunkOffset(ValueNum vn)
     {
+        assert(vn != NoVN);
         return vn & ChunkOffsetMask;
     }
 
@@ -1002,41 +931,4 @@ private:
         SRC_EmptyExset,
         SRC_NumSpecialRefConsts
     };
-
-    template <typename T>
-    T CoerceTypRefToT(Chunk* c, unsigned offset) const
-    {
-        noway_assert(sizeof(T) >= sizeof(VarTypConv<TYP_REF>::Type));
-        unreached();
-    }
-
-    template <>
-    size_t CoerceTypRefToT(Chunk* c, unsigned offset) const
-    {
-        return reinterpret_cast<size_t>(static_cast<VarTypConv<TYP_REF>::Type*>(c->m_defs)[offset]);
-    }
-
-    // Get the actual value and coerce the actual type c->m_typ to the wanted type T.
-    template <typename T>
-    FORCEINLINE T SafeGetConstantValue(Chunk* c, unsigned offset) const
-    {
-        switch (c->m_type)
-        {
-            case TYP_REF:
-                return CoerceTypRefToT<T>(c, offset);
-            case TYP_BYREF:
-                return static_cast<T>(static_cast<VarTypConv<TYP_BYREF>::Type*>(c->m_defs)[offset]);
-            case TYP_INT:
-                return static_cast<T>(static_cast<VarTypConv<TYP_INT>::Type*>(c->m_defs)[offset]);
-            case TYP_LONG:
-                return static_cast<T>(static_cast<VarTypConv<TYP_LONG>::Type*>(c->m_defs)[offset]);
-            case TYP_FLOAT:
-                return static_cast<T>(static_cast<VarTypConv<TYP_FLOAT>::Lang*>(c->m_defs)[offset]);
-            case TYP_DOUBLE:
-                return static_cast<T>(static_cast<VarTypConv<TYP_DOUBLE>::Lang*>(c->m_defs)[offset]);
-            default:
-                assert(false);
-                return (T)0;
-        }
-    }
 };
