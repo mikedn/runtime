@@ -1564,7 +1564,7 @@ public:
 
             if (value->isSharedConst)
             {
-                printf(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(value->hashVN)));
+                printf(" sharedConst %p", dspPtr(vnStore->GetConstInt(value->hashVN)));
             }
 
             printf("\n    ");
@@ -2522,7 +2522,7 @@ public:
         // to make sure assertion prop will pay attention to this VN.
         ValueNum exprVN = expr->GetConservativeVN();
 
-        if (!vnStore->IsVNConstant(newExprVN) && vnStore->IsVNCheckedBound(exprVN))
+        if ((vnStore->GetConstType(newExprVN) == TYP_UNDEF) && vnStore->IsVNCheckedBound(exprVN))
         {
             vnStore->SetVNIsCheckedBound(newExprVN);
         }
@@ -2617,7 +2617,7 @@ public:
 
             if (value->isSharedConst)
             {
-                JITDUMP(" sharedConst %p", dspPtr(vnStore->CoercedConstantValue<size_t>(value->hashVN)));
+                JITDUMP(" sharedConst %p", dspPtr(vnStore->GetConstInt(value->hashVN)));
             }
 
             JITDUMPTREE(candidate.expr, "\n");
