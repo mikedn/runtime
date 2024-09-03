@@ -16547,7 +16547,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     }
     else
     {
-        dllRef = comp->gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(pIdAddr), HandleKind::ConstData, true);
+        dllRef = comp->gtNewIndLoad(TYP_I_IMPL, pIdAddr, HandleKind::ConstData, true);
 
         // Next we multiply by 4
         dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
@@ -16557,7 +16557,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
 
     // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
 
-    GenTree* addr = gtNewIconHandleNode(WIN32_TLS_SLOTS, HandleKind::TLS);
+    GenTree* addr = gtNewIconHandleNode(reinterpret_cast<void*>(WIN32_TLS_SLOTS), HandleKind::TLS);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
@@ -17384,11 +17384,6 @@ GenTree* Importer::gtNewLconNode(int64_t value)
 }
 
 GenTreeIntCon* Importer::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
-{
-    return comp->gtNewIconHandleNode(value, kind, fieldSeq);
-}
-
-GenTreeIntCon* Importer::gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq)
 {
     return comp->gtNewIconHandleNode(value, kind, fieldSeq);
 }

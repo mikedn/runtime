@@ -441,7 +441,7 @@ void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, uint8
     assert((entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount) ||
            (entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount));
 
-    size_t    countAddr = reinterpret_cast<size_t>(entry.Offset + profileMemory);
+    void*     countAddr = profileMemory + entry.Offset;
     var_types type      = GetBasicBlockCountType(entry);
 
     GenTree* load  = m_comp->gtNewIndLoad(type, countAddr, HandleKind::BlockCount, false);
@@ -463,7 +463,7 @@ void BlockCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, uint8
 // Notes:
 //   When prejitting, add the method entry callback node
 //
-void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profileMemory)
+void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, uint8_t* profileMemory)
 {
     CompilerOptions&    opts = m_comp->opts;
     CompiledMethodInfo& info = m_comp->info;
@@ -485,7 +485,7 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, BYTE* profile
     assert((entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount) ||
            (entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount));
 
-    const size_t addrOfFirstExecutionCount = (size_t)(entry.Offset + profileMemory);
+    void* addrOfFirstExecutionCount = profileMemory + entry.Offset;
 
     GenTree* arg;
 
@@ -984,7 +984,7 @@ public:
         return ((block->bbFlags & BBF_IMPORTED) == BBF_IMPORTED);
     }
     void BuildSchemaElements(BasicBlock* block, Schema& schema) override;
-    void Instrument(BasicBlock* block, Schema& schema, BYTE* profileMemory) override;
+    void Instrument(BasicBlock* block, Schema& schema, uint8_t* profileMemory) override;
 
     void Badcode() override
     {
@@ -1134,7 +1134,7 @@ void EfficientEdgeCountInstrumentor::BuildSchemaElements(BasicBlock* block, Sche
 //   schema -- instrumentation schema
 //   profileMemory -- profile data slab
 //
-void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE* profileMemory)
+void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schema, uint8_t* profileMemory)
 {
     // Inlinee compilers build their blocks in the root compiler's
     // graph. So for NumSucc, we use the root compiler instance.
@@ -1161,7 +1161,7 @@ void EfficientEdgeCountInstrumentor::Instrument(BasicBlock* block, Schema& schem
         assert((entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeIntCount) ||
                (entry.InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::EdgeLongCount));
 
-        size_t addrOfCurrentExecutionCount = (size_t)(entry.Offset + profileMemory);
+        void* addrOfCurrentExecutionCount = profileMemory + entry.Offset;
 
         // Determine where to place the probe.
         //

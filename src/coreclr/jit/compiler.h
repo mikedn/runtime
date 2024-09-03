@@ -2246,7 +2246,6 @@ struct Importer
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTree* gtNewLconNode(int64_t value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
     GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
@@ -2848,10 +2847,9 @@ public:
 
     GenTree* gtNewJmpTableNode();
 
-    GenTreeIndLoad* gtNewIndLoad(var_types type, size_t addr, HandleKind handleKind, bool invariant);
-    GenTreeIndStore* gtNewIndStore(var_types type, size_t addr, HandleKind handleKind, GenTree* value);
+    GenTreeIndLoad* gtNewIndLoad(var_types type, void* addr, HandleKind handleKind, bool invariant);
+    GenTreeIndStore* gtNewIndStore(var_types type, void* addr, HandleKind handleKind, GenTree* value);
     GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
-    GenTreeIntCon* gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void*      value,
                                   void*      valueAddr,
                                   HandleKind handleKind,

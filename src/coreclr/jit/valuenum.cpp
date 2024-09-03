@@ -568,7 +568,7 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
     return chunk;
 }
 
-ValueNum ValueNumStore::VNForHandle(ssize_t value, HandleKind handleKind)
+ValueNum ValueNumStore::VNForHandle(void* addr, HandleKind handleKind)
 {
     assert(handleKind != HandleKind::None);
 
@@ -577,7 +577,7 @@ ValueNum ValueNumStore::VNForHandle(ssize_t value, HandleKind handleKind)
         m_handleMap = new (alloc) HandleVNMap(alloc);
     }
 
-    VNHandle  handle(value, handleKind);
+    VNHandle  handle(addr, handleKind);
     ValueNum* vn = m_handleMap->Emplace(handle, NoVN);
 
     if (*vn == NoVN)
@@ -850,10 +850,10 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
             {
                 case VNOP_EQ:
                     assert(type == TYP_INT);
-                    return VNForIntCon(h0->value == h1->value);
+                    return VNForIntCon(h0->addr == h1->addr);
                 case VNOP_NE:
                     assert(type == TYP_INT);
-                    return VNForIntCon(h0->value != h1->value);
+                    return VNForIntCon(h0->addr != h1->addr);
                 default:
                     break;
             }
@@ -863,12 +863,12 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
 #ifdef TARGET_64BIT
             if (const int64_t* ofs = IsConstInt64(arg1))
             {
-                return VNForHandle(static_cast<int64_t>(h0->value) + *ofs, h0->kind);
+                return VNForHandle(reinterpret_cast<void*>(reinterpret_cast<ssize_t>(h0->addr) + *ofs), h0->kind);
             }
 #elif !defined(HOST_64BIT)
             if (const int32_t* ofs = IsConstInt32(arg1))
             {
-                return VNForHandle(static_cast<int32_t>(h0->value) + *ofs, h0->kind);
+                return VNForHandle(reinterpret_cast<void*>(reinterpret_cast<ssize_t>(h0->addr) + *ofs), h0->kind);
             }
 #endif
         }
@@ -1560,27 +1560,6 @@ bool ValueNumStore::IsVNConstant(ValueNum vn) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
     return c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle;
-}
-
-HandleKind ValueNumStore::GetHandleKind(ValueNum vn) const
-{
-    Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
-    unsigned index = ChunkOffset(vn);
-    assert(chunk->m_kind == ChunkKind::Handle);
-    return static_cast<VNHandle*>(chunk->m_defs)[index].kind;
-}
-
-ssize_t ValueNumStore::GetHandleValue(ValueNum vn) const
-{
-    Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
-    unsigned index = ChunkOffset(vn);
-    assert(chunk->m_kind == ChunkKind::Handle);
-    return static_cast<VNHandle*>(chunk->m_defs)[index].value;
-}
-
-bool ValueNumStore::IsVNHandle(ValueNum vn) const
-{
-    return (vn != NoVN) && (m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::Handle);
 }
 
 const VNHandle* ValueNumStore::IsHandle(ValueNum vn) const
@@ -5265,7 +5244,7 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
     }
     else if (const VNHandle* handle = IsHandle(vn))
     {
-        printf("Hnd const: 0x%p", dspPtr(handle->value));
+        printf("Hnd const: 0x%p", dspPtr(handle->addr));
     }
     else if (var_types constType = GetConstType(vn))
     {
@@ -6633,7 +6612,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
         case TYP_LONG:
             if (intCon->IsHandle())
             {
-                return vnStore->VNForHandle(intCon->GetInt64Value(), intCon->GetHandleKind());
+                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
             }
 
             return vnStore->VNForLongCon(intCon->GetInt64Value());
@@ -6643,7 +6622,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
 #ifndef TARGET_64BIT
             if (intCon->IsHandle())
             {
-                return vnStore->VNForHandle(intCon->GetInt32Value(), intCon->GetHandleKind());
+                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
             }
 #endif
 
@@ -6656,7 +6635,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
             }
 
             assert(intCon->IsIntCon(HandleKind::String)); // Constant object can be only frozen string.
-            return vnStore->VNForHandle(intCon->GetValue(), intCon->GetHandleKind());
+            return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
 
         case TYP_BYREF:
             if (intCon->GetValue() == 0)
@@ -6666,7 +6645,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
 
             if (intCon->IsHandle())
             {
-                return vnStore->VNForHandle(intCon->GetValue(), intCon->GetHandleKind());
+                return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
             }
 
             return vnStore->VNForByrefCon(static_cast<target_size_t>(intCon->GetValue()));
@@ -7753,8 +7732,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
 
     if (useEntryPointAddrAsArg0)
     {
-        ssize_t addrValue = reinterpret_cast<ssize_t>(call->gtEntryPoint.addr);
-        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(addrValue, HandleKind::MethodAddr));
+        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(call->gtEntryPoint.addr, HandleKind::MethodAddr));
     }
 #endif // FEATURE_READYTORUN_COMPILER
 

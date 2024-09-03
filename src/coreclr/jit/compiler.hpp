@@ -481,12 +481,7 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
     return node;
 }
 
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
-{
-    return gtNewIconHandleNode(reinterpret_cast<size_t>(value), kind, fieldSeq);
-}
-
-inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, HandleKind kind, FieldSeqNode* fieldSeq)
+inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* addr, HandleKind kind, FieldSeqNode* fieldSeq)
 {
     assert(kind != HandleKind::None);
 
@@ -495,7 +490,7 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(size_t value, HandleKind kin
         fieldSeq = FieldSeqStore::NotAField();
     }
 
-    GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, value, fieldSeq);
+    GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(addr), fieldSeq);
     node->SetHandleKind(kind);
     return node;
 }

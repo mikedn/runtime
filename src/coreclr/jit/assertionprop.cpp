@@ -3417,7 +3417,7 @@ private:
                 // sometimes be TYP_BYREF, due to things like Unsafe.As.
                 if (!m_compiler->opts.compReloc && tree->TypeIs(TYP_I_IMPL, TYP_BYREF))
                 {
-                    newTree = m_compiler->gtNewIconHandleNode(static_cast<size_t>(handle->value), handle->kind);
+                    newTree = m_compiler->gtNewIconHandleNode(handle->addr, handle->kind);
                 }
             }
             // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
