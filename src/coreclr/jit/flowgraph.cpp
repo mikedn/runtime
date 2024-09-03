@@ -291,8 +291,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 
     if (addrOfTrapReturningThreadsAddr != nullptr)
     {
-        addr = gtNewIndLoad(TYP_I_IMPL, reinterpret_cast<size_t>(addrOfTrapReturningThreadsAddr), HandleKind::ConstData,
-                            true);
+        addr = gtNewIndLoad(TYP_I_IMPL, addrOfTrapReturningThreadsAddr, HandleKind::ConstData, true);
     }
     else
     {

@@ -119,21 +119,21 @@ struct VNFuncApp
 
 struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
 {
-    ssize_t    value;
+    void*      addr;
     HandleKind kind;
 
-    VNHandle(ssize_t value, HandleKind kind) : value(value), kind(kind)
+    VNHandle(void* addr, HandleKind kind) : addr(addr), kind(kind)
     {
     }
 
     bool operator==(const VNHandle& y) const
     {
-        return value == y.value && kind == y.kind;
+        return addr == y.addr && kind == y.kind;
     }
 
     static unsigned GetHashCode(const VNHandle& val)
     {
-        return static_cast<unsigned>(val.value);
+        return static_cast<unsigned>(reinterpret_cast<size_t>(val.addr));
     }
 };
 
@@ -599,7 +599,7 @@ public:
 
     // We keep handle values in a separate pool, so we don't confuse a handle with an int constant
     // that happens to be the same...
-    ValueNum VNForHandle(ssize_t value, HandleKind handleKind);
+    ValueNum VNForHandle(void* addr, HandleKind handleKind);
 
     ValueNum VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle);
 
@@ -805,11 +805,6 @@ public:
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
-    HandleKind GetHandleKind(ValueNum vn) const;
-    ssize_t GetHandleValue(ValueNum vn) const;
-
-    // Returns true iff the VN represents a handle constant.
-    bool IsVNHandle(ValueNum vn) const;
     const VNHandle* IsHandle(ValueNum vn) const;
 
     template <typename T>
