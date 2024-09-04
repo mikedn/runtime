@@ -1019,7 +1019,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
         return false;
     }
 
-    if (vnStore->IsVNConstant(vn) || (vn == ValueNumStore::VoidVN()))
+    if (vnStore->IsVNConstant(vn))
     {
         return true;
     }

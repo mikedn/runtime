@@ -206,11 +206,8 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             {
                 INDEBUG(FieldSeqNode* fieldSeq = node->AsClsVar()->GetFieldSeq());
 
-                GenTreeIntCon* intCon =
-                    node->ChangeToIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(node->AsClsVar()->GetFieldAddr()));
-
+                GenTreeIntCon* intCon = node->ChangeToIntCon(node->AsClsVar()->GetFieldAddr(), HandleKind::Static);
 #ifdef DEBUG
-                intCon->SetHandleKind(HandleKind::Static);
                 intCon->SetDumpHandle(fieldSeq->GetFieldHandle());
                 intCon->SetFieldSeq(fieldSeq);
 #endif

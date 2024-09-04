@@ -1674,6 +1674,7 @@ public:
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
     GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
+    GenTreeIntCon* ChangeToIntCon(void* addr, HandleKind kind);
 #ifndef TARGET_64BIT
     GenTreeLngCon* ChangeToLngCon(int64_t value);
 #endif
@@ -2629,6 +2630,13 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         assert(fieldSeq != nullptr);
     }
 
+    GenTreeIntCon(var_types type, void* addr, HandleKind kind, FieldSeqNode* fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(reinterpret_cast<ssize_t>(addr)), m_fieldSeq(fieldSeq)
+    {
+        assert(fieldSeq != nullptr);
+        SetHandleKind(kind);
+    }
+
     GenTreeIntCon(const GenTreeIntCon* copyFrom)
         : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
         , gtIconVal(copyFrom->gtIconVal)
@@ -2717,6 +2725,13 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     {
         assert(IsIconHandle());
         return reinterpret_cast<void*>(gtIconVal);
+    }
+
+    void SetAddr(void* addr, HandleKind kind)
+    {
+        gtIconVal = reinterpret_cast<ssize_t>(addr);
+        SetHandleKind(kind);
+        m_fieldSeq = FieldSeqStore::NotAField();
     }
 
     void SetValue(ssize_t value)

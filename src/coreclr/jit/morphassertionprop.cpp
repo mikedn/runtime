@@ -924,22 +924,18 @@ GenTree* Compiler::morphAssertionPropagateLclLoadConst(const MorphAssertion& ass
             assert(varTypeIsI(lcl->GetType()));
             assert(varTypeIsI(load->GetType()));
 
-            if (val.intCon.handleKind != HandleKind::None)
+            if (val.intCon.handleKind == HandleKind::None)
             {
-                if (opts.compReloc)
-                {
-                    break;
-                }
-
-                // TODO-MIKE-Review: It's not clear why this is done only for handles. It's a
-                // constant so it obviously does not need to be reported to the GC.
-                // On the other hand, we don't know the user and blindly changing types like
-                // this isn't great.
-                load->SetType(TYP_I_IMPL);
+                conNode = load->ChangeToIntCon(val.intCon.value);
             }
-
-            conNode = load->ChangeToIntCon(val.intCon.value);
-            conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
+            else if (opts.compReloc)
+            {
+                break;
+            }
+            else
+            {
+                conNode = load->ChangeToIntCon(reinterpret_cast<void*>(val.intCon.value), val.intCon.handleKind);
+            }
             break;
 
         default:

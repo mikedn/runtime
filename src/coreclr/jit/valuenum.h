@@ -562,6 +562,7 @@ public:
 
     ValueNum VNForIntCon(int32_t value);
     ValueNum VNForLongCon(int64_t value);
+    ValueNum VNForIntCon(var_types type, ssize_t value);
     ValueNum VNForFloatCon(float value);
     ValueNum VNForDoubleCon(double value);
     ValueNum VNForDblCon(var_types type, double value);

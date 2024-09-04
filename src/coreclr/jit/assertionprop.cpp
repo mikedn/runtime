@@ -1316,6 +1316,7 @@ private:
                 }
 
                 conNode = load->ChangeToDblCon(val.dblCon.value);
+                assert(val.vn == vnStore->VNForDblCon(load->GetType(), val.dblCon.value));
                 break;
 
 #ifndef TARGET_64BIT
@@ -1326,6 +1327,7 @@ private:
                 }
 
                 conNode = load->ChangeToLngCon(val.lngCon.value);
+                assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
                 break;
 #endif
 
@@ -1335,6 +1337,7 @@ private:
                 if (val.intCon.handleKind == HandleKind::None)
                 {
                     conNode = load->ChangeToIntCon(varActualType(load->GetType()), val.intCon.value);
+                    assert(val.vn == vnStore->VNForIntCon(load->GetType(), val.intCon.value));
                 }
                 else if (compiler->opts.compReloc)
                 {
@@ -1342,13 +1345,12 @@ private:
                 }
                 else
                 {
-                    conNode = load->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
-                    conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
+                    void* addr = reinterpret_cast<void*>(val.intCon.value);
+                    conNode    = load->ChangeToIntCon(addr, val.intCon.handleKind);
+                    assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
                 }
                 break;
         }
-
-        assert(vnStore->IsVNConstant(val.vn));
 
         conNode->SetVNP({val.vn, val.vn});
 
@@ -1381,6 +1383,7 @@ private:
 
                 use->GetDef()->RemoveUse(use);
                 conNode = use->ChangeToDblCon(val.dblCon.value);
+                assert(val.vn == vnStore->VNForDblCon(use->GetType(), val.dblCon.value));
                 break;
 
 #ifndef TARGET_64BIT
@@ -1392,6 +1395,7 @@ private:
 
                 use->GetDef()->RemoveUse(use);
                 conNode = use->ChangeToLngCon(val.lngCon.value);
+                assert(val.vn == vnStore->VNForLongCon(val.lngCon.value));
                 break;
 #endif
 
@@ -1402,6 +1406,10 @@ private:
                 {
                     use->GetDef()->RemoveUse(use);
                     conNode = use->ChangeToIntCon(varActualType(use->GetType()), val.intCon.value);
+                    // TODO-MIKE-Review: This stuff is messed up, we use the VN of the propagated
+                    // constant but that may have a different type from the node (e.g. BYREF/LONG).
+                    // assert(val.vn == vnStore->VNForIntCon(use->GetType(), val.intCon.value));
+                    assert(vnStore->IsConst(val.vn));
                 }
                 else if (compiler->opts.compReloc)
                 {
@@ -1410,13 +1418,13 @@ private:
                 else
                 {
                     use->GetDef()->RemoveUse(use);
-                    conNode = use->ChangeToIntCon(TYP_I_IMPL, val.intCon.value);
-                    conNode->AsIntCon()->SetHandleKind(val.intCon.handleKind);
+                    void* addr = reinterpret_cast<void*>(val.intCon.value);
+                    conNode    = use->ChangeToIntCon(addr, val.intCon.handleKind);
+                    assert(val.vn == vnStore->VNForHandle(addr, val.intCon.handleKind));
                 }
+
                 break;
         }
-
-        assert(vnStore->IsVNConstant(val.vn));
 
         conNode->SetVNP({val.vn, val.vn});
 
@@ -2058,11 +2066,11 @@ private:
 
         for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) == VNOP_ADD;)
         {
-            if (vnStore->IsVNConstant(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
+            if (vnStore->IsConst(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
             {
                 baseVN = funcApp[0];
             }
-            else if (vnStore->IsVNConstant(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
+            else if (vnStore->IsConst(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
             {
                 baseVN = funcApp[1];
             }
@@ -3398,19 +3406,12 @@ private:
 
         GenTree* GetConstNode(GenTree* tree)
         {
-            ValueNum vn = m_vnStore->ExtractValue(tree->GetConservativeVN());
-
-            if (!m_vnStore->IsVNConstant(vn))
-            {
-                return nullptr;
-            }
-
-            var_types vnType  = m_vnStore->TypeOfVN(vn);
-            GenTree*  newTree = nullptr;
+            ValueNum vn      = m_vnStore->ExtractValue(tree->GetConservativeVN());
+            GenTree* newTree = nullptr;
 
             if (const VNHandle* handle = m_vnStore->IsHandle(vn))
             {
-                assert(vnType == TYP_I_IMPL);
+                assert(m_vnStore->TypeOfVN(vn) == TYP_I_IMPL);
 
                 // Don't perform constant folding that involves a handle that needs to be recorded
                 // as a relocation with the VM. The VN type should be TYP_I_IMPL but the tree may
@@ -3420,34 +3421,37 @@ private:
                     newTree = m_compiler->gtNewIconHandleNode(handle->addr, handle->kind);
                 }
             }
-            // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
-            // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
-            // not explicitly initialized and .locals init is used.
-            else if (varActualType(tree->GetType()) == vnType)
+            else if (var_types vnType = m_vnStore->GetConstType(vn))
             {
-                switch (vnType)
+                // The tree type and the VN type should match but VN can't be trusted. At least for SIMD
+                // locals, VN manages to pull out a TYP_LONG 0 constant out of the hat, if the local is
+                // not explicitly initialized and .locals init is used.
+                if (varActualType(tree->GetType()) == vnType)
                 {
-                    case TYP_FLOAT:
-                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstFloat(vn), TYP_FLOAT);
-                        break;
-                    case TYP_DOUBLE:
-                        newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstDouble(vn), TYP_DOUBLE);
-                        break;
-                    case TYP_INT:
-                        newTree = m_compiler->gtNewIconNode(m_vnStore->GetConstInt32(vn));
-                        break;
-                    case TYP_LONG:
-                        newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
-                        break;
-                    case TYP_REF:
-                        assert(vn == m_vnStore->NullVN());
-                        newTree = m_compiler->gtNewIconNode(0, TYP_REF);
-                        break;
-                    case TYP_BYREF:
-                        // Do not support const byref optimization.
-                        break;
-                    default:
-                        unreached();
+                    switch (vnType)
+                    {
+                        case TYP_FLOAT:
+                            newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstFloat(vn), TYP_FLOAT);
+                            break;
+                        case TYP_DOUBLE:
+                            newTree = m_compiler->gtNewDconNode(m_vnStore->GetConstDouble(vn), TYP_DOUBLE);
+                            break;
+                        case TYP_INT:
+                            newTree = m_compiler->gtNewIconNode(m_vnStore->GetConstInt32(vn));
+                            break;
+                        case TYP_LONG:
+                            newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
+                            break;
+                        case TYP_REF:
+                            assert(vn == m_vnStore->NullVN());
+                            newTree = m_compiler->gtNewIconNode(0, TYP_REF);
+                            break;
+                        case TYP_BYREF:
+                            // Do not support const byref optimization.
+                            break;
+                        default:
+                            unreached();
+                    }
                 }
             }
 

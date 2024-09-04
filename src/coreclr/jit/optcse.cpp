@@ -541,8 +541,6 @@ public:
         }
         else if (enableSharedConstCse && expr->IsIntCon() && !expr->AsIntCon()->ImmedValNeedsReloc(compiler))
         {
-            assert(vnStore->IsVNConstant(exprValueVN));
-
             // Create a VN that for a constant that has only the upper bits of the
             // real constant by shifting out some of the low bits, (12 or 16 bits).
             ssize_t sharedConstVal = GetSharedConstValue(expr->AsIntCon()->GetValue());

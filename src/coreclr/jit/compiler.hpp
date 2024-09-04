@@ -465,11 +465,6 @@ inline genTreeOps LargeOpOpcode()
     return GT_CALL;
 }
 
-/******************************************************************************
- *
- * Use to create nodes which may later be morphed to another (big) operator
- */
-
 inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
 {
     assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
@@ -477,8 +472,7 @@ inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, Ge
     assert((GenTree::OperKind(oper) & GTK_EXOP) == 0);
     assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL);
     // Allocate a large node
-    GenTree* node = new (this, LargeOpOpcode()) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
-    return node;
+    return new (this, LargeOpOpcode()) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
 }
 
 inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* addr, HandleKind kind, FieldSeqNode* fieldSeq)
@@ -490,9 +484,7 @@ inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* addr, HandleKind kind,
         fieldSeq = FieldSeqStore::NotAField();
     }
 
-    GenTreeIntCon* node = new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, reinterpret_cast<ssize_t>(addr), fieldSeq);
-    node->SetHandleKind(kind);
-    return node;
+    return new (this, GT_CNS_INT) GenTreeIntCon(TYP_I_IMPL, addr, kind, fieldSeq);
 }
 
 // It may not be allowed to embed HANDLEs directly into the JITed code (for eg,
@@ -735,6 +727,18 @@ inline GenTreeIntCon* GenTree::ChangeToIntCon(var_types type, ssize_t value)
 {
     SetType(varActualType(type));
     return ChangeToIntCon(value);
+}
+
+inline GenTreeIntCon* GenTree::ChangeToIntCon(void* addr, HandleKind kind)
+{
+    SetOperResetFlags(GT_CNS_INT);
+
+    GenTreeIntCon* intCon = AsIntCon();
+    intCon->SetType(TYP_I_IMPL);
+    intCon->SetAddr(addr, kind);
+    intCon->SetCompileTimeHandle(nullptr);
+    INDEBUG(intCon->SetDumpHandle(nullptr));
+    return intCon;
 }
 
 #ifndef TARGET_64BIT
