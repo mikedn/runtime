@@ -3136,7 +3136,7 @@ bool Lowering::LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2)
     {
         case GT_CNS_INT:
             return (node1->AsIntCon()->GetValue() == node2->AsIntCon()->GetValue()) &&
-                   (node1->IsIconHandle() == node2->IsIconHandle());
+                   (node1->AsIntCon()->IsHandle() == node2->AsIntCon()->IsHandle());
         case GT_LCL_LOAD:
             return node1->AsLclLoad()->GetLcl() == node2->AsLclLoad()->GetLcl();
         default:

@@ -3773,7 +3773,7 @@ bool Compiler::fgAddrCouldBeNull(GenTree* addr)
         // non 0 constant is obviously not null. It may be an invalid address but
         // it's not like the spec requires detecting such addresses.
 
-        return !addr->IsIconHandle();
+        return !addr->AsIntCon()->IsHandle();
     }
 
     if (addr->OperIs(GT_CNS_STR, GT_FIELD_ADDR, GT_INDEX_ADDR, GT_LCL_ADDR, GT_CLS_VAR_ADDR, GT_CONST_ADDR))
@@ -6395,7 +6395,7 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             break;
 
         case GT_CNS_INT:
-            if (tree->IsIconHandle())
+            if (tree->AsIntCon()->IsHandle())
             {
                 operFlag = (flags & GTF_ICON_INITCLASS) ? 'I' : 'H';
             }
@@ -6858,7 +6858,7 @@ void Compiler::gtDispConst(GenTree* tree)
             {
                 ssize_t value = tree->AsIntCon()->GetValue();
 
-                if (tree->IsIconHandle())
+                if (tree->AsIntCon()->IsHandle())
                 {
                     value = dspPtr(value);
                 }
@@ -6898,7 +6898,7 @@ void Compiler::gtDispConst(GenTree* tree)
 
                 const char* prefix = " (";
 
-                if (tree->IsIconHandle())
+                if (tree->AsIntCon()->IsHandle())
                 {
                     printf("%s%s", prefix, dmpGetHandleKindName(tree->AsIntCon()->GetHandleKind()));
                     prefix = ", ";
@@ -11236,18 +11236,9 @@ bool GenTree::isContained() const
     return true;
 }
 
-//------------------------------------------------------------------------
-// GenTreeIntCon::ImmedValNeedsReloc: does this immediate value needs recording a relocation with the VM?
-//
-// Arguments:
-//    comp - Compiler instance
-//
-// Return Value:
-//    True if this immediate value requires us to record a relocation for it; false otherwise.
-
 bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
 {
-    return comp->opts.compReloc && IsIconHandle();
+    return comp->opts.compReloc && IsHandle();
 }
 
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const

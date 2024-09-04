@@ -1508,7 +1508,7 @@ bool X86Emitter::IntConNeedsReloc(GenTreeIntCon* con)
     if (compiler->opts.compReloc)
     {
         // Only handles need relocations and can be RIP relative in crossgen mode.
-        return con->IsIconHandle();
+        return con->IsHandle();
     }
 
     // At JIT time we try to use RIP relative addressing by default but that can fail

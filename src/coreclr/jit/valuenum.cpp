@@ -2783,17 +2783,16 @@ FieldSeqNode* ValueNumbering::IsFieldAddr(GenTree* addr, GenTree** pObj)
         GenTree* op1 = addr->AsOp()->GetOp(0);
         GenTree* op2 = addr->AsOp()->GetOp(1);
 
-        if (op1->OperIs(GT_CNS_INT) && op1->IsIconHandle())
+        if (GenTreeIntCon* h1 = op1->IsIntConHandle())
         {
-            // If one operand is a field sequence/handle, the other operand must not also be a field sequence/handle.
-            assert(!op2->OperIs(GT_CNS_INT) || !op2->IsIconHandle());
+            assert(!op2->IsIntConHandle());
 
-            fieldSeq = op1->AsIntCon()->GetFieldSeq();
+            fieldSeq = h1->GetFieldSeq();
             addr     = op2;
         }
         else if (op2->OperIs(GT_CNS_INT))
         {
-            assert(!op1->OperIs(GT_CNS_INT) || !op1->IsIconHandle());
+            assert(!op1->IsIntConHandle());
 
             fieldSeq = op2->AsIntCon()->GetFieldSeq();
             addr     = op1;

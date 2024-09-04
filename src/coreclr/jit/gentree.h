@@ -1801,10 +1801,9 @@ public:
     GenTreeIntCon* IsIntConFitsInInt32();
     GenTreeIntCon* IsIntCon(HandleKind kind);
 
-    bool IsIconHandle() const
+    GenTreeIntCon* IsIntConHandle()
     {
-        assert(gtOper == GT_CNS_INT);
-        return (gtFlags & GTF_ICON_HANDLE_KIND) != 0;
+        return (gtOper == GT_CNS_INT) && ((gtFlags & GTF_ICON_HANDLE_KIND) != 0) ? AsIntCon() : nullptr;
     }
 
     bool IsHelperCall();
@@ -2723,7 +2722,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     void* GetAddr() const
     {
-        assert(IsIconHandle());
+        assert(IsHandle());
         return reinterpret_cast<void*>(gtIconVal);
     }
 
