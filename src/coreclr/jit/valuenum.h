@@ -819,14 +819,8 @@ public:
 
     size_t ConstantValue(ValueNum vn) const;
 
-    // Requires "mthFunc" to be an intrinsic math function (one of the allowable values for the "gtMath" field
-    // of a GenTreeMath node).  For unary ops, return the value number for the application of this function to
-    // "arg0VN". For binary ops, return the value number for the application of this function to "arg0VN" and
-    // "arg1VN".
-
-    ValueNum EvalMathFuncUnary(var_types typ, NamedIntrinsic mthFunc, ValueNum arg0VN);
-
-    ValueNum EvalMathFuncBinary(var_types typ, NamedIntrinsic mthFunc, ValueNum arg0VN, ValueNum arg1VN);
+    ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
+    ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
 
     ValueNumPair EvalMathFuncUnary(var_types typ, NamedIntrinsic mthFunc, ValueNumPair arg0VNP)
     {

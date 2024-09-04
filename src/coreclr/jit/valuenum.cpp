@@ -4696,404 +4696,326 @@ void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
     m_checkedBoundVNs.AddOrUpdate(vn, true);
 }
 
-ValueNum ValueNumStore::EvalMathFuncUnary(var_types typ, NamedIntrinsic gtMathFN, ValueNum arg0VN)
+ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN)
 {
-    assert(!HasExset(arg0VN));
-    assert(compiler->IsMathIntrinsic(gtMathFN));
+    assert(compiler->IsMathIntrinsic(intrin));
+    assert((type == TYP_DOUBLE) || (type == TYP_FLOAT) ||
+           ((type == TYP_INT) && ((intrin == NI_System_Math_ILogB) || (intrin == NI_System_Math_Round))));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
-    if (IsVNConstant(arg0VN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(gtMathFN)))
+    if (IsConst(argVN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(intrin)))
     {
-        assert(varTypeIsFloating(TypeOfVN(arg0VN)));
-
-        if (typ == TYP_DOUBLE)
+        if (type == TYP_DOUBLE)
         {
-            // Both operand and its result must be of the same floating point type.
-            assert(typ == TypeOfVN(arg0VN));
-            double arg0Val = GetConstDouble(arg0VN);
+            double argVal = GetConstDouble(argVN);
+            double res;
 
-            double res = 0.0;
-            switch (gtMathFN)
+            switch (intrin)
             {
                 case NI_System_Math_Abs:
-                    res = fabs(arg0Val);
+                    res = fabs(argVal);
                     break;
-
                 case NI_System_Math_Acos:
-                    res = acos(arg0Val);
+                    res = acos(argVal);
                     break;
-
                 case NI_System_Math_Acosh:
-                    res = acosh(arg0Val);
+                    res = acosh(argVal);
                     break;
-
                 case NI_System_Math_Asin:
-                    res = asin(arg0Val);
+                    res = asin(argVal);
                     break;
-
                 case NI_System_Math_Asinh:
-                    res = asinh(arg0Val);
+                    res = asinh(argVal);
                     break;
-
                 case NI_System_Math_Atan:
-                    res = atan(arg0Val);
+                    res = atan(argVal);
                     break;
-
                 case NI_System_Math_Atanh:
-                    res = atanh(arg0Val);
+                    res = atanh(argVal);
                     break;
-
                 case NI_System_Math_Cbrt:
-                    res = cbrt(arg0Val);
+                    res = cbrt(argVal);
                     break;
-
                 case NI_System_Math_Ceiling:
-                    res = ceil(arg0Val);
+                    res = ceil(argVal);
                     break;
-
                 case NI_System_Math_Cos:
-                    res = cos(arg0Val);
+                    res = cos(argVal);
                     break;
-
                 case NI_System_Math_Cosh:
-                    res = cosh(arg0Val);
+                    res = cosh(argVal);
                     break;
-
                 case NI_System_Math_Exp:
-                    res = exp(arg0Val);
+                    res = exp(argVal);
                     break;
-
                 case NI_System_Math_Floor:
-                    res = floor(arg0Val);
+                    res = floor(argVal);
                     break;
-
                 case NI_System_Math_Log:
-                    res = log(arg0Val);
+                    res = log(argVal);
                     break;
-
                 case NI_System_Math_Log2:
-                    res = log2(arg0Val);
+                    res = log2(argVal);
                     break;
-
                 case NI_System_Math_Log10:
-                    res = log10(arg0Val);
+                    res = log10(argVal);
                     break;
-
                 case NI_System_Math_Sin:
-                    res = sin(arg0Val);
+                    res = sin(argVal);
                     break;
-
                 case NI_System_Math_Sinh:
-                    res = sinh(arg0Val);
+                    res = sinh(argVal);
                     break;
-
                 case NI_System_Math_Round:
-                    res = FloatingPointUtils::round(arg0Val);
+                    res = FloatingPointUtils::round(argVal);
                     break;
-
                 case NI_System_Math_Sqrt:
-                    res = sqrt(arg0Val);
+                    res = sqrt(argVal);
                     break;
-
                 case NI_System_Math_Tan:
-                    res = tan(arg0Val);
+                    res = tan(argVal);
                     break;
-
                 case NI_System_Math_Tanh:
-                    res = tanh(arg0Val);
+                    res = tanh(argVal);
                     break;
-
                 default:
-                    // the above are the only math intrinsics at the time of this writing.
                     unreached();
             }
 
             return VNForDoubleCon(res);
         }
-        else if (typ == TYP_FLOAT)
-        {
-            // Both operand and its result must be of the same floating point type.
-            assert(typ == TypeOfVN(arg0VN));
-            float arg0Val = GetConstFloat(arg0VN);
 
-            float res = 0.0f;
-            switch (gtMathFN)
+        if (type == TYP_FLOAT)
+        {
+            float argVal = GetConstFloat(argVN);
+            float res;
+
+            switch (intrin)
             {
                 case NI_System_Math_Abs:
-                    res = fabsf(arg0Val);
+                    res = fabsf(argVal);
                     break;
-
                 case NI_System_Math_Acos:
-                    res = acosf(arg0Val);
+                    res = acosf(argVal);
                     break;
-
                 case NI_System_Math_Acosh:
-                    res = acoshf(arg0Val);
+                    res = acoshf(argVal);
                     break;
-
                 case NI_System_Math_Asin:
-                    res = asinf(arg0Val);
+                    res = asinf(argVal);
                     break;
-
                 case NI_System_Math_Asinh:
-                    res = asinhf(arg0Val);
+                    res = asinhf(argVal);
                     break;
-
                 case NI_System_Math_Atan:
-                    res = atanf(arg0Val);
+                    res = atanf(argVal);
                     break;
-
                 case NI_System_Math_Atanh:
-                    res = atanhf(arg0Val);
+                    res = atanhf(argVal);
                     break;
-
                 case NI_System_Math_Cbrt:
-                    res = cbrtf(arg0Val);
+                    res = cbrtf(argVal);
                     break;
-
                 case NI_System_Math_Ceiling:
-                    res = ceilf(arg0Val);
+                    res = ceilf(argVal);
                     break;
-
                 case NI_System_Math_Cos:
-                    res = cosf(arg0Val);
+                    res = cosf(argVal);
                     break;
-
                 case NI_System_Math_Cosh:
-                    res = coshf(arg0Val);
+                    res = coshf(argVal);
                     break;
-
                 case NI_System_Math_Exp:
-                    res = expf(arg0Val);
+                    res = expf(argVal);
                     break;
-
                 case NI_System_Math_Floor:
-                    res = floorf(arg0Val);
+                    res = floorf(argVal);
                     break;
-
                 case NI_System_Math_Log:
-                    res = logf(arg0Val);
+                    res = logf(argVal);
                     break;
-
                 case NI_System_Math_Log2:
-                    res = log2f(arg0Val);
+                    res = log2f(argVal);
                     break;
-
                 case NI_System_Math_Log10:
-                    res = log10f(arg0Val);
+                    res = log10f(argVal);
                     break;
-
                 case NI_System_Math_Sin:
-                    res = sinf(arg0Val);
+                    res = sinf(argVal);
                     break;
-
                 case NI_System_Math_Sinh:
-                    res = sinhf(arg0Val);
+                    res = sinhf(argVal);
                     break;
-
                 case NI_System_Math_Round:
-                    res = FloatingPointUtils::round(arg0Val);
+                    res = FloatingPointUtils::round(argVal);
                     break;
-
                 case NI_System_Math_Sqrt:
-                    res = sqrtf(arg0Val);
+                    res = sqrtf(argVal);
                     break;
-
                 case NI_System_Math_Tan:
-                    res = tanf(arg0Val);
+                    res = tanf(argVal);
                     break;
-
                 case NI_System_Math_Tanh:
-                    res = tanhf(arg0Val);
+                    res = tanhf(argVal);
                     break;
-
                 default:
-                    // the above are the only math intrinsics at the time of this writing.
                     unreached();
             }
 
             return VNForFloatCon(res);
         }
+
+        assert(type == TYP_INT);
+        int32_t res;
+
+        if (intrin == NI_System_Math_ILogB)
+        {
+            switch (TypeOfVN(argVN))
+            {
+                case TYP_DOUBLE:
+                    res = ilogb(GetConstDouble(argVN));
+                    break;
+                case TYP_FLOAT:
+                    res = ilogbf(GetConstFloat(argVN));
+                    break;
+                default:
+                    unreached();
+            }
+        }
         else
         {
-            assert(typ == TYP_INT);
-            int res = 0;
+            assert(intrin == NI_System_Math_Round);
 
-            if (gtMathFN == NI_System_Math_ILogB)
+            switch (TypeOfVN(argVN))
             {
-                switch (TypeOfVN(arg0VN))
-                {
-                    case TYP_DOUBLE:
-                    {
-                        double arg0Val = GetConstDouble(arg0VN);
-                        res            = ilogb(arg0Val);
-                        break;
-                    }
+                case TYP_DOUBLE:
+                    res = static_cast<int32_t>(FloatingPointUtils::round(GetConstDouble(argVN)));
+                    break;
+                case TYP_FLOAT:
+                    res = static_cast<int32_t>(FloatingPointUtils::round(GetConstFloat(argVN)));
+                    break;
+                default:
+                    unreached();
+            }
+        }
 
-                    case TYP_FLOAT:
-                    {
-                        float arg0Val = GetConstFloat(arg0VN);
-                        res           = ilogbf(arg0Val);
-                        break;
-                    }
+        return VNForIntCon(res);
+    }
 
-                    default:
-                        unreached();
-                }
+    VNFunc vnf;
+
+    switch (intrin)
+    {
+        case NI_System_Math_Abs:
+            vnf = VNF_Abs;
+            break;
+        case NI_System_Math_Acos:
+            vnf = VNF_Acos;
+            break;
+        case NI_System_Math_Acosh:
+            vnf = VNF_Acosh;
+            break;
+        case NI_System_Math_Asin:
+            vnf = VNF_Asin;
+            break;
+        case NI_System_Math_Asinh:
+            vnf = VNF_Asinh;
+            break;
+        case NI_System_Math_Atan:
+            vnf = VNF_Atan;
+            break;
+        case NI_System_Math_Atanh:
+            vnf = VNF_Atanh;
+            break;
+        case NI_System_Math_Cbrt:
+            vnf = VNF_Cbrt;
+            break;
+        case NI_System_Math_Ceiling:
+            vnf = VNF_Ceiling;
+            break;
+        case NI_System_Math_Cos:
+            vnf = VNF_Cos;
+            break;
+        case NI_System_Math_Cosh:
+            vnf = VNF_Cosh;
+            break;
+        case NI_System_Math_Exp:
+            vnf = VNF_Exp;
+            break;
+        case NI_System_Math_Floor:
+            vnf = VNF_Floor;
+            break;
+        case NI_System_Math_ILogB:
+            vnf = VNF_ILogB;
+            break;
+        case NI_System_Math_Log:
+            vnf = VNF_Log;
+            break;
+        case NI_System_Math_Log2:
+            vnf = VNF_Log2;
+            break;
+        case NI_System_Math_Log10:
+            vnf = VNF_Log10;
+            break;
+        case NI_System_Math_Round:
+            if (type == TYP_DOUBLE)
+            {
+                vnf = VNF_RoundDouble;
+            }
+            else if (type == TYP_FLOAT)
+            {
+                vnf = VNF_RoundSingle;
+            }
+            else if (type == TYP_INT)
+            {
+                vnf = VNF_RoundInt32;
             }
             else
             {
-                assert(gtMathFN == NI_System_Math_Round);
-
-                switch (TypeOfVN(arg0VN))
-                {
-                    case TYP_DOUBLE:
-                    {
-                        double arg0Val = GetConstDouble(arg0VN);
-                        res            = int(FloatingPointUtils::round(arg0Val));
-                        break;
-                    }
-
-                    case TYP_FLOAT:
-                    {
-                        float arg0Val = GetConstFloat(arg0VN);
-                        res           = int(FloatingPointUtils::round(arg0Val));
-                        break;
-                    }
-
-                    default:
-                        unreached();
-                }
+                unreached();
             }
-
-            return VNForIntCon(res);
-        }
+            break;
+        case NI_System_Math_Sin:
+            vnf = VNF_Sin;
+            break;
+        case NI_System_Math_Sinh:
+            vnf = VNF_Sinh;
+            break;
+        case NI_System_Math_Sqrt:
+            vnf = VNF_Sqrt;
+            break;
+        case NI_System_Math_Tan:
+            vnf = VNF_Tan;
+            break;
+        case NI_System_Math_Tanh:
+            vnf = VNF_Tanh;
+            break;
+        default:
+            unreached();
     }
-    else
-    {
-        assert((typ == TYP_DOUBLE) || (typ == TYP_FLOAT) ||
-               ((typ == TYP_INT) && ((gtMathFN == NI_System_Math_ILogB) || (gtMathFN == NI_System_Math_Round))));
 
-        VNFunc vnf = VNOP_NONE;
-
-        switch (gtMathFN)
-        {
-            case NI_System_Math_Abs:
-                vnf = VNF_Abs;
-                break;
-            case NI_System_Math_Acos:
-                vnf = VNF_Acos;
-                break;
-            case NI_System_Math_Acosh:
-                vnf = VNF_Acosh;
-                break;
-            case NI_System_Math_Asin:
-                vnf = VNF_Asin;
-                break;
-            case NI_System_Math_Asinh:
-                vnf = VNF_Asinh;
-                break;
-            case NI_System_Math_Atan:
-                vnf = VNF_Atan;
-                break;
-            case NI_System_Math_Atanh:
-                vnf = VNF_Atanh;
-                break;
-            case NI_System_Math_Cbrt:
-                vnf = VNF_Cbrt;
-                break;
-            case NI_System_Math_Ceiling:
-                vnf = VNF_Ceiling;
-                break;
-            case NI_System_Math_Cos:
-                vnf = VNF_Cos;
-                break;
-            case NI_System_Math_Cosh:
-                vnf = VNF_Cosh;
-                break;
-            case NI_System_Math_Exp:
-                vnf = VNF_Exp;
-                break;
-            case NI_System_Math_Floor:
-                vnf = VNF_Floor;
-                break;
-            case NI_System_Math_ILogB:
-                vnf = VNF_ILogB;
-                break;
-            case NI_System_Math_Log:
-                vnf = VNF_Log;
-                break;
-            case NI_System_Math_Log2:
-                vnf = VNF_Log2;
-                break;
-            case NI_System_Math_Log10:
-                vnf = VNF_Log10;
-                break;
-            case NI_System_Math_Round:
-                if (typ == TYP_DOUBLE)
-                {
-                    vnf = VNF_RoundDouble;
-                }
-                else if (typ == TYP_INT)
-                {
-                    vnf = VNF_RoundInt32;
-                }
-                else if (typ == TYP_FLOAT)
-                {
-                    vnf = VNF_RoundSingle;
-                }
-                else
-                {
-                    noway_assert(!"Invalid INTRINSIC_Round");
-                }
-                break;
-            case NI_System_Math_Sin:
-                vnf = VNF_Sin;
-                break;
-            case NI_System_Math_Sinh:
-                vnf = VNF_Sinh;
-                break;
-            case NI_System_Math_Sqrt:
-                vnf = VNF_Sqrt;
-                break;
-            case NI_System_Math_Tan:
-                vnf = VNF_Tan;
-                break;
-            case NI_System_Math_Tanh:
-                vnf = VNF_Tanh;
-                break;
-            default:
-                unreached(); // the above are the only math intrinsics at the time of this writing.
-        }
-
-        return VNForFunc(typ, vnf, arg0VN);
-    }
+    return VNForFunc(type, vnf, argVN);
 }
 
-ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathFN, ValueNum arg0VN, ValueNum arg1VN)
+ValueNum ValueNumStore::EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN)
 {
-    assert(varTypeIsFloating(typ));
-    assert(!HasExset(arg0VN));
-    assert(!HasExset(arg1VN));
-    assert(compiler->IsMathIntrinsic(gtMathFN));
+    assert(varTypeIsFloating(type));
+    assert(compiler->IsMathIntrinsic(intrin));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
-    if (IsVNConstant(arg0VN) && IsVNConstant(arg1VN) &&
-        (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(gtMathFN)))
+    if (IsConst(arg0VN) && IsConst(arg1VN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(intrin)))
     {
-        if (typ == TYP_DOUBLE)
+        if (type == TYP_DOUBLE)
         {
-            assert(typ == TypeOfVN(arg0VN));
-            assert(typ == TypeOfVN(arg1VN));
             double arg0Val = GetConstDouble(arg0VN);
             double arg1Val = GetConstDouble(arg1VN);
             double res;
 
-            switch (gtMathFN)
+            switch (intrin)
             {
                 case NI_System_Math_Atan2:
                     res = atan2(arg0Val, arg1Val);
@@ -5110,55 +5032,48 @@ ValueNum ValueNumStore::EvalMathFuncBinary(var_types typ, NamedIntrinsic gtMathF
 
             return VNForDoubleCon(res);
         }
-        else
-        {
-            assert(typ == TYP_FLOAT);
-            assert(typ == TypeOfVN(arg0VN));
-            assert(typ == TypeOfVN(arg1VN));
-            float arg0Val = GetConstFloat(arg0VN);
-            float arg1Val = GetConstFloat(arg1VN);
-            float res;
 
-            switch (gtMathFN)
-            {
-                case NI_System_Math_Atan2:
-                    res = atan2f(arg0Val, arg1Val);
-                    break;
-                case NI_System_Math_FMod:
-                    res = fmodf(arg0Val, arg1Val);
-                    break;
-                case NI_System_Math_Pow:
-                    res = powf(arg0Val, arg1Val);
-                    break;
-                default:
-                    // the above are the only binary math intrinsics at the time of this writing.
-                    unreached();
-            }
+        assert(type == TYP_FLOAT);
+        float arg0Val = GetConstFloat(arg0VN);
+        float arg1Val = GetConstFloat(arg1VN);
+        float res;
 
-            return VNForFloatCon(res);
-        }
-    }
-    else
-    {
-        VNFunc vnf = VNOP_NONE;
-
-        switch (gtMathFN)
+        switch (intrin)
         {
             case NI_System_Math_Atan2:
-                vnf = VNF_Atan2;
+                res = atan2f(arg0Val, arg1Val);
                 break;
             case NI_System_Math_FMod:
-                vnf = VNF_FMod;
+                res = fmodf(arg0Val, arg1Val);
                 break;
             case NI_System_Math_Pow:
-                vnf = VNF_Pow;
+                res = powf(arg0Val, arg1Val);
                 break;
             default:
                 unreached();
         }
 
-        return VNForFunc(typ, vnf, arg0VN, arg1VN);
+        return VNForFloatCon(res);
     }
+
+    VNFunc vnf;
+
+    switch (intrin)
+    {
+        case NI_System_Math_Atan2:
+            vnf = VNF_Atan2;
+            break;
+        case NI_System_Math_FMod:
+            vnf = VNF_FMod;
+            break;
+        case NI_System_Math_Pow:
+            vnf = VNF_Pow;
+            break;
+        default:
+            unreached();
+    }
+
+    return VNForFunc(type, vnf, arg0VN, arg1VN);
 }
 
 VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
