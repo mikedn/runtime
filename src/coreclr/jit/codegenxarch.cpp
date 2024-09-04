@@ -6046,9 +6046,9 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 {
                     emit->emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), s);
                 }
-                else if (fieldNode->IsIconHandle())
+                else if (GenTreeIntCon* handle = fieldNode->IsIntConHandle())
                 {
-                    emit->emitIns_H(INS_push, fieldNode->AsIntCon()->GetAddr());
+                    emit->emitIns_H(INS_push, handle->GetAddr());
                 }
                 else
                 {
@@ -6385,9 +6385,9 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         {
             emit.emitIns_A(INS_push, attr, src->AsIndLoad()->GetAddr());
         }
-        else if (src->IsIconHandle())
+        else if (GenTreeIntCon* handle = src->IsIntConHandle())
         {
-            emit.emitIns_H(INS_push, src->AsIntCon()->GetAddr());
+            emit.emitIns_H(INS_push, handle->GetAddr());
         }
         else
         {

@@ -10132,20 +10132,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 tree->AsOp()->SetOp(1, op2);
             }
 
-            if (opts.OptimizationEnabled() && tree->OperIs(GT_MUL))
+            if (opts.OptimizationEnabled() && tree->OperIs(GT_MUL) && op1->OperIs(GT_NEG) &&
+                !op1->AsUnOp()->GetOp(0)->IsIntCon() && op2->IsIntCon() && !op2->IsIntConHandle())
             {
-                // MUL(NEG(a), C) => MUL(a, NEG(C))
-                if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
-                    !op2->IsIconHandle())
-                {
-                    GenTree* newOp1   = op1->gtGetOp1();
-                    GenTree* newConst = gtNewIconNode(-op2->AsIntCon()->IconValue(), op2->TypeGet());
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(op2);
-                    tree->AsOp()->gtOp1 = newOp1;
-                    tree->AsOp()->gtOp2 = newConst;
-                    return fgMorphSmpOp(tree, mac);
-                }
+                tree->AsOp()->SetOp(0, op1->AsUnOp()->GetOp(0));
+                tree->AsOp()->SetOp(1, gtNewIconNode(-op2->AsIntCon()->GetValue(), op2->GetType()));
+                DEBUG_DESTROY_NODE(op1);
+                DEBUG_DESTROY_NODE(op2);
+
+                return fgMorphSmpOp(tree, mac);
             }
 
 #ifndef TARGET_64BIT
@@ -10177,12 +10172,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_ARR_LENGTH:
-            if (op1->OperIs(GT_CNS_STR))
+            if (GenTreeStrCon* str = op1->IsStrCon())
             {
                 // Optimize `ldstr + String::get_Length()` to CNS_INT
                 // e.g. "Hello".Length => 5
-                GenTreeIntCon* iconNode = gtNewStringLiteralLength(op1->AsStrCon());
-                if (iconNode != nullptr)
+
+                if (GenTreeIntCon* iconNode = gtNewStringLiteralLength(str))
                 {
                     INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                     return iconNode;
@@ -10191,29 +10186,31 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_DIV:
-            // array.Length is always positive so GT_DIV can be changed to GT_UDIV
-            // if op2 is a positive cns
-            if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
-                op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UDIV or DIV
+            // array.Length is always positive so DIV can be changed to UDIV if op2 is
+            // a positive constant. For 0 and 1 it doesn't matter if it's UDIV or DIV.
+            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 2))
             {
                 assert(tree->OperIs(GT_DIV));
                 tree->ChangeOper(GT_UDIV);
+
                 return fgMorphSmpOp(tree, mac);
             }
 
             if (opts.OptimizationEnabled())
             {
                 // DIV(NEG(a), C) => DIV(a, NEG(C))
-                if (op1->OperIs(GT_NEG) && !op1->gtGetOp1()->IsCnsIntOrI() && op2->IsCnsIntOrI() &&
-                    !op2->IsIconHandle())
+                if (op1->OperIs(GT_NEG) && !op1->AsUnOp()->GetOp(0)->IsIntCon() && op2->IsIntCon() &&
+                    !op2->IsIntConHandle())
                 {
-                    ssize_t op2Value = op2->AsIntCon()->IconValue();
-                    if (op2Value != 1 && op2Value != -1) // Div must throw exception for int(long).MinValue / -1.
+                    ssize_t op2Value = op2->AsIntCon()->GetValue();
+
+                    if ((op2Value != 1) && (op2Value != -1))
                     {
-                        tree->AsOp()->gtOp1 = op1->gtGetOp1();
+                        tree->AsOp()->SetOp(0, op1->AsUnOp()->GetOp(0));
                         DEBUG_DESTROY_NODE(op1);
-                        tree->AsOp()->gtOp2 = gtNewIconNode(-op2Value, op2->TypeGet());
+                        tree->AsOp()->SetOp(1, gtNewIconNode(-op2Value, op2->GetType()));
                         DEBUG_DESTROY_NODE(op2);
+
                         return fgMorphSmpOp(tree, mac);
                     }
                 }
@@ -11364,7 +11361,7 @@ DONE_MORPHING_CHILDREN:
             {
                 // Change (x SUB i1) to (x ADD -i1)
 
-                if (op2->IsIntCon() && !op2->IsIconHandle())
+                if (op2->IsIntCon() && !op2->IsIntConHandle())
                 {
                     // Negate the constant and change the node to be "+",
                     // except when `op2` is a const byref.
@@ -11702,20 +11699,19 @@ DONE_MORPHING_CHILDREN:
             if (opts.OptimizationEnabled() && op1->OperIs(GT_MUL, GT_DIV))
             {
                 GenTreeOp* mulOrDiv = op1->AsOp();
-                GenTree*   op1op1   = mulOrDiv->gtGetOp1();
-                GenTree*   op1op2   = mulOrDiv->gtGetOp2();
+                GenTree*   op1op1   = mulOrDiv->GetOp(0);
+                GenTree*   op1op2   = mulOrDiv->GetOp(1);
 
-                if (!op1op1->IsCnsIntOrI() && op1op2->IsCnsIntOrI() && !op1op2->IsIconHandle())
+                if (!op1op1->IsIntCon() && op1op2->IsIntCon() && !op1op2->IsIntConHandle())
                 {
                     // NEG(MUL(a, C)) => MUL(a, -C)
                     // NEG(DIV(a, C)) => DIV(a, -C), except when C = {-1, 1}
-                    ssize_t constVal = op1op2->AsIntCon()->IconValue();
+                    ssize_t constVal = op1op2->AsIntCon()->GetValue();
+
                     if ((mulOrDiv->OperIs(GT_DIV) && (constVal != -1) && (constVal != 1)) || mulOrDiv->OperIs(GT_MUL))
                     {
-                        GenTree* newOp1 = op1op1;                                      // a
-                        GenTree* newOp2 = gtNewIconNode(-constVal, op1op2->TypeGet()); // -C
-                        mulOrDiv->gtOp1 = newOp1;
-                        mulOrDiv->gtOp2 = newOp2;
+                        mulOrDiv->SetOp(0, op1op1);
+                        mulOrDiv->SetOp(1, gtNewIconNode(-constVal, op1op2->GetType()));
 
                         DEBUG_DESTROY_NODE(tree);
                         DEBUG_DESTROY_NODE(op1op2);
