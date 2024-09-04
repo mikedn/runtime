@@ -8385,8 +8385,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
                 tree = gtNewIndLoad(TYP_I_IMPL, entry.addr, HandleKind::MethodAddr, true);
                 return fgMorphTree(tree);
             case IAT_VALUE:
-                tree->ChangeToIntCon(reinterpret_cast<size_t>(entry.handle));
-                tree->AsIntCon()->SetHandleKind(HandleKind::MethodAddr);
+                tree->ChangeToIntCon(entry.handle, HandleKind::MethodAddr);
                 return tree;
             default:
                 unreached();

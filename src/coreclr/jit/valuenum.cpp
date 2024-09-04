@@ -634,6 +634,26 @@ ValueNum ValueNumStore::VNForLongCon(int64_t value)
     return VnForConst<int64_t, Int64VNMap>(value, m_int64VNMap, TYP_LONG, m_currentInt64ConstChunk);
 }
 
+ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
+{
+    switch (varActualType(type))
+    {
+        case TYP_INT:
+            return VNForIntCon(static_cast<int32_t>(value));
+#ifdef TARGET_64BIT
+        case TYP_LONG:
+            return VNForLongCon(value);
+#endif
+        case TYP_REF:
+            assert(value == 0);
+            return NullVN();
+        case TYP_BYREF:
+            return VNForByrefCon(static_cast<target_size_t>(value));
+        default:
+            unreached();
+    }
+}
+
 ValueNum ValueNumStore::VNForFloatCon(float value)
 {
     if (m_floatVNMap == nullptr)
@@ -2368,8 +2388,8 @@ bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0,
 {
     assert(type != TYP_BYREF);
     assert((func < VNOP_OVF_SADD) || (VNOP_OVF_UMUL < func));
-    assert(IsVNConstant(arg0));
-    assert(IsVNConstant(arg1));
+    assert(IsConst(arg0));
+    assert(IsConst(arg1));
 
     INDEBUG(var_types type0 = TypeOfVN(arg0));
     INDEBUG(var_types type1 = TypeOfVN(arg1));
@@ -3368,7 +3388,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
     // TODO-MIKE-Cleanup: This special casing is inherited from old code, it's probably not
     // necessary if the issue described below is properly fixed.
 
-    if (vnStore->IsVNConstant(valueVN) && (valueType == varActualType(fieldType)))
+    if (vnStore->IsConst(valueVN) && (valueType == varActualType(fieldType)))
     {
         if (varTypeIsSmall(fieldType))
         {
