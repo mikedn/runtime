@@ -326,7 +326,6 @@ class ValueNumStore
 
     // Convert a vartype_t to the value number's storage type for that vartype_t.
     // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
-    // Lang is the language (C++) type for the corresponding vartype_t.
     template <int N>
     struct VarTypConv
     {
@@ -335,37 +334,31 @@ class ValueNumStore
     struct VarTypConv<TYP_INT>
     {
         typedef int32_t Type;
-        typedef int32_t Lang;
     };
     template <>
     struct VarTypConv<TYP_FLOAT>
     {
         typedef int32_t Type;
-        typedef float   Lang;
     };
     template <>
     struct VarTypConv<TYP_LONG>
     {
         typedef int64_t Type;
-        typedef int64_t Lang;
     };
     template <>
     struct VarTypConv<TYP_DOUBLE>
     {
         typedef int64_t Type;
-        typedef double  Lang;
     };
     template <>
     struct VarTypConv<TYP_BYREF>
     {
         typedef size_t Type;
-        typedef void*  Lang;
     };
     template <>
     struct VarTypConv<TYP_REF>
     {
-        typedef class Object* Type;
-        typedef class Object* Lang;
+        typedef size_t Type;
     };
 
     static constexpr unsigned MaxFuncArity = 4;
@@ -818,7 +811,7 @@ public:
 #endif
     }
 
-    size_t ConstantValue(ValueNum vn) const;
+    size_t GetConstByRef(ValueNum vn) const;
 
     ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
     ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
