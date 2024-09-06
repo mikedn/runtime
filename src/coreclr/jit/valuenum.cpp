@@ -482,7 +482,7 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
 {
     // The "values" of special ref consts will be all be "null" -- their differing meanings will
     // be carried by the distinct value numbers.
-    static size_t specialRefConsts[SRC_NumSpecialRefConsts];
+    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
 
     // Allocate "m_defs" here, according to the typ/attribs pair.
     switch (kind)
@@ -510,7 +510,7 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
                 case TYP_REF:
                     // We allocate space for a single REF constant, NULL, so we can access these values uniformly.
                     // Since this value is always the same, we represent it as a static.
-                    m_defs = &specialRefConsts[0];
+                    m_defs = specialRefConsts;
                     break; // Nothing to do.
                 default:
                     assert(false); // Should not reach here.
@@ -648,7 +648,7 @@ ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
             assert(value == 0);
             return NullVN();
         case TYP_BYREF:
-            return VNForByrefCon(static_cast<target_size_t>(value));
+            return VNForByrefCon(value);
         default:
             unreached();
     }
@@ -689,14 +689,15 @@ ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
     }
 }
 
-ValueNum ValueNumStore::VNForByrefCon(target_size_t value)
+ValueNum ValueNumStore::VNForByrefCon(ssize_t value)
 {
     if (m_byrefVNMap == nullptr)
     {
         m_byrefVNMap = new (alloc) ByrefVNMap(alloc);
     }
 
-    return VnForConst<target_size_t, ByrefVNMap>(value, m_byrefVNMap, TYP_BYREF, m_currentByrefConstChunk);
+    return VnForConst<target_ssize_t, ByrefVNMap>(static_cast<target_ssize_t>(value), m_byrefVNMap, TYP_BYREF,
+                                                  m_currentByrefConstChunk);
 }
 
 ValueNum ValueNumStore::VNZeroForType(var_types type)
@@ -1340,11 +1341,11 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     }
 }
 
-size_t ValueNumStore::GetConstByRef(ValueNum vn) const
+target_ssize_t ValueNumStore::GetConstByRef(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
     assert((c->m_kind == ChunkKind::Const) && ((c->m_type == TYP_REF) || (c->m_type == TYP_BYREF)));
-    return static_cast<size_t*>(c->m_defs)[ChunkOffset(vn)];
+    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 var_types ValueNumStore::GetConstType(ValueNum vn) const
@@ -1975,8 +1976,8 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 
         assert((type0 == TYP_BYREF) || (type0 == TYP_REF));
 
-        size_t arg0Val = GetConstByRef(arg0VN);
-        size_t arg1Val = GetConstByRef(arg1VN);
+        target_ssize_t arg0Val = GetConstByRef(arg0VN);
+        target_ssize_t arg1Val = GetConstByRef(arg1VN);
 
         if (VNFuncIsComparison(func))
         {
@@ -1986,12 +1987,16 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         // We could see OR of a constant (By)Ref and Null
         if (type == TYP_INT)
         {
-            return VNForIntCon(static_cast<int32_t>(EvalOp<size_t>(func, arg0Val, arg1Val)));
+            return VNForIntCon(static_cast<int32_t>(EvalOp(func, arg0Val, arg1Val)));
+        }
+        else if (type == TYP_LONG)
+        {
+            return VNForLongCon(static_cast<int64_t>(EvalOp(func, arg0Val, arg1Val)));
         }
         else
         {
-            assert((type == TYP_BYREF) || (type == TYP_I_IMPL));
-            return VNForByrefCon(static_cast<target_size_t>(EvalOp<size_t>(func, arg0Val, arg1Val)));
+            assert(type == TYP_BYREF);
+            return VNForByrefCon(EvalOp(func, arg0Val, arg1Val));
         }
     }
 
@@ -2008,7 +2013,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
             break;
         case TYP_REF:
         case TYP_BYREF:
-            arg0Val = static_cast<int64_t>(GetConstByRef(arg0VN));
+            arg0Val = GetConstByRef(arg0VN);
             break;
         default:
             unreached();
@@ -2024,7 +2029,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
             break;
         case TYP_REF:
         case TYP_BYREF:
-            arg1Val = static_cast<int64_t>(GetConstByRef(arg1VN));
+            arg1Val = GetConstByRef(arg1VN);
             break;
         default:
             unreached();
@@ -6551,7 +6556,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
                 return vnStore->VNForHandle(intCon->GetAddr(), intCon->GetHandleKind());
             }
 
-            return vnStore->VNForByrefCon(static_cast<target_size_t>(intCon->GetValue()));
+            return vnStore->VNForByrefCon(intCon->GetValue());
 
         default:
             unreached();

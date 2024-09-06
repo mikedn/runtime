@@ -312,7 +312,7 @@ class ValueNumStore
 
     using Int32VNMap = VNMap<int32_t>;
     using Int64VNMap = VNMap<int64_t>;
-    using ByrefVNMap = VNMap<size_t>;
+    using ByrefVNMap = VNMap<target_ssize_t>;
 
     // First, we need mechanisms for mapping from constants to value numbers.
     // For small integers, we'll use an array.
@@ -353,12 +353,12 @@ class ValueNumStore
     template <>
     struct VarTypConv<TYP_BYREF>
     {
-        typedef size_t Type;
+        typedef target_ssize_t Type;
     };
     template <>
     struct VarTypConv<TYP_REF>
     {
-        typedef size_t Type;
+        typedef target_ssize_t Type;
     };
 
     static constexpr unsigned MaxFuncArity = 4;
@@ -559,7 +559,7 @@ public:
     ValueNum VNForFloatCon(float value);
     ValueNum VNForDoubleCon(double value);
     ValueNum VNForDblCon(var_types type, double value);
-    ValueNum VNForByrefCon(target_size_t value);
+    ValueNum VNForByrefCon(ssize_t value);
 
 #ifdef TARGET_64BIT
     ValueNum VNForPtrSizeIntCon(int64_t cnsVal)
@@ -811,7 +811,7 @@ public:
 #endif
     }
 
-    size_t GetConstByRef(ValueNum vn) const;
+    target_ssize_t GetConstByRef(ValueNum vn) const;
 
     ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
     ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
