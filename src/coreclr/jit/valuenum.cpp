@@ -857,8 +857,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
     }
 
-    if ((type != TYP_BYREF) && CanEvalForConstantArgs2(func) && (GetConstType(arg0) != TYP_UNDEF) &&
-        (GetConstType(arg1) != TYP_UNDEF) && VNEvalShouldFold(type, func, arg0, arg1))
+    if (CanEvalForConstantArgs2(func) && IsConst(arg0) && IsConst(arg1) && VNEvalShouldFold(type, func, arg0, arg1))
     {
         return EvalFuncForConstantArgs(type, func, arg0, arg1);
     }
@@ -1319,7 +1318,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
         // So no update needed.
         if (compiler->optLoopContains(updateLoopNum, mapLoopNum))
         {
-            JITDUMP("      ==> Not updating loop memory dependence of [%06u]; alrady constrained to " FMT_LP
+            JITDUMP("      ==> Not updating loop memory dependence of [%06u]; already constrained to " FMT_LP
                     " nested in " FMT_LP "\n",
                     node->GetID(), mapLoopNum, updateLoopNum);
             return;
@@ -1339,13 +1338,6 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     {
         m_nodeToLoopMemoryBlockMap->Set(toNode, block);
     }
-}
-
-target_ssize_t ValueNumStore::GetConstByRef(ValueNum vn) const
-{
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && ((c->m_type == TYP_REF) || (c->m_type == TYP_BYREF)));
-    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 var_types ValueNumStore::GetConstType(ValueNum vn) const
@@ -1500,13 +1492,6 @@ var_types ValueNumStore::IsConstInt(ValueNum vn, int64_t* value) const
     return TYP_UNDEF;
 }
 
-target_ssize_t ValueNumStore::GetConstIntN(ValueNum vn) const
-{
-    Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_I_IMPL));
-    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
-}
-
 const target_ssize_t* ValueNumStore::IsConstIntN(ValueNum vn) const
 {
     if (vn == NoVN)
@@ -1516,23 +1501,26 @@ const target_ssize_t* ValueNumStore::IsConstIntN(ValueNum vn) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if (c->m_kind == ChunkKind::Const)
+    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_I_IMPL))
     {
-#ifndef TARGET_64BIT
-        if (c->m_type == TYP_INT)
-        {
-            return &static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
-        }
-
-#else
-        if (c->m_type == TYP_LONG)
-        {
-            return &static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
-        }
-#endif
+        return nullptr;
     }
 
-    return nullptr;
+    return &static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+target_ssize_t ValueNumStore::GetConstIntN(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_I_IMPL));
+    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
+}
+
+target_ssize_t ValueNumStore::GetConstByRef(ValueNum vn) const
+{
+    Chunk* c = m_chunks.Get(GetChunkNum(vn));
+    assert((c->m_kind == ChunkKind::Const) && ((c->m_type == TYP_REF) || (c->m_type == TYP_BYREF)));
+    return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 double ValueNumStore::GetConstDouble(ValueNum vn) const
@@ -1900,8 +1888,6 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
 
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
-    assert(CanEvalForConstantArgs2(func));
-
     var_types type0 = TypeOfVN(arg0VN);
     var_types type1 = TypeOfVN(arg1VN);
 
@@ -1962,7 +1948,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
     }
 
     assert((type0 == TYP_INT) || (type0 == TYP_LONG));
-    assert((varTypeSize(type) == varTypeSize(type0)) && (varTypeSize(type) == varTypeSize(type1)));
     assert(!VNFuncIsComparison(func) || (type == TYP_INT));
 
     int64_t result;
@@ -2267,7 +2252,6 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
 
 bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1) const
 {
-    assert(type != TYP_BYREF);
     assert((func < VNOP_OVF_SADD) || (VNOP_OVF_UMUL < func));
     assert(IsConst(arg0));
     assert(IsConst(arg1));
@@ -4592,7 +4576,7 @@ void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
     // form and propagate assertions about them. Ensure that callers filter out constant
     // VNs since they're not what we're looking to flag, and assertion prop can reason
     // directly about constants.
-    assert(GetConstType(vn) == TYP_UNDEF);
+    assert(!IsConst(vn));
     m_checkedBoundVNs.AddOrUpdate(vn, true);
 }
 
@@ -5591,7 +5575,7 @@ void ValueNumStore::RunTests(Compiler* comp)
     assert(vnForFunc2a == vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnRandom1));
     assert(vnForFunc2a != vnFor1D && vnForFunc2a != vnFor1F && vnForFunc2a != vnFor1 && vnForFunc2a != vnRandom1);
     assert(vns->TypeOfVN(vnForFunc2a) == TYP_INT);
-    assert(vns->GetConstType(vnForFunc2a) == TYP_UNDEF);
+    assert(!vns->IsConst(vnForFunc2a));
     VNFuncApp fa2a;
     vns->GetVNFunc(vnForFunc2a, &fa2a);
     assert(fa2a.m_func == VNF_Add && fa2a.m_arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
@@ -8166,7 +8150,7 @@ void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)
     // TODO-MIKE-Review: Shouldn't this extract the normal value from the conservative VN?
     ValueNum lengthVN = check->GetLength()->GetConservativeVN();
 
-    if ((lengthVN != NoVN) && (vnStore->GetConstType(lengthVN) == TYP_UNDEF))
+    if ((lengthVN != NoVN) && !vnStore->IsConst(lengthVN))
     {
         vnStore->SetVNIsCheckedBound(lengthVN);
     }

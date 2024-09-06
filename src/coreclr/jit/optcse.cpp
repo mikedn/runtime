@@ -2520,7 +2520,7 @@ public:
         // to make sure assertion prop will pay attention to this VN.
         ValueNum exprVN = expr->GetConservativeVN();
 
-        if ((vnStore->GetConstType(newExprVN) == TYP_UNDEF) && vnStore->IsVNCheckedBound(exprVN))
+        if (!vnStore->IsConst(newExprVN) && vnStore->IsVNCheckedBound(exprVN))
         {
             vnStore->SetVNIsCheckedBound(newExprVN);
         }
