@@ -1936,70 +1936,6 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         type = TYP_INT;
     }
 
-    assert(!VNFuncIsComparison(func) || (type == TYP_INT));
-
-    if (type0 == type1)
-    {
-        if (type0 == TYP_INT)
-        {
-            int32_t arg0Val = GetConstInt32(arg0VN);
-            int32_t arg1Val = GetConstInt32(arg1VN);
-            int32_t result;
-
-            assert(type == TYP_INT);
-
-            if (VNFuncIsComparison(func))
-            {
-                result = EvalComparison(func, arg0Val, arg1Val);
-            }
-            else
-            {
-                result = EvalOp<int32_t>(func, arg0Val, arg1Val);
-            }
-
-            return VNForIntCon(result);
-        }
-
-        if (type0 == TYP_LONG)
-        {
-            int64_t arg0Val = GetConstInt64(arg0VN);
-            int64_t arg1Val = GetConstInt64(arg1VN);
-
-            if (VNFuncIsComparison(func))
-            {
-                return VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-            }
-
-            assert(type == TYP_LONG);
-            return VNForLongCon(EvalOp<int64_t>(func, arg0Val, arg1Val));
-        }
-
-        assert((type0 == TYP_BYREF) || (type0 == TYP_REF));
-
-        target_ssize_t arg0Val = GetConstByRef(arg0VN);
-        target_ssize_t arg1Val = GetConstByRef(arg1VN);
-
-        if (VNFuncIsComparison(func))
-        {
-            return VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
-        }
-
-        // We could see OR of a constant (By)Ref and Null
-        if (type == TYP_INT)
-        {
-            return VNForIntCon(static_cast<int32_t>(EvalOp(func, arg0Val, arg1Val)));
-        }
-        else if (type == TYP_LONG)
-        {
-            return VNForLongCon(static_cast<int64_t>(EvalOp(func, arg0Val, arg1Val)));
-        }
-        else
-        {
-            assert(type == TYP_BYREF);
-            return VNForByrefCon(EvalOp(func, arg0Val, arg1Val));
-        }
-    }
-
     int64_t arg0Val;
     int64_t arg1Val;
 
@@ -2013,6 +1949,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
             break;
         case TYP_REF:
         case TYP_BYREF:
+            type0   = TYP_I_IMPL;
             arg0Val = GetConstByRef(arg0VN);
             break;
         default:
@@ -2029,33 +1966,63 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
             break;
         case TYP_REF:
         case TYP_BYREF:
+            type1   = TYP_I_IMPL;
             arg1Val = GetConstByRef(arg1VN);
             break;
         default:
             unreached();
     }
 
-    if (VNFuncIsComparison(func))
+    if (type0 != type1)
     {
-        return VNForIntCon(EvalComparison(func, arg0Val, arg1Val));
+        assert((type0 == TYP_LONG) && (type1 == TYP_INT) &&
+               ((func == VNOP_LSH) || (func == VNOP_RSH) || (func == VNOP_RSZ) || (func == VNOP_ROL) ||
+                (func == VNOP_ROR)));
+
+        type1 = TYP_LONG;
     }
 
-    if (type == TYP_INT) // We could see OR of an int and constant (By)Ref or Null
-    {
-        return VNForIntCon(static_cast<int32_t>(EvalOp<int64_t>(func, arg0Val, arg1Val)));
-    }
+    assert(type0 == type1);
+    assert((type0 == TYP_INT) || (type0 == TYP_LONG));
+    assert((varTypeSize(type) == varTypeSize(type0)) && (varTypeSize(type) == varTypeSize(type1)));
+    assert(!VNFuncIsComparison(func) || (type == TYP_INT));
 
-    int64_t resultVal = EvalOp<int64_t>(func, arg0Val, arg1Val);
+    int64_t result;
+
+    if (type0 == TYP_INT)
+    {
+        if (VNFuncIsComparison(func))
+        {
+            result = EvalComparison(func, static_cast<int32_t>(arg0Val), static_cast<int32_t>(arg1Val));
+        }
+        else
+        {
+            result = EvalOp(func, static_cast<int32_t>(arg0Val), static_cast<int32_t>(arg1Val));
+        }
+    }
+    else
+    {
+        if (VNFuncIsComparison(func))
+        {
+            result = EvalComparison(func, arg0Val, arg1Val);
+        }
+        else
+        {
+            result = EvalOp(func, arg0Val, arg1Val);
+        }
+    }
 
     switch (type)
     {
-        case TYP_BYREF:
-            return VNForByrefCon(static_cast<target_size_t>(resultVal));
+        case TYP_INT:
+            return VNForIntCon(static_cast<int32_t>(result));
         case TYP_LONG:
-            return VNForLongCon(resultVal);
+            return VNForLongCon(result);
         case TYP_REF:
-            assert(resultVal == 0); // Only valid REF constant
+            assert(result == 0); // Only valid REF constant
             return NullVN();
+        case TYP_BYREF:
+            return VNForByrefCon(static_cast<target_size_t>(result));
         default:
             unreached();
     }
