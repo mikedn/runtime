@@ -1817,10 +1817,7 @@ bool IsOverflowIntDiv(int64_t v0, int64_t v1)
 template <typename T>
 static T EvalOp(VNFunc vnf, T v0, T v1)
 {
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
+    static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value));
 
     using UT = typename std::make_unsigned<T>::type;
 
@@ -1873,27 +1870,11 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
         case VNOP_ROR:
             return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
 
-        default:
-            unreached();
-    }
-}
-
-template <typename T>
-static int EvalComparison(VNFunc vnf, T v0, T v1)
-{
-    // TODO-MIKE-Review: Some bozo managed to instantiate this template with size_t,
-    // need to figure out what effect that may have on sign sensitive operations.
-    static_assert_no_msg(
-        (std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value || std::is_same<T, size_t>::value));
-
-    using UT = typename std::make_unsigned<T>::type;
-
-    switch (vnf)
-    {
         case VNOP_EQ:
             return v0 == v1;
         case VNOP_NE:
             return v0 != v1;
+
         case VNOP_GT:
             return v0 > v1;
         case VNOP_GE:
@@ -1902,6 +1883,7 @@ static int EvalComparison(VNFunc vnf, T v0, T v1)
             return v0 < v1;
         case VNOP_LE:
             return v0 <= v1;
+
         case VNF_GT_UN:
             return static_cast<UT>(v0) > static_cast<UT>(v1);
         case VNF_GE_UN:
@@ -1910,6 +1892,7 @@ static int EvalComparison(VNFunc vnf, T v0, T v1)
             return static_cast<UT>(v0) < static_cast<UT>(v1);
         case VNF_LE_UN:
             return static_cast<UT>(v0) <= static_cast<UT>(v1);
+
         default:
             unreached();
     }
@@ -1924,12 +1907,8 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 
     if (varTypeIsFloating(type0))
     {
-        assert(varTypeIsFloating(type1));
         return EvalFloatFunc(type, func, type0, arg0VN, arg1VN);
     }
-
-    assert(!varTypeIsFloating(type0));
-    assert(!varTypeIsFloating(type1));
 
     if (varTypeIsSmall(type))
     {
@@ -1979,10 +1958,9 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
                ((func == VNOP_LSH) || (func == VNOP_RSH) || (func == VNOP_RSZ) || (func == VNOP_ROL) ||
                 (func == VNOP_ROR)));
 
-        type1 = TYP_LONG;
+        type1 = type0;
     }
 
-    assert(type0 == type1);
     assert((type0 == TYP_INT) || (type0 == TYP_LONG));
     assert((varTypeSize(type) == varTypeSize(type0)) && (varTypeSize(type) == varTypeSize(type1)));
     assert(!VNFuncIsComparison(func) || (type == TYP_INT));
@@ -1991,25 +1969,11 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
 
     if (type0 == TYP_INT)
     {
-        if (VNFuncIsComparison(func))
-        {
-            result = EvalComparison(func, static_cast<int32_t>(arg0Val), static_cast<int32_t>(arg1Val));
-        }
-        else
-        {
-            result = EvalOp(func, static_cast<int32_t>(arg0Val), static_cast<int32_t>(arg1Val));
-        }
+        result = EvalOp(func, static_cast<int32_t>(arg0Val), static_cast<int32_t>(arg1Val));
     }
     else
     {
-        if (VNFuncIsComparison(func))
-        {
-            result = EvalComparison(func, arg0Val, arg1Val);
-        }
-        else
-        {
-            result = EvalOp(func, arg0Val, arg1Val);
-        }
+        result = EvalOp(func, arg0Val, arg1Val);
     }
 
     switch (type)
@@ -2230,18 +2194,6 @@ static T EvalFloatOp(VNFunc vnf, T v0, T v1)
     }
 }
 
-template <>
-double EvalOp<double>(VNFunc vnf, double v0, double v1)
-{
-    return EvalFloatOp<double, DoubleTraits>(vnf, v0, v1);
-}
-
-template <>
-float EvalOp<float>(VNFunc vnf, float v0, float v1)
-{
-    return EvalFloatOp<float, FloatTraits>(vnf, v0, v1);
-}
-
 template <typename T, typename Traits>
 static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 {
@@ -2275,18 +2227,6 @@ static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
     }
 }
 
-template <>
-int EvalComparison<double>(VNFunc vnf, double v0, double v1)
-{
-    return EvalFloatComparison<double, DoubleTraits>(vnf, v0, v1);
-}
-
-template <>
-int EvalComparison<float>(VNFunc vnf, float v0, float v1)
-{
-    return EvalFloatComparison<float, FloatTraits>(vnf, v0, v1);
-}
-
 ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_types type, ValueNum vn1, ValueNum vn2)
 {
     if (type == TYP_FLOAT)
@@ -2298,12 +2238,12 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
         {
             assert(varActualType(resultType) == TYP_INT);
 
-            return VNForIntCon(EvalComparison<float>(func, f1, f2));
+            return VNForIntCon(EvalFloatComparison<float, FloatTraits>(func, f1, f2));
         }
 
         assert(type == resultType);
 
-        return VNForFloatCon(EvalOp<float>(func, f1, f2));
+        return VNForFloatCon(EvalFloatOp<float, FloatTraits>(func, f1, f2));
     }
     else
     {
@@ -2316,12 +2256,12 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
         {
             assert(varActualType(resultType) == TYP_INT);
 
-            return VNForIntCon(EvalComparison<double>(func, d1, d2));
+            return VNForIntCon(EvalFloatComparison<double, DoubleTraits>(func, d1, d2));
         }
 
         assert(type == resultType);
 
-        return VNForDoubleCon(EvalOp<double>(func, d1, d2));
+        return VNForDoubleCon(EvalFloatOp<double, DoubleTraits>(func, d1, d2));
     }
 }
 
