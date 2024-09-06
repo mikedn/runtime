@@ -511,7 +511,7 @@ public:
     static bool VNFuncIsCommutative(VNFunc vnf);
 
     bool IsVNConstant(ValueNum vn) const;
-
+    const VNHandle* IsHandle(ValueNum vn) const;
     var_types GetConstType(ValueNum vn) const;
     bool IsConst(ValueNum vn) const;
     const int32_t* IsConstInt32(ValueNum vn) const;
@@ -524,8 +524,19 @@ public:
     int64_t GetConstInt(ValueNum vn) const;
     const target_ssize_t* IsConstIntN(ValueNum vn) const;
     target_ssize_t GetConstIntN(ValueNum vn) const;
+    target_ssize_t GetConstByRef(ValueNum vn) const;
     double GetConstDouble(ValueNum vn) const;
     float GetConstFloat(ValueNum vn) const;
+
+    template <typename T>
+    T* ConstantHostPtr(ValueNum vn)
+    {
+#ifdef HOST_64BIT
+        return reinterpret_cast<T*>(GetConstInt64(vn));
+#else
+        return reinterpret_cast<T*>(GetConstInt32(vn));
+#endif
+    }
 
 private:
     // Assumes that all the ValueNum arguments of each of these functions have been shown to represent constants.
@@ -798,20 +809,6 @@ public:
 
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
-
-    const VNHandle* IsHandle(ValueNum vn) const;
-
-    template <typename T>
-    T* ConstantHostPtr(ValueNum vn)
-    {
-#ifdef HOST_64BIT
-        return reinterpret_cast<T*>(GetConstInt64(vn));
-#else
-        return reinterpret_cast<T*>(GetConstInt32(vn));
-#endif
-    }
-
-    target_ssize_t GetConstByRef(ValueNum vn) const;
 
     ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
     ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
