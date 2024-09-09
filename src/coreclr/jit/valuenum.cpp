@@ -857,40 +857,42 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
         return PackExset(arg1, ExsetCreate(VNForFunc(TYP_REF, VNF_InvalidCastExc, arg1, arg0)));
     }
 
-    if (CanEvalForConstantArgs2(func) && IsConst(arg0) && IsConst(arg1) && VNEvalShouldFold(type, func, arg0, arg1))
+    if (IsConst(arg1))
     {
-        return EvalFuncForConstantArgs(type, func, arg0, arg1);
+        if (IsConst(arg0))
+        {
+            if (CanEvalForConstantArgs2(func) && VNEvalShouldFold(type, func, arg0, arg1))
+            {
+                return EvalFuncForConstantArgs(type, func, arg0, arg1);
+            }
+        }
+#if defined(TARGET_64BIT) || !defined(HOST_64BIT)
+        else if (const VNHandle* h0 = IsHandle(arg0))
+        {
+            if ((func == VNOP_ADD) && !compiler->opts.compReloc)
+            {
+                if (const target_ssize_t* ofs = IsConstIntN(arg1))
+                {
+                    return VNForHandle(reinterpret_cast<void*>(reinterpret_cast<ssize_t>(h0->addr) + *ofs), h0->kind);
+                }
+            }
+        }
+#endif
     }
-
-    if (const VNHandle* h0 = IsHandle(arg0))
+    else if (const VNHandle* h0 = IsHandle(arg0))
     {
         if (const VNHandle* h1 = IsHandle(arg1))
         {
-            switch (func)
+            if (func == VNOP_EQ)
             {
-                case VNOP_EQ:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(h0->addr == h1->addr);
-                case VNOP_NE:
-                    assert(type == TYP_INT);
-                    return VNForIntCon(h0->addr != h1->addr);
-                default:
-                    break;
+                assert(type == TYP_INT);
+                return VNForIntCon(h0->addr == h1->addr);
             }
-        }
-        else if ((func == VNOP_ADD) && !compiler->opts.compReloc)
-        {
-#ifdef TARGET_64BIT
-            if (const int64_t* ofs = IsConstInt64(arg1))
+            else if (func == VNOP_NE)
             {
-                return VNForHandle(reinterpret_cast<void*>(reinterpret_cast<ssize_t>(h0->addr) + *ofs), h0->kind);
+                assert(type == TYP_INT);
+                return VNForIntCon(h0->addr != h1->addr);
             }
-#elif !defined(HOST_64BIT)
-            if (const int32_t* ofs = IsConstInt32(arg1))
-            {
-                return VNForHandle(reinterpret_cast<void*>(reinterpret_cast<ssize_t>(h0->addr) + *ofs), h0->kind);
-            }
-#endif
         }
     }
 
@@ -1889,7 +1891,6 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
 ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
 {
     var_types type0 = TypeOfVN(arg0VN);
-    var_types type1 = TypeOfVN(arg1VN);
 
     if (varTypeIsFloating(type0))
     {
@@ -1920,6 +1921,8 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         default:
             unreached();
     }
+
+    var_types type1 = TypeOfVN(arg1VN);
 
     switch (type1)
     {
