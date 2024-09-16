@@ -166,17 +166,17 @@ VNFunc GetRelopVNFunc(GenTree* node)
 {
     if (node->OperIs(GT_EQ))
     {
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
         {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
             assert(!node->IsRelopUnordered());
         }
     }
     else if (node->OperIs(GT_NE))
     {
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
         {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
             assert(node->IsRelopUnordered());
         }
     }
@@ -189,9 +189,9 @@ VNFunc GetRelopVNFunc(GenTree* node)
         static_assert_no_msg(GT_GE - GT_LT == 2);
         static_assert_no_msg(GT_GT - GT_LT == 3);
 
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)))
+        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
         {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)));
+            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
 
             if (node->IsRelopUnordered())
             {
@@ -200,8 +200,8 @@ VNFunc GetRelopVNFunc(GenTree* node)
         }
         else
         {
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)));
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)));
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)->GetType()));
+            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)->GetType()));
 
             if (node->IsRelopUnsigned())
             {
@@ -229,15 +229,14 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
         m_smallInt32VNMap[i] = NoVN;
     }
 
-    // We will reserve chunk 0 to hold some special constants, like the constant NULL,
-    // the "exception" value, and the "zero map."
+    // We will reserve chunk 0 to hold some special constants, like the constant null,
+    // a void pseudo-value, and the empty exception set value.
     Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, ChunkKind::Const);
-    // Implicitly allocate 0 ==> NULL, and 1 ==> Exception, 2 ==> ZeroMap.
     specialConstChunk->m_count += SRC_NumSpecialRefConsts;
     assert(m_chunks.Size() == 0);
     m_chunks.Push(specialConstChunk);
 
-    m_mapSelectBudget = (int)JitConfig.JitVNMapSelBudget(); // We cast the unsigned DWORD to a signed int.
+    m_mapSelectBudget = JitConfig.JitVNMapSelBudget();
 
     // This value must be non-negative and non-zero, reset the value to DefaultVNMapSelectBudget if it isn't.
     if (m_mapSelectBudget <= 0)
@@ -477,19 +476,13 @@ bool ValueNumStore::HasExset(ValueNum vn) const
 }
 #endif
 
-ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_types type, ChunkKind kind)
-    : m_baseVN(*pNextBaseVN), m_type(type), m_kind(kind)
+ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types type, ChunkKind kind)
+    : m_baseVN(*nextBaseVN), m_type(type), m_kind(kind)
 {
-    // The "values" of special ref consts will be all be "null" -- their differing meanings will
-    // be carried by the distinct value numbers.
-    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
-
-    // Allocate "m_defs" here, according to the typ/attribs pair.
     switch (kind)
     {
-        case ChunkKind::NotAField:
-            break; // Nothing to do.
-        case ChunkKind::Const:
+        default:
+            assert(kind == ChunkKind::Const);
             switch (type)
             {
                 case TYP_INT:
@@ -508,17 +501,17 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
                     m_defs = alloc.allocate<Alloc<TYP_BYREF>::Type>(ChunkSize);
                     break;
                 case TYP_REF:
-                    // We allocate space for a single REF constant, NULL, so we can access these values uniformly.
-                    // Since this value is always the same, we represent it as a static.
+                    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
                     m_defs = specialRefConsts;
-                    break; // Nothing to do.
+                    break;
                 default:
-                    assert(false); // Should not reach here.
+                    assert(false);
             }
             break;
-
         case ChunkKind::Handle:
             m_defs = alloc.allocate<VNHandle>(ChunkSize);
+            break;
+        case ChunkKind::NotAField:
             break;
         case ChunkKind::Func0:
             m_defs = alloc.allocate<VNFunc>(ChunkSize);
@@ -535,10 +528,9 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* pNextBaseVN, var_type
         case ChunkKind::Func4:
             m_defs = alloc.allocate<VNFuncDef4>(ChunkSize);
             break;
-        default:
-            unreached();
     }
-    *pNextBaseVN += ChunkSize;
+
+    *nextBaseVN += ChunkSize;
 }
 
 ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind)
@@ -556,6 +548,7 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
     if (current != 0)
     {
         Chunk* chunk = m_chunks.Get(current);
+
         if (chunk->m_count < ChunkSize)
         {
             return chunk;
@@ -776,7 +769,6 @@ ValueNum ValueNumStore::VNOneForType(var_types typ)
             return VNForFloatCon(1.0f);
         case TYP_DOUBLE:
             return VNForDoubleCon(1.0);
-
         default:
             return NoVN;
     }
@@ -1990,7 +1982,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
         case TYP_LONG:
             return VNForLongCon(result);
         case TYP_REF:
-            assert(result == 0); // Only valid REF constant
+            assert(result == 0); // The only valid REF constant
             return NullVN();
         case TYP_BYREF:
             return VNForByrefCon(static_cast<target_size_t>(result));
