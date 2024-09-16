@@ -861,9 +861,14 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     {
         if (IsConst(arg0))
         {
-            if (CanEvalForConstantArgs2(func) && VNEvalShouldFold(type, func, arg0, arg1))
+            if (CanEvalForConstantArgs2(func))
             {
-                return EvalFuncForConstantArgs(type, func, arg0, arg1);
+                ValueNum foldedVN = EvalFuncForConstantArgs(type, func, arg0, arg1);
+
+                if (foldedVN != NoVN)
+                {
+                    return foldedVN;
+                }
             }
         }
 #if defined(TARGET_64BIT) || !defined(HOST_64BIT)
@@ -1953,6 +1958,20 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
     assert((type0 == TYP_INT) || (type0 == TYP_LONG));
     assert(!VNFuncIsComparison(func) || (type == TYP_INT));
 
+    if ((func == VNOP_DIV) || (func == VNOP_MOD) || (func == VNOP_UDIV) || (func == VNOP_UMOD))
+    {
+        if (arg1Val == 0)
+        {
+            return NoVN;
+        }
+
+        if (((func == VNOP_DIV) || (func == VNOP_MOD)) && (arg1Val == -1) &&
+            (arg0Val == (type0 == TYP_INT ? INT32_MIN : INT64_MIN)))
+        {
+            return NoVN;
+        }
+    }
+
     int64_t result;
 
     if (type0 == TYP_INT)
@@ -2251,38 +2270,6 @@ ValueNum ValueNumStore::EvalFloatFunc(var_types resultType, VNFunc func, var_typ
 
         return VNForDoubleCon(EvalFloatOp<double, DoubleTraits>(func, d1, d2));
     }
-}
-
-bool ValueNumStore::VNEvalShouldFold(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1) const
-{
-    assert((func < VNOP_OVF_SADD) || (VNOP_OVF_UMUL < func));
-    assert(IsConst(arg0));
-    assert(IsConst(arg1));
-
-    INDEBUG(var_types type0 = TypeOfVN(arg0));
-    INDEBUG(var_types type1 = TypeOfVN(arg1));
-    assert(varTypeIsFloating(type0) == varTypeIsFloating(type1));
-
-    if ((func == VNOP_DIV) || (func == VNOP_MOD) || (func == VNOP_UDIV) || (func == VNOP_UMOD))
-    {
-        assert((type == TYP_INT) || (type == TYP_LONG));
-        assert((type == type0) && (type == type1));
-
-        int64_t divisor;
-
-        if (!IsConstInt(arg1, &divisor) || (divisor == 0))
-        {
-            return false;
-        }
-
-        if ((func == VNOP_DIV || func == VNOP_MOD) && (divisor == -1))
-        {
-            int64_t dividend;
-            return IsConstInt(arg0, &dividend) && (dividend != (type == TYP_INT ? INT32_MIN : INT64_MIN));
-        }
-    }
-
-    return true;
 }
 
 ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, ValueNum arg0VN, ValueNum arg1VN)
