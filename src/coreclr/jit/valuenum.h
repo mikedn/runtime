@@ -371,7 +371,7 @@ class ValueNumStore
         var_types m_type;
         ChunkKind m_kind;
 
-        Chunk(CompAllocator alloc, ValueNum* baseVN, var_types type, ChunkKind kind);
+        Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types type, ChunkKind kind);
 
         unsigned AllocVN()
         {
