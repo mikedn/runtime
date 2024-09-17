@@ -5115,7 +5115,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
     {
         // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
 
-        // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
         // if there are any advantages in doing such a transform earlier (in fact there may be one
         // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
 
@@ -5164,7 +5164,7 @@ GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
 
     if (IsContainableMemoryOp(src))
     {
-        // TODO-MIKE-Cleanup: fgMorphCast does something similar but more restrictive. It's not clear
+        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
         // if there are any advantages in doing such a transform earlier (in fact there may be one
         // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
 

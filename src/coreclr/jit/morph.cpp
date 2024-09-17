@@ -735,21 +735,19 @@ GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
     return node;
 }
 
-GenTree* Compiler::fgMorphCast(GenTreeUnOp* cast)
+GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
 {
-    assert(cast->OperIs(GT_BITCAST) && cast->TypeIs(TYP_I_IMPL));
+    assert(bitcast->OperIs(GT_BITCAST) && bitcast->TypeIs(TYP_I_IMPL));
 
-    GenTree*  src     = cast->GetOp(0);
+    GenTree*  src     = bitcast->GetOp(0);
     var_types srcType = src->GetType();
 
     assert(varTypeIsGC(srcType));
 
-    // We are casting away GC information. We would like to just change the type to int,
-    // however this gives the emitter fits because it believes the variable is a GC
-    // variable at the beginning of the instruction group, but is not turned non-gc by
-    // the code generator we fix this by copying the GC pointer to a non-gc pointer temp.
-    // We store to a I_IMPL temp and then do the cast from I_IMPL. With this we avoid
-    // the GC problem and we allow casts to bytes, longs, etc...
+    // TODO-MIKE-Cleanup: This replaces the BITCAST node with a store/load to/from a temp.
+    // This shouldn't be necessary, but removing this results in worse register allocation.
+    // If register allocation cannot be fixed then it may still be possible to delay this
+    // until lowering, nothing before that should need this, quite the contrary.
 
     LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Cast away GC"));
     src->SetType(TYP_I_IMPL);
@@ -10078,7 +10076,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_BITCAST:
             if (varTypeIsGC(op1->GetType()))
             {
-                return fgMorphCast(tree->AsUnOp());
+                return fgMorphGCBitcast(tree->AsUnOp());
             }
 
             if (op1->GetType() == tree->GetType())
@@ -12569,7 +12567,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
         cast2->SetOper(GT_SXT);
     }
 
-    // fgMorphCast doesn't know about long multiply and may remove the casts,
+    // Morph doesn't know about long multiply and may remove the casts,
     // morph the cast operands directly.
     cast1->SetOp(0, fgMorphTree(cast1->GetOp(0)));
     cast2->SetOp(0, fgMorphTree(cast2->GetOp(0)));
