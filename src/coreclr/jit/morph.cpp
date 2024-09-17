@@ -1,15 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          Morph                                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "allocacheck.h"
 #include "valuenum.h"
@@ -109,27 +100,13 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     if (srcType == TYP_LONG)
     {
-        if (src->IsIntConCommon())
+        if (src->IsIntConCommon() && opts.ConstantFold())
         {
-            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
-
-            if (folded != cast)
-            {
-                return fgMorphTree(folded);
-            }
-
-            if (folded->IsNumericConst())
-            {
-                return folded;
-            }
-
-            noway_assert(cast->OperIs(GT_STOF, GT_UTOF) && (cast->GetOp(0) == src));
+            return gtFoldExprConst(cast)->AsDblCon();
         }
 
         CorInfoHelpFunc helper = cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
-        GenTree* call = new (this, GT_CALL) GenTreeOp(GT_STOF, TYP_DOUBLE, src, nullptr DEBUGARG(/*largeNode*/ true));
-        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        call = fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
+        GenTree*        call   = fgMorphTree(gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src)));
 
         if (dstType == TYP_FLOAT)
         {
@@ -145,25 +122,9 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
     cast->SetOp(0, src);
     cast->SetSideEffects(src->GetSideEffects());
 
-    if (src->IsIntConCommon())
+    if (src->IsIntConCommon() && opts.ConstantFold())
     {
-        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
-
-        // Did we get a comma throw as a result of gtFoldExprConst?
-        if (folded != cast)
-        {
-            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
-            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-            return folded;
-        }
-
-        if (!folded->OperIs(GT_STOF, GT_UTOF))
-        {
-            return folded;
-        }
-
-        noway_assert(cast->GetOp(0) == src); // unchanged
+        return gtFoldExprConst(cast)->AsDblCon();
     }
 
     return cast;
@@ -173,52 +134,59 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
 
+    // TODO-MIKE-CQ: INT can be round-tripped through DOUBLE (but not FLOAT) so FTOS(STOF(i)) = i
+
     GenTree*  src     = cast->GetOp(0);
     var_types srcType = src->GetType();
     var_types dstType = cast->GetType();
 
     CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
 
-    switch (cast->OperIs(GT_FTOU) ? varTypeToUnsigned(dstType) : dstType)
+    if (cast->OperIs(GT_FTOU))
     {
-        case TYP_INT:
-            break;
-        case TYP_UINT:
+        if (dstType == TYP_INT)
+        {
 #if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
             helper = CORINFO_HELP_DBL2UINT;
 #endif
-            break;
-        case TYP_LONG:
-#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
-            helper = CORINFO_HELP_DBL2LNG;
-#endif
-            break;
-        case TYP_ULONG:
+        }
+        else
+        {
 #if !defined(TARGET_ARM64)
             helper = CORINFO_HELP_DBL2ULNG;
 #endif
-            break;
-        default:
-            unreached();
+        }
+    }
+    else
+    {
+        if (dstType == TYP_LONG)
+        {
+#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
+            helper = CORINFO_HELP_DBL2LNG;
+#endif
+        }
     }
 
     if (helper != CORINFO_HELP_UNDEF)
     {
+        // TODO-MIKE-Cleanup: We have to constant fold before morphing into a helper call,
+        // since calls are not constant folded. At the same time, we can't morph the source
+        // because call morphing does that too, so we end up with double morphing. But then
+        // we're missing some constant folding opportunities because we haven't yet done
+        // local assertion propagation. Not to mention that this is duplicate code.
+
         if (src->IsDblCon())
         {
-            GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+            GenTree* folded = gtFoldExprConst(cast);
+            assert(folded == cast);
 
-            if (folded != cast)
-            {
-                return fgMorphTree(folded);
-            }
-
-            if (folded->IsNumericConst())
+            // NaN and values that overflow the destination integer type are not folded.
+            if (folded->IsIntConCommon())
             {
                 return folded;
             }
 
-            noway_assert(cast->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
+            assert(cast->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
         }
 
         if (src->TypeIs(TYP_FLOAT))
@@ -227,10 +195,7 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
             src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
         }
 
-        GenTree* call =
-            new (this, GT_CALL) GenTreeOp(GT_FTOS, cast->GetType(), src, nullptr DEBUGARG(/*largeNode*/ true));
-        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
+        return fgMorphTree(gtNewHelperCallNode(helper, dstType, gtNewCallArgs(src)));
     }
 
     src = fgMorphTree(src);
@@ -239,23 +204,16 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
 
     if (src->IsDblCon())
     {
-        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+        GenTree* folded = gtFoldExprConst(cast);
+        assert(folded == cast);
 
-        // Did we get a comma throw as a result of gtFoldExprConst?
-        if (folded != cast)
-        {
-            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
-            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-            return folded;
-        }
-
-        if (!folded->OperIs(GT_FTOS, GT_FTOU))
+        // NaN and values that overflow the destination integer type are not folded.
+        if (folded->IsIntConCommon())
         {
             return folded;
         }
 
-        noway_assert(cast->GetOp(0) == src); // unchanged
+        assert(folded->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
     }
 
     return cast;
@@ -269,19 +227,18 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
 
     if (src->IsDblCon())
     {
-        GenTree* folded = gtFoldExprConst(cast); // This may not fold the constant (NaN ...)
+        GenTree* folded = gtFoldExprConst(cast);
+        // TODO-MIKE-Cleanup: Currently, gtFoldExprConst does not produce
+        // a throw tree when OVF_FTOS/U constant folding overflows.
+        assert(folded == cast);
 
-        if (folded != cast)
-        {
-            return fgMorphTree(folded);
-        }
-
-        if (folded->IsNumericConst())
+        // NaN and values that overflow the destination integer type are not folded.
+        if (folded->IsIntConCommon())
         {
             return folded;
         }
 
-        noway_assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && (cast->GetOp(0) == src));
+        assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && (cast->GetOp(0) == src));
     }
 
     if (src->TypeIs(TYP_FLOAT))
@@ -290,133 +247,20 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
         src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
     }
 
-    var_types       dstType = cast->GetType();
     CorInfoHelpFunc helper;
 
     if (cast->OperIs(GT_OVF_FTOS))
     {
-        helper = dstType == TYP_INT ? CORINFO_HELP_DBL2INT_OVF : CORINFO_HELP_DBL2LNG_OVF;
+        helper = cast->TypeIs(TYP_INT) ? CORINFO_HELP_DBL2INT_OVF : CORINFO_HELP_DBL2LNG_OVF;
     }
     else
     {
-        assert(cast->OperIs(GT_OVF_FTOU));
-
-        helper = dstType == TYP_INT ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
+        helper = cast->TypeIs(TYP_INT) ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
     }
 
-    GenTree* call = new (this, GT_CALL) GenTreeOp(cast->GetOper(), dstType, src, nullptr DEBUGARG(/*largeNode*/ true));
+    GenTree* call = gtNewHelperCallNode(helper, cast->GetType(), gtNewCallArgs(src));
     call->AddSideEffects(GTF_EXCEPT);
-    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    return fgMorphIntoHelperCall(call, helper, gtNewCallArgs(src));
-}
-
-GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_TRUNC) && cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTree* src = cast->GetOp(0);
-
-    if (fgGlobalMorph)
-    {
-        bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
-
-        if (src->OperIs(GT_LSH))
-        {
-            GenTree* shiftAmount = src->AsOp()->GetOp(1);
-            shiftAmount          = gtFoldExpr(shiftAmount);
-            src->AsOp()->SetOp(1, shiftAmount);
-
-            INDEBUG(shiftAmount->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
-
-            if (shiftAmount->IsIntCon())
-            {
-                const ssize_t shiftAmountValue = shiftAmount->AsIntCon()->GetValue();
-
-                if ((0 <= shiftAmountValue) && (shiftAmountValue < 32))
-                {
-                    canPushCast = true;
-                }
-                else if ((32 <= shiftAmountValue) && (shiftAmountValue < 64))
-                {
-                    if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
-                    {
-                        return fgMorphTree(gtNewIconNode(0, TYP_INT));
-                    }
-                }
-            }
-        }
-
-        if (canPushCast)
-        {
-            src->SetType(TYP_INT);
-            src->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(0)));
-
-            if (!src->OperIs(GT_LSH, GT_NEG, GT_NOT))
-            {
-                src->AsOp()->SetOp(1, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(1)));
-            }
-
-#ifndef TARGET_64BIT
-            if (src->OperIs(GT_MUL))
-            {
-                GenTree* op1 = src->AsOp()->GetOp(0);
-                GenTree* op2 = src->AsOp()->GetOp(1);
-
-                if (op1->OperIs(GT_SXT, GT_UXT))
-                {
-                    op1->ClearDoNotCSE();
-                }
-
-                if (op2->OperIs(GT_SXT, GT_UXT))
-                {
-                    op1->ClearDoNotCSE();
-                }
-            }
-#endif
-
-            return fgMorphTree(src);
-        }
-    }
-
-    src = fgMorphTree(src);
-
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (GenTreeIntConCommon* constSrc = src->IsIntConCommon())
-    {
-        return gtFoldExprConst(cast);
-    }
-
-    if (src->OperIs(GT_SXT, GT_UXT))
-    {
-        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-
-        return src->AsUnOp()->GetOp(0);
-    }
-
-    if (fgMorphNarrowTree(src, TYP_INT))
-    {
-        src->SetVNP(cast->GetVNP());
-
-        return src;
-    }
-
-    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
-    {
-        GenTree* value = src->AsOp()->GetOp(1);
-        value->ChangeToIntCon(TYP_INT, 0);
-        src->SetType(TYP_INT);
-
-        if (vnStore != nullptr)
-        {
-            value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-        }
-
-        return src;
-    }
-
-    return cast;
+    return fgMorphTree(call);
 }
 
 GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
@@ -463,17 +307,15 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 
     if (src->IsIntConCommon())
     {
-        return gtFoldExprConst(cast);
+        return gtFoldExprConst(cast)->AsIntCon();
     }
 
-    bool     unsignedSrc = varTypeIsUnsigned(srcType);
-    bool     unsignedDst = varTypeIsUnsigned(dstType);
-    unsigned srcSize     = varTypeSize(srcType);
-    unsigned dstSize     = varTypeSize(dstType);
+    unsigned srcSize = varTypeSize(srcType);
+    unsigned dstSize = varTypeSize(dstType);
 
     if (srcSize == dstSize)
     {
-        if (unsignedSrc == unsignedDst)
+        if (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType))
         {
             return src;
         }
@@ -496,12 +338,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
     switch (src->GetOper())
     {
         case GT_CONV:
-            if (src->GetType() == dstType)
-            {
-                return src;
-            }
-
-            if (varTypeSize(dstType) <= varTypeSize(src->GetType()))
+            if (dstSize <= srcSize)
             {
                 cast->SetOp(0, src->AsUnOp()->GetOp(0));
             }
@@ -600,25 +437,21 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
                 noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
                 folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
                 INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
                 return folded;
             }
 
-            if (!folded->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV))
+            if (folded->IsIntCon())
             {
                 return folded;
             }
 
-            noway_assert(cast->GetOp(0) == src);
+            assert(folded->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && (cast->GetOp(0) == src));
         }
         break;
 
         case GT_CONV:
-            if (src->GetType() == dstType)
-            {
-                return src;
-            }
-
-            if (cast->OperIs(GT_CONV) && varTypeSize(dstType) <= varTypeSize(src->GetType()))
+            if (cast->OperIs(GT_CONV) && (dstSize <= srcSize))
             {
                 cast->SetOp(0, src->AsUnOp()->GetOp(0));
             }
@@ -719,15 +552,16 @@ GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
             noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
             folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
             INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
             return folded;
         }
 
-        if (!folded->OperIs(GT_OVF_U))
+        if (folded->IsIntConCommon())
         {
             return folded;
         }
 
-        noway_assert(node->GetOp(0) == src);
+        assert(folded->OperIs(GT_OVF_U) && (node->GetOp(0) == src));
     }
 
     fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
@@ -759,12 +593,122 @@ GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
     return fgMorphTree(src);
 }
 
+GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_TRUNC) && cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src = cast->GetOp(0);
+
+    if (fgGlobalMorph)
+    {
+        bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
+
+        if (src->OperIs(GT_LSH))
+        {
+            GenTree* shiftAmount = src->AsOp()->GetOp(1);
+            shiftAmount          = gtFoldExpr(shiftAmount);
+            src->AsOp()->SetOp(1, shiftAmount);
+
+            INDEBUG(shiftAmount->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
+
+            if (shiftAmount->IsIntCon())
+            {
+                const ssize_t shiftAmountValue = shiftAmount->AsIntCon()->GetValue();
+
+                if ((0 <= shiftAmountValue) && (shiftAmountValue < 32))
+                {
+                    canPushCast = true;
+                }
+                else if ((32 <= shiftAmountValue) && (shiftAmountValue < 64))
+                {
+                    if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
+                    {
+                        return fgMorphTree(gtNewIconNode(0, TYP_INT));
+                    }
+                }
+            }
+        }
+
+        if (canPushCast)
+        {
+            src->SetType(TYP_INT);
+            src->AsOp()->SetOp(0, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(0)));
+
+            if (!src->OperIs(GT_LSH, GT_NEG, GT_NOT))
+            {
+                src->AsOp()->SetOp(1, gtNewOperNode(GT_TRUNC, TYP_INT, src->AsOp()->GetOp(1)));
+            }
+
+#ifndef TARGET_64BIT
+            if (src->OperIs(GT_MUL))
+            {
+                GenTree* op1 = src->AsOp()->GetOp(0);
+                GenTree* op2 = src->AsOp()->GetOp(1);
+
+                if (op1->OperIs(GT_SXT, GT_UXT))
+                {
+                    op1->ClearDoNotCSE();
+                }
+
+                if (op2->OperIs(GT_SXT, GT_UXT))
+                {
+                    op1->ClearDoNotCSE();
+                }
+            }
+#endif
+
+            return fgMorphTree(src);
+        }
+    }
+
+    src = fgMorphTree(src);
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsIntConCommon())
+    {
+        return gtFoldExprConst(cast);
+    }
+
+    if (src->OperIs(GT_SXT, GT_UXT))
+    {
+        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+
+        return src->AsUnOp()->GetOp(0);
+    }
+
+    if (fgMorphNarrowTree(src, TYP_INT))
+    {
+        src->SetVNP(cast->GetVNP());
+
+        return src;
+    }
+
+    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
+    {
+        GenTree* value = src->AsOp()->GetOp(1);
+        value->ChangeToIntCon(TYP_INT, 0);
+        src->SetType(TYP_INT);
+
+        if (vnStore != nullptr)
+        {
+            value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
+        }
+
+        return src;
+    }
+
+    return cast;
+}
+
 GenTree* Compiler::fgMorphOverflowTruncate(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
 
     GenTree* src = cast->GetOp(0);
+
+    printf("%s\n", GenTree::OpName(src->GetOper()));
 
     if (src->OperIs(GT_AND))
     {
@@ -842,15 +786,16 @@ GenTree* Compiler::fgMorphOverflowTruncatePost(GenTreeUnOp* cast)
             noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
             folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
             INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
             return folded;
         }
 
-        if (!folded->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC))
+        if (folded->IsIntCon())
         {
             return folded;
         }
 
-        noway_assert(cast->GetOp(0) == src);
+        assert(folded->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC) && (cast->GetOp(0) == src));
     }
 
     fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
@@ -871,6 +816,7 @@ bool Compiler::fgMorphNarrowTree(GenTree* tree, var_types type)
 
     return done;
 }
+
 // See if the given tree can be computed in the given precision (which must
 // be smaller than the type of the tree for this to make sense). If 'doit'
 // is false, we merely check to see whether narrowing is possible; if we
@@ -10271,7 +10217,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // If this is an unsigned long mod with a constant divisor, then don't
             // morph to a helper call - it can be done faster inline using idiv.
 
-            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_NATIVELONG) && opts.OptEnabled(CLFLG_CONSTANTFOLD) &&
+            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_NATIVELONG) && opts.ConstantFold() &&
                 (op2->AsIntConCommon()->LngValue() >= 2) && (op2->AsIntConCommon()->LngValue() <= 0x3fffffff))
             {
                 op1 = fgMorphTree(op1);
@@ -12377,7 +12323,7 @@ Compiler::MulLongCandidateKind Compiler::fgMorphIsMulLongCandidate(GenTreeOp* mu
 
     if ((longConst1 != nullptr) && (longConst2 != nullptr))
     {
-        return opts.OptEnabled(CLFLG_CONSTANTFOLD) ? MulLongCandidateKind::Const : MulLongCandidateKind::None;
+        return opts.ConstantFold() ? MulLongCandidateKind::Const : MulLongCandidateKind::None;
     }
 
     GenTreeUnOp* ext1    = nullptr;
@@ -12577,7 +12523,7 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
     mul->SetSideEffects(cast1->GetSideEffects() | cast2->GetSideEffects());
 
     // Because we keep the casts we also need to do constant folding directly.
-    if (cast1->GetOp(0)->IsIntCon() && cast2->GetOp(0)->IsIntCon() && opts.OptEnabled(CLFLG_CONSTANTFOLD))
+    if (cast1->GetOp(0)->IsIntCon() && cast2->GetOp(0)->IsIntCon() && opts.ConstantFold())
     {
         GenTree* const1 = gtFoldExprConst(cast1);
         GenTree* const2 = gtFoldExprConst(cast2);
