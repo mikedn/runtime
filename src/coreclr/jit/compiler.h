@@ -1252,6 +1252,11 @@ struct CompilerOptions
         return (optFlags & optFlag) != 0;
     }
 
+    bool ConstantFold() const
+    {
+        return OptEnabled(CLFLG_CONSTANTFOLD);
+    }
+
     bool IsReadyToRun() const
     {
 #ifdef FEATURE_READYTORUN_COMPILER

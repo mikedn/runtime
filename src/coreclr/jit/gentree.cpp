@@ -9596,7 +9596,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 {
     assert(tree->OperIsUnary() || tree->OperIsBinary());
 
-    if (!opts.OptEnabled(CLFLG_CONSTANTFOLD))
+    if (!opts.ConstantFold())
     {
         return tree;
     }
