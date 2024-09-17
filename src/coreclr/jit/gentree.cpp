@@ -9908,39 +9908,26 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                 break;
             }
             case TYP_FLOAT:
-            case TYP_DOUBLE:
             {
-                const double d1 = op1->AsDblCon()->GetValue();
+                const double f1 = op1->AsDblCon()->GetValue();
 
                 switch (tree->GetOper())
                 {
                     case GT_FNEG:
-                        d = -d1;
-                        goto CNS_DOUBLE;
-
-                    case GT_FTRUNC:
-                        assert(opType == TYP_DOUBLE);
                         assert(tree->TypeIs(TYP_FLOAT));
-                        d = forceCastToFloat(d1);
+                        d = -f1;
                         goto CNS_DOUBLE;
 
                     case GT_FXT:
-                        assert(opType == TYP_FLOAT);
                         assert(tree->TypeIs(TYP_DOUBLE));
-                        d = d1;
+                        d = f1;
                         goto CNS_DOUBLE;
 
                     case GT_BITCAST:
-                        if (tree->TypeIs(TYP_INT) && op1->TypeIs(TYP_FLOAT))
+                        if (!tree->TypeIs(TYP_INT))
                         {
-                            i = jitstd::bit_cast<int32_t>(static_cast<float>(d1));
+                            i = jitstd::bit_cast<int32_t>(static_cast<float>(f1));
                             goto CNS_INT;
-                        }
-
-                        if (tree->TypeIs(TYP_LONG) && op1->TypeIs(TYP_DOUBLE))
-                        {
-                            l = jitstd::bit_cast<int64_t>(d1);
-                            goto CNS_LONG;
                         }
                         break;
 
@@ -9957,7 +9944,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
                         if (tree->TypeIs(TYP_INT))
                         {
-                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToS32(d1, &i) : CheckedOps::F64ToS32(d1, &i))
+                            if (CheckedOps::F32ToS32(f1, &i))
                             {
                                 goto CNS_INT;
                             }
@@ -9966,7 +9953,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         {
                             assert(tree->TypeIs(TYP_LONG));
 
-                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToS64(d1, &l) : CheckedOps::F64ToS64(d1, &l))
+                            if (CheckedOps::F32ToS64(f1, &l))
                             {
                                 goto CNS_LONG;
                             }
@@ -9977,7 +9964,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     case GT_FTOU:
                         if (tree->TypeIs(TYP_INT))
                         {
-                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToU32(d1, &i) : CheckedOps::F64ToU32(d1, &i))
+                            if (CheckedOps::F32ToU32(f1, &i))
                             {
                                 goto CNS_INT;
                             }
@@ -9986,7 +9973,83 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         {
                             assert(tree->TypeIs(TYP_LONG));
 
-                            if (op1->TypeIs(TYP_FLOAT) ? CheckedOps::F32ToU64(d1, &l) : CheckedOps::F64ToU64(d1, &l))
+                            if (CheckedOps::F32ToU64(f1, &l))
+                            {
+                                goto CNS_LONG;
+                            }
+                        }
+                        break;
+
+                    default:
+                        break;
+                }
+                break;
+            }
+            case TYP_DOUBLE:
+            {
+                const double d1 = op1->AsDblCon()->GetValue();
+
+                switch (tree->GetOper())
+                {
+                    case GT_FNEG:
+                        assert(tree->TypeIs(TYP_DOUBLE));
+                        d = -d1;
+                        goto CNS_DOUBLE;
+
+                    case GT_FTRUNC:
+                        assert(opType == TYP_DOUBLE);
+                        assert(tree->TypeIs(TYP_FLOAT));
+                        d = forceCastToFloat(d1);
+                        goto CNS_DOUBLE;
+
+                    case GT_FXT:
+                        assert(opType == TYP_FLOAT);
+                        assert(tree->TypeIs(TYP_DOUBLE));
+                        d = d1;
+                        goto CNS_DOUBLE;
+
+                    case GT_BITCAST:
+                        if (tree->TypeIs(TYP_LONG))
+                        {
+                            l = jitstd::bit_cast<int64_t>(d1);
+                            goto CNS_LONG;
+                        }
+                        break;
+
+                    case GT_OVF_FTOS:
+                    case GT_FTOS:
+                        if (tree->TypeIs(TYP_INT))
+                        {
+                            if (CheckedOps::F64ToS32(d1, &i))
+                            {
+                                goto CNS_INT;
+                            }
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_LONG));
+
+                            if (CheckedOps::F64ToS64(d1, &l))
+                            {
+                                goto CNS_LONG;
+                            }
+                        }
+                        break;
+
+                    case GT_OVF_FTOU:
+                    case GT_FTOU:
+                        if (tree->TypeIs(TYP_INT))
+                        {
+                            if (CheckedOps::F64ToU32(d1, &i))
+                            {
+                                goto CNS_INT;
+                            }
+                        }
+                        else
+                        {
+                            assert(tree->TypeIs(TYP_LONG));
+
+                            if (CheckedOps::F64ToU64(d1, &l))
                             {
                                 goto CNS_LONG;
                             }
