@@ -920,8 +920,8 @@ void GenTreeCall::ResetArgInfo()
         return;
     }
 
-    // We would like to just set `fgArgInfo = nullptr`. But `fgInitArgInfo()` not
-    // only sets up fgArgInfo, it also adds non-standard args to the IR, and we need
+    // We would like to just set `fgArgInfo = nullptr`. But fgInitArgInfo not only
+    // sets up fgArgInfo, it also adds non-standard args to the IR, and we need
     // to remove that extra IR so it doesn't get added again.
     //
     // NOTE: this doesn't handle all possible cases. There might be cases where we
