@@ -7838,6 +7838,16 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         return fgMorphTree(gtNewNullCheck(call->gtCallArgs->GetNode()));
     }
 
+    // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
+    // We need to do these before the arguments are morphed.
+    if (call->IsSpecialIntrinsic() && opts.OptimizationEnabled())
+    {
+        if (GenTree* optTree = gtFoldExprCall(call))
+        {
+            return fgMorphTree(optTree);
+        }
+    }
+
     if (fgGlobalMorph)
     {
         if (call->IsTailCallCandidate())
@@ -7887,19 +7897,6 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     {
         callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
         optMethodFlags |= OMF_NEEDS_GCPOLLS;
-    }
-
-    // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
-    // We need to do these before the arguments are morphed.
-    if (call->IsSpecialIntrinsic() && opts.OptimizationEnabled())
-    {
-        // TODO-MIKE-Review: Hrm, above we already marked the block as
-        // containing a GC safe point and are we removing the call?!?
-
-        if (GenTree* optTree = gtFoldExprCall(call))
-        {
-            return fgMorphTree(optTree);
-        }
     }
 
     // TODO-MIKE-Cleanup: Only CSE needs this.
