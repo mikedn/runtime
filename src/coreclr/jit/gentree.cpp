@@ -790,9 +790,9 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
     }
 }
 
-bool GenTreeCall::IsHelperCall(Compiler* compiler, unsigned helper) const
+bool GenTreeCall::IsHelperCall(CorInfoHelpFunc helper) const
 {
-    return IsHelperCall(compiler->eeFindHelper(helper));
+    return IsHelperCall() && (gtCallMethHnd == Compiler::eeFindHelper(helper));
 }
 
 bool GenTreeCall::AreArgsComplete() const
@@ -8220,74 +8220,28 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
     return tree;
 }
 
-//------------------------------------------------------------------------
-// gtFoldExprCall: see if a call is foldable
-//
-// Arguments:
-//    call - call to examine
-//
-// Returns:
-//    The original call if no folding happened.
-//    An alternative tree if folding happens.
-//
-// Notes:
-//    Checks for calls to Type.op_Equality, Type.op_Inequality, and
-//    Enum.HasFlag, and if the call is to one of these,
-//    attempts to optimize.
-
+// Checks for calls to Type.op_Equality, Type.op_Inequality, and Enum.HasFlag,
+// and if the call is to one of these, attempts to optimize.
 GenTree* Compiler::gtFoldExprCall(GenTreeCall* call)
 {
-    // Can only fold calls to special intrinsics.
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0)
+    assert(call->IsSpecialIntrinsic());
+
+    NamedIntrinsic ni = lookupNamedIntrinsic(call->GetMethodHandle());
+
+    if (ni == NI_System_Enum_HasFlag)
     {
-        return call;
+        return gtOptimizeEnumHasFlag(call->gtCallThisArg->GetNode(), call->gtCallArgs->GetNode());
     }
 
-    // Defer folding if not optimizing.
-    if (opts.OptimizationDisabled())
+    if ((ni == NI_System_Type_op_Equality) || (ni == NI_System_Type_op_Inequality))
     {
-        return call;
+        assert(call->TypeIs(TYP_INT));
+
+        return gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, call->gtCallArgs->GetNode(),
+                                      call->gtCallArgs->GetNext()->GetNode());
     }
 
-    // Check for a new-style jit intrinsic.
-    const NamedIntrinsic ni = lookupNamedIntrinsic(call->gtCallMethHnd);
-
-    switch (ni)
-    {
-        case NI_System_Enum_HasFlag:
-        {
-            GenTree* thisOp = call->gtCallThisArg->GetNode();
-            GenTree* flagOp = call->gtCallArgs->GetNode();
-            GenTree* result = gtOptimizeEnumHasFlag(thisOp, flagOp);
-
-            if (result != nullptr)
-            {
-                return result;
-            }
-            break;
-        }
-
-        case NI_System_Type_op_Equality:
-        case NI_System_Type_op_Inequality:
-        {
-            noway_assert(call->TypeGet() == TYP_INT);
-            GenTree* op1 = call->gtCallArgs->GetNode();
-            GenTree* op2 = call->gtCallArgs->GetNext()->GetNode();
-
-            // If either operand is known to be a RuntimeType, this can be folded
-            GenTree* result = gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, op1, op2);
-            if (result != nullptr)
-            {
-                return result;
-            }
-            break;
-        }
-
-        default:
-            break;
-    }
-
-    return call;
+    return nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -8315,7 +8269,7 @@ GenTree* Compiler::gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2)
     }
 
     GenTree* compare = gtNewOperNode(isEq ? GT_EQ : GT_NE, TYP_INT, op1, op2);
-    JITDUMP("\nFolding call to Type:op_%s to a simple compare via %s\n", isEq ? "Equality" : "Inequality",
+    JITDUMP("\nFolding call to Type:op_%s to %s\n", isEq ? "Equality" : "Inequality",
             GenTree::OpName(compare->GetOper()));
     return compare;
 }
@@ -9046,7 +9000,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     GenTreeCall* const call = op->AsCall();
 
-    if (!call->IsHelperCall(this, CORINFO_HELP_BOX_NULLABLE))
+    if (!call->IsHelperCall(CORINFO_HELP_BOX_NULLABLE))
     {
         return tree;
     }
@@ -9206,7 +9160,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
             // so we can't remove the box.
             if (args == nullptr)
             {
-                assert(allocCall->IsHelperCall(this, CORINFO_HELP_READYTORUN_NEW));
+                assert(allocCall->IsHelperCall(CORINFO_HELP_READYTORUN_NEW));
                 JITDUMP(" bailing; newobj via R2R helper\n");
 
                 return nullptr;
@@ -11061,7 +11015,7 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
                 return TPK_Handle;
             }
         }
-        else if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
+        else if (call->IsSpecialIntrinsic())
         {
             if (info.compCompHnd->getIntrinsicID(call->GetMethodHandle()) == CORINFO_INTRINSIC_Object_GetType)
             {
@@ -11359,17 +11313,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
         case GT_CALL:
         {
             GenTreeCall* call = tree->AsCall();
-            if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+
+            if (call->IsSpecialIntrinsic())
             {
-                NamedIntrinsic ni = lookupNamedIntrinsic(call->gtCallMethHnd);
+                CORINFO_METHOD_HANDLE method = call->GetMethodHandle();
+                NamedIntrinsic        ni     = lookupNamedIntrinsic(method);
+
                 if ((ni == NI_System_Array_Clone) || (ni == NI_System_Object_MemberwiseClone))
                 {
                     objClass = gtGetClassHandle(call->gtCallThisArg->GetNode(), pIsExact, pIsNonNull);
                     break;
                 }
 
-                CORINFO_CLASS_HANDLE specialObjClass = impGetSpecialIntrinsicExactReturnType(call->gtCallMethHnd);
-                if (specialObjClass != nullptr)
+                if (CORINFO_CLASS_HANDLE specialObjClass = impGetSpecialIntrinsicExactReturnType(method))
                 {
                     objClass    = specialObjClass;
                     *pIsExact   = true;
@@ -11377,6 +11333,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     break;
                 }
             }
+
             if (call->IsInlineCandidate())
             {
                 // For inline candidates, we've already cached the return

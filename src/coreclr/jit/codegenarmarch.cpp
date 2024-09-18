@@ -2112,7 +2112,7 @@ void CodeGen::GenCall(GenTreeCall* call)
             regNumber returnReg;
 
 #ifdef TARGET_ARM
-            if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+            if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
             {
                 returnReg = REG_PINVOKE_TCB;
             }

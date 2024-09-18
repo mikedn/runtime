@@ -206,7 +206,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
     BuildKills(call, getKillSetForCall(call));
 
 #ifdef TARGET_ARM
-    if (call->IsHelperCall(compiler, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
     {
         BuildDef(call, RBM_PINVOKE_TCB);
     }
