@@ -1095,7 +1095,7 @@ struct CompiledMethodInfo
     VarScopeDsc* compVarScopes;
 
     CorInfoCallConvExtension compCallConv; // The entry-point calling convention for this method.
-    regNumber                virtualStubParamRegNum;
+    RegNum                   virtualStubParamRegNum;
 
     bool compIsStatic : 1;           // Is the method static (no 'this' pointer)?
     bool compIsVarArgs : 1;          // Does the method have varargs parameters?
