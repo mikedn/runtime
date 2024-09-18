@@ -237,7 +237,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         }
     }
 
-    if (src->IsIntConCommon())
+    if (src->IsIntConCommon() && opts.ConstantFold())
     {
         return gtFoldExprConst(cast)->AsIntCon();
     }
@@ -597,9 +597,9 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
     cast->SetOp(0, src);
     cast->SetSideEffects(src->GetSideEffects());
 
-    if (src->IsIntConCommon())
+    if (src->IsIntConCommon() && opts.ConstantFold())
     {
-        return gtFoldExprConst(cast);
+        return gtFoldExprConst(cast)->AsIntCon();
     }
 
     if (src->OperIs(GT_SXT, GT_UXT))
