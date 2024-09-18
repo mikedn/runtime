@@ -5141,8 +5141,8 @@ class CallInfo
     unsigned argCount;              // Updatable arg count value
     unsigned nextSlotNum;           // Updatable slot count value
 
-#if defined(UNIX_X86_ABI)
-    unsigned stkSizeBytes;  // Size of stack used by this call, in bytes. Calculated during fgMorphArgs().
+#ifdef UNIX_X86_ABI
+    unsigned stkSizeBytes;  // Size of stack used by this call, in bytes.
     unsigned padStkAlign;   // Stack alignment in bytes required before arguments are pushed for this call.
                             // Computed dynamically during codegen, based on stkSizeBytes and the current
                             // stack level (genStackLevel) when the first stack adjustment is made for

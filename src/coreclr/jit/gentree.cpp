@@ -790,64 +790,39 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
     }
 }
 
-//-------------------------------------------------------------------------
-// IsHelperCall: Determine if this GT_CALL node is a specific helper call.
-//
-// Arguments:
-//     compiler - the compiler instance so that we can call eeFindHelper
-//
-// Return Value:
-//     Returns true if this GT_CALL node is a call to the specified helper.
-//
 bool GenTreeCall::IsHelperCall(Compiler* compiler, unsigned helper) const
 {
     return IsHelperCall(compiler->eeFindHelper(helper));
 }
 
-//-------------------------------------------------------------------------
-// AreArgsComplete: Determine if this GT_CALL node's arguments have been processed.
-//
-// Return Value:
-//     Returns true if fgMorphArgs has processed the arguments.
-//
 bool GenTreeCall::AreArgsComplete() const
 {
     if (fgArgInfo == nullptr)
     {
         return false;
     }
+
     if (fgArgInfo->AreArgsComplete())
     {
         assert((gtCallLateArgs != nullptr) || !fgArgInfo->HasRegArgs());
         return true;
     }
 
-#if defined(FEATURE_FASTTAILCALL)
-// If we have FEATURE_FASTTAILCALL, 'fgCanFastTailCall()' can call 'fgInitArgInfo()', and in that
-// scenario it is valid to have 'fgArgInfo' be non-null when 'fgMorphArgs()' first queries this,
-// when it hasn't yet morphed the arguments.
-#else
+#ifndef FEATURE_FASTTAILCALL
+    // If we have FEATURE_FASTTAILCALL, fgCanFastTailCall can call fgInitArgInfo, and in that
+    // scenario it is valid to have fgArgInfo be non-null when fgMorphArgs first queries this,
+    // when it hasn't yet morphed the arguments.
     assert(gtCallArgs == nullptr);
 #endif
 
     return false;
 }
 
-//--------------------------------------------------------------------------
-// Equals: Check if 2 CALL nodes are equal.
-//
-// Arguments:
-//    c1 - The first call node
-//    c2 - The second call node
-//
-// Return Value:
-//    true if the 2 CALL nodes have the same type and operands
-//
 bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
 {
-    assert(c1->OperGet() == c2->OperGet());
+    assert(c1->GetOper() == c2->GetOper());
 
-    if (c1->TypeGet() != c2->TypeGet())
+    if (c1->GetType() != c2->GetType())
     {
         return false;
     }
@@ -4186,7 +4161,7 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
     GenTreeCall* call = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
-    call->gtFlags |= s_helperCallProperties.NoThrow(helper) ? GTF_EMPTY : GTF_EXCEPT;
+    call->gtFlags |= s_helperCallProperties.NoThrow(helper) ? GTF_NONE : GTF_EXCEPT;
     INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
     return call;
 }
@@ -10698,11 +10673,11 @@ INTEGRAL_OVF:
     // involving overflow arithmetic.  During assertion prop, it is possible
     // that the 'arg' could be constant folded and the result could lead to an
     // overflow.  In such a case 'arg' will get replaced with GT_COMMA node
-    // but fgMorphArgs() - see the logic around "if(lateArgsComputed)" - doesn't
+    // but fgMorphArgs - see the logic around "if(lateArgsComputed)" - doesn't
     // update args table. For this reason this optimization is enabled only
     // for global morphing phase.
     //
-    // TODO-CQ: Once fgMorphArgs() is fixed this restriction could be removed.
+    // TODO-CQ: Once fgMorphArgs is fixed this restriction could be removed.
 
     if (!fgGlobalMorph)
     {

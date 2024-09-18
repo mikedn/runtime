@@ -147,7 +147,8 @@ PhaseStatus Compiler::phInsertGCPolls()
 BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
 {
     GenTreeCall* call = gtNewHelperCallNode(CORINFO_HELP_POLL_GC, TYP_VOID);
-    fgMorphArgs(call);
+    fgInitArgInfo(call);
+    call->GetInfo()->ArgsComplete(this, call);
 
     void* addrOfTrapReturningThreadsAddr;
     void* trapReturningThreadsAddr = info.compCompHnd->getAddrOfCaptureThreadGlobal(&addrOfTrapReturningThreadsAddr);
@@ -2419,8 +2420,8 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
     {
         Statement* stmt = gtNewStmt(call);
         fgInsertStmtAtEnd(helperBlock, stmt);
-        // These helpers have no args but fgMorphArgs may have other has side effects.
-        fgMorphArgs(call);
+        fgInitArgInfo(call);
+        call->GetInfo()->ArgsComplete(this, call);
 
         if (fgStmtListThreaded)
         {

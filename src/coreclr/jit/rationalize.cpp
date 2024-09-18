@@ -48,31 +48,29 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     GenTree* const treeFirstNode  = comp->gtGetFirstNode(tree);
     GenTree* const insertionPoint = treeFirstNode->gtPrev;
 
-    BlockRange().Remove(treeFirstNode, tree);
-
-    GenTreeCall* call = comp->gtNewUserCallNode(callHnd, tree->GetType(), args);
-
 #if DEBUG
     CORINFO_SIG_INFO sig;
     comp->eeGetMethodSig(callHnd, &sig);
     assert(CorTypeToVarType(sig.retType) == tree->GetType());
 #endif
 
+    BlockRange().Remove(treeFirstNode, tree);
+
+    GenTreeCall* call = comp->gtNewUserCallNode(callHnd, tree->GetType(), args);
 #ifdef FEATURE_READYTORUN_COMPILER
     call->setEntryPoint(entryPoint);
 #endif
-
     comp->fgMorphBlock = m_block;
-    comp->fgMorphArgs(call);
+    comp->fgInitArgInfo(call);
+    comp->fgMorphArgs(call, false);
 
-    // Replace "tree" with "call"
     if (parents.Size() > 1)
     {
         parents.Top(1)->ReplaceOperand(use, call);
     }
     else
     {
-        // If there's no parent, the tree being replaced is the root of the
+        // If there's no user, the tree being replaced is the root of the
         // statement (and no special handling is necessary).
         *use = call;
     }

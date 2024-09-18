@@ -2737,10 +2737,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_X86
         else if (call->IsTailCallViaJitHelper())
         {
-            // We have already (before calling fgMorphArgs()) appended the 4 special args
+            // We have already (before calling fgMorphArgs) appended the 4 special args
             // required by the x86 tailcall helper. These args are required to go on the
             // stack. Force them to the stack here.
             assert(numArgs >= 4);
+
             if (argIndex >= numArgs - 4)
             {
                 isRegArg = false;
@@ -2983,53 +2984,38 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 }
 
-//------------------------------------------------------------------------
-// fgMorphArgs: Walk and transform (morph) the arguments of a call
+// Walk and transform (morph) the arguments of a call
 //
-// Arguments:
-//    callNode - the call for which we are doing the argument morphing
+// This method changes the state of the call node. It uses the existence
+// of gtCallLateArgs (the late arguments list) to determine if it has
+// already done the first round of morphing.
 //
-// Notes:
-//    This calls fgInitArgInfo to create the 'fgArgInfo' for the call.
-//    If it has already been created, that method will simply return.
+// The first time it is called (i.e. during global morphing), this method
+// computes the "late arguments". This is when it determines which arguments
+// need to be evaluated to temps prior to the main argument setup, and which
+// can be directly evaluated into the argument location. It also creates a
+// second argument list (gtCallLateArgs) that does the final placement of the
+// arguments, e.g. into registers or onto the stack.
 //
-//    This method changes the state of the call node. It uses the existence
-//    of gtCallLateArgs (the late arguments list) to determine if it has
-//    already done the first round of morphing.
+// The "non-late arguments", aka the gtCallArgs, are doing the in-order
+// evaluation of the arguments that might have side-effects, such as embedded
+// assignments, calls or possible throws. In these cases, it and earlier
+// arguments must be evaluated to temps.
 //
-//    The first time it is called (i.e. during global morphing), this method
-//    computes the "late arguments". This is when it determines which arguments
-//    need to be evaluated to temps prior to the main argument setup, and which
-//    can be directly evaluated into the argument location. It also creates a
-//    second argument list (gtCallLateArgs) that does the final placement of the
-//    arguments, e.g. into registers or onto the stack.
+// On targets with a fixed outgoing argument area (FEATURE_FIXED_OUT_ARGS),
+// if we have any nested calls, we need to defer the copying of the argument
+// into the fixed argument area until after the call. If the argument did not
+// otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
+// replaced in the "early" arg list (gtCallArgs) with a placeholder node.
 //
-//    The "non-late arguments", aka the gtCallArgs, are doing the in-order
-//    evaluation of the arguments that might have side-effects, such as embedded
-//    assignments, calls or possible throws. In these cases, it and earlier
-//    arguments must be evaluated to temps.
-//
-//    On targets with a fixed outgoing argument area (FEATURE_FIXED_OUT_ARGS),
-//    if we have any nested calls, we need to defer the copying of the argument
-//    into the fixed argument area until after the call. If the argument did not
-//    otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
-//    replaced in the "early" arg list (gtCallArgs) with a placeholder node.
-//
-void Compiler::fgMorphArgs(GenTreeCall* const call)
+void Compiler::fgMorphArgs(GenTreeCall* const call, bool reMorphing)
 {
-    bool reMorphing = call->AreArgsComplete();
-    fgInitArgInfo(call);
+    assert(call->GetInfo() != nullptr);
 
-    JITDUMP("%s call [%06u] args\n", reMorphing ? "Remorphing" : "Morphing", call->GetID());
+    JITDUMP("%s call [%06u] args\n", reMorphing ? "Re-morphing" : "Morphing", call->GetID());
 
-    GenTreeFlags argsSideEffects = GTF_EMPTY;
+    GenTreeFlags argsSideEffects = GTF_NONE;
     unsigned     argNum          = 0;
-    // Sometimes we need a second pass to morph args, most commonly for arguments
-    // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
-    // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
-    // Then the first pass does minimal or no morphing of the arg and the second
-    // pass replaces the arg with a FIELD_LIST node.
-    bool requires2ndPass = false;
 
     if (call->gtCallThisArg != nullptr)
     {
@@ -3039,6 +3025,13 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         argsSideEffects |= arg->gtFlags;
         argNum++;
     }
+
+    // Sometimes we need a second pass to morph args, most commonly for arguments
+    // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
+    // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
+    // Then the first pass does minimal or no morphing of the arg and the second
+    // pass replaces the arg with a FIELD_LIST node.
+    bool requires2ndPass = false;
 
     for (GenTreeCall::Use *argUse = call->gtCallArgs; argUse != nullptr; argUse = argUse->GetNext(), argNum++)
     {
@@ -7936,7 +7929,9 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     // this flag for those, that may affect CSE.
     callBlock->bbFlags |= BBF_HAS_CALL;
 
-    fgMorphArgs(call);
+    bool reMorphing = call->AreArgsComplete();
+    fgInitArgInfo(call);
+    fgMorphArgs(call, reMorphing);
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
@@ -10313,7 +10308,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
 
             GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
-            fgMorphArgs(call);
+            fgInitArgInfo(call);
+            fgMorphArgs(call, false);
 
             return call;
         }
@@ -10374,7 +10370,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
                 GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
-                fgMorphArgs(call);
+                fgInitArgInfo(call);
+                fgMorphArgs(call, false);
 
                 return call;
             }
