@@ -688,61 +688,28 @@ bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool
            (!helperProperties.IsAllocator(helper) || ((gtCallMoreFlags & GTF_CALL_M_ALLOC_SIDE_EFFECTS) != 0));
 }
 
-//-------------------------------------------------------------------------
-// HasNonStandardAddedArgs: Return true if the method has non-standard args added to the call
-// argument list during argument morphing (fgMorphArgs), e.g., passed in R10 or R11 on AMD64.
-// See also GetNonStandardAddedArgCount().
-//
-// Arguments:
-//     compiler - the compiler instance
-//
-// Return Value:
-//      true if there are any such args, false otherwise.
-//
 bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const
-{
-    return GetNonStandardAddedArgCount(compiler) != 0;
-}
-
-//-------------------------------------------------------------------------
-// GetNonStandardAddedArgCount: Get the count of non-standard arguments that have been added
-// during call argument morphing (fgMorphArgs). Do not count non-standard args that are already
-// counted in the argument list prior to morphing.
-//
-// This function is used to help map the caller and callee arguments during tail call setup.
-//
-// Arguments:
-//     compiler - the compiler instance
-//
-// Return Value:
-//      The count of args, as described.
-//
-// Notes:
-//      It would be more general to have fgMorphArgs set a bit on the call node when such
-//      args are added to a call, and a bit on each such arg, and then have this code loop
-//      over the call args when the special call bit is set, counting the args with the special
-//      arg bit. This seems pretty heavyweight, though. Instead, this logic needs to be kept
-//      in sync with fgMorphArgs.
-//
-int GenTreeCall::GetNonStandardAddedArgCount(Compiler* compiler) const
 {
     if (IsUnmanaged() && !compiler->opts.ShouldUsePInvokeHelpers())
     {
         // R11 = PInvoke cookie param
-        return 1;
+        return true;
     }
-    else if (IsVirtualStub())
+
+    if (IsVirtualStub())
     {
         // R11 = Virtual stub param
-        return 1;
+        return true;
     }
-    else if ((gtCallType == CT_INDIRECT) && (gtCallCookie != nullptr))
+
+    if ((gtCallType == CT_INDIRECT) && (gtCallCookie != nullptr))
     {
         // R10 = PInvoke target param
         // R11 = PInvoke cookie param
-        return 2;
+        return true;
     }
-    return 0;
+
+    return false;
 }
 
 //-------------------------------------------------------------------------

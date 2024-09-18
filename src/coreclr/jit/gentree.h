@@ -4520,7 +4520,6 @@ public:
     }
 
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
-    int GetNonStandardAddedArgCount(Compiler* compiler) const;
 
     // Returns true if this call uses a return buffer argument.
     bool HasRetBufArg() const

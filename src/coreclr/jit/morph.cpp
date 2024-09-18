@@ -2026,9 +2026,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     {
         struct NonStandardArg
         {
-            regNumber reg;  // The register to be assigned to this non-standard argument.
-            GenTree*  node; // The tree node representing this non-standard argument.
-                            //   Note that this must be updated if the tree node changes due to morphing!
+            GenTree* node;
+            RegNum   reg;
         };
 
         ArrayStack<NonStandardArg> args;
@@ -2038,60 +2037,28 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
         }
 
-        //-----------------------------------------------------------------------------
-        // Add: add a non-standard argument to the table of non-standard arguments
-        //
-        // Arguments:
-        //    node - a GenTree node that has a non-standard argument.
-        //    reg - the register to assign to this node.
-        //
-        // Return Value:
-        //    None.
-        //
-        void Add(GenTree* node, regNumber reg)
+        void Add(GenTree* node, RegNum reg)
         {
-            NonStandardArg nsa = {reg, node};
-            args.Push(nsa);
+            assert((node != nullptr) && (reg != REG_NA));
+            args.Push({node, reg});
         }
 
-        //-----------------------------------------------------------------------------
-        // FindReg: Look for a GenTree node in the non-standard arguments set. If found,
-        // set the register to use for the node.
-        //
-        // Arguments:
-        //    node - a GenTree node to look for
-        //    pReg - an OUT argument. *pReg is set to the non-standard register to use if
-        //           'node' is found in the non-standard argument set.
-        //
-        // Return Value:
-        //    'true' if 'node' is a non-standard argument. In this case, *pReg is set to the
-        //          register to use.
-        //    'false' otherwise (in this case, *pReg is unmodified).
-        //
-        bool FindReg(GenTree* node, regNumber* pReg)
+        RegNum FindReg(GenTree* node)
         {
-            for (unsigned i = 0; i < args.Size(); i++)
+            for (const NonStandardArg& nsa : args)
             {
-                NonStandardArg& nsa = args.TopRef(i);
                 if (node == nsa.node)
                 {
-                    *pReg = nsa.reg;
-                    return true;
+                    return nsa.reg;
                 }
             }
-            return false;
+
+            return REG_NA;
         }
     } nonStandardArgs(getAllocator(CMK_ArrayStack));
 
-    // Count of args. On first morph, this is counted before we've filled in the arg table.
-    // On remorph, we grab it from the arg table.
-    unsigned numArgs = 0;
+    unsigned numArgs = call->gtCallThisArg == nullptr ? 0 : 1;
 
-    // First we need to count the args
-    if (call->gtCallThisArg != nullptr)
-    {
-        numArgs++;
-    }
     for (GenTreeCall::Use& use : call->Args())
     {
         numArgs++;
@@ -2102,7 +2069,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // convention (such as for the ARM64 fixed return buffer argument x8).
     //
     // *********** NOTE *************
-    // The logic here must remain in sync with GetNonStandardAddedArgCount(), which is used to map arguments
+    // The logic here must remain in sync with HasNonStandardAddedArgs, which is used to map arguments
     // in the implementation of fast tail call.
     // *********** END NOTE *********
     CLANG_FORMAT_COMMENT_ANCHOR;
@@ -2571,12 +2538,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #error Unsupported or unset target architecture
 #endif // TARGET*
 
-        bool      isRegArg         = false;
-        bool      isBackFilled     = false;
-        bool      isNonStandard    = false;
-        regNumber nonStdRegNum     = REG_NA;
-        unsigned  nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-
+        bool     isRegArg         = false;
+        bool     isBackFilled     = false;
+        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
 #ifdef OSX_ARM64_ABI
         unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
@@ -2709,13 +2673,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         // If there are nonstandard args (outside the calling convention) they were inserted above
         // and noted them in a table so we can recognize them here and build their argInfo.
-        //
         // They should not affect the placement of any other args or stack space required.
         // Example: on AMD64 R10 and R11 are used for indirect VSD (generic interface) and cookie calls.
-        isNonStandard = nonStandardArgs.FindReg(argx, &nonStdRegNum);
-        if (isNonStandard)
+
+        const RegNum nonStdRegNum = nonStandardArgs.FindReg(argx);
+
+        if (nonStdRegNum != REG_NA)
         {
-            isRegArg = (nonStdRegNum != REG_STK);
+            isRegArg = nonStdRegNum != REG_STK;
         }
 #ifdef TARGET_X86
         else if (call->IsTailCallViaJitHelper())
@@ -2767,24 +2732,24 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (isRegArg)
         {
-            regNumber nextRegNum = REG_STK;
+            RegNum nextRegNum = REG_STK;
+#ifdef UNIX_AMD64_ABI
+            RegNum   nextOtherRegNum = REG_STK;
+            unsigned structFloatRegs = 0;
+            unsigned structIntRegs   = 0;
+#endif
 
-#if defined(UNIX_AMD64_ABI)
-            regNumber    nextOtherRegNum = REG_STK;
-            unsigned int structFloatRegs = 0;
-            unsigned int structIntRegs   = 0;
-#endif // defined(UNIX_AMD64_ABI)
-
-            if (isNonStandard)
+            if (nonStdRegNum != REG_NA)
             {
                 nextRegNum = nonStdRegNum;
             }
-#if defined(UNIX_AMD64_ABI)
+#ifdef UNIX_AMD64_ABI
             else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
             {
                 // It is a struct passed in registers. Assign the next available register.
                 assert(layout->GetSysVAmd64AbiRegCount() <= 2);
-                regNumber* nextRegNumPtrs[2] = {&nextRegNum, &nextOtherRegNum};
+                RegNum* nextRegNumPtrs[]{&nextRegNum, &nextOtherRegNum};
+
                 for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
                 {
                     if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
@@ -2799,7 +2764,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     }
                 }
             }
-#endif // defined(UNIX_AMD64_ABI)
+#endif
             else
             {
                 // fill in or update the argInfo table
@@ -2822,7 +2787,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             // Set up the next intArgRegNum and fltArgRegNum values.
             if (!isBackFilled)
             {
-#if defined(UNIX_AMD64_ABI)
+#ifdef UNIX_AMD64_ABI
                 if (isStructArg)
                 {
                     // For this case, we've already set the regNums in the argTabEntry
@@ -2830,8 +2795,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     fltArgRegNum += structFloatRegs;
                 }
                 else
-#endif // defined(UNIX_AMD64_ABI)
-                    if (!isNonStandard)
+#endif
+                    if (nonStdRegNum == REG_NA)
                 {
                     if (passUsingFloatRegs)
                     {
@@ -2898,7 +2863,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             argInfo = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, regCount);
             argInfo->SetRegNum(0, nextRegNum);
-            argInfo->SetNonStandard(isNonStandard);
+            argInfo->SetNonStandard(nonStdRegNum != REG_NA);
 
 #ifdef UNIX_AMD64_ABI
             assert(regCount <= 2);
