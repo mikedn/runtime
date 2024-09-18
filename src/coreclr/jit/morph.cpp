@@ -640,8 +640,6 @@ GenTree* Compiler::fgMorphOverflowTruncate(GenTreeUnOp* cast)
 
     GenTree* src = cast->GetOp(0);
 
-    printf("%s\n", GenTree::OpName(src->GetOper()));
-
     if (src->OperIs(GT_AND))
     {
         GenTree* andOp2 = src->AsOp()->GetOp(1);
@@ -10282,24 +10280,10 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_FMOD:
-            helper = CORINFO_HELP_DBLREM;
-            if (op1->TypeIs(TYP_FLOAT))
-            {
-                if (op2->TypeIs(TYP_FLOAT))
-                {
-                    helper = CORINFO_HELP_FLTREM;
-                }
-                else
-                {
-                    op1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
-                    tree->AsOp()->SetOp(0, op1);
-                }
-            }
-            else if (op2->TypeIs(TYP_FLOAT))
-            {
-                op2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
-                tree->AsOp()->SetOp(1, op2);
-            }
+            assert((op1->GetType() == tree->GetType()) && (op2->GetType() == tree->GetType()));
+            assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+            helper = op1->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTREM : CORINFO_HELP_DBLREM;
 
 #ifndef TARGET_64BIT
         USE_HELPER_FOR_ARITH:
