@@ -1989,31 +1989,14 @@ GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
     return gtNewLclLoad(lcl, type);
 }
 
-//------------------------------------------------------------------------
-// fgInitArgInfo: Construct the fgArgInfo for the call with the fgArgEntry for each arg
-//
-// Arguments:
-//    callNode - the call for which we are generating the fgArgInfo
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    This method is idempotent in that it checks whether the fgArgInfo has already been
-//    constructed, and just returns.
-//    This method only computes the arg table and arg entries for the call (the fgArgInfo),
-//    and makes no modification of the args themselves.
-//
-//    The IR for the call args can change for calls with non-standard arguments: some non-standard
-//    arguments add new call argument IR nodes.
+// This method only computes the arg table and arg entries for the call (the fgArgInfo),
+// and makes no modification of the args themselves.
+// The IR for the call args can change for calls with non-standard arguments: some non-standard
+// arguments add new call argument IR nodes.
 //
 void Compiler::fgInitArgInfo(GenTreeCall* call)
 {
-    if (call->fgArgInfo != nullptr)
-    {
-        // We've already initialized and set the fgArgInfo.
-        return;
-    }
+    assert(call->GetInfo() == nullptr);
 
     JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
 
@@ -5691,7 +5674,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    This function is target specific and each target will make the fastTailCall
 //    decision differently. See the notes below.
 //
-//    This function calls fgInitArgInfo() to initialize the arg info table, which
+//    This function calls fgInitArgInfo to initialize the arg info table, which
 //    is used to analyze the argument. This function can alter the call arguments
 //    by adding argument IR nodes for non-standard arguments.
 //
@@ -5797,7 +5780,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 
     assert(!callee->AreArgsComplete());
 
-    fgInitArgInfo(callee);
+    if (callee->GetInfo() == nullptr)
+    {
+        fgInitArgInfo(callee);
+    }
 
     unsigned calleeArgStackSize = 0;
     unsigned callerArgStackSize = codeGen->paramsStackSize;
@@ -7930,7 +7916,12 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     callBlock->bbFlags |= BBF_HAS_CALL;
 
     bool reMorphing = call->AreArgsComplete();
-    fgInitArgInfo(call);
+
+    if (call->GetInfo() == nullptr)
+    {
+        fgInitArgInfo(call);
+    }
+
     fgMorphArgs(call, reMorphing);
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
