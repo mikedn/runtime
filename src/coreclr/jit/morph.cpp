@@ -5,74 +5,6 @@
 #include "allocacheck.h"
 #include "valuenum.h"
 
-GenTreeCall* Compiler::fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs)
-{
-    // The helper call ought to be semantically equivalent to the original node, so preserve its VN.
-    tree->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
-
-    GenTreeCall* call = tree->AsCall();
-    call->SetRetSigType(tree->GetType());
-    call->SetRetLayout(nullptr);
-
-    call->gtCallType            = CT_HELPER;
-    call->gtCallMethHnd         = eeFindHelper(helper);
-    call->gtCallThisArg         = nullptr;
-    call->gtCallArgs            = args;
-    call->gtCallLateArgs        = nullptr;
-    call->fgArgInfo             = nullptr;
-    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
-    call->gtInlineCandidateInfo = nullptr;
-    call->gtControlExpr         = nullptr;
-#ifdef UNIX_X86_ABI
-    call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
-
-#if DEBUG
-    call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
-    call->callSig             = nullptr;
-#endif
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    call->gtEntryPoint.addr       = nullptr;
-    call->gtEntryPoint.accessType = IAT_VALUE;
-#endif
-
-    call->GetRetDesc()->Reset();
-#ifndef TARGET_64BIT
-    if (varTypeIsLong(tree->GetType()))
-    {
-        call->GetRetDesc()->InitializeLong();
-    }
-#endif
-
-#if FEATURE_MULTIREG_RET
-    call->ClearOtherRegs();
-#endif
-
-    if (call->CallMayThrow(this))
-    {
-        call->gtFlags |= GTF_EXCEPT;
-    }
-    else
-    {
-        call->gtFlags &= ~GTF_EXCEPT;
-    }
-
-    call->gtFlags |= GTF_CALL;
-
-    for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
-    {
-        call->gtFlags |= use.GetNode()->GetSideEffects();
-    }
-
-    if (morphArgs)
-    {
-        fgMorphArgs(call);
-    }
-
-    return call;
-}
-
 GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
@@ -9919,8 +9851,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
     switch (oper)
     {
-        // Some arithmetic operators need to use a helper call to the EE
-        int helper;
+        CorInfoHelpFunc helper;
 
         case GT_LCL_STORE:
             if (fgGlobalMorph)
@@ -10374,17 +10305,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         USE_HELPER_FOR_ARITH:
 #endif
         {
-            // TODO: this comment is wrong now, do an appropriate fix.
-            /* We have to morph these arithmetic operations into helper calls
-               before morphing the arguments (preorder), else the arguments
-               won't get correct values of fgPtrArgCntCur.
-               However, try to fold the tree first in case we end up with a
-               simple node which won't need a helper call at all */
-
             noway_assert(tree->OperIsBinary());
 
             GenTree* oldTree = tree;
 
+            // Try to constant fold before changing to a helper call,
+            // since helper calls are not currently constant folded.
             tree = gtFoldExpr(tree);
 
             // Were we able to fold it ?
@@ -10401,8 +10327,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 noway_assert(fgIsCommaThrow(tree DEBUGARG(false)));
                 return fgMorphTree(tree);
             }
+
+            GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
+            fgMorphArgs(call);
+
+            return call;
         }
-            return fgMorphIntoHelperCall(tree, helper, gtNewCallArgs(op1, op2));
 
         case GT_RETURN:
             if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
@@ -10435,20 +10365,16 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_GT:
         {
-            // Try and optimize nullable boxes feeding compares
             GenTree* optimizedTree = gtFoldBoxNullable(tree->AsOp());
 
-            if (optimizedTree->OperGet() != tree->OperGet())
+            if (optimizedTree->GetOper() != tree->GetOper())
             {
                 return optimizedTree;
             }
-            else
-            {
-                tree = optimizedTree;
-            }
 
-            op1 = tree->AsOp()->gtOp1;
-            op2 = tree->gtGetOp2IfPresent();
+            tree = optimizedTree;
+            op1  = tree->AsOp()->GetOp(0);
+            op2  = tree->AsOp()->GetOp(1);
 
             break;
         }
@@ -10460,15 +10386,13 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_INTRINSIC:
             if (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round)
             {
-                switch (tree->TypeGet())
-                {
-                    case TYP_DOUBLE:
-                        return fgMorphIntoHelperCall(tree, CORINFO_HELP_DBLROUND, gtNewCallArgs(op1));
-                    case TYP_FLOAT:
-                        return fgMorphIntoHelperCall(tree, CORINFO_HELP_FLTROUND, gtNewCallArgs(op1));
-                    default:
-                        unreached();
-                }
+                assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+                CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
+                GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
+                fgMorphArgs(call);
+
+                return call;
             }
             break;
 #endif

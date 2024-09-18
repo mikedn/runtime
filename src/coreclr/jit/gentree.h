@@ -7327,34 +7327,61 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
 
 struct GenTreeAllocObj final : public GenTreeUnOp
 {
-    unsigned             gtNewHelper;
-    bool                 gtHelperHasSideEffects;
-    CORINFO_CLASS_HANDLE gtAllocObjClsHnd;
+    CorInfoHelpFunc      helper;
+    bool                 helperHasSideEffects;
+    CORINFO_CLASS_HANDLE classHandle;
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP gtEntryPoint;
+    CORINFO_CONST_LOOKUP entryPoint;
 #endif
 
-    GenTreeAllocObj(unsigned helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE clsHnd, GenTree* op)
+    GenTreeAllocObj(CorInfoHelpFunc helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE classHandle, GenTree* op)
         : GenTreeUnOp(GT_ALLOCOBJ, TYP_REF, op DEBUGARG(/*largeNode*/ true))
-        , gtNewHelper(helper)
-        , gtHelperHasSideEffects(helperHasSideEffects)
-        , gtAllocObjClsHnd(clsHnd)
+        , helper(helper)
+        , helperHasSideEffects(helperHasSideEffects)
+        , classHandle(classHandle)
     {
 #ifdef FEATURE_READYTORUN_COMPILER
-        gtEntryPoint.addr = nullptr;
+        entryPoint.addr = nullptr;
 #endif
     }
 
     GenTreeAllocObj(const GenTreeAllocObj* copyFrom)
         : GenTreeUnOp(copyFrom)
-        , gtNewHelper(copyFrom->gtNewHelper)
-        , gtHelperHasSideEffects(copyFrom->gtHelperHasSideEffects)
-        , gtAllocObjClsHnd(copyFrom->gtAllocObjClsHnd)
+        , helper(copyFrom->helper)
+        , helperHasSideEffects(copyFrom->helperHasSideEffects)
+        , classHandle(copyFrom->classHandle)
 #ifdef FEATURE_READYTORUN_COMPILER
-        , gtEntryPoint(copyFrom->gtEntryPoint)
+        , entryPoint(copyFrom->entryPoint)
 #endif
     {
     }
+
+    CorInfoHelpFunc GetHelper() const
+    {
+        return helper;
+    }
+
+    bool HelperHasSideEffects() const
+    {
+        return helperHasSideEffects;
+    }
+
+    CORINFO_CLASS_HANDLE GetClassHandle() const
+    {
+        return classHandle;
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    CORINFO_CONST_LOOKUP GetEntryPoint() const
+    {
+        return entryPoint;
+    }
+
+    void SetEntryPoint(CORINFO_CONST_LOOKUP lookup)
+    {
+        entryPoint = lookup;
+    }
+#endif
 
 #if DEBUGGABLE_GENTREE
     GenTreeAllocObj() = default;

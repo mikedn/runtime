@@ -517,7 +517,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
                 unsigned   lclNum = lcl->GetLclNum();
 
                 // Don't attempt to do stack allocations inside basic blocks that may be in a loop.
-                if (!basicBlockHasBackwardJump && CanAllocateLclVarOnStack(lclNum, alloc->gtAllocObjClsHnd))
+                if (!basicBlockHasBackwardJump && CanAllocateLclVarOnStack(lclNum, alloc->GetClassHandle()))
                 {
                     JITDUMP("Allocating local variable V%02u on the stack\n", lcl->GetLclNum());
 
@@ -546,43 +546,25 @@ bool ObjectAllocator::MorphAllocObjNodes()
     return didStackAllocate;
 }
 
-//------------------------------------------------------------------------
-// MorphAllocObjNodeIntoHelperCall: Morph a GT_ALLOCOBJ node into an
-//                                  allocation helper call.
-//
-// Arguments:
-//    allocObj - GT_ALLOCOBJ that will be replaced by helper call.
-//
-// Return Value:
-//    Address of helper call node (can be the same as allocObj).
-//
-// Notes:
-//    Must update parents flags after this.
-
 GenTreeCall* ObjectAllocator::MorphAllocObjNodeIntoHelperCall(GenTreeAllocObj* allocObj)
 {
-    assert(allocObj != nullptr);
-
-    GenTree*     op1                  = allocObj->gtGetOp1();
-    unsigned int helper               = allocObj->gtNewHelper;
-    bool         helperHasSideEffects = allocObj->gtHelperHasSideEffects;
-
-    GenTreeCall::Use* args;
+    CorInfoHelpFunc helper         = allocObj->GetHelper();
+    bool            hasSideEffects = allocObj->HelperHasSideEffects();
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP entryPoint = allocObj->gtEntryPoint;
-    if (helper == CORINFO_HELP_READYTORUN_NEW)
-    {
-        args = nullptr;
-    }
-    else
+    CORINFO_CONST_LOOKUP entryPoint = allocObj->GetEntryPoint();
+#endif
+    GenTreeCall::Use* args = nullptr;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (helper != CORINFO_HELP_READYTORUN_NEW)
 #endif
     {
-        args = comp->gtNewCallArgs(op1);
+        args = comp->gtNewCallArgs(allocObj->GetOp(0));
     }
 
-    const bool   morphArgs  = false;
-    GenTreeCall* helperCall = comp->fgMorphIntoHelperCall(allocObj, allocObj->gtNewHelper, args, morphArgs);
-    if (helperHasSideEffects)
+    GenTreeCall* helperCall = comp->gtChangeToHelperCall(allocObj, helper, args);
+
+    if (hasSideEffects)
     {
         helperCall->gtCallMoreFlags |= GTF_CALL_M_ALLOC_SIDE_EFFECTS;
     }
@@ -618,7 +600,7 @@ unsigned ObjectAllocator::MorphAllocObjNodeIntoStackAlloc(GenTreeAllocObj* alloc
     assert(m_AnalysisDone);
 
     LclVarDsc* lcl = comp->lvaAllocTemp(/* shortLifetime */ false DEBUGARG("MorphAllocObjNodeIntoStackAlloc temp"));
-    comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->gtAllocObjClsHnd), /* checkUnsafeBuffer */ true);
+    comp->lvaSetStruct(lcl, comp->typGetObjLayout(allocObj->GetClassHandle()), /* checkUnsafeBuffer */ true);
 
     // Initialize the object memory if necessary.
     bool bbInALoop  = (block->bbFlags & BBF_BACKWARD_JUMP) != 0;

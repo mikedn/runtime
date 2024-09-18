@@ -12818,6 +12818,58 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 #endif
 }
 
+GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent)
+{
+    GenTree* handle = impTokenToHandle(resolvedToken, true, useParent);
+
+    CorInfoHelpFunc helper             = CORINFO_HELP_UNDEF;
+    bool            isReadyToRunHelper = false;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    CORINFO_CONST_LOOKUP entryPoint{};
+
+    if (opts.IsReadyToRun())
+    {
+        helper             = CORINFO_HELP_READYTORUN_NEW;
+        isReadyToRunHelper = info.compCompHnd->getReadyToRunHelper(resolvedToken, nullptr, helper, &entryPoint);
+    }
+#endif
+
+    if (!isReadyToRunHelper && (handle == nullptr))
+    {
+        assert(compDonotInline());
+        return nullptr;
+    }
+
+    bool            helperHasSideEffects;
+    CorInfoHelpFunc helperTemp =
+        info.compCompHnd->getNewHelper(resolvedToken, info.compMethodHnd, &helperHasSideEffects);
+
+    if (!isReadyToRunHelper)
+    {
+        helper = helperTemp;
+    }
+
+    // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
+    // and the newfast call with a single call to a dynamic R2R cell that will:
+    //      1) Load the context
+    //      2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
+    //      3) Allocate and return the new object for boxing
+    // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
+
+    GenTreeAllocObj* allocObj =
+        new (comp, GT_ALLOCOBJ) GenTreeAllocObj(helper, helperHasSideEffects, resolvedToken->hClass, handle);
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (isReadyToRunHelper)
+    {
+        allocObj->SetEntryPoint(entryPoint);
+    }
+#endif
+
+    return allocObj;
+}
+
 // Load an argument on the operand stack
 // Shared by the various CEE_LDARG opcodes
 // ilArgNum is the argument index as specified in IL.
