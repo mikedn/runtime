@@ -2991,11 +2991,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 // otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
 // replaced in the "early" arg list (gtCallArgs) with a placeholder node.
 //
-void Compiler::fgMorphArgs(GenTreeCall* const call, bool reMorphing)
+void Compiler::fgMorphArgs(GenTreeCall* const call)
 {
     assert(call->GetInfo() != nullptr);
 
-    JITDUMP("%s call [%06u] args\n", reMorphing ? "Re-morphing" : "Morphing", call->GetID());
+    JITDUMP("Morphing call [%06u] args\n", call->GetID());
 
     GenTreeFlags argsSideEffects = GTF_NONE;
     unsigned     argNum          = 0;
@@ -3126,19 +3126,19 @@ void Compiler::fgMorphArgs(GenTreeCall* const call, bool reMorphing)
         argsSideEffects |= argUse->GetNode()->gtFlags;
     }
 
-    if (reMorphing)
+    if (call->GetInfo()->AreArgsComplete())
     {
+        assert((call->gtCallLateArgs != nullptr) || !call->GetInfo()->HasRegArgs());
+
         for (GenTreeCall::Use& use : call->LateArgs())
         {
             use.SetNode(fgMorphTree(use.GetNode()));
             argsSideEffects |= use.GetNode()->gtFlags;
         }
-
-        assert(call->fgArgInfo != nullptr);
     }
     else
     {
-        call->fgArgInfo->ArgsComplete(this, call);
+        call->GetInfo()->ArgsComplete(this, call);
     }
 
     if (call->IsIndirectCall())
@@ -5778,12 +5778,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         assert(impTailCallRetTypeCompatible(callee, false));
     }
 
-    assert(!callee->AreArgsComplete());
-
-    if (callee->GetInfo() == nullptr)
-    {
-        fgInitArgInfo(callee);
-    }
+    fgInitArgInfo(callee);
 
     unsigned calleeArgStackSize = 0;
     unsigned callerArgStackSize = codeGen->paramsStackSize;
@@ -7906,14 +7901,12 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
     // this flag for those, that may affect CSE.
     callBlock->bbFlags |= BBF_HAS_CALL;
 
-    bool reMorphing = call->AreArgsComplete();
-
     if (call->GetInfo() == nullptr)
     {
         fgInitArgInfo(call);
     }
 
-    fgMorphArgs(call, reMorphing);
+    fgMorphArgs(call);
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
@@ -10292,7 +10285,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
             fgInitArgInfo(call);
-            fgMorphArgs(call, false);
+            fgMorphArgs(call);
 
             return call;
         }
@@ -10354,7 +10347,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
                 GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
-                fgMorphArgs(call, false);
+                fgMorphArgs(call);
 
                 return call;
             }

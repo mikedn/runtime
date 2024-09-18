@@ -4788,8 +4788,6 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0;
     }
 
-    bool AreArgsComplete() const;
-
     CorInfoCallConvExtension GetUnmanagedCallConv() const
     {
         return IsUnmanaged() ? unmgdCallConv : CorInfoCallConvExtension::Managed;

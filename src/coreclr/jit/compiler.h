@@ -4511,7 +4511,7 @@ private:
     GenTree* fgMorphOverflowUnsigned(GenTreeUnOp* node);
     GenTree* fgMorphGCBitcast(GenTreeUnOp* cast);
     void fgInitArgInfo(GenTreeCall* call);
-    void fgMorphArgs(GenTreeCall* call, bool reMorphing);
+    void fgMorphArgs(GenTreeCall* call);
 
     GenTree* fgMorphLclLoad(GenTreeLclLoad* load);
 

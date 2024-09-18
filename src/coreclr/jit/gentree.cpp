@@ -795,22 +795,6 @@ bool GenTreeCall::IsHelperCall(CorInfoHelpFunc helper) const
     return IsHelperCall() && (gtCallMethHnd == Compiler::eeFindHelper(helper));
 }
 
-bool GenTreeCall::AreArgsComplete() const
-{
-    if (fgArgInfo == nullptr)
-    {
-        return false;
-    }
-
-    if (fgArgInfo->AreArgsComplete())
-    {
-        assert((gtCallLateArgs != nullptr) || !fgArgInfo->HasRegArgs());
-        return true;
-    }
-
-    return false;
-}
-
 bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
 {
     assert(c1->GetOper() == c2->GetOper());
