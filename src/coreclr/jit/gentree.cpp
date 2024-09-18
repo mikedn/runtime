@@ -1359,8 +1359,8 @@ AGAIN:
                     break;
                 case GT_ALLOCOBJ:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
-                                                    reinterpret_cast<uintptr_t>(tree->AsAllocObj()->gtAllocObjClsHnd)));
-                    hash = genTreeHashAdd(hash, tree->AsAllocObj()->gtNewHelper);
+                                                    reinterpret_cast<uintptr_t>(tree->AsAllocObj()->GetClassHandle())));
+                    hash = genTreeHashAdd(hash, tree->AsAllocObj()->GetHelper());
                     break;
                 case GT_RUNTIMELOOKUP:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
@@ -4210,6 +4210,69 @@ GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* res
 }
 #endif
 
+GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helper, GenTreeCall::Use* args)
+{
+    // The helper call ought to be semantically equivalent to the original node, so preserve its VN.
+    node->ChangeOper(GT_CALL, GenTree::PRESERVE_VN);
+
+    GenTreeCall* call = node->AsCall();
+    call->SetRetSigType(node->GetType());
+    call->SetRetLayout(nullptr);
+
+    call->gtCallType            = CT_HELPER;
+    call->gtCallMethHnd         = eeFindHelper(helper);
+    call->gtCallThisArg         = nullptr;
+    call->gtCallArgs            = args;
+    call->gtCallLateArgs        = nullptr;
+    call->fgArgInfo             = nullptr;
+    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
+    call->gtInlineCandidateInfo = nullptr;
+    call->gtControlExpr         = nullptr;
+#ifdef UNIX_X86_ABI
+    call->gtFlags |= GTF_CALL_POP_ARGS;
+#endif
+
+#if DEBUG
+    call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
+    call->callSig             = nullptr;
+#endif
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    call->gtEntryPoint.addr       = nullptr;
+    call->gtEntryPoint.accessType = IAT_VALUE;
+#endif
+
+    call->GetRetDesc()->Reset();
+#ifndef TARGET_64BIT
+    if (varTypeIsLong(call->GetType()))
+    {
+        call->GetRetDesc()->InitializeLong();
+    }
+#endif
+
+#if FEATURE_MULTIREG_RET
+    call->ClearOtherRegs();
+#endif
+
+    call->gtFlags |= GTF_CALL;
+
+    if (call->CallMayThrow(this))
+    {
+        call->gtFlags |= GTF_EXCEPT;
+    }
+    else
+    {
+        call->gtFlags &= ~GTF_EXCEPT;
+    }
+
+    for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
+    {
+        call->gtFlags |= use.GetNode()->GetSideEffects();
+    }
+
+    return call;
+}
+
 GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* call = gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
@@ -4606,66 +4669,6 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
     assert(type != TYP_STRUCT);
 
     return gtNewOperNode(GT_BITCAST, type, arg)->AsUnOp();
-}
-
-// Helper to create an object allocation node.
-//
-// Arguments:
-//    resolvedToken - Resolved token for the object being allocated
-//    useParent     - true iff the token represents a child of the object's class
-//
-// Returns ALLOCOBJ node that will be later morphed into an allocation
-// helper call or local variable allocation on the stack.
-
-GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent)
-{
-    bool            isReadyToRunHelper = false;
-    CorInfoHelpFunc helper             = CORINFO_HELP_UNDEF;
-    GenTree*        handle             = impTokenToHandle(resolvedToken, true, useParent);
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP entryPoint{};
-
-    if (opts.IsReadyToRun())
-    {
-        helper             = CORINFO_HELP_READYTORUN_NEW;
-        isReadyToRunHelper = info.compCompHnd->getReadyToRunHelper(resolvedToken, nullptr, helper, &entryPoint);
-    }
-#endif
-
-    if (!isReadyToRunHelper && (handle == nullptr))
-    {
-        assert(compDonotInline());
-        return nullptr;
-    }
-
-    bool            helperHasSideEffects;
-    CorInfoHelpFunc helperTemp =
-        info.compCompHnd->getNewHelper(resolvedToken, info.compMethodHnd, &helperHasSideEffects);
-
-    if (!isReadyToRunHelper)
-    {
-        helper = helperTemp;
-    }
-
-    // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
-    // and the newfast call with a single call to a dynamic R2R cell that will:
-    //      1) Load the context
-    //      2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
-    //      3) Allocate and return the new object for boxing
-    // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
-
-    GenTreeAllocObj* allocObj =
-        new (comp, GT_ALLOCOBJ) GenTreeAllocObj(helper, helperHasSideEffects, resolvedToken->hClass, handle);
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    if (isReadyToRunHelper)
-    {
-        allocObj->gtEntryPoint = entryPoint;
-    }
-#endif
-
-    return allocObj;
 }
 
 /*****************************************************************************

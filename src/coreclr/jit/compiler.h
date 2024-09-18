@@ -2920,6 +2920,7 @@ public:
                                   IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
 
     GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
+    GenTreeCall* gtChangeToHelperCall(GenTree* tree, CorInfoHelpFunc helper, GenTreeCall::Use* args);
 
     GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
                                                   GenTree*                ctxTree,
@@ -4478,8 +4479,6 @@ private:
     void fgMoveOpsLeft(GenTreeOp* tree);
 
     bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
-
-    GenTreeCall* fgMorphIntoHelperCall(GenTree* tree, int helper, GenTreeCall::Use* args, bool morphArgs = true);
 
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,
     // it is useful to know whether the address will be immediately dereferenced, or whether the address value will
