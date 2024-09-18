@@ -1244,20 +1244,20 @@ inline CORINFO_METHOD_HANDLE Compiler::eeFindHelper(unsigned helper)
 {
     assert(helper < CORINFO_HELP_COUNT);
 
-    /* Helpers are marked by the fact that they are odd numbers
-     * force this to be an odd number (will shift it back to extract) */
+    // Helpers are marked by the fact that they are odd numbers
+    // force this to be an odd number (will shift it back to extract)
 
-    return ((CORINFO_METHOD_HANDLE)((((size_t)helper) << 2) + 1));
+    return reinterpret_cast<CORINFO_METHOD_HANDLE>((static_cast<uintptr_t>(helper) << 2) + 1);
 }
 
 inline CorInfoHelpFunc Compiler::eeGetHelperNum(CORINFO_METHOD_HANDLE method)
 {
-    // Helpers are marked by the fact that they are odd numbers
-    if (!(((size_t)method) & 1))
+    if ((reinterpret_cast<uintptr_t>(method) & 1) == 0)
     {
-        return (CORINFO_HELP_UNDEF);
+        return CORINFO_HELP_UNDEF;
     }
-    return ((CorInfoHelpFunc)(((size_t)method) >> 2));
+
+    return static_cast<CorInfoHelpFunc>(reinterpret_cast<uintptr_t>(method) >> 2);
 }
 
 //  TODO-Cleanup: Replace calls to IsSharedStaticHelper with new HelperCallProperties

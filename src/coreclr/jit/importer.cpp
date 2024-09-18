@@ -3180,8 +3180,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     GenTreeCall* call = retExpr->GetCall();
                     assert(retExpr->GetRetExpr() == call);
 
-                    if (((call->gtFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0) &&
-                        (lookupNamedIntrinsic(call->gtCallMethHnd) == NI_System_Threading_Thread_get_CurrentThread))
+                    if (call->IsSpecialIntrinsic() &&
+                        (lookupNamedIntrinsic(call->GetMethodHandle()) == NI_System_Threading_Thread_get_CurrentThread))
                     {
                         // drop get_CurrentThread() call
                         impPopStack();
@@ -7089,7 +7089,7 @@ PUSH_CALL:
             {
                 spillStack = false;
             }
-            else if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
+            else if (call->IsSpecialIntrinsic())
             {
                 spillStack = false;
             }
@@ -14835,7 +14835,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     // If we're in an inlinee compiler, and have a return spill temp, and this inline candidate
     // is also a tail call candidate, it can use the same return spill temp.
     //
-    if (compIsForInlining() && call->CanTailCall() &&
+    if (compIsForInlining() && call->IsTailCallCandidate() &&
         (impInlineInfo->inlineCandidateInfo->preexistingSpillTemp != nullptr))
     {
         inlineCandidateInfo->preexistingSpillTemp = impInlineInfo->inlineCandidateInfo->preexistingSpillTemp;

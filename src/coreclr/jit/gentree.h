@@ -4579,7 +4579,7 @@ public:
 
     // This method returning "true" implies that importer has performed tail call checks
     // and providing a hint that this can be converted to a tail call.
-    bool CanTailCall() const
+    bool IsTailCallCandidate() const
     {
         return IsTailPrefixedCall() || IsImplicitTailCall();
     }
@@ -4781,12 +4781,12 @@ public:
         return gtCallType == CT_INDIRECT;
     }
 
-    bool IsHelperCall(CORINFO_METHOD_HANDLE callMethHnd) const
-    {
-        return IsHelperCall() && (callMethHnd == gtCallMethHnd);
-    }
+    bool IsHelperCall(CorInfoHelpFunc helper) const;
 
-    bool IsHelperCall(Compiler* compiler, unsigned helper) const;
+    bool IsSpecialIntrinsic() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0;
+    }
 
     bool AreArgsComplete() const;
 

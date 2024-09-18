@@ -2110,7 +2110,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     // The x86 and arm32 CORINFO_HELP_INIT_PINVOKE_FRAME helpers has a custom calling convention.
     // Set the argument registers correctly here.
-    if (call->IsHelperCall(this, CORINFO_HELP_INIT_PINVOKE_FRAME))
+    if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
     {
         GenTreeCall::Use* args = call->gtCallArgs;
         GenTree*          arg1 = args->GetNode();
@@ -2162,8 +2162,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #if defined(TARGET_X86)
     // The x86 shift helpers have custom calling conventions and expect the lo part of the long to be in EAX and the
     // hi part to be in EDX. This sets the argument registers up correctly.
-    else if (call->IsHelperCall(this, CORINFO_HELP_LLSH) || call->IsHelperCall(this, CORINFO_HELP_LRSH) ||
-             call->IsHelperCall(this, CORINFO_HELP_LRSZ))
+    else if (call->IsHelperCall(CORINFO_HELP_LLSH) || call->IsHelperCall(CORINFO_HELP_LRSH) ||
+             call->IsHelperCall(CORINFO_HELP_LRSZ))
     {
         GenTreeCall::Use* args = call->gtCallArgs;
         GenTree*          arg1 = args->GetNode();
@@ -6166,7 +6166,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 #endif
     };
 
-    if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+    if (call->IsSpecialIntrinsic())
     {
         failTailCall("Might turn into an intrinsic");
         return nullptr;
@@ -7825,21 +7825,9 @@ bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
 
 GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 {
-    if (call->CanTailCall())
-    {
-        GenTree* newNode = fgMorphPotentialTailCall(call, stmt);
-        if (newNode != nullptr)
-        {
-            return newNode;
-        }
-
-        assert(!call->CanTailCall());
-    }
-
-    if (((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) == 0) &&
-        ((call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_VIRTUAL_FUNC_PTR))
+    if ((call->IsHelperCall(CORINFO_HELP_VIRTUAL_FUNC_PTR)
 #ifdef FEATURE_READYTORUN_COMPILER
-         || (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR))
+         || call->IsHelperCall(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR)
 #endif
              ) &&
         (stmt != nullptr) && (call == stmt->GetRootNode()))
@@ -7847,13 +7835,19 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         // This is call to CORINFO_HELP_VIRTUAL_FUNC_PTR with ignored result.
         // Transform it into a null check.
 
-        GenTree* thisPtr = call->gtCallArgs->GetNode();
-
-        return fgMorphTree(gtNewNullCheck(thisPtr));
+        return fgMorphTree(gtNewNullCheck(call->gtCallArgs->GetNode()));
     }
 
     if (fgGlobalMorph)
     {
+        if (call->IsTailCallCandidate())
+        {
+            if (GenTree* newNode = fgMorphPotentialTailCall(call, stmt))
+            {
+                return newNode;
+            }
+        }
+
         // TODO-MIKE-Cleanup: This should be moved to lowering (or LSRA's "build",
         // only rpMustCreateEBPFrame needs it and doing it here is premature as
         // calls can be removed later.
@@ -7872,6 +7866,8 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
             }
         }
     }
+
+    assert(!call->IsTailCallCandidate());
 
     BasicBlock* callBlock = fgMorphBlock;
 
@@ -7895,14 +7891,12 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 
     // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
     // We need to do these before the arguments are morphed.
-    if ((call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0)
+    if (call->IsSpecialIntrinsic() && opts.OptimizationEnabled())
     {
         // TODO-MIKE-Review: Hrm, above we already marked the block as
         // containing a GC safe point and are we removing the call?!?
 
-        GenTree* optTree = gtFoldExprCall(call);
-
-        if (optTree != call)
+        if (GenTree* optTree = gtFoldExprCall(call))
         {
             return fgMorphTree(optTree);
         }
@@ -7938,9 +7932,10 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 
     // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
     // This needs to be done after the arguments are morphed to ensure constant propagation has already taken place.
-    if (opts.OptimizationEnabled() && call->IsHelperCall(eeFindHelper(CORINFO_HELP_ARRADDR_ST)))
+    if (opts.OptimizationEnabled() && call->IsHelperCall(CORINFO_HELP_ARRADDR_ST))
     {
         GenTree* value = call->GetArgNodeByArgNum(2);
+
         if (value->IsIntegralConst(0))
         {
             return fgRemoveArrayStoreHelperCall(call, value);

@@ -7560,7 +7560,8 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
 
     if (call->IsHelperCall())
     {
-        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
+        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
+
         if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
         {
             summary.AddMemoryHavoc();
