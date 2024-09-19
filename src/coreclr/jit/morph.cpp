@@ -2074,29 +2074,27 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // *********** END NOTE *********
     CLANG_FORMAT_COMMENT_ANCHOR;
 
+#ifdef TARGET_X86
+    // These are handled by special code in LIR/lowering.
+    assert(!call->IsHelperCall(CORINFO_HELP_LLSH) && !call->IsHelperCall(CORINFO_HELP_LRSH) &&
+           !call->IsHelperCall(CORINFO_HELP_LRSZ));
+#endif
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    // The x86 and arm32 CORINFO_HELP_INIT_PINVOKE_FRAME helpers has a custom calling convention.
-    // Set the argument registers correctly here.
-    if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
-    {
-        GenTreeCall::Use* args = call->gtCallArgs;
-        GenTree*          arg1 = args->GetNode();
-        assert(arg1 != nullptr);
-        nonStandardArgs.Add(arg1, REG_PINVOKE_FRAME);
-    }
-#endif // defined(TARGET_X86) || defined(TARGET_ARM)
-#if defined(TARGET_ARM)
+    assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
+#endif
+
+#ifdef TARGET_ARM
     // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
     // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
     // R4, a callee-saved register, with a special value. Since R4 is a callee-saved register, its value needs
     // to be preserved. Thus, the VM uses a wrapper delegate IL stub, which preserves R4 and also sets up R4
     // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
     // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
-    else if (call->gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV)
+    if ((call->gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV) != 0)
     {
         GenTree* arg = call->gtCallThisArg->GetNode();
 
-        // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_FLD
+        // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_LOAD_FLD
         // is bad for CQ, especially on ARM where we don't have memory operands.
         if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
@@ -2109,7 +2107,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             call->gtFlags |= GTF_ASG;
             arg = tmp;
         }
-        noway_assert(arg != nullptr);
 
         GenTree* newArg =
             gtNewOperNode(GT_ADD, TYP_BYREF, arg,
@@ -2125,76 +2122,27 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         numArgs++;
         nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
     }
-#endif // defined(TARGET_ARM)
-#if defined(TARGET_X86)
-    // The x86 shift helpers have custom calling conventions and expect the lo part of the long to be in EAX and the
-    // hi part to be in EDX. This sets the argument registers up correctly.
-    else if (call->IsHelperCall(CORINFO_HELP_LLSH) || call->IsHelperCall(CORINFO_HELP_LRSH) ||
-             call->IsHelperCall(CORINFO_HELP_LRSZ))
-    {
-        GenTreeCall::Use* args = call->gtCallArgs;
-        GenTree*          arg1 = args->GetNode();
-        assert(arg1 != nullptr);
-        nonStandardArgs.Add(arg1, REG_LNGARG_LO);
-
-        args                         = args->GetNext();
-        GenTree* numNewStackSlotsArg = args->GetNode();
-        assert(numNewStackSlotsArg != nullptr);
-        nonStandardArgs.Add(numNewStackSlotsArg, REG_LNGARG_HI);
-    }
-#else // !TARGET_X86
-    // TODO-X86-CQ: Currently RyuJIT/x86 passes args on the stack, so this is not needed.
-    // If/when we change that, the following code needs to be changed to correctly support the (TBD) managed calling
-    // convention for x86/SSE.
-
-    // If we have a Fixed Return Buffer argument register then we setup a non-standard argument for it.
-    //
-    // We don't use the fixed return buffer argument if we have the special unmanaged instance call convention.
-    // That convention doesn't use the fixed return buffer register.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
+#endif // TARGET_ARM
 
 #ifdef TARGET_ARM64
     if (call->HasFixedRetBufArg())
     {
-        GenTreeCall::Use* args = call->gtCallArgs;
-        assert(args != nullptr);
-
         // We don't increment numArgs here, since we already counted this argument above.
-
-        nonStandardArgs.Add(args->GetNode(), REG_ARG_RET_BUFF);
+        nonStandardArgs.Add(call->gtCallArgs->GetNode(), REG_ARG_RET_BUFF);
     }
 #endif
 
-    // We are allowed to have a Fixed Return Buffer argument combined
-    // with any of the remaining non-standard arguments
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
+#ifndef TARGET_X86
     if (call->IsVirtualStub())
     {
-#ifdef TARGET_X86
-        if (call->IsTailCallViaJitHelper())
-        {
-            // If it is a VSD call getting dispatched via tail call helper,
-            // fgMorphTailCallViaJitHelper() would materialize stub addr as an additional
-            // parameter added to the original arg list and hence no need to
-            // add as a non-standard arg.
-        }
-        else
-#endif
-        {
-            GenTree* stubAddrArg = fgGetStubAddrArg(call);
-            // And push the stub address onto the list of arguments
-            call->gtCallArgs = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
-
-            numArgs++;
-            nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
-        }
+        GenTree* stubAddrArg = fgGetStubAddrArg(call);
+        call->gtCallArgs     = gtPrependNewCallArg(stubAddrArg, call->gtCallArgs);
+        numArgs++;
+        nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
     }
     else
-#endif // !TARGET_X86
-    if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
+#endif
+        if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
     {
         assert(!call->IsUnmanaged());
 
@@ -2235,11 +2183,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
 #ifdef TARGET_ARM
         // Issue #xxxx : Don't attempt to CSE this constant on ARM32
-        //
         // This constant has specific register requirements, and LSRA doesn't currently correctly
         // handle them when the value is in a CSE'd local.
         indirectCellAddress->SetDoNotCSE();
-#endif // TARGET_ARM
+#endif
 
         // Push the stub address onto the list of arguments.
         call->gtCallArgs = gtPrependNewCallArg(indirectCellAddress, call->gtCallArgs);
@@ -2247,7 +2194,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         numArgs++;
         nonStandardArgs.Add(indirectCellAddress, REG_R2R_INDIRECT_PARAM);
     }
-
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
 
     call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
@@ -7418,19 +7364,10 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 }
 #endif // TARGET_X86
 
-//------------------------------------------------------------------------
-// fgGetStubAddrArg: Return the virtual stub address for the given call.
-//
-// Notes:
-//    the JIT must place the address of the stub used to load the call target,
-//    the "stub indirection cell", in special call argument with special register.
-//
-// Arguments:
-//    call - a call that needs virtual stub dispatching.
-//
-// Return Value:
-//    addr tree with set resister requirements.
-//
+#ifndef TARGET_X86
+// Return the virtual stub address for the given call.
+// The JIT must place the address of the stub used to load the call target,
+// the "stub indirection cell", in special call argument with special register.
 GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
 {
     assert(call->IsVirtualStub());
@@ -7445,6 +7382,7 @@ GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
     stubAddrArg->SetDumpHandle(call->GetMethodHandle());
     return stubAddrArg;
 }
+#endif // !TARGET_X86
 
 //------------------------------------------------------------------------------
 // fgMorphRecursiveFastTailCallIntoLoop : Transform a recursive fast tail call into a loop.
