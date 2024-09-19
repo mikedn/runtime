@@ -2906,6 +2906,9 @@ public:
     GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
 
+    GenTreeCall::Use* gtPrependNewCallArg(GenTreeCall::Use*& args, GenTree* node);
+    GenTreeCall::Use* gtAppendNewCallArg(GenTreeCall::Use*& list, GenTree* node);
+
     GenTreeCall* gtNewCallNode(
         CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
 
