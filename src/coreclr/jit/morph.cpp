@@ -2202,23 +2202,20 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned intArgRegNum = 0;
     unsigned fltArgRegNum = 0;
 
-    // Add the 'this' argument value, if present.
     if (call->gtCallThisArg != nullptr)
     {
-        GenTree* argx = call->gtCallThisArg->GetNode();
-        assert(call->gtCallType == CT_USER_FUNC || call->gtCallType == CT_INDIRECT);
-        assert(varTypeIsGC(argx->GetType()) || (argx->TypeIs(TYP_I_IMPL)));
+        var_types argType = call->gtCallThisArg->GetNode()->GetType();
+        assert(call->IsUserCall() || call->IsIndirectCall());
+        assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
 
         CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
-        argInfo->SetArgType(argx->GetType());
+        argInfo->SetArgType(argType);
         call->fgArgInfo->AddArg(argInfo);
         intArgRegNum++;
 #ifdef WINDOWS_AMD64_ABI
-        // Whenever we pass an integer register argument
-        // we skip the corresponding floating point register argument
         fltArgRegNum++;
-#endif // WINDOWS_AMD64_ABI
+#endif
         argIndex++;
     }
 
@@ -2267,10 +2264,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
 #endif // TARGET_X86
 
-    /* Morph the user arguments */
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if defined(TARGET_ARM)
+#ifdef TARGET_ARM
 
     // The ARM ABI has a concept of back-filling of floating-point argument registers, according
     // to the "Procedure Call Standard for the ARM Architecture" document, especially
@@ -2313,7 +2307,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        GenTree* const argx = args->GetNode();
+        GenTree* const  argx    = args->GetNode();
+        var_types const argType = argx->GetType();
 
         // We should never have any ArgPlaceHolder nodes at this point.
         assert(!argx->OperIs(GT_ARGPLACE));
@@ -2429,16 +2424,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             assert(sigType != TYP_STRUCT);
 
             // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argx->GetType()));
+            assert(!varTypeIsStruct(argType));
 
-            assert((varActualType(sigType) == varActualType(argx->GetType())) ||
-                   ((sigType == TYP_BYREF) && argx->TypeIs(TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && argx->TypeIs(TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && argx->TypeIs(TYP_REF)));
+            assert((varActualType(sigType) == varActualType(argType)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
+                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
 
 #ifdef TARGET_ARM
-            argAlign =
-                roundUp(static_cast<unsigned>(genTypeAlignments[argx->GetType()]), REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign = roundUp(static_cast<unsigned>(genTypeAlignments[argType]), REGSIZE_BYTES) / REGSIZE_BYTES;
 #endif
 
 #ifdef TARGET_64BIT
@@ -2446,13 +2440,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             size = 1;
 #else
             // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
-            size = argx->TypeIs(TYP_LONG, TYP_DOUBLE) ? 2 : 1;
+            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
 #endif
         }
 
 #ifdef TARGET_ARM
         const bool passUsingFloatRegs =
-            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argx->GetType())));
+            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
 
         if (argAlign == 2)
         {
@@ -2474,15 +2468,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs =
-            (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argx->GetType()));
+        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
 #elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argx->GetType());
+        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
 #elif defined(TARGET_X86)
         const bool passUsingFloatRegs = false;
 #else
 #error Unsupported or unset target architecture
-#endif // TARGET*
+#endif
 
         bool     isRegArg         = false;
         bool     isBackFilled     = false;
@@ -2492,7 +2485,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 
 #ifdef TARGET_X86
-        if (!isStructArg ? varTypeIsI(varActualType(argx->GetType())) : isTrivialPointerSizedStruct(layout))
+        if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
 #endif
         {
 #ifdef TARGET_ARM
@@ -2764,9 +2757,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                         if ((intArgRegNum + size) > MAX_REG_ARG)
                         {
                             // This indicates a partial enregistration of a struct type
-                            assert((isStructArg) || argx->OperIs(GT_FIELD_LIST) ||
-                                   (argx->OperIs(GT_LCL_STORE) && varTypeIsStruct(argx->GetType())) ||
-                                   (argx->OperIs(GT_COMMA) && (argx->gtFlags & GTF_ASG)));
+                            assert(isStructArg || argx->OperIs(GT_FIELD_LIST) ||
+                                   (argx->OperIs(GT_LCL_STORE) && varTypeIsStruct(argType)) ||
+                                   (argx->OperIs(GT_COMMA) && argx->HasAnySideEffect(GTF_ASG)));
 
                             regCount  = MAX_REG_ARG - intArgRegNum;
                             slotCount = size - regCount;
@@ -2801,7 +2794,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     regCount = hfaSlots / 2;
                 }
             }
-            else if (argx->TypeIs(TYP_DOUBLE) && opts.UseHfa())
+            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
             {
                 regCount = 1;
             }
@@ -2829,16 +2822,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
             else
             {
-                argInfo->SetRegType(0, argx->GetType());
+                argInfo->SetRegType(0, argType);
             }
 #elif defined(TARGET_ARMARCH)
             if (hfaType != TYP_UNDEF)
             {
                 argInfo->SetRegType(hfaType);
             }
-            else if (varTypeIsFloating(argx->GetType()) && opts.UseHfa())
+            else if (varTypeIsFloating(argType) && opts.UseHfa())
             {
-                argInfo->SetRegType(argx->GetType());
+                argInfo->SetRegType(argType);
             }
 #endif
 
@@ -2858,11 +2851,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         if (isStructArg)
         {
             argInfo->SetIsImplicitByRef(passStructByRef);
-            argInfo->SetArgType((structBaseType == TYP_UNDEF) ? argx->GetType() : structBaseType);
+            argInfo->SetArgType(structBaseType == TYP_UNDEF ? argType : structBaseType);
         }
         else
         {
-            argInfo->SetArgType(argx->GetType());
+            argInfo->SetArgType(argType);
         }
 
         call->fgArgInfo->AddArg(argInfo);
