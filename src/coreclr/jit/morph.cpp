@@ -2437,9 +2437,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #error Unsupported or unset target architecture
 #endif
 
-        bool     isRegArg         = false;
+        bool isRegArg = false;
+#ifdef TARGET_ARM
         bool     isBackFilled     = false;
         unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
+#endif
 #ifdef OSX_ARM64_ABI
         unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
@@ -2484,7 +2486,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             if (passUsingFloatRegs)
             {
                 // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (nextFltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
+                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
 
                 // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
                 if ((hfaType != TYP_UNDEF) && !isRegArg)
@@ -2545,15 +2547,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                         }
                     }
 
-                    isRegArg = ((nextFltArgRegNum + structFloatRegs) <= MAX_FLOAT_REG_ARG) &&
-                               ((intArgRegNum + structIntRegs) <= MAX_REG_ARG);
+                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
+                               (intArgRegNum + structIntRegs <= MAX_REG_ARG);
                 }
             }
             else
             {
                 if (passUsingFloatRegs)
                 {
-                    isRegArg = nextFltArgRegNum < MAX_FLOAT_REG_ARG;
+                    isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
                 }
                 else
                 {
@@ -2653,7 +2655,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     }
                     else
                     {
-                        *nextRegNumPtrs[i] = genMapFloatRegArgNumToRegNum(nextFltArgRegNum + structFloatRegs);
+                        *nextRegNumPtrs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum + structFloatRegs);
                         ++structFloatRegs;
                     }
                 }
@@ -2661,7 +2663,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
             else
             {
-                nextRegNum = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(nextFltArgRegNum)
+                nextRegNum = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
                                                 : genMapIntRegArgNumToRegNum(intArgRegNum);
             }
 
@@ -2675,52 +2677,48 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             unsigned slotCount = 0;
 #endif
 
-            // Set up the next intArgRegNum and fltArgRegNum values.
-            if (!isBackFilled)
-            {
 #ifdef UNIX_AMD64_ABI
-                if (isStructArg)
+            if (isStructArg)
+            {
+                intArgRegNum += structIntRegs;
+                fltArgRegNum += structFloatRegs;
+            }
+            else
+#endif
+                if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled))
+            {
+                if (passUsingFloatRegs)
                 {
-                    intArgRegNum += structIntRegs;
-                    fltArgRegNum += structFloatRegs;
+                    fltArgRegNum += size;
+
+#ifdef WINDOWS_AMD64_ABI
+                    // Whenever we pass an integer register argument
+                    // we skip the corresponding floating point register argument
+                    intArgRegNum = min(intArgRegNum + size, MAX_REG_ARG);
+#endif
+
+                    // No supported architecture supports partial structs using float registers.
+                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
                 }
                 else
-#endif
-                    if (nonStdRegNum == REG_NA)
                 {
-                    if (passUsingFloatRegs)
-                    {
-                        fltArgRegNum += size;
-
-#ifdef WINDOWS_AMD64_ABI
-                        // Whenever we pass an integer register argument
-                        // we skip the corresponding floating point register argument
-                        intArgRegNum = min(intArgRegNum + size, MAX_REG_ARG);
-#endif
-
-                        // No supported architecture supports partial structs using float registers.
-                        assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                    }
-                    else
-                    {
 #if FEATURE_ARG_SPLIT
-                        if (intArgRegNum + size > MAX_REG_ARG)
-                        {
-                            // This indicates a partial enregistration of a struct arg
-                            assert(isStructArg);
+                    if (intArgRegNum + size > MAX_REG_ARG)
+                    {
+                        // This indicates a partial enregistration of a struct arg
+                        assert(isStructArg);
 
-                            regCount  = MAX_REG_ARG - intArgRegNum;
-                            slotCount = size - regCount;
-                            firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
-                        }
+                        regCount  = MAX_REG_ARG - intArgRegNum;
+                        slotCount = size - regCount;
+                        firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
+                    }
 #endif
 
-                        intArgRegNum += size;
+                    intArgRegNum += size;
 
 #ifdef WINDOWS_AMD64_ABI
-                        fltArgRegNum = min(fltArgRegNum + size, MAX_FLOAT_REG_ARG);
+                    fltArgRegNum = min(fltArgRegNum + size, MAX_FLOAT_REG_ARG);
 #endif
-                    }
                 }
             }
 
