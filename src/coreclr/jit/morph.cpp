@@ -2307,11 +2307,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        GenTree* const  argx    = args->GetNode();
-        var_types const argType = argx->GetType();
+        GenTree* const  argNode      = args->GetNode();
+        var_types const argType      = argNode->GetType();
+        RegNum const    nonStdRegNum = nonStandardArgs.FindReg(argNode);
 
         // We should not have setup the arguments yet
-        assert(!argx->OperIs(GT_ARGPLACE, GT_FIELD_LIST, GT_LCL_STORE));
+        assert(!argNode->OperIs(GT_ARGPLACE, GT_FIELD_LIST, GT_LCL_STORE));
 
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
@@ -2614,8 +2615,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // and noted them in a table so we can recognize them here and build their argInfo.
         // They should not affect the placement of any other args or stack space required.
         // Example: on AMD64 R10 and R11 are used for indirect VSD (generic interface) and cookie calls.
-
-        const RegNum nonStdRegNum = nonStandardArgs.FindReg(argx);
 
         if (nonStdRegNum != REG_NA)
         {
