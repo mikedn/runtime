@@ -2156,7 +2156,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(call->gtCallCookie);
 #else
         // All other architectures pass the cookie in a register.
-        call->gtCallArgs              = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
+        call->gtCallArgs                  = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
 #endif
         nonStandardArgs.Add(call->gtCallCookie, REG_PINVOKE_COOKIE_PARAM);
         numArgs++;
@@ -2355,7 +2355,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #if defined(WINDOWS_AMD64_ABI)
             size = 1;
 #elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
-            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+            size                          = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
 #elif defined(TARGET_ARM64)
             if (hfaType != TYP_UNDEF)
             {
@@ -2363,7 +2363,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
             else
             {
-                size = (8 <= size) && (size <= 16) ? 2 : 1;
+                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
                 assert(!passStructByRef || (size == 1));
             }
 #else
@@ -2400,7 +2400,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_64BIT
             size = 1;
 #else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
+            size                          = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
 #endif
         }
 
@@ -2428,7 +2428,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
+        const bool     passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
 #elif defined(TARGET_X86)
@@ -2443,12 +2443,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef OSX_ARM64_ABI
         unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
-
 #ifdef TARGET_X86
-        if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
+        const bool isRegCandidate =
+            !isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout);
+#else
+        constexpr bool isRegCandidate     = true;
 #endif
+
+        if (isRegCandidate)
         {
-#ifdef TARGET_ARM
+#if defined(TARGET_ARM)
             if (passUsingFloatRegs)
             {
                 // First, see if it can be back-filled
