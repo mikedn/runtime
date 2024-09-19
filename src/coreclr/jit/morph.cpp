@@ -2310,8 +2310,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTree* const  argx    = args->GetNode();
         var_types const argType = argx->GetType();
 
-        // We should never have any ArgPlaceHolder nodes at this point.
-        assert(!argx->OperIs(GT_ARGPLACE));
+        // We should not have setup the arguments yet
+        assert(!argx->OperIs(GT_ARGPLACE, GT_FIELD_LIST, GT_LCL_STORE));
 
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
@@ -2757,9 +2757,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                         if ((intArgRegNum + size) > MAX_REG_ARG)
                         {
                             // This indicates a partial enregistration of a struct type
-                            assert(isStructArg || argx->OperIs(GT_FIELD_LIST) ||
-                                   (argx->OperIs(GT_LCL_STORE) && varTypeIsStruct(argType)) ||
-                                   (argx->OperIs(GT_COMMA) && argx->HasAnySideEffect(GTF_ASG)));
+                            assert(isStructArg);
 
                             regCount  = MAX_REG_ARG - intArgRegNum;
                             slotCount = size - regCount;
