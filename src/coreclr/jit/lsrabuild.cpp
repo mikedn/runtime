@@ -586,52 +586,43 @@ regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 
 regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 {
-    regMaskTP killMask = RBM_NONE;
 #ifdef TARGET_X86
     if (compiler->compFloatingPointUsed)
     {
-        if (call->TypeGet() == TYP_DOUBLE)
+        if (call->TypeIs(TYP_DOUBLE))
         {
             needDoubleTmpForFPCall = true;
         }
-        else if (call->TypeGet() == TYP_FLOAT)
+        else if (call->TypeIs(TYP_FLOAT))
         {
             needFloatTmpForFPCall = true;
         }
     }
-#endif // TARGET_X86
+#endif
+
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     if (call->IsHelperCall())
     {
-        CorInfoHelpFunc helpFunc = compiler->eeGetHelperNum(call->gtCallMethHnd);
-        killMask                 = compiler->compHelperCallKillSet(helpFunc);
+        return compiler->compHelperCallKillSet(compiler->eeGetHelperNum(call->GetMethodHandle()));
     }
-    else
-#endif // defined(TARGET_X86) || defined(TARGET_ARM)
-    {
-        // if there is no FP used, we can ignore the FP kills
-        if (compiler->compFloatingPointUsed)
-        {
-            killMask = RBM_CALLEE_TRASH;
-        }
-        else
-        {
-            killMask = RBM_INT_CALLEE_TRASH;
-        }
+#endif
+
+    // If the method does not use FP registers, we can ignore the FP kills
+    IntRegMask killMask = compiler->compFloatingPointUsed ? RBM_CALLEE_TRASH : RBM_INT_CALLEE_TRASH;
 
 #ifdef TARGET_ARM
-        if (call->IsVirtualStub())
-        {
-            killMask |= genRegMask(compiler->info.virtualStubParamRegNum);
-        }
-#else
-        // Verify that the special virtual stub call register is in the kill mask.
-        // We don't just add it unconditionally to the killMask because for most
-        // architectures it is already in the RBM_CALLEE_TRASH set, and we don't
-        // want to introduce extra checks and calls in this hot function.
-        assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->info.virtualStubParamRegNum)) != 0));
-#endif
+    if (call->IsVirtualStub())
+    {
+        killMask |= genRegMask(compiler->info.virtualStubParamRegNum);
     }
+#else
+    // Verify that the special virtual stub call register is in the kill mask.
+    // We don't just add it unconditionally to the killMask because for most
+    // architectures it is already in the RBM_CALLEE_TRASH set, and we don't
+    // want to introduce extra checks and calls in this hot function.
+    assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->info.virtualStubParamRegNum)) != RBM_NONE));
+#endif
+
     return killMask;
 }
 
