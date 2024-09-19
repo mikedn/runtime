@@ -2156,7 +2156,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         *insertionPoint = gtNewCallArgs(call->gtCallCookie);
 #else
         // All other architectures pass the cookie in a register.
-        call->gtCallArgs = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
+        call->gtCallArgs              = gtPrependNewCallArg(call->gtCallCookie, call->gtCallArgs);
 #endif
         nonStandardArgs.Add(call->gtCallCookie, REG_PINVOKE_COOKIE_PARAM);
         numArgs++;
@@ -2219,10 +2219,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         argIndex++;
     }
 
-#ifndef TARGET_X86
-    const unsigned maxRegArgs = MAX_REG_ARG; // other arch: fixed constant number
-#else
-    unsigned maxRegArgs  = MAX_REG_ARG; // X86: non-const, must be calculated
+#ifdef TARGET_X86
+    unsigned maxRegArgs = MAX_REG_ARG; // X86: non-const, must be calculated
 
 #ifndef UNIX_X86_ABI
     if (call->CallerPop())
@@ -2341,79 +2339,42 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 hfaType  = layout->GetHfaElementType();
                 hfaSlots = layout->GetHfaRegCount();
 
-                // If we have a HFA struct it's possible we transition from a method that originally
-                // only had integer types to now start having FP types.  We have to communicate this
-                // through this flag since LSRA later on will use this flag to determine whether
-                // or not to track the FP register set.
-                //
                 compFloatingPointUsed = true;
             }
 
 #ifdef TARGET_ARM
-            argAlign =
-                roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES) /
-                REGSIZE_BYTES;
+            argAlign = info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle());
+            argAlign = roundUp(argAlign, REGSIZE_BYTES) / REGSIZE_BYTES;
 #endif
-
-#if defined(TARGET_AMD64)
-#ifdef UNIX_AMD64_ABI
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-#else
-            size         = 1;
-#endif
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                // HFA structs are passed by value in multiple registers.
-                // The "size" in registers may differ the size in pointer-sized units.
-                size = hfaSlots;
-            }
-            else
-            {
-                // Structs are either passed in 1 or 2 (64-bit) slots.
-                // Structs that are the size of 2 pointers are passed by value in multiple registers,
-                // if sufficient registers are available.
-                // Structs that are larger than 2 pointers (except for HFAs) are passed by
-                // reference (to a copy)
-                size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                if (size > 2)
-                {
-                    size = 1;
-                }
-            }
-#elif defined(TARGET_ARM) || defined(TARGET_X86)
-            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-#else
-#error Unsupported or unset target architecture
-#endif // TARGET_XXX
-
-            // TODO-MIKE-Cleanup: Huh, there should be no 0 sized structs...
-            structSize = (structSize == 0) ? TARGET_POINTER_SIZE : structSize;
 
             StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
 
             structBaseType  = howToPassStruct.type;
-            passStructByRef = (howToPassStruct.kind == SPK_ByReference);
+            passStructByRef = howToPassStruct.kind == SPK_ByReference;
+
+#if defined(WINDOWS_AMD64_ABI)
+            size = 1;
+#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
+            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+#elif defined(TARGET_ARM64)
+            if (hfaType != TYP_UNDEF)
+            {
+                size = hfaSlots;
+            }
+            else
+            {
+                size = (8 <= size) && (size <= 16) ? 2 : 1;
+                assert(!passStructByRef || (size == 1));
+            }
+#else
+#error Unsupported or unset target architecture
+#endif
 
             if (howToPassStruct.kind == SPK_PrimitiveType)
             {
-#ifdef TARGET_ARM
                 // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
                 // or for a struct of two floats. This causes the struct to be address-taken.
-                if (structBaseType == TYP_DOUBLE)
-                {
-                    size = 2;
-                }
-                else
-#endif // TARGET_ARM
-                {
-                    size = 1;
-                }
-            }
-            else if (passStructByRef)
-            {
-                size = 1;
+                size = 1 ARM_ONLY(+(structBaseType == TYP_DOUBLE));
             }
         }
         else
@@ -2437,10 +2398,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 
 #ifdef TARGET_64BIT
-            // On 64 bit targets all primitive types are passed in a single reg/slot.
             size = 1;
 #else
-            // On 32 bit targets LONG and DOUBLE are passed in 2 regs/slots.
             size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
 #endif
         }
@@ -2497,10 +2456,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
                     (size == 1))                          // The size to back-fill is one float register
                 {
-                    // Back-fill the register.
                     isBackFilled              = true;
                     regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    // Remove the back-filled register(s) from the skipped mask
                     fltArgSkippedRegMask &= ~backFillBitMask;
                     nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
                     assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
@@ -2528,50 +2485,43 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
                 if ((hfaType != TYP_UNDEF) && !isRegArg)
                 {
-                    // recompute the 'size' so that it represent the number of stack slots rather than the number of
-                    // registers
-                    //
-                    size = roundUp(structSize, TARGET_POINTER_SIZE) / TARGET_POINTER_SIZE;
+                    // recompute the 'size' so that it represent the number of stack slots
+                    // rather than the number of registers
+                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
 
                     // We also must update fltArgRegNum so that we no longer try to
                     // allocate any new floating point registers for args
                     // This prevents us from backfilling a subsequent arg into d7
-                    //
                     fltArgRegNum = MAX_FLOAT_REG_ARG;
                 }
             }
             else
             {
                 // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < maxRegArgs;
+                isRegArg = (intArgRegNum + (size - 1)) < MAX_REG_ARG;
 
                 // Did we run out of registers when we had a 16-byte struct (size===2) ?
                 // (i.e we only have one register remaining but we needed two registers to pass this arg)
                 // This prevents us from backfilling a subsequent arg into x7
-                //
                 if (!isRegArg && (size > 1))
                 {
-#if defined(TARGET_WINDOWS)
-                    // Arm64 windows native varargs allows splitting a 16 byte struct between stack
-                    // and the last general purpose register.
+#ifdef TARGET_WINDOWS
+                    // win-arm64 native varargs allows splitting a 16 byte struct
+                    // between x7 and a the first stack slot
                     if (callIsVararg)
                     {
-                        // Override the decision and force a split.
-                        isRegArg = (intArgRegNum + (size - 1)) <= maxRegArgs;
+                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_REG_ARG;
                     }
                     else
-#endif // defined(TARGET_WINDOWS)
+#endif
                     {
                         // We also must update intArgRegNum so that we no longer try to
                         // allocate any new general purpose registers for args
-                        //
-                        intArgRegNum = maxRegArgs;
+                        intArgRegNum = MAX_REG_ARG;
                     }
                 }
             }
 #elif defined(UNIX_AMD64_ABI)
-            // Here a struct can be passed in register following the classifications of its members and size.
-            // Now make sure there are actually enough registers to do so.
             if (isStructArg)
             {
                 if (layout->GetSysVAmd64AbiRegCount() != 0)
@@ -2606,9 +2556,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     isRegArg = intArgRegNum < MAX_REG_ARG;
                 }
             }
-#else  // !defined(UNIX_AMD64_ABI)
-            isRegArg                  = (intArgRegNum + (size - 1)) < maxRegArgs;
-#endif // !defined(UNIX_AMD64_ABI)
+#elif defined(WINDOWS_AMD64_ABI)
+            assert(size == 1);
+            isRegArg = intArgRegNum < MAX_REG_ARG;
+#elif defined(TARGET_X86)
+            assert(size == 1);
+            isRegArg = intArgRegNum < maxRegArgs;
+#else
+#error Unknown target
+#endif
         }
 
         // If there are nonstandard args (outside the calling convention) they were inserted above
@@ -2635,12 +2591,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
 #endif
 
-        // Now we know if the argument goes in registers or not and how big it is.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_ARM
-        // If we ever allocate a floating point argument to the stack, then all
-        // subsequent HFA/float/double arguments go on the stack.
+        // If we ever allocate a floating point argument to the stack, then
+        // all subsequent HFA/float/double arguments go on the stack.
         if (!isRegArg && passUsingFloatRegs)
         {
             for (; fltArgRegNum < MAX_FLOAT_REG_ARG; ++fltArgRegNum)
@@ -2656,7 +2609,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             (intArgRegNum + size > MAX_REG_ARG) && // We're going to split a struct type onto registers and stack
             anyFloatStackArgs)                     // We've already used the stack for a floating-point argument
         {
-            isRegArg = false; // Change our mind; don't pass this struct partially in registers
+            isRegArg = false;
 
             // Skip the rest of the integer argument registers
             for (; intArgRegNum < MAX_REG_ARG; ++intArgRegNum)
@@ -2684,7 +2637,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
             else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
             {
-                // It is a struct passed in registers. Assign the next available register.
                 assert(layout->GetSysVAmd64AbiRegCount() <= 2);
                 RegNum* nextRegNumPtrs[]{&nextRegNum, &nextOtherRegNum};
 
@@ -2705,15 +2657,12 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
             else
             {
-                // fill in or update the argInfo table
                 nextRegNum = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(nextFltArgRegNum)
                                                 : genMapIntRegArgNumToRegNum(intArgRegNum);
             }
 
-#ifdef TARGET_AMD64
-#ifndef UNIX_AMD64_ABI
+#ifdef WINDOWS_AMD64_ABI
             assert(size == 1);
-#endif
 #endif
 
             unsigned regCount = size;
@@ -2728,7 +2677,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef UNIX_AMD64_ABI
                 if (isStructArg)
                 {
-                    // For this case, we've already set the regNums in the argTabEntry
                     intArgRegNum += structIntRegs;
                     fltArgRegNum += structFloatRegs;
                 }
@@ -2752,19 +2700,17 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                     else
                     {
 #if FEATURE_ARG_SPLIT
-                        // Check for a split (partially enregistered) struct
-                        if ((intArgRegNum + size) > MAX_REG_ARG)
+                        if (intArgRegNum + size > MAX_REG_ARG)
                         {
-                            // This indicates a partial enregistration of a struct type
+                            // This indicates a partial enregistration of a struct arg
                             assert(isStructArg);
 
                             regCount  = MAX_REG_ARG - intArgRegNum;
                             slotCount = size - regCount;
                             firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
                         }
-#endif // FEATURE_ARG_SPLIT
+#endif
 
-                        // Increment intArgRegNum by 'size' registers
                         intArgRegNum += size;
 
 #ifdef WINDOWS_AMD64_ABI
@@ -2784,9 +2730,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             if (hfaType != TYP_UNDEF)
             {
                 regCount = hfaSlots;
+
                 if (hfaType == TYP_DOUBLE)
                 {
-                    // Must be an even number of registers.
                     assert((regCount & 1) == 0);
                     regCount = hfaSlots / 2;
                 }
@@ -2839,7 +2785,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
         }
-        else // We have an argument that is not passed in a register
+        else
         {
             argInfo = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, 0);
             argInfo->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
