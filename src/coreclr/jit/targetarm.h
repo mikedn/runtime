@@ -192,7 +192,6 @@
   #define RBM_PINVOKE_SCRATCH      RBM_R6
 
   // The following defines are useful for iterating a regNumber
-  #define REG_FIRST                REG_R0
   #define REG_INT_FIRST            REG_R0
   #define REG_INT_LAST             REG_LR
   #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)

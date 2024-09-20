@@ -5016,7 +5016,7 @@ void LinearScan::updatePreviousInterval(RegRecord* reg, Interval* interval, Regi
 #endif
 }
 
-void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber reg)
+void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg)
 {
     if (lclNode->GetLcl() == lcl)
     {
@@ -5031,6 +5031,24 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber
         LclVarDsc* promotedLcl = lclNode->GetLcl();
         // TODO-MIKE-Review: This should assert that lcl is really a field of the promoted local.
         lclNode->SetRegNum(lcl->GetLclNum() - promotedLcl->GetPromotedFieldLclNum(0), reg);
+    }
+}
+
+void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
+{
+    if (lclNode->GetLcl() == lcl)
+    {
+        assert(!lclNode->IsMultiReg());
+
+        lclNode->ClearRegNum();
+    }
+    else
+    {
+        assert(lclNode->IsMultiReg());
+
+        LclVarDsc* promotedLcl = lclNode->GetLcl();
+        // TODO-MIKE-Review: This should assert that lcl is really a field of the promoted local.
+        lclNode->ClearRegNum(lcl->GetLclNum() - promotedLcl->GetPromotedFieldLclNum(0));
     }
 }
 
@@ -5100,7 +5118,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // during resolution. In this case we're better off making it contained.
             assert(inVarToRegMaps[curBBNum][varDsc->lvVarIndex] == REG_STK);
             currentRefPosition->registerAssignment = RBM_NONE;
-            writeLocalReg(treeNode->AsLclVar(), varDsc, REG_NA);
+            clearLocalReg(treeNode->AsLclVar(), varDsc);
         }
     }
 
@@ -5199,7 +5217,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     //
                     // Note that varDsc->GetRegNum() is already to REG_STK above.
                     interval->physReg = REG_NA;
-                    writeLocalReg(treeNode, varDsc, REG_NA);
+                    clearLocalReg(treeNode, varDsc);
                     treeNode->SetRegSpilled(0, false);
                     treeNode->SetContained();
                 }
@@ -5221,7 +5239,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         assert(interval->isSpilled);
         varDsc->SetRegNum(REG_STK);
         interval->physReg = REG_NA;
-        writeLocalReg(treeNode->AsLclVar(), varDsc, REG_NA);
+        clearLocalReg(treeNode->AsLclVar(), varDsc);
     }
     else // Not reload and Not pure-def that's spillAfter
     {
@@ -5342,7 +5360,14 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
 
 void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* tree)
 {
-    tree->SetRegNum(currentRefPosition->getMultiRegIdx(), currentRefPosition->assignedReg());
+    if (IntRegMask mask = currentRefPosition->registerAssignment)
+    {
+        tree->SetRegNum(currentRefPosition->getMultiRegIdx(), genRegNumFromMask(mask));
+    }
+    else
+    {
+        assert(!tree->HasReg(currentRefPosition->getMultiRegIdx()));
+    }
 }
 
 //------------------------------------------------------------------------
@@ -6463,7 +6488,7 @@ void LinearScan::insertSwap(
     SetLsraAdded(lcl2);
 
     GenTree* swap = compiler->gtNewOperNode(GT_SWAP, TYP_VOID, lcl1, lcl2);
-    swap->SetRegNum(REG_NA);
+    swap->ClearRegNum();
     swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
@@ -6482,8 +6507,7 @@ void LinearScan::insertSwap(
             noway_assert(!blockRange.IsEmpty());
 
             GenTree* branch = blockRange.LastNode();
-            assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
-                   branch->OperGet() == GT_SWITCH);
+            assert(branch->OperIsConditionalJump() || branch->OperIs(GT_SWITCH_TABLE, GT_SWITCH));
 
             blockRange.InsertBefore(branch, lcl1, lcl2, swap);
         }

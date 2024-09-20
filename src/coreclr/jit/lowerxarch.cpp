@@ -3347,9 +3347,9 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 #endif // TARGET_X86
                 if (ctrlExpr->OperIs(GT_IND_LOAD))
             {
-                // We may have cases where we have set a register target on the ctrlExpr, but if it
-                // contained we must clear it.
-                ctrlExpr->SetRegNum(REG_NA);
+                // We may have cases where we have set a register target on the ctrlExpr,
+                // but if it is contained we must clear it.
+                ctrlExpr->ClearRegNum();
                 MakeSrcContained(call, ctrlExpr);
             }
         }

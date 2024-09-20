@@ -63,6 +63,8 @@ enum RegNum : IntRegNum
 #include "register.h"
     REG_COUNT,
     REG_NA           = REG_COUNT,
+    REG_FIRST        = 0,
+    REG_LAST         = REG_STK - 1,
     ACTUAL_REG_COUNT = REG_STK // everything but REG_STK (only real regs)
 };
 

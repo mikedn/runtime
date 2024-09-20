@@ -3465,7 +3465,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         (src->IsIntegralConst(0) || src->IsDblConPositiveZero()))
     {
         UseReg(src);
-        src->SetRegNum(REG_NA);
+        src->ClearRegNum();
         src->ResetReuseRegVal();
         src->SetContained();
     }
