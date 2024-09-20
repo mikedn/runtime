@@ -322,12 +322,12 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
                     }
                     else
                     {
-                        MakeSrcContained(putArgStk, fieldNode);
+                        fieldNode->SetContained();
                     }
                 }
                 else if (fieldNode->IsIntConFitsInInt32())
                 {
-                    MakeSrcContained(putArgStk, fieldNode);
+                    fieldNode->SetContained();
                 }
                 else
                 {
@@ -3320,9 +3320,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     assert(!call->IsIndirectCall() || !call->IsFastTailCall() || !call->IsVirtualStub());
 #endif
 
-    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
-
-    if (ctrlExpr != nullptr)
+    if (GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr)
     {
         assert(ctrlExpr->TypeIs(TYP_I_IMPL));
 
@@ -3331,26 +3329,23 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
         if (!call->IsFastTailCall())
         {
 #ifdef TARGET_X86
-            // On x86, we need to generate a very specific pattern for indirect VSD calls:
-            //
+            // On x86, we need to generate a very specific pattern for indirect VSD calls,
+            // where EAX is also used as an argument to the stub dispatch helper:
             //    3-byte nop
             //    call dword ptr [eax]
-            //
-            // Where EAX is also used as an argument to the stub dispatch helper. Make
-            // sure that the call target address is computed into EAX in this case.
             if (call->IsVirtualStub() && call->IsIndirectCall())
             {
                 assert(ctrlExpr->OperIs(GT_IND_LOAD));
-                MakeSrcContained(call, ctrlExpr);
+                ctrlExpr->SetContained();
             }
             else
-#endif // TARGET_X86
+#endif
                 if (ctrlExpr->OperIs(GT_IND_LOAD))
             {
                 // We may have cases where we have set a register target on the ctrlExpr,
                 // but if it is contained we must clear it.
                 ctrlExpr->ClearRegNum();
-                MakeSrcContained(call, ctrlExpr);
+                ctrlExpr->SetContained();
             }
         }
     }
@@ -3359,7 +3354,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
     // If this is the rhs of a block copy it will be handled when we handle the store.
-    if (node->TypeGet() == TYP_STRUCT)
+    if (node->TypeIs(TYP_STRUCT))
     {
         return;
     }
@@ -3528,23 +3523,22 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 
     bool divisorCanBeRegOptional = true;
 #ifdef TARGET_X86
-    GenTree* dividend = node->gtGetOp1();
-    if (dividend->OperGet() == GT_LONG)
+    GenTree* dividend = node->GetOp(0);
+
+    if (dividend->OperIs(GT_LONG))
     {
         divisorCanBeRegOptional = false;
-        MakeSrcContained(node, dividend);
+        dividend->SetContained();
     }
 #endif
 
     // divisor can be an r/m, but the memory indirection must be of the same size as the divide
-    if (IsContainableMemoryOp(divisor) && (divisor->TypeGet() == node->TypeGet()))
+    if (IsContainableMemoryOp(divisor) && (divisor->GetType() == node->GetType()))
     {
-        MakeSrcContained(node, divisor);
+        divisor->SetContained();
     }
     else if (divisorCanBeRegOptional)
     {
-        // If there are no containable operands, we can make an operand reg optional.
-        // Div instruction allows only divisor to be a memory op.
         divisor->SetRegOptional();
     }
 }
@@ -4659,7 +4653,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
          (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))) &&
         IsSafeToContainMem(node, addr))
     {
-        MakeSrcContained(node, addr);
+        addr->SetContained();
     }
 }
 

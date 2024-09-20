@@ -338,11 +338,10 @@ public:
 private:
     bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
 
-    void MakeSrcContained(GenTree* instr, GenTree* operand) const;
     bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
 
-    // Checks for memory conflicts in the instructions between childNode and parentNode, and returns true if childNode
-    // can be contained.
+    // Checks for memory conflicts in the instructions between childNode and parentNode,
+    // and returns true if childNode can be contained.
     bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode)
     {
         return IsSafeToMoveForward(childNode, parentNode);

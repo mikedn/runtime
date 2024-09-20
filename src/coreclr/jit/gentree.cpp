@@ -11010,11 +11010,6 @@ GenTreeLclLoad* GenTree::IsImplicitByrefIndir(Compiler* compiler)
 }
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// canBeContained: check whether this tree node may be a subcomponent of its parent for purposes
-//                 of code generation.
-//
-// Return value: returns true if it is possible to contain this node and false otherwise.
 bool GenTree::canBeContained() const
 {
     assert(IsLIR());
@@ -11024,8 +11019,9 @@ bool GenTree::canBeContained() const
         return false;
     }
 
-    // It is not possible for nodes that do not produce values or that are not containable values
-    // to be contained.
+    // It is not possible for nodes that do not produce values
+    // or that are not containable values to be contained.
+
     if (((OperKind() & (GTK_NOVALUE | GTK_NOCONTAIN)) != 0) || (OperIsHWIntrinsic() && !isContainableHWIntrinsic()))
     {
         return false;
@@ -11035,19 +11031,6 @@ bool GenTree::canBeContained() const
 }
 #endif // DEBUG
 
-//------------------------------------------------------------------------
-// isContained: check whether this tree node is a subcomponent of its parent for codegen purposes
-//
-// Return Value:
-//    Returns true if there is no code generated explicitly for this node.
-//    Essentially, it will be rolled into the code generation for the parent.
-//
-// Assumptions:
-//    This method relies upon the value of the GTF_CONTAINED flag.
-//    Therefore this method is only valid after Lowering.
-//    Also note that register allocation or other subsequent phases may cause
-//    nodes to become contained (or not) and therefore this property may change.
-//
 bool GenTree::isContained() const
 {
     assert(IsLIR());

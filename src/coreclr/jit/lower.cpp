@@ -1,44 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               Lower                                       XX
-XX                                                                           XX
-XX  Preconditions:                                                           XX
-XX                                                                           XX
-XX  Postconditions (for the nodes currently handled):                        XX
-XX    - All operands requiring a register are explicit in the graph          XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "lower.h"
 #include "jitgcinfo.h"
 #ifndef TARGET_64BIT
 #include "decomposelongs.h"
 #endif
-
-//------------------------------------------------------------------------
-// MakeSrcContained: Make "childNode" a contained node
-//
-// Arguments:
-//    parentNode - is a non-leaf node that can contain its 'childNode'
-//    childNode  - is an op that will now be contained by its parent.
-//
-// Notes:
-//    If 'childNode' it has any existing sources, they will now be sources for the parent.
-//
-void Lowering::MakeSrcContained(GenTree* parentNode, GenTree* childNode) const
-{
-    assert(!parentNode->OperIsLeaf());
-    assert(childNode->canBeContained());
-    childNode->SetContained();
-    assert(childNode->isContained());
-}
 
 bool Lowering::ContainImmOperand(GenTree* instr, GenTree* operand) const
 {
@@ -60,8 +28,7 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
 
     for (GenTree* node = move->gtNext; node != before; node = node->gtNext)
     {
-        const bool strict = true;
-        if (m_scratchSideEffects.InterferesWith(comp, node, strict))
+        if (m_scratchSideEffects.InterferesWith(comp, node, /* strict */ true))
         {
             return false;
         }
@@ -4954,7 +4921,7 @@ void Lowering::ContainCheckArrOffset(GenTreeArrOffs* node)
 
     if (node->GetOffset()->IsIntegralConst(0))
     {
-        MakeSrcContained(node, node->AsArrOffs()->GetOffset());
+        node->AsArrOffs()->GetOffset()->SetContained();
     }
 }
 
