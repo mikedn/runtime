@@ -395,16 +395,27 @@ void CodeGen::genCodeForBBlist()
             {
                 GenNode(node, block);
 
-                if (node->gtHasReg() && node->IsUnusedValue())
+                if (node->IsUnusedValue())
                 {
-                    UseRegs(node);
+                    // TODO-MIKE-Cleanup: Unused calls should simply be retyped to VOID in lowering.
+                    // Also, it looks like unused value nodes sometimes get COPY/RELOAD users, that
+                    // seems pointless.
+
+                    if (node->IsMultiRegCall() || node->IsCopyOrReloadOfMultiRegCall())
+                    {
+                        UseRegs(node);
+                    }
+                    else if (node->GetRegNum() != REG_NA)
+                    {
+                        UseReg(node);
+                    }
                 }
             }
 
             JITDUMP("--------------------------------------------------------------------------------\n");
         }
 
-        // Nodes do not have uses accross blocks so no spill temps should be live at the end of a block.
+        // Nodes do not have uses across blocks so no spill temps should be live at the end of a block.
         assert(spillTemps.GetDefCount() == 0);
 
         INDEBUG(liveness.VerifyLiveGCRegs(block));
