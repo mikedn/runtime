@@ -2003,20 +2003,21 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // At this point, we should never have gtCallLateArgs, as this needs to be done before those are determined.
     assert(call->gtCallLateArgs == nullptr);
 
+#ifdef TARGET_X86
+    // These are handled by special code in LIR/lowering.
+    assert(!call->IsHelperCall(CORINFO_HELP_LLSH) && !call->IsHelperCall(CORINFO_HELP_LRSH) &&
+           !call->IsHelperCall(CORINFO_HELP_LRSZ));
+#endif
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+    assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
+#endif
+
     const bool callHasRetBuffArg = call->HasRetBufArg();
     const bool callIsVararg      = call->IsVarargs();
 
 #ifdef TARGET_UNIX
-    if (callIsVararg)
-    {
-        // Currently native varargs is not implemented on non windows targets.
-        //
-        // Note that some targets like Arm64 Unix should not need much work as
-        // the ABI is the same. While other targets may only need small changes
-        // such as amd64 Unix, which just expects RAX to pass numFPArguments.
-        NYI("Morphing Vararg call not yet implemented on non Windows targets.");
-    }
-#endif // TARGET_UNIX
+    NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
+#endif
 
     // Data structure for keeping track of non-standard args. Non-standard args are those that are not passed
     // following the normal calling convention or in the normal argument registers. We either mark existing
@@ -2067,39 +2068,27 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // Insert or mark non-standard args. These are either outside the normal calling convention, or
     // arguments registers that don't follow the normal progression of argument registers in the calling
     // convention (such as for the ARM64 fixed return buffer argument x8).
-    //
-    // *********** NOTE *************
     // The logic here must remain in sync with HasNonStandardAddedArgs, which is used to map arguments
     // in the implementation of fast tail call.
-    // *********** END NOTE *********
     CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_X86
-    // These are handled by special code in LIR/lowering.
-    assert(!call->IsHelperCall(CORINFO_HELP_LLSH) && !call->IsHelperCall(CORINFO_HELP_LRSH) &&
-           !call->IsHelperCall(CORINFO_HELP_LRSZ));
-#endif
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
-#endif
 
 #ifdef TARGET_ARM64
     if (call->HasFixedRetBufArg())
     {
-        // We don't increment numArgs here, since we already counted this argument above.
         nonStandardArgs.Add(call->gtCallArgs->GetNode(), REG_ARG_RET_BUFF);
     }
 #endif
 
 #ifdef TARGET_ARM
-    // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
-    // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
-    // R4, a callee-saved register, with a special value. Since R4 is a callee-saved register, its value needs
-    // to be preserved. Thus, the VM uses a wrapper delegate IL stub, which preserves R4 and also sets up R4
-    // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
-    // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
     if ((call->gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV) != 0)
     {
+        // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
+        // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
+        // R4, a callee-saved register, with a special value. Since R4 is a callee-saved register, its value needs
+        // to be preserved. Thus, the VM uses a wrapper delegate IL stub, which preserves R4 and also sets up R4
+        // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
+        // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
+
         GenTree* arg = call->gtCallThisArg->GetNode();
 
         // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_LOAD_FLD
@@ -2161,22 +2150,23 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
-    // for indirection cell address, which ZapIndirectHelperThunk expects.
     if (call->IsR2RRelativeIndir())
     {
+        // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
+        // for indirection cell address, which ZapIndirectHelperThunk expects.
+
         assert(call->gtEntryPoint.addr != nullptr);
 
-        GenTree* indirectCellAddress = gtNewIconHandleNode(call->gtEntryPoint.addr, HandleKind::MethodAddr);
-        indirectCellAddress->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->gtEntryPoint.addr, HandleKind::MethodAddr);
+        cellAddress->SetDumpHandle(call->GetMethodHandle());
         // Don't attempt to CSE this constant on ARM32.
         // This constant has specific register requirements, and LSRA doesn't
         // currently correctly handle them when the value is in a CSE'd local.
-        ARM_ONLY(indirectCellAddress->SetDoNotCSE());
+        ARM_ONLY(cellAddress->SetDoNotCSE());
 
-        gtPrependNewCallArg(call->gtCallArgs, indirectCellAddress);
+        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
 
-        nonStandardArgs.Add(indirectCellAddress, REG_R2R_INDIRECT_PARAM);
+        nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
         numArgs++;
     }
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
