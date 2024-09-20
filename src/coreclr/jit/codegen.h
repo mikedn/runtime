@@ -635,27 +635,19 @@ protected:
     void UnspillRegCandidateLclLoad(GenTreeLclLoad* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     void UnspillRegsIfNeeded(GenTree* node);
-    regNumber UseReg(GenTree* node);
-    regNumber UseRegCandidateLclLoad(GenTreeLclLoad* node);
+    IntRegMask GetNodeRegMask(GenTree* node);
+    RegNum UseReg(GenTree* node);
+    RegNum UseRegCandidateLclLoad(GenTreeLclLoad* node);
     void UseRegs(GenTree* node);
-    regNumber genConsumeReg(GenTree* node);
-    regNumber UseReg(GenTree* node, unsigned regIndex);
-    void genCopyRegIfNeeded(GenTree* tree, regNumber needReg);
-
-    void genConsumeIfReg(GenTree* tree)
-    {
-        if (!tree->isContained())
-        {
-            (void)genConsumeReg(tree);
-        }
-    }
-
+    RegNum genConsumeReg(GenTree* node);
+    RegNum UseReg(GenTree* node, unsigned regIndex);
+    void genCopyRegIfNeeded(GenTree* tree, RegNum needReg);
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);
-    regNumber CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
+    RegNum CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
     void genConsumeAddress(GenTree* addr);
-    void ConsumeStructStore(GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
-    void ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg);
+    void ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
+    void ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
     void genConsumeRegs(GenTree* tree);
 

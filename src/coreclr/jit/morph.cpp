@@ -1113,7 +1113,7 @@ void CallArgInfo::Dump() const
         printf("arg %u:", m_argNum);
     }
 
-    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->OperGet()), varTypeName(m_argType));
+    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->GetOper()), varTypeName(m_argType));
 
     if (IsImplicitByRef())
     {
@@ -1129,10 +1129,11 @@ void CallArgInfo::Dump() const
 #endif
         for (unsigned i = 0; i < m_regCount; i++)
         {
-#if defined(UNIX_AMD64_ABI)
-            printf("%s%s %s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)), varTypeName(GetRegType(i)));
+            const char* regName = getRegName(GetRegNum(i));
+#ifdef UNIX_AMD64_ABI
+            printf("%s%s %s", i == 0 ? "" : ", ", regName, varTypeName(GetRegType(i)));
 #else
-            printf("%s%s", i == 0 ? "" : ", ", getRegName(GetRegNum(i)));
+            printf("%s%s", i == 0 ? "" : ", ", regName);
 #endif
         }
         printf(")");

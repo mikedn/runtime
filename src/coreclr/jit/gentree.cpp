@@ -511,66 +511,6 @@ unsigned GenTree::GetRegisterDstCount(Compiler* compiler) const
 }
 #endif // DEBUG
 
-//---------------------------------------------------------------
-// gtGetRegMask: Get the reg mask of the node.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    Reg Mask of GenTree node.
-//
-regMaskTP GenTree::gtGetRegMask() const
-{
-    regMaskTP resultMask;
-
-    if (IsMultiRegCall())
-    {
-        resultMask = genRegMask(GetRegNum());
-        resultMask |= AsCall()->GetOtherRegMask();
-    }
-    else if (IsCopyOrReloadOfMultiRegCall())
-    {
-        // A multi-reg copy or reload, will have valid regs for only those
-        // positions that need to be copied or reloaded.  Hence we need
-        // to consider only those registers for computing reg mask.
-
-        const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
-        const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
-
-        resultMask = RBM_NONE;
-        for (unsigned i = 0; i < call->GetRegCount(); ++i)
-        {
-            regNumber reg = copyOrReload->GetRegNum(i);
-            if (reg != REG_NA)
-            {
-                resultMask |= genRegMask(reg);
-            }
-        }
-    }
-#if FEATURE_ARG_SPLIT
-    else if (OperIsPutArgSplit())
-    {
-        const GenTreePutArgSplit* splitArg = AsPutArgSplit();
-        const unsigned            regCount = splitArg->GetRegCount();
-
-        resultMask = RBM_NONE;
-        for (unsigned i = 0; i < regCount; ++i)
-        {
-            regNumber reg = splitArg->GetRegNum(i);
-            assert(reg != REG_NA);
-            resultMask |= genRegMask(reg);
-        }
-    }
-#endif // FEATURE_ARG_SPLIT
-    else
-    {
-        resultMask = genRegMask(GetRegNum());
-    }
-
-    return resultMask;
-}
-
 void GenTreeFieldList::AddField(Compiler* compiler, GenTree* node, unsigned offset, var_types type)
 {
     m_uses.AddUse(new (compiler, CMK_ASTNode) Use(node, offset, type));
@@ -592,36 +532,6 @@ void GenTreeFieldList::InsertFieldLIR(
     Compiler* compiler, Use* insertAfter, GenTree* node, unsigned offset, var_types type)
 {
     m_uses.InsertUse(insertAfter, new (compiler, CMK_ASTNode) Use(node, offset, type));
-}
-
-//---------------------------------------------------------------
-// GetOtherRegMask: Get the reg mask of gtOtherRegs of call node
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    Reg mask of gtOtherRegs of call node.
-//
-regMaskTP GenTreeCall::GetOtherRegMask() const
-{
-    regMaskTP resultMask = RBM_NONE;
-
-#if FEATURE_MULTIREG_RET
-    for (unsigned i = 1; i < MAX_MULTIREG_COUNT; ++i)
-    {
-        regNumber reg = GetRegNum(i);
-
-        if (reg == REG_NA)
-        {
-            break;
-        }
-
-        resultMask |= genRegMask(reg);
-    }
-#endif
-
-    return resultMask;
 }
 
 // Returns true if this call is pure. For now, this uses the same

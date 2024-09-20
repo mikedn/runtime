@@ -5273,10 +5273,12 @@ int Compiler::lvaGetPSPSymInitialSPRelativeOffset()
 // changes and it is updated throughout code generation based on LSRA register assignments.
 void Compiler::lvaDumpRegLocation(LclVarDsc* lcl)
 {
+    RegNum reg = lcl->GetRegNum();
+
 #ifdef TARGET_ARM
     if (lcl->TypeIs(TYP_DOUBLE))
     {
-        printf("%3s:%-3s    ", getRegName(lcl->GetRegNum()), getRegName(REG_NEXT(lcl->GetRegNum())));
+        printf("%3s:%-3s    ", getRegName(reg), getRegName(REG_NEXT(reg)));
     }
     else
 #endif
@@ -5285,12 +5287,12 @@ void Compiler::lvaDumpRegLocation(LclVarDsc* lcl)
     {
         // TODO-MIKE-Cleanup: Remove this workaround. Old getRegName returned bogus names
         // for XMM registers - mm0-mm15 - fixing it resulted in disassembly diffs.
-        printf("%3s        ", getRegName(lcl->GetRegNum()) + 1);
+        printf("%3s        ", getRegName(reg) + 1);
     }
     else
 #endif
     {
-        printf("%3s        ", getRegName(lcl->GetRegNum()));
+        printf("%3s        ", getRegName(reg));
     }
 }
 

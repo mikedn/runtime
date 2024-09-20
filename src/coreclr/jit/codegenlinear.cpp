@@ -1500,9 +1500,72 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
     // Seems unnecessary and confusing, it's likely enough to kill
     // only the specific register we're dealing with now. Oh well,
     // the whole GC info tracking is a bunch of crap to begin with.
-    liveness.RemoveGCRegs(node->gtGetRegMask());
+    liveness.RemoveGCRegs(GetNodeRegMask(node));
 
     return reg;
+}
+
+IntRegMask CodeGen::GetNodeRegMask(GenTree* node)
+{
+#if FEATURE_ARG_SPLIT
+    if (GenTreePutArgSplit* splitArg = node->IsPutArgSplit())
+    {
+        IntRegMask mask = RBM_NONE;
+
+        for (unsigned i = 0, regCount = splitArg->GetRegCount(); i < regCount; ++i)
+        {
+            mask |= genRegMask(splitArg->GetRegNum(i));
+        }
+
+        return mask;
+    }
+#endif
+
+#if FEATURE_MULTIREG_RET
+    if (node->IsMultiRegCall())
+    {
+        GenTreeCall* call = node->AsCall();
+        IntRegMask   mask = RBM_NONE;
+
+        for (unsigned i = 0; i < MAX_MULTIREG_COUNT; ++i)
+        {
+            RegNum reg = call->GetRegNum(i);
+
+            if (reg == REG_NA)
+            {
+                break;
+            }
+
+            mask |= genRegMask(reg);
+        }
+
+        return mask;
+    }
+#endif
+
+    if (node->IsCopyOrReloadOfMultiRegCall())
+    {
+        GenTreeCopyOrReload* copy = node->AsCopyOrReload();
+        IntRegMask           mask = RBM_NONE;
+
+        for (unsigned i = 0, regCount = copy->GetOp(0)->AsCall()->GetRegCount(); i < regCount; ++i)
+        {
+            RegNum reg = copy->GetRegNum(i);
+
+            // A multi-reg copy or reload, will have valid regs for only those
+            // positions that need to be copied or reloaded. Hence we need
+            // to consider only those registers for computing reg mask.
+
+            if (reg != REG_NA)
+            {
+                mask |= genRegMask(reg);
+            }
+        }
+
+        return mask;
+    }
+
+    return genRegMask(node->GetRegNum());
 }
 
 // This will copy the corresponding register produced by this node's source, to
@@ -1592,7 +1655,7 @@ void CodeGen::UseRegs(GenTree* node)
 
     UnspillRegsIfNeeded(node);
 
-    liveness.RemoveGCRegs(node->gtGetRegMask());
+    liveness.RemoveGCRegs(GetNodeRegMask(node));
 
     INDEBUG(VerifyUseOrder(node));
 }
