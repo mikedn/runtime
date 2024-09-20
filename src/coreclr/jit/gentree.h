@@ -955,8 +955,6 @@ public:
 
     INDEBUG(unsigned GetRegisterDstCount(Compiler* compiler) const;)
 
-    regMaskTP gtGetRegMask() const;
-
     bool IsRegSpill(unsigned i) const
     {
         return (m_defRegsSpillSet & GetRegSpillSet(i)) != 0;
@@ -4474,8 +4472,6 @@ public:
     {
         return &m_retDesc;
     }
-
-    regMaskTP GetOtherRegMask() const;
 
     bool IsUnmanaged() const
     {
@@ -8012,20 +8008,11 @@ inline void GenTree::SetLastUse(unsigned regIndex, bool lastUse)
     }
 }
 
-//-----------------------------------------------------------------------------------
-// IsCopyOrReloadOfMultiRegCall: whether this is a GT_COPY or GT_RELOAD of a multi-reg
-// call node.
-//
-// Arguments:
-//     None
-//
-// Return Value:
-//     Returns true if this GenTree is a copy or reload of multi-reg call node.
 inline bool GenTree::IsCopyOrReloadOfMultiRegCall() const
 {
-    if (IsCopyOrReload())
+    if (const GenTreeCopyOrReload* copy = IsCopyOrReload())
     {
-        return gtGetOp1()->IsMultiRegCall();
+        return copy->GetOp(0)->IsMultiRegCall();
     }
 
     return false;

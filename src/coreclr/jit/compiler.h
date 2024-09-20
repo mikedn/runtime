@@ -5275,37 +5275,6 @@ public:
         return (target_size_t)eeGetEEInfo()->osPageSize;
     }
 
-    //------------------------------------------------------------------------
-    // VirtualStubParam: virtual stub dispatch extra parameter (slot address).
-    //
-    // It represents Abi and target specific registers for the parameter.
-    //
-    class VirtualStubParamInfo
-    {
-        const regNumber regNum;
-
-    public:
-        VirtualStubParamInfo(bool isCoreRTABI)
-#if defined(TARGET_X86)
-            : regNum(REG_EAX)
-#elif defined(TARGET_AMD64)
-            : regNum(isCoreRTABI ? REG_R10 : REG_R11)
-#elif defined(TARGET_ARM)
-            : regNum(isCoreRTABI ? REG_R12 : REG_R4)
-#elif defined(TARGET_ARM64)
-            : regNum(REG_R11)
-#else
-#error Unsupported or unset target architecture
-#endif
-        {
-        }
-
-        regNumber GetRegNum() const
-        {
-            return regNum;
-        }
-    };
-
     bool IsTargetAbi(CORINFO_RUNTIME_ABI abi)
     {
         return eeGetEEInfo()->targetAbi == abi;
