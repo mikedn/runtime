@@ -910,45 +910,60 @@ public:
     {
         for (unsigned i = 1; i < _countof(m_defRegs); ++i)
         {
-            SetRegNum(i, REG_NA);
+            m_defRegs[i] = REG_NA;
+            INDEBUG(gtDebugFlags = static_cast<GenTreeDebugFlags>(gtDebugFlags & ~(GTF_DEBUG_HAS_REG_0 << i)));
         }
     }
 
-    regNumber GetRegNum() const
+    RegNum GetRegNum() const
     {
-        // TODO-Cleanup: This should be called on nodes that do not have a register assigned.
-        // However, a lot of code calls it an instead checks for REG_NA.
-        // assert((gtDebugFlags & GTF_DEBUG_HAS_REG_0) != 0);
+        // TODO-Cleanup: This should not be called on nodes that do not have a register assigned.
+        // However, a lot of code calls it and checks for REG_NA, instead of using isUsedFromReg.
+        // assert(HasReg(0));
 
-        regNumber reg = static_cast<regNumber>(m_defRegs[0]);
-        assert(!HasReg(0) || (REG_FIRST <= reg && reg <= REG_COUNT));
+        RegNum reg = static_cast<RegNum>(m_defRegs[0]);
+        assert(!HasReg(0) || (REG_FIRST <= reg && reg <= REG_LAST));
         return reg;
     }
 
-    void SetRegNum(regNumber reg)
+    void SetRegNum(RegNum reg)
     {
-        assert(REG_FIRST <= reg && reg <= REG_COUNT);
+        assert(REG_FIRST <= reg && reg <= REG_LAST);
 
-        m_defRegs[0] = static_cast<regNumberSmall>(reg);
+        m_defRegs[0] = static_cast<RegNumSmall>(reg);
         INDEBUG(gtDebugFlags |= GTF_DEBUG_HAS_REG_0;)
     }
 
-    regNumber GetRegNum(unsigned i) const
+    void ClearRegNum()
+    {
+        m_defRegs[0] = REG_NA;
+        INDEBUG(gtDebugFlags &= ~GTF_DEBUG_HAS_REG_0;)
+    }
+
+    RegNum GetRegNum(unsigned i) const
     {
         assert(i < _countof(m_defRegs));
 
-        regNumber reg = static_cast<regNumber>(m_defRegs[i]);
-        assert(!HasReg(0) || (REG_FIRST <= reg && reg <= REG_COUNT));
+        RegNum reg = static_cast<RegNum>(m_defRegs[i]);
+        assert(!HasReg(i) || (REG_FIRST <= reg && reg <= REG_LAST));
         return reg;
     }
 
-    void SetRegNum(unsigned i, regNumber reg)
+    void SetRegNum(unsigned i, RegNum reg)
     {
         assert(i < _countof(m_defRegs));
-        assert(REG_FIRST <= reg && reg <= REG_COUNT);
+        assert(REG_FIRST <= reg && reg <= REG_LAST);
 
-        m_defRegs[i] = static_cast<regNumberSmall>(reg);
+        m_defRegs[i] = static_cast<RegNumSmall>(reg);
         INDEBUG(gtDebugFlags |= static_cast<GenTreeDebugFlags>(GTF_DEBUG_HAS_REG_0 << i););
+    }
+
+    void ClearRegNum(unsigned i)
+    {
+        assert(i < _countof(m_defRegs));
+
+        m_defRegs[i] = REG_NA;
+        INDEBUG(gtDebugFlags &= ~static_cast<GenTreeDebugFlags>(GTF_DEBUG_HAS_REG_0 << i););
     }
 
 #ifdef DEBUG
@@ -7310,8 +7325,9 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
 {
     GenTreeCopyOrReload(genTreeOps oper, var_types type, GenTree* op1) : GenTreeUnOp(oper, type, op1)
     {
-        assert(type != TYP_STRUCT || op1->IsMultiRegNode());
-        SetRegNum(REG_NA);
+        assert((type != TYP_STRUCT) || op1->IsMultiRegNode());
+
+        ClearRegNum();
         ClearOtherRegs();
     }
 

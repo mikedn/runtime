@@ -426,61 +426,35 @@ void GenTree::DumpNodeSizes(FILE* fp)
 #ifdef DEBUG
 bool GenTree::gtHasReg() const
 {
-    bool hasReg = false;
-
     if (IsMultiRegCall())
     {
-        const GenTreeCall* call = AsCall();
-
-        // A Multi-reg call node is said to have regs, if it has
-        // reg assigned to each of its result registers.
-        for (unsigned i = 0; i < call->GetRegCount(); ++i)
+        for (unsigned i = 0, count = AsCall()->GetRegCount(); i < count; ++i)
         {
-            hasReg = (call->GetRegNum(i) != REG_NA);
-            if (!hasReg)
+            if (GetRegNum(i) == REG_NA)
             {
-                break;
+                return false;
             }
         }
-    }
-    else if (IsCopyOrReloadOfMultiRegCall())
-    {
-        const GenTreeCopyOrReload* copyOrReload = AsCopyOrReload();
-        const GenTreeCall*         call         = copyOrReload->gtGetOp1()->AsCall();
 
-        // A Multi-reg copy or reload node is said to have regs,
-        // if it has valid regs in any of the positions.
-        for (unsigned i = 0; i < call->GetRegCount(); ++i)
+        return true;
+    }
+
+    if (IsCopyOrReloadOfMultiRegCall())
+    {
+        for (unsigned i = 0, count = AsCopyOrReload()->GetOp(0)->AsCall()->GetRegCount(); i < count; ++i)
         {
-            hasReg = (copyOrReload->GetRegNum(i) != REG_NA);
-            if (hasReg)
+            if (GetRegNum(i) != REG_NA)
             {
-                break;
+                return true;
             }
         }
-    }
-    else
-    {
-        hasReg = (GetRegNum() != REG_NA);
+
+        return false;
     }
 
-    return hasReg;
+    return GetRegNum() != REG_NA;
 }
 
-//-----------------------------------------------------------------------------
-// GetRegisterDstCount: Get the number of registers defined by the node.
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    The number of registers that this node defines.
-//
-// Notes:
-//    This should not be called on a contained node.
-//    This does not look at the actual register assignments, if any, and so
-//    is valid after Lowering.
-//
 unsigned GenTree::GetRegisterDstCount(Compiler* compiler) const
 {
     assert(!isContained());

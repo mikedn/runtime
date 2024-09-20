@@ -794,7 +794,8 @@ private:
         }
     }
 
-    void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, regNumber reg);
+    void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg);
+    void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
 
     void insertMove(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum inReg, RegNum outReg);
