@@ -912,11 +912,11 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         {
             makeContained = false;
         }
-#endif // TARGET_ARM
+#endif
 
         if (makeContained)
         {
-            MakeSrcContained(indirNode, addr);
+            addr->SetContained();
         }
     }
 #ifdef TARGET_ARM64
