@@ -951,9 +951,11 @@ public:
         INDEBUG(gtDebugFlags |= static_cast<GenTreeDebugFlags>(GTF_DEBUG_HAS_REG_0 << i););
     }
 
+#ifdef DEBUG
     bool gtHasReg() const;
 
-    INDEBUG(unsigned GetRegisterDstCount(Compiler* compiler) const;)
+    unsigned GetRegisterDstCount(Compiler* compiler) const;
+#endif
 
     bool IsRegSpill(unsigned i) const
     {

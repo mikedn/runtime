@@ -423,23 +423,7 @@ void GenTree::DumpNodeSizes(FILE* fp)
 
 #endif // MEASURE_NODE_SIZE
 
-//------------------------------------------------------------------
-// gtHasReg: Whether node beeen assigned a register by LSRA
-//
-// Arguments:
-//    None
-//
-// Return Value:
-//    Returns true if the node was assigned a register.
-//
-//    In case of multi-reg call nodes, it is considered
-//    having a reg if regs are allocated for all its
-//    return values.
-//
-//    In case of GT_COPY or GT_RELOAD of a multi-reg call,
-//    GT_COPY/GT_RELOAD is considered having a reg if it
-//    has a reg assigned to any of its positions.
-//
+#ifdef DEBUG
 bool GenTree::gtHasReg() const
 {
     bool hasReg = false;
@@ -483,7 +467,6 @@ bool GenTree::gtHasReg() const
     return hasReg;
 }
 
-#ifdef DEBUG
 //-----------------------------------------------------------------------------
 // GetRegisterDstCount: Get the number of registers defined by the node.
 //
