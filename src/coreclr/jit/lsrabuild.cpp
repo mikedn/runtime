@@ -1130,7 +1130,7 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 // For contained nodes, however, things are more complicated: for purposes
 // of bookkeeping, a contained node is treated as producing the transitive
 // closure of the registers produced by its sources.
-unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
+unsigned LinearScan::ComputeOperandDstCount(GenTree* operand) const
 {
     // GT_ARGPLACE is the only non-LIR node that is currently in the trees at this stage, though
     // note that it is not in the linear order. It seems best to check for !IsLIR() rather than
@@ -1177,7 +1177,7 @@ unsigned LinearScan::ComputeOperandDstCount(GenTree* operand)
 // Computes the number of registers available as sources for a node.
 // This is simply the sum of the number of registers produced by each
 // operand to the node.
-unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node)
+unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node) const
 {
     unsigned numSources = 0;
 
