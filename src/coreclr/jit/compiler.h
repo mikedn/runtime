@@ -4544,9 +4544,6 @@ private:
     GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent);
 
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
-#ifndef TARGET_X86
-    GenTree* fgGetStubAddrArg(GenTreeCall* call);
-#endif
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
     void fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
     Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,

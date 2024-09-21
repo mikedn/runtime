@@ -5142,7 +5142,8 @@ void Importer::impCheckForPInvokeCall(
     }
 
     bool suppressGCTransition = false;
-    if (methHnd)
+
+    if (methHnd != nullptr)
     {
         if ((mflags & CORINFO_FLG_PINVOKE) == 0)
         {
@@ -5160,7 +5161,7 @@ void Importer::impCheckForPInvokeCall(
 
         unmanagedCallConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
 
-        assert(!call->gtCallCookie);
+        assert(call->gtCallCookie == nullptr);
     }
 
     if (suppressGCTransition)
