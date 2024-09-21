@@ -849,23 +849,49 @@ public:
         INDEBUG(gtDebugFlags = (gtDebugFlags & ~GTF_DEBUG_HAS_COSTS) | (tree->gtDebugFlags & GTF_DEBUG_HAS_COSTS);)
     }
 
-    INDEBUG(bool canBeContained() const;)
-
-    bool isContained() const;
-
-    bool isContainedIntOrIImmed()
+#ifdef DEBUG
+    bool CanBeContained() const
     {
-        return IsContainedIntCon();
+        return ((OperKind() & GTK_NOCONTAIN) == 0) && (!OperIsHWIntrinsic() || isContainableHWIntrinsic()) &&
+               IsValue() && !IsUnusedValue() && !gtHasReg();
+    }
+#endif
+
+    void SetContained()
+    {
+        assert(CanBeContained());
+        gtFlags |= GTF_CONTAINED;
+        assert(isContained());
+    }
+
+    void SetContained(bool contained)
+    {
+        if (contained)
+        {
+            SetContained();
+        }
+        else
+        {
+            ClearContained();
+        }
+    }
+
+    void ClearContained()
+    {
+        assert(IsValue());
+        gtFlags &= ~GTF_CONTAINED;
+        ClearRegOptional();
+    }
+
+    bool isContained() const
+    {
+        assert(IsLIR());
+        return (gtFlags & GTF_CONTAINED) != 0;
     }
 
     GenTreeIntCon* IsContainedIntCon()
     {
         return isContained() && IsIntCon() && !isUsedFromSpillTemp() ? AsIntCon() : nullptr;
-    }
-
-    bool isContainedFltOrDblImmed()
-    {
-        return IsContainedDblCon();
     }
 
     GenTreeDblCon* IsContainedDblCon()
@@ -1729,32 +1755,6 @@ public:
     // Determine if this tree represents an indirection for an implict byref parameter,
     // and if so return the tree for the parameter.
     GenTreeLclLoad* IsImplicitByrefIndir(Compiler* compiler);
-
-    void SetContained()
-    {
-        assert(IsValue());
-        gtFlags |= GTF_CONTAINED;
-        assert(isContained());
-    }
-
-    void SetContained(bool contained)
-    {
-        if (contained)
-        {
-            SetContained();
-        }
-        else
-        {
-            ClearContained();
-        }
-    }
-
-    void ClearContained()
-    {
-        assert(IsValue());
-        gtFlags &= ~GTF_CONTAINED;
-        ClearRegOptional();
-    }
 
     bool CanCSE() const
     {
@@ -2828,7 +2828,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         return static_cast<CORINFO_METHOD_HANDLE>(m_compileTimeHandle);
     }
 
-    bool ImmedValNeedsReloc(Compiler* comp);
+    bool ImmedValNeedsReloc(Compiler* comp) const;
 
     bool HasSingleSetBit() const
     {

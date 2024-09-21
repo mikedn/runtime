@@ -11009,44 +11009,7 @@ GenTreeLclLoad* GenTree::IsImplicitByrefIndir(Compiler* compiler)
     return nullptr;
 }
 
-#ifdef DEBUG
-bool GenTree::canBeContained() const
-{
-    assert(IsLIR());
-
-    if (gtHasReg())
-    {
-        return false;
-    }
-
-    // It is not possible for nodes that do not produce values
-    // or that are not containable values to be contained.
-
-    if (((OperKind() & (GTK_NOVALUE | GTK_NOCONTAIN)) != 0) || (OperIsHWIntrinsic() && !isContainableHWIntrinsic()))
-    {
-        return false;
-    }
-
-    return true;
-}
-#endif // DEBUG
-
-bool GenTree::isContained() const
-{
-    assert(IsLIR());
-
-    if ((gtFlags & GTF_CONTAINED) == 0)
-    {
-        return false;
-    }
-
-    assert(canBeContained());
-    assert(!IsUnusedValue());
-
-    return true;
-}
-
-bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp)
+bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp) const
 {
     return comp->opts.compReloc && IsHandle();
 }
