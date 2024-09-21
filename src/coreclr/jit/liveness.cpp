@@ -277,15 +277,17 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
         {
             GenTreeCall* call    = tree->AsCall();
             bool         modHeap = true;
-            if (call->gtCallType == CT_HELPER)
+
+            if (call->IsHelperCall())
             {
-                CorInfoHelpFunc helpFunc = eeGetHelperNum(call->gtCallMethHnd);
+                CorInfoHelpFunc helpFunc = eeGetHelperNum(call->GetMethodHandle());
 
                 if (!s_helperCallProperties.MutatesHeap(helpFunc) && !s_helperCallProperties.MayRunCctor(helpFunc))
                 {
                     modHeap = false;
                 }
             }
+
             if (modHeap)
             {
                 state.fgCurMemoryUse   = true;

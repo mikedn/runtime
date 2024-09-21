@@ -5612,14 +5612,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
 #ifdef DEBUG
         if ((JitConfig.JitReportFastTailCallDecisions()) == 1)
         {
-            if (callee->gtCallType != CT_INDIRECT)
+            if (!callee->IsIndirectCall())
             {
-                const char* methodName;
-
-                methodName = eeGetMethodFullName(callee->gtCallMethHnd);
-
                 printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: %s -- Decision: ",
-                       info.compFullName, methodName);
+                       info.compFullName, eeGetMethodFullName(callee->GetMethodHandle()));
             }
             else
             {
@@ -5951,8 +5947,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 #endif
 
         // for non user funcs, we have no handles to report
-        info.compCompHnd->reportTailCallDecision(nullptr,
-                                                 (call->gtCallType == CT_USER_FUNC) ? call->gtCallMethHnd : nullptr,
+        info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
                                                  call->IsTailPrefixedCall(), TAILCALL_FAIL, reason);
 
         // We have checked the candidate so demote.
@@ -6202,8 +6197,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         tailCallResult = TAILCALL_HELPER;
     }
 
-    info.compCompHnd->reportTailCallDecision(nullptr,
-                                             (call->gtCallType == CT_USER_FUNC) ? call->gtCallMethHnd : nullptr,
+    info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
                                              call->IsTailPrefixedCall(), tailCallResult, nullptr);
 
     // Are we currently planning to expand the gtControlExpr as an early virtual call target?
@@ -6597,11 +6591,9 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     // TODO: R2R: TailCallViaHelper
     assert(!opts.IsReadyToRun());
 
-    JITDUMP("fgMorphTailCallViaHelpers (before):\n");
-    DISPTREE(call);
+    JITDUMPTREE(call, "fgMorphTailCallViaHelpers (before):\n");
 
-    // Don't support tail calling helper methods
-    assert(call->gtCallType != CT_HELPER);
+    assert(!call->IsHelperCall());
 
     // We come this route only for tail prefixed calls that cannot be dispatched as
     // fast tail calls

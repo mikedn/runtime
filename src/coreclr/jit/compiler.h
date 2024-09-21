@@ -2917,11 +2917,6 @@ public:
                                    GenTreeCall::Use*     args,
                                    IL_OFFSETX            ilOffset = BAD_IL_OFFSET);
 
-    GenTreeCall* gtNewIndCallNode(GenTree*          addr,
-                                  var_types         type,
-                                  GenTreeCall::Use* args,
-                                  IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
-
     GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
     GenTreeCall* gtChangeToHelperCall(GenTree* tree, CorInfoHelpFunc helper, GenTreeCall::Use* args);
 

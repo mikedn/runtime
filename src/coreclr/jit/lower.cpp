@@ -2747,7 +2747,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
 
     noway_assert(call->gtStubCallStubAddr != nullptr);
-    // If not CT_INDIRECT, then it should always be relative indir call. This is ensured by VM.
+    // If not indirect, then it should always be relative indir call. This is ensured by VM.
     noway_assert(call->IsVirtualStubRelativeIndir());
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)

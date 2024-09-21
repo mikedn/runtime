@@ -457,8 +457,7 @@ void GenTreeFieldList::InsertFieldLIR(
 // performed.
 bool GenTreeCall::IsPure() const
 {
-    return (gtCallType == CT_HELPER) &&
-           Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(gtCallMethHnd));
+    return IsHelperCall() && Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(gtCallMethHnd));
 }
 
 //-------------------------------------------------------------------------
@@ -478,7 +477,7 @@ bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool
 {
     // Generally all GT_CALL nodes are considered to have side-effects, but we may have extra information about helper
     // calls that can prove them side-effect-free.
-    if (gtCallType != CT_HELPER)
+    if (!IsHelperCall())
     {
         return true;
     }
@@ -524,7 +523,7 @@ bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const
         return true;
     }
 
-    if ((gtCallType == CT_INDIRECT) && (gtCallCookie != nullptr))
+    if (IsIndirectCall() && (gtCallCookie != nullptr))
     {
         // R10 = PInvoke target param
         // R11 = PInvoke cookie param
@@ -4014,13 +4013,6 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     return call;
 }
 
-GenTreeCall* Compiler::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
-{
-    GenTreeCall* call = gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
-    call->gtFlags |= GTF_EXCEPT | addr->GetSideEffects();
-    return call;
-}
-
 GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
                                          var_types             type,
                                          GenTreeCall::Use*     args,
@@ -4039,7 +4031,8 @@ GenTreeCall* Compiler::gtNewCallNode(
 
     if (kind == CT_INDIRECT)
     {
-        node->gtCallAddr   = static_cast<GenTree*>(target);
+        node->gtCallAddr = static_cast<GenTree*>(target);
+        assert(node->gtCallAddr->TypeIs(TYP_I_IMPL));
         node->gtCallCookie = nullptr;
     }
     else
@@ -5735,7 +5728,7 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
         case CALL_CONTROL_EXPR:
             if (call->gtControlExpr != nullptr)
             {
-                if (call->gtCallType == CT_INDIRECT)
+                if (call->IsIndirectCall())
                 {
                     m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_COOKIE>;
                 }
@@ -5746,7 +5739,7 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
                 m_edge = &call->gtControlExpr;
                 return;
             }
-            else if (call->gtCallType != CT_INDIRECT)
+            else if (!call->IsIndirectCall())
             {
                 m_state = -1;
                 return;
@@ -10623,7 +10616,7 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
             // Generally all GT_CALL nodes are considered to have side-effects.
             // So if we get here it must be a helper call that we decided it does
             // not have side effects that we needed to keep.
-            assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+            assert(!node->OperIs(GT_CALL) || node->AsCall()->IsHelperCall());
 
             return Compiler::WALK_CONTINUE;
         }
@@ -11105,13 +11098,13 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     }
                 }
             }
-            else if (call->gtCallType == CT_USER_FUNC)
+            else if (call->IsUserCall())
             {
                 // For user calls, we can fetch the approximate return
                 // type info from the method handle. Unfortunately
                 // we've lost the exact context, so this is the best
                 // we can do for now.
-                CORINFO_METHOD_HANDLE method     = call->gtCallMethHnd;
+                CORINFO_METHOD_HANDLE method     = call->GetMethodHandle();
                 CORINFO_CLASS_HANDLE  exactClass = nullptr;
                 CORINFO_SIG_INFO      sig;
                 eeGetMethodSig(method, &sig, exactClass);
@@ -11130,7 +11123,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     objClass = sig.retTypeClass;
                 }
             }
-            else if (call->gtCallType == CT_HELPER)
+            else if (call->IsHelperCall())
             {
                 objClass = gtGetHelperCallClassHandle(call, pIsExact, pIsNonNull);
             }
@@ -11292,7 +11285,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
 CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, bool* pIsExact, bool* pIsNonNull)
 {
-    assert(call->gtCallType == CT_HELPER);
+    assert(call->IsHelperCall());
 
     *pIsNonNull                    = false;
     *pIsExact                      = false;
@@ -11511,21 +11504,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldH
 
 bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
 {
-    if (tree->OperGet() != GT_CALL)
+    if (!tree->OperIs(GT_CALL))
     {
         return false;
     }
 
     GenTreeCall* call = tree->AsCall();
 
-    if (call->gtCallType != CT_HELPER)
+    if (!call->IsHelperCall())
     {
         return false;
     }
 
-    const CorInfoHelpFunc helper = eeGetHelperNum(call->gtCallMethHnd);
-
-    switch (helper)
+    switch (eeGetHelperNum(call->GetMethodHandle()))
     {
         // We are looking for a REF type so only need to check for the GC base helpers
         case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
@@ -11538,10 +11529,8 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
         case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
             return true;
         default:
-            break;
+            return false;
     }
-
-    return false;
 }
 
 GenTreeFlags Compiler::gtGetIndirExceptionFlags(GenTree* addr)
