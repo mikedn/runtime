@@ -8377,121 +8377,95 @@ void LinearScan::lsraDumpIntervals(const char* msg)
     printf("\n");
 }
 
-// Dumps a tree node as a destination or source operand, with the style
-// of dump dependent on the mode
-void LinearScan::lsraGetOperandString(GenTree*          tree,
-                                      LsraTupleDumpMode mode,
-                                      char*             operandString,
-                                      unsigned          operandStringLength)
+void LinearScan::lsraGetOperandString(GenTree* node, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const
 {
-    const char* lastUseChar = "";
-    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
-    {
-        lastUseChar = "*";
-    }
-    switch (mode)
-    {
-        case LinearScan::LSRA_DUMP_PRE:
-        case LinearScan::LSRA_DUMP_REFPOS:
-            _snprintf_s(operandString, operandStringLength, operandStringLength, "t%d%s", tree->GetID(), lastUseChar);
-            break;
-        case LinearScan::LSRA_DUMP_POST:
-        {
-            if (!tree->gtHasReg())
-            {
-                _snprintf_s(operandString, operandStringLength, operandStringLength, "STK%s", lastUseChar);
-            }
-            else
-            {
-                regNumber reg       = tree->GetRegNum();
-                int       charCount = _snprintf_s(operandString, operandStringLength, operandStringLength, "%s%s",
-                                            getRegName(reg), lastUseChar);
-                operandString += charCount;
-                operandStringLength -= charCount;
+    const char* lastUseChar = node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && node->IsLastUse(0) ? "*" : "";
 
-                if (tree->IsMultiRegNode())
-                {
-                    for (unsigned i = 1, count = tree->GetMultiRegCount(compiler); i < count; i++)
-                    {
-                        regNumber reg = tree->GetRegNum(i);
-                        charCount     = _snprintf_s(operandString, operandStringLength, operandStringLength, ",%s%s",
-                                                getRegName(reg), lastUseChar);
-                        operandString += charCount;
-                        operandStringLength -= charCount;
-                    }
-                }
-            }
+    if (mode != LinearScan::LSRA_DUMP_POST)
+    {
+        _snprintf_s(buffer, bufferSize, bufferSize, "t%d%s", node->GetID(), lastUseChar);
+    }
+    else if (!node->gtHasReg())
+    {
+        _snprintf_s(buffer, bufferSize, bufferSize, "STK%s", lastUseChar);
+    }
+    else
+    {
+        unsigned count = node->IsMultiRegNode() ? node->GetMultiRegCount(compiler) : 1;
+
+        for (unsigned i = 0; i < count; i++)
+        {
+            int len = _snprintf_s(buffer, bufferSize, bufferSize, "%s%s%s", i != 0 ? "," : "",
+                                  getRegName(node->GetRegNum(i)), lastUseChar);
+            buffer += len;
+            bufferSize -= len;
         }
-        break;
-        default:
-            printf("ERROR: INVALID TUPLE DUMP MODE\n");
-            break;
     }
 }
-void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDest)
+
+void LinearScan::lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const
 {
-    const unsigned operandStringLength = 6 * MAX_MULTIREG_COUNT + 1;
-    char           operandString[operandStringLength];
-    const char*    emptyDestOperand = "               ";
-    char           spillChar        = ' ';
+    char spillChar = ' ';
+    bool hasDest   = ((node->IsValue() ? ComputeOperandDstCount(node) : 0) != 0) && (mode != LSRA_DUMP_REFPOS);
 
     if (mode == LinearScan::LSRA_DUMP_POST)
     {
-        if (tree->IsAnyRegSpill())
+        if (node->IsAnyRegSpill())
         {
             spillChar = 'S';
         }
-        if (!hasDest && tree->gtHasReg())
+
+        if (!hasDest && node->gtHasReg())
         {
             // A node can define a register, but not produce a value for a parent to consume,
             // i.e. in the "localDefUse" case.
             // There used to be an assert here that we wouldn't spill such a node.
             // However, we can have unused lclVars that wind up being the node at which
-            // it is spilled. This probably indicates a bug, but we don't realy want to
+            // it is spilled. This probably indicates a bug, but we don't really want to
             // assert during a dump.
-            if (spillChar == 'S')
-            {
-                spillChar = '$';
-            }
-            else
-            {
-                spillChar = '*';
-            }
-            hasDest = true;
+            spillChar = spillChar == 'S' ? '$' : '*';
+            hasDest   = true;
         }
     }
-    printf("%c N%04u. ", spillChar, tree->gtSeqNum);
 
-    LclVarDsc* varDsc = nullptr;
-    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
+    LclVarDsc* lcl = nullptr;
+
+    if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
     {
-        varDsc = tree->AsLclVar()->GetLcl();
-        if (varDsc->IsRegCandidate())
+        lcl = node->AsLclVar()->GetLcl();
+
+        if (lcl->IsRegCandidate())
         {
             hasDest = false;
         }
     }
+
+    printf("%c N%04u. ", spillChar, node->gtSeqNum);
+
     if (hasDest)
     {
-        lsraGetOperandString(tree, mode, operandString, operandStringLength);
-        printf("%-15s =", operandString);
+        char buffer[6 * MAX_MULTIREG_COUNT + 1];
+        lsraGetOperandString(node, mode, buffer, sizeof(buffer));
+        printf("%-15s =", buffer);
     }
     else
     {
-        printf("%-15s  ", emptyDestOperand);
+        printf("%-15s  ", "");
     }
-    if ((varDsc != nullptr) && varDsc->IsRegCandidate())
+
+    if ((lcl != nullptr) && lcl->IsRegCandidate())
     {
         if (mode == LSRA_DUMP_REFPOS)
         {
-            printf(" V%02u(L%d) ", varDsc->GetLclNum(),
-                   getIntervalForLocalVar(varDsc->GetLivenessBitIndex())->intervalIndex);
+            printf(" V%02u(L%d) ", lcl->GetLclNum(), getIntervalForLocalVar(lcl->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
-            lsraGetOperandString(tree, mode, operandString, operandStringLength);
-            printf(" V%02u(%s) ", varDsc->GetLclNum(), operandString);
-            if (mode == LinearScan::LSRA_DUMP_POST && tree->IsAnyRegSpilled())
+            char buffer[6 * MAX_MULTIREG_COUNT + 1];
+            lsraGetOperandString(node, mode, buffer, sizeof(buffer));
+            printf(" V%02u(%s) ", lcl->GetLclNum(), buffer);
+
+            if ((mode == LinearScan::LSRA_DUMP_POST) && node->IsAnyRegSpilled())
             {
                 printf("R ");
             }
@@ -8499,59 +8473,36 @@ void LinearScan::lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDes
     }
     else
     {
-        compiler->gtDispNodeName(tree);
-        if (tree->OperIsLeaf())
+        compiler->gtDispNodeName(node);
+
+        if (node->OperIsLeaf())
         {
-            compiler->gtDispLeaf(tree);
+            compiler->gtDispLeaf(node);
         }
     }
 }
 
-//------------------------------------------------------------------------
-// DumpOperandDefs: dumps the registers defined by a node.
-//
-// Arguments:
-//    operand - The operand for which to compute a register count.
-//
-// Returns:
-//    The number of registers defined by `operand`.
-//
-void LinearScan::DumpOperandDefs(
-    GenTree* operand, bool& first, LsraTupleDumpMode mode, char* operandString, const unsigned operandStringLength)
+void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode)
 {
-    assert(operand != nullptr);
-    assert(operandString != nullptr);
-    if (!operand->IsLIR())
-    {
-        return;
-    }
-
     if (ComputeOperandDstCount(operand) != 0)
     {
-        // This operand directly produces registers; print it.
-        if (!first)
-        {
-            printf(",");
-        }
-        lsraGetOperandString(operand, mode, operandString, operandStringLength);
-        printf("%s", operandString);
+        char buffer[6 * MAX_MULTIREG_COUNT + 1];
+        lsraGetOperandString(operand, mode, buffer, sizeof(buffer));
+        printf("%s%s", !first ? "," : "", buffer);
         first = false;
     }
     else if (operand->isContained())
     {
-        // This is a contained node. Dump the defs produced by its operands.
         for (GenTree* op : operand->Operands())
         {
-            DumpOperandDefs(op, first, mode, operandString, operandStringLength);
+            DumpOperandDefs(op, first, mode);
         }
     }
 }
 
 void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 {
-    LsraLocation   currentLoc          = 1; // 0 is the entry
-    const unsigned operandStringLength = 6 * MAX_MULTIREG_COUNT + 1;
-    char           operandString[operandStringLength];
+    LsraLocation currentLoc = 1; // 0 is the entry
 
     // currentRefPosition is not used for LSRA_DUMP_PRE
     // We keep separate iterators for defs, so that we can print them
@@ -8677,23 +8628,19 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 
         for (GenTree* node : LIR::AsRange(block))
         {
-            GenTree* tree = node;
-
-            unsigned produce = tree->IsValue() ? ComputeOperandDstCount(tree) : 0;
-            unsigned consume = ComputeAvailableSrcCount(tree);
-
-            lsraDispNode(tree, mode, produce != 0 && mode != LSRA_DUMP_REFPOS);
+            lsraDispNode(node, mode);
 
             if (mode != LSRA_DUMP_REFPOS)
             {
-                if (consume > 0)
+                if (ComputeAvailableSrcCount(node) > 0)
                 {
                     printf("; ");
 
                     bool first = true;
-                    for (GenTree* operand : tree->Operands())
+
+                    for (GenTree* operand : node->Operands())
                     {
-                        DumpOperandDefs(operand, first, mode, operandString, operandStringLength);
+                        DumpOperandDefs(operand, first, mode);
                     }
                 }
             }
@@ -8707,8 +8654,8 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 for (; refPosIterator != refPositions.end() &&
                        (currentRefPosition->refType == RefTypeUse || currentRefPosition->refType == RefTypeFixedReg ||
                         currentRefPosition->refType == RefTypeKill || currentRefPosition->refType == RefTypeDef) &&
-                       (currentRefPosition->nodeLocation == tree->gtSeqNum ||
-                        currentRefPosition->nodeLocation == tree->gtSeqNum + 1);
+                       (currentRefPosition->nodeLocation == node->gtSeqNum ||
+                        currentRefPosition->nodeLocation == node->gtSeqNum + 1);
                      ++refPosIterator, currentRefPosition = &refPosIterator)
                 {
                     Interval* interval = nullptr;

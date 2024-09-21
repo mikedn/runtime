@@ -662,8 +662,8 @@ private:
 
 #ifdef DEBUG
     void checkLastUses(BasicBlock* block);
-    unsigned ComputeOperandDstCount(GenTree* operand);
-    unsigned ComputeAvailableSrcCount(GenTree* node);
+    unsigned ComputeOperandDstCount(GenTree* operand) const;
+    unsigned ComputeAvailableSrcCount(GenTree* node) const;
 #endif
 
     void setFrameType();
@@ -1083,10 +1083,9 @@ private:
         LSRA_DUMP_REFPOS,
         LSRA_DUMP_POST
     };
-    void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* operandString, unsigned operandStringLength);
-    void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode, bool hasDest);
-    void DumpOperandDefs(
-        GenTree* operand, bool& first, LsraTupleDumpMode mode, char* operandString, const unsigned operandStringLength);
+    void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
+    void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode) const;
+    void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode);
     void TupleStyleDump(LsraTupleDumpMode mode);
 
     LsraLocation maxNodeLocation = 0;
