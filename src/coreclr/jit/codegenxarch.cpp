@@ -4279,7 +4279,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     // To limit code size increase impact: we only issue VZEROUPPER before PInvoke call, not issue
     // VZEROUPPER after PInvoke call because transition penalty from legacy SSE to AVX only happens
     // when there's preceding 256-bit AVX to legacy SSE transition penalty.
-    if (call->IsPInvoke() && (call->gtCallType == CT_USER_FUNC) && contains256bitAVXInstructions)
+    if (call->IsPInvoke() && call->IsUserCall() && contains256bitAVXInstructions)
     {
         assert(compiler->canUseVexEncoding());
         GetEmitter()->emitIns(INS_vzeroupper);

@@ -695,14 +695,13 @@ public:
                 treeIsCctorDependent = true;
 
                 // Check for the case where we can stop propagating cctor-dependent upwards.
-                if (tree->OperIs(GT_COMMA) && (child.Node() == tree->gtGetOp2()))
+                if (tree->OperIs(GT_COMMA) && (child.Node() == tree->AsOp()->GetOp(1)))
                 {
-                    GenTree* op1 = tree->gtGetOp1();
-                    if (op1->OperIs(GT_CALL))
+                    if (GenTreeCall* call = tree->AsOp()->GetOp(0)->IsCall())
                     {
-                        GenTreeCall* call = op1->AsCall();
-                        if ((call->gtCallType == CT_HELPER) &&
-                            Compiler::s_helperCallProperties.MayRunCctor(Compiler::eeGetHelperNum(call->gtCallMethHnd)))
+                        if (call->IsHelperCall() &&
+                            Compiler::s_helperCallProperties.MayRunCctor(
+                                Compiler::eeGetHelperNum(call->GetMethodHandle())))
                         {
                             // Hoisting the comma is ok because it would hoist the initialization along
                             // with the static field reference.
@@ -736,13 +735,15 @@ public:
             if (treeIsHoistable && tree->IsCall())
             {
                 GenTreeCall* call = tree->AsCall();
-                if (call->gtCallType != CT_HELPER)
+
+                if (!call->IsHelperCall())
                 {
                     treeIsHoistable = false;
                 }
                 else
                 {
                     CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
+
                     if (!Compiler::s_helperCallProperties.IsPure(helpFunc))
                     {
                         treeIsHoistable = false;
@@ -806,20 +807,20 @@ public:
             // In the section below, we only care about memory side effects.  We assume that expressions will
             // be hoisted so that they are evaluated in the same order as they would have been in the loop,
             // and therefore throw exceptions in the same order.
-            //
-            if (tree->IsCall())
+            if (GenTreeCall* call = tree->IsCall())
             {
                 // If it's a call, it must be a helper call that does not mutate the heap.
                 // Further, if it may run a cctor, it must be labeled as "Hoistable"
                 // (meaning it won't run a cctor because the class is not precise-init).
-                GenTreeCall* call = tree->AsCall();
-                if (call->gtCallType != CT_HELPER)
+
+                if (!call->IsHelperCall())
                 {
                     m_beforeSideEffect = false;
                 }
                 else
                 {
-                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
+                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
+
                     if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
                     {
                         m_beforeSideEffect = false;

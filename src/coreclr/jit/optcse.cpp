@@ -2410,7 +2410,7 @@ public:
                 // So if we get here it must be a helper call that we decided it does
                 // not have side effects that we needed to keep.
                 // not have side effects that we needed to keep.
-                assert(!node->OperIs(GT_CALL) || (node->AsCall()->gtCallType == CT_HELPER));
+                assert(!node->OperIs(GT_CALL) || node->AsCall()->IsHelperCall());
             }
 
             if (node->HasCseInfo())

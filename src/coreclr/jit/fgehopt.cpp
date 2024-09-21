@@ -2029,7 +2029,7 @@ PhaseStatus Compiler::fgTailMergeThrows()
         }
 
         // Sanity check -- only user funcs should be marked do not return
-        assert(call->gtCallType == CT_USER_FUNC);
+        assert(call->IsUserCall());
 
         // Ok, we've found a suitable call. See if this is one we know
         // about already, or something new.

@@ -5261,6 +5261,7 @@ GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
     // it may cause registered args to be spilled. Simply spill it.
 
     // Ignore this trivial case.
+    // TODO-MIKE-Review: What about the constant trivial case?
     if (!impStackTop().val->OperIs(GT_LCL_LOAD))
     {
         impSpillStackEntry(verCurrentState.esStackDepth - 1 DEBUGARG("impImportIndirectCall"));
@@ -5268,12 +5269,16 @@ GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX i
 
     GenTree* addr = impPopStack().val;
 
-    // The function pointer should have type TYP_I_IMPL. However, stubgen IL
-    // optimization can change LDC.I8 to LDC.I4, see ILCodeStream::LowerOpcode.
-    // TODO-MIKE-Review: If this really happens we should change the constant
-    // type to TYP_I_IMPL here. But then the above code spills anything other
-    // than LCL_VAR, which would be stupid if the addr is ever a constant.
-    assert(addr->TypeIs(TYP_I_IMPL, TYP_INT));
+#ifdef TARGET_64BIT
+    if (!addr->TypeIs(TYP_I_IMPL))
+    {
+        // The function pointer should have type TYP_I_IMPL. However, stubgen IL
+        // optimization can change LDC.I8 to LDC.I4, and does not cast back to I8,
+        // see ILCodeStream::LowerOpcode.
+        assert(addr->TypeIs(TYP_INT));
+        addr = comp->gtNewOperNode(GT_SXT, TYP_LONG, addr);
+    }
+#endif
 
     return gtNewIndCallNode(addr, CorTypeToVarType(sig->retType), nullptr, ilOffset);
 }
@@ -6575,25 +6580,20 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                         return nullptr;
                     }
 
+                    assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG &&
+                           (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
+
                     GenTree* stubAddr = impRuntimeLookupToTree(pResolvedToken, &callInfo->stubLookup, methHnd);
                     assert(!compDonotInline());
                     assert(stubAddr->TypeIs(TYP_I_IMPL));
 
-                    // The stubAddr may be a
-                    // complex expression. As it is evaluated after the args,
-                    // it may cause registered args to be spilled. Simply spill it.
+                    // The stubAddr may be a complex expression. As it is evaluated after
+                    // the args, it may cause registered args to be spilled. Simply spill it.
 
                     LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
-                    GenTree*   asg = comp->gtNewLclStore(lcl, TYP_I_IMPL, stubAddr);
-                    impSpillNoneAppendTree(asg);
-                    stubAddr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
+                    impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, stubAddr));
 
-                    // Create the actual call node
-
-                    assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG &&
-                           (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
-
-                    call = gtNewIndCallNode(stubAddr, callRetTyp, nullptr);
+                    call = gtNewIndCallNode(comp->gtNewLclLoad(lcl, TYP_I_IMPL), callRetTyp, nullptr);
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
 
                     X86_ONLY(tailCallFailReason = "VirtualCall with runtime lookup");
@@ -6750,9 +6750,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
                 LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("Indirect call through function pointer"));
                 impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
-                fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
-
-                call = gtNewIndCallNode(fptr, callRetTyp, nullptr, ilOffset);
+                call = gtNewIndCallNode(comp->gtNewLclLoad(lcl, TYP_I_IMPL), callRetTyp, nullptr, ilOffset);
 
                 if (callInfo->nullInstanceCheck)
                 {
@@ -14705,8 +14703,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         }
     }
 
-    // Ignore helper calls
-    if (call->gtCallType == CT_HELPER)
+    if (call->IsHelperCall())
     {
         assert(!call->IsGuardedDevirtualizationCandidate());
         inlineResult.NoteFatal(InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
@@ -14714,7 +14711,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     }
 
     // Ignore indirect calls
-    if (call->gtCallType == CT_INDIRECT)
+    if (call->IsIndirectCall())
     {
         inlineResult.NoteFatal(InlineObservation::CALLSITE_IS_NOT_DIRECT_MANAGED);
         return;
@@ -15049,7 +15046,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         // we'd just keep track of the calls themselves, so we don't
         // have to search for them later.
         //
-        if ((call->gtCallType != CT_INDIRECT) && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR) &&
+        if (!call->IsIndirectCall() && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR) &&
             !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && (JitConfig.JitClassProfiling() > 0) &&
             !isLateDevirtualization)
         {
@@ -16084,13 +16081,13 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
         return;
     }
 
-    // CT_INDIRECT calls may use the cookie, bail if so...
+    // Indirect calls may use the cookie, bail if so...
     //
     // If transforming these provides a benefit, we could save this off in the same way
     // we save the stub address below.
-    if ((call->gtCallType == CT_INDIRECT) && (call->AsCall()->gtCallCookie != nullptr))
+    if (call->IsIndirectCall() && (call->AsCall()->gtCallCookie != nullptr))
     {
-        JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- CT_INDIRECT with cookie\n",
+        JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- indirect with cookie\n",
                 call->GetID());
         return;
     }
@@ -17624,7 +17621,9 @@ GenTreeCall* Importer::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
 
 GenTreeCall* Importer::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    return comp->gtNewIndCallNode(addr, type, args, ilOffset);
+    GenTreeCall* call = comp->gtNewCallNode(CT_INDIRECT, addr, type, args, ilOffset);
+    call->gtFlags |= GTF_EXCEPT | addr->GetSideEffects();
+    return call;
 }
 
 #ifdef FEATURE_HW_INTRINSICS

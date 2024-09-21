@@ -1237,11 +1237,9 @@ public:
     }
     Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        GenTree* const node = *use;
-        if (node->IsCall())
+        if (GenTreeCall* const call = (*use)->IsCall())
         {
-            GenTreeCall* const call = node->AsCall();
-            if (call->IsVirtual() && (call->gtCallType != CT_INDIRECT))
+            if (call->IsVirtual() && !call->IsIndirectCall())
             {
                 m_functor(m_compiler, call);
             }

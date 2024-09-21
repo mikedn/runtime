@@ -7600,7 +7600,7 @@ void ValueNumbering::NumberCall(GenTreeCall* call)
         }
     }
 
-    if (call->gtCallType == CT_HELPER)
+    if (call->IsHelperCall())
     {
         bool modHeap = NumberHelperCall(call);
 
