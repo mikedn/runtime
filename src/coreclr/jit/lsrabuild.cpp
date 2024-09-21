@@ -1162,7 +1162,7 @@ unsigned LinearScan::ComputeOperandDstCount(GenTree* operand) const
     {
         // Operands that are values and are not contained consume all of their operands
         // and produce one or more registers.
-        return operand->GetRegisterDstCount(compiler);
+        return GetRegisterDstCount(operand);
     }
 
     // This must be one of the operand types that are neither contained nor produce a value.
@@ -1172,6 +1172,12 @@ unsigned LinearScan::ComputeOperandDstCount(GenTree* operand) const
            operand->TypeIs(TYP_VOID));
 
     return 0;
+}
+
+unsigned LinearScan::GetRegisterDstCount(GenTree* node) const
+{
+    assert(!node->isContained());
+    return node->IsMultiRegNode() ? node->GetMultiRegCount(compiler) : node->IsValue();
 }
 
 // Computes the number of registers available as sources for a node.
@@ -1198,7 +1204,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
     tree->ClearRegSpillSet();
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (compiler->verbose)
     {
         dumpDefList();
         compiler->gtDispLIRNode(tree);
@@ -1263,7 +1269,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
         ((nodeDefCount == 1) && tree->OperIs(GT_LCL_STORE) && tree->AsLclStore()->GetLcl()->IsRegCandidate()) ||
         // A reg candidate load is a value so GetRegisterDstCount returns 1, but it does not define a new register.
         ((nodeDefCount == 0) && tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate()) ||
-        (nodeDefCount == tree->GetRegisterDstCount(compiler)));
+        (nodeDefCount == GetRegisterDstCount(tree)));
 
     assert((nodeUseCount == 0) || (ComputeAvailableSrcCount(tree) == nodeUseCount));
 

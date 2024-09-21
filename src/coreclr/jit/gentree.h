@@ -853,7 +853,7 @@ public:
     bool CanBeContained() const
     {
         return ((OperKind() & GTK_NOCONTAIN) == 0) && (!OperIsHWIntrinsic() || isContainableHWIntrinsic()) &&
-               IsValue() && !IsUnusedValue() && !gtHasReg();
+               IsValue() && !IsUnusedValue() && !HasRegs();
     }
 #endif
 
@@ -987,12 +987,6 @@ public:
         m_defRegs[i] = REG_NA;
         INDEBUG(gtDebugFlags &= ~static_cast<GenTreeDebugFlags>(GTF_DEBUG_HAS_REG_0 << i););
     }
-
-#ifdef DEBUG
-    bool gtHasReg() const;
-
-    unsigned GetRegisterDstCount(Compiler* compiler) const;
-#endif
 
     bool IsRegSpill(unsigned i) const
     {

@@ -423,51 +423,6 @@ void GenTree::DumpNodeSizes(FILE* fp)
 
 #endif // MEASURE_NODE_SIZE
 
-#ifdef DEBUG
-bool GenTree::gtHasReg() const
-{
-    if (IsMultiRegCall())
-    {
-        for (unsigned i = 0, count = AsCall()->GetRegCount(); i < count; ++i)
-        {
-            if (GetRegNum(i) == REG_NA)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    if (IsCopyOrReloadOfMultiRegCall())
-    {
-        for (unsigned i = 0, count = AsCopyOrReload()->GetOp(0)->AsCall()->GetRegCount(); i < count; ++i)
-        {
-            if (GetRegNum(i) != REG_NA)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    return GetRegNum() != REG_NA;
-}
-
-unsigned GenTree::GetRegisterDstCount(Compiler* compiler) const
-{
-    assert(!isContained());
-
-    if (IsMultiRegNode())
-    {
-        return GetMultiRegCount(compiler);
-    }
-
-    return IsValue() ? 1 : 0;
-}
-#endif // DEBUG
-
 void GenTreeFieldList::AddField(Compiler* compiler, GenTree* node, unsigned offset, var_types type)
 {
     m_uses.AddUse(new (compiler, CMK_ASTNode) Use(node, offset, type));
@@ -4948,7 +4903,7 @@ DONE:
     copy->CopyCosts(tree);
 
     // We don't expect to clone trees after register allocation.
-    assert(!tree->HasRegs() || (tree->GetRegNum() == REG_NA));
+    assert(!tree->HasRegs());
 
     JITDUMP("Cloned [%06u] to [%06u]\n", tree->GetID(), copy->GetID());
 
@@ -6339,7 +6294,7 @@ void Compiler::dmpNodeRegs(GenTree* node)
         prefix = ":";
     }
 
-    if (!node->isContained() && !node->TypeIs(TYP_VOID) && node->gtHasReg())
+    if (node->HasRegs())
     {
         unsigned count = 1;
 
