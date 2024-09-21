@@ -8385,7 +8385,7 @@ void LinearScan::lsraGetOperandString(GenTree* node, LsraTupleDumpMode mode, cha
     {
         _snprintf_s(buffer, bufferSize, bufferSize, "t%d%s", node->GetID(), lastUseChar);
     }
-    else if (!node->gtHasReg())
+    else if (!node->HasRegs())
     {
         _snprintf_s(buffer, bufferSize, bufferSize, "STK%s", lastUseChar);
     }
@@ -8415,7 +8415,7 @@ void LinearScan::lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const
             spillChar = 'S';
         }
 
-        if (!hasDest && node->gtHasReg())
+        if (!hasDest && node->HasRegs())
         {
             // A node can define a register, but not produce a value for a parent to consume,
             // i.e. in the "localDefUse" case.

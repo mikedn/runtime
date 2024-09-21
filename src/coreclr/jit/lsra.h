@@ -662,6 +662,7 @@ private:
 
 #ifdef DEBUG
     void checkLastUses(BasicBlock* block);
+    unsigned GetRegisterDstCount(GenTree* node) const;
     unsigned ComputeOperandDstCount(GenTree* operand) const;
     unsigned ComputeAvailableSrcCount(GenTree* node) const;
 #endif
