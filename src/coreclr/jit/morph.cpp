@@ -2119,7 +2119,19 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifndef TARGET_X86
     if (call->IsVirtualStub())
     {
-        GenTree* stubAddrArg = fgGetStubAddrArg(call);
+        GenTree* stubAddrArg;
+
+        if (call->IsIndirectCall())
+        {
+            stubAddrArg = gtClone(call->gtCallAddr, true);
+        }
+        else
+        {
+            assert((call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT) != 0);
+            stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+            stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
+        }
+
         gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
 
         nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
@@ -2130,14 +2142,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
     {
         assert(!call->IsUnmanaged());
+        GenTree* cookie = call->gtCallCookie;
+        assert(cookie->IsIntCon() || (cookie->OperIs(GT_IND_LOAD) && cookie->AsIndLoad()->GetAddr()->IsIntCon()));
 
 #ifdef TARGET_X86
-        gtAppendNewCallArg(call->gtCallArgs, call->gtCallCookie);
+        gtAppendNewCallArg(call->gtCallArgs, cookie);
 #else
-        gtPrependNewCallArg(call->gtCallArgs, call->gtCallCookie);
+        gtPrependNewCallArg(call->gtCallArgs, cookie);
 #endif
 
-        nonStandardArgs.Add(call->gtCallCookie, REG_PINVOKE_COOKIE_PARAM);
+        nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
         numArgs++;
 
         GenTree* target = gtClone(call->gtCallAddr, true);
@@ -7245,26 +7259,6 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     JITDUMPTREE(call, "fgMorphTailCallViaJitHelper (after):\n");
 }
 #endif // TARGET_X86
-
-#ifndef TARGET_X86
-// Return the virtual stub address for the given call.
-// The JIT must place the address of the stub used to load the call target,
-// the "stub indirection cell", in special call argument with special register.
-GenTree* Compiler::fgGetStubAddrArg(GenTreeCall* call)
-{
-    assert(call->IsVirtualStub());
-
-    if (call->IsIndirectCall())
-    {
-        return gtClone(call->gtCallAddr, true);
-    }
-
-    assert(call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT);
-    GenTreeIntCon* stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
-    stubAddrArg->SetDumpHandle(call->GetMethodHandle());
-    return stubAddrArg;
-}
-#endif // !TARGET_X86
 
 //------------------------------------------------------------------------------
 // fgMorphRecursiveFastTailCallIntoLoop : Transform a recursive fast tail call into a loop.
