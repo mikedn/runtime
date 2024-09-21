@@ -3087,15 +3087,14 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
         jmpKind = EJ_e;
         cmpIns  = INS_test;
     }
-    else if (arrIndex->isContainedIntOrIImmed())
+    else if (arrIndex->IsContainedIntCon())
     {
+        assert(!arrLen->IsContainedIntCon());
+
         // arrIndex is a contained constant.  In this case
         // we will generate one of the following
         //      cmp [mem], immed    (if arrLen is a memory op)
         //      cmp reg, immed      (if arrLen is in a reg)
-        //
-        // That is arrLen cannot be a contained immed.
-        assert(!arrLen->isContainedIntOrIImmed());
 
         src1    = arrLen;
         src2    = arrIndex;
