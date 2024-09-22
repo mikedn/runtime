@@ -1453,7 +1453,7 @@ void Importer::impImportDup()
     {
         if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
         {
-            op2 = gtClone(op1, true);
+            op2 = comp->gtCloneSimple(op1);
         }
     }
 
@@ -1794,16 +1794,16 @@ void Importer::impMakeMultiUse(GenTree*  tree,
     assert(!varTypeIsStruct(tree->GetType()));
     assert(useCount > 1);
 
-    if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
+    if (!tree->HasAnySideEffect(GTF_GLOB_EFFECT))
     {
         uses[0] = tree;
-        uses[1] = gtClone(tree, true);
+        uses[1] = comp->gtCloneComplex(tree);
 
         if (uses[1] != nullptr)
         {
             for (unsigned i = 2; i < useCount; i++)
             {
-                uses[i] = gtClone(tree, true);
+                uses[i] = comp->gtCloneComplex(tree);
             }
             return;
         }
@@ -1829,16 +1829,16 @@ void Importer::impMakeMultiUse(GenTree*     tree,
     assert(varTypeIsStruct(tree->GetType()) && (layout != nullptr));
     assert(useCount > 1);
 
-    if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
+    if (!tree->HasAnySideEffect(GTF_GLOB_EFFECT))
     {
         uses[0] = tree;
-        uses[1] = gtClone(tree, true);
+        uses[1] = comp->gtCloneComplex(tree);
 
         if (uses[1] != nullptr)
         {
             for (unsigned i = 2; i < useCount; i++)
             {
-                uses[i] = gtClone(tree, true);
+                uses[i] = comp->gtCloneComplex(tree);
             }
             return;
         }
@@ -15600,7 +15600,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         // Get the method table from the boxed object.
                         //
                         GenTree* const thisArg       = call->gtCallThisArg->GetNode();
-                        GenTree* const clonedThisArg = gtClone(thisArg);
+                        GenTree* const clonedThisArg = gtCloneSimple(thisArg);
 
                         if (clonedThisArg == nullptr)
                         {
@@ -17767,11 +17767,6 @@ void Importer::impDevirtualizeCall(GenTreeCall*            call,
 {
     comp->impDevirtualizeCall(call, resolvedToken, method, methodFlags, contextHandle, exactContextHandle, this,
                               isExplicitTailCall, ilOffset);
-}
-
-GenTree* Importer::gtClone(GenTree* tree, bool complexOK)
-{
-    return comp->gtClone(tree, complexOK);
 }
 
 GenTree* Importer::gtCloneExpr(GenTree* tree)

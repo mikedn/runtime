@@ -2371,7 +2371,6 @@ struct Importer
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
-    GenTree* gtClone(GenTree* tree, bool complexOK = false);
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
     GenTree* gtFoldExpr(GenTree* tree);
@@ -3019,7 +3018,8 @@ public:
     //------------------------------------------------------------------------
     // Other GenTree functions
 
-    GenTree* gtClone(GenTree* tree, bool complexOK = false);
+    GenTree* gtCloneSimple(GenTree* tree);
+    GenTree* gtCloneComplex(GenTree* tree);
 
     GenTree* gtCloneExpr(GenTree*         tree,
                          GenTreeFlags     addFlags = GTF_EMPTY,

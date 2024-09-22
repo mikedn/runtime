@@ -4496,7 +4496,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
         }
         else
         {
-            idxArrObjNode = comp->gtClone(arrObjNode);
+            idxArrObjNode = comp->gtCloneSimple(arrObjNode);
             BlockRange().InsertBefore(insertionPoint, idxArrObjNode);
         }
 
@@ -4506,7 +4506,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
         arrMDIdx->gtFlags |= ((idxArrObjNode->gtFlags | indexNode->gtFlags) & GTF_ALL_EFFECT);
         BlockRange().InsertBefore(insertionPoint, arrMDIdx);
 
-        GenTree* offsArrObjNode = comp->gtClone(arrObjNode);
+        GenTree* offsArrObjNode = comp->gtCloneSimple(arrObjNode);
         BlockRange().InsertBefore(insertionPoint, offsArrObjNode);
 
         GenTreeArrOffs* arrOffs = new (comp, GT_ARR_OFFSET)
@@ -4534,7 +4534,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
         scale        = 1;
     }
 
-    GenTree* leaBase = comp->gtClone(arrObjNode);
+    GenTree* leaBase = comp->gtCloneSimple(arrObjNode);
     BlockRange().InsertBefore(insertionPoint, leaBase);
 
     GenTree* leaNode = new (comp, GT_LEA) GenTreeAddrMode(arrElem->TypeGet(), leaBase, leaIndexNode, scale, offset);
