@@ -4438,7 +4438,7 @@ GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
  *  complete job if you can't handle this function failing.
  */
 
-GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
+GenTree* Compiler::gtCloneSimple(GenTree* tree)
 {
     GenTree* copy;
 
@@ -4469,64 +4469,72 @@ GenTree* Compiler::gtClone(GenTree* tree, bool complexOK)
             break;
 
         default:
-            if (!complexOK)
-            {
-                return nullptr;
-            }
-
-            // TODO-MIKE-Review: This should check for IND(FIELD_ADDR) to be 100% equivalent
-            // to old FIELD code but then it looks like this is pointless. The address is
-            // cloned with "complexOK = false" so it's basically limited to a local or const
-            // node. In both cases the FIELD should have had GTF_GLOB_REF and most code that
-            // calls gtClone with "complexOK = true" does so only after checking that "tree"
-            // does not have side effects.
-            if (GenTreeFieldAddr* field = tree->IsFieldAddr())
-            {
-                GenTree* addr = gtClone(field->GetAddr(), false);
-
-                if (addr == nullptr)
-                {
-                    return nullptr;
-                }
-
-                copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(field);
-                copy->AsFieldAddr()->SetAddr(addr);
-            }
-            else if (tree->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD, GT_SUB, GT_OVF_SSUB, GT_OVF_USUB))
-            {
-                GenTree* op1 = tree->AsOp()->GetOp(0);
-                GenTree* op2 = tree->AsOp()->GetOp(1);
-
-                if (op1->OperIsLeaf() && op2->OperIsLeaf())
-                {
-                    op1 = gtClone(op1);
-                    if (op1 == nullptr)
-                    {
-                        return nullptr;
-                    }
-                    op2 = gtClone(op2);
-                    if (op2 == nullptr)
-                    {
-                        return nullptr;
-                    }
-
-                    copy = gtNewOperNode(tree->GetOper(), tree->GetType(), op1, op2);
-                }
-                else
-                {
-                    return nullptr;
-                }
-            }
-            else
-            {
-                return nullptr;
-            }
-
-            break;
+            return nullptr;
     }
 
     copy->gtFlags |= tree->gtFlags;
     INDEBUG(copy->gtDebugFlags |= tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
+    return copy;
+}
+
+GenTree* Compiler::gtCloneComplex(GenTree* tree)
+{
+    GenTree* copy = gtCloneSimple(tree);
+
+    if (copy == nullptr)
+    {
+        // TODO-MIKE-Review: This should check for IND(FIELD_ADDR) to be 100% equivalent
+        // to old FIELD code but then it looks like this is pointless. The address is
+        // cloned with CloneSimple, so it's basically limited to a local or const node.
+        // In both cases the FIELD should have had GTF_GLOB_REF and most code that calls
+        // CloneComplex with "complexOK = true" does so only after checking that "tree"
+        // does not have side effects.
+        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
+        {
+            GenTree* addr = gtCloneSimple(field->GetAddr());
+
+            if (addr == nullptr)
+            {
+                return nullptr;
+            }
+
+            copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(field);
+            copy->AsFieldAddr()->SetAddr(addr);
+        }
+        else if (tree->OperIs(GT_ADD, GT_SUB))
+        {
+            GenTree* op1 = tree->AsOp()->GetOp(0);
+            GenTree* op2 = tree->AsOp()->GetOp(1);
+
+            if (!op1->OperIsLeaf() || !op2->OperIsLeaf())
+            {
+                return nullptr;
+            }
+
+            op1 = gtCloneSimple(op1);
+
+            if (op1 == nullptr)
+            {
+                return nullptr;
+            }
+
+            op2 = gtCloneSimple(op2);
+
+            if (op2 == nullptr)
+            {
+                return nullptr;
+            }
+
+            copy = gtNewOperNode(tree->GetOper(), tree->GetType(), op1, op2);
+        }
+        else
+        {
+            return nullptr;
+        }
+
+        copy->gtFlags |= tree->gtFlags;
+        INDEBUG(copy->gtDebugFlags |= tree->gtDebugFlags & ~GTF_DEBUG_NODE_MASK);
+    }
 
     return copy;
 }
@@ -9264,7 +9272,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     if (thisVal->IsIntegralConst())
     {
-        thisValOpt = gtClone(thisVal);
+        thisValOpt = gtCloneSimple(thisVal);
         assert(thisValOpt != nullptr);
     }
     else
@@ -9277,9 +9285,9 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     if (flagVal->IsIntegralConst())
     {
-        flagValOpt = gtClone(flagVal);
+        flagValOpt = gtCloneSimple(flagVal);
         assert(flagValOpt != nullptr);
-        flagValOptCopy = gtClone(flagVal);
+        flagValOptCopy = gtCloneSimple(flagVal);
         assert(flagValOptCopy != nullptr);
     }
     else

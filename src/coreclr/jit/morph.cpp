@@ -1969,7 +1969,7 @@ GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
 
     if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        return gtClone(tree);
+        return gtCloneSimple(tree);
     }
     else
     {
@@ -2096,7 +2096,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // is bad for CQ, especially on ARM where we don't have memory operands.
         if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            arg = gtClone(arg, true);
+            arg = gtCloneSimple(arg);
         }
         else
         {
@@ -2123,7 +2123,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (call->IsIndirectCall())
         {
-            stubAddrArg = gtClone(call->gtCallAddr, true);
+            stubAddrArg = gtCloneComplex(call->gtCallAddr);
         }
         else
         {
@@ -2154,7 +2154,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
         numArgs++;
 
-        GenTree* target = gtClone(call->gtCallAddr, true);
+        GenTree* target = gtCloneComplex(call->gtCallAddr);
         gtPrependNewCallArg(call->gtCallArgs, target);
         call->gtCallCookie  = nullptr;
         call->gtCallType    = CT_HELPER;
@@ -6656,13 +6656,12 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     {
         JITDUMP("Moving this pointer into arg list\n");
         GenTree* objp       = call->gtCallThisArg->GetNode();
-        GenTree* thisPtr    = nullptr;
         call->gtCallThisArg = nullptr;
 
         // JIT will need one or two copies of "this" in the following cases:
         //   1) the call needs null check;
         //   2) StoreArgs stub needs the target function pointer address and if the call is virtual
-        //      the stub also needs "this" in order to evalute the target.
+        //      the stub also needs "this" in order to evaluate the target.
 
         const bool callNeedsNullCheck = call->NeedsNullCheck();
         const bool stubNeedsThisPtr   = stubNeedsTargetFnPtr && virtualCall;
@@ -6672,12 +6671,14 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         // where a virtual tail call would require null check. In case, if the conditions
         // are mutually exclusive the following could be simplified.
 
+        GenTree* thisPtr = nullptr;
+
         if (callNeedsNullCheck || stubNeedsThisPtr)
         {
             // Clone "this" if "this" has no side effects.
-            if ((objp->gtFlags & GTF_SIDE_EFFECT) == 0)
+            if (!objp->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
-                thisPtr = gtClone(objp, true);
+                thisPtr = gtCloneComplex(objp);
             }
 
             // Create a temp and spill "this" to the temp if "this" has side effects or "this" was too complex to clone.
@@ -6712,7 +6713,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 
                     if (stubNeedsThisPtr)
                     {
-                        thisPtrStubArg = gtClone(objp, true);
+                        thisPtrStubArg = gtCloneComplex(objp);
                     }
                 }
                 else
@@ -6884,7 +6885,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
 
         if (!origCall->TypeIs(TYP_VOID))
         {
-            retVal = gtClone(retBufArg);
+            retVal = gtCloneSimple(retBufArg);
         }
     }
     else if (!origCall->TypeIs(TYP_VOID))
@@ -6997,9 +6998,9 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
     auto cloneTree = [&](GenTree** use DEBUGARG(const char* reason)) -> GenTree* {
         GenTree* tree = *use;
 
-        if ((tree->gtFlags & GTF_GLOB_EFFECT) == 0)
+        if (!tree->HasAnySideEffect(GTF_GLOB_EFFECT))
         {
-            GenTree* clone = gtClone(tree, true);
+            GenTree* clone = gtCloneComplex(tree);
 
             if (clone != nullptr)
             {
@@ -7126,7 +7127,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
         GenTree* newThisArg = nullptr;
 
-        // TODO-MIKE-Review: Not adding a temp if `this` is LCL_VAR is dubious, what if some
+        // TODO-MIKE-Review: Not adding a temp if `this` is LCL_LOAD is dubious, what if some
         // other argument expression modifies it?
         if ((call->IsDelegateInvoke() || call->IsVirtualVtable()) && !thisArg->OperIs(GT_LCL_LOAD))
         {
@@ -7152,9 +7153,9 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
         if (call->NeedsNullCheck())
         {
-            if ((newThisArg == nullptr) && ((thisArg->gtFlags & GTF_SIDE_EFFECT) == 0))
+            if ((newThisArg == nullptr) && !thisArg->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
-                newThisArg = gtClone(thisArg, true);
+                newThisArg = gtCloneComplex(thisArg);
             }
 
             if (newThisArg == nullptr)
@@ -7171,7 +7172,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
             }
             else
             {
-                newThisArg = gtNewCommaNode(gtNewNullCheck(newThisArg), gtClone(thisArg, true));
+                newThisArg = gtNewCommaNode(gtNewNullCheck(newThisArg), gtCloneComplex(thisArg));
             }
 
             call->gtFlags &= ~GTF_CALL_NULLCHECK;
@@ -7821,7 +7822,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     // fgMorphArgs must enforce this invariant by creating a temp
     // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) may be bad for CQ.
     noway_assert(thisPtr->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    thisPtr = gtClone(thisPtr, true);
+    thisPtr = gtCloneSimple(thisPtr);
     assert(thisPtr != nullptr);
 
     unsigned vtabOffsOfIndirection;
