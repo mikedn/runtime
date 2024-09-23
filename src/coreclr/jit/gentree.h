@@ -3951,20 +3951,14 @@ public:
 #endif
 
 #if DEBUGGABLE_GENTREE
-    GenTreeFieldAddr() : GenTreeUnOp()
-    {
-    }
+    GenTreeFieldAddr() = default;
 #endif
 };
 
-// gtCall   -- method call      (GT_CALL)
 enum class InlineObservation;
 
-//------------------------------------------------------------------------
-// GenTreeCallFlags: a bitmask of flags for GenTreeCall stored in gtCallMoreFlags.
-//
 // clang-format off
-enum GenTreeCallFlags : unsigned int
+enum GenTreeCallFlags : unsigned
 {
     GTF_CALL_M_EMPTY                   = 0,
 
@@ -4015,35 +4009,33 @@ enum GenTreeCallFlags : unsigned int
     GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x02000000, // this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
     GTF_CALL_M_STRESS_TAILCALL         = 0x04000000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
     GTF_CALL_M_EXPANDED_EARLY          = 0x08000000, // the Virtual Call target address is expanded and placed in gtControlExpr in Morph rather than in Lower
-
 };
-
-inline constexpr GenTreeCallFlags operator ~(GenTreeCallFlags a)
-{
-    return (GenTreeCallFlags)(~(unsigned int)a);
-}
-
-inline constexpr GenTreeCallFlags operator |(GenTreeCallFlags a, GenTreeCallFlags b)
-{
-    return (GenTreeCallFlags)((unsigned int)a | (unsigned int)b);
-}
-
-inline constexpr GenTreeCallFlags operator &(GenTreeCallFlags a, GenTreeCallFlags b)
-{
-    return (GenTreeCallFlags)((unsigned int)a & (unsigned int)b);
-}
-
-inline GenTreeCallFlags& operator |=(GenTreeCallFlags& a, GenTreeCallFlags b)
-{
-    return a = (GenTreeCallFlags)((unsigned int)a | (unsigned int)b);
-}
-
-inline GenTreeCallFlags& operator &=(GenTreeCallFlags& a, GenTreeCallFlags b)
-{
-    return a = (GenTreeCallFlags)((unsigned int)a & (unsigned int)b);
-}
-
 // clang-format on
+
+constexpr GenTreeCallFlags operator~(GenTreeCallFlags a)
+{
+    return static_cast<GenTreeCallFlags>(~static_cast<unsigned>(a));
+}
+
+constexpr GenTreeCallFlags operator|(GenTreeCallFlags a, GenTreeCallFlags b)
+{
+    return static_cast<GenTreeCallFlags>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
+}
+
+constexpr GenTreeCallFlags operator&(GenTreeCallFlags a, GenTreeCallFlags b)
+{
+    return static_cast<GenTreeCallFlags>(static_cast<unsigned>(a) & static_cast<unsigned>(b));
+}
+
+constexpr GenTreeCallFlags& operator|=(GenTreeCallFlags& a, GenTreeCallFlags b)
+{
+    return a = static_cast<GenTreeCallFlags>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
+}
+
+constexpr GenTreeCallFlags& operator&=(GenTreeCallFlags& a, GenTreeCallFlags b)
+{
+    return a = static_cast<GenTreeCallFlags>(static_cast<unsigned>(a) & static_cast<unsigned>(b));
+}
 
 // Return type descriptor of a GT_CALL node.
 enum structPassingKind : uint8_t
@@ -4812,9 +4804,7 @@ public:
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
 #if DEBUGGABLE_GENTREE
-    GenTreeCall() : GenTree()
-    {
-    }
+    GenTreeCall() = default;
 #endif
 };
 

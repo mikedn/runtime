@@ -2013,8 +2013,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
 #endif
 
-    const bool callHasRetBuffArg = call->HasRetBufArg();
-    const bool callIsVararg      = call->IsVarargs();
+    const bool callIsVararg = call->IsVarargs();
 
 #ifdef TARGET_UNIX
     NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
@@ -2219,8 +2218,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // No more register arguments for varargs (CALL_POP_ARGS)
         maxRegArgs = intArgRegNum;
 
-        // Add in the ret buff arg
-        if (callHasRetBuffArg)
+        if (call->HasRetBufArg())
         {
             maxRegArgs++;
         }
@@ -2231,20 +2229,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     {
         noway_assert(intArgRegNum == 0);
 
-        if (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
-        {
-            noway_assert(call->gtCallArgs->GetNode()->TypeIs(TYP_I_IMPL, TYP_BYREF) ||
-                         // the arg was already morphed to a register (fgMorph called twice)
-                         call->gtCallArgs->GetNode()->OperIs(GT_NOP));
-            maxRegArgs = 1;
-        }
-        else
-        {
-            maxRegArgs = 0;
-        }
+        maxRegArgs = (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0 ? 1 : 0;
+
 #ifdef UNIX_X86_ABI
-        // Add in the ret buff arg
-        if (callHasRetBuffArg)
+        if (call->HasRetBufArg())
         {
             maxRegArgs++;
         }

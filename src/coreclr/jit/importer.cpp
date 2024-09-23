@@ -6786,7 +6786,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             if (callInfo->wrapperDelegateInvoke)
             {
-                gtDispTree(call);
                 call->gtCallMoreFlags |= GTF_CALL_M_WRAPPER_DELEGATE_INV;
             }
 
