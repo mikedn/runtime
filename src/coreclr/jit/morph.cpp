@@ -2103,10 +2103,10 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
         numArgs++;
     }
+    else
 #endif // TARGET_ARM
-
 #ifndef TARGET_X86
-    if (call->IsVirtualStub())
+        if (call->IsVirtualStub())
     {
         GenTree* stubAddrArg;
 
@@ -2127,7 +2127,29 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         numArgs++;
     }
     else
-#endif
+#endif // TARGET_X86
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+        if (call->IsR2RRelativeIndir())
+    {
+        // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
+        // for indirection cell address, which ZapIndirectHelperThunk expects.
+
+        assert(call->gtEntryPoint.addr != nullptr);
+
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->gtEntryPoint.addr, HandleKind::MethodAddr);
+        cellAddress->SetDumpHandle(call->GetMethodHandle());
+        // Don't attempt to CSE this constant on ARM32.
+        // This constant has specific register requirements, and LSRA doesn't
+        // currently correctly handle them when the value is in a CSE'd local.
+        ARM_ONLY(cellAddress->SetDoNotCSE());
+
+        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
+
+        nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
+        numArgs++;
+    }
+    else
+#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
         if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
     {
         assert(!call->IsUnmanaged());
@@ -2152,28 +2174,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
         numArgs++;
     }
-
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    if (call->IsR2RRelativeIndir())
-    {
-        // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
-        // for indirection cell address, which ZapIndirectHelperThunk expects.
-
-        assert(call->gtEntryPoint.addr != nullptr);
-
-        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->gtEntryPoint.addr, HandleKind::MethodAddr);
-        cellAddress->SetDumpHandle(call->GetMethodHandle());
-        // Don't attempt to CSE this constant on ARM32.
-        // This constant has specific register requirements, and LSRA doesn't
-        // currently correctly handle them when the value is in a CSE'd local.
-        ARM_ONLY(cellAddress->SetDoNotCSE());
-
-        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
-
-        nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
-        numArgs++;
-    }
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
 
     call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
 
