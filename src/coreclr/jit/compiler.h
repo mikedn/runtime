@@ -6718,7 +6718,7 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
 
-            if ((call->gtControlExpr != nullptr))
+            if (call->gtControlExpr != nullptr)
             {
                 visitor(call->gtControlExpr);
             }

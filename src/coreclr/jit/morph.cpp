@@ -1178,40 +1178,30 @@ void CallInfo::Dump() const
 #endif
 
 CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
-{
-    argCount    = 0; // filled in arg count, starts at zero
-    nextSlotNum = INIT_ARG_STACK_SLOT;
-#if defined(UNIX_X86_ABI)
-    alignmentDone = false;
-    stkSizeBytes  = 0;
-    padStkAlign   = 0;
+    : argTable(numArgs == 0 ? nullptr : new (comp, CMK_CallInfo) CallArgInfo*[numArgs])
+#ifdef DEBUG
+    , argTableSize(numArgs)
 #endif
-
-    INDEBUG(argTableSize = numArgs;) // the allocated table size
-
-    hasRegArgs   = false;
-    argsComplete = false;
-
-    if (numArgs == 0)
-    {
-        argTable = nullptr;
-    }
-    else
-    {
-        argTable = new (comp, CMK_CallInfo) CallArgInfo*[numArgs];
-    }
+    , argCount(0)
+    , nextSlotNum(INIT_ARG_STACK_SLOT)
+#if defined(UNIX_X86_ABI)
+    , stkSizeBytes(0)
+    , padStkAlign(0)
+    , alignmentDone(false)
+#endif
+    , hasRegArgs(false)
+    , argsComplete(false)
+{
 }
 
-//------------------------------------------------------------------------------
+// CallInfo "copy constructor"
 //
-//  CallInfo "copy constructor"
-//
-//  This method needs to act like a copy constructor for CallInfo.
-//  The newCall needs to have its CallInfo initialized such that
-//  we have newCall that is an exact copy of the oldCall.
-//  We have to take care since the argument information
-//  in the argTable contains pointers that must point to the
-//  new arguments and not the old arguments.
+// This method needs to act like a copy constructor for CallInfo.
+// The newCall needs to have its CallInfo initialized such that
+// we have newCall that is an exact copy of the oldCall.
+// We have to take care since the argument information
+// in the argTable contains pointers that must point to the
+// new arguments and not the old arguments.
 //
 CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
 {
@@ -2211,7 +2201,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_X86
     unsigned maxRegArgs = MAX_REG_ARG; // X86: non-const, must be calculated
 
-#ifndef UNIX_X86_ABI
+#ifdef TARGET_WINDOWS
     if (call->CallerPop())
     {
         noway_assert(intArgRegNum < MAX_REG_ARG);
@@ -2223,7 +2213,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             maxRegArgs++;
         }
     }
-#endif // UNIX_X86_ABI
+#endif
 
     if (call->IsUnmanaged())
     {
@@ -2241,7 +2231,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif // TARGET_X86
 
 #ifdef TARGET_ARM
-
     // The ARM ABI has a concept of back-filling of floating-point argument registers, according
     // to the "Procedure Call Standard for the ARM Architecture" document, especially
     // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
@@ -6766,14 +6755,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
             target = getVirtMethodPointerTree(thisPtrStubArg, call->tailCallInfo->GetToken(), &callInfo);
         }
 
-        // Insert target as last arg
-        GenTreeCall::Use** newArgSlot = &call->gtCallArgs;
-        while (*newArgSlot != nullptr)
-        {
-            newArgSlot = &(*newArgSlot)->NextRef();
-        }
-
-        *newArgSlot = gtNewCallArgs(target);
+        gtAppendNewCallArg(call->gtCallArgs, target);
 
         call->fgArgInfo = nullptr;
     }
@@ -12727,18 +12709,11 @@ DONE:
     return tree;
 }
 
-/*****************************************************************************
- *
- *  This function is called to complete the morphing of a tree node
- *  It should only be called once for each node.
- *  If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
- *  to enforce the invariant that each node is only morphed once.
- *
- */
-
-void Compiler::fgMorphTreeDone(GenTree* tree,
-                               GenTree* oldTree /* == NULL */
-                               DEBUGARG(int morphNum))
+// This function is called to complete the morphing of a tree node
+// It should only be called once for each node.
+// If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
+// to enforce the invariant that each node is only morphed once.
+void Compiler::fgMorphTreeDone(GenTree* tree, GenTree* oldTree DEBUGARG(int morphNum))
 {
 #ifdef DEBUG
     if (verbose && JitConfig.TreesBeforeAfterMorph())
@@ -12754,6 +12729,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         return;
     }
 
+#ifdef DEBUG
     // The way global morph tries to prevent double/lack of morphing of a node
     // is rather convoluted. The overall idea is that fgMorphTree is called on
     // `tree` and:
@@ -12803,8 +12779,11 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
     }
 
+    tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
+#endif // DEBUG
+
 #if LOCAL_ASSERTION_PROP
-    if (!tree->OperIsConst() && (morphAssertionTable != nullptr))
+    if (!tree->IsNumericConst() && (morphAssertionTable != nullptr))
     {
         if (morphAssertionCount != 0)
         {
@@ -12817,8 +12796,6 @@ void Compiler::fgMorphTreeDone(GenTree* tree,
         morphAssertionGenerate(tree);
     }
 #endif // LOCAL_ASSERTION_PROP
-
-    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 }
 
 // Check and fold blocks of type BBJ_COND and BBJ_SWITCH on constants
