@@ -2833,19 +2833,10 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
 {
     assert((call->GetInfo() != nullptr) && !call->GetInfo()->AreArgsComplete());
 
-    JITDUMP("Morphing call [%06u] args\n", call->GetID());
+    JITDUMP("Setting up call [%06u] args\n", call->GetID());
 
     GenTreeFlags argsSideEffects = GTF_NONE;
-    unsigned     argNum          = 0;
-
-    if (call->gtCallThisArg != nullptr)
-    {
-        GenTree* arg = call->gtCallThisArg->GetNode();
-        arg          = fgMorphTree(arg);
-        call->gtCallThisArg->SetNode(arg);
-        argsSideEffects |= arg->gtFlags;
-        argNum++;
-    }
+    unsigned     argNum          = call->gtCallThisArg != nullptr;
 
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
@@ -2857,19 +2848,9 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     for (GenTreeCall::Use *argUse = call->gtCallArgs; argUse != nullptr; argUse = argUse->GetNext(), argNum++)
     {
         CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum);
+        GenTree*     arg     = argUse->GetNode();
 
-        GenTree* arg = argUse->GetNode();
-        arg          = fgMorphTree(arg);
-        argUse->SetNode(arg);
-
-        if (argInfo->HasLateUse())
-        {
-            assert(arg->OperIs(GT_ARGPLACE, GT_LCL_DEF, GT_LCL_STORE, GT_LCL_STORE_FLD) ||
-                   (arg->OperIs(GT_COMMA) && arg->TypeIs(TYP_VOID)));
-
-            argsSideEffects |= arg->gtFlags;
-            continue;
-        }
+        assert(!argInfo->HasLateUse());
 
         bool paramIsStruct = typIsLayoutNum(argUse->GetSigTypeNum());
 
@@ -2905,7 +2886,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
                 arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
                 argUse->SetNode(arg);
             }
-#endif // (defined(TARGET_ARM64) && defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+#endif // defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
 
             bool argMatchesRegType =
                 (argInfo->GetRegCount() == 0) ||
@@ -2915,7 +2896,6 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
                 (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
             assert(argMatchesRegType);
 
-            argsSideEffects |= arg->gtFlags;
             continue;
         }
 
@@ -2926,12 +2906,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
 
-        if (argVal->OperIs(GT_FIELD_LIST, GT_ARGPLACE, GT_LCL_DEF, GT_LCL_STORE))
-        {
-            // Skip arguments that have already been transformed.
-            argsSideEffects |= arg->gtFlags;
-            continue;
-        }
+        assert(!argVal->OperIs(GT_FIELD_LIST, GT_ARGPLACE, GT_LCL_DEF, GT_LCL_STORE));
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (argInfo->IsImplicitByRef())
@@ -2965,21 +2940,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     }
 
     call->GetInfo()->ArgsComplete(this, call);
-
-    if (call->IsIndirectCall())
-    {
-        call->gtCallAddr = fgMorphTree(call->gtCallAddr);
-        argsSideEffects |= call->gtCallAddr->gtFlags;
-    }
-
-    call->gtFlags &= ~GTF_ASG;
-
-    if (!call->CallMayThrow(this))
-    {
-        call->gtFlags &= ~GTF_EXCEPT;
-    }
-
-    call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
+    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
 
 #ifdef TARGET_X86
     assert(!requires2ndPass);
@@ -7689,13 +7650,11 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         fgInitArgInfo(call);
     }
 
+    fgMorphArgs(call);
+
     if (!call->GetInfo()->AreArgsComplete())
     {
         fgSetupArgs(call);
-    }
-    else
-    {
-        fgMorphArgs(call);
     }
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
@@ -10075,6 +10034,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
             fgInitArgInfo(call);
+            fgMorphArgs(call);
             fgSetupArgs(call);
 
             return call;
@@ -10137,6 +10097,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
                 GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
+                fgMorphArgs(call);
                 fgSetupArgs(call);
 
                 return call;
