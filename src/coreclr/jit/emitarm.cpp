@@ -4059,15 +4059,15 @@ AGAIN:
 // Returns an encoding for the specified register (any-reg) to be used in a Thumb-1 encoding in the M4 position.
 static unsigned EncodeT1RegM4(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return reg << 3;
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return (reg - REG_FIRST) << 3;
 }
 
 // Returns an encoding for the specified register (any-reg) to be used in a Thumb-1 encoding in the D4 position.
 static unsigned EncodeT1RegD4(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return (reg & 0x7) | ((reg & 0x8) << 4);
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return ((reg - REG_FIRST) & 0x7) | (((reg - REG_FIRST) & 0x8) << 4);
 }
 
 // Returns an encoding for the specified register (low-only) to be used in a Thumb-1 encoding in the M3 position.
@@ -4101,8 +4101,8 @@ static unsigned EncodeT1RegDI(RegNum reg)
 // Returns an encoding for the specified register to be used in a Thumb-2 encoding in the N position.
 static unsigned EncodeT2RegN(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return reg << 16;
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return (reg - REG_FIRST) << 16;
 }
 
 static unsigned floatRegIndex(RegNum reg, int size)
@@ -4155,22 +4155,22 @@ static unsigned EncodeT2VectorRegD(RegNum reg, int size, bool variant)
 // Returns an encoding for the specified register to be used in a Thumb-2 encoding in the T position.
 static unsigned EncodeT2RegT(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return reg << 12;
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return (reg - REG_FIRST) << 12;
 }
 
 // Returns an encoding for the specified register to be used in a Thumb-2 encoding in the D position.
 static unsigned EncodeT2RegD(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return reg << 8;
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return (reg - REG_FIRST) << 8;
 }
 
 // Returns an encoding for the specified register to be used in a Thumb-2 encoding in the M position.
 static unsigned EncodeT2RegM(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return reg;
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return reg - REG_FIRST;
 }
 
 // Returns the encoding for the Set Flags bit to be used in a Thumb-2 encoding.

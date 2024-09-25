@@ -192,7 +192,6 @@
   #define RBM_PINVOKE_SCRATCH      RBM_EAX
 
   // The following defines are useful for iterating a regNumber
-  #define REG_FIRST                REG_EAX
   #define REG_INT_FIRST            REG_EAX
   #define REG_INT_LAST             REG_EDI
   #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)

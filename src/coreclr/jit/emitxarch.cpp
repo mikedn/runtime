@@ -5054,17 +5054,17 @@ static_assert_no_msg((REG_XMM0 & 0x7) == 0);
 // Returns bits to be encoded in instruction for the given register.
 static unsigned RegEncoding(RegNum reg)
 {
-    assert(reg < REG_STK);
-    return static_cast<unsigned>(reg & 0x7);
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
+    return static_cast<unsigned>((reg - REG_FIRST) & 0x7);
 }
 
 static unsigned RegVvvvEncoding(RegNum reg)
 {
-    assert(reg < REG_STK);
+    assert(REG_FIRST <= reg && reg <= REG_LAST);
 #ifdef TARGET_AMD64
-    return static_cast<unsigned>(reg & 0xF);
+    return static_cast<unsigned>((reg - REG_FIRST) & 0xF);
 #else
-    return static_cast<unsigned>(reg & 0x7);
+    return static_cast<unsigned>((reg - REG_FIRST) & 0x7);
 #endif
 }
 
