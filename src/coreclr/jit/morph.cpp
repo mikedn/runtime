@@ -1798,7 +1798,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             JITDUMPTREE(arg, "Arg temp is already created:\n");
 
 #ifdef TARGET_64BIT
-            // fgMorphArgs creates temps only for implicit by-ref args, which makes handling
+            // fgSetupArgs creates temps only for implicit by-ref args, which makes handling
             // this case trivial - the late arg is the address of the created temp local.
 
             assert(argInfo->IsImplicitByRef());
@@ -2552,7 +2552,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_X86
         else if (call->IsTailCallViaJitHelper())
         {
-            // We have already (before calling fgMorphArgs) appended the 4 special args
+            // We have already (before calling fgSetupArgs) appended the 4 special args
             // required by the x86 tailcall helper. These args are required to go on the
             // stack. Force them to the stack here.
             assert(numArgs >= 4);
@@ -2759,6 +2759,52 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 }
 
+void Compiler::fgMorphArgs(GenTreeCall* const call)
+{
+    JITDUMP("Morphing call [%06u] args\n", call->GetID());
+
+    GenTreeFlags argsSideEffects = GTF_NONE;
+
+    if (GenTreeCall::Use* use = call->gtCallThisArg)
+    {
+        use->SetNode(fgMorphTree(use->GetNode()));
+        argsSideEffects |= use->GetNode()->gtFlags;
+    }
+
+    for (GenTreeCall::Use& use : call->Args())
+    {
+        use.SetNode(fgMorphTree(use.GetNode()));
+        argsSideEffects |= use.GetNode()->gtFlags;
+    }
+
+    for (GenTreeCall::Use& use : call->LateArgs())
+    {
+        use.SetNode(fgMorphTree(use.GetNode()));
+        argsSideEffects |= use.GetNode()->gtFlags;
+    }
+
+    if (call->IsIndirectCall())
+    {
+        call->gtCallAddr = fgMorphTree(call->gtCallAddr);
+        argsSideEffects |= call->gtCallAddr->gtFlags;
+
+        if (call->gtCallCookie != nullptr)
+        {
+            call->gtCallCookie = fgMorphTree(call->gtCallCookie);
+            argsSideEffects |= call->gtCallCookie->gtFlags;
+        }
+    }
+
+    call->gtFlags &= ~GTF_ASG;
+
+    if (!call->CallMayThrow(this))
+    {
+        call->gtFlags &= ~GTF_EXCEPT;
+    }
+
+    call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
+}
+
 // Walk and transform (morph) the arguments of a call
 //
 // This method changes the state of the call node. It uses the existence
@@ -2783,9 +2829,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 // otherwise need to be computed into a temp, it is moved to gtCallLateArgs and
 // replaced in the "early" arg list (gtCallArgs) with a placeholder node.
 //
-void Compiler::fgMorphArgs(GenTreeCall* const call)
+void Compiler::fgSetupArgs(GenTreeCall* const call)
 {
-    assert(call->GetInfo() != nullptr);
+    assert((call->GetInfo() != nullptr) && !call->GetInfo()->AreArgsComplete());
 
     JITDUMP("Morphing call [%06u] args\n", call->GetID());
 
@@ -2918,20 +2964,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         argsSideEffects |= argUse->GetNode()->gtFlags;
     }
 
-    if (call->GetInfo()->AreArgsComplete())
-    {
-        assert((call->gtCallLateArgs != nullptr) || !call->GetInfo()->HasRegArgs());
-
-        for (GenTreeCall::Use& use : call->LateArgs())
-        {
-            use.SetNode(fgMorphTree(use.GetNode()));
-            argsSideEffects |= use.GetNode()->gtFlags;
-        }
-    }
-    else
-    {
-        call->GetInfo()->ArgsComplete(this, call);
-    }
+    call->GetInfo()->ArgsComplete(this, call);
 
     if (call->IsIndirectCall())
     {
@@ -2960,7 +2993,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Call [%06u] arg table after fgMorphArgs:\n", call->GetID());
+        printf("Call [%06u] arg table after fgSetupArgs:\n", call->GetID());
         call->fgArgInfo->Dump();
     }
 #endif
@@ -4330,7 +4363,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     // this on ARM32 results in code size improvements. More investigation is required to determine which
     // is better so for now let's keep this as it was.
     //
-    // Speaking of how it was - this code was originally in fgMorphArgs so the temp was introduced before
+    // Speaking of how it was - this code was originally in fgSetupArgs so the temp was introduced before
     // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
     //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
     //      introduce even more temps due to the presence of GTF_ASG.
@@ -4341,7 +4374,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCom
     // call and avoid unnecessary spilling. But it may not be worth the trouble:
     //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
     //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
-    //    - Doing this here instead of fgMorphArgs shows practically no diffs (actually a 8 bytes improvement).
+    //    - Doing this here instead of fgSetupArgs shows practically no diffs (actually a 8 bytes improvement).
     //    - Doing this here minimizes the use of the messy "late" arg mechanism.
 
     GenTree* tempAssign = nullptr;
@@ -5515,10 +5548,10 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 // Exceptions:
 //    If the callee has a 9 to 16 byte struct argument and the callee has
 //    stack arguments, the decision will be to not fast tail call. This is
-//    because before fgMorphArgs is done, the struct is unknown whether it
+//    because before fgSetupArgs is done, the struct is unknown whether it
 //    will be placed on the stack or enregistered. Therefore, the conservative
 //    decision of do not fast tail call is taken. This limitations should be
-//    removed if/when fgMorphArgs no longer depends on fgCanFastTailCall.
+//    removed if/when fgSetupArgs no longer depends on fgCanFastTailCall.
 //
 // Can fast tail call examples (amd64 Unix):
 //
@@ -7103,9 +7136,9 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
         {
             LclVarDsc* lcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call target this temp"));
 
-            // TODO-MIKE-Review: fgMorphArgs freaks out when it sees side effects and adds
+            // TODO-MIKE-Review: fgSetupArgs freaks out when it sees side effects and adds
             // another temp for this argument...
-            // What we probably want is to have fgMorphArgs deal with this.
+            // What we probably want is to have fgSetupArgs deal with this.
             GenTree* store = gtNewLclStore(lcl, thisArg->GetType(), thisArg);
 
             newThisArg = gtNewCommaNode(store, gtNewLclLoad(lcl, thisArg->GetType()));
@@ -7656,7 +7689,14 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
         fgInitArgInfo(call);
     }
 
-    fgMorphArgs(call);
+    if (!call->GetInfo()->AreArgsComplete())
+    {
+        fgSetupArgs(call);
+    }
+    else
+    {
+        fgMorphArgs(call);
+    }
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
@@ -7709,7 +7749,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     GenTree* arr   = call->GetArgNodeByArgNum(0);
     GenTree* index = call->GetArgNodeByArgNum(1);
 
-    // Either or both of the array and index arguments may have been spilled to temps by `fgMorphArgs`. Copy
+    // Either or both of the array and index arguments may have been spilled to temps by `fgSetupArgs`. Copy
     // the spill trees as well if necessary.
     GenTreeOp* argSetup = nullptr;
     for (GenTreeCall::Use& use : call->Args())
@@ -7789,7 +7829,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 
     GenTree* thisPtr = call->GetArgInfoByArgNum(0)->GetNode();
 
-    // fgMorphArgs must enforce this invariant by creating a temp
+    // fgSetupArgs must enforce this invariant by creating a temp
     // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) may be bad for CQ.
     noway_assert(thisPtr->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     thisPtr = gtCloneSimple(thisPtr);
@@ -10035,7 +10075,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
             fgInitArgInfo(call);
-            fgMorphArgs(call);
+            fgSetupArgs(call);
 
             return call;
         }
@@ -10097,7 +10137,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
                 GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
-                fgMorphArgs(call);
+                fgSetupArgs(call);
 
                 return call;
             }

@@ -1278,7 +1278,7 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 #endif
 
-    // Indirect cookie calls gets transformed by fgMorphArgs as indirect call with
+    // Indirect cookie calls gets transformed by fgSetupArgs as indirect call with
     // non-standard args. Hence we should never see this type of call in lower.
     noway_assert(!call->IsIndirectCall() || (call->gtCallCookie == nullptr));
 
@@ -2393,7 +2393,7 @@ void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     // This combination will only be generated for shared generic code and when
     // stub dispatch is active.
 
-    // fgMorphArgs will have created trees to pass the address in VirtualStubParam.reg.
+    // fgSetupArgs will have created trees to pass the address in VirtualStubParam.reg.
     // All we have to do here is add an indirection to generate the actual call target.
 
     GenTreeIndLoad* ind = comp->gtNewIndLoad(TYP_I_IMPL, call->gtCallAddr);

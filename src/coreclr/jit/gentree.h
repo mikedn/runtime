@@ -5127,7 +5127,7 @@ typedef CallArgInfo fgArgTabEntry;
 class CallInfo
 {
     CallArgInfo** argTable;         // variable sized array of per argument descrption: (i.e. argTable[argTableSize])
-    INDEBUG(unsigned argTableSize;) // size of argTable array (equal to the argCount when done with fgMorphArgs)
+    INDEBUG(unsigned argTableSize;) // size of argTable array (equal to the argCount when done with fgSetupArgs)
     unsigned argCount;              // Updatable arg count value
     unsigned nextSlotNum;           // Updatable slot count value
 

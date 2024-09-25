@@ -62,7 +62,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 #endif
     comp->fgMorphBlock = m_block;
     comp->fgInitArgInfo(call);
-    comp->fgMorphArgs(call);
+    comp->fgSetupArgs(call);
 
     if (parents.Size() > 1)
     {
@@ -452,7 +452,7 @@ void Rationalizer::Run()
 
         // Rewrite intrinsics that are not supported by the target back into user calls.
         // This needs to be done before the transition to LIR because it relies on the use
-        // of fgMorphArgs, which is designed to operate on HIR. Once this is done for a
+        // of fgSetupArgs, which is designed to operate on HIR. Once this is done for a
         // particular statement, link that statement's nodes into the current basic block.
         fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
