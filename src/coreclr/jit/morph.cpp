@@ -10088,23 +10088,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_RUNTIMELOOKUP:
             return fgMorphTree(op1);
 
-#ifdef TARGET_ARM
-        case GT_INTRINSIC:
-            if (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round)
-            {
-                assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
-
-                CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
-                GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
-                fgInitArgInfo(call);
-                fgMorphArgs(call);
-                fgSetupArgs(call);
-
-                return call;
-            }
-            break;
-#endif
-
         default:
             break;
     }
@@ -11422,6 +11405,22 @@ DONE_MORPHING_CHILDREN:
                 return tree;
             }
             break;
+
+#ifdef TARGET_ARM
+        case GT_INTRINSIC:
+            if (tree->AsIntrinsic()->GetIntrinsic() == NI_System_Math_Round)
+            {
+                assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+                CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
+                GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
+                fgInitArgInfo(call);
+                fgSetupArgs(call);
+
+                return call;
+            }
+            break;
+#endif
 
         default:
             break;
