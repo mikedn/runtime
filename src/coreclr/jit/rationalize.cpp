@@ -62,7 +62,6 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 #endif
     comp->fgMorphBlock = m_block;
     comp->fgInitArgInfo(call);
-    comp->fgMorphArgs(call);
     comp->fgSetupArgs(call);
 
     if (parents.Size() > 1)
