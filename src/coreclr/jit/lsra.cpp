@@ -5557,9 +5557,12 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     SetLsraAdded(saveLcl);
 
     GenTree* simdNode = compiler->gtNewOperNode(GT_SIMD_UPPER_SPILL, LargeVectorSaveType, saveLcl);
-    simdNode->SetRegNum(spillReg);
     simdNode->ClearRegSpillSet();
     SetLsraAdded(simdNode);
+
+#ifdef TARGET_ARM64
+    simdNode->SetRegNum(spillReg);
+#endif
 
     if (spillToMem)
     {
@@ -5568,6 +5571,9 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     }
     else
     {
+#ifndef TARGET_ARM64
+        simdNode->SetRegNum(spillReg);
+#endif
         assert((genRegMask(spillReg) & RBM_FLT_CALLEE_SAVED) != RBM_NONE);
         upperVectorInterval->physReg = spillReg;
     }
@@ -5629,9 +5635,13 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
         simdNode->SetRegSpilled(0, true);
         assert(refPosition->assignedReg() != REG_NA);
         restoreReg = refPosition->assignedReg();
+        simdNode->SetRegNum(restoreReg);
 #endif
     }
-    simdNode->SetRegNum(restoreReg);
+    else
+    {
+        simdNode->SetRegNum(restoreReg);
+    }
 
     LIR::Range& blockRange = LIR::AsRange(block);
     JITDUMP("Adding UpperVectorRestore ");
