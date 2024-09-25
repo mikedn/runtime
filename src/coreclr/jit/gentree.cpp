@@ -10415,11 +10415,11 @@ INTEGRAL_OVF:
     // involving overflow arithmetic.  During assertion prop, it is possible
     // that the 'arg' could be constant folded and the result could lead to an
     // overflow.  In such a case 'arg' will get replaced with GT_COMMA node
-    // but fgMorphArgs - see the logic around "if(lateArgsComputed)" - doesn't
+    // but fgSetupArgs - see the logic around "if(lateArgsComputed)" - doesn't
     // update args table. For this reason this optimization is enabled only
     // for global morphing phase.
     //
-    // TODO-CQ: Once fgMorphArgs is fixed this restriction could be removed.
+    // TODO-CQ: Once fgSetupArgs is fixed this restriction could be removed.
 
     if (!fgGlobalMorph)
     {

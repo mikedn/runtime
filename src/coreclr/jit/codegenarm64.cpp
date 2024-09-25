@@ -2135,7 +2135,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     // Localloc returns stack space that aligned to STACK_ALIGN bytes. The following
     // are the cases that need to be handled:
     //   i) Method has out-going arg area.
-    //      It is guaranteed that size of out-going arg area is STACK_ALIGN'ed (see fgMorphArgs).
+    //      It is guaranteed that size of out-going arg area is STACK_ALIGN'ed (see fgSetupArgs).
     //      Therefore, we will pop off the out-going arg area from the stack pointer before allocating the localloc
     //      space.
     //  ii) Method has no out-going arg area.

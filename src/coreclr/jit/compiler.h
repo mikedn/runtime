@@ -4510,6 +4510,7 @@ private:
     GenTree* fgMorphGCBitcast(GenTreeUnOp* cast);
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
+    void fgSetupArgs(GenTreeCall* call);
 
     GenTree* fgMorphLclLoad(GenTreeLclLoad* load);
 
