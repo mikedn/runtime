@@ -9,11 +9,19 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
 
-    GenTree*  src     = cast->GetOp(0);
+    GenTree*  src     = fgMorphTree(cast->GetOp(0));
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetType();
 
     assert(varTypeIsIntegral(srcType));
+
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsIntConCommon() && opts.ConstantFold())
+    {
+        return gtFoldExprConst(cast)->AsDblCon();
+    }
 
 #ifdef TARGET_XARCH
     if (cast->OperIs(GT_UTOF) && (srcType == TYP_INT))
@@ -23,6 +31,8 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
         // we have for that - 64 bit CVTSI2SD on x64 and the LNG2DBL helper on x86.
 
         src = gtNewOperNode(GT_UXT, TYP_LONG, src);
+        INDEBUG(src->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
         cast->SetOp(0, src);
         cast->SetOper(GT_STOF);
         srcType = TYP_LONG;
@@ -32,15 +42,10 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     if (srcType == TYP_LONG)
     {
-        if (src->IsIntConCommon() && opts.ConstantFold())
-        {
-            return gtFoldExprConst(cast)->AsDblCon();
-        }
-
         CorInfoHelpFunc helper = cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
-        GenTreeCall*    call   = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src));
+
+        GenTreeCall* call = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src));
         fgInitArgInfo(call);
-        fgMorphArgs(call);
         fgSetupArgs(call);
         INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
@@ -56,15 +61,6 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
     }
 #endif
 
-    src = fgMorphTree(src);
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (src->IsIntConCommon() && opts.ConstantFold())
-    {
-        return gtFoldExprConst(cast)->AsDblCon();
-    }
-
     return cast;
 }
 
@@ -74,9 +70,26 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
 
     // TODO-MIKE-CQ: INT can be round-tripped through DOUBLE (but not FLOAT) so FTOS(STOF(i)) = i
 
-    GenTree*  src     = cast->GetOp(0);
+    GenTree*  src     = fgMorphTree(cast->GetOp(0));
     var_types srcType = src->GetType();
     var_types dstType = cast->GetType();
+
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsDblCon() && opts.ConstantFold())
+    {
+        GenTree* folded = gtFoldExprConst(cast);
+        assert(folded == cast);
+
+        // NaN and values that overflow the destination integer type are not folded.
+        if (folded->IsIntConCommon())
+        {
+            return folded;
+        }
+
+        assert(folded->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
+    }
 
     CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
 
@@ -107,56 +120,19 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
 
     if (helper != CORINFO_HELP_UNDEF)
     {
-        // TODO-MIKE-Cleanup: We have to constant fold before morphing into a helper call,
-        // since calls are not constant folded. At the same time, we can't morph the source
-        // because call morphing does that too, so we end up with double morphing. But then
-        // we're missing some constant folding opportunities because we haven't yet done
-        // local assertion propagation. Not to mention that this is duplicate code.
-
-        if (src->IsDblCon())
-        {
-            GenTree* folded = gtFoldExprConst(cast);
-            assert(folded == cast);
-
-            // NaN and values that overflow the destination integer type are not folded.
-            if (folded->IsIntConCommon())
-            {
-                return folded;
-            }
-
-            assert(cast->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
-        }
-
         if (src->TypeIs(TYP_FLOAT))
         {
             // All floating point cast helpers work only with DOUBLE.
             src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
+            INDEBUG(src->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
         }
 
         GenTreeCall* call = gtNewHelperCallNode(helper, dstType, gtNewCallArgs(src));
         fgInitArgInfo(call);
-        fgMorphArgs(call);
         fgSetupArgs(call);
         INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
         return call;
-    }
-
-    src = fgMorphTree(src);
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (src->IsDblCon())
-    {
-        GenTree* folded = gtFoldExprConst(cast);
-        assert(folded == cast);
-
-        // NaN and values that overflow the destination integer type are not folded.
-        if (folded->IsIntConCommon())
-        {
-            return folded;
-        }
-
-        assert(folded->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
     }
 
     return cast;
@@ -166,9 +142,12 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
 
-    GenTree* src = cast->GetOp(0);
+    GenTree* src = fgMorphTree(cast->GetOp(0));
 
-    if (src->IsDblCon())
+    cast->SetOp(0, src);
+    cast->SetSideEffects(src->GetSideEffects());
+
+    if (src->IsDblCon() && opts.ConstantFold())
     {
         GenTree* folded = gtFoldExprConst(cast);
         // TODO-MIKE-Cleanup: Currently, gtFoldExprConst does not produce
@@ -204,9 +183,9 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
     GenTreeCall* call = gtNewHelperCallNode(helper, cast->GetType(), gtNewCallArgs(src));
     call->AddSideEffects(GTF_EXCEPT);
     fgInitArgInfo(call);
-    fgMorphArgs(call);
     fgSetupArgs(call);
     INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
     return call;
 }
 
