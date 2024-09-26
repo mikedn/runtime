@@ -38,15 +38,21 @@ GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
         }
 
         CorInfoHelpFunc helper = cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
-        GenTree*        call   = fgMorphTree(gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src)));
+        GenTreeCall*    call   = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src));
+        fgInitArgInfo(call);
+        fgMorphArgs(call);
+        fgSetupArgs(call);
+        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
+        GenTree* result = call;
 
         if (dstType == TYP_FLOAT)
         {
-            call = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
-            INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+            result = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
+            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
         }
 
-        return call;
+        return result;
     }
 #endif
 
@@ -127,7 +133,12 @@ GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
             src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
         }
 
-        return fgMorphTree(gtNewHelperCallNode(helper, dstType, gtNewCallArgs(src)));
+        GenTreeCall* call = gtNewHelperCallNode(helper, dstType, gtNewCallArgs(src));
+        fgInitArgInfo(call);
+        fgMorphArgs(call);
+        fgSetupArgs(call);
+        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+        return call;
     }
 
     src = fgMorphTree(src);
@@ -190,9 +201,13 @@ GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
         helper = cast->TypeIs(TYP_INT) ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
     }
 
-    GenTree* call = gtNewHelperCallNode(helper, cast->GetType(), gtNewCallArgs(src));
+    GenTreeCall* call = gtNewHelperCallNode(helper, cast->GetType(), gtNewCallArgs(src));
     call->AddSideEffects(GTF_EXCEPT);
-    return fgMorphTree(call);
+    fgInitArgInfo(call);
+    fgMorphArgs(call);
+    fgSetupArgs(call);
+    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+    return call;
 }
 
 GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
