@@ -5,190 +5,6 @@
 #include "allocacheck.h"
 #include "valuenum.h"
 
-GenTree* Compiler::fgMorphIntToFloat(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
-
-    GenTree*  src     = fgMorphTree(cast->GetOp(0));
-    var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
-
-    assert(varTypeIsIntegral(srcType));
-
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (src->IsIntConCommon() && opts.ConstantFold())
-    {
-        return gtFoldExprConst(cast)->AsDblCon();
-    }
-
-#ifdef TARGET_XARCH
-    if (cast->OperIs(GT_UTOF) && (srcType == TYP_INT))
-    {
-        // x86/x64 do not have instructions to cast from UINT to floating point,
-        // instead we first convert to LONG and use whatever conversion support
-        // we have for that - 64 bit CVTSI2SD on x64 and the LNG2DBL helper on x86.
-
-        src = gtNewOperNode(GT_UXT, TYP_LONG, src);
-        INDEBUG(src->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-        cast->SetOp(0, src);
-        cast->SetOper(GT_STOF);
-        srcType = TYP_LONG;
-    }
-#endif
-
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    if (srcType == TYP_LONG)
-    {
-        CorInfoHelpFunc helper = cast->OperIs(GT_UTOF) ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
-
-        GenTreeCall* call = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(src));
-        fgInitArgInfo(call);
-        fgSetupArgs(call);
-        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-        GenTree* result = call;
-
-        if (dstType == TYP_FLOAT)
-        {
-            result = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
-            INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        }
-
-        return result;
-    }
-#endif
-
-    return cast;
-}
-
-GenTree* Compiler::fgMorphFloatToInt(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    // TODO-MIKE-CQ: INT can be round-tripped through DOUBLE (but not FLOAT) so FTOS(STOF(i)) = i
-
-    GenTree*  src     = fgMorphTree(cast->GetOp(0));
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
-
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (src->IsDblCon() && opts.ConstantFold())
-    {
-        GenTree* folded = gtFoldExprConst(cast);
-        assert(folded == cast);
-
-        // NaN and values that overflow the destination integer type are not folded.
-        if (folded->IsIntConCommon())
-        {
-            return folded;
-        }
-
-        assert(folded->OperIs(GT_FTOS, GT_FTOU) && (cast->GetOp(0) == src));
-    }
-
-    CorInfoHelpFunc helper = CORINFO_HELP_UNDEF;
-
-    if (cast->OperIs(GT_FTOU))
-    {
-        if (dstType == TYP_INT)
-        {
-#if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
-            helper = CORINFO_HELP_DBL2UINT;
-#endif
-        }
-        else
-        {
-#if !defined(TARGET_ARM64)
-            helper = CORINFO_HELP_DBL2ULNG;
-#endif
-        }
-    }
-    else
-    {
-        if (dstType == TYP_LONG)
-        {
-#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
-            helper = CORINFO_HELP_DBL2LNG;
-#endif
-        }
-    }
-
-    if (helper != CORINFO_HELP_UNDEF)
-    {
-        if (src->TypeIs(TYP_FLOAT))
-        {
-            // All floating point cast helpers work only with DOUBLE.
-            src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
-            INDEBUG(src->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-        }
-
-        GenTreeCall* call = gtNewHelperCallNode(helper, dstType, gtNewCallArgs(src));
-        fgInitArgInfo(call);
-        fgSetupArgs(call);
-        INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-        return call;
-    }
-
-    return cast;
-}
-
-GenTree* Compiler::fgMorphOverflowFloatToInt(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    GenTree* src = fgMorphTree(cast->GetOp(0));
-
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    if (src->IsDblCon() && opts.ConstantFold())
-    {
-        GenTree* folded = gtFoldExprConst(cast);
-        // TODO-MIKE-Cleanup: Currently, gtFoldExprConst does not produce
-        // a throw tree when OVF_FTOS/U constant folding overflows.
-        assert(folded == cast);
-
-        // NaN and values that overflow the destination integer type are not folded.
-        if (folded->IsIntConCommon())
-        {
-            return folded;
-        }
-
-        assert(cast->OperIs(GT_OVF_FTOS, GT_OVF_FTOU) && (cast->GetOp(0) == src));
-    }
-
-    if (src->TypeIs(TYP_FLOAT))
-    {
-        // All floating point cast helpers work only with DOUBLE.
-        src = gtNewOperNode(GT_FXT, TYP_DOUBLE, src);
-    }
-
-    CorInfoHelpFunc helper;
-
-    if (cast->OperIs(GT_OVF_FTOS))
-    {
-        helper = cast->TypeIs(TYP_INT) ? CORINFO_HELP_DBL2INT_OVF : CORINFO_HELP_DBL2LNG_OVF;
-    }
-    else
-    {
-        helper = cast->TypeIs(TYP_INT) ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
-    }
-
-    GenTreeCall* call = gtNewHelperCallNode(helper, cast->GetType(), gtNewCallArgs(src));
-    call->AddSideEffects(GTF_EXCEPT);
-    fgInitArgInfo(call);
-    fgSetupArgs(call);
-    INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-    return call;
-}
-
 GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
@@ -9695,18 +9511,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_TRUNC:
             return fgMorphTruncate(tree->AsUnOp());
 
-        case GT_STOF:
-        case GT_UTOF:
-            return fgMorphIntToFloat(tree->AsUnOp());
-
-        case GT_FTOS:
-        case GT_FTOU:
-            return fgMorphFloatToInt(tree->AsUnOp());
-
-        case GT_OVF_FTOS:
-        case GT_OVF_FTOU:
-            return fgMorphOverflowFloatToInt(tree->AsUnOp());
-
         case GT_MUL:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
@@ -10219,7 +10023,8 @@ DONE_MORPHING_CHILDREN:
     op1  = tree->AsOp()->gtOp1;
     op2  = tree->gtGetOp2IfPresent();
 
-    BasicBlock* currentBlock = fgMorphBlock;
+    BasicBlock*     currentBlock = fgMorphBlock;
+    CorInfoHelpFunc helper       = CORINFO_HELP_UNDEF;
 
     // Perform the required oper-specific postorder morphing
     switch (oper)
@@ -11406,15 +11211,119 @@ DONE_MORPHING_CHILDREN:
             {
                 assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
 
-                CorInfoHelpFunc helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
-                GenTreeCall*    call   = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
+                helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
+
+                GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
                 fgSetupArgs(call);
+                INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
                 return call;
             }
             break;
 #endif
+
+        case GT_UTOF:
+#ifdef TARGET_XARCH
+            if (varActualTypeIsInt(op1->GetType()))
+            {
+                // x86/x64 do not have instructions to cast from UINT to floating point,
+                // instead we first convert to LONG and use whatever conversion support
+                // we have for that - 64 bit CVTSI2SD on x64 and the LNG2DBL helper on x86.
+
+                op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
+                tree->AsUnOp()->SetOp(0, op1);
+                tree->SetOper(GT_STOF);
+                oper = GT_STOF;
+            }
+#endif
+            FALLTHROUGH;
+        case GT_STOF:
+            assert(varActualTypeIsInt(op1->GetType()) || op1->TypeIs(TYP_LONG));
+            assert((typ == TYP_FLOAT) || (typ == TYP_DOUBLE));
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+            if (op1->TypeIs(TYP_LONG))
+            {
+                helper = oper == GT_UTOF ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
+
+                GenTreeCall* call = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(op1));
+                fgInitArgInfo(call);
+                fgSetupArgs(call);
+                INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
+                tree = call;
+
+                if (typ == TYP_FLOAT)
+                {
+                    // All floating point cast helpers work only with DOUBLE.
+                    tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
+                    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                }
+
+                return tree;
+            }
+#endif
+            break;
+
+        case GT_FTOU:
+            assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+
+            if (typ == TYP_INT)
+            {
+#if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
+                helper = CORINFO_HELP_DBL2UINT;
+                goto FTOI_HELPER;
+#endif
+            }
+            else
+            {
+#if !defined(TARGET_ARM64)
+                helper = CORINFO_HELP_DBL2ULNG;
+                goto FTOI_HELPER;
+#endif
+            }
+            break;
+
+        case GT_FTOS:
+            assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+#if !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
+            if (typ == TYP_LONG)
+            {
+                helper = CORINFO_HELP_DBL2LNG;
+                goto FTOI_HELPER;
+            }
+#endif
+            break;
+
+        case GT_OVF_FTOS:
+            assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+            helper = typ == TYP_INT ? CORINFO_HELP_DBL2INT_OVF : CORINFO_HELP_DBL2LNG_OVF;
+            goto FTOI_HELPER;
+        case GT_OVF_FTOU:
+            assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+            helper = typ == TYP_INT ? CORINFO_HELP_DBL2UINT_OVF : CORINFO_HELP_DBL2ULNG_OVF;
+
+        FTOI_HELPER:
+            if (op1->TypeIs(TYP_FLOAT))
+            {
+                // All floating point cast helpers work only with DOUBLE.
+                op1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
+                INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            }
+
+            GenTreeCall* call;
+            call = gtNewHelperCallNode(helper, typ, gtNewCallArgs(op1));
+            fgInitArgInfo(call);
+            fgSetupArgs(call);
+            INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
+            return call;
 
         default:
             break;

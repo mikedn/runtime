@@ -4497,9 +4497,6 @@ private:
     };
 
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
-    GenTree* fgMorphIntToFloat(GenTreeUnOp* cast);
-    GenTree* fgMorphFloatToInt(GenTreeUnOp* cast);
-    GenTree* fgMorphOverflowFloatToInt(GenTreeUnOp* cast);
     GenTree* fgMorphTruncate(GenTreeUnOp* cast);
     GenTree* fgMorphConv(GenTreeUnOp* cast);
     GenTree* fgMorphConvPost(GenTreeUnOp* cast);
