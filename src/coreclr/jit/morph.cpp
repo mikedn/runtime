@@ -5,28 +5,6 @@
 #include "allocacheck.h"
 #include "valuenum.h"
 
-GenTree* Compiler::fgMorphConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
-
-    assert(varTypeIsIntOrI(varActualType(srcType)));
-
-    if (src->OperIs(GT_CONV) && (varTypeSize(srcType) >= varTypeSize(dstType)))
-    {
-        src = src->AsUnOp()->GetOp(0);
-    }
-
-    src = fgMorphTree(src);
-    cast->SetOp(0, src);
-    cast->SetSideEffects(src->GetSideEffects());
-
-    return fgMorphConvPost(cast);
-}
-
 GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
@@ -45,11 +23,6 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
 
             return src;
         }
-    }
-
-    if (src->IsIntConCommon() && opts.ConstantFold())
-    {
-        return gtFoldExprConst(cast)->AsIntCon();
     }
 
     unsigned srcSize = varTypeSize(srcType);
@@ -243,10 +216,6 @@ GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
     assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
 
     GenTree* src = node->GetOp(0);
-
-    src = fgMorphTree(src);
-    node->SetOp(0, src);
-    node->SetSideEffects(src->GetSideEffects() | GTF_EXCEPT);
 
     if (src->TypeIs(TYP_BOOL, TYP_UBYTE, TYP_USHORT))
     {
@@ -9495,18 +9464,15 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_OVF_UTRUNC:
             return fgMorphOverflowTruncate(tree->AsUnOp());
 
-        case GT_OVF_U:
-            return fgMorphOverflowUnsigned(tree->AsUnOp());
-
         case GT_CONV:
-            return fgMorphConv(tree->AsUnOp());
+            assert(varTypeIsSmallInt(typ));
+            assert(varTypeIsIntegral(op1->GetType()));
 
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            op1 = fgMorphTree(op1);
-            tree->AsUnOp()->SetOp(0, op1);
-            tree->SetSideEffects(GTF_EXCEPT | op1->GetSideEffects());
-            return fgMorphOverflowConvPost(tree->AsUnOp());
+            while (op1->OperIs(GT_CONV) && (varTypeSize(op1->GetType()) >= varTypeSize(typ)))
+            {
+                op1 = op1->AsUnOp()->GetOp(0);
+            }
+            break;
 
         case GT_TRUNC:
             return fgMorphTruncate(tree->AsUnOp());
@@ -11204,6 +11170,16 @@ DONE_MORPHING_CHILDREN:
                 return tree;
             }
             break;
+
+        case GT_CONV:
+            return fgMorphConvPost(tree->AsUnOp());
+
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            return fgMorphOverflowConvPost(tree->AsUnOp());
+
+        case GT_OVF_U:
+            return fgMorphOverflowUnsigned(tree->AsUnOp());
 
 #ifdef TARGET_ARM
         case GT_INTRINSIC:
