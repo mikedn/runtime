@@ -4502,7 +4502,6 @@ private:
     GenTree* fgMorphOverflowConvPost(GenTreeUnOp* node);
     GenTree* fgMorphOverflowTruncate(GenTreeUnOp* node);
     GenTree* fgMorphOverflowTruncatePost(GenTreeUnOp* node);
-    GenTree* fgMorphOverflowUnsigned(GenTreeUnOp* node);
     GenTree* fgMorphGCBitcast(GenTreeUnOp* cast);
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
