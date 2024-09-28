@@ -210,76 +210,6 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
     return cast;
 }
 
-GenTree* Compiler::fgMorphOverflowUnsigned(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
-    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
-
-    GenTree* src = node->GetOp(0);
-
-    if (src->TypeIs(TYP_BOOL, TYP_UBYTE, TYP_USHORT))
-    {
-        return src;
-    }
-
-    if (src->OperIs(GT_COMMA) && fgIsCommaThrow(src DEBUGARG(false)))
-    {
-        GenTree* val = src->AsOp()->GetOp(1);
-
-        if (node->TypeIs(TYP_LONG))
-        {
-#ifdef TARGET_64BIT
-            val->ChangeToIntCon(TYP_LONG, 0);
-#else
-            val->ChangeToLngCon(0);
-#endif
-            src->SetType(TYP_LONG);
-
-            if (vnStore != nullptr)
-            {
-                val->SetVNP(ValueNumPair{vnStore->VNForLongCon(0)});
-            }
-        }
-        else
-        {
-            val->ChangeToIntCon(TYP_INT, 0);
-            src->SetType(TYP_INT);
-
-            if (vnStore != nullptr)
-            {
-                val->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-            }
-        }
-
-        return src;
-    }
-
-    if (src->IsIntConCommon())
-    {
-        GenTree* folded = gtFoldExprConst(node);
-
-        if (folded != node)
-        {
-            noway_assert(fgIsCommaThrow(folded DEBUGARG(false)));
-            folded->AsOp()->SetOp(0, fgMorphTree(folded->AsOp()->GetOp(0)));
-            INDEBUG(folded->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-            return folded;
-        }
-
-        if (folded->IsIntConCommon())
-        {
-            return folded;
-        }
-
-        assert(folded->OperIs(GT_OVF_U) && (node->GetOp(0) == src));
-    }
-
-    fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
-
-    return node;
-}
-
 GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
 {
     assert(bitcast->OperIs(GT_BITCAST) && bitcast->TypeIs(TYP_I_IMPL));
@@ -11179,7 +11109,16 @@ DONE_MORPHING_CHILDREN:
             return fgMorphOverflowConvPost(tree->AsUnOp());
 
         case GT_OVF_U:
-            return fgMorphOverflowUnsigned(tree->AsUnOp());
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+            assert(typ == varActualType(op1->GetType()));
+
+            if (op1->TypeIs(TYP_BOOL, TYP_UBYTE, TYP_USHORT))
+            {
+                return op1;
+            }
+
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
+            break;
 
 #ifdef TARGET_ARM
         case GT_INTRINSIC:
