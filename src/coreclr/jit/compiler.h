@@ -4498,10 +4498,9 @@ private:
 
     GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
     GenTree* fgMorphTruncate(GenTreeUnOp* cast);
+    GenTree* fgMorphTruncatePost(GenTreeUnOp* cast);
     GenTree* fgMorphConvPost(GenTreeUnOp* cast);
     GenTree* fgMorphOverflowConvPost(GenTreeUnOp* node);
-    GenTree* fgMorphOverflowTruncate(GenTreeUnOp* node);
-    GenTree* fgMorphOverflowTruncatePost(GenTreeUnOp* node);
     GenTree* fgMorphGCBitcast(GenTreeUnOp* cast);
     void fgInitArgInfo(GenTreeCall* call);
     void fgMorphArgs(GenTreeCall* call);
