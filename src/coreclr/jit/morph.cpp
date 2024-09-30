@@ -50,39 +50,17 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
         return src;
     }
 
-    switch (src->GetOper())
+    if (src->OperIs(GT_CONV))
     {
-        case GT_CONV:
-            if (dstSize <= srcSize)
-            {
-                cast->SetOp(0, src->AsUnOp()->GetOp(0));
-            }
-            break;
-
-        case GT_SXT:
-        case GT_UXT:
-            assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+        if (dstSize <= srcSize)
+        {
             cast->SetOp(0, src->AsUnOp()->GetOp(0));
-            break;
-
-        case GT_COMMA:
-            if (fgIsCommaThrow(src DEBUGARG(false)))
-            {
-                GenTree* value = src->AsOp()->GetOp(1);
-                value->ChangeToIntCon(TYP_INT, 0);
-                src->SetType(TYP_INT);
-
-                if (vnStore != nullptr)
-                {
-                    value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-                }
-
-                return src;
-            }
-            break;
-
-        default:
-            break;
+        }
+    }
+    else if (src->OperIs(GT_SXT, GT_UXT))
+    {
+        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+        cast->SetOp(0, src->AsUnOp()->GetOp(0));
     }
 
     return cast;
@@ -141,43 +119,21 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
         }
     }
 
-    switch (src->GetOper())
+    if (src->OperIs(GT_CONV))
     {
-        case GT_CONV:
-            if (cast->OperIs(GT_CONV) && (dstSize <= srcSize))
-            {
-                cast->SetOp(0, src->AsUnOp()->GetOp(0));
-            }
-            break;
+        if (cast->OperIs(GT_CONV) && (dstSize <= srcSize))
+        {
+            cast->SetOp(0, src->AsUnOp()->GetOp(0));
+        }
+    }
+    else if (src->OperIs(GT_SXT, GT_UXT))
+    {
+        if (cast->OperIs(GT_CONV))
+        {
+            assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
 
-        case GT_SXT:
-        case GT_UXT:
-            if (cast->OperIs(GT_CONV))
-            {
-                assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-
-                cast->SetOp(0, src->AsUnOp()->GetOp(0));
-            }
-            break;
-
-        case GT_COMMA:
-            if (fgIsCommaThrow(src DEBUGARG(false)))
-            {
-                GenTree* value = src->AsOp()->GetOp(1);
-                value->ChangeToIntCon(TYP_INT, 0);
-                src->SetType(TYP_INT);
-
-                if (vnStore != nullptr)
-                {
-                    value->SetVNP(ValueNumPair{vnStore->VNForIntCon(0)});
-                }
-
-                return src;
-            }
-            break;
-
-        default:
-            break;
+            cast->SetOp(0, src->AsUnOp()->GetOp(0));
+        }
     }
 
     if (cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV))
@@ -10989,11 +10945,22 @@ DONE_MORPHING_CHILDREN:
             break;
 
         case GT_CONV:
-            return fgMorphConvPost(tree->AsUnOp());
+            if (GenTree* morphed = fgMorphConvPost(tree->AsUnOp()))
+            {
+                return morphed;
+            }
+            op1 = tree->AsUnOp()->GetOp(0);
+            break;
 
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
-            return fgMorphOverflowConvPost(tree->AsUnOp());
+            if (GenTree* morphed = fgMorphOverflowConvPost(tree->AsUnOp()))
+            {
+                return morphed;
+            }
+            oper = tree->GetOper();
+            op1  = tree->AsUnOp()->GetOp(0);
+            break;
 
         case GT_OVF_U:
             assert((typ == TYP_INT) || (typ == TYP_LONG));
