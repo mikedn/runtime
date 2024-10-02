@@ -183,8 +183,6 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
         shiftAmount          = gtFoldExpr(shiftAmount);
         src->AsOp()->SetOp(1, shiftAmount);
 
-        INDEBUG(shiftAmount->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;)
-
         if (shiftAmount->IsIntCon())
         {
             const ssize_t shiftAmountValue = shiftAmount->AsIntCon()->GetValue();
@@ -195,9 +193,11 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
             }
             else if ((32 <= shiftAmountValue) && (shiftAmountValue < 64))
             {
-                if ((cast->gtFlags & GTF_ALL_EFFECT) == 0)
+                if (!src->HasAnySideEffect(GTF_ALL_EFFECT))
                 {
-                    return fgMorphTree(gtNewIconNode(0, TYP_INT));
+                    GenTree* zero = gtNewIconNode(0, TYP_INT);
+                    INDEBUG(zero->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                    return zero;
                 }
             }
         }
