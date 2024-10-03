@@ -3039,7 +3039,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 
                 if (needZeroExtend)
                 {
-                    var_types type = varTypeToUnsigned(field->GetType());
+                    var_types type = varTypeToUnsigned(fieldLcl->GetType());
 
 #if LOCAL_ASSERTION_PROP
                     if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclLoad(), type))
@@ -4725,7 +4725,10 @@ GenTree* Compiler::fgMorphLclLoad(GenTreeLclLoad* load)
 
     // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
     // be needed for address exposed locals, we could just keep the small int typed
-    // LCL_VAR as it performs implicit widening like LCL_FLD and INT do.
+    // LCL_LOAD as it performs implicit widening like LCL_LOAD_FLD and INT do.
+    // The importer already sets the type of all loads from small int locals to INT,
+    // with the exception of parameter loads, which have the same small type as the
+    // parameter they load from.
     load->SetType(TYP_INT);
     fgMorphTreeDone(load);
 

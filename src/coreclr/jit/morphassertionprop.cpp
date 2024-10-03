@@ -801,10 +801,11 @@ const MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 bool Compiler::morphAssertionIsTypeRange(GenTreeLclLoad* load, var_types type)
 {
     assert(fgGlobalMorph);
+    assert(varTypeIsSmall(type));
 
-    // For now morph only needs this to eliminate some small int casts.
     // TODO-MIKE-Review: Check why BOOL is ignored, it behaves like UBYTE when used with casts.
-    if (!varTypeIsSmallInt(type))
+    // But then we shouldn't get BOOL here, if the caller does the right thing.
+    if (type == TYP_BOOL)
     {
         return false;
     }
