@@ -4757,7 +4757,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 // TODO-MIKE-Cleanup: There's no need to convert INT to small int when doing a
                 // small int store, truncation is implied. But removing this seems to confuse
                 // the box elimination code...
-                value = gtNewOperNode(GT_CONV, varCastType(dstTyp), value);
+                value = gtNewOperNode(GT_CONV, varConvType(dstTyp), value);
             }
             else if (varActualType(srcTyp) != varActualType(dstTyp))
             {
@@ -7108,7 +7108,7 @@ PUSH_CALL:
 
     if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
-        value = gtNewOperNode(GT_CONV, varCastType(callRetTyp), value);
+        value = gtNewOperNode(GT_CONV, varConvType(callRetTyp), value);
     }
 
 PUSH_VALUE:
@@ -10437,24 +10437,24 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewCastNode(op1);
                 }
 
+                var_types fromType;
+                fromType = varActualType(op1->GetType());
+
                 // If this is a no-op cast, just use op1.
                 if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
                 {
                     // Nothing needs to change
                 }
-                else if ((uns ? varTypeToUnsigned(varActualType(op1->GetType())) : varActualType(op1->GetType())) ==
-                         lclTyp)
+                else if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
                 {
                     // Same type conversions have no effect
                 }
-                else if (!ovfl && (varActualType(op1->GetType()) == varCastType(lclTyp)))
+                else if (!ovfl && !varTypeIsSmall(lclTyp) && (fromType == type))
                 {
                     // INT/(U)INT, LONG/(U)LONG conversions have no effect.
                 }
                 else
                 {
-                    var_types fromType = varActualType(op1->GetType());
-
                     if ((lclTyp == TYP_FLOAT) && (fromType == TYP_DOUBLE))
                     {
                         op1 = gtNewOperNode(GT_FTRUNC, lclTyp, op1);
