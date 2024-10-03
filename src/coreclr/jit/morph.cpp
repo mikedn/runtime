@@ -7410,7 +7410,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     return result;
 }
 
-GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
 {
     assert(fgGlobalMorph);
 
@@ -7419,7 +7419,8 @@ GenTree* Compiler::fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBloc
     // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
 
     bool useLazyStrCns = false;
-    if (block->bbJumpKind == BBJ_THROW)
+
+    if (fgMorphBlock->KindIs(BBJ_THROW))
     {
         useLazyStrCns = true;
     }
@@ -12141,11 +12142,6 @@ void Compiler::fgMorphClearDebugNodeMorphed(GenTree* tree)
 }
 #endif
 
-/*****************************************************************************
- *
- *  Transform the given tree for code generation and return an equivalent tree.
- */
-
 GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 {
     assert(tree != nullptr);
@@ -12159,19 +12155,16 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             noway_assert(!"JitBreakMorphTree hit");
         }
     }
-#endif
 
-#ifdef DEBUG
     int thisMorphNum = 0;
+
     if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         thisMorphNum = morphNum++;
         printf("\nfgMorphTree (before %d):\n", thisMorphNum);
         gtDispTree(tree);
     }
-#endif
 
-#ifdef DEBUG
     // fgMorphTree() can potentially replace a tree with another, and the
     // caller has to store the return value correctly.
     // Turn this on to always make copy of "tree" here to shake out
@@ -12223,7 +12216,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             mac = nullptr;
         }
 
-        /* Ensure that we haven't morphed this node already */
         assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
 
 #if LOCAL_ASSERTION_PROP
@@ -12234,10 +12226,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 #endif
     }
 
-    // Save the original un-morphed tree for fgMorphTreeDone.
-    GenTree*    oldTree      = tree;
-    BasicBlock* currentBlock = fgMorphBlock;
-
+    INDEBUG(GenTree* oldTree = tree);
     unsigned kind = tree->OperKind();
 
     if (kind & GTK_LEAF)
@@ -12250,7 +12239,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else if (GenTreeStrCon* str = tree->IsStrCon())
         {
-            tree = fgMorphTree(fgMorphStrCon(str, fgGlobalMorphStmt, currentBlock));
+            tree = fgMorphTree(fgMorphStrCon(str, fgGlobalMorphStmt));
         }
         else
         {
@@ -12263,6 +12252,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
     if (kind & GTK_SMPOP)
     {
         tree = fgMorphSmpOp(tree, mac);
+
         goto DONE;
     }
 
@@ -12275,54 +12265,34 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         case GT_CALL:
             if (tree->CallMayThrow(this))
             {
-                tree->gtFlags |= GTF_EXCEPT;
+                tree->AddSideEffects(GTF_EXCEPT);
             }
             else
             {
-                tree->gtFlags &= ~GTF_EXCEPT;
+                tree->RemoveSideEffects(GTF_EXCEPT);
             }
             tree = fgMorphCall(tree->AsCall(), fgGlobalMorphStmt);
             break;
 
         case GT_ARR_ELEM:
-            tree->AsArrElem()->gtArrObj = fgMorphTree(tree->AsArrElem()->gtArrObj);
-
-            unsigned dim;
-            for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
-            {
-                tree->AsArrElem()->gtArrInds[dim] = fgMorphTree(tree->AsArrElem()->gtArrInds[dim]);
-            }
-
-            tree->gtFlags &= ~GTF_CALL;
-
-            tree->gtFlags |= tree->AsArrElem()->gtArrObj->gtFlags & GTF_ALL_EFFECT;
-
-            for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
-            {
-                tree->gtFlags |= tree->AsArrElem()->gtArrInds[dim]->gtFlags & GTF_ALL_EFFECT;
-            }
-
-            if (fgGlobalMorph)
-            {
-                fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock);
-            }
+            fgMorphArrElem(tree->AsArrElem());
             break;
 
         case GT_PHI:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
+            assert(!tree->HasAnySideEffect(GTF_ALL_EFFECT));
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 use.SetNode(use.GetNode());
-                tree->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
+                assert(!use.GetNode()->HasAnySideEffect(GTF_ALL_EFFECT));
             }
             break;
 
         case GT_FIELD_LIST:
-            tree->gtFlags &= ~GTF_ALL_EFFECT;
+            tree->RemoveSideEffects(GTF_ALL_EFFECT);
             for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
             {
                 use.SetNode(fgMorphTree(use.GetNode()));
-                tree->gtFlags |= (use.GetNode()->gtFlags & GTF_ALL_EFFECT);
+                tree->AddSideEffects(use.GetNode()->GetSideEffects());
             }
             break;
 
@@ -12332,15 +12302,6 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 #endif
 
-        case GT_INSTR:
-            assert(compRationalIRForm);
-            for (GenTreeInstr::Use& use : tree->AsInstr()->Uses())
-            {
-                use.SetNode(fgMorphTree(use.GetNode()));
-            }
-            break;
-
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -12348,16 +12309,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             tree->AsTernaryOp()->SetOp(1, fgMorphTree(tree->AsTernaryOp()->GetOp(1)));
             tree->AsTernaryOp()->SetOp(2, fgMorphTree(tree->AsTernaryOp()->GetOp(2)));
 
-            if (tree->OperIs(GT_ARR_OFFSET))
+            if (tree->OperIs(GT_CMPXCHG))
             {
-                // GT_ARR_OFFSET nodes are created during lowering.
-                noway_assert(!fgGlobalMorph);
-
-                tree->gtFlags &= ~GTF_CALL;
-            }
-            else if (tree->OperIs(GT_CMPXCHG))
-            {
-                tree->gtFlags &= (~GTF_EXCEPT & ~GTF_CALL);
+                tree->RemoveSideEffects(GTF_EXCEPT | GTF_CALL);
             }
             else
             {
@@ -12368,11 +12322,11 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                     goto DONE;
                 }
 
-                tree->gtFlags &= ~GTF_CALL;
+                tree->RemoveSideEffects(GTF_CALL);
 
                 if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
                 {
-                    tree->gtFlags |= GTF_EXCEPT;
+                    tree->AddSideEffects(GTF_EXCEPT);
                 }
             }
 
@@ -12383,11 +12337,11 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
         default:
             INDEBUG(gtDispTree(tree);)
-            noway_assert(!"unexpected operator");
+            unreached();
     }
-DONE:
 
-    fgMorphTreeDone(tree, oldTree DEBUGARG(thisMorphNum));
+DONE:
+    fgMorphTreeDone(tree DEBUGARG(oldTree) DEBUGARG(thisMorphNum));
 
     return tree;
 }
@@ -12396,7 +12350,7 @@ DONE:
 // It should only be called once for each node.
 // If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
 // to enforce the invariant that each node is only morphed once.
-void Compiler::fgMorphTreeDone(GenTree* tree, GenTree* oldTree DEBUGARG(int morphNum))
+void Compiler::fgMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG(int morphNum))
 {
 #ifdef DEBUG
     if (verbose && JitConfig.TreesBeforeAfterMorph())
@@ -13935,6 +13889,29 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
     }
 
     return nextStmt == nullptr;
+}
+
+void Compiler::fgMorphArrElem(GenTreeArrElem* arrElem)
+{
+    GenTreeFlags sideEffects = arrElem->GetSideEffects() & ~GTF_CALL;
+
+    GenTree* array = fgMorphTree(arrElem->GetArray());
+    sideEffects |= array->GetSideEffects();
+    arrElem->SetArray(array);
+
+    for (unsigned i = 0, rank = arrElem->GetRank(); i < rank; i++)
+    {
+        GenTree* index = fgMorphTree(arrElem->GetIndex(i));
+        sideEffects |= index->GetSideEffects();
+        arrElem->SetIndex(i, index);
+    }
+
+    arrElem->SetSideEffects(sideEffects);
+
+    if (fgGlobalMorph)
+    {
+        fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, fgMorphBlock);
+    }
 }
 
 #ifdef FEATURE_HW_INTRINSICS

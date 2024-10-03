@@ -7922,37 +7922,16 @@ void Compiler::dmpNodeOperands(GenTree* node)
     }
 }
 
-/*****************************************************************************/
 #endif // DEBUG
-
-/*****************************************************************************
- *
- *  Check if the given node can be folded,
- *  and call the methods to perform the folding
- */
 
 GenTree* Compiler::gtFoldExpr(GenTree* tree)
 {
-    unsigned kind = tree->OperKind();
-
-    /* We must have a simple operation to fold */
-
-    // If we're in CSE, it's not safe to perform tree
-    // folding given that it can will potentially
-    // change considered CSE candidates.
-    if (csePhase)
-    {
-        return tree;
-    }
+    assert(!csePhase);
 
     if (!tree->OperIsSimple() || tree->OperIsAtomicOp())
     {
         return tree;
     }
-
-    /* Filter out non-foldable trees that can have constant children */
-
-    assert(kind & (GTK_UNOP | GTK_BINOP));
 
     switch (tree->GetOper())
     {
@@ -7976,7 +7955,7 @@ GenTree* Compiler::gtFoldExpr(GenTree* tree)
         return tree;
     }
 
-    /* try to fold the current node */
+    unsigned kind = tree->OperKind();
 
     if (kind & GTK_UNOP)
     {
