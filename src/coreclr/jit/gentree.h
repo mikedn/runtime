@@ -6056,10 +6056,23 @@ struct GenTreeArrElem : public GenTree
         return gtArrObj;
     }
 
+    void SetArray(GenTree* array)
+    {
+        assert(array->TypeIs(TYP_REF));
+        gtArrObj = array;
+    }
+
     GenTree* GetIndex(unsigned i) const
     {
         assert(i < gtArrRank);
         return gtArrInds[i];
+    }
+
+    void SetIndex(unsigned i, GenTree* index)
+    {
+        assert(i < gtArrRank);
+        assert(varTypeIsIntegral(index->GetType()));
+        gtArrInds[i] = index;
     }
 
     unsigned GetNumOps() const

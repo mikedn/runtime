@@ -4571,8 +4571,10 @@ private:
     GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
     GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
-    GenTree* fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt, BasicBlock* block);
+    GenTree* fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
     GenTree* fgMorphAssociative(GenTreeOp* tree);
+
+    void fgMorphArrElem(GenTreeArrElem* arrElem);
 
 #ifndef TARGET_64BIT
     enum class MulLongCandidateKind
@@ -4601,7 +4603,7 @@ public:
 private:
     GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
     INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
-    void fgMorphTreeDone(GenTree* tree, GenTree* oldTree = nullptr DEBUGARG(int morphNum = 0));
+    void fgMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree = nullptr) DEBUGARG(int morphNum = 0));
 
     Statement*  fgGlobalMorphStmt = nullptr;
     BasicBlock* fgMorphBlock      = nullptr;
