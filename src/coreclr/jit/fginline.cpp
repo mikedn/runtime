@@ -1003,7 +1003,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
 
         if (gtIsSmallIntCastNeeded(retExpr, info.GetRetSigType()))
         {
-            retExpr = gtNewOperNode(GT_CONV, varCastType(info.GetRetSigType()), retExpr);
+            retExpr = gtNewOperNode(GT_CONV, varConvType(info.GetRetSigType()), retExpr);
         }
     }
     else if (info.GetRetSigType() == TYP_REF)
@@ -1393,7 +1393,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
                 continue;
             }
 
-            argNode = gtNewOperNode(GT_CONV, varCastType(paramType), argNode);
+            argNode = gtNewOperNode(GT_CONV, varConvType(paramType), argNode);
 
             if (argInfo[i].argNode->OperIsConst())
             {

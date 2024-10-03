@@ -17,7 +17,7 @@ GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
     {
         LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
-        if ((varCastType(lcl->GetType()) == dstType) && lcl->lvNormalizeOnStore())
+        if (lcl->lvNormalizeOnStore() && (varConvType(lcl->GetType()) == dstType))
         {
             assert(src->TypeIs(TYP_INT, lcl->GetType()));
 
@@ -78,7 +78,7 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
     {
         LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
-        if ((varCastType(lcl->GetType()) == dstType) && lcl->lvNormalizeOnStore())
+        if (lcl->lvNormalizeOnStore() && (varConvType(lcl->GetType()) == dstType))
         {
             assert(src->TypeIs(TYP_INT, lcl->GetType()));
 
@@ -3046,7 +3046,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 #endif
                     {
                         field->SetType(TYP_INT);
-                        field = gtNewOperNode(GT_CONV, varCastType(type), field);
+                        field = gtNewOperNode(GT_CONV, varConvType(type), field);
                     }
                 }
             }
@@ -4729,7 +4729,7 @@ GenTree* Compiler::fgMorphLclLoad(GenTreeLclLoad* load)
     load->SetType(TYP_INT);
     fgMorphTreeDone(load);
 
-    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, varCastType(lcl->GetType()), load);
+    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), load);
     INDEBUG(conv->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
     return conv;
 }
@@ -8911,7 +8911,7 @@ GenTree* Compiler::fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
 
             if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
             {
-                value = gtNewOperNode(GT_CONV, varCastType(lcl->GetType()), value);
+                value = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), value);
                 store->SetValue(value);
             }
         }
@@ -9582,7 +9582,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 // Small-typed return values are extended by the callee.
 
-                op1 = gtNewOperNode(GT_CONV, varCastType(info.compRetType), op1);
+                op1 = gtNewOperNode(GT_CONV, varConvType(info.compRetType), op1);
                 op1 = fgMorphTree(op1);
 
                 tree->AsUnOp()->SetOp(0, op1);

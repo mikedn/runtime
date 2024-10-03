@@ -887,7 +887,7 @@ private:
                         // uses `Unsafe.As` as a substitute.
 
                         load->ChangeOper(GT_CONV);
-                        load->SetType(varCastType(loadType));
+                        load->SetType(varConvType(loadType));
                         load->gtFlags = GTF_NONE;
                         load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
 
@@ -957,7 +957,7 @@ private:
 #endif
 
                         load->ChangeOper(GT_CONV);
-                        load->SetType(varCastType(loadType));
+                        load->SetType(varConvType(loadType));
                         load->gtFlags = GTF_NONE;
                         load->AsUnOp()->SetOp(0, value);
                     }
