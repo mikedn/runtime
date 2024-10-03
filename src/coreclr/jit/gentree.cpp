@@ -9363,14 +9363,13 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         break;
 
                     case GT_CONV:
-                        assert(varTypeIsSmall(tree->GetType()));
+                        assert(varTypeIsSmallInt(tree->GetType()));
 
                         switch (tree->GetType())
                         {
                             case TYP_BYTE:
                                 i = static_cast<int8_t>(i1);
                                 goto CNS_INT;
-                            case TYP_BOOL:
                             case TYP_UBYTE:
                                 i = static_cast<uint8_t>(i1);
                                 goto CNS_INT;
@@ -9489,14 +9488,13 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                         break;
 
                     case GT_CONV:
-                        assert(varTypeIsSmall(tree->GetType()));
+                        assert(varTypeIsSmallInt(tree->GetType()));
 
                         switch (tree->GetType())
                         {
                             case TYP_BYTE:
                                 i = static_cast<int8_t>(l1);
                                 goto CNS_INT;
-                            case TYP_BOOL:
                             case TYP_UBYTE:
                                 i = static_cast<uint8_t>(l1);
                                 goto CNS_INT;
