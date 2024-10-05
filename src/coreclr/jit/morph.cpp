@@ -5,143 +5,99 @@
 #include "allocacheck.h"
 #include "valuenum.h"
 
-GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* cast)
+GenTree* Compiler::fgMorphConvPost(GenTreeUnOp* conv)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
+    assert(conv->OperIs(GT_CONV) && varTypeIsSmallInt(conv->GetType()));
 
-    GenTree*  src     = cast->GetOp(0);
+    GenTree* src = conv->GetOp(0);
+
+    if (src->OperIs(GT_SXT, GT_UXT))
+    {
+        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
+        src = src->AsUnOp()->GetOp(0);
+        conv->SetOp(0, src);
+    }
+
+    var_types dstType = conv->GetType();
+    unsigned  dstSize = varTypeSize(dstType);
+
+    while (src->OperIs(GT_CONV) && (dstSize <= varTypeSize(src->GetType())))
+    {
+        src = src->AsUnOp()->GetOp(0);
+        conv->SetOp(0, src);
+    }
+
     var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
+
+    if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
+    {
+        if (varTypeSize(srcType) >= dstSize)
+        {
+            if (srcType != TYP_BOOL)
+            {
+                src->SetType(dstType);
+                src->SetVNP(conv->GetVNP());
+            }
+
+            return src;
+        }
+
+        return nullptr;
+    }
 
     if (src->OperIs(GT_LCL_LOAD))
     {
         LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
-        if (lcl->lvNormalizeOnStore() && (varConvType(lcl->GetType()) == dstType))
+        if (lcl->lvNormalizeOnStore())
         {
             assert(src->TypeIs(TYP_INT, lcl->GetType()));
-
-            return src;
+            srcType = varConvType(lcl->GetType());
         }
     }
 
-    unsigned srcSize = varTypeSize(srcType);
-    unsigned dstSize = varTypeSize(dstType);
-
-    if (srcSize == dstSize)
+    if (dstType == srcType)
     {
-        if (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType))
-        {
-            return src;
-        }
-
-        if (src->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
-        {
-            src->SetType(dstType);
-            src->SetVNP(cast->GetVNP());
-
-            return src;
-        }
-    }
-    else if ((srcSize > dstSize) && fgMorphNarrowTree(src, dstType))
-    {
-        src->SetVNP(cast->GetVNP());
-
         return src;
     }
 
-    if (src->OperIs(GT_CONV))
+    if ((varTypeSize(srcType) > dstSize) && fgMorphNarrowTree(src, dstType))
     {
-        if (dstSize <= srcSize)
-        {
-            cast->SetOp(0, src->AsUnOp()->GetOp(0));
-        }
-    }
-    else if (src->OperIs(GT_SXT, GT_UXT))
-    {
-        assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-        cast->SetOp(0, src->AsUnOp()->GetOp(0));
+        return src;
     }
 
-    return cast;
+    return nullptr;
 }
 
-GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* cast)
+GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* conv)
 {
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
+    assert(conv->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(conv->GetType()));
 
-    GenTree*  src     = cast->GetOp(0);
+    GenTree*  src     = conv->GetOp(0);
     var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
 
     if (src->OperIs(GT_LCL_LOAD))
     {
         LclVarDsc* lcl = src->AsLclLoad()->GetLcl();
 
-        if (lcl->lvNormalizeOnStore() && (varConvType(lcl->GetType()) == dstType))
+        if (lcl->lvNormalizeOnStore())
         {
             assert(src->TypeIs(TYP_INT, lcl->GetType()));
-
-            return src;
+            srcType = varConvType(lcl->GetType());
         }
     }
 
-    if (cast->OperIs(GT_OVF_UCONV) && !varTypeIsUnsigned(srcType))
+    if (conv->OperIs(GT_OVF_UCONV) && !varTypeIsUnsigned(srcType))
     {
-        if (varTypeIsSmall(srcType))
-        {
-            srcType = TYP_UINT;
-        }
-        else
-        {
-            srcType = varTypeToUnsigned(srcType);
-        }
+        return nullptr;
     }
 
-    bool     unsignedSrc = varTypeIsUnsigned(srcType);
-    bool     unsignedDst = varTypeIsUnsigned(dstType);
-    unsigned srcSize     = varTypeSize(srcType);
-    unsigned dstSize     = varTypeSize(dstType);
-
-    if (srcSize == dstSize)
+    if (varTypeIsSmall(srcType) && (varConvType(srcType) == conv->GetType()))
     {
-        if (unsignedSrc == unsignedDst)
-        {
-            return src;
-        }
-    }
-    else if (srcSize < dstSize)
-    {
-        if (unsignedSrc || !unsignedDst)
-        {
-            cast->SetOper(GT_CONV);
-            cast->SetSideEffects(src->GetSideEffects());
-        }
+        return src;
     }
 
-    if (src->OperIs(GT_CONV))
-    {
-        if (cast->OperIs(GT_CONV) && (dstSize <= srcSize))
-        {
-            cast->SetOp(0, src->AsUnOp()->GetOp(0));
-        }
-    }
-    else if (src->OperIs(GT_SXT, GT_UXT))
-    {
-        if (cast->OperIs(GT_CONV))
-        {
-            assert(src->TypeIs(TYP_LONG) && varActualTypeIsInt(src->AsUnOp()->GetOp(0)->GetType()));
-
-            cast->SetOp(0, src->AsUnOp()->GetOp(0));
-        }
-    }
-
-    if (cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV))
-    {
-        fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
-    }
-
-    return cast;
+    return nullptr;
 }
 
 GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
@@ -168,12 +124,12 @@ GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
     return fgMorphTree(src);
 }
 
-GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
+GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* trunc)
 {
     assert(fgGlobalMorph);
-    assert(cast->OperIs(GT_TRUNC) && cast->TypeIs(TYP_INT) && cast->GetOp(0)->TypeIs(TYP_LONG));
+    assert(trunc->OperIs(GT_TRUNC) && trunc->TypeIs(TYP_INT) && trunc->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree* src = cast->GetOp(0);
+    GenTree* src = trunc->GetOp(0);
 
     bool canPushCast = src->OperIs(GT_ADD, GT_SUB, GT_MUL, GT_AND, GT_OR, GT_XOR, GT_NOT, GT_NEG);
 
@@ -237,9 +193,11 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* cast)
     return nullptr;
 }
 
-GenTree* Compiler::fgMorphTruncatePost(GenTreeUnOp* cast)
+GenTree* Compiler::fgMorphTruncatePost(GenTreeUnOp* trunc)
 {
-    GenTree* src = cast->GetOp(0);
+    assert(trunc->OperIs(GT_TRUNC) && trunc->TypeIs(TYP_INT) && trunc->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src = trunc->GetOp(0);
 
     if (src->OperIs(GT_SXT, GT_UXT))
     {
@@ -250,7 +208,7 @@ GenTree* Compiler::fgMorphTruncatePost(GenTreeUnOp* cast)
 
     if (fgMorphNarrowTree(src, TYP_INT))
     {
-        src->SetVNP(cast->GetVNP());
+        src->SetVNP(trunc->GetVNP());
 
         return src;
     }
@@ -10953,7 +10911,6 @@ DONE_MORPHING_CHILDREN:
             {
                 return morphed;
             }
-            op1 = tree->AsUnOp()->GetOp(0);
             break;
 
         case GT_OVF_SCONV:
@@ -10962,8 +10919,8 @@ DONE_MORPHING_CHILDREN:
             {
                 return morphed;
             }
-            oper = tree->GetOper();
-            op1  = tree->AsUnOp()->GetOp(0);
+
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
             break;
 
         case GT_OVF_U:
