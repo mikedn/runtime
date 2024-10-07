@@ -10491,30 +10491,29 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     type = varActualType(type);
 
-                    if ((uns ? varTypeToUnsigned(type) : type) == lclTyp)
+                    if ((uns ? varTypeToUnsigned(type) : type) != lclTyp)
                     {
-                        // Same type conversions have no effect
-                    }
-                    else if ((type == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
-                    {
-                        op1 = gtNewOperNode(GT_OVF_U, varActualType(lclTyp), op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if ((type == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
-                    {
-                        op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
-                    }
-                    else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
-                    {
-                        op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
-                    {
-                        op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
+                        if ((type == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
+                        {
+                            op1 = gtNewOperNode(GT_OVF_U, varActualType(lclTyp), op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                        else if ((type == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
+                        {
+                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+                        }
+                        else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
+                        {
+                            op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                        else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
+                        {
+                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
                     }
                 }
                 else if (varTypeIsLong(type) != varTypeIsLong(lclTyp))
