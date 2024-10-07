@@ -1862,6 +1862,7 @@ struct Importer
     void impLoadLoc(unsigned ilLclNum);
     bool impInlineReturnInstruction();
     void impReturnInstruction(INDEBUG(bool isTailcall = false));
+    void ImportConvToFloat(var_types toType, genTreeOps itofOper);
 
     void FreeBlockListNode(BlockListNode* node);
 
