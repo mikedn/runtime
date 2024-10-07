@@ -10250,14 +10250,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_OVF_I2:
                 lclTyp = TYP_SHORT;
                 goto CONV_OVF;
-            case CEE_CONV_OVF_I:
-                lclTyp = TYP_I_IMPL;
-                goto CONV_OVF;
             case CEE_CONV_OVF_I4:
                 lclTyp = TYP_INT;
                 goto CONV_OVF;
             case CEE_CONV_OVF_I8:
                 lclTyp = TYP_LONG;
+                goto CONV_OVF;
+            case CEE_CONV_OVF_I:
+                lclTyp = TYP_I_IMPL;
                 goto CONV_OVF;
 
             case CEE_CONV_OVF_U1:
@@ -10266,15 +10266,20 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_OVF_U2:
                 lclTyp = TYP_USHORT;
                 goto CONV_OVF;
-            case CEE_CONV_OVF_U:
-                lclTyp = TYP_U_IMPL;
-                goto CONV_OVF;
             case CEE_CONV_OVF_U4:
                 lclTyp = TYP_UINT;
                 goto CONV_OVF;
             case CEE_CONV_OVF_U8:
                 lclTyp = TYP_ULONG;
                 goto CONV_OVF;
+            case CEE_CONV_OVF_U:
+                lclTyp = TYP_U_IMPL;
+                goto CONV_OVF;
+
+            CONV_OVF:
+                uns = false;
+                ovfl = true;
+                goto _CONV;
 
             case CEE_CONV_OVF_I1_UN:
                 lclTyp = TYP_BYTE;
@@ -10282,14 +10287,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_OVF_I2_UN:
                 lclTyp = TYP_SHORT;
                 goto CONV_OVF_UN;
-            case CEE_CONV_OVF_I_UN:
-                lclTyp = TYP_I_IMPL;
-                goto CONV_OVF_UN;
             case CEE_CONV_OVF_I4_UN:
                 lclTyp = TYP_INT;
                 goto CONV_OVF_UN;
             case CEE_CONV_OVF_I8_UN:
                 lclTyp = TYP_LONG;
+                goto CONV_OVF_UN;
+            case CEE_CONV_OVF_I_UN:
+                lclTyp = TYP_I_IMPL;
                 goto CONV_OVF_UN;
 
             case CEE_CONV_OVF_U1_UN:
@@ -10298,24 +10303,18 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_OVF_U2_UN:
                 lclTyp = TYP_USHORT;
                 goto CONV_OVF_UN;
-            case CEE_CONV_OVF_U_UN:
-                lclTyp = TYP_U_IMPL;
-                goto CONV_OVF_UN;
             case CEE_CONV_OVF_U4_UN:
                 lclTyp = TYP_UINT;
                 goto CONV_OVF_UN;
             case CEE_CONV_OVF_U8_UN:
                 lclTyp = TYP_ULONG;
                 goto CONV_OVF_UN;
+            case CEE_CONV_OVF_U_UN:
+                lclTyp = TYP_U_IMPL;
+                goto CONV_OVF_UN;
 
             CONV_OVF_UN:
                 uns = true;
-                goto CONV_OVF_COMMON;
-            CONV_OVF:
-                uns = false;
-                goto CONV_OVF_COMMON;
-
-            CONV_OVF_COMMON:
                 ovfl = true;
                 goto _CONV;
 
@@ -10325,14 +10324,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_I2:
                 lclTyp = TYP_SHORT;
                 goto CONV;
-            case CEE_CONV_I:
-                lclTyp = TYP_I_IMPL;
-                goto CONV;
             case CEE_CONV_I4:
                 lclTyp = TYP_INT;
                 goto CONV;
             case CEE_CONV_I8:
                 lclTyp = TYP_LONG;
+                goto CONV;
+            case CEE_CONV_I:
+                lclTyp = TYP_I_IMPL;
                 goto CONV;
 
             case CEE_CONV_U1:
@@ -10341,6 +10340,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_U2:
                 lclTyp = TYP_USHORT;
                 goto CONV;
+            case CEE_CONV_U4:
+                lclTyp = TYP_UINT;
+                goto CONV;
+            case CEE_CONV_U8:
+                lclTyp = TYP_ULONG;
+                goto CONV_UN;
             case CEE_CONV_U:
                 lclTyp = TYP_U_IMPL;
 #ifdef TARGET_64BIT
@@ -10348,12 +10353,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #else
                 goto CONV;
 #endif
-            case CEE_CONV_U4:
-                lclTyp = TYP_UINT;
-                goto CONV;
-            case CEE_CONV_U8:
-                lclTyp = TYP_ULONG;
-                goto CONV_UN;
 
             case CEE_CONV_R4:
                 lclTyp = TYP_FLOAT;
@@ -10361,18 +10360,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_CONV_R8:
                 lclTyp = TYP_DOUBLE;
                 goto CONV;
-
             case CEE_CONV_R_UN:
                 lclTyp = TYP_DOUBLE;
                 goto CONV_UN;
 
-            CONV_UN:
-                uns  = true;
+            CONV:
+                uns = false;
                 ovfl = false;
                 goto _CONV;
 
-            CONV:
-                uns  = false;
+            CONV_UN:
+                uns  = true;
                 ovfl = false;
                 goto _CONV;
 
@@ -10380,7 +10378,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1);
 
-                // Casts from floating point types must not have GTF_CAST_UNSIGNED set.
                 if (varTypeIsFloating(op1->GetType()))
                 {
                     uns = false;
@@ -10395,14 +10392,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         ssize_t mask;
                         ssize_t umask;
 
-                        if (varTypeSize(lclTyp) == 1)
+                        if (varTypeIsByte(lclTyp))
                         {
                             mask  = 0x00FF;
                             umask = 0x007F;
                         }
                         else
                         {
-                            assert(varTypeSize(lclTyp) == 2);
+                            assert(varTypeIsShort(lclTyp));
 
                             mask  = 0xFFFF;
                             umask = 0x7FFF;
@@ -10426,10 +10423,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                // The 'op2' sub-operand of a cast is the 'real' type number,
-                // since the result of a cast to one of the 'small' integer
-                // types is an integer.
-
                 type = varActualType(lclTyp);
 
                 if (varTypeIsGC(op1->GetType()))
@@ -10440,7 +10433,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 var_types fromType;
                 fromType = varActualType(op1->GetType());
 
-                // If this is a no-op cast, just use op1.
                 if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
                 {
                     // Nothing needs to change
