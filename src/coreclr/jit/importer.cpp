@@ -10372,10 +10372,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewGCBitcastNode(op1);
                 }
 
-                var_types fromType;
-                fromType = op1->GetType();
+                type = op1->GetType();
 
-                if (varTypeIsFloating(fromType))
+                if (varTypeIsFloating(type))
                 {
                     if (!ovfl)
                     {
@@ -10410,7 +10409,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 else if (varTypeIsSmallInt(lclTyp))
                 {
 #ifndef TARGET_64BIT
-                    if (fromType == TYP_LONG)
+                    if (type == TYP_LONG)
                     {
                         if (!ovfl)
                         {
@@ -10490,46 +10489,44 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if (ovfl)
                 {
-                    fromType = varActualType(fromType);
+                    type = varActualType(type);
 
-                    if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
+                    if ((uns ? varTypeToUnsigned(type) : type) == lclTyp)
                     {
                         // Same type conversions have no effect
                     }
-                    else if ((fromType == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
+                    else if ((type == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
                     {
                         op1 = gtNewOperNode(GT_OVF_U, varActualType(lclTyp), op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
+                    else if ((type == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
                     {
                         op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                         op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                     }
-                    else if ((fromType == TYP_LONG) && (lclTyp == TYP_UINT))
+                    else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
                     {
                         op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else if ((fromType == TYP_LONG) && (lclTyp == TYP_INT))
+                    else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
                     {
                         op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
                 }
-                else if (varActualType(fromType) != varTypeNodeType(lclTyp))
+                else if (varTypeIsLong(type) != varTypeIsLong(lclTyp))
                 {
                     genTreeOps oper;
 
                     if (varTypeIsLong(lclTyp))
                     {
-                        assert(varActualTypeIsInt(fromType));
                         oper = uns ? GT_UXT : GT_SXT;
                     }
                     else
                     {
-                        assert((fromType == TYP_LONG) && varActualTypeIsInt(lclTyp));
                         oper = GT_TRUNC;
                     }
 
