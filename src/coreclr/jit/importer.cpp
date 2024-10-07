@@ -10491,15 +10491,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 else if (ovfl)
                 {
                     fromType = varActualType(fromType);
-                    type     = varActualType(lclTyp);
 
                     if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
                     {
                         // Same type conversions have no effect
                     }
-                    else if ((fromType == type) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
+                    else if ((fromType == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
                     {
-                        op1 = gtNewOperNode(GT_OVF_U, type, op1);
+                        op1 = gtNewOperNode(GT_OVF_U, varActualType(lclTyp), op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
                     else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
