@@ -10367,51 +10367,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             _CONV:
                 op1 = impPopStack().val;
 
-                if (varTypeIsFloating(op1->GetType()))
-                {
-                    uns = false;
-                }
-                else if (varTypeIsSmallInt(lclTyp) && !ovfl && op1->OperIs(GT_AND) && op1->TypeIs(TYP_INT))
-                {
-                    op2 = op1->AsOp()->GetOp(1);
-
-                    if (GenTreeIntCon* iop2 = op2->IsIntCon())
-                    {
-                        ssize_t ival = iop2->GetValue();
-                        ssize_t mask;
-                        ssize_t umask;
-
-                        if (varTypeIsByte(lclTyp))
-                        {
-                            mask  = 0x00FF;
-                            umask = 0x007F;
-                        }
-                        else
-                        {
-                            assert(varTypeIsShort(lclTyp));
-
-                            mask  = 0xFFFF;
-                            umask = 0x7FFF;
-                        }
-
-                        if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
-                        {
-                            // Toss the cast, it's a waste of time
-
-                            impPushOnStack(op1);
-                            break;
-                        }
-
-                        if (ival == mask)
-                        {
-                            // Toss the masking, it's a waste of time, since
-                            // we sign-extend from the small value anyways
-
-                            op1 = op1->AsOp()->GetOp(0);
-                        }
-                    }
-                }
-                else if (varTypeIsGC(op1->GetType()))
+                if (varTypeIsGC(op1->GetType()))
                 {
                     op1 = gtNewGCBitcastNode(op1);
                 }
@@ -10484,6 +10440,47 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                     else
                     {
+                        if (op1->OperIs(GT_AND) && op1->TypeIs(TYP_INT))
+                        {
+                            op2 = op1->AsOp()->GetOp(1);
+
+                            if (GenTreeIntCon* iop2 = op2->IsIntCon())
+                            {
+                                ssize_t ival = iop2->GetValue();
+                                ssize_t mask;
+                                ssize_t umask;
+
+                                if (varTypeIsByte(lclTyp))
+                                {
+                                    mask  = 0x00FF;
+                                    umask = 0x007F;
+                                }
+                                else
+                                {
+                                    assert(varTypeIsShort(lclTyp));
+
+                                    mask  = 0xFFFF;
+                                    umask = 0x7FFF;
+                                }
+
+                                if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
+                                {
+                                    // Toss the cast, it's a waste of time
+
+                                    impPushOnStack(op1);
+                                    break;
+                                }
+
+                                if (ival == mask)
+                                {
+                                    // Toss the masking, it's a waste of time, since
+                                    // we sign-extend from the small value anyways
+
+                                    op1 = op1->AsOp()->GetOp(0);
+                                }
+                            }
+                        }
+
                         op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
 
                         if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
