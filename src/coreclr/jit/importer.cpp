@@ -10354,16 +10354,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV;
 #endif
 
-            case CEE_CONV_R4:
-                lclTyp = TYP_FLOAT;
-                goto CONV;
-            case CEE_CONV_R8:
-                lclTyp = TYP_DOUBLE;
-                goto CONV;
-            case CEE_CONV_R_UN:
-                lclTyp = TYP_DOUBLE;
-                goto CONV_UN;
-
             CONV:
                 uns  = false;
                 ovfl = false;
@@ -10444,52 +10434,41 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    if ((lclTyp == TYP_FLOAT) && (fromType == TYP_DOUBLE))
+                    if (varTypeIsFloating(fromType))
                     {
-                        op1 = gtNewOperNode(GT_FTRUNC, lclTyp, op1);
-                    }
-                    else if ((lclTyp == TYP_DOUBLE) && (fromType == TYP_FLOAT))
-                    {
-                        op1 = gtNewOperNode(GT_FXT, lclTyp, op1);
+                        if (!ovfl)
+                        {
+                            if (varTypeIsSmall(lclTyp))
+                            {
+                                op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
+                                op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
+                            }
+                            else
+                            {
+                                op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS,
+                                                    varTypeNodeType(lclTyp), op1);
+                            }
+                        }
+                        else
+                        {
+                            if (varTypeIsSmall(lclTyp))
+                            {
+                                op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
+                                op1->AddSideEffects(GTF_EXCEPT);
+                                op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
+                                op1->AddSideEffects(GTF_EXCEPT);
+                            }
+                            else
+                            {
+                                op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
+                                                    varTypeNodeType(lclTyp), op1);
+                                op1->AddSideEffects(GTF_EXCEPT);
+                            }
+                        }
                     }
                     else if ((fromType == TYP_INT) && (type == TYP_LONG) && !ovfl)
                     {
                         op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
-                    }
-                    else if (varTypeIsIntegral(fromType) && varTypeIsFloating(lclTyp))
-                    {
-                        assert(!ovfl);
-
-                        op1 = gtNewOperNode(uns ? GT_UTOF : GT_STOF, lclTyp, op1);
-                    }
-                    else if (varTypeIsFloating(fromType) && varTypeIsIntegral(lclTyp) && !ovfl)
-                    {
-                        if (varTypeIsSmall(lclTyp))
-                        {
-                            op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
-                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-                        }
-                        else
-                        {
-                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
-                                                op1);
-                        }
-                    }
-                    else if (varTypeIsFloating(fromType) && varTypeIsIntegral(lclTyp) && ovfl)
-                    {
-                        if (varTypeIsSmall(lclTyp))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else
-                        {
-                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                                varTypeNodeType(lclTyp), op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
                     }
                     else if (varTypeIsSmallInt(lclTyp))
                     {
@@ -10574,6 +10553,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 impPushOnStack(op1);
+                break;
+
+            case CEE_CONV_R4:
+                ImportConvToFloat(TYP_FLOAT, GT_STOF);
+                break;
+            case CEE_CONV_R8:
+                ImportConvToFloat(TYP_DOUBLE, GT_STOF);
+                break;
+            case CEE_CONV_R_UN:
+                ImportConvToFloat(TYP_DOUBLE, GT_UTOF);
                 break;
 
             case CEE_NEG:
@@ -18060,4 +18049,43 @@ CORINFO_CLASS_HANDLE Importer::impResolveClassToken(const BYTE* addr, CorInfoTok
     CORINFO_RESOLVED_TOKEN token{};
     comp->impResolveToken(addr, &token, kind);
     return token.hClass;
+}
+
+void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
+{
+    assert(varTypeIsFloating(toType));
+
+    if (impStackTop().val->GetType() == toType)
+    {
+        return;
+    }
+
+    GenTree*   value    = impPopStack().val;
+    var_types  fromType = value->GetType();
+    genTreeOps oper;
+
+    if (fromType == TYP_DOUBLE)
+    {
+        assert(toType == TYP_FLOAT);
+        oper = GT_FTRUNC;
+    }
+    else if (fromType == TYP_FLOAT)
+    {
+        assert(toType == TYP_DOUBLE);
+        oper = GT_FXT;
+    }
+    else
+    {
+        assert(varTypeIsIntegral(fromType));
+        oper = itofOper;
+    }
+
+    GenTree* result = gtNewOperNode(oper, toType, value);
+
+    if (value->IsNumericConst() && opts.OptimizationEnabled())
+    {
+        result = comp->gtFoldExprConst(result);
+    }
+
+    impPushOnStack(result);
 }
