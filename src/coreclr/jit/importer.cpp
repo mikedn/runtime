@@ -10431,8 +10431,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                         else
                         {
-                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS,
-                                varTypeNodeType(lclTyp), op1);
+                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
+                                                op1);
                         }
                     }
                     else
@@ -10447,110 +10447,107 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         else
                         {
                             op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                varTypeNodeType(lclTyp), op1);
+                                                varTypeNodeType(lclTyp), op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
                 }
-                else if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
+                else if (varTypeIsSmallInt(lclTyp))
                 {
-                    // Nothing needs to change
-                }
-                else if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
-                {
-                    // Same type conversions have no effect
-                }
-                else if (!ovfl && !varTypeIsSmallInt(lclTyp) && (fromType == type))
-                {
-                    // INT/(U)INT, LONG/(U)LONG conversions have no effect.
-                }
-                else
-                {
-                    if (varTypeIsSmallInt(lclTyp))
-                    {
 #ifndef TARGET_64BIT
-                        if (fromType == TYP_LONG)
+                    if (fromType == TYP_LONG)
+                    {
+                        if (!ovfl)
                         {
-                            if (!ovfl)
-                            {
-                                op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                            }
-                            else
-                            {
-                                if (uns)
-                                {
-                                    op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
-                                }
-                                else
-                                {
-                                    op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
-                                }
-
-                                op1->AddSideEffects(GTF_EXCEPT);
-                            }
-                        }
-#endif
-
-                        if (ovfl)
-                        {
-                            op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
+                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
                         }
                         else
                         {
-                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-
-                            if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+                            if (uns)
                             {
-                                op1 = gtFoldExprConst(op1);
+                                op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
                             }
+                            else
+                            {
+                                op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
+                            }
+
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
-                    else if (ovfl)
+#endif
+
+                    if (ovfl)
                     {
-                        if ((fromType == type) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, type, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
-                        }
-                        else if ((fromType == TYP_LONG) && (lclTyp == TYP_UINT))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else if ((fromType == TYP_LONG) && (lclTyp == TYP_INT))
-                        {
-                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
+                        op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
                     }
                     else
                     {
-                        genTreeOps oper;
-
-                        if (type == TYP_LONG)
-                        {
-                            assert(fromType == TYP_INT);
-                            oper = uns ? GT_UXT : GT_SXT;
-                        }
-                        else 
-                        {
-                            assert((fromType == TYP_LONG) && (type == TYP_INT));
-                            oper = GT_TRUNC;
-                        }
-
-                        op1 = gtNewOperNode(oper, type, op1);
+                        op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
 
                         if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
                         {
                             op1 = gtFoldExprConst(op1);
                         }
+                    }
+                }
+                else if (ovfl)
+                {
+                    if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
+                    {
+                        // Nothing needs to change
+                    }
+                    else if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
+                    {
+                        // Same type conversions have no effect
+                    }
+                    else if (!ovfl && !varTypeIsSmallInt(lclTyp) && (fromType == type))
+                    {
+                        // INT/(U)INT, LONG/(U)LONG conversions have no effect.
+                    }
+                    else if ((fromType == type) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_U, type, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
+                    {
+                        op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+                    }
+                    else if ((fromType == TYP_LONG) && (lclTyp == TYP_UINT))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else if ((fromType == TYP_LONG) && (lclTyp == TYP_INT))
+                    {
+                        op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                }
+                else if (fromType != type)
+                {
+                    genTreeOps oper;
+
+                    if (type == TYP_LONG)
+                    {
+                        assert(fromType == TYP_INT);
+                        oper = uns ? GT_UXT : GT_SXT;
+                    }
+                    else
+                    {
+                        assert((fromType == TYP_LONG) && (type == TYP_INT));
+                        oper = GT_TRUNC;
+                    }
+
+                    op1 = gtNewOperNode(oper, type, op1);
+
+                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+                    {
+                        op1 = gtFoldExprConst(op1);
                     }
                 }
 
