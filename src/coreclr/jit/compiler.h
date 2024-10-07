@@ -2265,7 +2265,7 @@ struct Importer
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
-    GenTreeUnOp* gtNewCastNode(GenTree* op1);
+    GenTree* gtNewGCBitcastNode(GenTree* op1);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
     GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);

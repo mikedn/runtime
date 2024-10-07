@@ -2120,7 +2120,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
         {
             if (varTypeIsGC(currType))
             {
-                tree = gtNewCastNode(tree);
+                tree = gtNewGCBitcastNode(tree);
             }
 
             tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
@@ -6188,7 +6188,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     {
         if (varTypeIsGC(value->GetType()))
         {
-            value = gtNewCastNode(value);
+            value = gtNewGCBitcastNode(value);
         }
 
         value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
@@ -8381,7 +8381,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
         {
             assert(varTypeIsGC(op->GetType()));
 
-            return gtNewCastNode(op);
+            return gtNewGCBitcastNode(op);
         }
     };
 #endif
@@ -9312,7 +9312,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         if (varTypeIsGC(op1->GetType()))
                         {
-                            op1 = gtNewCastNode(op1);
+                            op1 = gtNewGCBitcastNode(op1);
                         }
 
                         op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
@@ -9935,7 +9935,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op2 = impPopStack().val;
                 op1 = impPopStack().val; // operand to be shifted
                 impBashVarAddrsToI(op1, op2);
-                type = genActualType(op1->GetType());
+                type = varActualType(op1->GetType());
                 op1  = gtNewOperNode(oper, type, op1, op2);
                 impPushOnStack(op1);
                 break;
@@ -9943,7 +9943,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_NOT:
                 op1 = impPopStack().val;
                 impBashVarAddrsToI(op1);
-                type = genActualType(op1->GetType());
+                type = varActualType(op1->GetType());
                 impPushOnStack(gtNewOperNode(GT_NOT, type, op1));
                 break;
 
@@ -10277,7 +10277,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV_OVF;
 
             CONV_OVF:
-                uns = false;
+                uns  = false;
                 ovfl = true;
                 goto _CONV;
 
@@ -10314,7 +10314,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV_OVF_UN;
 
             CONV_OVF_UN:
-                uns = true;
+                uns  = true;
                 ovfl = true;
                 goto _CONV;
 
@@ -10365,7 +10365,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV_UN;
 
             CONV:
-                uns = false;
+                uns  = false;
                 ovfl = false;
                 goto _CONV;
 
@@ -10376,13 +10376,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             _CONV:
                 op1 = impPopStack().val;
-                impBashVarAddrsToI(op1);
 
                 if (varTypeIsFloating(op1->GetType()))
                 {
                     uns = false;
                 }
-                else if (varTypeIsSmall(lclTyp) && !ovfl && op1->TypeIs(TYP_INT) && op1->OperIs(GT_AND))
+                else if (varTypeIsSmallInt(lclTyp) && !ovfl && op1->OperIs(GT_AND) && op1->TypeIs(TYP_INT))
                 {
                     op2 = op1->AsOp()->GetOp(1);
 
@@ -10422,16 +10421,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                     }
                 }
-
-                type = varActualType(lclTyp);
-
-                if (varTypeIsGC(op1->GetType()))
+                else if (varTypeIsGC(op1->GetType()))
                 {
-                    op1 = gtNewCastNode(op1);
+                    op1 = gtNewGCBitcastNode(op1);
                 }
 
                 var_types fromType;
                 fromType = varActualType(op1->GetType());
+                type     = varActualType(lclTyp);
 
                 if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
                 {
@@ -10441,7 +10438,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     // Same type conversions have no effect
                 }
-                else if (!ovfl && !varTypeIsSmall(lclTyp) && (fromType == type))
+                else if (!ovfl && !varTypeIsSmallInt(lclTyp) && (fromType == type))
                 {
                     // INT/(U)INT, LONG/(U)LONG conversions have no effect.
                 }
@@ -10494,7 +10491,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
-                    else if (varTypeIsSmall(lclTyp))
+                    else if (varTypeIsSmallInt(lclTyp))
                     {
                         assert(varTypeIsIntegral(fromType));
 
@@ -17696,11 +17693,20 @@ GenTree* Importer::gtNewNullCheck(GenTree* addr)
     return comp->gtNewNullCheck(addr);
 }
 
-GenTreeUnOp* Importer::gtNewCastNode(GenTree* op1)
+GenTree* Importer::gtNewGCBitcastNode(GenTree* op1)
 {
     assert(varTypeIsGC(op1->GetType()));
 
-    return gtNewOperNode(GT_BITCAST, TYP_I_IMPL, op1);
+    if (op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
+    {
+        op1->SetType(TYP_I_IMPL);
+    }
+    else
+    {
+        op1 = gtNewOperNode(GT_BITCAST, TYP_I_IMPL, op1);
+    }
+
+    return op1;
 }
 
 GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
