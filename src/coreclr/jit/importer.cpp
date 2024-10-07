@@ -10373,8 +10373,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 var_types fromType;
-                fromType = varActualType(op1->GetType());
-                type     = varActualType(lclTyp);
+                fromType = op1->GetType();
 
                 if (varTypeIsFloating(fromType))
                 {
@@ -10491,17 +10490,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if (ovfl)
                 {
-                    if (!ovfl && (type == op1->GetType()) && (varTypeSize(type) == varTypeSize(lclTyp)))
-                    {
-                        // Nothing needs to change
-                    }
-                    else if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
+                    fromType = varActualType(fromType);
+                    type     = varActualType(lclTyp);
+
+                    if ((uns ? varTypeToUnsigned(fromType) : fromType) == lclTyp)
                     {
                         // Same type conversions have no effect
-                    }
-                    else if (!ovfl && !varTypeIsSmallInt(lclTyp) && (fromType == type))
-                    {
-                        // INT/(U)INT, LONG/(U)LONG conversions have no effect.
                     }
                     else if ((fromType == type) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
                     {
@@ -10525,22 +10519,22 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
                 }
-                else if (fromType != type)
+                else if (varActualType(fromType) != varTypeNodeType(lclTyp))
                 {
                     genTreeOps oper;
 
-                    if (type == TYP_LONG)
+                    if (varTypeIsLong(lclTyp))
                     {
-                        assert(fromType == TYP_INT);
+                        assert(varActualTypeIsInt(fromType));
                         oper = uns ? GT_UXT : GT_SXT;
                     }
                     else
                     {
-                        assert((fromType == TYP_LONG) && (type == TYP_INT));
+                        assert((fromType == TYP_LONG) && varActualTypeIsInt(lclTyp));
                         oper = GT_TRUNC;
                     }
 
-                    op1 = gtNewOperNode(oper, type, op1);
+                    op1 = gtNewOperNode(oper, varTypeNodeType(lclTyp), op1);
 
                     if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
                     {
