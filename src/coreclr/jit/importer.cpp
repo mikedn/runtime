@@ -10466,10 +10466,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
-                    else if ((fromType == TYP_INT) && (type == TYP_LONG) && !ovfl)
-                    {
-                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
-                    }
                     else if (varTypeIsSmallInt(lclTyp))
                     {
                         assert(varTypeIsIntegral(fromType));
@@ -10507,43 +10503,44 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
-                    else if ((fromType == TYP_LONG) && varTypeIsInt(lclTyp) && !ovfl)
+                    else if (ovfl)
                     {
-                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                    }
-                    else if (ovfl && (fromType == type) && (uns != varTypeIsUnsigned(lclTyp)))
-                    {
-                        op1 = gtNewOperNode(GT_OVF_U, type, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if (ovfl && (fromType == TYP_LONG) && varTypeIsInt(lclTyp))
-                    {
-                        if (lclTyp == TYP_UINT)
+                        if ((fromType == type) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
+                        {
+                            op1 = gtNewOperNode(GT_OVF_U, type, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                        else if ((fromType == TYP_LONG) && (lclTyp == TYP_UINT))
                         {
                             op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
-                        else if (!uns)
+                        else if ((fromType == TYP_LONG) && (lclTyp == TYP_INT))
                         {
-                            op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
+                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
-                        else
+                        else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
                         {
-                            op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
+                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                         }
-
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if (ovfl && (fromType == TYP_INT) && !uns && (lclTyp == TYP_ULONG))
-                    {
-                        op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                     }
                     else
                     {
-                        assert((fromType == TYP_INT) && (type == TYP_LONG));
-
-                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                        if ((fromType == TYP_INT) && (type == TYP_LONG))
+                        {
+                            op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                        }
+                        else if ((fromType == TYP_LONG) && (type == TYP_INT))
+                        {
+                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                        }
+                        else
+                        {
+                            unreached();
+                        }
                     }
 
                     if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
