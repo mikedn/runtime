@@ -10468,8 +10468,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                     else if (varTypeIsSmallInt(lclTyp))
                     {
-                        assert(varTypeIsIntegral(fromType));
-
 #ifndef TARGET_64BIT
                         if (fromType == TYP_LONG)
                         {
@@ -10493,14 +10491,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
 #endif
 
-                        if (!ovfl)
-                        {
-                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-                        }
-                        else
+                        if (ovfl)
                         {
                             op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                        else
+                        {
+                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
+
+                            if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+                            {
+                                op1 = gtFoldExprConst(op1);
+                            }
                         }
                     }
                     else if (ovfl)
@@ -10509,6 +10512,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         {
                             op1 = gtNewOperNode(GT_OVF_U, type, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
+                        }
+                        else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
+                        {
+                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                         }
                         else if ((fromType == TYP_LONG) && (lclTyp == TYP_UINT))
                         {
@@ -10520,32 +10529,28 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
-                        else if ((fromType == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
-                        }
                     }
                     else
                     {
-                        if ((fromType == TYP_INT) && (type == TYP_LONG))
-                        {
-                            op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
-                        }
-                        else if ((fromType == TYP_LONG) && (type == TYP_INT))
-                        {
-                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                        }
-                        else
-                        {
-                            unreached();
-                        }
-                    }
+                        genTreeOps oper;
 
-                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
-                    {
-                        op1 = gtFoldExprConst(op1);
+                        if (type == TYP_LONG)
+                        {
+                            assert(fromType == TYP_INT);
+                            oper = uns ? GT_UXT : GT_SXT;
+                        }
+                        else 
+                        {
+                            assert((fromType == TYP_LONG) && (type == TYP_INT));
+                            oper = GT_TRUNC;
+                        }
+
+                        op1 = gtNewOperNode(oper, type, op1);
+
+                        if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+                        {
+                            op1 = gtFoldExprConst(op1);
+                        }
                     }
                 }
 
