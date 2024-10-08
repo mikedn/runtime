@@ -10325,26 +10325,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 type = op1->GetType();
 
-                if (varTypeIsFloating(type))
+                if (varTypeIsSmallInt(lclTyp))
                 {
-                    if (varTypeIsSmall(lclTyp))
+                    if (varTypeIsFloating(type))
                     {
                         op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                         op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else
-                    {
-                        op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                            varTypeNodeType(lclTyp), op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                }
-                else if (varTypeIsSmallInt(lclTyp))
-                {
 #ifndef TARGET_64BIT
-                    if (type == TYP_LONG)
+                    else if (type == TYP_LONG)
                     {
                         op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
@@ -10354,17 +10345,17 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
                     op1->AddSideEffects(GTF_EXCEPT);
                 }
-                else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
+                else if ((lclTyp == TYP_INT) && (type == TYP_LONG))
                 {
                     op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
                     op1->AddSideEffects(GTF_EXCEPT);
                 }
-                else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
+                else if ((lclTyp == TYP_UINT) && (type == TYP_LONG))
                 {
                     op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
                     op1->AddSideEffects(GTF_EXCEPT);
                 }
-                else if (varActualTypeIsInt(type) && !uns && (lclTyp == TYP_ULONG))
+                else if ((lclTyp == TYP_ULONG) && !uns && varActualTypeIsInt(type))
                 {
                     if (!varTypeIsSmallUnsigned(type))
                     {
@@ -10374,9 +10365,15 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                 }
-                else if (varActualTypeIsInt(type) && (lclTyp == TYP_LONG || lclTyp == TYP_ULONG))
+                else if ((lclTyp == TYP_LONG || lclTyp == TYP_ULONG) && varActualTypeIsInt(type))
                 {
                     op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                }
+                else if (varTypeIsFloating(type))
+                {
+                    op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS, varTypeNodeType(lclTyp),
+                                        op1);
+                    op1->AddSideEffects(GTF_EXCEPT);
                 }
                 else if (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG))
                 {
