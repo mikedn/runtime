@@ -18004,8 +18004,7 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
         {
             value = gtNewOperNode(GT_OVF_FTOS, TYP_INT, value);
             value->AddSideEffects(GTF_EXCEPT);
-            value = gtNewOperNode(GT_OVF_SCONV, toType, value);
-            value->AddSideEffects(GTF_EXCEPT);
+            fromUnsigned = false;
         }
 #ifndef TARGET_64BIT
         else if (fromType == TYP_LONG)
