@@ -10388,7 +10388,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         else
                         {
                             op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                varTypeNodeType(lclTyp), op1);
+                                                varTypeNodeType(lclTyp), op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
@@ -10440,29 +10440,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         }
                     }
                 }
-                else if (varTypeIsFloating(type))
-                {
-                    if (varTypeIsSmallInt(lclTyp))
-                    {
-                        op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
-                        op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-                    }
-                    else
-                    {
-                        op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
-                            op1);
-                    }
-                }
                 else if (varTypeIsSmallInt(lclTyp))
                 {
-#ifndef TARGET_64BIT
-                    if (type == TYP_LONG)
-                    {
-                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                    }
-#endif
-
-                    if (op1->OperIs(GT_AND) && (type == TYP_INT))
+                    if ((type == TYP_INT) && op1->OperIs(GT_AND))
                     {
                         op2 = op1->AsOp()->GetOp(1);
 
@@ -10502,6 +10482,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             }
                         }
                     }
+#ifndef TARGET_64BIT
+                    else if (type == TYP_LONG)
+                    {
+                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                    }
+#endif
+                    else if (varTypeIsFloating(type))
+                    {
+                        op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
+                    }
 
                     op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
 
@@ -10509,6 +10499,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         op1 = gtFoldExprConst(op1);
                     }
+                }
+                else if (varTypeIsFloating(type))
+                {
+                    op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp), op1);
                 }
                 else if (varTypeIsLong(type) != varTypeIsLong(lclTyp))
                 {
