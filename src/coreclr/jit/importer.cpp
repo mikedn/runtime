@@ -17988,74 +17988,74 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 {
     assert(varTypeIsIntegral(toType));
 
-    GenTree* op1 = impPopStack().val;
+    GenTree* value = impPopStack().val;
 
-    if (varTypeIsGC(op1->GetType()))
+    if (varTypeIsGC(value->GetType()))
     {
-        op1 = gtNewGCBitcastNode(op1);
+        value = gtNewGCBitcastNode(value);
     }
 
-    var_types type = op1->GetType();
+    var_types fromType = value->GetType();
 
     if (varTypeIsSmallInt(toType))
     {
-        if (varTypeIsFloating(type))
+        if (varTypeIsFloating(fromType))
         {
-            op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
-            op1->AddSideEffects(GTF_EXCEPT);
-            op1 = gtNewOperNode(GT_OVF_SCONV, toType, op1);
-            op1->AddSideEffects(GTF_EXCEPT);
+            value = gtNewOperNode(GT_OVF_FTOS, TYP_INT, value);
+            value->AddSideEffects(GTF_EXCEPT);
+            value = gtNewOperNode(GT_OVF_SCONV, toType, value);
+            value->AddSideEffects(GTF_EXCEPT);
         }
 #ifndef TARGET_64BIT
-        else if (type == TYP_LONG)
+        else if (fromType == TYP_LONG)
         {
-            op1 = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-            op1->AddSideEffects(GTF_EXCEPT);
+            value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
+            value->AddSideEffects(GTF_EXCEPT);
         }
 #endif
 
-        op1 = gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, op1);
-        op1->AddSideEffects(GTF_EXCEPT);
+        value = gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, value);
+        value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_INT) && (type == TYP_LONG))
+    else if ((toType == TYP_INT) && (fromType == TYP_LONG))
     {
-        op1 = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-        op1->AddSideEffects(GTF_EXCEPT);
+        value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
+        value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_UINT) && (type == TYP_LONG))
+    else if ((toType == TYP_UINT) && (fromType == TYP_LONG))
     {
-        op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
-        op1->AddSideEffects(GTF_EXCEPT);
+        value = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, value);
+        value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_ULONG) && !fromUnsigned && varActualTypeIsInt(type))
+    else if ((toType == TYP_ULONG) && !fromUnsigned && varActualTypeIsInt(fromType))
     {
-        if (!varTypeIsSmallUnsigned(type))
+        if (!varTypeIsSmallUnsigned(fromType))
         {
-            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-            op1->AddSideEffects(GTF_EXCEPT);
+            value = gtNewOperNode(GT_OVF_U, TYP_INT, value);
+            value->AddSideEffects(GTF_EXCEPT);
         }
 
-        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+        value = gtNewOperNode(GT_UXT, TYP_LONG, value);
     }
-    else if ((toType == TYP_LONG || toType == TYP_ULONG) && varActualTypeIsInt(type))
+    else if ((toType == TYP_LONG || toType == TYP_ULONG) && varActualTypeIsInt(fromType))
     {
-        op1 = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op1);
+        value = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
     }
-    else if (varTypeIsFloating(type))
+    else if (varTypeIsFloating(fromType))
     {
-        op1 = gtNewOperNode(varTypeIsUnsigned(toType) ? GT_OVF_FTOU : GT_OVF_FTOS, varTypeNodeType(toType), op1);
-        op1->AddSideEffects(GTF_EXCEPT);
+        value = gtNewOperNode(varTypeIsUnsigned(toType) ? GT_OVF_FTOU : GT_OVF_FTOS, varTypeNodeType(toType), value);
+        value->AddSideEffects(GTF_EXCEPT);
     }
     else if (fromUnsigned != (toType == TYP_UINT || toType == TYP_ULONG))
     {
-        assert(varActualType(type) == varActualType(toType));
+        assert(varActualType(fromType) == varActualType(toType));
 
-        if (!varTypeIsSmallUnsigned(type))
+        if (!varTypeIsSmallUnsigned(fromType))
         {
-            op1 = gtNewOperNode(GT_OVF_U, varActualType(type), op1);
-            op1->AddSideEffects(GTF_EXCEPT);
+            value = gtNewOperNode(GT_OVF_U, varActualType(fromType), value);
+            value->AddSideEffects(GTF_EXCEPT);
         }
     }
 
-    impPushOnStack(op1);
+    impPushOnStack(value);
 }
