@@ -8927,7 +8927,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
             genTreeOps             oper;
             int                    val;
             bool                   uns;
-            bool                   ovfl;
             bool                   isLocal;
             CORINFO_CLASS_HANDLE   clsHnd;
             CORINFO_RESOLVED_TOKEN resolvedToken;
@@ -10277,9 +10276,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV_OVF;
 
             CONV_OVF:
-                uns  = false;
-                ovfl = true;
-                goto _CONV;
+                uns = false;
+                goto _CONV_OVF;
 
             case CEE_CONV_OVF_I1_UN:
                 lclTyp = TYP_BYTE;
@@ -10314,9 +10312,85 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV_OVF_UN;
 
             CONV_OVF_UN:
-                uns  = true;
-                ovfl = true;
-                goto _CONV;
+                uns = true;
+                goto _CONV_OVF;
+
+            _CONV_OVF:
+                op1 = impPopStack().val;
+
+                if (varTypeIsGC(op1->GetType()))
+                {
+                    op1 = gtNewGCBitcastNode(op1);
+                }
+
+                type = op1->GetType();
+
+                if (varTypeIsFloating(type))
+                {
+                    if (varTypeIsSmall(lclTyp))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                        op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else
+                    {
+                        op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
+                                            varTypeNodeType(lclTyp), op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                }
+                else if (varTypeIsSmallInt(lclTyp))
+                {
+#ifndef TARGET_64BIT
+                    if (type == TYP_LONG)
+                    {
+                        op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+#endif
+
+                    op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
+                    op1->AddSideEffects(GTF_EXCEPT);
+                }
+                else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
+                {
+                    op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                    op1->AddSideEffects(GTF_EXCEPT);
+                }
+                else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
+                {
+                    op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                    op1->AddSideEffects(GTF_EXCEPT);
+                }
+                else if (varActualTypeIsInt(type) && !uns && (lclTyp == TYP_ULONG))
+                {
+                    if (!varTypeIsSmallUnsigned(type))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+
+                    op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+                }
+                else if (varActualTypeIsInt(type) && (lclTyp == TYP_LONG || lclTyp == TYP_ULONG))
+                {
+                    op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                }
+                else if (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG))
+                {
+                    assert(varActualType(type) == varActualType(lclTyp));
+
+                    if (!varTypeIsSmallUnsigned(type))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_U, varActualType(type), op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                }
+
+                impPushOnStack(op1);
+                break;
 
             case CEE_CONV_I1:
                 lclTyp = TYP_BYTE;
@@ -10355,13 +10429,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
 #endif
 
             CONV:
-                uns  = false;
-                ovfl = false;
+                uns = false;
                 goto _CONV;
 
             CONV_UN:
-                uns  = true;
-                ovfl = false;
+                uns = true;
                 goto _CONV;
 
             _CONV:
@@ -10374,73 +10446,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 type = op1->GetType();
 
-                if (ovfl)
-                {
-                    if (varTypeIsFloating(type))
-                    {
-                        if (varTypeIsSmall(lclTyp))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_FTOS, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewOperNode(GT_OVF_SCONV, lclTyp, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else
-                        {
-                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                                varTypeNodeType(lclTyp), op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                    }
-                    else if (varTypeIsSmallInt(lclTyp))
-                    {
-#ifndef TARGET_64BIT
-                        if (type == TYP_LONG)
-                        {
-                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-#endif
-
-                        op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
-                    {
-                        op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
-                    {
-                        op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
-                        op1->AddSideEffects(GTF_EXCEPT);
-                    }
-                    else if (varActualTypeIsInt(type) && !uns && (lclTyp == TYP_ULONG))
-                    {
-                        if (!varTypeIsSmallUnsigned(type))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-
-                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
-                    }
-                    else if (varActualTypeIsInt(type) && (lclTyp == TYP_LONG || lclTyp == TYP_ULONG))
-                    {
-                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
-                    }
-                    else if (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG))
-                    {
-                        assert(varActualType(type) == varActualType(lclTyp));
-
-                        if (!varTypeIsSmallUnsigned(type))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, varActualType(type), op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                    }
-                }
-                else if (varTypeIsSmallInt(lclTyp))
+                if (varTypeIsSmallInt(lclTyp))
                 {
                     if ((type == TYP_INT) && op1->OperIs(GT_AND))
                     {
