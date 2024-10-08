@@ -10408,37 +10408,29 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if (varTypeIsSmallInt(lclTyp))
                 {
-#ifndef TARGET_64BIT
-                    if (type == TYP_LONG)
-                    {
-                        if (!ovfl)
-                        {
-                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                        }
-                        else
-                        {
-                            if (uns)
-                            {
-                                op1 = gtNewOperNode(GT_OVF_TRUNC, TYP_INT, op1);
-                            }
-                            else
-                            {
-                                op1 = gtNewOperNode(GT_OVF_STRUNC, TYP_INT, op1);
-                            }
-
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                    }
-#endif
-
                     if (ovfl)
                     {
+#ifndef TARGET_64BIT
+                        if (type == TYP_LONG)
+                        {
+                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                            op1->AddSideEffects(GTF_EXCEPT);
+                        }
+#endif
+
                         op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
                     else
                     {
-                        if (op1->OperIs(GT_AND) && op1->TypeIs(TYP_INT))
+#ifndef TARGET_64BIT
+                        if (type == TYP_LONG)
+                        {
+                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                        }
+#endif
+
+                        if (op1->OperIs(GT_AND) && (type == TYP_INT))
                         {
                             op2 = op1->AsOp()->GetOp(1);
 
