@@ -10365,40 +10365,41 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     if ((type == TYP_INT) && op1->OperIs(GT_AND))
                     {
-                        op2 = op1->AsOp()->GetOp(1);
-
-                        if (GenTreeIntCon* iop2 = op2->IsIntCon())
+                        if (GenTreeIntCon* op2 = op1->AsOp()->GetOp(1)->IsIntCon())
                         {
-                            ssize_t ival = iop2->GetValue();
-                            ssize_t mask;
-                            ssize_t umask;
+                            uint32_t andMask = op2->GetUInt32Value();
+                            uint32_t dropConvMask;
+                            uint32_t dropAndMask;
 
-                            if (varTypeIsByte(lclTyp))
+                            switch (lclTyp)
                             {
-                                mask  = 0x00FF;
-                                umask = 0x007F;
+                                case TYP_UBYTE:
+                                    dropConvMask = 0xFF;
+                                    dropAndMask  = 0xFF;
+                                    break;
+                                case TYP_BYTE:
+                                    dropConvMask = 0x80;
+                                    dropAndMask  = 0xFF;
+                                    break;
+                                case TYP_USHORT:
+                                    dropConvMask = 0xFFFF;
+                                    dropAndMask  = 0xFFFF;
+                                    break;
+                                default:
+                                    assert(lclTyp == TYP_SHORT);
+                                    dropConvMask = 0x8000;
+                                    dropAndMask  = 0xFFFF;
+                                    break;
                             }
-                            else
+
+                            if (andMask < dropConvMask)
                             {
-                                assert(varTypeIsShort(lclTyp));
-
-                                mask  = 0xFFFF;
-                                umask = 0x7FFF;
-                            }
-
-                            if ((ival & umask) == ival)
-                            {
-                                // Toss the cast, it's a waste of time
-
                                 impPushOnStack(op1);
                                 break;
                             }
 
-                            if (ival == mask)
+                            if (andMask == dropAndMask)
                             {
-                                // Toss the masking, it's a waste of time, since
-                                // we sign-extend from the small value anyways
-
                                 op1 = op1->AsOp()->GetOp(0);
                             }
                         }
