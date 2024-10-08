@@ -10416,24 +10416,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV;
             case CEE_CONV_U8:
                 lclTyp = TYP_ULONG;
-                goto CONV_UN;
+                goto CONV;
             case CEE_CONV_U:
                 lclTyp = TYP_U_IMPL;
-#ifdef TARGET_64BIT
-                goto CONV_UN;
-#else
                 goto CONV;
-#endif
 
             CONV:
-                uns = false;
-                goto _CONV;
-
-            CONV_UN:
-                uns = true;
-                goto _CONV;
-
-            _CONV:
                 op1 = impPopStack().val;
 
                 if (varTypeIsGC(op1->GetType()))
@@ -10468,7 +10456,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                                 umask = 0x7FFF;
                             }
 
-                            if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
+                            if ((ival & umask) == ival)
                             {
                                 // Toss the cast, it's a waste of time
 
@@ -10507,13 +10495,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp), op1);
                 }
-                else if (varTypeIsLong(type) != varTypeIsLong(lclTyp))
+                else if ((type == TYP_LONG) != varTypeIsLong(lclTyp))
                 {
                     genTreeOps oper;
 
                     if (varTypeIsLong(lclTyp))
                     {
-                        oper = uns ? GT_UXT : GT_SXT;
+                        oper = lclTyp == TYP_ULONG ? GT_UXT : GT_SXT;
                     }
                     else
                     {
