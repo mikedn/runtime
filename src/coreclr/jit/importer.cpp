@@ -10489,29 +10489,37 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if (ovfl)
                 {
-                    type = varActualType(type);
-
-                    if ((uns ? varTypeToUnsigned(type) : type) != lclTyp)
+                    if ((type == TYP_LONG) && (lclTyp == TYP_INT))
                     {
-                        if ((type == varActualType(lclTyp)) && (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG)))
-                        {
-                            op1 = gtNewOperNode(GT_OVF_U, varActualType(lclTyp), op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else if ((type == TYP_INT) && (lclTyp == TYP_ULONG) && !uns)
+                        op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
+                    {
+                        op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
+                        op1->AddSideEffects(GTF_EXCEPT);
+                    }
+                    else if (varActualTypeIsInt(type) && !uns && (lclTyp == TYP_ULONG))
+                    {
+                        if (!varTypeIsSmallUnsigned(type))
                         {
                             op1 = gtNewOperNode(GT_OVF_U, TYP_INT, op1);
                             op1->AddSideEffects(GTF_EXCEPT);
-                            op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
                         }
-                        else if ((type == TYP_LONG) && (lclTyp == TYP_UINT))
+
+                        op1 = gtNewOperNode(GT_UXT, TYP_LONG, op1);
+                    }
+                    else if (varActualTypeIsInt(type) && (lclTyp == TYP_LONG || lclTyp == TYP_ULONG))
+                    {
+                        op1 = gtNewOperNode(uns ? GT_UXT : GT_SXT, TYP_LONG, op1);
+                    }
+                    else if (uns != (lclTyp == TYP_UINT || lclTyp == TYP_ULONG))
+                    {
+                        assert(varActualType(type) == varActualType(lclTyp));
+
+                        if (!varTypeIsSmallUnsigned(type))
                         {
-                            op1 = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, op1);
-                            op1->AddSideEffects(GTF_EXCEPT);
-                        }
-                        else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
-                        {
-                            op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
+                            op1 = gtNewOperNode(GT_OVF_U, varActualType(type), op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
