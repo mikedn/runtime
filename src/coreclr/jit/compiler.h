@@ -1863,6 +1863,7 @@ struct Importer
     bool impInlineReturnInstruction();
     void impReturnInstruction(INDEBUG(bool isTailcall = false));
     void ImportConvToFloat(var_types toType, genTreeOps itofOper);
+    void ImportConvOvf(var_types toType, bool fromUnsigned);
 
     void FreeBlockListNode(BlockListNode* node);
 
