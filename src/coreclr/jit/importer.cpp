@@ -10374,22 +10374,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 type = op1->GetType();
 
-                if (varTypeIsFloating(type))
+                if (ovfl)
                 {
-                    if (!ovfl)
-                    {
-                        if (varTypeIsSmall(lclTyp))
-                        {
-                            op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
-                            op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-                        }
-                        else
-                        {
-                            op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
-                                                op1);
-                        }
-                    }
-                    else
+                    if (varTypeIsFloating(type))
                     {
                         if (varTypeIsSmall(lclTyp))
                         {
@@ -10401,14 +10388,11 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         else
                         {
                             op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                                                varTypeNodeType(lclTyp), op1);
+                                varTypeNodeType(lclTyp), op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
-                }
-                else if (varTypeIsSmallInt(lclTyp))
-                {
-                    if (ovfl)
+                    else if (varTypeIsSmallInt(lclTyp))
                     {
 #ifndef TARGET_64BIT
                         if (type == TYP_LONG)
@@ -10421,67 +10405,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         op1 = gtNewOperNode(uns ? GT_OVF_UCONV : GT_OVF_SCONV, lclTyp, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else
-                    {
-#ifndef TARGET_64BIT
-                        if (type == TYP_LONG)
-                        {
-                            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                        }
-#endif
-
-                        if (op1->OperIs(GT_AND) && (type == TYP_INT))
-                        {
-                            op2 = op1->AsOp()->GetOp(1);
-
-                            if (GenTreeIntCon* iop2 = op2->IsIntCon())
-                            {
-                                ssize_t ival = iop2->GetValue();
-                                ssize_t mask;
-                                ssize_t umask;
-
-                                if (varTypeIsByte(lclTyp))
-                                {
-                                    mask  = 0x00FF;
-                                    umask = 0x007F;
-                                }
-                                else
-                                {
-                                    assert(varTypeIsShort(lclTyp));
-
-                                    mask  = 0xFFFF;
-                                    umask = 0x7FFF;
-                                }
-
-                                if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
-                                {
-                                    // Toss the cast, it's a waste of time
-
-                                    impPushOnStack(op1);
-                                    break;
-                                }
-
-                                if (ival == mask)
-                                {
-                                    // Toss the masking, it's a waste of time, since
-                                    // we sign-extend from the small value anyways
-
-                                    op1 = op1->AsOp()->GetOp(0);
-                                }
-                            }
-                        }
-
-                        op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-
-                        if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
-                        {
-                            op1 = gtFoldExprConst(op1);
-                        }
-                    }
-                }
-                else if (ovfl)
-                {
-                    if ((type == TYP_LONG) && (lclTyp == TYP_INT))
+                    else if ((type == TYP_LONG) && (lclTyp == TYP_INT))
                     {
                         op1 = gtNewOperNode(uns ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, op1);
                         op1->AddSideEffects(GTF_EXCEPT);
@@ -10514,6 +10438,76 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1 = gtNewOperNode(GT_OVF_U, varActualType(type), op1);
                             op1->AddSideEffects(GTF_EXCEPT);
                         }
+                    }
+                }
+                else if (varTypeIsFloating(type))
+                {
+                    if (varTypeIsSmallInt(lclTyp))
+                    {
+                        op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
+                        op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
+                    }
+                    else
+                    {
+                        op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp),
+                            op1);
+                    }
+                }
+                else if (varTypeIsSmallInt(lclTyp))
+                {
+#ifndef TARGET_64BIT
+                    if (type == TYP_LONG)
+                    {
+                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                    }
+#endif
+
+                    if (op1->OperIs(GT_AND) && (type == TYP_INT))
+                    {
+                        op2 = op1->AsOp()->GetOp(1);
+
+                        if (GenTreeIntCon* iop2 = op2->IsIntCon())
+                        {
+                            ssize_t ival = iop2->GetValue();
+                            ssize_t mask;
+                            ssize_t umask;
+
+                            if (varTypeIsByte(lclTyp))
+                            {
+                                mask  = 0x00FF;
+                                umask = 0x007F;
+                            }
+                            else
+                            {
+                                assert(varTypeIsShort(lclTyp));
+
+                                mask  = 0xFFFF;
+                                umask = 0x7FFF;
+                            }
+
+                            if (((ival & umask) == ival) || ((ival & mask) == ival && uns))
+                            {
+                                // Toss the cast, it's a waste of time
+
+                                impPushOnStack(op1);
+                                break;
+                            }
+
+                            if (ival == mask)
+                            {
+                                // Toss the masking, it's a waste of time, since
+                                // we sign-extend from the small value anyways
+
+                                op1 = op1->AsOp()->GetOp(0);
+                            }
+                        }
+                    }
+
+                    op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
+
+                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+                    {
+                        op1 = gtFoldExprConst(op1);
                     }
                 }
                 else if (varTypeIsLong(type) != varTypeIsLong(lclTyp))
