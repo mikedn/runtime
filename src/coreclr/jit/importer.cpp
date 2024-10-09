@@ -10352,102 +10352,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto CONV;
 
             CONV:
-                op1 = impPopStack().val;
-
-                if (varTypeIsGC(op1->GetType()))
-                {
-                    op1 = gtNewGCBitcastNode(op1);
-                }
-
-                type = op1->GetType();
-
-                if (varTypeIsSmallInt(lclTyp))
-                {
-                    if ((type == TYP_INT) && op1->OperIs(GT_AND))
-                    {
-                        if (GenTreeIntCon* op2 = op1->AsOp()->GetOp(1)->IsIntCon())
-                        {
-                            uint32_t andMask = op2->GetUInt32Value();
-                            uint32_t dropConvMask;
-                            uint32_t dropAndMask;
-
-                            switch (lclTyp)
-                            {
-                                case TYP_UBYTE:
-                                    dropConvMask = 0xFF;
-                                    dropAndMask  = 0xFF;
-                                    break;
-                                case TYP_BYTE:
-                                    dropConvMask = 0x80;
-                                    dropAndMask  = 0xFF;
-                                    break;
-                                case TYP_USHORT:
-                                    dropConvMask = 0xFFFF;
-                                    dropAndMask  = 0xFFFF;
-                                    break;
-                                default:
-                                    assert(lclTyp == TYP_SHORT);
-                                    dropConvMask = 0x8000;
-                                    dropAndMask  = 0xFFFF;
-                                    break;
-                            }
-
-                            if (andMask < dropConvMask)
-                            {
-                                impPushOnStack(op1);
-                                break;
-                            }
-
-                            if (andMask == dropAndMask)
-                            {
-                                op1 = op1->AsOp()->GetOp(0);
-                            }
-                        }
-                    }
-#ifndef TARGET_64BIT
-                    else if (type == TYP_LONG)
-                    {
-                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
-                    }
-#endif
-                    else if (varTypeIsFloating(type))
-                    {
-                        op1 = gtNewOperNode(GT_FTOS, TYP_INT, op1);
-                    }
-
-                    op1 = gtNewOperNode(GT_CONV, lclTyp, op1);
-
-                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
-                    {
-                        op1 = gtFoldExprConst(op1);
-                    }
-                }
-                else if (varTypeIsFloating(type))
-                {
-                    op1 = gtNewOperNode(varTypeIsUnsigned(lclTyp) ? GT_FTOU : GT_FTOS, varTypeNodeType(lclTyp), op1);
-                }
-                else if ((type == TYP_LONG) != varTypeIsLong(lclTyp))
-                {
-                    genTreeOps oper;
-
-                    if (varTypeIsLong(lclTyp))
-                    {
-                        oper = lclTyp == TYP_ULONG ? GT_UXT : GT_SXT;
-                    }
-                    else
-                    {
-                        oper = GT_TRUNC;
-                    }
-
-                    op1 = gtNewOperNode(oper, varTypeNodeType(lclTyp), op1);
-
-                    if (op1->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
-                    {
-                        op1 = gtFoldExprConst(op1);
-                    }
-                }
-
-                impPushOnStack(op1);
+                ImportConv(lclTyp);
                 break;
 
             case CEE_CONV_R4:
@@ -18054,6 +17959,106 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
         {
             value = gtNewOperNode(GT_OVF_U, varActualType(fromType), value);
             value->AddSideEffects(GTF_EXCEPT);
+        }
+    }
+
+    impPushOnStack(value);
+}
+
+void Importer::ImportConv(var_types toType)
+{
+    GenTree* value = impPopStack().val;
+
+    if (varTypeIsGC(value->GetType()))
+    {
+        value = gtNewGCBitcastNode(value);
+    }
+
+    var_types fromType = value->GetType();
+
+    if (varTypeIsSmallInt(toType))
+    {
+        if ((fromType == TYP_INT) && value->OperIs(GT_AND))
+        {
+            if (GenTreeIntCon* op2 = value->AsOp()->GetOp(1)->IsIntCon())
+            {
+                uint32_t andMask = op2->GetUInt32Value();
+                uint32_t dropConvMask;
+                uint32_t dropAndMask;
+
+                switch (toType)
+                {
+                    case TYP_UBYTE:
+                        dropConvMask = 0xFF;
+                        dropAndMask  = 0xFF;
+                        break;
+                    case TYP_BYTE:
+                        dropConvMask = 0x80;
+                        dropAndMask  = 0xFF;
+                        break;
+                    case TYP_USHORT:
+                        dropConvMask = 0xFFFF;
+                        dropAndMask  = 0xFFFF;
+                        break;
+                    default:
+                        assert(toType == TYP_SHORT);
+                        dropConvMask = 0x8000;
+                        dropAndMask  = 0xFFFF;
+                        break;
+                }
+
+                if (andMask < dropConvMask)
+                {
+                    impPushOnStack(value);
+                    return;
+                }
+
+                if (andMask == dropAndMask)
+                {
+                    value = value->AsOp()->GetOp(0);
+                }
+            }
+        }
+#ifndef TARGET_64BIT
+        else if (type == TYP_LONG)
+        {
+            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+        }
+#endif
+        else if (varTypeIsFloating(fromType))
+        {
+            value = gtNewOperNode(GT_FTOS, TYP_INT, value);
+        }
+
+        value = gtNewOperNode(GT_CONV, toType, value);
+
+        if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+        {
+            value = gtFoldExprConst(value);
+        }
+    }
+    else if (varTypeIsFloating(fromType))
+    {
+        value = gtNewOperNode(varTypeIsUnsigned(toType) ? GT_FTOU : GT_FTOS, varTypeNodeType(toType), value);
+    }
+    else if ((fromType == TYP_LONG) != varTypeIsLong(toType))
+    {
+        genTreeOps oper;
+
+        if (varTypeIsLong(toType))
+        {
+            oper = toType == TYP_ULONG ? GT_UXT : GT_SXT;
+        }
+        else
+        {
+            oper = GT_TRUNC;
+        }
+
+        value = gtNewOperNode(oper, varTypeNodeType(toType), value);
+
+        if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
+        {
+            value = gtFoldExprConst(value);
         }
     }
 
