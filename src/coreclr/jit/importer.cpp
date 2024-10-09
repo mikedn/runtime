@@ -17998,16 +17998,21 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 
     var_types fromType = value->GetType();
 
-    if (varTypeIsSmallInt(toType))
+    if (varTypeIsFloating(fromType))
     {
-        if (varTypeIsFloating(fromType))
+        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_OVF_FTOU : GT_OVF_FTOS,
+                              varActualType(toType), value);
+        value->AddSideEffects(GTF_EXCEPT);
+
+        if (varTypeIsSmallInt(toType))
         {
-            value = gtNewOperNode(GT_OVF_FTOS, TYP_INT, value);
-            value->AddSideEffects(GTF_EXCEPT);
-            fromUnsigned = false;
+            value = gtNewOperNode(GT_OVF_SCONV, toType, value);
         }
+    }
+    else if (varTypeIsSmallInt(toType))
+    {
 #ifndef TARGET_64BIT
-        else if (fromType == TYP_LONG)
+        if (fromType == TYP_LONG)
         {
             value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
             value->AddSideEffects(GTF_EXCEPT);
@@ -18027,7 +18032,7 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
         value = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_ULONG) && !fromUnsigned && varActualTypeIsInt(fromType))
+    else if ((toType == TYP_ULONG) && !fromUnsigned && (fromType != TYP_LONG))
     {
         if (!varTypeIsSmallUnsigned(fromType))
         {
@@ -18037,14 +18042,9 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 
         value = gtNewOperNode(GT_UXT, TYP_LONG, value);
     }
-    else if ((toType == TYP_LONG || toType == TYP_ULONG) && varActualTypeIsInt(fromType))
+    else if ((toType == TYP_LONG || toType == TYP_ULONG) && (fromType != TYP_LONG))
     {
         value = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
-    }
-    else if (varTypeIsFloating(fromType))
-    {
-        value = gtNewOperNode(varTypeIsUnsigned(toType) ? GT_OVF_FTOU : GT_OVF_FTOS, varTypeNodeType(toType), value);
-        value->AddSideEffects(GTF_EXCEPT);
     }
     else if (fromUnsigned != (toType == TYP_UINT || toType == TYP_ULONG))
     {
