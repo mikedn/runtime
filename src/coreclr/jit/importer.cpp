@@ -17767,11 +17767,6 @@ GenTree* Importer::gtFoldExpr(GenTree* tree)
     return comp->gtFoldExpr(tree);
 }
 
-GenTree* Importer::gtFoldExprConst(GenTree* tree)
-{
-    return comp->gtFoldExprConst(tree);
-}
-
 void Importer::gtChangeOperToNullCheck(GenTree* tree)
 {
     comp->gtChangeOperToNullCheck(tree);
@@ -17976,7 +17971,17 @@ void Importer::ImportConv(var_types toType)
 
     var_types fromType = value->GetType();
 
-    if (varTypeIsSmallInt(toType))
+    if (varTypeIsFloating(fromType))
+    {
+        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_FTOU : GT_FTOS, varActualType(toType),
+                              value);
+
+        if (varTypeIsSmallInt(toType))
+        {
+            value = gtNewOperNode(GT_CONV, toType, value);
+        }
+    }
+    else if (varTypeIsSmallInt(toType))
     {
         if ((fromType == TYP_INT) && value->OperIs(GT_AND))
         {
@@ -18025,21 +18030,13 @@ void Importer::ImportConv(var_types toType)
             op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
         }
 #endif
-        else if (varTypeIsFloating(fromType))
-        {
-            value = gtNewOperNode(GT_FTOS, TYP_INT, value);
-        }
 
         value = gtNewOperNode(GT_CONV, toType, value);
 
         if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
         {
-            value = gtFoldExprConst(value);
+            value = comp->gtFoldExprConst(value);
         }
-    }
-    else if (varTypeIsFloating(fromType))
-    {
-        value = gtNewOperNode(varTypeIsUnsigned(toType) ? GT_FTOU : GT_FTOS, varTypeNodeType(toType), value);
     }
     else if ((fromType == TYP_LONG) != varTypeIsLong(toType))
     {
@@ -18058,7 +18055,7 @@ void Importer::ImportConv(var_types toType)
 
         if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
         {
-            value = gtFoldExprConst(value);
+            value = comp->gtFoldExprConst(value);
         }
     }
 
