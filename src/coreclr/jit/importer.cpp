@@ -10244,115 +10244,99 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CONV_OVF_I1:
-                lclTyp = TYP_BYTE;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_BYTE, false);
+                break;
             case CEE_CONV_OVF_I2:
-                lclTyp = TYP_SHORT;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_SHORT, false);
+                break;
             case CEE_CONV_OVF_I4:
-                lclTyp = TYP_INT;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_INT, false);
+                break;
             case CEE_CONV_OVF_I8:
-                lclTyp = TYP_LONG;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_LONG, false);
+                break;
             case CEE_CONV_OVF_I:
-                lclTyp = TYP_I_IMPL;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_I_IMPL, false);
+                break;
 
             case CEE_CONV_OVF_U1:
-                lclTyp = TYP_UBYTE;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_UBYTE, false);
+                break;
             case CEE_CONV_OVF_U2:
-                lclTyp = TYP_USHORT;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_USHORT, false);
+                break;
             case CEE_CONV_OVF_U4:
-                lclTyp = TYP_UINT;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_UINT, false);
+                break;
             case CEE_CONV_OVF_U8:
-                lclTyp = TYP_ULONG;
-                goto CONV_OVF;
+                ImportConvOvf(TYP_ULONG, false);
+                break;
             case CEE_CONV_OVF_U:
-                lclTyp = TYP_U_IMPL;
-                goto CONV_OVF;
-
-            CONV_OVF:
-                uns = false;
-                goto _CONV_OVF;
+                ImportConvOvf(TYP_U_IMPL, false);
+                break;
 
             case CEE_CONV_OVF_I1_UN:
-                lclTyp = TYP_BYTE;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_BYTE, true);
+                break;
             case CEE_CONV_OVF_I2_UN:
-                lclTyp = TYP_SHORT;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_SHORT, true);
+                break;
             case CEE_CONV_OVF_I4_UN:
-                lclTyp = TYP_INT;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_INT, true);
+                break;
             case CEE_CONV_OVF_I8_UN:
-                lclTyp = TYP_LONG;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_LONG, true);
+                break;
             case CEE_CONV_OVF_I_UN:
-                lclTyp = TYP_I_IMPL;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_I_IMPL, true);
+                break;
 
             case CEE_CONV_OVF_U1_UN:
-                lclTyp = TYP_UBYTE;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_UBYTE, true);
+                break;
             case CEE_CONV_OVF_U2_UN:
-                lclTyp = TYP_USHORT;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_USHORT, true);
+                break;
             case CEE_CONV_OVF_U4_UN:
-                lclTyp = TYP_UINT;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_UINT, true);
+                break;
             case CEE_CONV_OVF_U8_UN:
-                lclTyp = TYP_ULONG;
-                goto CONV_OVF_UN;
+                ImportConvOvf(TYP_ULONG, true);
+                break;
             case CEE_CONV_OVF_U_UN:
-                lclTyp = TYP_U_IMPL;
-                goto CONV_OVF_UN;
-
-            CONV_OVF_UN:
-                uns = true;
-                goto _CONV_OVF;
-
-            _CONV_OVF:
-                ImportConvOvf(lclTyp, uns);
+                ImportConvOvf(TYP_U_IMPL, true);
                 break;
 
             case CEE_CONV_I1:
-                lclTyp = TYP_BYTE;
-                goto CONV;
+                ImportConv(TYP_BYTE);
+                break;
             case CEE_CONV_I2:
-                lclTyp = TYP_SHORT;
-                goto CONV;
+                ImportConv(TYP_SHORT);
+                break;
             case CEE_CONV_I4:
-                lclTyp = TYP_INT;
-                goto CONV;
+                ImportConv(TYP_INT);
+                break;
             case CEE_CONV_I8:
-                lclTyp = TYP_LONG;
-                goto CONV;
+                ImportConv(TYP_LONG);
+                break;
             case CEE_CONV_I:
-                lclTyp = TYP_I_IMPL;
-                goto CONV;
+                ImportConv(TYP_I_IMPL);
+                break;
 
             case CEE_CONV_U1:
-                lclTyp = TYP_UBYTE;
-                goto CONV;
+                ImportConv(TYP_UBYTE);
+                break;
             case CEE_CONV_U2:
-                lclTyp = TYP_USHORT;
-                goto CONV;
+                ImportConv(TYP_USHORT);
+                break;
             case CEE_CONV_U4:
-                lclTyp = TYP_UINT;
-                goto CONV;
+                ImportConv(TYP_UINT);
+                break;
             case CEE_CONV_U8:
-                lclTyp = TYP_ULONG;
-                goto CONV;
+                ImportConv(TYP_ULONG);
+                break;
             case CEE_CONV_U:
-                lclTyp = TYP_U_IMPL;
-                goto CONV;
-
-            CONV:
-                ImportConv(lclTyp);
+                ImportConv(TYP_U_IMPL);
                 break;
 
             case CEE_CONV_R4:
@@ -18025,9 +18009,9 @@ void Importer::ImportConv(var_types toType)
             }
         }
 #ifndef TARGET_64BIT
-        else if (type == TYP_LONG)
+        else if (fromType == TYP_LONG)
         {
-            op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+            value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
         }
 #endif
 
