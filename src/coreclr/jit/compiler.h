@@ -2377,7 +2377,6 @@ struct Importer
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
     GenTree* gtFoldExpr(GenTree* tree);
-    GenTree* gtFoldExprConst(GenTree* tree);
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
