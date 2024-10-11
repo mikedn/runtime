@@ -120,6 +120,11 @@ public:
     }
 
 #ifdef DEBUG
+    bool IsNone() const
+    {
+        return m_flags == TI_ERROR;
+    }
+
     bool IsRef() const
     {
         return (m_flags & (TI_FLAG_TYPE_MASK | TI_FLAG_BYREF)) == TI_REF;
