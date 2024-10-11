@@ -17834,12 +17834,15 @@ void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
 {
     assert(varTypeIsFloating(toType));
 
-    if (impStackTop().val->GetType() == toType)
+    StackEntry& se = impStackTop();
+    assert(se.seTypeInfo.IsNone());
+    GenTree* value = se.val;
+
+    if (value->GetType() == toType)
     {
         return;
     }
 
-    GenTree*   value    = impPopStack().val;
     var_types  fromType = value->GetType();
     genTreeOps oper;
 
@@ -17866,14 +17869,17 @@ void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
         result = comp->gtFoldExprConst(result);
     }
 
-    impPushOnStack(result);
+    se.val                      = result;
+    comp->compFloatingPointUsed = true;
 }
 
 void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 {
     assert(varTypeIsIntegral(toType));
 
-    GenTree* value = impPopStack().val;
+    StackEntry& se = impStackTop();
+    assert(se.seTypeInfo.IsNone());
+    GenTree* value = se.val;
 
     if (varTypeIsGC(value->GetType()))
     {
@@ -17941,12 +17947,14 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
         }
     }
 
-    impPushOnStack(value);
+    se.val = value;
 }
 
 void Importer::ImportConv(var_types toType)
 {
-    GenTree* value = impPopStack().val;
+    StackEntry& se = impStackTop();
+    assert(se.seTypeInfo.IsNone());
+    GenTree* value = se.val;
 
     if (varTypeIsGC(value->GetType()))
     {
@@ -17998,7 +18006,7 @@ void Importer::ImportConv(var_types toType)
 
                 if (andMask < dropConvMask)
                 {
-                    impPushOnStack(value);
+                    se.val = value;
                     return;
                 }
 
@@ -18043,5 +18051,5 @@ void Importer::ImportConv(var_types toType)
         }
     }
 
-    impPushOnStack(value);
+    se.val = value;
 }
