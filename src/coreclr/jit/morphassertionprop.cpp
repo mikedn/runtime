@@ -625,31 +625,20 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
 
         case GT_LCL_LOAD_FLD:
         case GT_IND_LOAD:
-            if (varTypeIsSmall(val->GetType()))
-            {
-                assertion.val.range = GetSmallTypeRange(val->GetType());
-            }
-#ifdef TARGET_64BIT
-            // TODO-MIKE-CQ: This is useless nonsense, of course an INT load has range
-            // INT32_MIN..INT32_MAX. Problem is, these assertions still take space in
-            // the assertion table and can prevent more assertions from being created
-            // so removing this causes diffs. Remove it when it's all done.
-            else if (val->TypeIs(TYP_INT))
-            {
-                assertion.val.range = {INT32_MIN, INT32_MAX};
-            }
-#endif
-            else
+            if (!varTypeIsSmall(val->GetType()))
             {
                 return;
             }
 
-            assertion.valKind = ValueKind::Range;
-            assertion.kind    = Kind::Equal;
+            assertion.kind      = Kind::Equal;
+            assertion.valKind   = ValueKind::Range;
+            assertion.val.range = GetSmallTypeRange(val->GetType());
             break;
 
 #ifdef TARGET_64BIT
         case GT_OVF_U:
+            assert(val->TypeIs(TYP_INT, TYP_LONG));
+
             if (lcl->IsPromotedField() && lcl->lvNormalizeOnLoad())
             {
                 // TODO-MIKE-Review: It's not clear why a range assertion is not generated in
@@ -665,23 +654,14 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
                 return;
             }
 
-            assert(!varTypeIsSmall(val->GetType()));
-
             if (!val->TypeIs(TYP_INT))
             {
                 return;
             }
 
-            // TODO-MIKE-CQ: Like in the load case, this is pretty much nonsense. There is
-            // a difference however, an overflow checking cast to UINT should produce a
-            // 0..INT_32MAX/UINT32_MAX range depending on the source value being INT/LONG.
-            // No idea why this always produces an INT32_MIN..INT32_MAX range.
-            // We can also have an INT to LONG cast that tells that a LONG local has INT
-            // range, this (and any other range information we could deduce from the cast
-            // source types) is completely ignored now.
-            assertion.val.range = {INT32_MIN, INT32_MAX};
-            assertion.valKind   = ValueKind::Range;
             assertion.kind      = Kind::Equal;
+            assertion.valKind   = ValueKind::Range;
+            assertion.val.range = {0, INT32_MAX};
             break;
 #endif
 
@@ -696,18 +676,12 @@ void Compiler::morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* val)
                 return;
             }
 
-            if (lcl->TypeIs(TYP_LONG))
-            {
-                // TODO-MIKE-Review: We don't generate ranges for LONG locals. Not clear why,
-                // it's likely that there aren't many useful cases.
-                return;
-            }
+            assert(!lcl->TypeIs(TYP_LONG));
+            assert(varTypeIsSmallInt(val->GetType()));
 
-            assert(varTypeIsSmall(val->GetType()));
-
-            assertion.val.range = GetSmallTypeRange(val->GetType());
-            assertion.valKind   = ValueKind::Range;
             assertion.kind      = Kind::Equal;
+            assertion.valKind   = ValueKind::Range;
+            assertion.val.range = GetSmallTypeRange(val->GetType());
             break;
 
         default:
@@ -1274,21 +1248,12 @@ GenTree* Compiler::morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node)
     return src;
 }
 
-GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* cast)
+GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* conv)
 {
-    assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+    assert(conv->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(conv->GetType()));
 
-    GenTree*  src      = cast->GetOp(0);
-    var_types fromType = src->GetType();
-    var_types toType   = cast->GetType();
-
-    assert(varTypeIsIntegral(fromType));
-
-    if (toType == TYP_BOOL)
-    {
-        return nullptr;
-    }
-
+    GenTree* src = conv->GetOp(0);
+    assert(varTypeIsIntegral(src->GetType()));
     GenTree* actualSrc = src->SkipComma();
 
     if (!actualSrc->OperIs(GT_LCL_LOAD))
@@ -1298,39 +1263,9 @@ GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* cast)
 
     LclVarDsc* lcl = actualSrc->AsLclLoad()->GetLcl();
 
-    if (lcl->IsAddressExposed() || varTypeIsLong(lcl->GetType()))
+    if (lcl->IsAddressExposed() || lcl->TypeIs(TYP_LONG))
     {
         return nullptr;
-    }
-
-    const MorphAssertion* assertion = morphAssertionFindRange(lcl->GetLclNum());
-
-    if (assertion == nullptr)
-    {
-        return nullptr;
-    }
-
-    if (cast->OperIs(GT_OVF_UCONV))
-    {
-        fromType = varTypeToUnsigned(fromType);
-    }
-
-    if (varTypeIsUnsigned(fromType) && (assertion->val.range.min < 0))
-    {
-        return nullptr;
-    }
-
-    if ((assertion->val.range.min < GetSmallTypeRange(toType).min) ||
-        (assertion->val.range.max > GetSmallTypeRange(toType).max))
-    {
-        return nullptr;
-    }
-
-    if (!lcl->lvNormalizeOnLoad())
-    {
-        DBEXEC(verbose, morphAssertionTrace(*assertion, cast, "propagated"));
-
-        return src;
     }
 
     // TODO-MIKE-CQ: It's not entirely clear what the problem with lvNormalizeOnLoad is here.
@@ -1343,7 +1278,34 @@ GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* cast)
     // P-DEP or not yet. If they're P-DEP then there will be an implicit truncation on store
     // that range generation currently ignores. osx-arm64 may also have this problem.
 
-    return nullptr;
+    if (lcl->lvNormalizeOnLoad())
+    {
+        return nullptr;
+    }
+
+    const MorphAssertion* assertion = morphAssertionFindRange(lcl->GetLclNum());
+
+    if (assertion == nullptr)
+    {
+        return nullptr;
+    }
+
+    if ((assertion->val.range.min < 0) && conv->OperIs(GT_OVF_UCONV))
+    {
+        return nullptr;
+    }
+
+    var_types toType = conv->GetType();
+
+    if ((assertion->val.range.min < GetSmallTypeRange(toType).min) ||
+        (assertion->val.range.max > GetSmallTypeRange(toType).max))
+    {
+        return nullptr;
+    }
+
+    DBEXEC(verbose, morphAssertionTrace(*assertion, conv, "propagated"));
+
+    return src;
 }
 
 GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
