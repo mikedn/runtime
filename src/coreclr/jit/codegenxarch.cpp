@@ -5165,7 +5165,7 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
 
 void CodeGen::GenConv(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
 
     GenTree*    src    = cast->GetOp(0);
     RegNum      srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
@@ -5173,14 +5173,14 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     instruction ins    = varTypeIsUnsigned(cast->GetType()) ? INS_movzx : INS_movsx;
     emitAttr    size   = emitTypeSize(cast->GetType());
 
-    if (srcReg != REG_NA)
-    {
-        GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, /*canSkip*/ false);
-    }
-    else
+    if (srcReg == REG_NA)
     {
         genConsumeRegs(src);
         emitInsRegRM(ins, size, dstReg, src);
+    }
+    else
+    {
+        GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, /*canSkip*/ false);
     }
 
     DefReg(cast);
@@ -5188,7 +5188,7 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
 
 void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
 
     GenTree* src = cast->GetOp(0);
     RegNum   srcReg;
@@ -5196,25 +5196,13 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
 
     if (src->isUsedFromMemory())
     {
-        genConsumeRegs(src);
-
-        emitAttr      size = emitTypeSize(src->GetType());
-        StackAddrMode s;
-
         // Note that we load directly into the destination register, this avoids the
         // need for a temporary register but assumes that enregistered variables are
         // not live in exception handlers. This works with EHWriteThru because the
         // register will be written only in DefReg, after the overflow check is done.
 
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            GetEmitter()->emitIns_R_S(ins_Load(src->GetType()), size, dstReg, s);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_A(ins_Load(src->GetType()), size, dstReg, src->AsIndir()->GetAddr());
-        }
-
+        genConsumeRegs(src);
+        emitInsRegRM(ins_Load(src->GetType()), emitTypeSize(src->GetType()), dstReg, src);
         srcReg = dstReg;
     }
     else
@@ -5295,20 +5283,10 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
 
     if (src->isUsedFromMemory())
     {
+        instruction ins = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
+
         genConsumeRegs(src);
-
-        instruction   ins  = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
-        emitAttr      size = emitTypeSize(src->GetType());
-        StackAddrMode s;
-
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            GetEmitter()->emitIns_R_S(ins, size, dstReg, s);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_A(ins, size, dstReg, src->AsIndLoad()->GetAddr());
-        }
+        emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else
     {
@@ -5329,20 +5307,10 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
 
     if (src->isUsedFromMemory())
     {
+        instruction ins = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
+
         genConsumeRegs(src);
-
-        instruction   ins  = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
-        emitAttr      size = emitTypeSize(src->GetType());
-        StackAddrMode s;
-
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            GetEmitter()->emitIns_R_S(ins, size, dstReg, s);
-        }
-        else
-        {
-            GetEmitter()->emitIns_R_A(ins, size, dstReg, src->AsIndLoad()->GetAddr());
-        }
+        emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else
     {
@@ -8735,7 +8703,7 @@ void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTre
     }
     else
     {
-        emit.emitIns_R_A(ins, attr, reg, rm->AsIndir()->GetAddr());
+        emit.emitIns_R_A(ins, attr, reg, rm->AsIndLoad()->GetAddr());
     }
 }
 
