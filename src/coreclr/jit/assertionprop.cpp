@@ -267,7 +267,7 @@ private:
 
         CompAllocator allocator = compiler->getAllocator(CMK_AssertionProp);
 
-        assertionTableSize = countFunc[min(upperBound, codeSize)];
+        assertionTableSize = countFunc[Min(upperBound, codeSize)];
         assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
         invertedAssertions = new (allocator) uint16_t[assertionTableSize]();
         vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
@@ -412,7 +412,7 @@ private:
 
     AssertionIndex CreateRangeAssertion(GenTreeUnOp* cast)
     {
-        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
 
         GenTree* value = cast->GetOp(0);
 
@@ -1735,7 +1735,7 @@ private:
         return UpdateTree(relop, relop, stmt);
     }
 
-    const AssertionDsc* FindCastRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
+    const AssertionDsc* FindRangeAssertion(const ASSERT_TP assertions, ValueNum vn, ssize_t min, ssize_t max)
     {
         ssize_t intersectionMin = INT32_MIN;
         ssize_t intersectionMax = INT32_MAX;
@@ -1749,10 +1749,26 @@ private:
                 continue;
             }
 
-            intersectionMin = max(intersectionMin, assertion.op2.range.min);
-            intersectionMax = min(intersectionMax, assertion.op2.range.max);
+            intersectionMin = Max(intersectionMin, assertion.op2.range.min);
+            intersectionMax = Min(intersectionMax, assertion.op2.range.max);
 
             if ((min <= intersectionMin) && (intersectionMax <= max))
+            {
+                return &assertion;
+            }
+        }
+
+        return nullptr;
+    }
+
+    const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
+    {
+        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
+        {
+            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
+
+            if ((assertion.op1.vn == vn) && (((assertion.kind == OAK_RANGE) && (assertion.op2.range.min >= 0)) ||
+                                             (assertion.kind == OAK_BOUNDS_CHK)))
             {
                 return &assertion;
             }
@@ -1784,7 +1800,7 @@ private:
 
         // Keep it simple - the 0..INT32_MAX range allows us to remove overflow checks from most
         // (U)LONG/(U)INT truncations.
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
         {
@@ -1813,19 +1829,6 @@ private:
             LclVarDsc* lcl = actualOp1->OperIs(GT_LCL_LOAD) ? actualOp1->AsLclLoad()->GetLcl()
                                                             : actualOp1->AsLclUse()->GetDef()->GetLcl();
 
-            // TODO-MIKE-Review: Usually we can't eliminate load "normalization" casts.
-            // They're usually present on every LCL_VAR use so we'll never get assertions
-            // about the LCL_VAR value itself (e.g. usually we have "if ((byte)b < 42)",
-            // not "if (b < 42)"). xunit assemblies have a few cases where these casts do
-            // get eliminated but it turns out that this skews register allocation in such
-            // a way that the codegen end up being worse.
-            // Besides, the way load/store "normalization" is implemented is just asking
-            // for trouble so it's best to ignore these casts for now.
-            if (lcl->lvNormalizeOnLoad())
-            {
-                return nullptr;
-            }
-
             vn = actualOp1->GetConservativeVN();
         }
         else
@@ -1833,7 +1836,7 @@ private:
             vn = vnStore->ExtractValue(actualOp1->GetConservativeVN());
         }
 
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
         {
@@ -1847,13 +1850,13 @@ private:
 
     GenTree* PropagateConv(const ASSERT_TP assertions, GenTreeUnOp* cast, Statement* stmt)
     {
-        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmall(cast->GetType()));
+        assert(cast->OperIs(GT_CONV, GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
 
         GenTree*  op1      = cast->GetOp(0);
         var_types fromType = op1->GetType();
         var_types toType   = cast->GetType();
 
-        assert(varTypeIsSmall(toType) && varTypeIsIntegral(fromType));
+        assert(varTypeIsIntegral(fromType));
 
         GenTree* actualOp1 = op1->SkipComma();
         ValueNum vn;
@@ -1886,7 +1889,7 @@ private:
         ssize_t min = cast->OperIs(GT_OVF_UCONV) ? 0 : GetSmallTypeRange(toType).min;
         ssize_t max = GetSmallTypeRange(toType).max;
 
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, min, max);
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, min, max);
 
         if (assertion == nullptr)
         {
@@ -1917,7 +1920,7 @@ private:
 
         ValueNum vn = vnStore->ExtractValue(op1->SkipComma()->GetConservativeVN());
 
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
         {
@@ -1952,7 +1955,7 @@ private:
 
         ValueNum vn = vnStore->ExtractValue(op1->SkipComma()->GetConservativeVN());
 
-        const AssertionDsc* assertion = FindCastRangeAssertion(assertions, vn, 0, INT32_MAX);
+        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, 0, INT32_MAX);
 
         if (assertion == nullptr)
         {
@@ -1966,22 +1969,6 @@ private:
         return UpdateTree(op1, op1, stmt);
     }
 #endif
-
-    const AssertionDsc* FindPositiveIntAssertion(const ASSERT_TP assertions, ValueNum vn)
-    {
-        for (BitVecOps::Enumerator en(countTraits, assertions); en.MoveNext();)
-        {
-            const AssertionDsc& assertion = GetAssertion(GetAssertionIndex(en.Current()));
-
-            if ((assertion.op1.vn == vn) && (((assertion.kind == OAK_RANGE) && (assertion.op2.range.min >= 0)) ||
-                                             (assertion.kind == OAK_BOUNDS_CHK)))
-            {
-                return &assertion;
-            }
-        }
-
-        return nullptr;
-    }
 
     GenTree* PropagateSignedDivision(const ASSERT_TP assertions, GenTreeOp* div, Statement* stmt)
     {
