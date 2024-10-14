@@ -7,17 +7,25 @@
 
 enum VarTypeKind
 {
-    VTF_ANY = 0x0000,
-    VTF_INT = 0x0001,
-    VTF_UNS = 0x0002, // type is unsigned
-    VTF_FLT = 0x0004,
-    VTF_GCR = 0x0008, // type is GC ref
-    VTF_BYR = 0x0010, // type is Byref
-    VTF_I   = 0x0020, // is machine sized
-    VTF_S   = 0x0040, // is a struct type
+    VTK_NONE     = 0x0000,
+    VTK_INT      = 0x0001,
+    VTK_UNSIGNED = 0x0002,
+    VTK_FLOAT    = 0x0004,
+    VTK_REF      = 0x0008,
+    VTK_BYREF    = 0x0010,
+    VTK_I        = 0x0020,
+    VTK_STRUCT   = 0x0040,
 
-    VTF_KIND_MASK = VTF_INT | VTF_FLT | VTF_GCR | VTF_BYR | VTF_S,
-    VTF_GC_MASK   = VTF_GCR | VTF_BYR
+    VTK_TYPE_MASK = VTK_INT | VTK_FLOAT | VTK_REF | VTK_BYREF | VTK_STRUCT,
+    VTK_GC_MASK   = VTK_REF | VTK_BYREF,
+
+#ifdef TARGET_64BIT
+    VTK_I32 = VTK_NONE,
+    VTK_I64 = VTK_I,
+#else
+    VTK_I32 = VTK_I,
+    VTK_I64 = VTK_NONE,
+#endif
 };
 
 extern const uint8_t varTypeKinds[TYP_COUNT];
@@ -120,7 +128,7 @@ inline bool varTypeIsLong(T vt)
 template <class T>
 inline bool varTypeIsIntegral(T vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTF_INT) != 0;
+    return (varTypeKinds[TypeGet(vt)] & VTK_INT) != 0;
 }
 
 template <class T>
@@ -137,13 +145,13 @@ inline bool varTypeIsIntOrI(var_types t)
 template <class T>
 inline bool varTypeIsIntegralOrI(T vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & (VTF_INT | VTF_I)) != 0;
+    return (varTypeKinds[TypeGet(vt)] & (VTK_INT | VTK_I)) != 0;
 }
 
 template <class T>
 inline bool varTypeIsUnsigned(T vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTF_UNS) != 0;
+    return (varTypeKinds[TypeGet(vt)] & VTK_UNSIGNED) != 0;
 }
 
 inline bool varTypeIsSigned(var_types t)
@@ -160,7 +168,7 @@ inline bool varTypeIsFloating(T vt)
 
 inline bool varTypeIsArithmetic(var_types t)
 {
-    return (varTypeKinds[t] & (VTF_INT | VTF_FLT)) != 0;
+    return (varTypeKinds[t] & (VTK_INT | VTK_FLOAT)) != 0;
 }
 
 template <class T>
@@ -173,7 +181,7 @@ inline bool varTypeIsGC(T vt)
 template <class T>
 inline bool varTypeIsI(T vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTF_I) != 0;
+    return (varTypeKinds[TypeGet(vt)] & VTK_I) != 0;
 }
 
 template <class T>
@@ -196,7 +204,7 @@ inline bool varTypeIsSIMD(T vt)
 template <class T>
 inline bool varTypeIsStruct(T vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTF_S) != 0;
+    return (varTypeKinds[TypeGet(vt)] & VTK_STRUCT) != 0;
 }
 
 inline bool varTypeIsComposite(var_types t)
@@ -206,12 +214,12 @@ inline bool varTypeIsComposite(var_types t)
 
 inline VarTypeKind varTypeKind(var_types type)
 {
-    return static_cast<VarTypeKind>(varTypeKinds[type] & VTF_KIND_MASK);
+    return static_cast<VarTypeKind>(varTypeKinds[type] & VTK_TYPE_MASK);
 }
 
 inline VarTypeKind varTypeGCKind(var_types type)
 {
-    return static_cast<VarTypeKind>(varTypeKinds[type] & VTF_GC_MASK);
+    return static_cast<VarTypeKind>(varTypeKinds[type] & VTK_GC_MASK);
 }
 
 inline bool varTypeIsMultiReg(var_types vt)

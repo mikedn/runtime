@@ -877,7 +877,7 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             // We always emit a move to the target register, even when op1Reg == targetReg,
             // in order to ensure that Bits MAXVL-1:128 are zeroed.
 
-            attr = emitTypeSize(TYP_SIMD16);
+            attr = EA_16BYTE;
 
             if (op1->isContained() || op1->isUsedFromSpillTemp())
             {
@@ -1469,7 +1469,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
                         if (isVector128GatherWithVector256Index)
                         {
                             // YMM index in address mode
-                            attr = emitTypeSize(TYP_SIMD32);
+                            attr = EA_32BYTE;
                         }
                         break;
                     case INS_vpgatherdq:
@@ -1480,7 +1480,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
                         if (isVector128GatherWithVector256Index)
                         {
                             // YMM index in address mode
-                            attr = emitTypeSize(TYP_SIMD32);
+                            attr = EA_32BYTE;
                         }
                         break;
                     case INS_vgatherdpd:

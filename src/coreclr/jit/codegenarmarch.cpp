@@ -1992,8 +1992,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(!call->IsTailCall());
 
         callReg = call->GetSingleTempReg();
-        GetEmitter()->emitIns_R_R(ins_Load(TYP_I_IMPL), emitActualTypeSize(TYP_I_IMPL), callReg,
-                                  REG_R2R_INDIRECT_PARAM);
+        GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callReg, REG_R2R_INDIRECT_PARAM);
 
         // We have now generated code for gtControlExpr evaluating it into `tmpReg`.
         // We just need to emit "call tmpReg" in this case.
