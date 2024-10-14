@@ -2121,7 +2121,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         else
         {
             regCnt = tree->ExtractTempReg();
-            inst_Mov(size->TypeGet(), regCnt, targetReg, /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, attr, regCnt, targetReg, /* canSkip */ true);
         }
 
         // Align to STACK_ALIGN
@@ -2320,8 +2320,7 @@ ALLOC_DONE:
     }
     else // stackAdjustment == 0
     {
-        // Move the final value of SP to targetReg
-        inst_Mov(TYP_I_IMPL, targetReg, REG_SPBASE, /* canSkip */ false);
+        emit.emitIns_Mov(INS_mov, EA_8BYTE, targetReg, REG_SPBASE, /* canSkip */ false);
     }
 
     if (endLabel != nullptr)
@@ -2329,7 +2328,7 @@ ALLOC_DONE:
         emit.DefineTempLabel(endLabel);
     }
 
-    genProduceReg(tree);
+    DefReg(tree);
 }
 
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
@@ -2813,16 +2812,15 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
-        regNumber addrReg  = UseReg(addr);
-        regNumber valueReg = UseReg(value);
+        RegNum addrReg  = UseReg(addr);
+        RegNum valueReg = UseReg(value);
 
-        // At this point, we should not have any interference.
-        // That is, 'data' must not be in REG_WRITE_BARRIER_DST_BYREF,
-        // as that is where 'addr' must go.
         noway_assert(valueReg != REG_WRITE_BARRIER_DST_BYREF);
 
-        inst_Mov(addr->GetType(), REG_WRITE_BARRIER_DST, addrReg, /* canSkip */ true);
-        inst_Mov(value->GetType(), REG_WRITE_BARRIER_SRC, valueReg, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_WRITE_BARRIER_DST, addrReg,
+                                  /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_WRITE_BARRIER_SRC, valueReg,
+                                  /* canSkip */ true);
         genGCWriteBarrier(store, writeBarrierForm);
 
         return;
@@ -3078,35 +3076,28 @@ void CodeGen::GenTruncate(GenTreeUnOp* node)
     DefReg(node);
 }
 
-void CodeGen::GenCkfinite(GenTree* treeNode)
+void CodeGen::GenCkfinite(GenTree* node)
 {
-    assert(treeNode->OperIs(GT_CKFINITE));
+    assert(node->OperIs(GT_CKFINITE));
 
-    GenTree*  op1         = treeNode->AsUnOp()->GetOp(0);
-    var_types targetType  = treeNode->GetType();
-    int       expMask     = targetType == TYP_FLOAT ? 0x7F8 : 0x7FF; // Bit mask to extract exponent.
-    int       shiftAmount = targetType == TYP_FLOAT ? 20 : 52;
+    GenTree*  src         = node->AsUnOp()->GetOp(0);
+    var_types type        = node->GetType();
+    emitAttr  size        = emitTypeSize(type);
+    int       expMask     = type == TYP_FLOAT ? 0x7F8 : 0x7FF; // Bit mask to extract exponent.
+    int       shiftAmount = type == TYP_FLOAT ? 20 : 52;
+    Emitter&  emit        = *GetEmitter();
+    RegNum    intReg      = node->GetSingleTempReg();
+    RegNum    fpReg       = UseReg(src);
 
-    emitter* emit = GetEmitter();
-
-    // Extract exponent into a register.
-    regNumber intReg = treeNode->GetSingleTempReg();
-    regNumber fpReg  = genConsumeReg(op1);
-
-    inst_Mov(targetType, intReg, fpReg, /* canSkip */ false);
-    emit->emitIns_R_R_I(INS_lsr, emitActualTypeSize(targetType), intReg, intReg, shiftAmount);
-
-    // Mask of exponent with all 1's and check if the exponent is all 1's
-    emit->emitIns_R_R_I(INS_and, EA_4BYTE, intReg, intReg, expMask);
-    emit->emitIns_R_I(INS_cmp, EA_4BYTE, intReg, expMask);
-
-    // If exponent is all 1's, throw ArithmeticException
+    GetEmitter()->emitIns_Mov(INS_fmov, size, intReg, fpReg, /* canSkip */ false);
+    emit.emitIns_R_R_I(INS_lsr, size, intReg, intReg, shiftAmount);
+    emit.emitIns_R_R_I(INS_and, EA_4BYTE, intReg, intReg, expMask);
+    emit.emitIns_R_I(INS_cmp, EA_4BYTE, intReg, expMask);
     genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
-    // if it is a finite value copy it to targetReg
-    inst_Mov(targetType, treeNode->GetRegNum(), fpReg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_fmov, size, node->GetRegNum(), fpReg, /* canSkip */ true);
 
-    genProduceReg(treeNode);
+    DefReg(node);
 }
 
 void CodeGen::GenCompare(GenTreeOp* cmp)
@@ -9516,8 +9507,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             if (compiler->compLocallocUsed)
             {
                 // Restore sp from fp
-                //      mov sp, fp
-                inst_Mov(TYP_I_IMPL, REG_SPBASE, REG_FPBASE, /* canSkip */ false);
+                GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_SPBASE, REG_FPBASE, /* canSkip */ false);
                 unwindSetFrameReg(REG_FPBASE, 0);
             }
 

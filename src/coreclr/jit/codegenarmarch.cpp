@@ -1755,22 +1755,22 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     regMaskTP inGCrefRegSet = liveness.GetGCRegs(TYP_REF);
     regMaskTP inByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
-    GenTree*  addr       = store->GetAddr();
-    regNumber addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
-    int       addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
-    GenTree*  val        = store->GetValue();
-    regNumber valReg0    = UseReg(val, 0);
-    regNumber valReg1    = UseReg(val, 1);
-    emitter*  emit       = GetEmitter();
+    GenTree* addr       = store->GetAddr();
+    RegNum   addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
+    int      addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
+    GenTree* val        = store->GetValue();
+    RegNum   valReg0    = UseReg(val, 0);
+    RegNum   valReg1    = UseReg(val, 1);
+    Emitter& emit       = *GetEmitter();
 
     regMaskTP outGCrefRegSet = liveness.GetGCRegs(TYP_REF);
     regMaskTP outByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
-    emit->emitIns_R_R_I(INS_add, EA_BYREF, REG_WRITE_BARRIER_DST, addrReg, addrOffset);
+    emit.emitIns_R_R_I(INS_add, EA_BYREF, REG_WRITE_BARRIER_DST, addrReg, addrOffset);
 
     if (layout->IsGCRef(0))
     {
-        inst_Mov(TYP_REF, REG_WRITE_BARRIER_SRC, valReg0, true);
+        emit.emitIns_Mov(INS_mov, EA_GCREF, REG_WRITE_BARRIER_SRC, valReg0, /*canSkip*/ true);
 
         liveness.SetGCRegs(TYP_REF, inGCrefRegSet);
         liveness.SetGCRegs(TYP_BYREF, inByrefRegSet | RBM_WRITE_BARRIER_DST);
@@ -1780,17 +1780,17 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     }
     else
     {
-        emit->emitIns_R_R_I(INS_str, EA_8BYTE, valReg0, REG_WRITE_BARRIER_DST, REGSIZE_BYTES, INS_OPTS_POST_INDEX);
+        emit.emitIns_R_R_I(INS_str, EA_8BYTE, valReg0, REG_WRITE_BARRIER_DST, REGSIZE_BYTES, INS_OPTS_POST_INDEX);
     }
 
     if (layout->IsGCRef(1))
     {
-        inst_Mov(TYP_REF, REG_WRITE_BARRIER_SRC, valReg1, true);
+        emit.emitIns_Mov(INS_mov, EA_GCREF, REG_WRITE_BARRIER_SRC, valReg1, /*canSkip*/ true);
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {
-        emit->emitIns_R_R(INS_str, EA_8BYTE, valReg1, REG_WRITE_BARRIER_DST);
+        emit.emitIns_R_R(INS_str, EA_8BYTE, valReg1, REG_WRITE_BARRIER_DST);
     }
 }
 #endif // TARGET_ARM64
@@ -1921,8 +1921,8 @@ void CodeGen::GenCall(GenTreeCall* call)
 
         if (target != nullptr)
         {
-            genConsumeReg(target);
-            inst_Mov(TYP_I_IMPL, REG_FASTTAILCALL_TARGET, target->GetRegNum(), /* canSkip */ true);
+            RegNum targetReg = UseReg(target);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FASTTAILCALL_TARGET, targetReg, /* canSkip */ true);
         }
 
         return;
