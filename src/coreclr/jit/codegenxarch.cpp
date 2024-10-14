@@ -3827,17 +3827,15 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
-        regNumber addrReg  = UseReg(addr);
-        regNumber valueReg = UseReg(value);
+        RegNum addrReg  = UseReg(addr);
+        RegNum valueReg = UseReg(value);
 
         if (!genEmitOptimizedGCWriteBarrier(writeBarrierForm, addr, value))
         {
-            // At this point, we should not have any interference.
-            // That is, 'shift' must not be in REG_ARG_0, as that is where 'addr' must go.
             noway_assert(valueReg != REG_ARG_0);
 
-            inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-            inst_Mov(value->GetType(), REG_ARG_1, valueReg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
             genGCWriteBarrier(store, writeBarrierForm);
         }
 
