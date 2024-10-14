@@ -427,18 +427,15 @@ void CodeGen::GenPutArgReg(GenTreeUnOp* arg)
     DefReg(arg);
 }
 
-void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)
+void CodeGen::inst_BitCast(var_types dstType, RegNum dstReg, var_types srcType, RegNum srcReg)
 {
     assert(!varTypeIsSmall(dstType));
     assert(!varTypeIsSmall(srcType));
+    assert(varTypeUsesFloatReg(srcType) == genIsValidFloatReg(srcReg));
+    assert(varTypeUsesFloatReg(dstType) == genIsValidFloatReg(dstReg));
 
-    const bool srcIsFloat = varTypeUsesFloatReg(srcType);
-    assert(srcIsFloat == genIsValidFloatReg(srcReg));
-
-    const bool dstIsFloat = varTypeUsesFloatReg(dstType);
-    assert(dstIsFloat == genIsValidFloatReg(dstReg));
-
-    inst_Mov(varActualType(dstType), dstReg, srcReg, /* canSkip */ true);
+    instruction ins = ins_Copy(srcReg, dstType);
+    GetEmitter()->emitIns_Mov(ins, emitTypeSize(dstType), dstReg, srcReg, /* canSkip */ true);
 }
 
 void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
@@ -750,17 +747,18 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* node)
     genJumpToThrowHlpBlk(jmpKind, node->GetThrowKind(), node->GetThrowBlock());
 }
 
-void CodeGen::GenPhysReg(GenTreePhysReg* tree)
+void CodeGen::GenPhysReg(GenTreePhysReg* node)
 {
-    assert(tree->OperIs(GT_PHYSREG));
+    assert(node->OperIs(GT_PHYSREG));
 
-    var_types targetType = tree->TypeGet();
-    regNumber targetReg  = tree->GetRegNum();
+    var_types dstType = node->GetType();
+    regNumber dstReg  = node->GetRegNum();
 
-    inst_Mov(targetType, targetReg, tree->gtSrcReg, /* canSkip */ true);
-    liveness.TransferGCRegType(targetReg, tree->gtSrcReg);
+    GetEmitter()->emitIns_Mov(ins_Copy(node->gtSrcReg, dstType), emitActualTypeSize(dstType), dstReg, node->gtSrcReg,
+                              /* canSkip */ true);
+    liveness.TransferGCRegType(dstReg, node->gtSrcReg);
 
-    genProduceReg(tree);
+    genProduceReg(node);
 }
 
 void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
@@ -798,40 +796,40 @@ void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
 
 void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
 {
-    GenTree*  offsetNode = arrOffset->GetOffset();
-    GenTree*  indexNode  = arrOffset->GetIndex();
-    regNumber tgtReg     = arrOffset->GetRegNum();
+    GenTree* offsetNode = arrOffset->GetOffset();
+    GenTree* indexNode  = arrOffset->GetIndex();
+    RegNum   dstReg     = arrOffset->GetRegNum();
+    Emitter& emit       = *GetEmitter();
 
-    noway_assert(tgtReg != REG_NA);
+    noway_assert(dstReg != REG_NA);
 
-    if (!offsetNode->IsIntegralConst(0))
+    if (offsetNode->IsIntegralConst(0))
     {
-        emitter*  emit      = GetEmitter();
-        regNumber offsetReg = genConsumeReg(offsetNode);
-        regNumber indexReg  = genConsumeReg(indexNode);
-        regNumber arrReg    = genConsumeReg(arrOffset->GetArray());
+        RegNum indexReg = UseReg(indexNode);
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, indexReg, /* canSkip */ true);
+    }
+    else
+    {
+        RegNum offsetReg = genConsumeReg(offsetNode);
+        RegNum indexReg  = genConsumeReg(indexNode);
+        RegNum arrReg    = genConsumeReg(arrOffset->GetArray());
+
         noway_assert(offsetReg != REG_NA);
         noway_assert(indexReg != REG_NA);
         noway_assert(arrReg != REG_NA);
 
-        regNumber tmpReg = arrOffset->GetSingleTempReg();
+        RegNum tmpReg = arrOffset->GetSingleTempReg();
 
         unsigned  dim      = arrOffset->gtCurrDim;
         unsigned  rank     = arrOffset->gtArrRank;
         var_types elemType = arrOffset->gtArrElemType;
         unsigned  offset   = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
 
-        // Load tmpReg with the dimension attr and evaluate
-        // tgtReg = offsetReg*tmpReg + indexReg.
-        emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
-        emit->emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, tgtReg, tmpReg, offsetReg, indexReg);
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
+        emit.emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, dstReg, tmpReg, offsetReg, indexReg);
     }
-    else
-    {
-        regNumber indexReg = genConsumeReg(indexNode);
-        inst_Mov(TYP_INT, tgtReg, indexReg, /* canSkip */ true);
-    }
-    genProduceReg(arrOffset);
+
+    DefReg(arrOffset);
 }
 
 void CodeGen::GenShift(GenTreeOp* shift)
@@ -2086,7 +2084,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~RBM_ARG_REGS);
     liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~RBM_ARG_REGS);
 
-    var_types returnType = call->TypeGet();
+    var_types returnType = call->GetType();
+
     if (returnType != TYP_VOID)
     {
         if (call->HasMultiRegRetVal())
@@ -2097,9 +2096,11 @@ void CodeGen::GenCall(GenTreeCall* call)
             for (unsigned i = 0; i < call->GetRegCount(); ++i)
             {
                 var_types regType      = call->GetRegType(i);
-                regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
-                regNumber allocatedReg = call->GetRegNum(i);
-                inst_Mov(regType, allocatedReg, returnReg, /* canSkip */ true);
+                RegNum    returnReg    = call->GetRetDesc()->GetRegNum(i);
+                RegNum    allocatedReg = call->GetRegNum(i);
+
+                GetEmitter()->emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg,
+                                          returnReg, /* canSkip */ true);
             }
         }
         else
@@ -2134,14 +2135,15 @@ void CodeGen::GenCall(GenTreeCall* call)
             }
             else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
             {
-                inst_Mov(returnType, call->GetRegNum(), REG_R0, /* canSkip */ false);
+                GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, call->GetRegNum(), REG_R0, /* canSkip */ false);
             }
             else
 #endif
                 if (call->GetRegNum() != returnReg)
             {
                 {
-                    inst_Mov(returnType, call->GetRegNum(), returnReg, /* canSkip */ false);
+                    GetEmitter()->emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType),
+                                              call->GetRegNum(), returnReg, /* canSkip */ false);
                 }
             }
         }
