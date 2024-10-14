@@ -1900,12 +1900,14 @@ void CodeGen::ConsumeStructStore(
 
     if (dstAddr != nullptr)
     {
-        genCopyRegIfNeeded(dstAddr, dstReg);
+        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(dstAddr->GetType()), dstReg, dstAddr->GetRegNum(),
+                                  /*canSkip*/ true);
     }
 
     if (!src->isContained())
     {
-        genCopyRegIfNeeded(src, srcReg);
+        GetEmitter()->emitIns_Mov(INS_mov, emitActualTypeSize(src->GetType()), srcReg, src->GetRegNum(),
+                                  /*canSkip*/ true);
     }
 
     if (dstAddr == nullptr)
@@ -1940,13 +1942,14 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
     GenTree* value = store->GetValue();
     GenTree* size  = store->GetSize();
 
-    genConsumeReg(addr);
-    genConsumeReg(value);
-    genConsumeReg(size);
+    RegNum addrOpReg = UseReg(addr);
+    RegNum srcOpReg  = UseReg(value);
+    RegNum sizeOpReg = UseReg(size);
 
-    genCopyRegIfNeeded(addr, dstReg);
-    genCopyRegIfNeeded(value, srcReg);
-    genCopyRegIfNeeded(size, sizeReg);
+    Emitter& emit = *GetEmitter();
+    emit.emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), dstReg, addrOpReg, /*canSkip*/ true);
+    emit.emitIns_Mov(INS_mov, emitActualTypeSize(value->GetType()), srcReg, srcOpReg, /*canSkip*/ true);
+    emit.emitIns_Mov(INS_mov, emitActualTypeSize(size->GetType()), sizeReg, sizeOpReg, /*canSkip*/ true);
 }
 
 void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)

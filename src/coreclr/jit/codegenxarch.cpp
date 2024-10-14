@@ -762,9 +762,8 @@ void CodeGen::GenUModLong(GenTreeOp* node)
     UseReg(dividendHi);
     UseReg(divisor);
 
-    // dividendLo must be in RAX; dividendHi must be in RDX
-    genCopyRegIfNeeded(dividendLo, REG_EAX);
-    genCopyRegIfNeeded(dividendHi, REG_EDX);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, dividendLo->GetRegNum(), /*canSkip*/ true);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EDX, dividendHi->GetRegNum(), /*canSkip*/ true);
 
     // At this point, EAX:EDX contains the 64bit dividend and op2->GetRegNum()
     // contains the 32bit divisor. We want to generate the following code:
@@ -1739,7 +1738,6 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     regNumber      targetReg      = tree->GetRegNum();
     regNumber      regCnt         = REG_NA;
     var_types      type           = varActualType(size->GetType());
-    emitAttr       easz           = emitTypeSize(type);
     insGroup*      endLabel       = nullptr;
     target_ssize_t lastTouchDelta = -1;
 
@@ -1784,13 +1782,13 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
     else
     {
-        // The localloc requested memory size is non-constant.
+        emitAttr attr = emitTypeSize(type);
 
-        // Put the size shift in targetReg. If it is zero, bail out by returning null in targetReg.
-        genConsumeReg(size);
-        genCopyRegIfNeeded(size, targetReg);
+        // Put the size value in targetReg. If it is zero, bail out by returning null in targetReg.
+        RegNum sizeReg = UseReg(size);
+        GetEmitter()->emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
         endLabel = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_test, easz, targetReg, targetReg);
+        GetEmitter()->emitIns_R_R(INS_test, attr, targetReg, targetReg);
         GetEmitter()->emitIns_J(INS_je, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
@@ -1806,7 +1804,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
             regCnt = tree->ExtractTempReg();
 
             // Above, we put the size in targetReg. Now, copy it to our new temp register if necessary.
-            inst_Mov(size->TypeGet(), regCnt, targetReg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, attr, regCnt, targetReg, /*canSkip*/ true);
         }
 
         // Round up the number of bytes to allocate to a STACK_ALIGN boundary. This is done
@@ -1819,7 +1817,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         //      add reg, 15
         //      shr reg, 4
 
-        GetEmitter()->emitIns_R_I(INS_add, emitActualTypeSize(type), regCnt, STACK_ALIGN - 1);
+        GetEmitter()->emitIns_R_I(INS_add, attr, regCnt, STACK_ALIGN - 1);
 
         if (compiler->info.compInitMem)
         {
@@ -1838,7 +1836,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         else
         {
             // Otherwise, mask off the low bits to align the byte count.
-            GetEmitter()->emitIns_R_I(INS_and, emitActualTypeSize(type), regCnt, ~(STACK_ALIGN - 1));
+            GetEmitter()->emitIns_R_I(INS_and, attr, regCnt, ~(STACK_ALIGN - 1));
         }
     }
 
@@ -3913,25 +3911,26 @@ void CodeGen::GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shif
 {
     instruction ins  = GetOperIns(shift->GetOper());
     emitAttr    attr = emitTypeSize(shift->GetType());
-    emitter*    emit = GetEmitter();
+    Emitter&    emit = *GetEmitter();
 
     if (shiftBy->isUsedFromReg())
     {
-        genCopyRegIfNeeded(shiftBy, REG_RCX);
+        emit.emitIns_Mov(INS_mov, emitActualTypeSize(shiftBy->GetType()), REG_RCX, shiftBy->GetRegNum(),
+                         /*canSkip*/ true);
         // The shiftBy operand is implicit, so call the unary version of emitInsRMW.
-        emit->emitInsRMW_A(ins, attr, addr);
+        emit.emitInsRMW_A(ins, attr, addr);
     }
     else if (shiftBy->AsIntCon()->GetInt32Value() == 1)
     {
-        emit->emitInsRMW_A(MapShiftInsToShiftBy1Ins(ins), attr, addr);
+        emit.emitInsRMW_A(MapShiftInsToShiftBy1Ins(ins), attr, addr);
     }
     else if (GenTreeIntCon* imm = shiftBy->IsContainedIntCon())
     {
-        emit->emitInsRMW_A_I(MapShiftInsToShiftByImmIns(ins), attr, addr, imm->GetInt32Value());
+        emit.emitInsRMW_A_I(MapShiftInsToShiftByImmIns(ins), attr, addr, imm->GetInt32Value());
     }
     else
     {
-        emit->emitInsRMW_A_R(MapShiftInsToShiftByImmIns(ins), attr, addr, shiftBy->GetRegNum());
+        emit.emitInsRMW_A_R(MapShiftInsToShiftByImmIns(ins), attr, addr, shiftBy->GetRegNum());
     }
 }
 
@@ -4079,7 +4078,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     //            call    write_barrier_helper_reg
 
     // addr goes in REG_ARG_0
-    genCopyRegIfNeeded(addr, REG_WRITE_BARRIER);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_WRITE_BARRIER, addr->GetRegNum(), /*canSkip*/ true);
 
     unsigned tgtAnywhere = 0;
     if (writeBarrierForm != GCInfo::WBF_BarrierUnchecked)
@@ -4198,7 +4197,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         if (target != nullptr)
         {
             UseReg(target);
-            genCopyRegIfNeeded(target, REG_RAX);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, target->GetRegNum(), /*canSkip*/ true);
         }
 
         return;
@@ -4318,9 +4317,9 @@ void CodeGen::GenCall(GenTreeCall* call)
             GenTree* addr = target->AsIndLoad()->GetAddr();
             assert(addr->isUsedFromReg());
 
-            genConsumeReg(addr);
-            genCopyRegIfNeeded(addr, REG_VIRTUAL_STUB_TARGET);
-
+            RegNum addrReg = UseReg(addr);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_VIRTUAL_STUB_TARGET, addrReg,
+                                      /*canSkip*/ true);
             GetEmitter()->emitIns_Nop(3);
 
             emitCallType = emitter::EC_INDIR_ARD;
@@ -6205,11 +6204,10 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
-            regNumber srcReg = genConsumeReg(src);
-            genCopyRegIfNeeded(src, REG_RAX);
-
             assert(putArgStk->HasAllTempRegs(RBM_RCX | RBM_RDI));
 
+            RegNum srcReg = UseReg(src);
+            emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, srcReg, /*canSkip*/ true);
 #ifdef TARGET_X86
             genPreAdjustStackForPutArgStk(putArgStk->GetArgSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RDI, REG_SPBASE, /* canSkip */ false);

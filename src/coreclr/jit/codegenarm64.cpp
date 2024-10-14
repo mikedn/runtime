@@ -2073,7 +2073,6 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     regNumber            regCnt                   = REG_NA;
     regNumber            pspSymReg                = REG_NA;
     var_types            type                     = varActualType(size->GetType());
-    emitAttr             easz                     = emitTypeSize(type);
     insGroup*            endLabel                 = nullptr;
     BasicBlock*          loop                     = nullptr;
     unsigned             stackAdjustment          = 0;
@@ -2102,11 +2101,13 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
     else
     {
+        emitAttr attr = emitTypeSize(type);
+
         // If 0 bail out by returning null in targetReg
-        genConsumeReg(size);
-        genCopyRegIfNeeded(size, targetReg);
+        RegNum sizeReg = UseReg(size);
+        emit.emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
         endLabel = emit.CreateTempLabel();
-        emit.emitIns_R_R(INS_tst, easz, targetReg, targetReg);
+        emit.emitIns_R_R(INS_tst, attr, targetReg, targetReg);
         emit.emitIns_J(INS_beq, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
@@ -2125,8 +2126,8 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
         // Align to STACK_ALIGN
         // regCnt will be the total number of bytes to localloc
-        inst_RV_IV(INS_add, regCnt, (STACK_ALIGN - 1), emitActualTypeSize(type));
-        inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
+        inst_RV_IV(INS_add, regCnt, (STACK_ALIGN - 1), attr);
+        inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), attr);
     }
 
     // If we have an outgoing arg area then we must adjust the SP by popping off the
