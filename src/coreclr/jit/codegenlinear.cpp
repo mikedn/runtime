@@ -1334,20 +1334,21 @@ regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
     LclVarDsc* lcl = node->GetLcl();
     assert(lcl->IsRegCandidate());
 
-    // Handle the case where we have a lclVar that needs to be copied before use (i.e. because it
+    // Handle the case where we have a local that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
     // TODO-Cleanup: This is a special copyReg case in LSRA - consider eliminating these and
-    // always using GT_COPY to make the lclVar location explicit.
+    // always using GT_COPY to make the local location explicit.
     // Note that we have to do this before calling genUpdateLife because otherwise if we spill it
     // the lvRegNum will be set to REG_STK and we will lose track of what register currently holds
-    // the lclVar (normally when a lclVar is spilled it is then used from its former register
+    // the local (normally when a local is spilled it is then used from its former register
     // location, which matches the GetRegNum() on the node).
     // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
-    // because if it's on the stack it will always get reloaded into tree->GetRegNum()).
+    // because if it's on the stack it will always get reloaded into node->GetRegNum()).
     if (lcl->GetRegNum() != REG_STK)
     {
         var_types dstType = lcl->GetRegisterType(node);
-        inst_Mov(dstType, node->GetRegNum(), lcl->GetRegNum(), /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(ins_Copy(lcl->GetRegNum(), dstType), emitActualTypeSize(dstType), node->GetRegNum(),
+                                  lcl->GetRegNum(), /* canSkip */ true);
     }
 
     if (node->IsAnyRegSpilled())
@@ -1390,7 +1391,8 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     regNumber dstReg  = copy->GetRegNum();
     var_types dstType = copy->GetType();
 
-    inst_Mov(dstType, dstReg, srcReg, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg,
+                              /* canSkip */ false);
 
     // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
     // appropriately set the GC liveness for the copied value.
@@ -1597,8 +1599,8 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
     // TODO-MIKE-Cleanup: This is recursive for no obvious reason...
     UseReg(src, regIndex);
 
-    regNumber srcReg = src->GetRegNum(regIndex);
-    regNumber dstReg = copy->GetRegNum(regIndex);
+    RegNum srcReg = src->GetRegNum(regIndex);
+    RegNum dstReg = copy->GetRegNum(regIndex);
 
     // Not all registers of a multireg COPY need copying.
     if (dstReg == REG_NA)
@@ -1610,7 +1612,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
     assert(srcReg != dstReg);
 
     var_types type = src->GetMultiRegType(compiler, regIndex);
-    inst_Mov(type, dstReg, srcReg, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, type), emitActualTypeSize(type), dstReg, srcReg, /* canSkip */ false);
 
     liveness.SetGCRegType(dstReg, type);
 
