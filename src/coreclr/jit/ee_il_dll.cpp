@@ -1199,7 +1199,7 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
                 pParam->siglength += (pParam->sig.numArgs - 1);
             }
 
-            var_types retType = JITtype2varType(pParam->sig.retType);
+            var_types retType = CorTypeToVarType(pParam->sig.retType);
             if (retType != TYP_VOID)
             {
                 switch (retType)

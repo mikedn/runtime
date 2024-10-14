@@ -9020,7 +9020,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         }
         else
         {
-            assert(storeType == JITtype2varType(info.compCompHnd->asCorInfoType(boxTempLcl->lvClassHnd)));
+            assert(storeType == CorTypeToVarType(info.compCompHnd->asCorInfoType(boxTempLcl->lvClassHnd)));
             JITDUMP("Retyping box temp V%02u to primitive %s\n", boxTempLcl->GetLclNum(), varTypeName(storeType));
             boxTempLcl->SetType(storeType);
         }

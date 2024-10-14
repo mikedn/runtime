@@ -130,7 +130,7 @@ typeInfo Importer::verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd)
     // using ICorClassInfo and ICorClassInfo.getChildType.
     // So findClass() and getClassAttribs() should not be called for byrefs
 
-    if (JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd)) == TYP_BYREF)
+    if (CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd)) == TYP_BYREF)
     {
         assert(!"Did findClass() return a Byref?");
         return typeInfo();

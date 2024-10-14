@@ -1695,7 +1695,7 @@ void Compiler::makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int lev
         unsigned             fldOffset        = info.compCompHnd->getFieldOffset(fieldHandle);
         CORINFO_CLASS_HANDLE fieldClassHandle = NO_CLASS_HANDLE;
         CorInfoType          fieldCorType     = info.compCompHnd->getFieldType(fieldHandle, &fieldClassHandle);
-        var_types            fieldVarType     = JITtype2varType(fieldCorType);
+        var_types            fieldVarType     = CorTypeToVarType(fieldCorType);
         if (fieldClassHandle != NO_CLASS_HANDLE)
         {
             if (varTypeIsStruct(fieldVarType))
