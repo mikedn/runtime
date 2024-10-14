@@ -1382,14 +1382,12 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
     {
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
-        {
             op1Reg = op1->GetRegNum();
             assert(numArgs == 1);
-            assert((baseType == TYP_INT) || (baseType == TYP_UINT));
-            instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-            emit->emitIns_Mov(ins, emitActualTypeSize(baseType), targetReg, op1Reg, /* canSkip */ false);
+            assert(varTypeIsInt(baseType));
+            assert(HWIntrinsicInfo::lookupIns(intrinsicId, baseType) == INS_movd);
+            emit->emitIns_Mov(INS_movd, EA_4BYTE, targetReg, op1Reg, /* canSkip */ false);
             break;
-        }
 
         case NI_AVX2_ConvertToVector256Int16:
         case NI_AVX2_ConvertToVector256Int32:
