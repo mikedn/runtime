@@ -2627,7 +2627,7 @@ void StructPromotionHelper::GetFieldInfo(unsigned index)
 
     CORINFO_FIELD_HANDLE fieldHandle = vm->getFieldInClass(info.typeHandle, index);
     CORINFO_CLASS_HANDLE typeHandle;
-    var_types            type = JITtype2varType(vm->getFieldType(fieldHandle, &typeHandle));
+    var_types            type = CorTypeToVarType(vm->getFieldType(fieldHandle, &typeHandle));
 
     FieldInfo& field     = info.fields[index];
     field.fieldSeq[0]    = fieldHandle;

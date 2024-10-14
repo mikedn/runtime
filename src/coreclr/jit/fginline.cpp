@@ -1051,7 +1051,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
             if (varTypeIsStruct(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
             {
                 CORINFO_CLASS_HANDLE byrefClass;
-                var_types            byrefType = JITtype2varType(
+                var_types            byrefType = CorTypeToVarType(
                     info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &byrefClass));
 
                 if (varTypeIsStruct(byrefType) && (lcl->GetLayout()->GetClassHandle() != byrefClass))
@@ -1331,7 +1331,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
     {
         CORINFO_CLASS_HANDLE paramClass;
         CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(&argsSig, paramHandle, &paramClass));
-        var_types            paramType    = JITtype2varType(paramCorType);
+        var_types            paramType    = CorTypeToVarType(paramCorType);
 
         if (paramType == TYP_REF)
         {
@@ -1589,7 +1589,7 @@ bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
     {
         CORINFO_CLASS_HANDLE lclClass;
         CorInfoTypeWithMod   lclCorType       = info.compCompHnd->getArgType(&localsSig, localHandle, &lclClass);
-        var_types            lclType          = JITtype2varType(strip(lclCorType));
+        var_types            lclType          = CorTypeToVarType(strip(lclCorType));
         bool                 lclIsPinning     = false;
         bool                 lclHasNormedType = false;
 

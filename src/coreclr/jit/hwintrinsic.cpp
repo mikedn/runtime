@@ -63,10 +63,10 @@ var_types Importer::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic
     {
         argClass = info.compCompHnd->getArgClass(sig, arg);
         CORINFO_CLASS_HANDLE childClassHandle;
-        return JITtype2varType(info.compCompHnd->getChildType(argClass, &childClassHandle));
+        return CorTypeToVarType(info.compCompHnd->getChildType(argClass, &childClassHandle));
     }
 
-    var_types argType = JITtype2varType(argCorType);
+    var_types argType = CorTypeToVarType(argCorType);
 
     if (argType != TYP_STRUCT)
     {

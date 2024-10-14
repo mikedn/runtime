@@ -101,7 +101,7 @@ bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
             CORINFO_RESOLVED_TOKEN resolvedToken;
             impResolveToken(codeAddr + sizeof(__int8), &resolvedToken, CORINFO_TOKENKIND_Field);
 
-            var_types lclTyp = JITtype2varType(info.compCompHnd->getFieldType(resolvedToken.hField));
+            var_types lclTyp = CorTypeToVarType(info.compCompHnd->getFieldType(resolvedToken.hField));
 
             // Preserve 'small' int types
             if (!varTypeIsSmall(lclTyp))
@@ -3981,7 +3981,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
     call->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
     impSpillAllAppendTree(call);
 
-    var_types retType = JITtype2varType(sig->retType);
+    var_types retType = CorTypeToVarType(sig->retType);
 
     if (retType == TYP_VOID)
     {
@@ -4030,7 +4030,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     }
 
     CORINFO_CLASS_HANDLE elemClsHnd = nullptr;
-    var_types            elemType   = JITtype2varType(info.compCompHnd->getChildType(clsHnd, &elemClsHnd));
+    var_types            elemType   = CorTypeToVarType(info.compCompHnd->getChildType(clsHnd, &elemClsHnd));
 
     // For the ref case, we will only be able to inline if the types match
     // and the type is final (so we don't need to do the cast).
@@ -9550,7 +9550,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // If it's a value class array we just do a simple address-of
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto LDELEM;
                 }
 
@@ -9586,7 +9586,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto LDELEM;
                 }
 
@@ -9688,7 +9688,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (info.compCompHnd->isValueClass(clsHnd))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
                     goto STELEM;
                 }
 
@@ -10743,7 +10743,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 impHandleAccessAllowed(fieldInfo.accessAllowed, fieldInfo.accessCalloutHelper);
 
-                lclTyp = JITtype2varType(fieldInfo.fieldType);
+                lclTyp = CorTypeToVarType(fieldInfo.fieldType);
 
                 if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_ADDR_HELPER)
                 {
@@ -10956,7 +10956,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -10986,7 +10986,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -11093,7 +11093,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-                lclTyp = JITtype2varType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
                 op2    = op1;
 
                 if (lclTyp == TYP_STRUCT)
@@ -14390,7 +14390,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
 
 #ifdef DEBUG
             var_types fncRetType     = pParam->call->GetType();
-            var_types fncRealRetType = JITtype2varType(methInfo.args.retType);
+            var_types fncRealRetType = CorTypeToVarType(methInfo.args.retType);
 
             assert((genActualType(fncRealRetType) == genActualType(fncRetType)) ||
                    // <BUGNUM> VSW 288602 </BUGNUM>

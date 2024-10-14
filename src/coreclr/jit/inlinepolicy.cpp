@@ -840,7 +840,7 @@ int DefaultPolicy::DetermineCallsiteNativeSizeEstimate(CORINFO_METHOD_INFO* meth
         CORINFO_CLASS_HANDLE argClass;
         CorInfoType argType = strip(m_RootCompiler->info.compCompHnd->getArgType(&methInfo->args, argLst, &argClass));
 
-        if (JITtype2varType(argType) == TYP_STRUCT)
+        if (CorTypeToVarType(argType) == TYP_STRUCT)
         {
             // IN0028: 00009B      lea     EAX, bword ptr [EBP-14H]
             // IN0029: 00009E      push    dword ptr [EAX+4]
