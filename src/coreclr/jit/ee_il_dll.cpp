@@ -25,9 +25,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #ifndef DLLEXPORT
 #define DLLEXPORT
-#endif // !DLLEXPORT
-
-/*****************************************************************************/
+#endif
 
 FILE* jitstdout;
 
@@ -36,7 +34,17 @@ ICorJitCompiler* g_jit;
 
 INDEBUG(extern ConfigMethodRange fJitStressRange;)
 
-/*****************************************************************************/
+class CILJit : public ICorJitCompiler
+{
+    CorJitResult compileMethod(ICorJitInfo*         comp,
+                               CORINFO_METHOD_INFO* methodInfo,
+                               unsigned             flags,
+                               uint8_t**            nativeEntry,
+                               uint32_t*            nativeSizeOfCode);
+    void ProcessShutdownWork(ICorStaticInfo* statInfo);
+    void getVersionIdentifier(GUID* versionIdentifier);
+    unsigned getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags);
+};
 
 extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 {
