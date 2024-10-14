@@ -4440,7 +4440,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
                 case NI_AVX_CompareScalar:
                 {
-                    if ((genTypeSize(node->TypeGet()) != 16) && (genTypeSize(node->TypeGet()) != 32))
+                    if ((varTypeSize(node->GetType()) != 16) && (varTypeSize(node->GetType()) != 32))
                     {
                         // These intrinsics only expect 16 or 32-byte nodes for containment
                         break;
@@ -4523,7 +4523,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
                 default:
                 {
-                    if ((genTypeSize(node->TypeGet()) != 16) && (genTypeSize(node->TypeGet()) != 32))
+                    if ((varTypeSize(node->GetType()) != 16) && (varTypeSize(node->GetType()) != 32))
                     {
                         // These intrinsics only expect 16 or 32-byte nodes for containment
                         break;
@@ -4546,8 +4546,8 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
             assert(supportsUnalignedSIMDLoads == false);
             assert(supportsSIMDScalarLoads == false);
 
-            unsigned       expectedSize = genTypeSize(containingNode->TypeGet());
-            const unsigned operandSize  = genTypeSize(node->TypeGet());
+            unsigned       expectedSize = varTypeSize(containingNode->GetType());
+            const unsigned operandSize  = varTypeSize(node->GetType());
 
             // CRC32 codegen depends on its second oprand's type.
             // Currently, we are using SIMDBaseType to store the op2Type info.

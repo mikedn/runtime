@@ -5,22 +5,7 @@
 // Portions of the code implemented below are based on the 'Berkeley SoftFloat Release 3e' algorithms.
 // ===================================================================================================
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                                  Utils.cpp                                XX
-XX                                                                           XX
-XX   Has miscellaneous utility functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "opcode.h"
 
 const char* Target::PlatformName()
@@ -82,25 +67,38 @@ extern const uint8_t opcodeSizes[]
     #undef InlineSwitch_size
     #undef InlinePhi_size
 };
+// clang-format on
 
 #ifdef DEBUG
-extern const char* const opcodeNames[]
-{
+extern const char* const opcodeNames[]{
 #define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) string,
 #include "opcode.def"
 #undef OPDEF
 };
 
-extern const OPCODE_FORMAT opcodeArgKinds[]
-{
+extern const OPCODE_FORMAT opcodeArgKinds[]{
 #define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) oprType,
 #include "opcode.def"
 #undef OPDEF
 };
 #endif
-// clang-format on
 
-const BYTE varTypeClassification[]{
+const uint8_t varTypeSizes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
+#include "typelist.h"
+};
+
+const uint8_t varTypeAlignments[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
+#include "typelist.h"
+};
+
+const uint8_t varTypeActualTypes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
+#include "typelist.h"
+};
+
+const uint8_t varTypeKinds[]{
 #define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) tf,
 #include "typelist.h"
 };

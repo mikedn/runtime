@@ -462,7 +462,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
         GetEmitter()->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
         DefLongRegs(bitcast);
     }
-    else if ((genTypeSize(dstType) > REGSIZE_BYTES) || (genTypeSize(src->GetType()) > REGSIZE_BYTES))
+    else if ((varTypeSize(dstType) > REGSIZE_BYTES) || (varTypeSize(src->GetType()) > REGSIZE_BYTES))
     {
         NYI_ARM("Converting to/from long/SIMD");
     }

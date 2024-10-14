@@ -214,7 +214,7 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
 unsigned CodeGen::genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension)
 {
     // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
-    return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * (dimension + rank);
+    return compiler->eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * (dimension + rank);
 }
 
 //------------------------------------------------------------------------
@@ -232,7 +232,7 @@ unsigned CodeGen::genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank
 unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension)
 {
     // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
-    return compiler->eeGetArrayDataOffset(elemType) + genTypeSize(TYP_INT) * dimension;
+    return compiler->eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * dimension;
 }
 
 bool AddrMode::IsIndexScale(size_t value)
@@ -2139,7 +2139,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
             emitAttr size = EA_PTRSIZE;
 
-            if (varTypeGCtype(srcLcl->GetType()) != varTypeGCtype(destLcl->GetType()))
+            if (varTypeGCKind(srcLcl->GetType()) != varTypeGCKind(destLcl->GetType()))
             {
                 size = EA_GCREF;
             }

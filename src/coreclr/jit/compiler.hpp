@@ -317,32 +317,7 @@ inline regNumber genRegNumFromMask(regMaskTP mask)
     return regNum;
 }
 
-extern const BYTE genTypeSizes[TYP_COUNT];
-
-template <class T>
-inline unsigned genTypeSize(T value)
-{
-    assert((unsigned)TypeGet(value) < _countof(genTypeSizes));
-
-    return genTypeSizes[TypeGet(value)];
-}
-
-/*****************************************************************************
- *
- *  The following function maps a 'precise' type to an actual type as seen
- *  by the VM (for example, 'byte' maps to 'int').
- */
-
-inline var_types genActualType(var_types type)
-{
-    return varActualType(type);
-}
-
-const char* varTypeName(var_types);
-
-/*****************************************************************************/
 //  Helpers to pull little-endian values out of a byte stream.
-
 inline unsigned __int8 getU1LittleEndian(const BYTE* ptr)
 {
     return *(UNALIGNED unsigned __int8*)ptr;

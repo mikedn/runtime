@@ -3994,7 +3994,7 @@ void CodeGen::GenRegSwap(GenTreeOp* tree)
 
     // Do the xchg
     emitAttr size = EA_PTRSIZE;
-    if (varTypeGCtype(type1) != varTypeGCtype(type2))
+    if (varTypeGCKind(type1) != varTypeGCKind(type2))
     {
         // If the type specified to the emitter is a GC type, it will swap the GC-ness of the registers.
         // Otherwise it will leave them alone, which is correct if they have the same GC-ness.
@@ -5930,8 +5930,8 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         int        adjustment  = roundUp(currentOffset - fieldOffset, 4);
         if (fieldIsSlot && !varTypeIsSIMD(fieldType))
         {
-            fieldType         = genActualType(fieldType);
-            unsigned pushSize = genTypeSize(fieldType);
+            fieldType         = varActualType(fieldType);
+            unsigned pushSize = varTypeSize(fieldType);
             assert((pushSize % 4) == 0);
             adjustment -= pushSize;
             while (adjustment != 0)
@@ -6053,7 +6053,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             if (pushStkArg)
             {
                 // We always push a slot-rounded size
-                currentOffset -= genTypeSize(fieldType);
+                currentOffset -= varTypeSize(fieldType);
             }
         }
 

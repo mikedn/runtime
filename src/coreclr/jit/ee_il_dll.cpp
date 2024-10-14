@@ -432,39 +432,15 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 #endif // !FEATURE_SIMD
 }
 
-//------------------------------------------------------------------------
-// eeGetArrayDataOffset: Gets the offset of a SDArray's first element
-//
-// Arguments:
-//    type - The array element type
-//
-// Return Value:
-//    The offset to the first array element.
-
 unsigned Compiler::eeGetArrayDataOffset(var_types type)
 {
     return OFFSETOF__CORINFO_Array__data;
 }
 
-//------------------------------------------------------------------------
-// eeGetMDArrayDataOffset: Gets the offset of a MDArray's first element
-//
-// Arguments:
-//    type - The array element type
-//    rank - The array rank
-//
-// Return Value:
-//    The offset to the first array element.
-//
-// Assumptions:
-//    The rank should be greater than 0.
-
 unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
 {
     assert(rank > 0);
-    // Note that below we're specifically using genTypeSize(TYP_INT) because array
-    // indices are not native int.
-    return eeGetArrayDataOffset(type) + 2 * genTypeSize(TYP_INT) * rank;
+    return eeGetArrayDataOffset(type) + 2 * varTypeSize(TYP_INT) * rank;
 }
 
 void Importer::eeGetStmtOffsets()

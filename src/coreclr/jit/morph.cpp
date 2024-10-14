@@ -1844,7 +1844,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                    ((sigType == TYP_BYREF) && (argType == TYP_REF)));
 
 #ifdef TARGET_ARM
-            argAlign = roundUp(static_cast<unsigned>(genTypeAlignments[argType]), REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES) / REGSIZE_BYTES;
 #endif
 
 #ifdef TARGET_64BIT
@@ -7764,7 +7764,7 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
 #else
         initVal->AsIntCon()->SetValue(static_cast<int32_t>(initPattern));
 #endif
-        initVal->SetType(genActualType(initPatternType));
+        initVal->SetType(varActualType(initPatternType));
     }
 
 #ifdef FEATURE_SIMD

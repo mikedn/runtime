@@ -457,7 +457,7 @@ GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
             GenTree* op1 = impSIMDPopStack(simdType);
             GenTree* tmpOp =
                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
-            return gtNewSimdHWIntrinsicNode(simdType, intrinsic, baseType, genTypeSize(simdType), op1, tmpOp);
+            return gtNewSimdHWIntrinsicNode(simdType, intrinsic, baseType, varTypeSize(simdType), op1, tmpOp);
         }
 
         default:

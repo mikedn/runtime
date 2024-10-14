@@ -229,13 +229,13 @@ void HWIntrinsicInfo::lookupImmBounds(
     if (category == HW_Category_ShiftLeftByImmediate)
     {
         // The left shift amount is in the range 0 to the element width in bits minus 1.
-        immUpperBound = BITS_PER_BYTE * genTypeSize(baseType) - 1;
+        immUpperBound = varTypeBitSize(baseType) - 1;
     }
     else if (category == HW_Category_ShiftRightByImmediate)
     {
         // The right shift amount, in the range 1 to the element width in bits.
         immLowerBound = 1;
-        immUpperBound = BITS_PER_BYTE * genTypeSize(baseType);
+        immUpperBound = varTypeBitSize(baseType);
     }
     else if (category == HW_Category_SIMDByIndexedElement)
     {

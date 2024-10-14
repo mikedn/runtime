@@ -7588,16 +7588,9 @@ extern unsigned fatal_noWayAssertBodyArgs;
 extern unsigned fatal_NYI;
 #endif // MEASURE_FATAL
 
-extern const BYTE genTypeSizes[];
-extern const BYTE genTypeAlignments[];
-extern const BYTE genTypeStSzs[];
-extern const BYTE genActualTypes[];
-
-/*****************************************************************************/
-
 #ifdef DEBUG
 void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars);
-#endif // DEBUG
+#endif
 
 struct AddrMode
 {

@@ -14,7 +14,7 @@
 // tn  - TYP_name
 // nm  - name string
 // jitType - The jit compresses types that are 'equivalent', this is the jit type varActualType()
-// sz  - size in bytes (genTypeSize(t))
+// sz  - size in bytes (varTypeSize(t))
 // sze - size in bytes for the emitter (GC types are encoded) (emitTypeSize(t))
 // asze- size in bytes for the emitter (GC types are encoded) (emitActualTypeSize(t))
 // al  - alignment
