@@ -2830,25 +2830,25 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     regMaskTP inGCrefRegSet = liveness.GetGCRegs(TYP_REF);
     regMaskTP inByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
-    GenTree*  addr       = store->GetAddr();
-    regNumber addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
-    int       addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
-    GenTree*  val        = store->GetValue();
-    regNumber valReg0    = UseReg(val, 0);
-    regNumber valReg1    = UseReg(val, 1);
-    emitter*  emit       = GetEmitter();
+    GenTree* addr       = store->GetAddr();
+    RegNum   addrReg    = addr->isUsedFromReg() ? UseReg(addr) : UseReg(addr->AsAddrMode()->GetBase());
+    int      addrOffset = addr->isUsedFromReg() ? 0 : addr->AsAddrMode()->GetOffset();
+    GenTree* val        = store->GetValue();
+    RegNum   valReg0    = UseReg(val, 0);
+    RegNum   valReg1    = UseReg(val, 1);
+    Emitter& emit       = *GetEmitter();
 
     regMaskTP outGCrefRegSet = liveness.GetGCRegs(TYP_REF);
     regMaskTP outByrefRegSet = liveness.GetGCRegs(TYP_BYREF);
 
     if (layout->IsGCRef(0))
     {
-        regNumber tempReg = store->ExtractTempReg();
-        inst_Mov(TYP_REF, tempReg, valReg1, true);
+        RegNum tempReg = store->ExtractTempReg();
+        emit.emitIns_Mov(INS_mov, EA_GCREF, tempReg, valReg1, /*canSkip*/ true);
         valReg1 = tempReg;
 
-        emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
-        inst_Mov(TYP_REF, REG_ARG_1, valReg0, true);
+        emit.emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
+        emit.emitIns_Mov(INS_mov, EA_GCREF, REG_ARG_1, valReg0, /*canSkip*/ true);
 
         liveness.SetGCRegs(TYP_REF, inGCrefRegSet | genRegMask(tempReg));
         liveness.SetGCRegs(TYP_BYREF, inByrefRegSet);
@@ -2858,20 +2858,20 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     }
     else
     {
-        emit->emitIns_AR_R(INS_mov, EA_8BYTE, valReg0, addrReg, addrOffset);
+        emit.emitIns_AR_R(INS_mov, EA_8BYTE, valReg0, addrReg, addrOffset);
     }
 
     addrOffset += TARGET_POINTER_SIZE;
 
     if (layout->IsGCRef(1))
     {
-        emit->emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
-        inst_Mov(TYP_REF, REG_ARG_1, valReg1, true);
+        emit.emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
+        emit.emitIns_Mov(INS_mov, EA_GCREF, REG_ARG_1, valReg1, /*canSkip*/ true);
         genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {
-        emit->emitIns_AR_R(INS_mov, EA_8BYTE, valReg1, addrReg, addrOffset);
+        emit.emitIns_AR_R(INS_mov, EA_8BYTE, valReg1, addrReg, addrOffset);
     }
 }
 #endif // UNIX_AMD64_ABI
