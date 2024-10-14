@@ -3510,8 +3510,8 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         //                ; emits a useless IF_GC_REG instruction
         //
         // Deal with this here, where we can check the source type. This should probably
-        // be moved to inst_Mov, but first the "extend" crap needs to be dealt with, so
-        // code can be more easily shared with ARM and ARM64 and other places that may
+        // be moved to emitIns_Mov, but first the "extend" crap needs to be dealt with,
+        // so code can be more easily shared with ARM and ARM64 and other places that may
         // need this (basically all reg-to-reg copies).
         //
         // Alternative: never generate LCL_STORE with mismatched source GC type.

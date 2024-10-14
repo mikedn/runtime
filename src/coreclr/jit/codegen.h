@@ -856,8 +856,6 @@ protected:
 #endif
 
 public:
-    void inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip);
-
     bool IsLocalMemoryOperand(GenTree* op, StackAddrMode* s);
 
 #ifdef TARGET_XARCH
