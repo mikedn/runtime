@@ -649,8 +649,7 @@ ALLOC_DONE:
     }
     else // stackAdjustment == 0
     {
-        // Move the final value of SP to regCnt
-        inst_Mov(TYP_I_IMPL, regCnt, REG_SPBASE, /* canSkip */ false);
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regCnt, /* canSkip */ false);
     }
 
     if (endLabel != nullptr)
@@ -950,37 +949,36 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenCkfinite(GenTree* treeNode)
+void CodeGen::GenCkfinite(GenTree* node)
 {
-    assert(treeNode->OperIs(GT_CKFINITE));
+    assert(node->OperIs(GT_CKFINITE));
 
-    emitter*  emit       = GetEmitter();
-    var_types targetType = treeNode->GetType();
-    regNumber intReg     = treeNode->GetSingleTempReg();
-    regNumber fpReg      = genConsumeReg(treeNode->AsUnOp()->GetOp(0));
-    regNumber targetReg  = treeNode->GetRegNum();
+    Emitter&  emit   = *GetEmitter();
+    var_types type   = node->GetType();
+    regNumber intReg = node->GetSingleTempReg();
+    regNumber fpReg  = UseReg(node->AsUnOp()->GetOp(0));
+    regNumber dstReg = node->GetRegNum();
 
     // Extract and sign-extend the exponent into an integer register
-    if (targetType == TYP_FLOAT)
+    if (type == TYP_FLOAT)
     {
-        emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, intReg, fpReg, /* canSkip */ false);
-        emit->emitIns_R_R_I_I(INS_sbfx, EA_4BYTE, intReg, intReg, 23, 8);
+        emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, intReg, fpReg, /* canSkip */ false);
+        emit.emitIns_R_R_I_I(INS_sbfx, EA_4BYTE, intReg, intReg, 23, 8);
     }
     else
     {
-        assert(targetType == TYP_DOUBLE);
-        emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, intReg, REG_NEXT(fpReg), /* canSkip */ false);
-        emit->emitIns_R_R_I_I(INS_sbfx, EA_4BYTE, intReg, intReg, 20, 11);
+        assert(type == TYP_DOUBLE);
+        emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, intReg, REG_NEXT(fpReg), /* canSkip */ false);
+        emit.emitIns_R_R_I_I(INS_sbfx, EA_4BYTE, intReg, intReg, 20, 11);
     }
 
     // If exponent is all 1's, throw ArithmeticException
-    emit->emitIns_R_I(INS_add, EA_4BYTE, intReg, 1, INS_FLAGS_SET);
+    emit.emitIns_R_I(INS_add, EA_4BYTE, intReg, 1, INS_FLAGS_SET);
     genJumpToThrowHlpBlk(EJ_eq, ThrowHelperKind::Arithmetic);
 
-    // If it's a finite value, copy it to targetReg
-    inst_Mov(targetType, targetReg, fpReg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_vmov, emitTypeSize(type), dstReg, fpReg, /* canSkip */ true);
 
-    genProduceReg(treeNode);
+    genProduceReg(node);
 }
 
 void CodeGen::GenCompare(GenTreeOp* cmp)
@@ -1068,16 +1066,13 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
-        regNumber addrReg = UseReg(addr);
-        regNumber dataReg = UseReg(value);
+        RegNum addrReg  = UseReg(addr);
+        RegNum valueReg = UseReg(value);
 
-        // At this point, we should not have any interference.
-        // That is, 'data' must not be in REG_ARG_0,
-        // as that is where 'addr' must go.
-        noway_assert(dataReg != REG_ARG_0);
+        noway_assert(valueReg != REG_ARG_0);
 
-        inst_Mov(addr->GetType(), REG_ARG_0, addrReg, /* canSkip */ true);
-        inst_Mov(value->GetType(), REG_ARG_1, dataReg, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
         genGCWriteBarrier(store, writeBarrierForm);
 
         return;
@@ -2674,8 +2669,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             unwindStarted = true;
         }
 
-        // mov R9 into SP
-        inst_Mov(TYP_I_IMPL, REG_SP, REG_SAVED_LOCALLOC_SP, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SP, REG_SAVED_LOCALLOC_SP, /* canSkip */ false);
         unwindSetFrameReg(REG_SAVED_LOCALLOC_SP);
     }
 
