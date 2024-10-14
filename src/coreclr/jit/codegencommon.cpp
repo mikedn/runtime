@@ -5301,11 +5301,6 @@ instruction CodeGen::ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool 
     return ins_Store(dstTypeForStore, aligned);
 }
 
-void CodeGen::inst_Mov(var_types dstType, regNumber dstReg, regNumber srcReg, bool canSkip)
-{
-    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg, canSkip);
-}
-
 bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 {
     if (op->isUsedFromSpillTemp())
