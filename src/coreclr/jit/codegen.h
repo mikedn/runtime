@@ -641,7 +641,6 @@ protected:
     void UseRegs(GenTree* node);
     RegNum genConsumeReg(GenTree* node);
     RegNum UseReg(GenTree* node, unsigned regIndex);
-    void genCopyRegIfNeeded(GenTree* tree, RegNum needReg);
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);
     RegNum CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);

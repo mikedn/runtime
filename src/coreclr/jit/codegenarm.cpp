@@ -428,7 +428,6 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     // for storing allocation size
     regNumber            regCnt                   = tree->GetRegNum();
     var_types            type                     = varActualType(size->GetType());
-    emitAttr             easz                     = emitTypeSize(type);
     insGroup*            endLabel                 = nullptr;
     unsigned             stackAdjustment          = 0;
     regNumber            regTmp                   = REG_NA;
@@ -466,9 +465,9 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     else
     {
         // If 0 bail out by returning null in regCnt
-        genConsumeReg(size);
-        genCopyRegIfNeeded(size, regCnt);
-        emit.emitIns_R_R(INS_tst, easz, regCnt, regCnt);
+        RegNum sizeReg = UseReg(size);
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, regCnt, sizeReg, /*canSkip*/ true);
+        emit.emitIns_R_R(INS_tst, EA_4BYTE, regCnt, regCnt);
         endLabel = emit.CreateTempLabel();
         emit.emitIns_J(INS_beq, endLabel);
     }
