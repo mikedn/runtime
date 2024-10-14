@@ -2443,7 +2443,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 
 void CodeGen::GenConv(GenTreeUnOp* cast)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
 
     var_types     type   = cast->GetType();
     RegNum        dstReg = cast->GetRegNum();
@@ -2468,16 +2468,16 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
-void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
+void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
 {
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
+    assert(conv->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(conv->GetType()));
 
-    GenTree* src = cast->GetOp(0);
-    RegNum   srcReg;
-    RegNum   dstReg = cast->GetRegNum();
+    GenTree* src    = conv->GetOp(0);
+    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum   dstReg = conv->GetRegNum();
     emitAttr size   = emitActualTypeSize(src->GetType());
 
-    if (src->isUsedFromMemory())
+    if (srcReg == REG_NA)
     {
         genConsumeRegs(src);
 
@@ -2500,34 +2500,29 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
 
         srcReg = dstReg;
     }
-    else
-    {
-        srcReg = UseReg(src);
-    }
 
     int minValue;
     int maxValue;
 
-    switch (cast->GetType())
+    switch (conv->GetType())
     {
         case TYP_UBYTE:
             minValue = 0;
             maxValue = UINT8_MAX;
             break;
         case TYP_BYTE:
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+            minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
             maxValue = INT8_MAX;
             break;
         case TYP_USHORT:
             minValue = 0;
             maxValue = UINT16_MAX;
             break;
-        case TYP_SHORT:
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+        default:
+            assert(conv->TypeIs(TYP_SHORT));
+            minValue = conv->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
             maxValue = INT16_MAX;
             break;
-        default:
-            unreached();
     }
 
 #ifdef TARGET_ARM64
@@ -2537,35 +2532,61 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
     else
-#endif
     {
+        // TODO-MIKE-Cleanup: This is inherited from ARM32, ARM64 does not need it because
+        // cmp w0, #255 is valid and its encoding has the same length as cmp w0, #256.
+        // Also, this could use UXTB/UXTH options like in the signed case, just to keep
+        // things simpler.
+        // Keep this for now to avoid diffs.
+
+        emitJumpKind jmp;
+
         if (maxValue > 255)
         {
             assert((maxValue == 32767) || (maxValue == 65535));
-
-            // Values greater than 255 cannot be encoded in the immediate operand of CMP.
-            // Replace (x > max) with (x >= max + 1) where max + 1 (a power of 2) can be
-            // encoded. We could do this for all max values but on ARM32 "cmp r0, 255"
-            // is better than "cmp r0, 256" because it has a shorter encoding.
-            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue + 1);
-            genJumpToThrowHlpBlk(minValue == 0 ? EJ_hs : EJ_ge, ThrowHelperKind::Overflow);
+            maxValue++;
+            jmp = EJ_hs;
         }
         else
         {
-            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
-            genJumpToThrowHlpBlk(minValue == 0 ? EJ_hi : EJ_gt, ThrowHelperKind::Overflow);
+            jmp = EJ_hi;
         }
 
-        if (minValue != 0)
-        {
-            GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
-            genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
-        }
+        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
+        genJumpToThrowHlpBlk(jmp, ThrowHelperKind::Overflow);
     }
+#else
+    emitJumpKind jmp;
+
+    if (maxValue > 255)
+    {
+        assert((maxValue == 32767) || (maxValue == 65535));
+
+        // Values greater than 255 cannot be encoded in the immediate operand of CMP.
+        // Replace (x > max) with (x >= max + 1) where max + 1 (a power of 2) can be
+        // encoded. We could do this for all max values but on ARM32 "cmp r0, 255"
+        // is better than "cmp r0, 256" because it has a shorter encoding.
+        maxValue++;
+        jmp = minValue == 0 ? EJ_hs : EJ_ge;
+    }
+    else
+    {
+        jmp = minValue == 0 ? EJ_hi : EJ_gt;
+    }
+
+    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, srcReg, maxValue);
+    genJumpToThrowHlpBlk(minValue == 0 ? EJ_hi : EJ_gt, ThrowHelperKind::Overflow);
+
+    if (minValue != 0)
+    {
+        GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, srcReg, minValue);
+        genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+    }
+#endif
 
     GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
 
-    DefReg(cast);
+    DefReg(conv);
 }
 
 void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
