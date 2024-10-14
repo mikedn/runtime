@@ -1127,17 +1127,18 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
     if (node->OperIs(GT_OVF_STRUNC))
     {
+        insGroup* allOne  = emit.CreateTempLabel();
+        insGroup* success = emit.CreateTempLabel();
+
         emit.emitIns_R_R(INS_tst, EA_4BYTE, loSrcReg, loSrcReg);
-        insGroup* allOne = emit.CreateTempLabel();
         emit.emitIns_J(INS_bmi, allOne);
 
         emit.emitIns_R_R(INS_tst, EA_4BYTE, hiSrcReg, hiSrcReg);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-        insGroup* success = emit.CreateTempLabel();
         emit.emitIns_J(INS_b, success);
 
         emit.DefineTempLabel(allOne);
-        inst_RV_IV(INS_cmp, hiSrcReg, -1, EA_4BYTE);
+        emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1, INS_FLAGS_DONT_CARE);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
         emit.DefineTempLabel(success);
