@@ -4026,7 +4026,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         return false;
     }
 
-    const static CorInfoHelpFunc regToHelper[2][8] = {
+    static constexpr CorInfoHelpFunc regToHelper[2][8]{
         // If the target is known to be in managed memory
         {
             CORINFO_HELP_ASSIGN_REF_EAX, // EAX
@@ -4052,39 +4052,27 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
         },
     };
 
-    noway_assert(regToHelper[0][REG_EAX] == CORINFO_HELP_ASSIGN_REF_EAX);
-    noway_assert(regToHelper[0][REG_ECX] == CORINFO_HELP_ASSIGN_REF_ECX);
-    noway_assert(regToHelper[0][REG_EBX] == CORINFO_HELP_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[0][REG_ESP] == CORINFO_HELP_UNDEF);
-    noway_assert(regToHelper[0][REG_EBP] == CORINFO_HELP_ASSIGN_REF_EBP);
-    noway_assert(regToHelper[0][REG_ESI] == CORINFO_HELP_ASSIGN_REF_ESI);
-    noway_assert(regToHelper[0][REG_EDI] == CORINFO_HELP_ASSIGN_REF_EDI);
+    static_assert_no_msg(regToHelper[0][REG_EAX] == CORINFO_HELP_ASSIGN_REF_EAX);
+    static_assert_no_msg(regToHelper[0][REG_ECX] == CORINFO_HELP_ASSIGN_REF_ECX);
+    static_assert_no_msg(regToHelper[0][REG_EBX] == CORINFO_HELP_ASSIGN_REF_EBX);
+    static_assert_no_msg(regToHelper[0][REG_ESP] == CORINFO_HELP_UNDEF);
+    static_assert_no_msg(regToHelper[0][REG_EBP] == CORINFO_HELP_ASSIGN_REF_EBP);
+    static_assert_no_msg(regToHelper[0][REG_ESI] == CORINFO_HELP_ASSIGN_REF_ESI);
+    static_assert_no_msg(regToHelper[0][REG_EDI] == CORINFO_HELP_ASSIGN_REF_EDI);
 
-    noway_assert(regToHelper[1][REG_EAX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EAX);
-    noway_assert(regToHelper[1][REG_ECX] == CORINFO_HELP_CHECKED_ASSIGN_REF_ECX);
-    noway_assert(regToHelper[1][REG_EBX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBX);
-    noway_assert(regToHelper[1][REG_ESP] == CORINFO_HELP_UNDEF);
-    noway_assert(regToHelper[1][REG_EBP] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBP);
-    noway_assert(regToHelper[1][REG_ESI] == CORINFO_HELP_CHECKED_ASSIGN_REF_ESI);
-    noway_assert(regToHelper[1][REG_EDI] == CORINFO_HELP_CHECKED_ASSIGN_REF_EDI);
+    static_assert_no_msg(regToHelper[1][REG_EAX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EAX);
+    static_assert_no_msg(regToHelper[1][REG_ECX] == CORINFO_HELP_CHECKED_ASSIGN_REF_ECX);
+    static_assert_no_msg(regToHelper[1][REG_EBX] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBX);
+    static_assert_no_msg(regToHelper[1][REG_ESP] == CORINFO_HELP_UNDEF);
+    static_assert_no_msg(regToHelper[1][REG_EBP] == CORINFO_HELP_CHECKED_ASSIGN_REF_EBP);
+    static_assert_no_msg(regToHelper[1][REG_ESI] == CORINFO_HELP_CHECKED_ASSIGN_REF_ESI);
+    static_assert_no_msg(regToHelper[1][REG_EDI] == CORINFO_HELP_CHECKED_ASSIGN_REF_EDI);
 
-    regNumber reg = data->GetRegNum();
+    RegNum reg = data->GetRegNum();
     noway_assert((reg != REG_ESP) && (reg != REG_WRITE_BARRIER));
 
-    // Generate the following code:
-    //            lea     edx, addr
-    //            call    write_barrier_helper_reg
-
-    // addr goes in REG_ARG_0
     GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_WRITE_BARRIER, addr->GetRegNum(), /*canSkip*/ true);
-
-    unsigned tgtAnywhere = 0;
-    if (writeBarrierForm != GCInfo::WBF_BarrierUnchecked)
-    {
-        tgtAnywhere = 1;
-    }
-
-    genEmitHelperCall(regToHelper[tgtAnywhere][reg], EA_PTRSIZE);
+    genEmitHelperCall(regToHelper[writeBarrierForm != GCInfo::WBF_BarrierUnchecked][reg], EA_PTRSIZE);
 
     return true;
 #else  // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
