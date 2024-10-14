@@ -3,18 +3,6 @@
 
 extern ICorJitHost* g_jitHost;
 
-class CILJit : public ICorJitCompiler
-{
-    CorJitResult compileMethod(ICorJitInfo*         comp,
-                               CORINFO_METHOD_INFO* methodInfo,
-                               unsigned             flags,
-                               uint8_t**            nativeEntry,
-                               uint32_t*            nativeSizeOfCode);
-    void ProcessShutdownWork(ICorStaticInfo* statInfo);
-    void getVersionIdentifier(GUID* versionIdentifier);
-    unsigned getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags);
-};
-
 inline var_types CorTypeToVarType(CorInfoType type);
 
 FORCEINLINE
