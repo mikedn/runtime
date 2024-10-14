@@ -9217,7 +9217,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Only proceed when both box sources have the same actual type.
     // (this rules out long/int mismatches)
-    if (genActualType(thisVal->TypeGet()) != genActualType(flagVal->TypeGet()))
+    if (varActualType(thisVal->TypeGet()) != varActualType(flagVal->TypeGet()))
     {
         JITDUMP("bailing, pre-boxed values have different types\n");
         return nullptr;

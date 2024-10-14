@@ -172,7 +172,7 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
 #error Unsupported platform
 #endif
 
-    if (genActualType(op->TypeGet()) != TYP_INT)
+    if (varActualType(op->TypeGet()) != TYP_INT)
     {
         return false;
     }

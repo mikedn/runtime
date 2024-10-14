@@ -106,7 +106,7 @@ bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
             // Preserve 'small' int types
             if (!varTypeIsSmall(lclTyp))
             {
-                lclTyp = genActualType(lclTyp);
+                lclTyp = varActualType(lclTyp);
             }
 
             if (varTypeIsSmall(lclTyp))
@@ -2425,7 +2425,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     CORINFO_CLASS_HANDLE elemClsHnd;
     var_types            elementType = CorTypeToVarType(info.compCompHnd->getChildType(arrayClsHnd, &elemClsHnd));
 
-    // Note that genTypeSize will return zero for non primitive types, which is exactly
+    // Note that varTypeSize will return zero for non primitive types, which is exactly
     // what we want (size will then be 0, and we will catch this in the conditional below).
 
     S_UINT32 elemSize(varTypeSize(elementType));
@@ -2704,7 +2704,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // want to make this *not* make the var address-taken -- but atomic instructions
             // on a local are probably pretty useless anyway, so we probably don't care.
 
-            op1 = gtNewOperNode(interlockedOperator, genActualType(callType), op1, op2);
+            op1 = gtNewOperNode(interlockedOperator, varActualType(callType), op1, op2);
             op1->gtFlags |= GTF_GLOB_REF | GTF_ASG;
             retNode = op1;
             break;
@@ -2723,7 +2723,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             op2 = impPopStack().val; // value
             op1 = impPopStack().val; // location address
 
-            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(genActualType(callType), op1, op2, op3);
+            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(varActualType(callType), op1, op2, op3);
             break;
         }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
@@ -3204,7 +3204,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 GenTree*   op2 = impPopStack().val;
                 GenTree*   op1 = impPopStack().val;
                 genTreeOps op  = (ni == NI_System_Threading_Interlocked_Or) ? GT_XORR : GT_XAND;
-                retNode        = gtNewOperNode(op, genActualType(callType), op1, op2);
+                retNode        = gtNewOperNode(op, varActualType(callType), op1, op2);
                 retNode->gtFlags |= GTF_GLOB_REF | GTF_ASG;
             }
             break;
@@ -4079,7 +4079,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
     }
     else
     {
-        elemSize = genTypeSize(elemType);
+        elemSize = varTypeSize(elemType);
     }
 
     if (elemSize > GenTreeArrElem::MaxElemSize)
@@ -4098,7 +4098,7 @@ GenTree* Importer::impArrayAccessIntrinsic(
         }
 
         val = impPopStack().val;
-        assert(genActualType(elemType) == varActualType(val->GetType()) ||
+        assert(varActualType(elemType) == varActualType(val->GetType()) ||
                (elemType == TYP_FLOAT && val->TypeIs(TYP_DOUBLE)) || (elemType == TYP_INT && val->TypeIs(TYP_BYREF)) ||
                (elemType == TYP_DOUBLE && val->TypeIs(TYP_FLOAT)));
     }
@@ -6276,7 +6276,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
         var_types callerRetType = info.GetRetSigType();
         var_types calleeRetType = call->GetRetSigType();
 
-        // Note that we can not relax this condition with genActualType() as the
+        // Note that we can not relax this condition with varActualType() as the
         // calling convention dictates that the caller of a function with a small
         // typed return value is responsible for normalizing the return val.
 
@@ -11337,7 +11337,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
     GenTree* op2 = impPopStack().val;
 
     // TODO-MIKE-Review: This should be BADCODE.
-    assert(genActualTypeIsIntOrI(op2->GetType()));
+    assert(varActualTypeIsIntOrI(op2->GetType()));
 
     // If the localloc is not in a loop and its size is a small constant,
     // create a new local var of TYP_BLK and return its address.
@@ -14392,7 +14392,7 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             var_types fncRetType     = pParam->call->GetType();
             var_types fncRealRetType = CorTypeToVarType(methInfo.args.retType);
 
-            assert((genActualType(fncRealRetType) == genActualType(fncRetType)) ||
+            assert((varActualType(fncRealRetType) == varActualType(fncRetType)) ||
                    // <BUGNUM> VSW 288602 </BUGNUM>
                    // In case of IJW, we allow to assign a native pointer to a BYREF.
                    (fncRetType == TYP_BYREF && methInfo.args.retType == CORINFO_TYPE_PTR) ||

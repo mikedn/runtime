@@ -871,7 +871,7 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
 
     const unsigned bitCount = jumpCount - 1;
 
-    if (bitCount > (genTypeSize(TYP_I_IMPL) * 8))
+    if (bitCount > varTypeBitSize(TYP_I_IMPL))
     {
         return false;
     }
@@ -967,7 +967,7 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
     // Append BT(bitTable, switchValue) and JCC(condition) to the switch block.
     //
 
-    var_types bitTableType = (bitCount <= (genTypeSize(TYP_INT) * 8)) ? TYP_INT : TYP_LONG;
+    var_types bitTableType = bitCount <= varTypeBitSize(TYP_INT) ? TYP_INT : TYP_LONG;
     GenTree*  bitTableIcon = comp->gtNewIconNode(bitTable, bitTableType);
     GenTree*  bitTest      = comp->gtNewOperNode(GT_BT, TYP_VOID, bitTableIcon, switchValue);
     bitTest->gtFlags |= GTF_SET_FLAGS;
@@ -3993,7 +3993,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
             adjusted = mulhi;
         }
 
-        GenTree* shiftBy = comp->gtNewIconNode(genTypeSize(type) * 8 - 1, type);
+        GenTree* shiftBy = comp->gtNewIconNode(varTypeBitSize(type) - 1, type);
         GenTree* signBit = comp->gtNewOperNode(GT_RSZ, type, adjusted, shiftBy);
         BlockRange().InsertBefore(divMod, shiftBy, signBit);
 

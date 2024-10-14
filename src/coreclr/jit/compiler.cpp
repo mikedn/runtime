@@ -64,36 +64,17 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 #endif
 
 #elif defined(HOST_ARM) || defined(HOST_ARM64)
-
 // If this doesn't work please see ../gc/gc.cpp for additional ARM
 // info (and possible solutions).
 #define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-
 #else // not x86/x64 and not ARM
-
 // Don't know what this target is, but let's give it a try; if
 // someone really wants to make this work, please add the right
 // code here.
 #define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-
-#endif // which host OS
-
-const uint8_t genTypeSizes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
-#include "typelist.h"
-};
-
-const uint8_t genTypeAlignments[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
-#include "typelist.h"
-};
-
-const uint8_t genActualTypes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
-#include "typelist.h"
-};
-
+#endif
 #endif // FEATURE_JIT_METHOD_PERF
+
 #ifdef DEBUG
 
 void Compiler::JitLogEE(unsigned level, const char* fmt, ...)

@@ -423,7 +423,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 opt = (intrin.id == NI_AdvSimd_ExtractVector64) ? INS_OPTS_8B : INS_OPTS_16B;
 
                 ExpandNonConstImm(this, intrin.op3, node, [&](int imm) {
-                    const int byteIndex = genTypeSize(intrin.baseType) * imm;
+                    const int byteIndex = varTypeSize(intrin.baseType) * imm;
                     emit.emitIns_R_R_R_I(ins, emitSize, defReg, regs[0], regs[1], byteIndex, opt);
                 });
                 break;

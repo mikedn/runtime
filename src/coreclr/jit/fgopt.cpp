@@ -2718,11 +2718,11 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
     }
     else if (block->bbJumpSwt->bbsCount == 2 && block->bbJumpSwt->bbsDstTab[1] == block->bbNext)
     {
-        /* Use a BBJ_COND(switchVal==0) for a switch with only one
-           significant clause besides the default clause, if the
-           default clause is bbNext */
+        // Use a BBJ_COND(switchVal==0) for a switch with only one
+        // significant clause besides the default clause, if the
+        // default clause is bbNext
         GenTree* switchVal = switchTree->AsOp()->gtOp1;
-        noway_assert(genActualTypeIsIntOrI(switchVal->TypeGet()));
+        noway_assert(varActualTypeIsIntOrI(switchVal->GetType()));
 
         // If we are in LIR, remove the jump table from the block.
         if (block->IsLIR())

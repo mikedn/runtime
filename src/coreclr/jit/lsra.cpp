@@ -2002,7 +2002,8 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
         {
             ssize_t v1 = refPosition->treeNode->AsIntCon()->IconValue();
             ssize_t v2 = otherTreeNode->AsIntCon()->IconValue();
-            if ((v1 == v2) && (varTypeGCtype(refPosition->treeNode) == varTypeGCtype(otherTreeNode) || v1 == 0))
+            if ((v1 == v2) &&
+                (varTypeGCKind(refPosition->treeNode->GetType()) == varTypeGCKind(otherTreeNode->GetType()) || v1 == 0))
             {
 #ifdef TARGET_64BIT
                 // If the constant is negative, only reuse registers of the same type.
@@ -6238,7 +6239,7 @@ void LinearScan::resolveRegisters()
                                            : genRegNumFromMask(initialRegMask);
 
 #ifdef TARGET_ARM
-                if (varTypeIsMultiReg(varDsc))
+                if (varTypeIsMultiReg(varDsc->GetType()))
                 {
                     // TODO-ARM-NYI: Map the hi/lo intervals back to lvRegNum and GetOtherReg() (these should NYI
                     // before this)

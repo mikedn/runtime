@@ -2447,7 +2447,7 @@ var_types LclVarDsc::GetRegisterType() const
 //
 var_types LclVarDsc::GetActualRegisterType() const
 {
-    return genActualType(GetRegisterType());
+    return varActualType(GetRegisterType());
 }
 
 void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
