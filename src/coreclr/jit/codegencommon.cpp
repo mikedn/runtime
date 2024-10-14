@@ -5151,8 +5151,8 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
             // Keep it as is for until non-SIMD multi reg struct returns are changed to also
             // use FIELD_LIST.
 
-            regNumber srcReg = UseReg(use.GetNode());
-            regNumber retReg = retDesc.GetRegNum(regIndex++);
+            RegNum srcReg = UseReg(use.GetNode());
+            RegNum retReg = retDesc.GetRegNum(regIndex++);
 
             if (srcReg != retReg)
             {
@@ -5172,11 +5172,12 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
     for (unsigned i = 0; i < retDesc.GetRegCount(); ++i)
     {
-        regNumber srcReg  = src->GetRegNum(i);
+        RegNum    srcReg  = src->GetRegNum(i);
         var_types retType = retDesc.GetRegType(i);
-        regNumber retReg  = retDesc.GetRegNum(i);
+        RegNum    retReg  = retDesc.GetRegNum(i);
 
-        inst_Mov(retType, retReg, srcReg, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(ins_Copy(srcReg, retType), emitActualTypeSize(retType), retReg, srcReg,
+                                  /* canSkip */ true);
     }
 }
 
@@ -5234,17 +5235,18 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclStore* store)
 
     for (unsigned i = 0; i < regCount; ++i)
     {
-        regNumber  srcReg      = UseReg(src, i);
+        RegNum     srcReg      = UseReg(src, i);
         var_types  srcType     = value->GetMultiRegType(compiler, i);
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
         LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
         var_types  fieldType   = fieldLcl->TypeGet();
-        regNumber  fieldReg    = store->GetRegNum(i);
+        RegNum     fieldReg    = store->GetRegNum(i);
 
         if (fieldReg != REG_NA)
         {
             hasRegs = true;
-            inst_Mov(fieldType, fieldReg, srcReg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(ins_Copy(srcReg, fieldType), emitActualTypeSize(fieldType), fieldReg, srcReg,
+                                      /* canSkip */ true);
 
             if (!store->IsLastUse(i))
             {

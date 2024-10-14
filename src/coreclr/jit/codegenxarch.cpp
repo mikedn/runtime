@@ -795,19 +795,18 @@ void CodeGen::GenUModLong(GenTreeOp* node)
     //   div divisor->GetRegNum()
     //   mov eax, temp
     const regNumber tempReg = node->GetSingleTempReg();
-    inst_Mov(TYP_INT, tempReg, REG_EAX, /* canSkip */ false);
-    inst_Mov(TYP_INT, REG_EAX, REG_EDX, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tempReg, REG_EAX, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, REG_EDX, /* canSkip */ false);
     GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
     GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
-    inst_Mov(TYP_INT, REG_EAX, tempReg, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, tempReg, /* canSkip */ false);
 
     // noOverflow:
     //   div divisor->GetRegNum()
     GetEmitter()->DefineTempLabel(noOverflow);
     GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
 
-    const regNumber targetReg = node->GetRegNum();
-    inst_Mov(TYP_INT, targetReg, REG_RDX, /* canSkip */ true);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, node->GetRegNum(), REG_RDX, /* canSkip */ true);
 
     DefReg(node);
 }
@@ -1593,9 +1592,9 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
         // TODO-CQ: manipulate ESP directly, to share code, reduce #ifdefs, and improve CQ. This would require
         // creating a way to temporarily turn off the emitter's tracking of ESP, maybe marking instrDescs as "don't
         // track".
-        inst_Mov(TYP_INT, regTmp, REG_SPBASE, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, regTmp, REG_SPBASE, /* canSkip */ false);
         GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regTmp, static_cast<int32_t>(-spDelta));
-        inst_Mov(TYP_INT, REG_SPBASE, regTmp, /* canSkip */ false);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regTmp, /* canSkip */ false);
     }
     else
     {
@@ -3151,9 +3150,9 @@ void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
     GenTree* arrObj    = arrIndex->ArrObj();
     GenTree* indexNode = arrIndex->IndexExpr();
 
-    regNumber arrReg   = genConsumeReg(arrObj);
-    regNumber indexReg = genConsumeReg(indexNode);
-    regNumber tgtReg   = arrIndex->GetRegNum();
+    RegNum arrReg   = UseReg(arrObj);
+    RegNum indexReg = UseReg(indexNode);
+    RegNum tgtReg   = arrIndex->GetRegNum();
 
     unsigned  dim      = arrIndex->gtCurrDim;
     unsigned  rank     = arrIndex->gtArrRank;
@@ -3163,11 +3162,9 @@ void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
 
     // Subtract the lower bound for this dimension.
     // TODO-XArch-CQ: make this contained if it's an immediate that fits.
-    inst_Mov(indexNode->TypeGet(), tgtReg, indexReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R_AR(INS_sub, emitActualTypeSize(TYP_INT), tgtReg, arrReg,
-                               genOffsetOfMDArrayLowerBound(elemType, rank, dim));
-    GetEmitter()->emitIns_R_AR(INS_cmp, emitActualTypeSize(TYP_INT), tgtReg, arrReg,
-                               genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tgtReg, indexReg, /* canSkip */ true);
+    GetEmitter()->emitIns_R_AR(INS_sub, EA_4BYTE, tgtReg, arrReg, genOffsetOfMDArrayLowerBound(elemType, rank, dim));
+    GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, tgtReg, arrReg, genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
     genJumpToThrowHlpBlk(EJ_ae, ThrowHelperKind::IndexOutOfRange);
 
     genProduceReg(arrIndex);
@@ -3200,16 +3197,21 @@ void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
     {
         assert(offsetNode->isContained());
     }
-    regNumber indexReg = UseReg(indexNode);
+
+    RegNum indexReg = UseReg(indexNode);
     // Although arrReg may not be used in the constant-index case, if we have generated
     // the shift into a register, we must consume it, otherwise we will fail to end the
     // live range of the gc ptr.
     // TODO-CQ: Currently arrObj will always have a register allocated to it.
     // We could avoid allocating a register for it, which would be of shift if the arrObj
     // is an on-stack lclVar.
-    regNumber arrReg = UseReg(arrObj);
+    RegNum arrReg = UseReg(arrObj);
 
-    if (!offsetNode->IsIntegralConst(0))
+    if (offsetNode->IsIntegralConst(0))
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tgtReg, indexReg, /* canSkip */ true);
+    }
+    else
     {
         assert(tmpReg != REG_NA);
         assert(arrReg != REG_NA);
@@ -3218,7 +3220,7 @@ void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
         // tmpReg is used to load dim_size and the result of the multiplication.
         // Note that dim_size will never be negative.
 
-        GetEmitter()->emitIns_R_AR(INS_mov, emitActualTypeSize(TYP_INT), tmpReg, arrReg,
+        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, arrReg,
                                    genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
         GetEmitter()->emitIns_R_R(INS_imul, EA_PTRSIZE, tmpReg, offsetReg);
 
@@ -3228,15 +3230,12 @@ void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
         }
         else
         {
-            inst_Mov(TYP_I_IMPL, tgtReg, indexReg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, tgtReg, indexReg, /* canSkip */ true);
             GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, tgtReg, tmpReg);
         }
     }
-    else
-    {
-        inst_Mov(TYP_INT, tgtReg, indexReg, /* canSkip */ true);
-    }
-    genProduceReg(arrOffset);
+
+    DefReg(arrOffset);
 }
 
 instruction CodeGen::ins_FloatCompare(var_types type)
@@ -5477,43 +5476,38 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
-void CodeGen::GenCkfinite(GenTree* treeNode)
+void CodeGen::GenCkfinite(GenTree* node)
 {
-    assert(treeNode->OperIs(GT_CKFINITE));
+    assert(node->OperIs(GT_CKFINITE));
 
-    GenTree*  op1        = treeNode->AsUnOp()->GetOp(0);
-    var_types targetType = treeNode->GetType();
-    int       expMask    = targetType == TYP_FLOAT ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
-    regNumber targetReg  = treeNode->GetRegNum();
+    GenTree*  src     = node->AsUnOp()->GetOp(0);
+    var_types type    = node->GetType();
+    int       expMask = type == TYP_FLOAT ? 0x7F800000 : 0x7FF00000; // Bit mask to extract exponent.
+    RegNum    dstReg  = node->GetRegNum();
 
     // TODO-XArch-CQ - mark the operand as contained if known to be in
     // memory (e.g. field or an array element).
 
     // Extract exponent into a register.
-    regNumber tmpReg = treeNode->GetSingleTempReg();
-    regNumber srcReg = UseReg(op1);
+    RegNum tmpReg = node->GetSingleTempReg();
+    RegNum srcReg = UseReg(src);
 
 #ifdef TARGET_64BIT
     // Copy the floating-point shift to an integer register. If we copied a float to a long, then
     // right-shift the shift so the high 32 bits of the floating-point shift sit in the low 32
     // bits of the integer register.
-    inst_Mov(targetType == TYP_FLOAT ? TYP_INT : TYP_LONG, tmpReg, srcReg, /* canSkip */ false);
+    GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(type), tmpReg, srcReg, /* canSkip */ false);
 
-    if (targetType == TYP_DOUBLE)
+    if (type == TYP_DOUBLE)
     {
-        // right shift by 32 bits to get to exponent.
         GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tmpReg, 32);
     }
 
-    // Mask exponent with all 1's and check if the exponent is all 1's
     GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
-
-    // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
-    // if it is a finite shift copy it to targetReg
-    inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
+    GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg, /* canSkip */ true);
 
 #else // !TARGET_64BIT
 
@@ -5548,11 +5542,11 @@ void CodeGen::GenCkfinite(GenTree* treeNode)
 
     regNumber copyToTmpSrcReg; // The register we'll copy to the integer temp.
 
-    if (targetType == TYP_DOUBLE)
+    if (type == TYP_DOUBLE)
     {
-        inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, 0xffffffb1);
-        copyToTmpSrcReg = targetReg;
+        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg, /* canSkip */ true);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
+        copyToTmpSrcReg = dstReg;
     }
     else
     {
@@ -5561,31 +5555,27 @@ void CodeGen::GenCkfinite(GenTree* treeNode)
 
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
     // shift, no matter the floating-point type.
-    inst_Mov(TYP_INT, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
-
-    // Mask exponent with all 1's and check if the exponent is all 1's
+    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
     GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
-
-    // If exponent is all 1's, throw ArithmeticException
     genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
-    if ((targetType == TYP_DOUBLE) && (targetReg == srcReg))
+    if ((type == TYP_DOUBLE) && (dstReg == srcReg))
     {
         // We need to re-shuffle the targetReg to get the correct result.
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, targetReg, targetReg, 0xffffffb1);
+        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
     }
     else
     {
         // In both the TYP_FLOAT and TYP_DOUBLE case, the op1 register is untouched,
         // so copy it to the targetReg. This is faster and smaller for TYP_DOUBLE
         // than re-shuffling the targetReg.
-        inst_Mov(targetType, targetReg, srcReg, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg, /* canSkip */ true);
     }
 
 #endif // !TARGET_64BIT
 
-    DefReg(treeNode);
+    DefReg(node);
 }
 
 // Return the "total" size of the stack frame, including local size and
@@ -8533,7 +8523,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 #ifdef TARGET_X86
         if (needMovEspEbp)
         {
-            inst_Mov(TYP_INT, REG_ESP, REG_EBP, /* canSkip */ false);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_ESP, REG_EBP, /* canSkip */ false);
         }
 #endif
 
