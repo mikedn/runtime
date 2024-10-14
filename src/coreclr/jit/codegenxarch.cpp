@@ -571,12 +571,12 @@ void CodeGen::GenNegNot(GenTreeUnOp* node)
     assert(node->OperIs(GT_NEG, GT_NOT) && varTypeIsIntegral(node->GetType()));
 
     instruction ins    = node->OperIs(GT_NEG) ? INS_neg : INS_not;
-    var_types   type   = node->GetType();
-    regNumber   dstReg = node->GetRegNum();
-    regNumber   srcReg = UseReg(node->GetOp(0));
+    emitAttr    size   = emitActualTypeSize(node->GetType());
+    RegNum      dstReg = node->GetRegNum();
+    RegNum      srcReg = UseReg(node->GetOp(0));
 
-    inst_Mov(type, dstReg, srcReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R(ins, emitActualTypeSize(type), dstReg);
+    GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
+    GetEmitter()->emitIns_R(ins, size, dstReg);
 
     DefReg(node);
 }
@@ -3130,11 +3130,12 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
 
 void CodeGen::GenPhysReg(GenTreePhysReg* tree)
 {
-    var_types targetType = tree->GetType();
-    regNumber targetReg  = tree->GetRegNum();
+    var_types type   = tree->GetType();
+    RegNum    dstReg = tree->GetRegNum();
 
-    inst_Mov(targetType, targetReg, tree->gtSrcReg, /* canSkip */ true);
-    liveness.TransferGCRegType(targetReg, tree->gtSrcReg);
+    GetEmitter()->emitIns_Mov(ins_Copy(tree->gtSrcReg, type), emitActualTypeSize(type), dstReg, tree->gtSrcReg,
+                              /* canSkip */ true);
+    liveness.TransferGCRegType(dstReg, tree->gtSrcReg);
 
     DefReg(tree);
 }
@@ -4459,9 +4460,11 @@ void CodeGen::GenCall(GenTreeCall* call)
                 for (unsigned i = 0; i < call->GetRegCount(); ++i)
                 {
                     var_types regType      = call->GetRegType(i);
-                    regNumber returnReg    = call->GetRetDesc()->GetRegNum(i);
-                    regNumber allocatedReg = call->GetRegNum(i);
-                    inst_Mov(regType, allocatedReg, returnReg, /* canSkip */ true);
+                    RegNum    returnReg    = call->GetRetDesc()->GetRegNum(i);
+                    RegNum    allocatedReg = call->GetRegNum(i);
+
+                    GetEmitter()->emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg,
+                                              returnReg, /* canSkip */ true);
                 }
 
 #ifdef FEATURE_SIMD
@@ -4470,18 +4473,18 @@ void CodeGen::GenCall(GenTreeCall* call)
                 // the native compiler doesn't guarantee it.
                 if (call->IsUnmanaged() && (returnType == TYP_SIMD12))
                 {
-                    regNumber returnReg = call->GetRetDesc()->GetRegNum(1);
+                    RegNum returnReg = call->GetRetDesc()->GetRegNum(1);
                     // Clear the upper 32 bits by two shift instructions.
                     // retReg = retReg << 96
                     // retReg = retReg >> 96
-                    GetEmitter()->emitIns_R_I(INS_pslldq, emitActualTypeSize(TYP_SIMD12), returnReg, 12);
-                    GetEmitter()->emitIns_R_I(INS_psrldq, emitActualTypeSize(TYP_SIMD12), returnReg, 12);
+                    GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, returnReg, 12);
+                    GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, returnReg, 12);
                 }
 #endif // FEATURE_SIMD
             }
             else
             {
-                regNumber returnReg;
+                RegNum returnReg;
 
 #ifdef TARGET_X86
                 if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
@@ -4489,7 +4492,7 @@ void CodeGen::GenCall(GenTreeCall* call)
                     returnReg = REG_PINVOKE_TCB;
                 }
                 else
-#endif // TARGET_X86
+#endif
                     if (varTypeIsFloating(returnType))
                 {
                     returnReg = REG_FLOATRET;
@@ -4499,7 +4502,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                     returnReg = REG_INTRET;
                 }
 
-                inst_Mov(returnType, call->GetRegNum(), returnReg, /* canSkip */ true);
+                GetEmitter()->emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType),
+                                          call->GetRegNum(), returnReg, /* canSkip */ true);
             }
 
             DefCallRegs(call);
@@ -4895,11 +4899,11 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 {
     assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
 
-    GenTree*  op1    = cmp->GetOp(0);
-    GenTree*  op2    = cmp->GetOp(1);
-    var_types type1  = op1->GetType();
-    var_types type2  = op2->GetType();
-    regNumber dstReg = cmp->GetRegNum();
+    GenTree* const  op1    = cmp->GetOp(0);
+    GenTree*        op2    = cmp->GetOp(1);
+    var_types const type1  = op1->GetType();
+    var_types const type2  = op2->GetType();
+    regNumber const dstReg = cmp->GetRegNum();
 
     genConsumeRegs(op1);
     genConsumeRegs(op2);
@@ -4940,8 +4944,9 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
             if ((dstReg != REG_NA) && cmp->OperIs(GT_LT, GT_GE) && !cmp->IsRelopUnsigned())
             {
                 emitAttr attr = emitActualTypeSize(type1);
+                RegNum   reg1 = op1->GetRegNum();
 
-                inst_Mov(op1->GetType(), dstReg, op1->GetRegNum(), /*canSkip*/ true);
+                GetEmitter()->emitIns_Mov(ins_Copy(reg1, type1), attr, dstReg, reg1, /*canSkip*/ true);
 
                 if (cmp->OperIs(GT_GE))
                 {
@@ -5754,14 +5759,11 @@ void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcTyp
 {
     assert(!varTypeIsSmall(dstType));
     assert(!varTypeIsSmall(srcType));
+    assert(varTypeUsesFloatReg(srcType) == genIsValidFloatReg(srcReg));
+    assert(varTypeUsesFloatReg(dstType) == genIsValidFloatReg(dstReg));
 
-    const bool srcIsFloat = varTypeUsesFloatReg(srcType);
-    assert(srcIsFloat == genIsValidFloatReg(srcReg));
-
-    const bool dstIsFloat = varTypeUsesFloatReg(dstType);
-    assert(dstIsFloat == genIsValidFloatReg(dstReg));
-
-    inst_Mov(varActualType(dstType), dstReg, srcReg, /* canSkip */ true);
+    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg,
+                              /* canSkip */ true);
 }
 
 void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
@@ -5980,9 +5982,10 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             {
                 assert(intTmpReg != REG_NA);
                 noway_assert((genRegMask(intTmpReg) & RBM_BYTE_REGS) != 0);
+
                 if (argReg != REG_NA)
                 {
-                    inst_Mov(fieldType, intTmpReg, argReg, /* canSkip */ false);
+                    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, intTmpReg, argReg, /* canSkip */ false);
                     argReg = intTmpReg;
                 }
             }
@@ -6357,18 +6360,17 @@ void CodeGen::GenPutArgReg(GenTreeUnOp* putArg)
     assert(putArg->OperIs(GT_PUTARG_REG));
 
     GenTree*  src    = putArg->GetOp(0);
-    regNumber srcReg = genConsumeReg(src);
+    RegNum    srcReg = genConsumeReg(src);
     var_types type   = putArg->GetType();
-    regNumber argReg = putArg->GetRegNum();
+    RegNum    argReg = putArg->GetRegNum();
 
     assert(!varTypeIsSmall(type));
 #ifdef TARGET_X86
     assert(type != TYP_LONG);
 #endif
 
-    inst_Mov(type, argReg, srcReg, /* canSkip */ true);
-
-    genProduceReg(putArg);
+    GetEmitter()->emitIns_Mov(ins_Copy(srcReg, type), emitActualTypeSize(type), argReg, srcReg, /* canSkip */ true);
+    DefReg(putArg);
 }
 
 #ifdef TARGET_X86
