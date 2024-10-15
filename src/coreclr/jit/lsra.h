@@ -839,7 +839,7 @@ private:
                                 regMaskTP    mask,
                                 unsigned     multiRegIdx = 0);
 
-    RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask);
+    RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType);
 
     void applyCalleeSaveHeuristics(RefPosition* rp);
 
