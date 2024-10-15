@@ -5078,7 +5078,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
     assert(srcType != TYP_LONG);
 #endif
 
-    if ((varTypeSize(dstType) <= varTypeSize(srcType)) && IsContainableMemoryOp(src))
+    if ((varTypeSize(dstType) <= varTypeSize(srcType)) && IsMemOperand(src))
     {
         // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
 
@@ -5089,8 +5089,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
         src->SetType(dstType);
         remove = true;
     }
-    else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)) &&
-             IsContainableMemoryOp(src))
+    else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)) && IsMemOperand(src))
     {
         remove = true;
     }
@@ -5129,7 +5128,7 @@ GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
     GenTree* src    = node->GetOp(0);
     bool     remove = false;
 
-    if (IsContainableMemoryOp(src))
+    if (IsMemOperand(src))
     {
         // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
         // if there are any advantages in doing such a transform earlier (in fact there may be one
@@ -5617,10 +5616,10 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
 #ifdef FEATURE_SIMD
 bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
 {
-    assert(IsContainableMemoryOp(store));
+    assert(IsMemStore(store));
     assert(store->TypeIs(TYP_SIMD12));
 
-    if ((varTypeSize(value->GetType()) < 12) || !IsContainableMemoryOp(value) || !IsSafeToContainMem(store, value))
+    if ((varTypeSize(value->GetType()) < 12) || !IsMemOperand(value) || !IsSafeToContainMem(store, value))
     {
         return false;
     }
@@ -5826,16 +5825,31 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
 }
 #endif
 
-bool Lowering::IsContainableMemoryOp(GenTree* node)
+bool Lowering::IsMemStore(GenTree* node)
 {
-    if (node->OperIs(GT_IND_LOAD, GT_IND_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
+    if (node->OperIs(GT_IND_STORE, GT_LCL_STORE_FLD))
     {
         return true;
     }
 
-    if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
+    if (node->OperIs(GT_LCL_STORE))
     {
-        return node->AsLclVar()->GetLcl()->lvDoNotEnregister;
+        return node->AsLclStore()->GetLcl()->lvDoNotEnregister;
+    }
+
+    return false;
+}
+
+bool Lowering::IsMemOperand(GenTree* node)
+{
+    if (node->OperIs(GT_IND_LOAD, GT_LCL_LOAD_FLD))
+    {
+        return true;
+    }
+
+    if (node->OperIs(GT_LCL_LOAD))
+    {
+        return node->AsLclLoad()->GetLcl()->lvDoNotEnregister;
     }
 
     return false;

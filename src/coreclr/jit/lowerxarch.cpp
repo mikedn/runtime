@@ -31,7 +31,7 @@ GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
     assert((node->OperIs(GT_FTRUNC) && src->TypeIs(TYP_DOUBLE) && node->TypeIs(TYP_FLOAT)) ||
            (node->OperIs(GT_FXT) && src->TypeIs(TYP_FLOAT) && node->TypeIs(TYP_DOUBLE)));
 
-    if (IsContainableMemoryOp(src))
+    if (IsMemOperand(src))
     {
         // These cannot throw we can move the cast right after
         // the source node to avoid the interference check.
@@ -580,7 +580,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         //      Most LCL_VARs that reference small int local end up having type INT, with the notable
         //      exception of promoted struct field which may have small int type.
 
-        if ((srcSize == REGSIZE_BYTES) && IsContainableMemoryOp(src) && IsSafeToContainMem(putArgStk, src))
+        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToContainMem(putArgStk, src))
         {
             src->SetContained();
         }
@@ -731,7 +731,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
     var_types      op1Type  = op1->GetType();
     ssize_t        op2Value = op2->GetValue();
 
-    if (IsContainableMemoryOp(op1))
+    if (IsMemOperand(op1))
     {
         // If op1's type is small then try to narrow op2 so it has the same type as op1.
         // Small types are usually used by memory loads and if both compare operands have
@@ -762,7 +762,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         andOp1->ClearContained();
         andOp2->ClearContained();
 
-        if (IsContainableMemoryOp(andOp1) && andOp2->IsIntCon())
+        if (IsMemOperand(andOp1) && andOp2->IsIntCon())
         {
             // For "test" we only care about the bits that are set in the second operand (mask).
             // If the mask fits in a small type then we can narrow both operands to generate a "test"
@@ -852,7 +852,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         // situations. In particular this include CALL, sometimes the JIT unnecessarily widens
         // the result of bool returning calls.
 
-        if (castOp->OperIs(GT_CALL, GT_LCL_LOAD, GT_AND, GT_OR, GT_XOR) || IsContainableMemoryOp(castOp))
+        if (castOp->OperIs(GT_CALL, GT_LCL_LOAD, GT_AND, GT_OR, GT_XOR) || IsMemOperand(castOp))
         {
             // Any contained memory ops on castOp must be narrowed too.
             if (castOp->OperIs(GT_AND, GT_OR, GT_XOR))
@@ -862,13 +862,13 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
                 if (!op1->IsIntCon() && op1->isContained())
                 {
-                    assert(IsContainableMemoryOp(op1));
+                    assert(IsMemOperand(op1));
                     op1->SetType(TYP_UBYTE);
                 }
 
                 if (!op2->IsIntCon() && op2->isContained())
                 {
-                    assert(IsContainableMemoryOp(op2));
+                    assert(IsMemOperand(op2));
                     op2->SetType(TYP_UBYTE);
                 }
             }
@@ -1848,7 +1848,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         // then unpcklps is preferrable to insertps as it's shorter. However, insertps can contain
         // FLOAT memory operands so try to use that when we definitly know we have a memory operand.
 
-        bool op2IsMem = IsContainableMemoryOp(op2) || op2->IsDblCon();
+        bool op2IsMem = IsMemOperand(op2) || op2->IsDblCon();
 
         if (!op2IsMem || !comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
         {
@@ -2375,7 +2375,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsContainableMemoryOp(vec) && IsSafeToContainMem(node, vec))
+    if (IsMemOperand(vec) && IsSafeToContainMem(node, vec))
     {
         vec->SetContained();
     }
@@ -2807,7 +2807,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
 
     if (elt->TypeIs(TYP_FLOAT))
     {
-        if (elt->IsDblCon() || (IsContainableMemoryOp(elt) && IsSafeToContainMem(node, elt)))
+        if (elt->IsDblCon() || (IsMemOperand(elt) && IsSafeToContainMem(node, elt)))
         {
             elt->SetContained();
             return;
@@ -3435,7 +3435,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
             return;
         }
 
-        if (IsContainableMemoryOp(other))
+        if (IsMemOperand(other))
         {
             memOp = other;
         }
@@ -3446,7 +3446,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 
     if (memOp == nullptr)
     {
-        if ((op2->GetType() == node->GetType()) && IsContainableMemoryOp(op2))
+        if ((op2->GetType() == node->GetType()) && IsMemOperand(op2))
         {
             isSafeToContainOp2 = IsSafeToContainMem(node, op2);
 
@@ -3456,7 +3456,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
             }
         }
 
-        if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsContainableMemoryOp(op1))
+        if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsMemOperand(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
 
@@ -3533,7 +3533,7 @@ void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 #endif
 
     // divisor can be an r/m, but the memory indirection must be of the same size as the divide
-    if (IsContainableMemoryOp(divisor) && (divisor->GetType() == node->GetType()))
+    if (IsMemOperand(divisor) && (divisor->GetType() == node->GetType()))
     {
         divisor->SetContained();
     }
@@ -3595,7 +3595,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     {
         assert(!src->IsIntCon());
 
-        if (store->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(store))
+        if (store->TypeIs(TYP_SIMD12) && IsMemStore(store))
         {
             ContainSIMD12MemToMemCopy(store, src);
         }
@@ -3624,8 +3624,8 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         return;
     }
 
-    if (IsContainableMemoryOp(store) && varTypeIsIntegral(store->GetType()) && src->OperIsRMWMemOp() &&
-        ((src->gtFlags & (GTF_SET_FLAGS | GTF_USE_FLAGS)) == 0))
+    if (src->OperIsRMWMemOp() && IsMemStore(store) && varTypeIsIntegral(store->GetType()) &&
+        !src->HasImplicitFlagsDef() && !src->HasImplicitFlagsUse())
     {
         // TODO-MIKE-CQ: This usually fails when address exposed small int LCL_VARs
         // are involved due to useless casts. The load is hidden by a widening cast
@@ -3687,7 +3687,7 @@ void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
 
     src->SetContained();
 #else
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src))
+    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
     {
         src->SetContained();
     }
@@ -3706,7 +3706,7 @@ void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
     assert(!src->TypeIs(TYP_LONG));
 #endif
 
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src))
+    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
     {
         src->SetContained();
     }
@@ -3722,7 +3722,7 @@ void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
 
     GenTree* src = cast->GetOp(0);
 
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(cast, src))
+    if (IsMemOperand(src) && IsSafeToContainMem(cast, src))
     {
         src->SetContained();
     }
@@ -3739,7 +3739,7 @@ void Lowering::ContainCheckConv(GenTreeUnOp* cast)
 
     GenTree* src = cast->GetOp(0);
 
-    if (IsContainableMemoryOp(src))
+    if (IsMemOperand(src))
     {
         if (cast->gtPrev != src)
         {
@@ -3765,7 +3765,7 @@ void Lowering::ContainCheckIntToFloat(GenTreeUnOp* cast)
 
     if (!varTypeIsSmall(src->GetType()) && (!src->TypeIs(TYP_LONG) || cast->OperIs(GT_STOF)))
     {
-        if (IsContainableMemoryOp(src))
+        if (IsMemOperand(src))
         {
             // Since a floating point cast can't throw we can move the cast
             // right after the source node to avoid the interference check.
@@ -3790,7 +3790,7 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
 
     GenTree* src = cast->GetOp(0);
 
-    if (IsContainableMemoryOp(src))
+    if (IsMemOperand(src))
     {
         // Since a floating point cast can't throw we can move the cast
         // right after the source node to avoid the interference check.
@@ -3814,7 +3814,7 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
 
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src))
+    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
@@ -3840,7 +3840,7 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
 
-    if (IsContainableMemoryOp(src) && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
+    if (IsMemOperand(src) && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
@@ -3879,7 +3879,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         {
             otherOp->SetContained();
         }
-        else if (IsContainableMemoryOp(otherOp))
+        else if (IsMemOperand(otherOp))
         {
             isSafeToContainOtherOp = IsSafeToContainMem(cmp, otherOp);
 
@@ -3901,7 +3901,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     {
         if (type1 == type2)
         {
-            if (IsContainableMemoryOp(op1))
+            if (IsMemOperand(op1))
             {
                 op1->SetContained();
             }
@@ -3925,7 +3925,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
     // contain the second operand because the emitter maps both r,rm and rm,r to
     // the same instruction code. This avoids the need to special case TEST here.
 
-    if (isSafeToContainOp2 && IsContainableMemoryOp(op2))
+    if (isSafeToContainOp2 && IsMemOperand(op2))
     {
         isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
 
@@ -3935,7 +3935,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         }
     }
 
-    if (!op2->isContained() && isSafeToContainOp1 && IsContainableMemoryOp(op1))
+    if (!op2->isContained() && isSafeToContainOp1 && IsMemOperand(op1))
     {
         isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
 
@@ -4102,7 +4102,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
     const unsigned operatorSize = varTypeSize(node->GetType());
 
-    if ((varTypeSize(op2->GetType()) == operatorSize) && IsContainableMemoryOp(op2))
+    if ((varTypeSize(op2->GetType()) == operatorSize) && IsMemOperand(op2))
     {
         isSafeToContainOp2 = IsSafeToContainMem(node, op2);
 
@@ -4115,7 +4115,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
     if (node->OperIsCommutative())
     {
-        if ((varTypeSize(op1->GetType()) == operatorSize) && IsContainableMemoryOp(op1))
+        if ((varTypeSize(op1->GetType()) == operatorSize) && IsMemOperand(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
 
@@ -4209,7 +4209,7 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
     {
         other = index;
     }
-    else if (IsContainableMemoryOp(index))
+    else if (IsMemOperand(index))
     {
         other = index;
     }
@@ -4220,7 +4220,7 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
 
     if (index->GetType() == length->GetType())
     {
-        if (IsContainableMemoryOp(other))
+        if (IsMemOperand(other))
         {
             other->SetContained();
         }
@@ -4242,7 +4242,7 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
         {
             GenTree* op1 = node->GetOp(0);
 
-            if (IsContainableMemoryOp(op1) || op1->IsDblConNonPositiveZero())
+            if (IsMemOperand(op1) || op1->IsDblConNonPositiveZero())
             {
                 op1->SetContained();
             }
@@ -4575,7 +4575,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
     if (!node->OperIsHWIntrinsic())
     {
-        return supportsGeneralLoads && IsContainableMemoryOp(node);
+        return supportsGeneralLoads && IsMemOperand(node);
     }
 
     // TODO-XArch: Update this to be table driven, if possible.
@@ -5222,7 +5222,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     {
         op2->SetContained();
     }
-    else if (IsContainableMemoryOp(op2))
+    else if (IsMemOperand(op2))
     {
         isSafeToContainOp2 = IsSafeToContainMem(node, op2);
 
@@ -5247,7 +5247,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         {
             op1->SetContained();
         }
-        else if (IsContainableMemoryOp(op1))
+        else if (IsMemOperand(op1))
         {
             isSafeToContainOp1 = IsSafeToContainMem(node, op1);
 
