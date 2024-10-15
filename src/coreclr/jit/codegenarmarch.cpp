@@ -2450,7 +2450,7 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     GenTree*      src    = cast->GetOp(0);
     StackAddrMode s;
 
-    genConsumeRegs(src);
+    UseOperandRegs(src);
 
     if (src->isUsedFromReg())
     {
@@ -2479,7 +2479,7 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
 
     if (srcReg == REG_NA)
     {
-        genConsumeRegs(src);
+        UseOperandRegs(src);
 
         instruction   ins = ins_Load(src->GetType());
         StackAddrMode s;
@@ -2607,7 +2607,7 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
     }
     else
     {
-        genConsumeRegs(src);
+        UseOperandRegs(src);
 
         // Note that we load directly into the destination register, this avoids the
         // need for a temporary register but assumes that enregistered variables are
@@ -2927,6 +2927,81 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     }
 
     return INS_str;
+}
+
+void CodeGen::UseOperandRegs(GenTree* tree)
+{
+#if !defined(TARGET_64BIT)
+    if (tree->OperGet() == GT_LONG)
+    {
+        UseOperandRegs(tree->gtGetOp1());
+        UseOperandRegs(tree->gtGetOp2());
+        return;
+    }
+#endif // !defined(TARGET_64BIT)
+
+    if (tree->isUsedFromSpillTemp())
+    {
+        // spill temps are un-tracked and hence no need to update life
+        return;
+    }
+
+    if (!tree->isContained())
+    {
+        UseReg(tree);
+        return;
+    }
+
+    if (tree->IsIndir())
+    {
+        genConsumeAddress(tree->AsIndir()->GetAddr());
+        return;
+    }
+
+    if (tree->IsAddrMode())
+    {
+        genConsumeAddress(tree);
+        return;
+    }
+
+    if (tree->OperIs(GT_BITCAST))
+    {
+        UseReg(tree->AsUnOp()->GetOp(0));
+        return;
+    }
+
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        assert(IsValidContainedLcl(tree->AsLclVarCommon()));
+        liveness.UpdateLife(this, tree->AsLclVarCommon());
+
+        return;
+    }
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
+    {
+        if (hwi->GetNumOps() != 0)
+        {
+            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
+            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
+            genConsumeAddress(hwi->GetOp(0));
+            if (category == HW_Category_MemoryStore)
+            {
+                assert(hwi->IsBinary());
+                UseReg(hwi->GetOp(1));
+            }
+            else
+            {
+                assert(hwi->IsUnary());
+            }
+        }
+
+        return;
+    }
+#endif // FEATURE_HW_INTRINSICS
+
+    assert(tree->OperIsLeaf());
 }
 
 #endif // TARGET_ARMARCH

@@ -648,14 +648,12 @@ protected:
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
-    void genConsumeRegs(GenTree* tree);
 
-    void GenShift(GenTreeOp* shift);
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    void GenShiftLong(GenTreeOp* shift);
+#ifdef TARGET_ARMARCH
+    void UseOperandRegs(GenTree* node);
 #endif
-
 #ifdef TARGET_XARCH
+    void genConsumeRegs(GenTree* tree);
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
@@ -666,6 +664,10 @@ protected:
     void EpilogGSCookieCheck();
 #endif
 
+    void GenShift(GenTreeOp* shift);
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+    void GenShiftLong(GenTreeOp* shift);
+#endif
     void GenOverflowTruncate(GenTreeUnOp* node);
     void GenOverflowUnsigned(GenTreeUnOp* node);
     void GenConv(GenTreeUnOp* node);

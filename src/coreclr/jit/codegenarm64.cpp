@@ -2916,7 +2916,7 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
 
     if (srcReg == REG_NA)
     {
-        genConsumeRegs(src);
+        UseOperandRegs(src);
 
         instruction   ins = varTypeIsSmall(src->GetType()) ? ins_Load(src->GetType()) : INS_ldrsw;
         StackAddrMode s;
@@ -2948,7 +2948,7 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
 
     if (srcReg == REG_NA)
     {
-        genConsumeRegs(src);
+        UseOperandRegs(src);
 
         instruction   ins = varTypeIsSmall(src->GetType()) ? ins_Load(src->GetType()) : INS_ldr;
         StackAddrMode s;
@@ -2994,7 +2994,7 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
     if (srcReg == REG_NA)
     {
-        genConsumeRegs(src);
+        UseOperandRegs(src);
 
         StackAddrMode s;
 
