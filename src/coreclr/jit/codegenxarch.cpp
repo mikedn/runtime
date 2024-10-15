@@ -8850,12 +8850,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
 void CodeGen::genConsumeRegs(GenTree* op)
 {
 #ifndef TARGET_64BIT
-    if (op->OperIs(GT_LONG))
-    {
-        genConsumeRegs(op->AsOp()->GetOp(0));
-        genConsumeRegs(op->AsOp()->GetOp(1));
-        return;
-    }
+    assert(!op->OperIs(GT_LONG));
 #endif
 
     if (op->isUsedFromSpillTemp())
