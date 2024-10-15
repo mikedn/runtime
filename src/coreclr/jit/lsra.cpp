@@ -177,24 +177,17 @@ BasicBlock::weight_t LinearScan::getWeight(RefPosition* refPos)
 // in time (more of a 'bank' of registers).
 regMaskTP LinearScan::allRegs(RegisterType rt)
 {
-    assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
     if (rt == TYP_FLOAT)
     {
         return availableFloatRegs;
     }
-    else if (rt == TYP_DOUBLE)
+    else if ((rt == TYP_DOUBLE) || varTypeIsSIMD(rt))
     {
         return availableDoubleRegs;
     }
-#ifdef FEATURE_SIMD
-    // TODO-Cleanup: Add an RBM_ALLSIMD
-    else if (varTypeIsSIMD(rt))
-    {
-        return availableDoubleRegs;
-    }
-#endif // FEATURE_SIMD
     else
     {
+        assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
         return availableIntRegs;
     }
 }
