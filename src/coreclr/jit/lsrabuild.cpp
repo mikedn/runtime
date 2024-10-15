@@ -387,6 +387,8 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
 
 RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
 {
+    assert((refType == RefTypeFixedReg) || (refType == RefTypeKill));
+
     RegRecord* regRecord = getRegisterRecord(reg);
 
     RefPosition* newRP = newRefPositionRaw(location, nullptr, refType);
@@ -422,41 +424,37 @@ RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree
     return newRP;
 }
 
-RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
-                                        LsraLocation theLocation,
-                                        RefType      theRefType,
-                                        GenTree*     theTreeNode,
-                                        regMaskTP    mask,
-                                        unsigned     multiRegIdx)
+RefPosition* LinearScan::newRefPosition(
+    Interval* interval, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask, unsigned regIndex)
 {
-    assert(theInterval != nullptr);
+    assert(interval != nullptr);
 
     if (mask == RBM_NONE)
     {
-        mask = allRegs(theInterval->registerType);
+        mask = allRegs(interval->registerType);
     }
 
 #ifdef DEBUG
-    if (regType(theInterval->registerType) == FloatRegisterType)
+    if (regType(interval->registerType) == FloatRegisterType)
     {
         // In the case we're using floating point registers we must make sure
         // this flag was set previously in the compiler since this will mandate
         // whether LSRA will take into consideration FP reg killsets.
         assert(compiler->compFloatingPointUsed || ((mask & RBM_FLT_CALLEE_SAVED) == 0));
     }
-#endif // DEBUG
+#endif
 
-    // If this reference is constrained to a single register (and it's not a dummy
-    // or Kill reftype already), add a RefTypeFixedReg at this location so that its
-    // availability can be more accurately determined
+    // If this reference is constrained to a single register, add a RefTypeFixedReg
+    // at this location so that its availability can be more accurately determined.
 
     bool isFixedRegister = isSingleRegister(mask);
     bool insertFixedRef  = false;
+
     if (isFixedRegister)
     {
-        // Insert a RefTypeFixedReg for any normal def or use (not ParamDef or BB),
-        // but not an internal use (it will already have a FixedRef for the def).
-        if ((theRefType == RefTypeDef) || ((theRefType == RefTypeUse) && !theInterval->isInternal))
+        // Insert a RefTypeFixedReg for any normal def or use, but not
+        // an internal use (it will already have a FixedRef for the def).
+        if ((refType == RefTypeDef) || ((refType == RefTypeUse) && !interval->isInternal))
         {
             insertFixedRef = true;
         }
@@ -464,41 +462,35 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 
     if (insertFixedRef)
     {
-        RefPosition* pos = newRegRefPosition(genRegNumFromMask(mask), theLocation, RefTypeFixedReg);
-        assert(theInterval != nullptr);
-        assert((allRegs(theInterval->registerType) & mask) != 0);
+        RefPosition* pos = newRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
+        assert((allRegs(interval->registerType) & mask) != RBM_NONE);
     }
 
-    RefPosition* newRP = newRefPositionRaw(theLocation, theTreeNode, theRefType);
-
-    newRP->setInterval(theInterval);
-
-    // Spill info
+    RefPosition* newRP = newRefPositionRaw(location, node, refType);
+    newRP->setInterval(interval);
     newRP->isFixedRegRef = isFixedRegister;
 
 #ifndef TARGET_AMD64
     // We don't need this for AMD because the PInvoke method epilog code is explicit
     // at register allocation time.
-    if (theInterval->isLocalVar && compiler->compMethodRequiresPInvokeFrame() &&
-        (theInterval->getLocalVar(compiler)->GetLclNum() == compiler->genReturnLocal))
+    if (interval->isLocalVar && compiler->compMethodRequiresPInvokeFrame() &&
+        (interval->getLocalVar(compiler)->GetLclNum() == compiler->genReturnLocal))
     {
         mask &= ~(RBM_PINVOKE_TCB | RBM_PINVOKE_FRAME);
         noway_assert(mask != RBM_NONE);
     }
-#endif // !TARGET_AMD64
-    newRP->registerAssignment = mask;
+#endif
 
-    newRP->setMultiRegIdx(multiRegIdx);
-    newRP->setRegOptional(false);
+    newRP->registerAssignment = mask;
+    newRP->setMultiRegIdx(regIndex);
 
     associateRefPosWithInterval(newRP);
 
     if (RefTypeIsDef(newRP->refType))
     {
-        // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores, codegen doesn't
-        // seem to have proper spilling support for this case.
-        theInterval->isSingleDef =
-            theInterval->firstRefPosition == newRP && (theTreeNode == nullptr || !theTreeNode->IsMultiRegLclVar());
+        // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores,
+        // codegen doesn't seem to have proper spilling support for this case.
+        interval->isSingleDef = (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclVar());
     }
 
     DBEXEC(VERBOSE, newRP->dump(this));
