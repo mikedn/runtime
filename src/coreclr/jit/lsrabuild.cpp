@@ -101,13 +101,11 @@ Interval* LinearScan::newInterval(var_types regType)
     return newInt;
 }
 
-RefPosition* LinearScan::newRefPositionRaw(LsraLocation nodeLocation, GenTree* treeNode, RefType refType)
+RefPosition* LinearScan::newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType)
 {
-    refPositions.emplace_back(curBBNum, nodeLocation, treeNode, refType);
+    refPositions.emplace_back(curBBNum, location, node, refType);
     RefPosition* newRP = &refPositions.back();
-#ifdef DEBUG
-    newRP->rpNum = static_cast<unsigned>(refPositions.size() - 1);
-#endif // DEBUG
+    INDEBUG(newRP->rpNum = static_cast<unsigned>(refPositions.size() - 1));
     return newRP;
 }
 

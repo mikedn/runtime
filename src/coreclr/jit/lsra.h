@@ -830,7 +830,7 @@ private:
 
     RegRecord* getRegisterRecord(regNumber regNum);
 
-    RefPosition* newRefPositionRaw(LsraLocation nodeLocation, GenTree* treeNode, RefType refType);
+    RefPosition* newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType);
 
     RefPosition* newRefPosition(Interval*    theInterval,
                                 LsraLocation theLocation,
