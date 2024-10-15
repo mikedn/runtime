@@ -387,14 +387,13 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
     }
 }
 
-RefPosition* LinearScan::newRegRefPosition(
-    RegNum reg, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask)
+RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
 {
     RegRecord* regRecord = getRegisterRecord(reg);
 
-    RefPosition* newRP = newRefPositionRaw(location, node, refType);
+    RefPosition* newRP = newRefPositionRaw(location, nullptr, refType);
     newRP->setReg(regRecord);
-    newRP->registerAssignment = mask;
+    newRP->registerAssignment = genRegMask(reg);
 
     // We can't have two RefPositions on a RegRecord at the same location, unless they are different types.
     assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < location) ||
@@ -453,8 +452,7 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 
     if (insertFixedRef)
     {
-        regNumber    physicalReg = genRegNumFromMask(mask);
-        RefPosition* pos         = newRegRefPosition(physicalReg, theLocation, RefTypeFixedReg, nullptr, mask);
+        RefPosition* pos = newRegRefPosition(genRegNumFromMask(mask), theLocation, RefTypeFixedReg);
         assert(theInterval != nullptr);
         assert((allRegs(theInterval->registerType) & mask) != 0);
     }
@@ -496,16 +494,13 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
     return newRP;
 }
 
-// Adds RefPositions of the given type for all the registers in 'mask'.
 void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc)
 {
     for (RegNum reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
     {
         if (mask & 1)
         {
-            // This assumes that these are all "special" RefTypes that
-            // don't need to be recorded on the tree (hence treeNode is nullptr)
-            RefPosition* pos = newRegRefPosition(reg, currentLoc, RefTypeKill, nullptr, genRegMask(reg));
+            RefPosition* pos = newRegRefPosition(reg, currentLoc, RefTypeKill);
             pos->lastUse     = true;
         }
     }
