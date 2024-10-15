@@ -3812,9 +3812,11 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
 
 void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 {
+    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
+
     GenTree* src = node->GetOp(0);
 
-    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
+    if (IsMemOperand(src))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
@@ -3838,9 +3840,11 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 
 void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 {
+    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
+
     GenTree* src = node->GetOp(0);
 
-    if (IsMemOperand(src) && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
+    if (IsMemOperand(src) && !varTypeIsSmallSigned(src->GetType()))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)

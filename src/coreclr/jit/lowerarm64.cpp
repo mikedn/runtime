@@ -1668,6 +1668,8 @@ GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
 
 void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
+    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
+
     GenTree* src = node->GetOp(0);
 
     bool isContainable = IsMemOperand(src);
@@ -1715,7 +1717,7 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
         }
     }
 
-    if (isContainable && IsSafeToContainMem(node, src))
+    if (isContainable)
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
@@ -1739,6 +1741,8 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 
 void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
 {
+    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
+
     GenTree* src = node->GetOp(0);
 
     bool isContainable = IsMemOperand(src);
@@ -1786,7 +1790,7 @@ void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
         }
     }
 
-    if (isContainable && IsSafeToContainMem(node, src) && !varTypeIsSmallSigned(src->GetType()))
+    if (isContainable && !varTypeIsSmallSigned(src->GetType()))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
