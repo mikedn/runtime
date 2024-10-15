@@ -497,20 +497,16 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 }
 
 // Adds RefPositions of the given type for all the registers in 'mask'.
-void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, RefType refType, bool isLastUse)
+void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc)
 {
-    for (regNumber reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
+    for (RegNum reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
     {
         if (mask & 1)
         {
             // This assumes that these are all "special" RefTypes that
             // don't need to be recorded on the tree (hence treeNode is nullptr)
-            RefPosition* pos = newRegRefPosition(reg, currentLoc, refType, nullptr, genRegMask(reg));
-
-            if (isLastUse)
-            {
-                pos->lastUse = true;
-            }
+            RefPosition* pos = newRegRefPosition(reg, currentLoc, RefTypeKill, nullptr, genRegMask(reg));
+            pos->lastUse     = true;
         }
     }
 }
@@ -819,7 +815,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         // which is too late.
         m_allocateRegs |= killMask;
 
-        addRefsForPhysRegMask(killMask, currentLoc, RefTypeKill, true);
+        newRegKillRefPositions(killMask, currentLoc);
 
         // TODO-CQ: It appears to be valuable for both fp and int registers to avoid killing the callee
         // save regs on infrequently executed paths.  However, it results in a large number of asmDiffs,
@@ -1730,7 +1726,7 @@ void LinearScan::buildIntervals()
         // into the scratch register, so it will be killed here.
         if (compiler->compShouldPoisonFrame() && compiler->fgFirstBBisScratch() && block == compiler->fgFirstBB)
         {
-            addRefsForPhysRegMask(genRegMask(REG_SCRATCH), currentLoc + 1, RefTypeKill, true);
+            newRegKillRefPositions(genRegMask(REG_SCRATCH), currentLoc + 1);
             currentLoc += 2;
         }
 
