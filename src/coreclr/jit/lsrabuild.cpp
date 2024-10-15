@@ -328,41 +328,33 @@ void LinearScan::checkConflictingDefUse(RefPosition* useRP)
     }
 }
 
-// Update the Interval based on the given RefPosition.
-// This is called at the time when 'rp' has just been created, so it becomes
-// the nextRefPosition of the recentRefPosition, and both the recentRefPosition
-// and lastRefPosition of its referent.
 void LinearScan::associateRefPosWithInterval(RefPosition* rp)
 {
-    Referenceable* theReferent = rp->referent;
+    assert(rp->isIntervalRef());
 
-    assert(theReferent != nullptr);
+    applyCalleeSaveHeuristics(rp);
 
-    if (rp->isIntervalRef())
+    Interval* interval = rp->getInterval();
+
+    if (interval->isLocalVar)
     {
-        Interval* theInterval = rp->getInterval();
-
-        applyCalleeSaveHeuristics(rp);
-
-        if (theInterval->isLocalVar)
+        if (RefTypeIsUse(rp->refType))
         {
-            if (RefTypeIsUse(rp->refType))
+            RefPosition* prevRP = interval->recentRefPosition;
+
+            if ((prevRP != nullptr) && (prevRP->bbNum == rp->bbNum))
             {
-                RefPosition* const prevRP = theInterval->recentRefPosition;
-                if ((prevRP != nullptr) && (prevRP->bbNum == rp->bbNum))
-                {
-                    prevRP->lastUse = false;
-                }
+                prevRP->lastUse = false;
             }
+        }
 
-            rp->lastUse = (rp->refType != RefTypeExpUse) && (rp->refType != RefTypeParamDef) &&
-                          (rp->refType != RefTypeZeroInit) && !extendLifetimes();
-        }
-        else if (rp->refType == RefTypeUse)
-        {
-            checkConflictingDefUse(rp);
-            rp->lastUse = true;
-        }
+        rp->lastUse = (rp->refType != RefTypeExpUse) && (rp->refType != RefTypeParamDef) &&
+                      (rp->refType != RefTypeZeroInit) && !extendLifetimes();
+    }
+    else if (rp->refType == RefTypeUse)
+    {
+        checkConflictingDefUse(rp);
+        rp->lastUse = true;
     }
 
     LinkRefPosition(rp);
