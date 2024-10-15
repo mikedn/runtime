@@ -336,53 +336,53 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
 {
     Referenceable* theReferent = rp->referent;
 
-    if (theReferent != nullptr)
+    assert(theReferent != nullptr);
+
+    if (rp->isIntervalRef())
     {
-        // All RefPositions except the dummy ones at the beginning of blocks
+        Interval* theInterval = rp->getInterval();
 
-        if (rp->isIntervalRef())
+        applyCalleeSaveHeuristics(rp);
+
+        if (theInterval->isLocalVar)
         {
-            Interval* theInterval = rp->getInterval();
-
-            applyCalleeSaveHeuristics(rp);
-
-            if (theInterval->isLocalVar)
+            if (RefTypeIsUse(rp->refType))
             {
-                if (RefTypeIsUse(rp->refType))
+                RefPosition* const prevRP = theInterval->recentRefPosition;
+                if ((prevRP != nullptr) && (prevRP->bbNum == rp->bbNum))
                 {
-                    RefPosition* const prevRP = theInterval->recentRefPosition;
-                    if ((prevRP != nullptr) && (prevRP->bbNum == rp->bbNum))
-                    {
-                        prevRP->lastUse = false;
-                    }
+                    prevRP->lastUse = false;
                 }
-
-                rp->lastUse = (rp->refType != RefTypeExpUse) && (rp->refType != RefTypeParamDef) &&
-                              (rp->refType != RefTypeZeroInit) && !extendLifetimes();
             }
-            else if (rp->refType == RefTypeUse)
-            {
-                checkConflictingDefUse(rp);
-                rp->lastUse = true;
-            }
-        }
 
-        RefPosition* prevRP = theReferent->recentRefPosition;
-        if (prevRP != nullptr)
-        {
-            prevRP->nextRefPosition = rp;
+            rp->lastUse = (rp->refType != RefTypeExpUse) && (rp->refType != RefTypeParamDef) &&
+                          (rp->refType != RefTypeZeroInit) && !extendLifetimes();
         }
-        else
+        else if (rp->refType == RefTypeUse)
         {
-            theReferent->firstRefPosition = rp;
+            checkConflictingDefUse(rp);
+            rp->lastUse = true;
         }
-        theReferent->recentRefPosition = rp;
-        theReferent->lastRefPosition   = rp;
+    }
+
+    LinkRefPosition(rp);
+}
+
+void LinearScan::LinkRefPosition(RefPosition* rp)
+{
+    Referenceable* referent = rp->referent;
+
+    if (RefPosition* prev = referent->recentRefPosition)
+    {
+        prev->nextRefPosition = rp;
     }
     else
     {
-        assert((rp->refType == RefTypeBB) || (rp->refType == RefTypeKillGCRefs));
+        referent->firstRefPosition = rp;
     }
+
+    referent->recentRefPosition = rp;
+    referent->lastRefPosition   = rp;
 }
 
 RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
@@ -399,7 +399,7 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
     assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < location) ||
            (regRecord->lastRefPosition->refType != refType));
 
-    associateRefPosWithInterval(newRP);
+    LinkRefPosition(newRP);
 
     DBEXEC(VERBOSE, newRP->dump(this));
 

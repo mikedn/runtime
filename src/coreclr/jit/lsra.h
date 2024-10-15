@@ -846,6 +846,7 @@ private:
     void checkConflictingDefUse(RefPosition* rp);
 
     void associateRefPosWithInterval(RefPosition* rp);
+    void LinkRefPosition(RefPosition* rp);
 
     BasicBlock::weight_t getWeight(RefPosition* refPos);
 
