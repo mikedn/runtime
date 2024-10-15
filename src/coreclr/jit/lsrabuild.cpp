@@ -452,7 +452,7 @@ RefPosition* LinearScan::newRefPosition(
 
     if (insertFixedRef)
     {
-        RefPosition* pos = newRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
+        newRegRefPosition(genRegNumFromMask(mask), location, RefTypeFixedReg);
         assert((allRegs(interval->registerType) & mask) != RBM_NONE);
     }
 
@@ -948,31 +948,26 @@ bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclLoad* load)
     return isCandidate;
 }
 
-RefPosition* LinearScan::defineNewInternalTemp(GenTree* tree, RegisterType regType, regMaskTP regMask)
+RefPosition* LinearScan::defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask)
 {
     Interval* current   = newInterval(regType);
     current->isInternal = true;
-    RefPosition* newDef = newRefPosition(current, currentLoc, RefTypeDef, tree, regMask, 0);
+    RefPosition* newDef = newRefPosition(current, currentLoc, RefTypeDef, node, regMask);
     assert(internalCount < _countof(internalDefs));
     internalDefs[internalCount++] = newDef;
     return newDef;
 }
 
-RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* tree, regMaskTP internalCands)
+RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* node, regMaskTP regMask)
 {
-    // The candidate set should contain only integer registers.
-    assert((internalCands & ~allRegs(TYP_INT)) == RBM_NONE);
-
-    RefPosition* defRefPosition = defineNewInternalTemp(tree, IntRegisterType, internalCands);
-    return defRefPosition;
+    assert((regMask & ~allRegs(TYP_INT)) == RBM_NONE);
+    return defineNewInternalTemp(node, IntRegisterType, regMask);
 }
 
-RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* tree, regMaskTP internalCands)
+RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* node, regMaskTP regMask)
 {
-    // The candidate set should contain only float registers.
-    assert((internalCands & ~allRegs(TYP_FLOAT)) == RBM_NONE);
-
-    return defineNewInternalTemp(tree, FloatRegisterType, internalCands);
+    assert((regMask & ~allRegs(TYP_FLOAT)) == RBM_NONE);
+    return defineNewInternalTemp(node, FloatRegisterType, regMask);
 }
 
 void LinearScan::buildInternalRegisterUses()
@@ -983,7 +978,7 @@ void LinearScan::buildInternalRegisterUses()
     {
         RefPosition* def  = internalDefs[i];
         regMaskTP    mask = def->registerAssignment;
-        RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->treeNode, mask, 0);
+        RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->treeNode, mask);
 
         if (setInternalRegsDelayFree)
         {
@@ -1091,7 +1086,7 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
     {
         unsigned     varIndex            = lclVarInterval->getVarIndex(compiler);
         Interval*    upperVectorInterval = getUpperVectorInterval(varIndex);
-        RefPosition* pos = newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorRestore, node, RBM_NONE);
+        RefPosition* pos = newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorRestore, node);
         lclVarInterval->isPartiallySpilled = false;
 #ifdef TARGET_XARCH
         pos->regOptional = true;
@@ -1401,8 +1396,7 @@ void LinearScan::insertZeroInitRefPositions()
             }
 
             JITDUMP(" creating ZeroInit\n");
-            RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit, nullptr /* theTreeNode */,
-                                              allRegs(interval->registerType));
+            RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit);
             pos->setRegOptional(true);
         }
         else
@@ -1428,8 +1422,7 @@ void LinearScan::insertZeroInitRefPositions()
                     if (interval->recentRefPosition == nullptr)
                     {
                         JITDUMP(" creating ZeroInit\n");
-                        RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit,
-                                                          nullptr /* theTreeNode */, allRegs(interval->registerType));
+                        RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit);
                         pos->setRegOptional(true);
                         varDsc->lvMustInit = true;
                     }
@@ -1669,8 +1662,7 @@ void LinearScan::buildIntervals()
                             LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
                             assert(varDsc->IsRegCandidate());
                             Interval*    interval = getIntervalForLocalVar(e.Current());
-                            RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef, nullptr,
-                                                              allRegs(interval->registerType));
+                            RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef);
                             pos->setRegOptional(true);
                         }
                         JITDUMP("Finished creating dummy definitions\n\n");
@@ -1805,8 +1797,7 @@ void LinearScan::buildIntervals()
             for (VarSetOps::Enumerator e(compiler, expUseSet); e.MoveNext();)
             {
                 Interval*    interval = getIntervalForLocalVar(e.Current());
-                RefPosition* pos =
-                    newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
+                RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                 pos->setRegOptional(true);
                 JITDUMP(" " FMT_LCL, compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum());
             }
@@ -1857,8 +1848,7 @@ void LinearScan::buildIntervals()
             {
                 JITDUMP("Adding exposed use of this, for lvaKeepAliveAndReportThis\n");
                 Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
-                RefPosition* pos =
-                    newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
+                RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                 pos->setRegOptional(true);
             }
         }
@@ -1925,8 +1915,7 @@ void LinearScan::buildIntervals()
                 {
                     JITDUMP("Adding exposed use of V%02u for LsraExtendLifetimes\n", lcl->GetLclNum());
                     Interval*    interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
-                    RefPosition* pos =
-                        newRefPosition(interval, currentLoc, RefTypeExpUse, nullptr, allRegs(interval->registerType));
+                    RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeExpUse);
                     pos->setRegOptional(true);
                 }
             }

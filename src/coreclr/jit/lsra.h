@@ -771,19 +771,19 @@ private:
     }
 
     // Managing internal registers during the BuildNode process.
-    RefPosition* defineNewInternalTemp(GenTree* tree, RegisterType regType, regMaskTP candidates);
-    RefPosition* buildInternalIntRegisterDefForNode(GenTree* tree, regMaskTP internalCands = RBM_NONE);
-    RefPosition* buildInternalFloatRegisterDefForNode(GenTree* tree, regMaskTP internalCands = RBM_NONE);
+    RefPosition* defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask);
+    RefPosition* buildInternalIntRegisterDefForNode(GenTree* node, regMaskTP regMask = RBM_NONE);
+    RefPosition* buildInternalFloatRegisterDefForNode(GenTree* node, regMaskTP regMask = RBM_NONE);
     void buildInternalRegisterUses();
 
-    RefPosition* BuildInternalIntDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    RefPosition* BuildInternalIntDef(GenTree* node, regMaskTP regMask = RBM_NONE)
     {
-        return buildInternalIntRegisterDefForNode(node, candidates);
+        return buildInternalIntRegisterDefForNode(node, regMask);
     }
 
-    RefPosition* BuildInternalFloatDef(GenTree* node, regMaskTP candidates = RBM_NONE)
+    RefPosition* BuildInternalFloatDef(GenTree* node, regMaskTP regMask = RBM_NONE)
     {
-        return buildInternalFloatRegisterDefForNode(node, candidates);
+        return buildInternalFloatRegisterDefForNode(node, regMask);
     }
 
     void BuildInternalUses()
@@ -837,8 +837,8 @@ private:
     RefPosition* newRefPosition(Interval*    interval,
                                 LsraLocation location,
                                 RefType      refType,
-                                GenTree*     node,
-                                regMaskTP    mask,
+                                GenTree*     node     = nullptr,
+                                regMaskTP    mask     = RBM_NONE,
                                 unsigned     regIndex = 0);
 
     void applyCalleeSaveHeuristics(RefPosition* rp);
