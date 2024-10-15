@@ -5080,14 +5080,13 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
 
     if (IsMemOperand(src))
     {
+        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
+        // if there are any advantages in doing such a transform earlier (in fact there may be one
+        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+        // But the UBYTE/BYTE-SHORT case should probably only be handled in morph.
+
         if (varTypeSize(dstType) <= varTypeSize(srcType))
         {
-            // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
-
-            // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
-            // if there are any advantages in doing such a transform earlier (in fact there may be one
-            // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
             src->SetType(dstType);
             remove = true;
         }
@@ -5115,11 +5114,9 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
         }
     }
 
-#ifdef TARGET_XARCH
-    ContainCheckConv(cast);
-#else
+    // TODO-MIKE-Review: This is probably incorrect in some rare cases - e.g. CONV<ushort>(param<byte>).
+    // On osx-arm64 the param stack space is only 1 byte so we can't load ushort directly from that.
     src->SetRegOptional();
-#endif
 
     return cast->gtNext;
 }
