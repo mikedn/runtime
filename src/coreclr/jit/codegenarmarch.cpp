@@ -2929,79 +2929,27 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     return INS_str;
 }
 
-void CodeGen::UseOperandRegs(GenTree* tree)
+void CodeGen::UseOperandRegs(GenTree* op)
 {
-#if !defined(TARGET_64BIT)
-    if (tree->OperGet() == GT_LONG)
+    if (op->isUsedFromSpillTemp())
     {
-        UseOperandRegs(tree->gtGetOp1());
-        UseOperandRegs(tree->gtGetOp2());
-        return;
-    }
-#endif // !defined(TARGET_64BIT)
-
-    if (tree->isUsedFromSpillTemp())
-    {
-        // spill temps are un-tracked and hence no need to update life
         return;
     }
 
-    if (!tree->isContained())
+    if (!op->isContained())
     {
-        UseReg(tree);
+        UseReg(op);
         return;
     }
 
-    if (tree->IsIndir())
+    if (op->IsIndLoad())
     {
-        genConsumeAddress(tree->AsIndir()->GetAddr());
+        genConsumeAddress(op->AsIndLoad()->GetAddr());
         return;
     }
 
-    if (tree->IsAddrMode())
-    {
-        genConsumeAddress(tree);
-        return;
-    }
-
-    if (tree->OperIs(GT_BITCAST))
-    {
-        UseReg(tree->AsUnOp()->GetOp(0));
-        return;
-    }
-
-    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-    {
-        assert(IsValidContainedLcl(tree->AsLclVarCommon()));
-        liveness.UpdateLife(this, tree->AsLclVarCommon());
-
-        return;
-    }
-
-#ifdef FEATURE_HW_INTRINSICS
-    if (GenTreeHWIntrinsic* hwi = tree->IsHWIntrinsic())
-    {
-        if (hwi->GetNumOps() != 0)
-        {
-            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
-            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-            genConsumeAddress(hwi->GetOp(0));
-            if (category == HW_Category_MemoryStore)
-            {
-                assert(hwi->IsBinary());
-                UseReg(hwi->GetOp(1));
-            }
-            else
-            {
-                assert(hwi->IsUnary());
-            }
-        }
-
-        return;
-    }
-#endif // FEATURE_HW_INTRINSICS
-
-    assert(tree->OperIsLeaf());
+    assert(IsValidContainedLcl(op->AsLclVarCommon()));
+    liveness.UpdateLife(this, op->AsLclVarCommon());
 }
 
 #endif // TARGET_ARMARCH
