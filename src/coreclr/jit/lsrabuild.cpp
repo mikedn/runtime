@@ -387,24 +387,23 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
     }
 }
 
-RefPosition* LinearScan::newRefPosition(
-    regNumber reg, LsraLocation theLocation, RefType theRefType, GenTree* theTreeNode, regMaskTP mask)
+RefPosition* LinearScan::newRegRefPosition(
+    RegNum reg, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask)
 {
-    RefPosition* newRP = newRefPositionRaw(theLocation, theTreeNode, theRefType);
-
     RegRecord* regRecord = getRegisterRecord(reg);
+
+    RefPosition* newRP = newRefPositionRaw(location, node, refType);
     newRP->setReg(regRecord);
     newRP->registerAssignment = mask;
 
-    newRP->setMultiRegIdx(0);
-    newRP->setRegOptional(false);
-
     // We can't have two RefPositions on a RegRecord at the same location, unless they are different types.
-    assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < theLocation) ||
-           (regRecord->lastRefPosition->refType != theRefType));
+    assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < location) ||
+           (regRecord->lastRefPosition->refType != refType));
+
     associateRefPosWithInterval(newRP);
 
     DBEXEC(VERBOSE, newRP->dump(this));
+
     return newRP;
 }
 
@@ -455,7 +454,7 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
     if (insertFixedRef)
     {
         regNumber    physicalReg = genRegNumFromMask(mask);
-        RefPosition* pos         = newRefPosition(physicalReg, theLocation, RefTypeFixedReg, nullptr, mask);
+        RefPosition* pos         = newRegRefPosition(physicalReg, theLocation, RefTypeFixedReg, nullptr, mask);
         assert(theInterval != nullptr);
         assert((allRegs(theInterval->registerType) & mask) != 0);
     }
@@ -506,8 +505,7 @@ void LinearScan::addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, 
         {
             // This assumes that these are all "special" RefTypes that
             // don't need to be recorded on the tree (hence treeNode is nullptr)
-            RefPosition* pos = newRefPosition(reg, currentLoc, refType, nullptr,
-                                              genRegMask(reg)); // This MUST occupy the physical register (obviously)
+            RefPosition* pos = newRegRefPosition(reg, currentLoc, refType, nullptr, genRegMask(reg));
 
             if (isLastUse)
             {

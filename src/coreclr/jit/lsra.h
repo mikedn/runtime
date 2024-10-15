@@ -840,8 +840,7 @@ private:
                                 regMaskTP    mask,
                                 unsigned     multiRegIdx = 0);
 
-    RefPosition* newRefPosition(
-        regNumber reg, LsraLocation theLocation, RefType theRefType, GenTree* theTreeNode, regMaskTP mask);
+    RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType, GenTree* node, regMaskTP mask);
 
     void applyCalleeSaveHeuristics(RefPosition* rp);
 
@@ -1923,17 +1922,17 @@ public:
     // NOTE: types of the logically "bool" types that follow 'unsigned char', so they match
     // NOTE: RefType that precedes this, and multiRegIdx can also match.
 
-    // Indicates whether this ref position is to be allocated a reg only if profitable. Currently these are the
-    // ref positions that lower/codegen has indicated as reg optional and is considered a contained memory operand if
-    // no reg is allocated.
-    unsigned char regOptional : 1;
-
     // Used by RefTypeDef/Use positions of a multi-reg call node.
     // Indicates the position of the register that this ref position refers to.
     // The max bits needed is based on max value of MAX_RET_REG_COUNT value
     // across all targets and that happens 4 on on Arm.  Hence index value
     // would be 0..MAX_RET_REG_COUNT-1.
     unsigned char multiRegIdx : 2;
+
+    // Indicates whether this ref position is to be allocated a reg only if profitable. Currently these are the
+    // ref positions that lower/codegen has indicated as reg optional and is considered a contained memory operand if
+    // no reg is allocated.
+    unsigned char regOptional : 1;
 
     // Last Use - this may be true for multiple RefPositions in the same Interval
     unsigned char lastUse : 1;
@@ -2008,6 +2007,7 @@ public:
         , registerAssignment(RBM_NONE)
         , refType(refType)
         , multiRegIdx(0)
+        , regOptional(false)
         , lastUse(false)
         , reload(false)
         , spillAfter(false)
