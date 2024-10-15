@@ -6972,7 +6972,7 @@ void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
 
         prefix = " (";
 
-        if (fgLocalVarLivenessDone && fieldLcl->HasLiveness() && node->IsMultiRegLclVar() &&
+        if (fgLocalVarLivenessDone && fieldLcl->HasLiveness() && node->IsMultiRegLclStore() &&
             node->AsLclVar()->IsLastUse(i))
         {
             printf("%slast-use", prefix);

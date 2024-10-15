@@ -5494,7 +5494,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         if (refPosition->copyReg)
         {
             // This is a TEMPORARY copy
-            assert(isCandidateLclVar(tree) || tree->IsMultiRegLclVar());
+            assert(isCandidateLclVar(tree) || tree->IsMultiRegLclStore());
             newNode->SetLastUse(multiRegIdx, true);
         }
 

@@ -480,7 +480,7 @@ RefPosition* LinearScan::newRefPosition(
     {
         // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores,
         // codegen doesn't seem to have proper spilling support for this case.
-        interval->isSingleDef = (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclVar());
+        interval->isSingleDef = (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclStore());
     }
 
     DBEXEC(VERBOSE, newRP->dump(this));
@@ -2350,22 +2350,6 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
         if ((operand->gtFlags & GTF_VAR_DEATH) != 0)
         {
             VarSetOps::RemoveElemD(compiler, currentLiveVars, interval->getVarIndex(compiler));
-        }
-
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-        buildUpperVectorRestoreRefPosition(interval, currentLoc, operand);
-#endif
-    }
-    else if (operand->IsMultiRegLclVar())
-    {
-        LclVarDsc* lcl      = operand->AsLclLoad()->GetLcl();
-        LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(regIndex));
-
-        interval = getIntervalForLocalVar(fieldLcl->GetLivenessBitIndex());
-
-        if (operand->AsLclLoad()->IsLastUse(regIndex))
-        {
-            VarSetOps::RemoveElemD(compiler, currentLiveVars, fieldLcl->GetLivenessBitIndex());
         }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
