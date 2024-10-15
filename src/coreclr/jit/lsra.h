@@ -831,15 +831,15 @@ private:
     RegRecord* getRegisterRecord(regNumber regNum);
 
     RefPosition* newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType);
-
-    RefPosition* newRefPosition(Interval*    theInterval,
-                                LsraLocation theLocation,
-                                RefType      theRefType,
-                                GenTree*     theTreeNode,
-                                regMaskTP    mask,
-                                unsigned     multiRegIdx = 0);
-
     RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType);
+    RefPosition* newBlockRefPosition(LsraLocation location);
+    RefPosition* newKillGCRegsRefPosition(LsraLocation location, GenTree* node, regMaskTP mask);
+    RefPosition* newRefPosition(Interval*    interval,
+                                LsraLocation location,
+                                RefType      refType,
+                                GenTree*     node,
+                                regMaskTP    mask,
+                                unsigned     regIndex = 0);
 
     void applyCalleeSaveHeuristics(RefPosition* rp);
 
@@ -1897,12 +1897,12 @@ public:
     // refers to an Interval, then 'isPhysRegRef()' is false.
     // referent can never be null.
 
-    Referenceable* referent;
+    Referenceable* referent = nullptr;
 
     // nextRefPosition is the next in code order.
     // Note that in either case there is no need for these to be doubly linked, as they
     // are only traversed in the forward direction, and are not moved.
-    RefPosition* nextRefPosition;
+    RefPosition* nextRefPosition = nullptr;
 
     // The remaining fields are common to both options
     GenTree*     treeNode;
@@ -1913,7 +1913,7 @@ public:
     // Prior to the allocation pass, registerAssignment captures the valid registers
     // for this RefPosition.
     // After the allocation pass, this contains the actual assignment
-    regMaskTP registerAssignment;
+    regMaskTP registerAssignment = RBM_NONE;
 
     RefType refType;
 
@@ -1990,20 +1990,17 @@ public:
     // Minimum number registers that needs to be ensured while
     // constraining candidates for this ref position under
     // LSRA stress.
-    unsigned minRegCandidateCount;
+    unsigned minRegCandidateCount = 1;
 
     // The unique RefPosition number, equal to its index in the
     // refPositions list. Only used for debugging dumps.
-    unsigned rpNum;
+    unsigned rpNum = 0;
 #endif // DEBUG
 
-    RefPosition(unsigned int bbNum, LsraLocation nodeLocation, GenTree* treeNode, RefType refType)
-        : referent(nullptr)
-        , nextRefPosition(nullptr)
-        , treeNode(treeNode)
+    RefPosition(unsigned bbNum, LsraLocation nodeLocation, GenTree* treeNode, RefType refType)
+        : treeNode(treeNode)
         , bbNum(bbNum)
         , nodeLocation(nodeLocation)
-        , registerAssignment(RBM_NONE)
         , refType(refType)
         , multiRegIdx(0)
         , regOptional(false)
@@ -2019,10 +2016,6 @@ public:
         , isLocalDefUse(false)
         , delayRegFree(false)
         , outOfOrder(false)
-#ifdef DEBUG
-        , minRegCandidateCount(1)
-        , rpNum(0)
-#endif
     {
     }
 

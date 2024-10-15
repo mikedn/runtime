@@ -404,6 +404,24 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
     return newRP;
 }
 
+RefPosition* LinearScan::newBlockRefPosition(LsraLocation location)
+{
+    RefPosition* newRP = newRefPositionRaw(location, nullptr, RefTypeBB);
+    associateRefPosWithInterval(newRP);
+    DBEXEC(VERBOSE, newRP->dump(this));
+    return newRP;
+}
+
+RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree* node, regMaskTP mask)
+{
+    RefPosition* newRP        = newRefPositionRaw(location, node, RefTypeKillGCRefs);
+    newRP->isFixedRegRef      = isSingleRegister(mask);
+    newRP->registerAssignment = mask;
+    associateRefPosWithInterval(newRP);
+    DBEXEC(VERBOSE, newRP->dump(this));
+    return newRP;
+}
+
 RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
                                         LsraLocation theLocation,
                                         RefType      theRefType,
@@ -411,19 +429,15 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
                                         regMaskTP    mask,
                                         unsigned     multiRegIdx)
 {
-    if (theInterval != nullptr)
+    assert(theInterval != nullptr);
+
+    if (mask == RBM_NONE)
     {
-        if (mask == RBM_NONE)
-        {
-            mask = allRegs(theInterval->registerType);
-        }
+        mask = allRegs(theInterval->registerType);
     }
-    else
-    {
-        assert(theRefType == RefTypeBB || theRefType == RefTypeKillGCRefs);
-    }
+
 #ifdef DEBUG
-    if (theInterval != nullptr && regType(theInterval->registerType) == FloatRegisterType)
+    if (regType(theInterval->registerType) == FloatRegisterType)
     {
         // In the case we're using floating point registers we must make sure
         // this flag was set previously in the compiler since this will mandate
@@ -465,7 +479,7 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 #ifndef TARGET_AMD64
     // We don't need this for AMD because the PInvoke method epilog code is explicit
     // at register allocation time.
-    if ((theInterval != nullptr) && theInterval->isLocalVar && compiler->compMethodRequiresPInvokeFrame() &&
+    if (theInterval->isLocalVar && compiler->compMethodRequiresPInvokeFrame() &&
         (theInterval->getLocalVar(compiler)->GetLclNum() == compiler->genReturnLocal))
     {
         mask &= ~(RBM_PINVOKE_TCB | RBM_PINVOKE_FRAME);
@@ -481,7 +495,6 @@ RefPosition* LinearScan::newRefPosition(Interval*    theInterval,
 
     if (RefTypeIsDef(newRP->refType))
     {
-        assert(theInterval != nullptr);
         // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores, codegen doesn't
         // seem to have proper spilling support for this case.
         theInterval->isSingleDef =
@@ -875,7 +888,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 
     if (compiler->killGCRefs(tree))
     {
-        newRefPosition(nullptr, currentLoc, RefTypeKillGCRefs, tree, (allRegs(TYP_REF) & ~RBM_ARG_REGS));
+        newKillGCRegsRefPosition(currentLoc, tree, allRegs(TYP_REF) & ~RBM_ARG_REGS);
         insertedKills = true;
     }
 
@@ -1693,7 +1706,7 @@ void LinearScan::buildIntervals()
         // register positions for those exposed uses need to be recorded at
         // this point.
 
-        RefPosition* pos = newRefPosition((Interval*)nullptr, currentLoc, RefTypeBB, nullptr, RBM_NONE);
+        RefPosition* pos = newBlockRefPosition(currentLoc);
         currentLoc += 2;
         JITDUMP("\n");
 
@@ -1943,12 +1956,11 @@ void LinearScan::buildIntervals()
 #endif // DEBUG
     }
 
-    // If the last block has successors, create a RefTypeBB to record
-    // what's live
+    // If the last block has successors, create a RefTypeBB to record what's live
 
     if (prevBlock->NumSucc(compiler) > 0)
     {
-        RefPosition* pos = newRefPosition((Interval*)nullptr, currentLoc, RefTypeBB, nullptr, RBM_NONE);
+        newBlockRefPosition(currentLoc);
     }
 
 #ifdef DEBUG
