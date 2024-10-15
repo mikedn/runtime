@@ -5826,7 +5826,7 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
 }
 #endif
 
-bool Lowering::IsContainableMemoryOp(Compiler* comp, GenTree* node)
+bool Lowering::IsContainableMemoryOp(GenTree* node)
 {
     if (node->OperIs(GT_IND_LOAD, GT_IND_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
     {
