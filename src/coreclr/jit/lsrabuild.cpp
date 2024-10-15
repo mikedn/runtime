@@ -409,7 +409,6 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
 RefPosition* LinearScan::newBlockRefPosition(LsraLocation location)
 {
     RefPosition* newRP = newRefPositionRaw(location, nullptr, RefTypeBB);
-    associateRefPosWithInterval(newRP);
     DBEXEC(VERBOSE, newRP->dump(this));
     return newRP;
 }
@@ -419,7 +418,6 @@ RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree
     RefPosition* newRP        = newRefPositionRaw(location, node, RefTypeKillGCRefs);
     newRP->isFixedRegRef      = isSingleRegister(mask);
     newRP->registerAssignment = mask;
-    associateRefPosWithInterval(newRP);
     DBEXEC(VERBOSE, newRP->dump(this));
     return newRP;
 }
