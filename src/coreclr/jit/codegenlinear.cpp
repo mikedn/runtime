@@ -1490,7 +1490,7 @@ void CodeGen::UnspillRegCandidateLclLoad(GenTreeLclLoad* node)
 
 regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
 {
-    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclStore());
 
     regNumber reg = node->GetRegNum(regIndex);
 
@@ -1593,7 +1593,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 
     GenTree* src = copy->GetOp(0);
 
-    assert(src->IsMultiRegNode() && !src->IsMultiRegLclVar());
+    assert(src->IsMultiRegNode() && !src->IsMultiRegLclStore());
     assert(regIndex < src->GetMultiRegCount(compiler));
 
     // TODO-MIKE-Cleanup: This is recursive for no obvious reason...
@@ -1630,7 +1630,7 @@ regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 //
 void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
 {
-    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclVar());
+    assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclStore());
 
     GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
 
@@ -1677,7 +1677,7 @@ void CodeGen::UnspillRegsIfNeeded(GenTree* node)
 {
     GenTree* unspillNode = node->OperIs(GT_RELOAD) ? node->AsUnOp()->GetOp(0) : node;
 
-    assert(unspillNode->IsMultiRegNode() && !unspillNode->IsMultiRegLclVar());
+    assert(unspillNode->IsMultiRegNode() && !unspillNode->IsMultiRegLclStore());
 
     if (unspillNode->IsAnyRegSpilled())
     {
@@ -1881,7 +1881,7 @@ void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber sr
 
 void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 {
-    assert(!node->IsMultiRegLclVar());
+    assert(!node->IsMultiRegLclStore());
     assert(!varTypeIsMultiReg(regType));
     assert(node->IsRegSpill(regIndex));
 
@@ -1920,7 +1920,7 @@ void CodeGen::SpillST0(GenTree* node)
 void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 {
     assert(!node->IsCopyOrReload());
-    assert(!node->IsMultiRegLclVar());
+    assert(!node->IsMultiRegLclStore());
 
     regNumber  oldReg = node->GetRegNum(regIndex);
     SpillTemp* temp   = spillTemps.UseSpillTemp(node, regIndex);

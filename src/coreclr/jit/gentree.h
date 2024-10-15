@@ -1639,7 +1639,7 @@ public:
     inline bool IsMultiRegCall() const;
 
     // Returns true if it is a struct lclVar node residing in multiple registers.
-    inline bool IsMultiRegLclVar() const;
+    inline bool IsMultiRegLclStore() const;
 
     // Returns true if it is a node returning its value in more than one register
     bool IsMultiRegNode() const;
@@ -7866,7 +7866,7 @@ inline bool GenTree::IsMultiRegCall() const
     return IsCall() && AsCall()->HasMultiRegRetVal();
 }
 
-inline bool GenTree::IsMultiRegLclVar() const
+inline bool GenTree::IsMultiRegLclStore() const
 {
     return OperIs(GT_LCL_STORE) && AsLclStore()->IsMultiReg();
 }
