@@ -4575,7 +4575,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
     if (!node->OperIsHWIntrinsic())
     {
-        return supportsGeneralLoads && IsContainableMemoryOp(comp, node);
+        return supportsGeneralLoads && IsContainableMemoryOp(node);
     }
 
     // TODO-XArch: Update this to be table driven, if possible.
