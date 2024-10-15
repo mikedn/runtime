@@ -5091,7 +5091,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
             src->SetType(dstType);
             remove = true;
         }
-        else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)))
+        else if ((srcType == TYP_UBYTE) || (srcType == TYP_BYTE && dstType == TYP_SHORT))
         {
             remove = true;
         }
