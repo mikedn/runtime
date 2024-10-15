@@ -5078,38 +5078,41 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
     assert(srcType != TYP_LONG);
 #endif
 
-    if ((varTypeSize(dstType) <= varTypeSize(srcType)) && IsMemOperand(src))
+    if (IsMemOperand(src))
     {
-        // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
-
-        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
-        // if there are any advantages in doing such a transform earlier (in fact there may be one
-        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
-        src->SetType(dstType);
-        remove = true;
-    }
-    else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)) && IsMemOperand(src))
-    {
-        remove = true;
-    }
-
-    if (remove)
-    {
-        LIR::Use use;
-
-        if (BlockRange().TryGetUse(cast, &use))
+        if (varTypeSize(dstType) <= varTypeSize(srcType))
         {
-            use.ReplaceWith(comp, src);
+            // This is a narrowing cast with an in memory load source, we can remove it and retype the load.
+
+            // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
+            // if there are any advantages in doing such a transform earlier (in fact there may be one
+            // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+            src->SetType(dstType);
+            remove = true;
         }
-        else
+        else if (varTypeIsSmall(srcType) && (varTypeIsUnsigned(srcType) == varTypeIsUnsigned(dstType)))
         {
-            src->SetUnusedValue();
+            remove = true;
         }
 
-        GenTree* next = cast->gtNext;
-        BlockRange().Remove(cast);
-        return next;
+        if (remove)
+        {
+            LIR::Use use;
+
+            if (BlockRange().TryGetUse(cast, &use))
+            {
+                use.ReplaceWith(comp, src);
+            }
+            else
+            {
+                src->SetUnusedValue();
+            }
+
+            GenTree* next = cast->gtNext;
+            BlockRange().Remove(cast);
+            return next;
+        }
     }
 
 #ifdef TARGET_XARCH
