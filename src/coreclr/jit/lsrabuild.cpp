@@ -1300,21 +1300,20 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
     RefPositionIterator iter = refPositionMark;
     for (iter++; iter != refPositions.end(); iter++)
     {
-        RefPosition* newRefPosition = &(*iter);
-        if (newRefPosition->isIntervalRef())
+        RefPosition* rp = &(*iter);
+        if (rp->isIntervalRef())
         {
-            if ((newRefPosition->refType == RefTypeUse) ||
-                ((newRefPosition->refType == RefTypeDef) && !newRefPosition->getInterval()->isInternal))
+            if ((rp->refType == RefTypeUse) || ((rp->refType == RefTypeDef) && !rp->getInterval()->isInternal))
             {
                 minRegCount++;
             }
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            else if (newRefPosition->refType == RefTypeUpperVectorSave)
+            else if (rp->refType == RefTypeUpperVectorSave)
             {
                 minRegCount++;
             }
 #endif
-            if (newRefPosition->getInterval()->isSpecialPutArg)
+            if (rp->getInterval()->isSpecialPutArg)
             {
                 minRegCount++;
             }
@@ -1330,9 +1329,9 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
     }
     for (refPositionMark++; refPositionMark != refPositions.end(); refPositionMark++)
     {
-        RefPosition* newRefPosition    = &(*refPositionMark);
+        RefPosition* rp                = &(*refPositionMark);
         unsigned     minRegCountForRef = minRegCount;
-        if (RefTypeIsUse(newRefPosition->refType) && newRefPosition->delayRegFree)
+        if (RefTypeIsUse(rp->refType) && rp->delayRegFree)
         {
             // If delayRegFree, then Use will interfere with the destination of the consuming node.
             // Therefore, we also need add the kill set of the consuming node to minRegCount.
@@ -1348,29 +1347,26 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
             // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
             // {eax,edx} are getting killed before the def of GT_DIV.  For this reason, minRegCount for
             // the use position of v02 also needs to take into account the kill set of its consuming node.
-            regMaskTP killMask = getKillSetForNode(tree);
-            if (killMask != RBM_NONE)
+            if (regMaskTP killMask = getKillSetForNode(tree))
             {
                 minRegCountForRef += genCountBits(killMask);
             }
         }
-        else if ((newRefPosition->refType) == RefTypeDef && (newRefPosition->getInterval()->isSpecialPutArg))
+        else if ((rp->refType) == RefTypeDef && (rp->getInterval()->isSpecialPutArg))
         {
             minRegCountForRef++;
         }
 
-        newRefPosition->minRegCandidateCount = minRegCountForRef;
-        if (newRefPosition->IsActualRef() && doReverseCallerCallee())
+        rp->minRegCandidateCount = minRegCountForRef;
+        if (rp->IsActualRef() && doReverseCallerCallee())
         {
-            Interval* interval       = newRefPosition->getInterval();
-            regMaskTP oldAssignment  = newRefPosition->registerAssignment;
+            Interval* interval       = rp->getInterval();
+            regMaskTP oldAssignment  = rp->registerAssignment;
             regMaskTP calleeSaveMask = calleeSaveRegs(interval->registerType);
-            newRefPosition->registerAssignment =
-                getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
-            if ((newRefPosition->registerAssignment != oldAssignment) && (newRefPosition->refType == RefTypeUse) &&
-                !interval->isLocalVar)
+            rp->registerAssignment   = getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
+            if ((rp->registerAssignment != oldAssignment) && (rp->refType == RefTypeUse) && !interval->isLocalVar)
             {
-                checkConflictingDefUse(newRefPosition);
+                checkConflictingDefUse(rp);
             }
         }
     }
