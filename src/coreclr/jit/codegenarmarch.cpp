@@ -2445,24 +2445,23 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
 
-    var_types     type   = cast->GetType();
-    RegNum        dstReg = cast->GetRegNum();
-    GenTree*      src    = cast->GetOp(0);
-    StackAddrMode s;
+    GenTree*  src    = cast->GetOp(0);
+    RegNum    srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum    dstReg = cast->GetRegNum();
+    var_types type   = cast->GetType();
 
-    UseOperandRegs(src);
+    if (srcReg == REG_NA)
+    {
+        UseOperandRegs(src);
 
-    if (src->isUsedFromReg())
-    {
-        GetEmitter()->emitIns_Mov(ins_Conv(type), EA_4BYTE, dstReg, src->GetRegNum(), /*canSkip*/ false);
-    }
-    else if (IsLocalMemoryOperand(src, &s))
-    {
+        StackAddrMode s;
+        bool isLocal = IsLocalMemoryOperand(src, &s);
+        assert(isLocal);
         GetEmitter()->Ins_R_S(ins_Load(type), EA_4BYTE, dstReg, s);
     }
     else
     {
-        unreached();
+        GetEmitter()->emitIns_Mov(ins_Conv(type), EA_4BYTE, dstReg, srcReg, /*canSkip*/ false);
     }
 
     DefReg(cast);
@@ -2599,13 +2598,7 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
     RegNum   dstReg = node->GetRegNum();
     emitAttr size   = emitTypeSize(node->GetType());
 
-    if (srcReg != REG_NA)
-    {
-        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, 0);
-        genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
-        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /*canSkip*/ true);
-    }
-    else
+    if (srcReg == REG_NA)
     {
         UseOperandRegs(src);
 
@@ -2629,8 +2622,15 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
             unreached();
         }
 
-        GetEmitter()->emitIns_R_I(INS_cmp, size, dstReg, 0);
-        genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+        srcReg = dstReg;
+    }
+
+    GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, 0);
+    genJumpToThrowHlpBlk(EJ_lt, ThrowHelperKind::Overflow);
+
+    if (dstReg != srcReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /*canSkip*/ true);
     }
 
     DefReg(node);
