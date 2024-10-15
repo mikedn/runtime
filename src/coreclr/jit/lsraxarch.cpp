@@ -1956,38 +1956,25 @@ void LinearScan::BuildOvfUnsigned(GenTreeUnOp* cast)
     BuildDef(cast);
 }
 
-void LinearScan::BuildConv(GenTreeUnOp* cast)
+void LinearScan::BuildConv(GenTreeUnOp* conv)
 {
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
+    assert(conv->OperIs(GT_CONV) && varTypeIsSmallInt(conv->GetType()));
 
-    GenTree* src = cast->GetOp(0);
-
+    GenTree* src = conv->GetOp(0);
 #ifdef TARGET_X86
     assert(!src->TypeIs(TYP_LONG));
-
-    regMaskTP candidates = RBM_NONE;
-
-    if (varTypeIsByte(cast->GetType()))
-    {
-        candidates = allByteRegs();
-    }
 #endif
 
     if (!src->isContained())
     {
-        BuildUse(src X86_ARG(candidates));
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
+        BuildUse(src X86_ARG(varTypeIsByte(conv->GetType()) ? allByteRegs() : RBM_NONE));
     }
     else
     {
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
-    BuildInternalUses();
-    BuildDef(cast);
+    BuildDef(conv);
 }
 
 void LinearScan::BuildLoadInd(GenTreeIndir* load)
