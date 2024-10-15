@@ -1670,7 +1670,7 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
 
-    bool isContainable = IsContainableMemoryOp(src);
+    bool isContainable = IsMemOperand(src);
 
     if (GenTreeIndLoad* load = src->IsIndLoad())
     {
@@ -1741,7 +1741,7 @@ void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
 
-    bool isContainable = IsContainableMemoryOp(src);
+    bool isContainable = IsMemOperand(src);
 
     if (GenTreeIndLoad* load = src->IsIndLoad())
     {

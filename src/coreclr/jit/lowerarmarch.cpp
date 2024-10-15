@@ -759,7 +759,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsContainableMemoryOp(vec) && IsSafeToContainMem(node, vec))
+    if (IsMemOperand(vec) && IsSafeToContainMem(node, vec))
     {
         vec->SetContained();
     }
@@ -984,7 +984,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         return;
     }
 
-    if (store->TypeIs(TYP_SIMD12) && IsContainableMemoryOp(store))
+    if (store->TypeIs(TYP_SIMD12) && IsMemStore(store))
     {
         ContainSIMD12MemToMemCopy(store, src);
         return;
@@ -1021,7 +1021,7 @@ void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
     src->SetContained();
 #else
     GenTree* src           = node->GetOp(0);
-    bool     isContainable = IsContainableMemoryOp(src);
+    bool     isContainable = IsMemOperand(src);
 
     if (src->OperIs(GT_IND_LOAD))
     {
@@ -1082,9 +1082,8 @@ void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
     assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
 
-    GenTree* src = node->GetOp(0);
-
-    bool isContainable = IsContainableMemoryOp(src);
+    GenTree* src           = node->GetOp(0);
+    bool     isContainable = IsMemOperand(src);
 
     if (src->OperIs(GT_IND_LOAD))
     {
@@ -1145,7 +1144,7 @@ void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
     assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
 
     GenTree* src           = cast->GetOp(0);
-    bool     isContainable = IsContainableMemoryOp(src);
+    bool     isContainable = IsMemOperand(src);
 
     if (src->OperIs(GT_IND_LOAD))
     {

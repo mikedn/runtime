@@ -314,7 +314,8 @@ private:
 public:
     bool IsImmOperand(GenTree* operand, GenTree* instr) const;
 
-    static bool IsContainableMemoryOp(GenTree* node);
+    static bool IsMemStore(GenTree* node);
+    static bool IsMemOperand(GenTree* node);
 
 #ifdef FEATURE_HW_INTRINSICS
     static bool IsContainableHWIntrinsicOp(Compiler*           comp,
