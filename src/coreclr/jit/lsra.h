@@ -695,8 +695,7 @@ private:
     // insert refpositions representing prolog zero-inits which will be added later
     void insertZeroInitRefPositions();
 
-    // add physreg refpositions for a tree node, based on calling convention and instruction selection predictions
-    void addRefsForPhysRegMask(regMaskTP mask, LsraLocation currentLoc, RefType refType, bool isLastUse);
+    void newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc);
 
     void resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition);
 
