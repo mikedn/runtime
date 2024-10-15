@@ -10957,7 +10957,6 @@ DONE_MORPHING_CHILDREN:
                 GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
                 fgSetupArgs(call);
-                INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
                 return call;
             }
@@ -10992,15 +10991,14 @@ DONE_MORPHING_CHILDREN:
                 GenTreeCall* call = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(op1));
                 fgInitArgInfo(call);
                 fgSetupArgs(call);
-                INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
                 tree = call;
+                INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
                 if (typ == TYP_FLOAT)
                 {
                     // All floating point cast helpers work only with DOUBLE.
-                    tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, call);
-                    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+                    tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, tree);
+                    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                 }
 
                 return tree;
