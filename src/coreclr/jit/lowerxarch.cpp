@@ -3678,26 +3678,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 }
 
-void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
-{
-    GenTree* src = node->GetOp(0);
-
-#ifndef TARGET_64BIT
-    assert(src->OperIs(GT_LONG));
-
-    src->SetContained();
-#else
-    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-#endif
-}
-
 void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);
@@ -3809,6 +3789,20 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
 }
 
 #ifdef TARGET_64BIT
+
+void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
+{
+    GenTree* src = node->GetOp(0);
+
+    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
+    {
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
 
 void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 {
