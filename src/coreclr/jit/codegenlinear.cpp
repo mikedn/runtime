@@ -816,17 +816,17 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
-            GenOverflowTruncate(node->AsUnOp());
+            GenOvfTruncate(node->AsUnOp());
             break;
         case GT_OVF_U:
-            GenOverflowUnsigned(node->AsUnOp());
+            GenOvfUnsigned(node->AsUnOp());
             break;
         case GT_CONV:
             GenConv(node->AsUnOp());
             break;
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
-            GenOverflowConv(node->AsUnOp());
+            GenOvfConv(node->AsUnOp());
             break;
         case GT_TRUNC:
             GenTruncate(node->AsUnOp());

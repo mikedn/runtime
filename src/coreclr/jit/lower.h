@@ -234,7 +234,6 @@ private:
     GenTree* LowerTruncate(GenTreeUnOp* node);
     void LowerIntToFloat(GenTreeUnOp* node);
     void LowerFloatToInt(GenTreeUnOp* node);
-    void ContainCheckOverflowConv(GenTreeUnOp* cast);
 
 #ifdef TARGET_XARCH
     GenTree* LowerFloatConvert(GenTreeUnOp* node);
