@@ -75,7 +75,6 @@ private:
     void ContainCheckIntrinsic(GenTreeIntrinsic* node);
     void ContainCheckXAdd(GenTreeOp* node);
 #ifdef TARGET_64BIT
-    void ContainCheckOverflowTruncate(GenTreeUnOp* node);
     void ContainCheckSignedExtend(GenTreeUnOp* node);
     void ContainCheckUnsignedExtend(GenTreeUnOp* node);
 #endif

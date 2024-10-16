@@ -5049,10 +5049,6 @@ void Lowering::LowerOverflowTruncate(GenTreeUnOp* node)
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-#ifdef TARGET_AMD64
-    ContainCheckOverflowTruncate(node);
-#endif
-
 #ifndef TARGET_64BIT
     GenTree* src = node->GetOp(0);
     assert(src->OperIs(GT_LONG));
