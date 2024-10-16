@@ -1666,6 +1666,67 @@ GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
     return next;
 }
 
+void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src           = node->GetOp(0);
+    bool     isContainable = IsMemOperand(src);
+
+    if (src->OperIs(GT_IND_LOAD))
+    {
+        GenTree* addr = src->AsIndLoad()->GetAddr();
+
+        if (src->AsIndLoad()->IsVolatile())
+        {
+            isContainable = false;
+        }
+        else if (addr->isContained())
+        {
+            // Indirs with contained address modes are problematic, thanks in part to messed up
+            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
+            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
+            // need a temp register and if the indir itself is contained then nobody's going to
+            // reserve it, as this is normally done in LSRA's BuildIndir.
+            //
+            // Also, when the indir is contained, the type of the generated load instruction may
+            // be different from the actual indir type, affecting immediate offset validity.
+            //
+            // So allow containment if the address mode is definitely always valid: base+index
+            // of base+offset, if the offset is valid no matter the indir type is.
+            //
+            // Perhaps it would be better to not contain the indir and instead retype it
+            // and remove the cast. Unfortunately there's at least on case where this is
+            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
+            // The best solution would be to lower indir+cast to the actual load instruction
+            // to be emitted.
+
+            if (!addr->IsAddrMode())
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
+            {
+                isContainable = false;
+            }
+            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            {
+                isContainable = false;
+            }
+        }
+    }
+
+    if (isContainable && IsSafeToContainMem(node, src))
+    {
+        src->SetContained();
+    }
+    else
+    {
+        src->SetRegOptional();
+    }
+}
+
 void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
