@@ -63,12 +63,10 @@ private:
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
-    void ContainCheckOverflowUnsigned(GenTreeUnOp* node);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
-    void ContainCheckConv(GenTreeUnOp* node);
     void ContainCheckIntToFloat(GenTreeUnOp* node);
     void ContainCheckFloatToInt(GenTreeUnOp* node);
     void ContainCheckFloatBinary(GenTreeOp* node);
