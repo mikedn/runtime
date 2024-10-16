@@ -552,25 +552,14 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
     }
 }
 
-void LinearScan::BuildOvfUnsigned(GenTreeUnOp* node)
+void LinearScan::BuildConv(GenTreeUnOp* conv)
 {
-    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
-    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+    assert(conv->OperIs(GT_CONV) && varTypeIsSmallInt(conv->GetType()));
 
-    tgtPrefUse = BuildUse(node->GetOp(0));
-    BuildDef(node);
-}
-
-void LinearScan::BuildOverflowConv(GenTreeUnOp* cast)
-{
-    assert(varTypeIsSmallInt(cast->GetType()) && varTypeIsIntegral(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
+    GenTree* src = conv->GetOp(0);
 
 #ifdef TARGET_ARM
-    var_types srcType = varActualType(src->GetType());
-
-    assert((srcType != TYP_LONG) || (src->OperIs(GT_LONG) && src->isContained()));
+    assert(!src->TypeIs(TYP_LONG));
 #endif
 
     if (!src->isContained())
@@ -593,7 +582,7 @@ void LinearScan::BuildOverflowConv(GenTreeUnOp* cast)
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
     }
 
-    BuildDef(cast);
+    BuildDef(conv);
 }
 
 void LinearScan::BuildCmp(GenTreeOp* cmp)

@@ -218,12 +218,15 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildOvfUnsigned(tree->AsUnOp());
             break;
 
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            BuildOvfConv(tree->AsUnOp());
+            break;
+
         case GT_CONV:
             BuildConv(tree->AsUnOp());
             break;
 
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
         case GT_TRUNC:
             BuildOperandUses(tree->AsUnOp()->GetOp(0));
             BuildDef(tree);
@@ -1883,58 +1886,6 @@ void LinearScan::BuildBoundsChk(GenTreeBoundsChk* node)
 {
     BuildOperandUses(node->GetOp(0));
     BuildOperandUses(node->GetOp(1));
-}
-
-void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
-    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
-
-#ifdef TARGET_X86
-    assert(src->isContained() && src->OperIs(GT_LONG));
-
-    BuildUse(src->AsOp()->GetOp(0));
-    BuildUse(src->AsOp()->GetOp(1));
-#else
-    if (node->OperIs(GT_OVF_UTRUNC))
-    {
-        BuildInternalIntDef(node);
-    }
-
-    tgtPrefUse = BuildUse(src);
-    BuildInternalUses();
-#endif
-
-    BuildDef(node);
-}
-
-void LinearScan::BuildOvfUnsigned(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_OVF_U) && cast->TypeIs(TYP_INT, TYP_LONG));
-    assert(cast->GetType() == varActualType(cast->GetOp(0)->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-#ifdef TARGET_X86
-    assert(!varTypeIsLong(src->GetType()));
-#endif
-
-    if (!src->isContained())
-    {
-        tgtPrefUse = BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
-    BuildDef(cast);
 }
 
 void LinearScan::BuildConv(GenTreeUnOp* conv)

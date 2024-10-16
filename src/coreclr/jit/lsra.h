@@ -1553,9 +1553,7 @@ private:
     void BuildOvfTruncate(GenTreeUnOp* node);
     void BuildOvfUnsigned(GenTreeUnOp* node);
     void BuildConv(GenTreeUnOp* cast);
-#ifdef TARGET_ARMARCH
-    void BuildOverflowConv(GenTreeUnOp* cast);
-#endif
+    void BuildOvfConv(GenTreeUnOp* cast);
 #ifdef TARGET_ARM64
     void BuildIntExtend(GenTreeUnOp* node);
 #endif

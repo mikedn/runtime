@@ -5165,25 +5165,10 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
 
-    GenTree* src = cast->GetOp(0);
-    RegNum   srcReg;
+    GenTree* src    = cast->GetOp(0);
+    RegNum   srcReg = UseReg(src);
     RegNum   dstReg = cast->GetRegNum();
-
-    if (src->isUsedFromMemory())
-    {
-        // Note that we load directly into the destination register, this avoids the
-        // need for a temporary register but assumes that enregistered variables are
-        // not live in exception handlers. This works with EHWriteThru because the
-        // register will be written only in DefReg, after the overflow check is done.
-
-        genConsumeRegs(src);
-        emitInsRegRM(ins_Load(src->GetType()), emitTypeSize(src->GetType()), dstReg, src);
-        srcReg = dstReg;
-    }
-    else
-    {
-        srcReg = UseReg(src);
-    }
+    emitAttr size   = emitActualTypeSize(src->GetType());
 
     int minValue;
     int maxValue;
@@ -5202,15 +5187,12 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
             minValue = 0;
             maxValue = UINT16_MAX;
             break;
-        case TYP_SHORT:
+        default:
+            assert(cast->TypeIs(TYP_SHORT));
             minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
             maxValue = INT16_MAX;
             break;
-        default:
-            unreached();
     }
-
-    emitAttr size = emitActualTypeSize(src->GetType());
 
     GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
     genJumpToThrowHlpBlk(minValue == 0 ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
@@ -5221,7 +5203,10 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
         genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
     }
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    if (srcReg != dstReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    }
 
     DefReg(cast);
 }
