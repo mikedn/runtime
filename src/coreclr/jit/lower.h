@@ -227,8 +227,9 @@ private:
                                  GenTreeLclLoad* switchValue);
 
     GenTree* LowerBitCast(GenTreeUnOp* bitcast);
-    void LowerOverflowTruncate(GenTreeUnOp* node);
-    void LowerOverflowUnsigned(GenTreeUnOp* node);
+    void LowerOvfConv(GenTreeUnOp* node);
+    void LowerOvfUnsigned(GenTreeUnOp* node);
+    void LowerOvfTruncate(GenTreeUnOp* node);
     GenTree* LowerConv(GenTreeUnOp* cast);
     GenTree* LowerTruncate(GenTreeUnOp* node);
     void LowerIntToFloat(GenTreeUnOp* node);

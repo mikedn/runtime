@@ -2472,33 +2472,9 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
     assert(conv->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(conv->GetType()));
 
     GenTree* src    = conv->GetOp(0);
-    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum   srcReg = UseReg(src);
     RegNum   dstReg = conv->GetRegNum();
     emitAttr size   = emitActualTypeSize(src->GetType());
-
-    if (srcReg == REG_NA)
-    {
-        UseOperandRegs(src);
-
-        instruction   ins = ins_Load(src->GetType());
-        StackAddrMode s;
-
-        // Note that we load directly into the destination register, this avoids the
-        // need for a temporary register but assumes that enregistered variables are
-        // not live in exception handlers. This works with EHWriteThru because the
-        // register will be written only in DefReg, after the overflow check is done.
-
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            GetEmitter()->Ins_R_S(ins, size, dstReg, s);
-        }
-        else
-        {
-            emitInsLoad(ins, size, dstReg, src->AsIndLoad());
-        }
-
-        srcReg = dstReg;
-    }
 
     int minValue;
     int maxValue;
@@ -2583,7 +2559,10 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
     }
 #endif
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    if (srcReg != dstReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    }
 
     DefReg(conv);
 }

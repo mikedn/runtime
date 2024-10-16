@@ -300,23 +300,23 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_BITCAST:
             return LowerBitCast(node->AsUnOp());
 
-        case GT_OVF_TRUNC:
-        case GT_OVF_STRUNC:
-        case GT_OVF_UTRUNC:
-            LowerOverflowTruncate(node->AsUnOp());
+        case GT_OVF_SCONV:
+        case GT_OVF_UCONV:
+            LowerOvfConv(node->AsUnOp());
             break;
 
         case GT_OVF_U:
-            LowerOverflowUnsigned(node->AsUnOp());
+            LowerOvfUnsigned(node->AsUnOp());
+            break;
+
+        case GT_OVF_TRUNC:
+        case GT_OVF_STRUNC:
+        case GT_OVF_UTRUNC:
+            LowerOvfTruncate(node->AsUnOp());
             break;
 
         case GT_CONV:
             return LowerConv(node->AsUnOp());
-
-        case GT_OVF_SCONV:
-        case GT_OVF_UCONV:
-            ContainCheckOverflowConv(node->AsUnOp());
-            break;
 
         case GT_TRUNC:
             return LowerTruncate(node->AsUnOp());
@@ -5044,7 +5044,19 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     return next;
 }
 
-void Lowering::LowerOverflowTruncate(GenTreeUnOp* node)
+void Lowering::LowerOvfConv(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(node->GetType()));
+    assert(varActualTypeIsIntOrI(node->GetOp(0)->GetType()));
+}
+
+void Lowering::LowerOvfUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_I_IMPL));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+}
+
+void Lowering::LowerOvfTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
@@ -5053,15 +5065,6 @@ void Lowering::LowerOverflowTruncate(GenTreeUnOp* node)
     GenTree* src = node->GetOp(0);
     assert(src->OperIs(GT_LONG));
     src->SetContained();
-#endif
-}
-
-void Lowering::LowerOverflowUnsigned(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
-    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
-#ifndef TARGET_64BIT
-    assert(!node->TypeIs(TYP_LONG));
 #endif
 }
 

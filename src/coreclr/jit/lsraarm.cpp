@@ -81,9 +81,12 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_CONV:
+            BuildConv(tree->AsUnOp());
+            break;
+
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
-            BuildOverflowConv(tree->AsUnOp());
+            BuildOvfConv(tree->AsUnOp());
             break;
 
         case GT_FTOS:
@@ -492,19 +495,6 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
     RefPosition* sourceLoUse = BuildUse(sourceLo);
     RefPosition* sourceHiUse = BuildUse(sourceHi);
     setDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
-    BuildDef(node);
-}
-
-void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
-    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTreeOp* src = node->GetOp(0)->AsOp();
-    assert(src->OperIs(GT_LONG) && src->isContained());
-
-    BuildUse(src->GetOp(0));
-    BuildUse(src->GetOp(1));
     BuildDef(node);
 }
 

@@ -480,7 +480,8 @@ RefPosition* LinearScan::newRefPosition(
     {
         // TODO-MIKE-Review: Disabling single def reg stuff for multireg stores,
         // codegen doesn't seem to have proper spilling support for this case.
-        interval->isSingleDef = (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclStore());
+        interval->isSingleDef =
+            (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclStore());
     }
 
     DBEXEC(VERBOSE, newRP->dump(this));
@@ -2699,6 +2700,54 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
     {
         BuildStoreLclVarDef(store->AsLclStore(), lcl, singleUseRef, 0);
     }
+}
+
+void LinearScan::BuildOvfConv(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(node->GetType()));
+    assert(varActualTypeIsIntOrI(node->GetOp(0)->GetType()));
+
+    tgtPrefUse = BuildUse(node->GetOp(0));
+    BuildDef(node);
+}
+
+void LinearScan::BuildOvfUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_I_IMPL));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    tgtPrefUse = BuildUse(node->GetOp(0));
+    BuildDef(node);
+}
+
+void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+#ifndef TARGET_64BIT
+    GenTreeOp* src = node->GetOp(0)->AsOp();
+    assert(src->OperIs(GT_LONG) && src->isContained());
+
+    BuildUse(src->GetOp(0));
+    BuildUse(src->GetOp(1));
+#else
+    GenTree* src = node->GetOp(0);
+
+#ifdef TARGET_AMD64
+    if (node->OperIs(GT_OVF_UTRUNC))
+    {
+        BuildInternalIntDef(node);
+    }
+#endif
+
+    tgtPrefUse = BuildUse(src);
+#ifdef TARGET_AMD64
+    BuildInternalUses();
+#endif
+#endif
+
+    BuildDef(node);
 }
 
 void LinearScan::BuildStoreDynBlk(GenTreeDynBlk* store)
