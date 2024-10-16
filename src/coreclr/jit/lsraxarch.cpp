@@ -1923,7 +1923,7 @@ void LinearScan::BuildOvfUnsigned(GenTreeUnOp* cast)
 
     if (!src->isContained())
     {
-        BuildUse(src);
+        tgtPrefUse = BuildUse(src);
     }
     else if (src->OperIs(GT_IND_LOAD))
     {

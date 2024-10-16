@@ -5123,22 +5123,16 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
     assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
 
     GenTree* src    = node->GetOp(0);
-    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum   srcReg = UseReg(src);
     RegNum   dstReg = node->GetRegNum();
     emitAttr size   = emitTypeSize(node->GetType());
 
-    if (srcReg != REG_NA)
+    GetEmitter()->emitIns_R_R(INS_test, size, srcReg, srcReg);
+    genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+
+    if (srcReg != dstReg)
     {
-        GetEmitter()->emitIns_R_R(INS_test, size, srcReg, srcReg);
-        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
-        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /*canSkip*/ true);
-    }
-    else
-    {
-        genConsumeRegs(src);
-        emitInsRegRM(ins_Load(src->GetType()), emitTypeSize(src->GetType()), dstReg, src);
-        GetEmitter()->emitIns_R_R(INS_test, size, dstReg, dstReg);
-        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
     }
 
     DefReg(node);

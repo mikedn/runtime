@@ -5060,8 +5060,9 @@ void Lowering::LowerOverflowUnsigned(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT, TYP_LONG));
     assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
-
-    ContainCheckOverflowUnsigned(node);
+#ifndef TARGET_64BIT
+    assert(!node->TypeIs(TYP_LONG));
+#endif
 }
 
 GenTree* Lowering::LowerConv(GenTreeUnOp* cast)

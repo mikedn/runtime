@@ -3678,24 +3678,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 }
 
-void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
-{
-    GenTree* src = node->GetOp(0);
-
-#ifndef TARGET_64BIT
-    assert(!src->TypeIs(TYP_LONG));
-#endif
-
-    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
 void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
@@ -3705,27 +3687,6 @@ void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
     if (IsMemOperand(src) && IsSafeToContainMem(cast, src))
     {
         src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
-void Lowering::ContainCheckConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmall(cast->GetType()));
-    assert(varTypeIsIntOrI(varActualType(cast->GetOp(0)->GetType())));
-
-    GenTree* src = cast->GetOp(0);
-
-    if (IsMemOperand(src))
-    {
-        if (cast->gtPrev != src)
-        {
-            BlockRange().Remove(cast);
-            BlockRange().InsertAfter(src, cast);
-        }
     }
     else
     {
