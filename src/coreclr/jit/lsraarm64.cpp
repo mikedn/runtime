@@ -788,21 +788,7 @@ void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree* src = node->GetOp(0);
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
+    tgtPrefUse = BuildUse(node->GetOp(0));
     BuildDef(node);
 }
 
