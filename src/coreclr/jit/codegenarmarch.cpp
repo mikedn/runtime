@@ -2441,33 +2441,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 #endif // FEATURE_FASTTAILCALL
 }
 
-void CodeGen::GenConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
-
-    GenTree*  src    = cast->GetOp(0);
-    RegNum    srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
-    RegNum    dstReg = cast->GetRegNum();
-    var_types type   = cast->GetType();
-
-    if (srcReg == REG_NA)
-    {
-        UseOperandRegs(src);
-
-        StackAddrMode s;
-        bool          isLocal = IsLocalMemoryOperand(src, &s);
-        assert(isLocal);
-        GetEmitter()->Ins_R_S(ins_Load(type), EA_4BYTE, dstReg, s);
-    }
-    else
-    {
-        GetEmitter()->emitIns_Mov(ins_Conv(type), EA_4BYTE, dstReg, srcReg, /*canSkip*/ false);
-    }
-
-    DefReg(cast);
-}
-
-void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
+void CodeGen::GenOvfConv(GenTreeUnOp* conv)
 {
     assert(conv->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(conv->GetType()));
 
@@ -2567,7 +2541,7 @@ void CodeGen::GenOverflowConv(GenTreeUnOp* conv)
     DefReg(conv);
 }
 
-void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
+void CodeGen::GenOvfUnsigned(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
     assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
@@ -2586,6 +2560,32 @@ void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
     }
 
     DefReg(node);
+}
+
+void CodeGen::GenConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree*  src    = cast->GetOp(0);
+    RegNum    srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum    dstReg = cast->GetRegNum();
+    var_types type   = cast->GetType();
+
+    if (srcReg == REG_NA)
+    {
+        UseOperandRegs(src);
+
+        StackAddrMode s;
+        bool          isLocal = IsLocalMemoryOperand(src, &s);
+        assert(isLocal);
+        GetEmitter()->Ins_R_S(ins_Load(type), EA_4BYTE, dstReg, s);
+    }
+    else
+    {
+        GetEmitter()->emitIns_Mov(ins_Conv(type), EA_4BYTE, dstReg, srcReg, /*canSkip*/ false);
+    }
+
+    DefReg(cast);
 }
 
 void CodeGen::GenFloatExtend(GenTreeUnOp* node)

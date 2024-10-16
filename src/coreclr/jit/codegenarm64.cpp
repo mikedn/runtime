@@ -2873,37 +2873,46 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     emitInsStore(ins, emitActualTypeSize(type), valueReg, store);
 }
 
-void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
+void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
 {
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
+    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
+    RegNum   srcReg = UseReg(node->GetOp(0));
+    RegNum   dstReg = node->GetRegNum(0);
+    Emitter& emit   = *GetEmitter();
 
-    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
-    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-
-    RegNum srcReg = UseReg(src);
-    RegNum dstReg = cast->GetRegNum();
-
-    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
-
-    instruction ins  = cast->OperIs(GT_UTOF) ? INS_ucvtf : INS_scvtf;
-    emitAttr    size = emitTypeSize(dstType);
-    insOpts     opts;
-
-    if (dstType == TYP_DOUBLE)
+    if (node->OperIs(GT_OVF_UTRUNC))
     {
-        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
+        emit.emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF00000000LL);
+    }
+    else if (node->OperIs(GT_OVF_STRUNC))
+    {
+        emit.emitIns_R_R_I(INS_cmp, EA_8BYTE, srcReg, srcReg, 0, INS_OPTS_SXTW);
     }
     else
     {
-        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
+        assert(node->OperIs(GT_OVF_TRUNC));
+        emit.emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF80000000LL);
     }
 
-    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
-    DefReg(cast);
+    genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
+
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(node);
+}
+
+void CodeGen::GenTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    RegNum srcReg = UseReg(node->GetOp(0));
+    RegNum dstReg = node->GetRegNum();
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+
+    DefReg(node);
 }
 
 void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
@@ -2970,46 +2979,37 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     DefReg(uxt);
 }
 
-void CodeGen::GenTruncate(GenTreeUnOp* node)
+void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 {
-    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
 
-    RegNum srcReg = UseReg(node->GetOp(0));
-    RegNum dstReg = node->GetRegNum();
+    GenTree*  src     = cast->GetOp(0);
+    var_types srcType = varActualType(src->GetType());
+    var_types dstType = cast->GetType();
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
+    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
 
-    DefReg(node);
-}
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = cast->GetRegNum();
 
-void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
-    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
 
-    RegNum   srcReg = UseReg(node->GetOp(0));
-    RegNum   dstReg = node->GetRegNum(0);
-    Emitter& emit   = *GetEmitter();
+    instruction ins  = cast->OperIs(GT_UTOF) ? INS_ucvtf : INS_scvtf;
+    emitAttr    size = emitTypeSize(dstType);
+    insOpts     opts;
 
-    if (node->OperIs(GT_OVF_UTRUNC))
+    if (dstType == TYP_DOUBLE)
     {
-        emit.emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF00000000LL);
-    }
-    else if (node->OperIs(GT_OVF_STRUNC))
-    {
-        emit.emitIns_R_R_I(INS_cmp, EA_8BYTE, srcReg, srcReg, 0, INS_OPTS_SXTW);
+        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
     }
     else
     {
-        assert(node->OperIs(GT_OVF_TRUNC));
-        emit.emitIns_R_I(INS_tst, EA_8BYTE, srcReg, 0xFFFFFFFF80000000LL);
+        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
     }
 
-    genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
-
-    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
-
-    DefReg(node);
+    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
+    DefReg(cast);
 }
 
 void CodeGen::GenFloatToInt(GenTreeUnOp* cast)

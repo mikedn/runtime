@@ -321,16 +321,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_TRUNC:
             return LowerTruncate(node->AsUnOp());
 
-        case GT_STOF:
-        case GT_UTOF:
-            LowerIntToFloat(node->AsUnOp());
-            break;
-
-        case GT_FTOS:
-        case GT_FTOU:
-            LowerFloatToInt(node->AsUnOp());
-            break;
-
 #ifdef TARGET_AMD64
         case GT_SXT:
             ContainCheckSignedExtend(node->AsUnOp());
@@ -340,6 +330,16 @@ GenTree* Lowering::LowerNode(GenTree* node)
             ContainCheckUnsignedExtend(node->AsUnOp());
             break;
 #endif
+
+        case GT_STOF:
+        case GT_UTOF:
+            LowerIntToFloat(node->AsUnOp());
+            break;
+
+        case GT_FTOS:
+        case GT_FTOU:
+            LowerFloatToInt(node->AsUnOp());
+            break;
 
         case GT_ARR_ELEM:
             return LowerArrElem(node);

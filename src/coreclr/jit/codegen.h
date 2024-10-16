@@ -552,9 +552,6 @@ protected:
     void GenBitCast(GenTreeUnOp* bitcast);
     void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
-    void GenIntToFloat(GenTreeUnOp* node);
-    void GenFloatToInt(GenTreeUnOp* node);
-
     void GenCkfinite(GenTree* treeNode);
     void GenCompare(GenTreeOp* tree);
     void GenIntrinsic(GenTreeIntrinsic* node);
@@ -668,10 +665,11 @@ protected:
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     void GenShiftLong(GenTreeOp* shift);
 #endif
-    void GenOverflowTruncate(GenTreeUnOp* node);
-    void GenOverflowUnsigned(GenTreeUnOp* node);
+
+    void GenOvfConv(GenTreeUnOp* node);
+    void GenOvfUnsigned(GenTreeUnOp* node);
+    void GenOvfTruncate(GenTreeUnOp* node);
     void GenConv(GenTreeUnOp* node);
-    void GenOverflowConv(GenTreeUnOp* node);
     void GenTruncate(GenTreeUnOp* node);
 #ifdef TARGET_64BIT
     void GenSignExtend(GenTreeUnOp* node);
@@ -679,6 +677,9 @@ protected:
 #endif
     void GenFloatTruncate(GenTreeUnOp* node);
     void GenFloatExtend(GenTreeUnOp* node);
+    void GenIntToFloat(GenTreeUnOp* node);
+    void GenFloatToInt(GenTreeUnOp* node);
+
     void GenLclAddr(GenTreeLclAddr* addr);
     void GenIndexAddr(GenTreeIndexAddr* tree);
     void GenNegNot(GenTreeUnOp* tree);

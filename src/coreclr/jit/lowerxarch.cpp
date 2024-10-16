@@ -3678,22 +3678,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 }
 
-void Lowering::ContainCheckOverflowConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
-
-    GenTree* src = cast->GetOp(0);
-
-    if (IsMemOperand(src) && IsSafeToContainMem(cast, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
 void Lowering::ContainCheckIntToFloat(GenTreeUnOp* cast)
 {
     GenTree* src = cast->GetOp(0);

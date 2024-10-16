@@ -5028,7 +5028,78 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     DefReg(cmp);
 }
 
-void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
+void CodeGen::GenOvfConv(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
+
+    GenTree* src    = cast->GetOp(0);
+    RegNum   srcReg = UseReg(src);
+    RegNum   dstReg = cast->GetRegNum();
+    emitAttr size   = emitActualTypeSize(src->GetType());
+
+    int minValue;
+    int maxValue;
+
+    switch (cast->GetType())
+    {
+        case TYP_UBYTE:
+            minValue = 0;
+            maxValue = UINT8_MAX;
+            break;
+        case TYP_BYTE:
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
+            maxValue = INT8_MAX;
+            break;
+        case TYP_USHORT:
+            minValue = 0;
+            maxValue = UINT16_MAX;
+            break;
+        default:
+            assert(cast->TypeIs(TYP_SHORT));
+            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
+            maxValue = INT16_MAX;
+            break;
+    }
+
+    GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
+    genJumpToThrowHlpBlk(minValue == 0 ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
+
+    if (minValue != 0)
+    {
+        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
+        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+    }
+
+    if (srcReg != dstReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+    }
+
+    DefReg(cast);
+}
+
+void CodeGen::GenOvfUnsigned(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT AMD64_ARG(TYP_LONG)));
+    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
+
+    GenTree* src    = node->GetOp(0);
+    RegNum   srcReg = UseReg(src);
+    RegNum   dstReg = node->GetRegNum();
+    emitAttr size   = emitTypeSize(node->GetType());
+
+    GetEmitter()->emitIns_R_R(INS_test, size, srcReg, srcReg);
+    genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
+
+    if (srcReg != dstReg)
+    {
+        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
@@ -5117,27 +5188,6 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
     DefReg(node);
 }
 
-void CodeGen::GenOverflowUnsigned(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT AMD64_ARG(TYP_LONG)));
-    assert(node->GetType() == varActualType(node->GetOp(0)->GetType()));
-
-    GenTree* src    = node->GetOp(0);
-    RegNum   srcReg = UseReg(src);
-    RegNum   dstReg = node->GetRegNum();
-    emitAttr size   = emitTypeSize(node->GetType());
-
-    GetEmitter()->emitIns_R_R(INS_test, size, srcReg, srcReg);
-    genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
-
-    if (srcReg != dstReg)
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
-    }
-
-    DefReg(node);
-}
-
 void CodeGen::GenConv(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_CONV) && varTypeIsSmallInt(cast->GetType()));
@@ -5156,56 +5206,6 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     else
     {
         GetEmitter()->emitIns_Mov(ins, size, dstReg, srcReg, /*canSkip*/ false);
-    }
-
-    DefReg(cast);
-}
-
-void CodeGen::GenOverflowConv(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_OVF_SCONV, GT_OVF_UCONV) && varTypeIsSmallInt(cast->GetType()));
-
-    GenTree* src    = cast->GetOp(0);
-    RegNum   srcReg = UseReg(src);
-    RegNum   dstReg = cast->GetRegNum();
-    emitAttr size   = emitActualTypeSize(src->GetType());
-
-    int minValue;
-    int maxValue;
-
-    switch (cast->GetType())
-    {
-        case TYP_UBYTE:
-            minValue = 0;
-            maxValue = UINT8_MAX;
-            break;
-        case TYP_BYTE:
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT8_MIN;
-            maxValue = INT8_MAX;
-            break;
-        case TYP_USHORT:
-            minValue = 0;
-            maxValue = UINT16_MAX;
-            break;
-        default:
-            assert(cast->TypeIs(TYP_SHORT));
-            minValue = cast->OperIs(GT_OVF_UCONV) ? 0 : INT16_MIN;
-            maxValue = INT16_MAX;
-            break;
-    }
-
-    GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
-    genJumpToThrowHlpBlk(minValue == 0 ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
-
-    if (minValue != 0)
-    {
-        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
-        genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
-    }
-
-    if (srcReg != dstReg)
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
     }
 
     DefReg(cast);
