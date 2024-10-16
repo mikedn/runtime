@@ -83,34 +83,30 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
     INDEBUG(fJitStressRange.EnsureInit(JitConfig.JitStressRange()));
 
 #ifdef DEBUG
-    const WCHAR* jitStdOutFile = JitConfig.JitStdOutFile();
-    if (jitStdOutFile != nullptr)
+    if (const WCHAR* jitStdOutFile = JitConfig.JitStdOutFile())
     {
-        jitstdout = _wfopen(jitStdOutFile, W("a"));
+        jitstdout = _wfopen(jitStdOutFile, W("ab"));
         assert(jitstdout != nullptr);
+        setvbuf(jitstdout, nullptr, _IOFBF, 65536);
     }
 #endif // DEBUG
 
-#if !defined(HOST_UNIX)
+#ifndef HOST_UNIX
     if (jitstdout == nullptr)
     {
         int stdoutFd = _fileno(procstdout());
-        // Check fileno error output(s) -1 may overlap with errno result
-        // but is included for completness.
-        // We want to detect the case where the initial handle is null
-        // or bogus and avoid making further calls.
-        if ((stdoutFd != -1) && (stdoutFd != -2) && (errno != EINVAL))
+
+        if ((stdoutFd != -1) && (stdoutFd != -2))
         {
             int jitstdoutFd = _dup(_fileno(procstdout()));
-            // Check the error status returned by dup.
+
             if (jitstdoutFd != -1)
             {
                 _setmode(jitstdoutFd, _O_TEXT);
                 jitstdout = _fdopen(jitstdoutFd, "w");
                 assert(jitstdout != nullptr);
-
-                // Prevent the FILE* from buffering its output in order to avoid calls to
-                // `fflush()` throughout the code.
+                // Prevent the FILE* from buffering its output in order
+                // to avoid calls to fflush throughout the code.
                 setvbuf(jitstdout, nullptr, _IONBF, 0);
             }
         }
