@@ -63,7 +63,9 @@ private:
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
+#ifndef TARGET_ARM64
     void ContainCheckOverflowTruncate(GenTreeUnOp* node);
+#endif
     void ContainCheckOverflowUnsigned(GenTreeUnOp* node);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);

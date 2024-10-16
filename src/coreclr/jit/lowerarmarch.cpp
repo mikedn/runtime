@@ -1016,7 +1016,7 @@ void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTreeOp* src = node->GetOp(0)->AsOp();
+    GenTree* src = node->GetOp(0);
     assert(src->OperIs(GT_LONG));
     src->SetContained();
 }

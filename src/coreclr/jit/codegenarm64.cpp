@@ -2987,28 +2987,9 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-    GenTree* src = node->GetOp(0);
-    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
+    RegNum   srcReg = UseReg(node->GetOp(0));
     RegNum   dstReg = node->GetRegNum(0);
     Emitter& emit   = *GetEmitter();
-
-    if (srcReg == REG_NA)
-    {
-        UseOperandRegs(src);
-
-        StackAddrMode s;
-
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            emit.emitIns_R_S(INS_ldr, EA_8BYTE, dstReg, s);
-        }
-        else
-        {
-            emitInsLoad(INS_ldr, EA_8BYTE, dstReg, src->AsIndLoad());
-        }
-
-        srcReg = dstReg;
-    }
 
     if (node->OperIs(GT_OVF_UTRUNC))
     {
@@ -3026,10 +3007,7 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
     genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
-    if (dstReg != srcReg)
-    {
-        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, false);
-    }
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
 
     DefReg(node);
 }
