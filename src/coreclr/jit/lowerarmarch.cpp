@@ -1010,18 +1010,6 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
     }
 }
 
-#ifdef TARGET_ARM
-void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
-    assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
-    assert(src->OperIs(GT_LONG));
-    src->SetContained();
-}
-#endif // TARGET_ARM
-
 void Lowering::ContainCheckOverflowUnsigned(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_U) && node->TypeIs(TYP_INT ARM64_ARG(TYP_LONG)));
