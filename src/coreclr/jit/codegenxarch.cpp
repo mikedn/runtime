@@ -5037,7 +5037,7 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
 #ifndef TARGET_64BIT
     GenTreeOp* src = node->GetOp(0)->AsOp();
-    assert(src->OperIs(GT_LONG));
+    assert(src->OperIs(GT_LONG) && src->isContained());
     RegNum loSrcReg = UseReg(src->GetOp(0));
     RegNum hiSrcReg = UseReg(src->GetOp(1));
     RegNum dstReg   = node->GetRegNum();
@@ -5078,17 +5078,9 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
     emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, loSrcReg, /* canSkip */ true);
 #else
-    GenTree* src = node->GetOp(0);
-
-    RegNum srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
-    RegNum dstReg = node->GetRegNum();
-
-    if (srcReg == REG_NA)
-    {
-        genConsumeRegs(src);
-        emitInsRegRM(INS_mov, EA_8BYTE, dstReg, src);
-        srcReg = dstReg;
-    }
+    GenTree* src    = node->GetOp(0);
+    RegNum   srcReg = UseReg(src);
+    RegNum   dstReg = node->GetRegNum();
 
     if (node->OperIs(GT_OVF_UTRUNC))
     {
@@ -5118,7 +5110,7 @@ void CodeGen::GenOverflowTruncate(GenTreeUnOp* node)
 
     if (srcReg != dstReg)
     {
-        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /* canSkip */ true);
     }
 #endif
 

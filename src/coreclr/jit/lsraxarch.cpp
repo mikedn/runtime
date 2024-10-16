@@ -1901,28 +1901,9 @@ void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
     if (node->OperIs(GT_OVF_UTRUNC))
     {
         BuildInternalIntDef(node);
-
-        // If the cast operand ends up being in memory then the value will be loaded directly
-        // into the destination register and thus the internal register has to be different.
-        if (src->isContained() || src->IsRegOptional())
-        {
-            setInternalRegsDelayFree = true;
-        }
     }
 
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-    else if (src->OperIs(GT_IND_LOAD))
-    {
-        BuildAddrUses(src->AsIndLoad()->GetAddr());
-    }
-    else
-    {
-        assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    }
-
+    tgtPrefUse = BuildUse(src);
     BuildInternalUses();
 #endif
 

@@ -3790,20 +3790,6 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
 
 #ifdef TARGET_64BIT
 
-void Lowering::ContainCheckOverflowTruncate(GenTreeUnOp* node)
-{
-    GenTree* src = node->GetOp(0);
-
-    if (IsMemOperand(src) && IsSafeToContainMem(node, src))
-    {
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
 void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
