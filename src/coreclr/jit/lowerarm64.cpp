@@ -1684,23 +1684,8 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
         }
         else if (addr->isContained())
         {
-            // Indirs with contained address modes are problematic, thanks in part to messed up
-            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
-            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
-            // need a temp register and if the indir itself is contained then nobody's going to
-            // reserve it, as this is normally done in LSRA's BuildIndir.
-            //
-            // Also, when the indir is contained, the type of the generated load instruction may
-            // be different from the actual indir type, affecting immediate offset validity.
-            //
-            // So allow containment if the address mode is definitely always valid: base+index
-            // of base+offset, if the offset is valid no matter the indir type is.
-            //
-            // Perhaps it would be better to not contain the indir and instead retype it
-            // and remove the cast. Unfortunately there's at least on case where this is
-            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
-            // The best solution would be to lower indir+cast to the actual load instruction
-            // to be emitted.
+            // Contained address modes may require a temporary register,
+            // give up on containing either the load or the address mode.
 
             if (!addr->IsAddrMode())
             {
@@ -1708,11 +1693,11 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
             }
             else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
             {
-                isContainable = false;
+                addr->ClearContained();
             }
-            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            else if (!Arm64Imm::IsLdStImm(addr->AsAddrMode()->GetOffset(), emitTypeSize(load->GetType())))
             {
-                isContainable = false;
+                addr->ClearContained();
             }
         }
     }
@@ -1752,23 +1737,8 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
         }
         else if (addr->isContained())
         {
-            // Indirs with contained address modes are problematic, thanks in part to messed up
-            // address mode formation in LowerArrElem and createAddressNodeForSIMDInit, which
-            // produce base+index+offset address modes that are invalid on ARMARCH. Such indirs
-            // need a temp register and if the indir itself is contained then nobody's going to
-            // reserve it, as this is normally done in LSRA's BuildIndir.
-            //
-            // Also, when the indir is contained, the type of the generated load instruction may
-            // be different from the actual indir type, affecting immediate offset validity.
-            //
-            // So allow containment if the address mode is definitely always valid: base+index
-            // of base+offset, if the offset is valid no matter the indir type is.
-            //
-            // Perhaps it would be better to not contain the indir and instead retype it
-            // and remove the cast. Unfortunately there's at least on case where this is
-            // not possible: there's no way to retype the indir in CAST<long>(IND<int>).
-            // The best solution would be to lower indir+cast to the actual load instruction
-            // to be emitted.
+            // Contained address modes may require a temporary register,
+            // give up on containing either the load or the address mode.
 
             if (!addr->IsAddrMode())
             {
@@ -1776,11 +1746,11 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
             }
             else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
             {
-                isContainable = false;
+                addr->ClearContained();
             }
-            else if (addr->AsAddrMode()->GetOffset() < -255 || addr->AsAddrMode()->GetOffset() > 255)
+            else if (!Arm64Imm::IsLdStImm(addr->AsAddrMode()->GetOffset(), emitTypeSize(load->GetType())))
             {
-                isContainable = false;
+                addr->ClearContained();
             }
         }
     }
@@ -1796,7 +1766,7 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 
         src->SetContained();
     }
-    else if (!varTypeIsSmallSigned(src->GetType()) || !src->OperIs(GT_LCL_LOAD))
+    else
     {
         src->SetRegOptional();
     }
