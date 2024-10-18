@@ -1,20 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Lowering for AMD64, x86                         XX
-XX                                                                           XX
-XX  This encapsulates all the logic for lowering trees for the AMD64         XX
-XX  architecture.  For a more detailed view of what is lowering, please      XX
-XX  take a look at Lower.cpp                                                 XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 
 #ifdef TARGET_XARCH
@@ -3756,11 +3742,6 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
     {
         src->SetRegOptional();
     }
-
-    if (varTypeIsSmallUnsigned(src->GetType()))
-    {
-        node->SetOper(GT_UXT);
-    }
 }
 
 void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
@@ -3769,7 +3750,12 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 
     GenTree* src = node->GetOp(0);
 
-    if (IsMemOperand(src) && !varTypeIsSmallSigned(src->GetType()))
+    if (varTypeIsSmallSigned(src->GetType()))
+    {
+        return;
+    }
+
+    if (IsMemOperand(src))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
@@ -3780,7 +3766,7 @@ void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 
         src->SetContained();
     }
-    else if (!varTypeIsSmallSigned(src->GetType()) || !src->OperIs(GT_LCL_LOAD))
+    else
     {
         src->SetRegOptional();
     }

@@ -1666,7 +1666,7 @@ GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
     return next;
 }
 
-void Lowering::LowerSignedExtend(GenTreeUnOp* node)
+void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
 
@@ -1732,14 +1732,9 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
     {
         src->SetRegOptional();
     }
-
-    if (varTypeIsSmallUnsigned(src->GetType()))
-    {
-        node->SetOper(GT_UXT);
-    }
 }
 
-void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
+void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
 

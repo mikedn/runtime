@@ -146,14 +146,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_MOD:
             unreached();
 
-        case GT_SXT:
-            LowerSignedExtend(node->AsUnOp());
-            break;
-
-        case GT_UXT:
-            LowerUnsignedExtend(node->AsUnOp());
-            break;
-
         case GT_LT:
         case GT_LE:
         case GT_GT:
@@ -321,13 +313,13 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_TRUNC:
             return LowerTruncate(node->AsUnOp());
 
-#ifdef TARGET_AMD64
+#ifdef TARGET_64BIT
         case GT_SXT:
-            ContainCheckSignedExtend(node->AsUnOp());
+            LowerSignedExtend(node->AsUnOp());
             break;
 
         case GT_UXT:
-            ContainCheckUnsignedExtend(node->AsUnOp());
+            LowerUnsignedExtend(node->AsUnOp());
             break;
 #endif
 
@@ -5195,6 +5187,32 @@ void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
     ContainCheckIntToFloat(cast);
 #endif
 }
+
+#ifdef TARGET_64BIT
+
+void Lowering::LowerSignedExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
+
+    if (varTypeIsSmallUnsigned(node->AsOp()->GetOp(0)->GetType()))
+    {
+        node->SetOper(GT_UXT);
+        ContainCheckUnsignedExtend(node);
+
+        return;
+    }
+
+    ContainCheckSignedExtend(node);
+}
+
+void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
+
+    ContainCheckUnsignedExtend(node);
+}
+
+#endif // TARGET_64BIT
 
 void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
 {
