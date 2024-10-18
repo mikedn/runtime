@@ -5194,6 +5194,7 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
 
+    // TODO-MIKE-Review: On arm64 this may interfere with s/umull generation.
     if (varTypeIsSmallUnsigned(node->AsOp()->GetOp(0)->GetType()))
     {
         node->SetOper(GT_UXT);
