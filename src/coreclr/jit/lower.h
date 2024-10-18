@@ -72,10 +72,10 @@ private:
     void ContainCheckFloatBinary(GenTreeOp* node);
     void ContainCheckIntrinsic(GenTreeIntrinsic* node);
     void ContainCheckXAdd(GenTreeOp* node);
+#endif
 #ifdef TARGET_64BIT
     void ContainCheckSignedExtend(GenTreeUnOp* node);
     void ContainCheckUnsignedExtend(GenTreeUnOp* node);
-#endif
 #endif
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
@@ -187,9 +187,12 @@ private:
     void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
     void LowerPutArgStk(GenTreePutArgStk* tree);
 
-#ifdef TARGET_ARM64
+#ifdef TARGET_64BIT
     void LowerSignedExtend(GenTreeUnOp* node);
     void LowerUnsignedExtend(GenTreeUnOp* node);
+#endif
+
+#ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* node);
     void CombineNot(GenTreeInstr* instr);
     void LowerLogical(GenTreeOp* logical);
