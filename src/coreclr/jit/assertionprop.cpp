@@ -1909,35 +1909,6 @@ private:
         return UpdateTree(op1, cast, stmt);
     }
 
-#ifdef TARGET_ARM64
-    GenTree* PropagateUnsignedExtend(const ASSERT_TP assertions, GenTreeUnOp* sxt, Statement* stmt)
-    {
-        assert(sxt->OperIs(GT_UXT) && sxt->TypeIs(TYP_LONG));
-
-        GenTree* op1 = sxt->GetOp(0);
-
-        assert(varActualTypeIsInt(op1->GetType()));
-
-        ValueNum vn = vnStore->ExtractValue(op1->SkipComma()->GetConservativeVN());
-
-        const AssertionDsc* assertion = FindRangeAssertion(assertions, vn, 0, INT32_MAX);
-
-        if (assertion == nullptr)
-        {
-            return nullptr;
-        }
-
-        // TODO-MIKE-Cleanup: This is bogus, there's no advantage changing from UXT to SXT,
-        // quite the contrary. It's just that old code did this.
-
-        DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
-
-        sxt->SetOper(GT_SXT);
-
-        return UpdateTree(op1, op1, stmt);
-    }
-#endif
-
 #ifdef TARGET_AMD64
     GenTree* PropagateSignExtend(const ASSERT_TP assertions, GenTreeUnOp* sxt, Statement* stmt)
     {
@@ -2456,10 +2427,6 @@ private:
             case GT_OVF_SCONV:
             case GT_OVF_UCONV:
                 return PropagateConv(assertions, node->AsUnOp(), stmt);
-#ifdef TARGET_ARM64
-            case GT_UXT:
-                return PropagateUnsignedExtend(assertions, node->AsUnOp(), stmt);
-#endif
 #ifdef TARGET_AMD64
             case GT_SXT:
                 return PropagateSignExtend(assertions, node->AsUnOp(), stmt);
