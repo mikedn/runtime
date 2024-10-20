@@ -5206,11 +5206,30 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
     ContainCheckSignedExtend(node);
 }
 
+void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
+
+    ContainCheckIntExtend(node, node->GetOp(0));
+}
+
 void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
 
     ContainCheckUnsignedExtend(node);
+}
+
+void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
+
+    GenTree* src = node->GetOp(0);
+
+    if (!varTypeIsSmallSigned(src->GetType()))
+    {
+        ContainCheckIntExtend(node, src);
+    }
 }
 
 #endif // TARGET_64BIT

@@ -1666,11 +1666,9 @@ GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
     return next;
 }
 
-void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
+void Lowering::ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src)
 {
-    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
+    assert(node->OperIs(GT_SXT, GT_UXT) && node->TypeIs(TYP_LONG));
 
     bool isContainable = IsMemOperand(src);
 
@@ -1703,59 +1701,6 @@ void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
     }
 
     if (isContainable)
-    {
-        // We can move it right after the source node to avoid the interference check.
-        if (node->gtPrev != src)
-        {
-            BlockRange().Remove(node);
-            BlockRange().InsertAfter(src, node);
-        }
-
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
-void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
-
-    bool isContainable = IsMemOperand(src);
-
-    if (GenTreeIndLoad* load = src->IsIndLoad())
-    {
-        GenTree* addr = load->GetAddr();
-
-        if (load->IsVolatile())
-        {
-            isContainable = false;
-        }
-        else if (addr->isContained())
-        {
-            // Contained address modes may require a temporary register,
-            // give up on containing either the load or the address mode.
-
-            if (!addr->IsAddrMode())
-            {
-                isContainable = false;
-            }
-            else if (addr->AsAddrMode()->HasIndex() && (addr->AsAddrMode()->GetOffset() != 0))
-            {
-                addr->ClearContained();
-            }
-            else if (!Arm64Imm::IsLdStImm(addr->AsAddrMode()->GetOffset(), emitTypeSize(load->GetType())))
-            {
-                addr->ClearContained();
-            }
-        }
-    }
-
-    if (isContainable && !varTypeIsSmallSigned(src->GetType()))
     {
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)

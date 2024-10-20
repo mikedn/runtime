@@ -3721,39 +3721,9 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
 
 #ifdef TARGET_64BIT
 
-void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
+void Lowering::ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src)
 {
-    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
-
-    if (IsMemOperand(src))
-    {
-        // We can move it right after the source node to avoid the interference check.
-        if (node->gtPrev != src)
-        {
-            BlockRange().Remove(node);
-            BlockRange().InsertAfter(src, node);
-        }
-
-        src->SetContained();
-    }
-    else
-    {
-        src->SetRegOptional();
-    }
-}
-
-void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
-
-    GenTree* src = node->GetOp(0);
-
-    if (varTypeIsSmallSigned(src->GetType()))
-    {
-        return;
-    }
+    assert(node->OperIs(GT_SXT, GT_UXT) && node->TypeIs(TYP_LONG));
 
     if (IsMemOperand(src))
     {

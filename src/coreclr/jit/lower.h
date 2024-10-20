@@ -76,6 +76,7 @@ private:
 #ifdef TARGET_64BIT
     void ContainCheckSignedExtend(GenTreeUnOp* node);
     void ContainCheckUnsignedExtend(GenTreeUnOp* node);
+    void ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src);
 #endif
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
