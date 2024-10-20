@@ -3766,7 +3766,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             adjustedDividend = comp->gtNewOperNode(GT_UXT, TYP_LONG, adjustedDividend);
             BlockRange().InsertBefore(divMod, adjustedDividend);
-            ContainCheckUnsignedExtend(adjustedDividend->AsUnOp());
+            LowerUnsignedExtend(adjustedDividend->AsUnOp());
         }
 #endif
 
@@ -5194,42 +5194,32 @@ void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
 
+    GenTree* src = node->GetOp(0);
+
     // TODO-MIKE-Review: On arm64 this may interfere with s/umull generation.
-    if (varTypeIsSmallUnsigned(node->AsOp()->GetOp(0)->GetType()))
+    if (varTypeIsSmallUnsigned(src->GetType()))
     {
         node->SetOper(GT_UXT);
-        ContainCheckUnsignedExtend(node);
+        LowerUnsignedExtend(node);
 
         return;
     }
 
-    ContainCheckSignedExtend(node);
-}
-
-void Lowering::ContainCheckSignedExtend(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_SXT) && node->TypeIs(TYP_LONG));
-
-    ContainCheckIntExtend(node, node->GetOp(0));
+    ContainCheckIntExtend(node, src);
 }
 
 void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
 
-    ContainCheckUnsignedExtend(node);
-}
-
-void Lowering::ContainCheckUnsignedExtend(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_UXT) && node->TypeIs(TYP_LONG));
-
     GenTree* src = node->GetOp(0);
 
-    if (!varTypeIsSmallSigned(src->GetType()))
+    if (varTypeIsSmallSigned(src->GetType()))
     {
-        ContainCheckIntExtend(node, src);
+        return;
     }
+
+    ContainCheckIntExtend(node, src);
 }
 
 #endif // TARGET_64BIT
