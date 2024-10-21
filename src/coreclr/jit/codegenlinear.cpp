@@ -828,9 +828,6 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_OVF_UCONV:
             GenOvfConv(node->AsUnOp());
             break;
-        case GT_TRUNC:
-            GenTruncate(node->AsUnOp());
-            break;
         case GT_STOF:
         case GT_UTOF:
             GenIntToFloat(node->AsUnOp());
@@ -840,6 +837,9 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenFloatToInt(node->AsUnOp());
             break;
 #ifdef TARGET_64BIT
+        case GT_TRUNC:
+            GenTruncate(node->AsUnOp());
+            break;
         case GT_SXT:
             GenSignExtend(node->AsUnOp());
             break;

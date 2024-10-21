@@ -173,7 +173,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 
     JITDUMPRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
-    if (m_compiler->opts.OptimizationEnabled() && !use.IsDummyUse() && use.User()->OperIs(GT_TRUNC))
+    if (!use.IsDummyUse() && use.User()->OperIs(GT_TRUNC))
     {
         nextNode = OptimizeTruncate(use.User()->AsUnOp(), nextNode);
     }

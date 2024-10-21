@@ -23,6 +23,11 @@ bool Lowering::ContainImmOperand(GenTree* instr, GenTree* operand) const
 
 bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
 {
+    if (move->gtNext == before)
+    {
+        return true;
+    }
+
     m_scratchSideEffects.Clear();
     m_scratchSideEffects.AddNode(comp, move);
 
@@ -310,14 +315,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_CONV:
             return LowerConv(node->AsUnOp());
 
+#ifdef TARGET_64BIT
         case GT_TRUNC:
             return LowerTruncate(node->AsUnOp());
-
-#ifdef TARGET_64BIT
         case GT_SXT:
             LowerSignedExtend(node->AsUnOp());
             break;
-
         case GT_UXT:
             LowerUnsignedExtend(node->AsUnOp());
             break;
@@ -5121,60 +5124,6 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
     return cast->gtNext;
 }
 
-GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTree* src    = node->GetOp(0);
-    bool     remove = false;
-
-    if (IsMemOperand(src))
-    {
-        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
-        // if there are any advantages in doing such a transform earlier (in fact there may be one
-        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
-
-        src->SetType(TYP_INT);
-        remove = true;
-    }
-#ifdef TARGET_64BIT
-    else if (src->OperIs(GT_LCL_LOAD))
-    {
-        src->SetType(TYP_INT);
-        remove = true;
-    }
-#else
-    else
-    {
-        assert(src->OperIs(GT_LONG));
-        BlockRange().Remove(src);
-        src->AsOp()->GetOp(1)->SetUnusedValue();
-        src    = src->AsOp()->GetOp(0);
-        remove = true;
-    }
-#endif
-
-    if (remove)
-    {
-        LIR::Use use;
-
-        if (BlockRange().TryGetUse(node, &use))
-        {
-            use.ReplaceWith(comp, src);
-        }
-        else
-        {
-            src->SetUnusedValue();
-        }
-
-        GenTree* next = node->gtNext;
-        BlockRange().Remove(node);
-        return next;
-    }
-
-    return node->gtNext;
-}
-
 void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
@@ -5189,6 +5138,39 @@ void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
 }
 
 #ifdef TARGET_64BIT
+GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
+
+    GenTree* src = node->GetOp(0);
+
+    if (IsMemOperand(src) || (src->OperIs(GT_LCL_LOAD) && IsSafeToMoveForward(src, node)))
+    {
+        // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
+        // if there are any advantages in doing such a transform earlier (in fact there may be one
+        // disadvantage - retyping nodes may prevent them from being CSEd) so it should be deleted.
+
+        src->SetType(TYP_INT);
+
+        LIR::Use use;
+
+        if (BlockRange().TryGetUse(node, &use))
+        {
+            use.ReplaceWith(comp, src);
+        }
+        else
+        {
+            src->SetUnusedValue();
+        }
+
+        GenTree* next = node->gtNext;
+        BlockRange().Remove(node);
+
+        return next;
+    }
+
+    return node->gtNext;
+}
 
 void Lowering::LowerSignedExtend(GenTreeUnOp* node)
 {
