@@ -2888,11 +2888,7 @@ void CodeGen::UseOperandRegs(GenTree* op)
         return;
     }
 
-    if (!op->isContained())
-    {
-        UseReg(op);
-        return;
-    }
+    assert(op->isContained());
 
     if (op->IsIndLoad())
     {

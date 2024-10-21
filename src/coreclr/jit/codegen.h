@@ -644,7 +644,9 @@ protected:
     void genConsumeAddress(GenTree* addr);
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
-    INDEBUG(bool IsValidContainedLcl(GenTreeLclVarCommon* node);)
+#ifdef DEBUG
+    bool IsValidContainedLcl(GenTreeLclVarCommon* node);
+#endif
 
 #ifdef TARGET_ARMARCH
     void UseOperandRegs(GenTree* node);
