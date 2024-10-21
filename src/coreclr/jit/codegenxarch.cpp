@@ -14,7 +14,7 @@
 void CodeGen::GenKeepAlive(GenTreeUnOp* node)
 {
     // TODO-MIKE-Review: Huh, why is this completely different from ARM?!
-    genConsumeRegs(node->GetOp(0));
+    UseRMRegs(node->GetOp(0));
 }
 
 void CodeGen::GenLabel(GenTree* label)
@@ -633,7 +633,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
     RegNum   dstReg = mul->GetRegNum();
     emitAttr size   = emitTypeSize(mul->GetType());
 
-    genConsumeRegs(op1);
+    UseRMRegs(op1);
 
     if (GenTreeIntCon* immOp = op2->IsContainedIntCon())
     {
@@ -660,12 +660,13 @@ void CodeGen::GenMul(GenTreeOp* mul)
         }
         else
         {
-            GetEmitter()->emitIns_R_A_I(INS_imuli, size, dstReg, op1->AsIndir()->GetAddr(), static_cast<int32_t>(imm));
+            GetEmitter()->emitIns_R_A_I(INS_imuli, size, dstReg, op1->AsIndLoad()->GetAddr(),
+                                        static_cast<int32_t>(imm));
         }
     }
     else
     {
-        genConsumeRegs(op2);
+        UseRMRegs(op2);
 
         instruction ins       = INS_imul;
         regNumber   mulDstReg = dstReg;
@@ -715,8 +716,8 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     GenTree*  op1    = mul->GetOp(0);
     GenTree*  op2    = mul->GetOp(1);
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    UseRMRegs(op1);
+    UseRMRegs(op2);
 
     GenTree* regOp = op1;
     GenTree* rmOp  = op2;
@@ -833,7 +834,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     regNumber dstReg     = div->GetRegNum();
 
     UseReg(op1);
-    genConsumeRegs(op2);
+    UseRMRegs(op2);
 
     GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, op1->GetRegNum(), /* canSkip */ true);
 
@@ -1068,8 +1069,8 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     assert(IsValidSourceType(node->GetType(), op1->GetType()));
     assert(IsValidSourceType(node->GetType(), op2->GetType()));
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    UseRMRegs(op1);
+    UseRMRegs(op2);
 
     if (!op1->isUsedFromReg())
     {
@@ -1239,19 +1240,19 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    regNumber op1Reg;
+    RegNum op1Reg;
 
     if (op1->isUsedFromReg())
     {
         op1Reg = UseReg(op1);
-        genConsumeRegs(op2);
+        UseRMRegs(op2);
     }
     else
     {
         assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL));
         assert(op2->isUsedFromReg());
 
-        genConsumeRegs(op1);
+        UseRMRegs(op1);
         op1Reg = UseReg(op2);
         op2    = op1;
     }
@@ -3070,8 +3071,8 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
     emitJumpKind jmpKind;
     instruction  cmpIns;
 
-    genConsumeRegs(arrIndex);
-    genConsumeRegs(arrLen);
+    UseRMRegs(arrIndex);
+    UseRMRegs(arrLen);
 
     if (arrIndex->IsIntegralConst(0) && arrLen->isUsedFromReg())
     {
@@ -3122,7 +3123,7 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
     // Bounds checks can only be 32 or 64 bit sized comparisons.
     assert(bndsChkType == TYP_INT || bndsChkType == TYP_LONG);
     // The type of the bounds check should always wide enough to compare against the index.
-    assert(emitTypeSize(bndsChkType) >= emitTypeSize(src1->TypeGet()));
+    assert(emitTypeSize(bndsChkType) >= emitTypeSize(src1->GetType()));
 
     emitInsCmp(cmpIns, emitTypeSize(bndsChkType), src1, src2);
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
@@ -3879,7 +3880,14 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     assert(load->isUsedFromMemory() && load->isContained());
 
-    genConsumeRegs(src);
+    if (src->isUsedFromReg())
+    {
+        UseReg(src);
+    }
+    else
+    {
+        assert(src->IsContainedIntCon());
+    }
 
     emitter* emit = GetEmitter();
 
@@ -4848,8 +4856,8 @@ void CodeGen::GenFloatCompare(GenTreeOp* cmp)
     GenTree*  op2  = cmp->GetOp(1);
     var_types type = op1->GetType();
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    UseRMRegs(op1);
+    UseRMRegs(op2);
 
     assert(varTypeIsFloating(type));
     assert(type == op2->GetType());
@@ -4891,10 +4899,10 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     GenTree*        op2    = cmp->GetOp(1);
     var_types const type1  = op1->GetType();
     var_types const type2  = op2->GetType();
-    regNumber const dstReg = cmp->GetRegNum();
+    RegNum const    dstReg = cmp->GetRegNum();
 
-    genConsumeRegs(op1);
-    genConsumeRegs(op2);
+    UseRMRegs(op1);
+    UseRMRegs(op2);
 
     assert(!op1->IsContainedIntCon());
     assert(!varTypeIsFloating(type2));
@@ -5200,7 +5208,7 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
 
     if (srcReg == REG_NA)
     {
-        genConsumeRegs(src);
+        UseRMRegs(src);
         emitInsRegRM(ins, size, dstReg, src);
     }
     else
@@ -5235,7 +5243,7 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
     {
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
 
-        genConsumeRegs(src);
+        UseRMRegs(src);
         emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else
@@ -5259,7 +5267,7 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     {
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
 
-        genConsumeRegs(src);
+        UseRMRegs(src);
         emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else
@@ -5281,7 +5289,7 @@ void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
     GenTree* value = node->GetOp(0);
     assert(value->TypeIs(TYP_DOUBLE));
 
-    genConsumeRegs(value);
+    UseRMRegs(value);
     emitInsRegRM(INS_cvtsd2ss, EA_4BYTE, node->GetRegNum(), value);
     DefReg(node);
 }
@@ -5293,7 +5301,7 @@ void CodeGen::GenFloatExtend(GenTreeUnOp* node)
     GenTree* value = node->GetOp(0);
     assert(value->TypeIs(TYP_FLOAT));
 
-    genConsumeRegs(value);
+    UseRMRegs(value);
     emitInsRegRM(INS_cvtss2sd, EA_8BYTE, node->GetRegNum(), value);
     DefReg(node);
 }
@@ -5321,7 +5329,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
 
-    genConsumeRegs(src);
+    UseRMRegs(src);
 
     RegNum srcReg = src->isUsedFromReg() ? src->GetRegNum() : REG_NA;
     RegNum dstReg = cast->GetRegNum();
@@ -5411,7 +5419,7 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
 
     assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
 
-    genConsumeRegs(src);
+    UseRMRegs(src);
 
 #ifdef TARGET_64BIT
     emitAttr size = cast->OperIs(GT_FTOU) ? EA_8BYTE : emitTypeSize(cast->GetType());
@@ -5629,22 +5637,22 @@ int CodeGenInterface::genSPtoFPdelta() const
 #endif
 }
 
-void CodeGen::genSSE41RoundOp(GenTreeIntrinsic* treeNode)
+void CodeGen::genSSE41RoundOp(GenTreeIntrinsic* round)
 {
     assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
 
-    GenTree* srcNode = treeNode->GetOp(0);
+    GenTree* srcNode = round->GetOp(0);
 
-    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == treeNode->GetType()));
+    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == round->GetType()));
 
-    genConsumeRegs(srcNode);
+    UseRMRegs(srcNode);
 
-    instruction ins    = treeNode->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
-    emitAttr    size   = emitTypeSize(treeNode->GetType());
-    regNumber   dstReg = treeNode->GetRegNum();
+    instruction ins    = round->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
+    emitAttr    size   = emitTypeSize(round->GetType());
+    regNumber   dstReg = round->GetRegNum();
     unsigned    imm    = 0;
 
-    switch (treeNode->AsIntrinsic()->GetIntrinsic())
+    switch (round->AsIntrinsic()->GetIntrinsic())
     {
         case NI_System_Math_Round:
             imm = 4;
@@ -5691,7 +5699,7 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
         {
             GenTree* src = node->GetOp(0);
             assert(src->GetType() == node->GetType());
-            genConsumeRegs(src);
+            UseRMRegs(src);
             instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
             emitInsRegRM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
             break;
@@ -5721,16 +5729,16 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
     var_types dstType = bitcast->GetType();
     regNumber dstReg  = bitcast->GetRegNum();
 
-    genConsumeRegs(src);
-
-    if (src->isContained())
+    if (!src->isUsedFromReg())
     {
+        UseRMRegs(src);
         LclVarDsc*  lcl = src->AsLclLoad()->GetLcl();
         instruction ins = ins_Load(dstType, IsSimdLocalAligned(lcl));
         GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, GetStackAddrMode(lcl, 0));
     }
     else
     {
+        RegNum srcReg = UseReg(src);
         inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
 
@@ -5873,11 +5881,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         assert(!varTypeIsLong(fieldType));
         assert(fieldOffset <= prevFieldOffset);
 
-        // Consume the register, if any, for this field. Note that genConsumeRegs() will appropriately
-        // update the liveness info for a lclVar that has been marked RegOptional, which hasn't been
-        // assigned a register, and which is therefore contained.
-        // Unlike genConsumeReg(), it handles the case where no registers are being consumed.
-        genConsumeRegs(fieldNode);
+        UseRMRegs(fieldNode);
         regNumber argReg = fieldNode->isUsedFromSpillTemp() ? REG_NA : fieldNode->GetRegNum();
 
         // If the field is slot-like, we can use a push instruction to store the entire register no matter the type.
@@ -6272,7 +6276,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
                          GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
                          src->AsIntCon()->GetInt32Value());
 #else
-        genConsumeRegs(src);
+        UseRMRegs(src);
 
         assert(putArgStk->GetSlotCount() == 1);
 
@@ -8806,6 +8810,35 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }
+}
+
+void CodeGen::UseRMRegs(GenTree* op)
+{
+    if (op->isUsedFromSpillTemp())
+    {
+        return;
+    }
+
+    if (!op->isContained())
+    {
+        UseReg(op);
+        return;
+    }
+
+    if (op->OperIs(GT_IND_LOAD))
+    {
+        genConsumeAddress(op->AsIndLoad()->GetAddr());
+        return;
+    }
+
+    if (op->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        assert(IsValidContainedLcl(op->AsLclVarCommon()));
+        liveness.UpdateLife(this, op->AsLclVarCommon());
+        return;
+    }
+
+    assert(op->OperIs(GT_CNS_INT, GT_CNS_DBL));
 }
 
 void CodeGen::genConsumeRegs(GenTree* op)

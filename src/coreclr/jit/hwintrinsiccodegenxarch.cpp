@@ -1708,9 +1708,9 @@ void CodeGen::genLZCNTIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_LZCNT_LeadingZeroCount || node->GetIntrinsic() == NI_LZCNT_X64_LeadingZeroCount);
 
-    genConsumeRegs(node->GetOp(0));
+    UseRMRegs(node->GetOp(0));
     genXCNTIntrinsic(node, INS_lzcnt);
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genPCLMULQDQIntrinsic(GenTreeHWIntrinsic* node)
@@ -1722,9 +1722,9 @@ void CodeGen::genPOPCNTIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_POPCNT_PopCount || node->GetIntrinsic() == NI_POPCNT_X64_PopCount);
 
-    genConsumeRegs(node->GetOp(0));
+    UseRMRegs(node->GetOp(0));
     genXCNTIntrinsic(node, INS_popcnt);
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
@@ -1733,15 +1733,15 @@ void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
     // (POPCNT only) processors, so insert a `XOR target, target` to break the dependency via XOR triggering register
     // renaming, but only if it's not an actual dependency.
 
-    GenTree*  op1        = node->GetOp(0);
-    regNumber sourceReg1 = REG_NA;
-    regNumber sourceReg2 = REG_NA;
+    GenTree* op1        = node->GetOp(0);
+    RegNum   sourceReg1 = REG_NA;
+    RegNum   sourceReg2 = REG_NA;
 
     if (!op1->isContained())
     {
         sourceReg1 = op1->GetRegNum();
     }
-    else if (GenTreeIndir* indir = op1->IsIndir())
+    else if (GenTreeIndLoad* indir = op1->IsIndLoad())
     {
         GenTree* addr = indir->GetAddr();
 
@@ -1763,12 +1763,14 @@ void CodeGen::genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
         }
     }
 
-    regNumber targetReg = node->GetRegNum();
-    if ((targetReg != sourceReg1) && (targetReg != sourceReg2))
+    RegNum dstReg = node->GetRegNum();
+
+    if ((dstReg != sourceReg1) && (dstReg != sourceReg2))
     {
-        GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, targetReg, targetReg);
+        GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, dstReg, dstReg);
     }
-    genHWIntrinsic_R_RM(node, ins, emitTypeSize(node->TypeGet()), targetReg, op1);
+
+    genHWIntrinsic_R_RM(node, ins, emitTypeSize(node->GetType()), dstReg, op1);
 }
 
 #endif // FEATURE_HW_INTRINSICS
