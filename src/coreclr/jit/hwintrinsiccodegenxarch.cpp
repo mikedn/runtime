@@ -355,6 +355,70 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
+void CodeGen::genConsumeRegs(GenTree* op)
+{
+#ifndef TARGET_64BIT
+    assert(!op->OperIs(GT_LONG));
+#endif
+
+    if (op->isUsedFromSpillTemp())
+    {
+        return;
+    }
+
+    if (!op->isContained())
+    {
+        UseReg(op);
+        return;
+    }
+
+    if (op->IsIndir())
+    {
+        genConsumeAddress(op->AsIndir()->GetAddr());
+        return;
+    }
+
+    if (op->IsAddrMode())
+    {
+        genConsumeAddress(op);
+        return;
+    }
+
+    if (op->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        assert(IsValidContainedLcl(op->AsLclVarCommon()));
+        liveness.UpdateLife(this, op->AsLclVarCommon());
+
+        return;
+    }
+
+#ifdef FEATURE_HW_INTRINSICS
+    if (GenTreeHWIntrinsic* hwi = op->IsHWIntrinsic())
+    {
+        if (hwi->GetNumOps() != 0)
+        {
+            HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(hwi->GetIntrinsic());
+            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
+            genConsumeAddress(hwi->GetOp(0));
+
+            if (category == HW_Category_MemoryStore)
+            {
+                assert(hwi->IsBinary());
+                UseReg(hwi->GetOp(1));
+            }
+            else
+            {
+                assert(hwi->IsUnary());
+            }
+        }
+
+        return;
+    }
+#endif
+
+    assert(op->OperIsLeaf());
+}
+
 bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data)
 {
     if (IsLocalMemoryOperand(op, s))
