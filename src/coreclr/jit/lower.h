@@ -1,18 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               Lower                                       XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifndef _LOWER_H_
-#define _LOWER_H_
+#pragma once
 
 #include "compiler.h"
 #include "lsra.h"
@@ -21,7 +10,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 class Lowering
 {
     Compiler*     comp;
-    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
+    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToMoveForward
     BasicBlock*   m_block;
     LclVarDsc*    vtableCallTempLcl = nullptr; // local variable we use as a temp for vtable calls
 #if FEATURE_FIXED_OUT_ARGS
@@ -332,16 +321,7 @@ public:
 
 private:
     bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
-
     bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
-
-    // Checks for memory conflicts in the instructions between childNode and parentNode,
-    // and returns true if childNode can be contained.
-    bool IsSafeToContainMem(GenTree* parentNode, GenTree* childNode)
-    {
-        return IsSafeToMoveForward(childNode, parentNode);
-    }
-
     bool IsSafeToMoveForward(GenTree* move, GenTree* before);
 
     inline LIR::Range& BlockRange() const
@@ -351,5 +331,3 @@ private:
 
     INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
 };
-
-#endif // _LOWER_H_

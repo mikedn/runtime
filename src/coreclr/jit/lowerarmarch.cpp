@@ -245,7 +245,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
         return;
     }
 
-    if (!IsSafeToContainMem(store, addr))
+    if (!IsSafeToMoveForward(addr, store))
     {
         return;
     }
@@ -759,7 +759,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsMemOperand(vec) && IsSafeToContainMem(node, vec))
+    if (IsMemOperand(vec) && IsSafeToMoveForward(vec, node))
     {
         vec->SetContained();
     }
@@ -875,22 +875,21 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 #endif // TARGET_ARM64
 }
 
-void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
+void Lowering::ContainCheckIndir(GenTreeIndir* indir)
 {
-    // If this is the rhs of a block copy it will be handled when we handle the store.
-    if (indirNode->TypeGet() == TYP_STRUCT)
+    if (indir->TypeIs(TYP_STRUCT))
     {
         return;
     }
 
-    GenTree* addr = indirNode->GetAddr();
+    GenTree* addr = indir->GetAddr();
 
 #ifdef FEATURE_SIMD
-    if (indirNode->TypeIs(TYP_SIMD12))
+    if (indir->TypeIs(TYP_SIMD12))
     {
-        if (addr->OperIs(GT_LEA) && !addr->AsAddrMode()->HasIndex() &&
+        if (addr->IsAddrMode() && !addr->AsAddrMode()->HasIndex() &&
             IsValidGenericLoadStoreOffset(addr->AsAddrMode()->GetOffset(), 8, false) &&
-            IsSafeToContainMem(indirNode, addr))
+            IsSafeToMoveForward(addr, indir))
         {
             addr->SetContained();
         }
@@ -899,7 +898,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
     }
 #endif // FEATURE_SIMD
 
-    if (addr->IsAddrMode() && IsSafeToContainMem(indirNode, addr))
+    if (addr->IsAddrMode() && IsSafeToMoveForward(addr, indir))
     {
         bool makeContained = true;
 
@@ -908,7 +907,7 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indirNode)
         // ldr Rdst, [Rbase + Roffset] with offset in a register. The only supported
         // form is vldr Rdst, [Rbase + imm] with a more limited constraint on the imm.
         GenTreeAddrMode* lea = addr->AsAddrMode();
-        if (varTypeIsFloating(indirNode->GetType()) && (lea->HasIndex() || !ArmImm::IsVLdStImm(lea->GetOffset())))
+        if (varTypeIsFloating(indir->GetType()) && (lea->HasIndex() || !ArmImm::IsVLdStImm(lea->GetOffset())))
         {
             makeContained = false;
         }
