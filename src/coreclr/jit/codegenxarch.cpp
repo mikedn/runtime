@@ -5237,9 +5237,10 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
     assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
 
     GenTree* src    = sxt->GetOp(0);
+    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
     RegNum   dstReg = sxt->GetRegNum();
 
-    if (src->isUsedFromMemory())
+    if (srcReg == REG_NA)
     {
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
 
@@ -5248,8 +5249,6 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
     }
     else
     {
-        RegNum srcReg = UseReg(src);
-
         GetEmitter()->emitIns_Mov(INS_movsxd, EA_4BYTE, dstReg, srcReg, false);
     }
 
@@ -5261,9 +5260,10 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     assert(uxt->OperIs(GT_UXT) && uxt->TypeIs(TYP_LONG));
 
     GenTree* src    = uxt->GetOp(0);
+    RegNum   srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
     RegNum   dstReg = uxt->GetRegNum();
 
-    if (src->isUsedFromMemory())
+    if (srcReg == REG_NA)
     {
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
 
@@ -5272,8 +5272,6 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     }
     else
     {
-        RegNum srcReg = UseReg(src);
-
         bool canSkip = compiler->opts.OptimizationEnabled() && GetEmitter()->AreUpper32BitsZero(srcReg);
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, canSkip);
     }
