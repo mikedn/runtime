@@ -651,6 +651,7 @@ protected:
 #endif
 #ifdef TARGET_XARCH
     void genConsumeRegs(GenTree* tree);
+    void UseRMRegs(GenTree* op);
 #ifdef FEATURE_HW_INTRINSICS
     void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
