@@ -5637,7 +5637,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     assert(IsMemStore(store));
     assert(store->TypeIs(TYP_SIMD12));
 
-    if ((varTypeSize(value->GetType()) < 12) || !IsMemOperand(value) || !IsSafeToContainMem(store, value))
+    if ((varTypeSize(value->GetType()) < 12) || !IsMemOperand(value) || !IsSafeToMoveForward(value, store))
     {
         return false;
     }
@@ -5648,7 +5648,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     {
         GenTree* addr = value->AsIndLoad()->GetAddr();
 
-        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToContainMem(store, addr)))
+        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToMoveForward(addr, store)))
         {
             addr->ClearContained();
         }

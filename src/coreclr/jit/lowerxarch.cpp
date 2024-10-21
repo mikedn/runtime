@@ -219,7 +219,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     // Note that the parentNode is always the store node, even if we're dealing with the source address.
     // The source address is not directly used by the store node but by an indirection that is always
     // contained.
-    if (!IsSafeToContainMem(store, addrMode))
+    if (!IsSafeToMoveForward(addrMode, store))
     {
         return;
     }
@@ -566,7 +566,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         //      Most LCL_VARs that reference small int local end up having type INT, with the notable
         //      exception of promoted struct field which may have small int type.
 
-        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToContainMem(putArgStk, src))
+        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveForward(src, putArgStk))
         {
             src->SetContained();
         }
@@ -2361,7 +2361,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsMemOperand(vec) && IsSafeToContainMem(node, vec))
+    if (IsMemOperand(vec) && IsSafeToMoveForward(vec, node))
     {
         vec->SetContained();
     }
@@ -2793,7 +2793,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
 
     if (elt->TypeIs(TYP_FLOAT))
     {
-        if (elt->IsDblCon() || (IsMemOperand(elt) && IsSafeToContainMem(node, elt)))
+        if (elt->IsDblCon() || (IsMemOperand(elt) && IsSafeToMoveForward(elt, node)))
         {
             elt->SetContained();
             return;
@@ -3061,7 +3061,7 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
             continue;
         }
 
-        // TODO-MIKE-Review: Why does IsSafeToContainMem uses strict checking while this doesn't?
+        // TODO-MIKE-Review: Why does IsSafeToMoveForward uses strict checking while this doesn't?
         hasInterference = hasInterference || m_scratchSideEffects.InterferesWith(comp, node, false);
     }
 
@@ -3434,7 +3434,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         if ((op2->GetType() == node->GetType()) && IsMemOperand(op2))
         {
-            isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+            isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
 
             if (isSafeToContainOp2)
             {
@@ -3444,7 +3444,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 
         if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
 
             if (isSafeToContainOp1)
             {
@@ -3458,7 +3458,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
         {
             memOp = nullptr;
         }
-        else if (!IsSafeToContainMem(node, memOp))
+        else if (!IsSafeToMoveForward(memOp, node))
         {
             if (memOp == op1)
             {
@@ -3484,18 +3484,18 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         assert(other != nullptr);
 
-        isSafeToContainOp1 = (other == op1) && isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-        isSafeToContainOp2 = (other == op2) && isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+        isSafeToContainOp1 = (other == op1) && isSafeToContainOp1 && IsSafeToMoveForward(op1, node);
+        isSafeToContainOp2 = (other == op2) && isSafeToContainOp2 && IsSafeToMoveForward(op2, node);
     }
     else if (hasImplicitOperand)
     {
         isSafeToContainOp1 = false;
-        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToMoveForward(op2, node);
     }
     else
     {
-        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToMoveForward(op1, node);
+        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToMoveForward(op2, node);
     }
 
     SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
@@ -3638,7 +3638,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
 
         if ((load != nullptr) && (varTypeSize(load->GetType()) == varTypeSize(store->GetType())) &&
             (!varTypeIsSmall(load->GetType()) || !src->OperIs(GT_ROL, GT_ROR)) &&
-            (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) && IsSafeToContainMem(store, load))
+            (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) && IsSafeToMoveForward(load, store))
         {
             if (src->OperIs(GT_RSH) && varTypeIsSmallUnsigned(load->GetType()))
             {
@@ -3766,7 +3766,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         }
         else if (IsMemOperand(otherOp))
         {
-            isSafeToContainOtherOp = IsSafeToContainMem(cmp, otherOp);
+            isSafeToContainOtherOp = IsSafeToMoveForward(otherOp, cmp);
 
             if (isSafeToContainOtherOp)
             {
@@ -3774,7 +3774,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
             }
         }
 
-        if (!otherOp->isContained() && isSafeToContainOtherOp && IsSafeToContainMem(cmp, otherOp))
+        if (!otherOp->isContained() && isSafeToContainOtherOp && IsSafeToMoveForward(otherOp, cmp))
         {
             otherOp->SetRegOptional();
         }
@@ -3812,7 +3812,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 
     if (isSafeToContainOp2 && IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToContainMem(cmp, op2);
+        isSafeToContainOp2 = IsSafeToMoveForward(op2, cmp);
 
         if (isSafeToContainOp2)
         {
@@ -3822,7 +3822,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 
     if (!op2->isContained() && isSafeToContainOp1 && IsMemOperand(op1))
     {
-        isSafeToContainOp1 = IsSafeToContainMem(cmp, op1);
+        isSafeToContainOp1 = IsSafeToMoveForward(op1, cmp);
 
         if (isSafeToContainOp1)
         {
@@ -3837,12 +3837,12 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 
         GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(cmp);
 
-        // IsSafeToContainMem is expensive so we call it at most once for each operand in this
-        // method. If we already called IsSafeToContainMem, it must have returned false;
+        // IsSafeToMoveForward is expensive so we call it at most once for each operand in this
+        // method. If we already called IsSafeToMoveForward, it must have returned false;
         // otherwise, the corresponding operand (op1 or op2) would be contained.
 
-        if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToContainMem(cmp, op1)
-                                        : isSafeToContainOp2 && IsSafeToContainMem(cmp, op2))
+        if (regOptionalCandidate == op1 ? isSafeToContainOp1 && IsSafeToMoveForward(op1, cmp)
+                                        : isSafeToContainOp2 && IsSafeToMoveForward(op2, cmp))
         {
             regOptionalCandidate->SetRegOptional();
         }
@@ -3989,7 +3989,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
     if ((varTypeSize(op2->GetType()) == operatorSize) && IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+        isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
 
         if (isSafeToContainOp2)
         {
@@ -4002,7 +4002,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     {
         if ((varTypeSize(op1->GetType()) == operatorSize) && IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
 
             if (isSafeToContainOp1)
             {
@@ -4012,19 +4012,19 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         }
     }
 
-    // TODO-MIKE-Review: The use of IsSafeToContainMem for reg-optional is dubious.
-    // It's meaningless for non-LCL_VAR nodes, making these reg-optional doesn't
+    // TODO-MIKE-Review: The use of IsSafeToMoveForward for reg-optional is dubious.
+    // It's meaningless for non-LCL_LOAD nodes, making these reg-optional doesn't
     // change where their reg def is placed, it only prevents unspilling, which is
     // rare to begin with in these cases.
-    // Even for LCL_VAR nodes this seems pointless. These are supposed to be reg
+    // Even for LCL_LOAD nodes this seems pointless. These are supposed to be reg
     // candidates so their reg use was anyway placed where the user node is, not
-    // where the LCL_VAR node is.
+    // where the LCL_LOAD node is.
 
-    // IsSafeToContainMem is expensive so we call it at most once for each operand
-    // in this method. If we already called IsSafeToContainMem, it must have returned
+    // IsSafeToMoveForward is expensive so we call it at most once for each operand
+    // in this method. If we already called IsSafeToMoveForward, it must have returned
     // false; otherwise we would have already contained an operand.
-    isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-    isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+    isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToMoveForward(op1, node);
+    isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToMoveForward(op2, node);
 
     SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
 }
@@ -4046,7 +4046,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 //
 // Returns
 //     The caller is expected to get isSafeToMarkOp1 and isSafeToMarkOp2
-//     by calling IsSafeToContainMem.
+//     by calling IsSafeToMoveForward.
 //
 // Note: At most one of the operands will be marked as reg optional,
 // even when both operands could be considered register optional.
@@ -4533,10 +4533,12 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
 void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
 {
     assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
     TryCreateAddrMode(addr, true);
+
     if ((addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR, GT_LEA) ||
          (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))) &&
-        IsSafeToContainMem(node, addr))
+        IsSafeToMoveForward(addr, node))
     {
         addr->SetContained();
     }
@@ -5109,7 +5111,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     }
     else if (IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToContainMem(node, op2);
+        isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
 
         if (isSafeToContainOp2)
         {
@@ -5134,7 +5136,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         }
         else if (IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToContainMem(node, op1);
+            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
 
             if (isSafeToContainOp1)
             {
@@ -5146,11 +5148,11 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     if (!op1->isContained() && !op2->isContained())
     {
         // If there are no containable operands, we can make an operand reg optional.
-        // IsSafeToContainMem is expensive so we call it at most once for each operand
-        // in this method. If we already called IsSafeToContainMem, it must have returned false;
+        // IsSafeToMoveForward is expensive so we call it at most once for each operand
+        // in this method. If we already called IsSafeToMoveForward, it must have returned false;
         // otherwise, the corresponding operand (op1 or op2) would be contained.
-        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToContainMem(node, op1);
-        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToContainMem(node, op2);
+        isSafeToContainOp1 = isSafeToContainOp1 && IsSafeToMoveForward(op1, node);
+        isSafeToContainOp2 = isSafeToContainOp2 && IsSafeToMoveForward(op2, node);
         SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
     }
 }
