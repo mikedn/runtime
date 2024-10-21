@@ -71,34 +71,32 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (node->OperIsMemoryLoad())
                 {
                     genConsumeAddress(op1);
-                    emit.emitIns_R_A(ins, vecSize, node->GetRegNum(), op1);
+                    emit.emitIns_R_A(ins, vecSize, dstReg, op1);
+                }
+                else if ((ival != -1) && varTypeIsFloating(baseType))
+                {
+                    assert((ival >= 0) && (ival <= 127));
+
+                    if ((category == HW_Category_SIMDScalar) && HWIntrinsicInfo::CopiesUpperBits(intrinsicId))
+                    {
+                        RegNum op1Reg = UseReg(op1);
+                        emit.emitIns_SIMD_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg, static_cast<int8_t>(ival));
+                    }
+                    else
+                    {
+                        genConsumeRegs(op1);
+                        genHWIntrinsic_R_RM_I(node, ins, static_cast<int8_t>(ival));
+                    }
+                }
+                else if ((category == HW_Category_SIMDScalar) && HWIntrinsicInfo::CopiesUpperBits(intrinsicId))
+                {
+                    RegNum op1Reg = UseReg(op1);
+                    emit.emitIns_SIMD_R_R_R(ins, vecSize, dstReg, op1Reg, op1Reg);
                 }
                 else
                 {
                     genConsumeRegs(op1);
-                    RegNum op1Reg = op1->GetRegNum();
-
-                    if ((ival != -1) && varTypeIsFloating(baseType))
-                    {
-                        assert((ival >= 0) && (ival <= 127));
-                        if ((category == HW_Category_SIMDScalar) && HWIntrinsicInfo::CopiesUpperBits(intrinsicId))
-                        {
-                            assert(!op1->isContained());
-                            emit.emitIns_SIMD_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg, static_cast<int8_t>(ival));
-                        }
-                        else
-                        {
-                            genHWIntrinsic_R_RM_I(node, ins, static_cast<int8_t>(ival));
-                        }
-                    }
-                    else if ((category == HW_Category_SIMDScalar) && HWIntrinsicInfo::CopiesUpperBits(intrinsicId))
-                    {
-                        emit.emitIns_SIMD_R_R_R(ins, vecSize, dstReg, op1Reg, op1Reg);
-                    }
-                    else
-                    {
-                        genHWIntrinsic_R_RM(node, ins, vecSize, dstReg, op1);
-                    }
+                    genHWIntrinsic_R_RM(node, ins, vecSize, dstReg, op1);
                 }
                 break;
             }
