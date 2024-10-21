@@ -877,10 +877,7 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 
 void Lowering::ContainCheckIndir(GenTreeIndir* indir)
 {
-    if (indir->TypeIs(TYP_STRUCT))
-    {
-        return;
-    }
+    assert(!indir->TypeIs(TYP_STRUCT));
 
     GenTree* addr = indir->GetAddr();
 
