@@ -3339,11 +3339,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
 
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
-    // If this is the rhs of a block copy it will be handled when we handle the store.
-    if (node->TypeIs(TYP_STRUCT))
-    {
-        return;
-    }
+    assert(!node->TypeIs(TYP_STRUCT));
 
     GenTree* addr = node->GetAddr();
 

@@ -2515,9 +2515,9 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
         return addr;
     }
 
-    GenTree* load = comp->gtNewIndLoad(TYP_I_IMPL, addr);
+    GenTreeIndLoad* load = comp->gtNewIndLoad(TYP_I_IMPL, addr);
     BlockRange().InsertBefore(insertBefore, load);
-    ContainCheckIndir(load->AsIndLoad());
+    ContainCheckIndir(load);
 
     if (entryPoint.accessType == IAT_PVALUE)
     {
@@ -2529,7 +2529,7 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
         // TODO-CQ: Expanding earlier would allow CSEing of the first load which is invariant.
         load = comp->gtNewIndLoad(TYP_I_IMPL, load);
         BlockRange().InsertBefore(insertBefore, load);
-        ContainCheckIndir(load->AsIndLoad());
+        ContainCheckIndir(load);
 
         return load;
     }
@@ -2598,7 +2598,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     GenTreeIndLoad* targetThis     = comp->gtNewIndLoad(TYP_REF, targetThisAddr);
     BlockRange().InsertAfter(delegateThis, targetThisAddr, targetThis);
     thisArgNode->AsUnOp()->SetOp(0, targetThis);
-    ContainCheckIndir(targetThis->AsIndir());
+    ContainCheckIndir(targetThis);
 
 #ifndef TARGET_X86
     GenTree* insertBefore = call;
@@ -2679,7 +2679,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
         GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
         GenTree* chunkOffs     = comp->gtNewIndLoad(TYP_I_IMPL, chunkOffsAddr);
         BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
-        ContainCheckIndir(chunkOffs->AsIndir());
+        ContainCheckIndir(chunkOffs->AsIndLoad());
 
         GenTree* mtTempUse2    = comp->gtNewLclLoad(mtTempLcl, TYP_I_IMPL);
         GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
@@ -5221,22 +5221,17 @@ void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
 
 void Lowering::LowerIndir(GenTreeIndir* ind)
 {
-    assert(ind->OperIs(GT_IND_LOAD, GT_NULLCHECK));
+    assert(ind->OperIs(GT_IND_LOAD, GT_NULLCHECK) && !ind->TypeIs(TYP_STRUCT));
 
-    // Process struct typed indirs separately unless they are unused;
-    // they only appear as the source of a block copy operation or a return node.
-    if (!ind->TypeIs(TYP_STRUCT) || ind->IsUnusedValue())
+    // TODO-Cleanup: We're passing isContainable = true but ContainCheckIndir rejects
+    // address containment in some cases so we end up creating trivial (reg + offset)
+    // or (reg + reg) LEAs that are not necessary.
+    TryCreateAddrMode(ind->GetAddr(), true);
+    ContainCheckIndir(ind);
+
+    if (ind->OperIs(GT_NULLCHECK) || ind->IsUnusedValue())
     {
-        // TODO-Cleanup: We're passing isContainable = true but ContainCheckIndir rejects
-        // address containment in some cases so we end up creating trivial (reg + offset)
-        // or (reg + reg) LEAs that are not necessary.
-        TryCreateAddrMode(ind->GetAddr(), true);
-        ContainCheckIndir(ind);
-
-        if (ind->OperIs(GT_NULLCHECK) || ind->IsUnusedValue())
-        {
-            TransformUnusedIndirection(ind);
-        }
+        TransformUnusedIndirection(ind);
     }
 }
 
