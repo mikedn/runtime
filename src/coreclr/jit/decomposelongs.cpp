@@ -164,8 +164,8 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
     }
 
-    // If we replaced the argument to a FIELD_LIST element with a LONG node, split that field list
-    // element into two elements: one for each half of the LONG.
+    // If we replaced the argument to a FIELD_LIST element with a LONG node, split
+    // that field list element into two elements: one for each half of the LONG.
     if (use.Def()->OperIs(GT_LONG) && !use.IsDummyUse() && use.User()->OperIs(GT_FIELD_LIST))
     {
         DecomposeFieldList(use.User()->AsFieldList(), use.Def()->AsOp());
@@ -205,6 +205,7 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
 
     GenTree* gtLong = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loResult, hiResult);
     gtLong->SetSideEffects(GTF_EMPTY);
+    gtLong->SetContained();
 
     loResult->ClearUnusedValue();
     hiResult->ClearUnusedValue();
@@ -769,7 +770,8 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // generate the shld instruction
                 GenTree* loCopy = m_compiler->gtNewLclLoad(loOp1Lcl, TYP_INT);
                 GenTree* hiOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loCopy, hiValue);
-                hiResult        = m_compiler->gtNewOperNode(GT_LSH_HI, TYP_INT, hiOp, shiftByHi);
+                hiOp->SetContained();
+                hiResult = m_compiler->gtNewOperNode(GT_LSH_HI, TYP_INT, hiOp, shiftByHi);
 
                 Range().InsertBefore(shift, loValue, shiftByLo, loResult);
                 Range().InsertBefore(shift, loCopy, hiOp, shiftByHi, hiResult);
@@ -849,7 +851,8 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // Create a GT_LONG that contains loOp1 and hiCopy. This will be used in codegen to
                 // generate the shrd instruction
                 GenTree* loOp = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loValue, hiCopy);
-                loResult      = m_compiler->gtNewOperNode(GT_RSH_LO, TYP_INT, loOp, shiftByLo);
+                loOp->SetContained();
+                loResult = m_compiler->gtNewOperNode(GT_RSH_LO, TYP_INT, loOp, shiftByLo);
 
                 Range().InsertBefore(shift, hiCopy, loOp);
                 Range().InsertBefore(shift, shiftByLo, loResult);
@@ -915,7 +918,8 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 hiResult = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, hiValue, shiftByHi);
 
                 GenTree* loOp = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loValue, hiCopy);
-                loResult      = m_compiler->gtNewOperNode(GT_RSH_LO, TYP_INT, loOp, shiftByLo);
+                loOp->SetContained();
+                loResult = m_compiler->gtNewOperNode(GT_RSH_LO, TYP_INT, loOp, shiftByLo);
 
                 Range().InsertBefore(shift, hiCopy, loOp);
                 Range().InsertBefore(shift, shiftByLo, loResult);
@@ -1103,11 +1107,13 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
 
     GenTree* hiCopy = m_compiler->gtNewLclLoad(hiOp1Lcl, TYP_INT);
     GenTree* loOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, hiCopy, loOp1);
-    loResult        = m_compiler->gtNewOperNode(oper, TYP_INT, loOp, rotateByLo);
+    loOp->SetContained();
+    loResult = m_compiler->gtNewOperNode(oper, TYP_INT, loOp, rotateByLo);
 
     GenTree* loCopy = m_compiler->gtNewLclLoad(loOp1Lcl, TYP_INT);
     GenTree* hiOp   = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loCopy, hiOp1);
-    hiResult        = m_compiler->gtNewOperNode(oper, TYP_INT, hiOp, rotateByHi);
+    hiOp->SetContained();
+    hiResult = m_compiler->gtNewOperNode(oper, TYP_INT, hiOp, rotateByHi);
 
     Range().InsertBefore(node, hiCopy, loOp1, loOp);
     Range().InsertBefore(node, rotateByLo, loResult);

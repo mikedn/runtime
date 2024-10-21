@@ -5000,7 +5000,7 @@ void CodeGen::genLongReturn(GenTree* src)
 #ifdef TARGET_X86
     if (src->TypeIs(TYP_DOUBLE))
     {
-        regNumber srcReg = genConsumeReg(src);
+        RegNum srcReg = UseReg(src);
 
         GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RAX, srcReg, /* canSkip */ false);
         // TODO-MIKE-Review: This is cheating, the source register is modified without
@@ -5019,8 +5019,8 @@ void CodeGen::genLongReturn(GenTree* src)
 
     assert(src->OperIs(GT_LONG));
 
-    regNumber srcReg0 = genConsumeReg(src->AsOp()->GetOp(0));
-    regNumber srcReg1 = genConsumeReg(src->AsOp()->GetOp(1));
+    RegNum srcReg0 = UseReg(src->AsOp()->GetOp(0));
+    RegNum srcReg1 = UseReg(src->AsOp()->GetOp(1));
 
     assert((srcReg0 != REG_NA) && (srcReg1 != REG_NA));
 

@@ -3623,8 +3623,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 {
     assert(divMod->OperIs(GT_UDIV, GT_UMOD) && divMod->TypeIs(TYP_INT, TYP_LONG));
 
-    GenTree* dividend = divMod->gtGetOp1();
-    GenTree* divisor  = divMod->gtGetOp2();
+    GenTree* dividend = divMod->GetOp(0);
+    GenTree* divisor  = divMod->GetOp(1);
 
 #ifndef TARGET_64BIT
     if (dividend->OperIs(GT_LONG))
@@ -3633,12 +3633,12 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
     }
 #endif
 
-    if (!divisor->IsCnsIntOrI())
+    if (!divisor->IsIntCon())
     {
         return false;
     }
 
-    if (dividend->IsCnsIntOrI())
+    if (dividend->IsIntCon())
     {
         // We shouldn't see a divmod with constant operands here but if we do then it's likely
         // because optimizations are disabled or it's a case that's supposed to throw an exception.
@@ -3646,10 +3646,10 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         return false;
     }
 
-    const var_types type = divMod->TypeGet();
+    const var_types type = divMod->GetType();
     assert((type == TYP_INT) || (type == TYP_I_IMPL));
 
-    size_t divisorValue = static_cast<size_t>(divisor->AsIntCon()->IconValue());
+    size_t divisorValue = divisor->AsIntCon()->GetUnsignedValue();
 
     if (type == TYP_INT)
     {
@@ -4947,13 +4947,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
-        if (src->TypeIs(TYP_DOUBLE))
-        {
-            return;
-        }
-
-        noway_assert(src->OperIs(GT_LONG));
-        src->SetContained();
+        noway_assert(src->TypeIs(TYP_DOUBLE) || src->OperIs(GT_LONG));
 
         return;
     }
@@ -5055,11 +5049,8 @@ void Lowering::LowerOvfTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_OVF_TRUNC, GT_OVF_STRUNC, GT_OVF_UTRUNC));
     assert(node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
 #ifndef TARGET_64BIT
-    GenTree* src = node->GetOp(0);
-    assert(src->OperIs(GT_LONG));
-    src->SetContained();
+    assert(node->GetOp(0)->OperIs(GT_LONG) && node->GetOp(0)->isContained());
 #endif
 }
 
