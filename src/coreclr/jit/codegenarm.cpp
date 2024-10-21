@@ -1145,22 +1145,6 @@ void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
     DefReg(node);
 }
 
-void CodeGen::GenTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
-
-    GenTreeOp* src = node->GetOp(0)->AsOp();
-    noway_assert(src->OperIs(GT_LONG));
-
-    RegNum srcReg = UseReg(src->GetOp(0));
-    UseReg(src->GetOp(1));
-    RegNum dstReg = node->GetRegNum();
-
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
-
-    DefReg(node);
-}
-
 void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && cast->TypeIs(TYP_FLOAT, TYP_DOUBLE));

@@ -670,8 +670,8 @@ protected:
     void GenOvfUnsigned(GenTreeUnOp* node);
     void GenOvfTruncate(GenTreeUnOp* node);
     void GenConv(GenTreeUnOp* node);
-    void GenTruncate(GenTreeUnOp* node);
 #ifdef TARGET_64BIT
+    void GenTruncate(GenTreeUnOp* node);
     void GenSignExtend(GenTreeUnOp* node);
     void GenUnsignedExtend(GenTreeUnOp* node);
 #endif

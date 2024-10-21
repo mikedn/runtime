@@ -5211,29 +5211,19 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
+#ifdef TARGET_64BIT
 void CodeGen::GenTruncate(GenTreeUnOp* node)
 {
     assert(node->OperIs(GT_TRUNC) && node->TypeIs(TYP_INT) && node->GetOp(0)->TypeIs(TYP_LONG));
 
-#ifdef TARGET_64BIT
     RegNum srcReg = UseReg(node->GetOp(0));
     RegNum dstReg = node->GetRegNum();
-#else
-    GenTreeOp* src = node->GetOp(0)->AsOp();
-
-    noway_assert(src->OperIs(GT_LONG));
-
-    RegNum srcReg = UseReg(src->GetOp(0));
-    UseReg(src->GetOp(1));
-    RegNum dstReg = node->GetRegNum();
-#endif
 
     GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, dstReg, srcReg, /*canSkip*/ true);
 
     DefReg(node);
 }
 
-#ifdef TARGET_64BIT
 void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
 {
     assert(sxt->OperIs(GT_SXT) && sxt->TypeIs(TYP_LONG));
