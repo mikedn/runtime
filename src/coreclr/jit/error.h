@@ -1,15 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-/*****************************************************************************/
 
-#ifndef _ERROR_H_
-#define _ERROR_H_
-/*****************************************************************************/
+#pragma once
 
 #include <corjit.h>   // for CORJIT_INTERNALERROR
 #include <safemath.h> // For FitsIn, used by SafeCvt methods.
 
 #define FATAL_JIT_EXCEPTION 0x02345678
+
 class Compiler;
 
 struct ErrorTrapParam
@@ -57,9 +55,9 @@ extern void ANALYZER_NORETURN noWayAssertBodyConditional(const char* cond, const
 // well as DEBUG builds.
 #ifdef DEBUG
 #define MEASURE_NOWAY 1
-#else // !DEBUG
+#else 
 #define MEASURE_NOWAY 0
-#endif // !DEBUG
+#endif
 
 #if MEASURE_NOWAY
 extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* condStr);
@@ -230,5 +228,3 @@ inline Dst SafeCvtNowayAssert(Src val)
     noway_assert(FitsIn<Dst>(val));
     return static_cast<Dst>(val);
 }
-
-#endif

@@ -3329,7 +3329,7 @@ private:
                 }
 
                 JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
-                DBEXEC(VERBOSE, m_compiler->gtDispStmt(m_stmt));
+                DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(m_stmt));
 
                 DEBUG_DESTROY_NODE(tree);
 

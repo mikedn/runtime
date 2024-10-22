@@ -1,18 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          GenTree                                          XX
-XX                                                                           XX
-XX  This is the node in the semantic tree graph. It represents the operation XX
-XX  corresponding to the node, and other information during code-gen.        XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #pragma once
 
 #include "vartype.h"
@@ -89,12 +77,9 @@ enum class ThrowHelperKind : uint8_t
 };
 
 #ifdef DEBUG
-/*****************************************************************************
-*
-*  TargetHandleTypes are used to determine the type of handle present inside GenTreeIntCon node.
-*  The values are such that they don't overlap with helper's or user function's handle.
-*/
-enum TargetHandleType : BYTE
+// TargetHandleTypes are used to determine the type of handle present inside GenTreeIntCon node.
+// The values are such that they don't overlap with helper's or user function's handle.
+enum TargetHandleType : uint8_t
 {
     THT_Unknown                  = 2,
     THT_GSCookieCheck            = 4,
@@ -102,7 +87,8 @@ enum TargetHandleType : BYTE
     THT_IntializeArrayIntrinsics = 8
 };
 #endif
-/*****************************************************************************/
+
+constexpr unsigned BAD_VAR_NUM = UINT_MAX;
 
 struct BasicBlock;
 enum BasicBlockFlags : uint64_t;

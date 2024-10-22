@@ -751,7 +751,7 @@ void InlineResult::Report()
     const char* callee = nullptr;
 
     // Optionally dump the result
-    if (VERBOSE || m_RootCompiler->fgPrintInlinedMethods)
+    if (m_RootCompiler->verbose || m_RootCompiler->fgPrintInlinedMethods)
     {
         const char* format = "INLINER: during '%s' result '%s' reason '%s' for '%s' calling '%s'\n";
         const char* caller = (m_Caller == nullptr) ? "n/a" : m_RootCompiler->eeGetMethodFullName(m_Caller);
@@ -777,12 +777,10 @@ void InlineResult::Report()
 
         if ((m_Callee != nullptr) && (obs != InlineObservation::CALLEE_IS_NOINLINE))
         {
-
 #ifdef DEBUG
-
             const char* obsString = InlGetObservationString(obs);
 
-            if (VERBOSE)
+            if (m_RootCompiler->verbose)
             {
                 JITDUMP("\nINLINER: Marking %s as NOINLINE because of %s\n", callee, obsString);
             }
@@ -790,11 +788,9 @@ void InlineResult::Report()
             {
                 printf("Marking %s as NOINLINE because of %s\n", callee, obsString);
             }
-
 #endif // DEBUG
 
-            COMP_HANDLE comp = m_RootCompiler->info.compCompHnd;
-            comp->setMethodAttribs(m_Callee, CORINFO_FLG_BAD_INLINEE);
+            m_RootCompiler->info.compCompHnd->setMethodAttribs(m_Callee, CORINFO_FLG_BAD_INLINEE);
         }
     }
 
@@ -802,8 +798,7 @@ void InlineResult::Report()
     {
         const char* format = "INLINER: during '%s' result '%s' reason '%s'\n";
         JITLOG_THIS(m_RootCompiler, (LL_INFO100000, format, m_Description, ResultString(), ReasonString()));
-        COMP_HANDLE comp = m_RootCompiler->info.compCompHnd;
-        comp->reportInliningDecision(m_Caller, m_Callee, Result(), ReasonString());
+        m_RootCompiler->info.compCompHnd->reportInliningDecision(m_Caller, m_Callee, Result(), ReasonString());
     }
 }
 
