@@ -1,27 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                                  Utils.h                                  XX
-XX                                                                           XX
-XX   Has miscellaneous utility functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifndef _UTILS_H_
-#define _UTILS_H_
+#pragma once
 
 #include "safemath.h"
 #include "clr_std/type_traits"
 #include "iallocator.h"
 #include "hostallocator.h"
 #include "cycletimer.h"
-
-// Needed for unreached()
 #include "error.h"
 
 #ifdef TARGET_64BIT
@@ -40,8 +26,21 @@ unsigned ArrLen(T (&)[size])
 template <typename T>
 inline bool isPow2(T i)
 {
-    return (i > 0 && ((i - 1) & i) == 0);
+    return (i > 0) && (((i - 1) & i) == 0);
 }
+
+inline size_t roundUp(size_t size, size_t mult = sizeof(size_t))
+{
+    assert(isPow2(mult));
+    return (size + (mult - 1)) & ~(mult - 1);
+}
+
+#ifdef HOST_64BIT
+inline unsigned roundUp(unsigned size, unsigned mult)
+{
+    return static_cast<unsigned>(roundUp(static_cast<size_t>(size), static_cast<size_t>(mult)));
+}
+#endif
 
 // Adapter for iterators to a type that is compatible with C++11
 // range-based for loops.
@@ -843,5 +842,3 @@ bool F64ToU64(double value, int64_t* result);
 #endif
 
 #endif // (defined(HOST_X86) || defined(HOST_ARM) || defined(HOST_ARM64)) && !defined(HOST_UNIX)
-
-#endif // _UTILS_H_

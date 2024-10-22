@@ -754,7 +754,7 @@ Histogram::Histogram(const unsigned* const sizeTable) : m_sizeTable(sizeTable)
         sizeCount++;
     } while ((sizeTable[sizeCount] != 0) && (sizeCount < 1000));
 
-    assert(sizeCount < HISTOGRAM_MAX_SIZE_COUNT - 1);
+    assert(sizeCount < _countof(m_counts) - 1);
 
     m_sizeCount = sizeCount;
 

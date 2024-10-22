@@ -2804,8 +2804,32 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         assert(info.compPatchpointInfo != nullptr);
     }
 
-    info.compMatchedVM = (info.compCompHnd->getExpectedTargetArchitecture() == IMAGE_FILE_MACHINE_TARGET) &&
-                         (eeGetEEInfo()->osType == CORINFO_OS_TARGET);
+    {
+        constexpr uint32_t IMAGE_FILE_MACHINE_TARGET =
+#if defined(TARGET_X86)
+            IMAGE_FILE_MACHINE_I386
+#elif defined(TARGET_AMD64)
+            IMAGE_FILE_MACHINE_AMD64
+#elif defined(TARGET_ARM)
+            IMAGE_FILE_MACHINE_ARMNT
+#elif defined(TARGET_ARM64)
+            IMAGE_FILE_MACHINE_ARM64
+#else
+#error Unsupported or unset target architecture
+#endif
+            ;
+
+        constexpr CORINFO_OS CORINFO_OS_TARGET =
+#ifdef TARGET_UNIX
+            CORINFO_UNIX
+#else
+            CORINFO_WINNT
+#endif
+            ;
+
+        info.compMatchedVM = (info.compCompHnd->getExpectedTargetArchitecture() == IMAGE_FILE_MACHINE_TARGET) &&
+                             (eeGetEEInfo()->osType == CORINFO_OS_TARGET);
+    }
 
     // If we are not compiling for a matched VM, then we are getting JIT flags that don't match our target
     // architecture. The two main examples here are an ARM targeting altjit hosted on x86 and an ARM64

@@ -1,9 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*****************************************************************************/
-#ifndef TARGET_H_
-#define TARGET_H_
+#pragma once
 
 // Native Varargs are not supported on Unix (all architectures) and Windows ARM
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
@@ -12,8 +10,6 @@
 #define FEATURE_VARARG 0
 #endif
 
-/*****************************************************************************/
-// The following are human readable names for the target architectures
 #if defined(TARGET_X86)
 #define TARGET_READABLE_NAME "X86"
 #elif defined(TARGET_AMD64)
@@ -25,10 +21,6 @@
 #else
 #error Unsupported or unset target architecture
 #endif
-
-/*****************************************************************************/
-// The following are intended to capture only those #defines that cannot be replaced
-// with static const members of Target
 
 #if defined(TARGET_ARM)
 using IntRegNum  = uint32_t;
@@ -429,4 +421,30 @@ typedef int32_t  target_ssize_t;
 static_assert_no_msg(sizeof(target_size_t) == TARGET_POINTER_SIZE);
 static_assert_no_msg(sizeof(target_ssize_t) == TARGET_POINTER_SIZE);
 
-#endif // TARGET_H_
+#if FEATURE_TAILCALL_OPT
+#define FEATURE_TAILCALL_OPT_SHARED_RETURN 1
+#else
+#define FEATURE_TAILCALL_OPT_SHARED_RETURN 0
+#endif
+
+#ifdef TARGET_XARCH
+#define FEATURE_LOOP_ALIGN 1
+#else
+#define FEATURE_LOOP_ALIGN 0
+#endif
+
+#if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
+#define MULTIREG_HAS_SECOND_GC_RET 1
+#define MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(x) , x
+#else
+#define MULTIREG_HAS_SECOND_GC_RET 0
+#define MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(x)
+#endif
+
+#ifdef UNIX_AMD64_ABI
+#define UNIX_AMD64_ABI_ONLY_ARG(x) , x
+#define UNIX_AMD64_ABI_ONLY(x) x
+#else
+#define UNIX_AMD64_ABI_ONLY_ARG(x)
+#define UNIX_AMD64_ABI_ONLY(x)
+#endif

@@ -1538,8 +1538,9 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     size_t size = 0;
 
 #if VERIFY_GC_TABLES
-    *castto(dest, unsigned short*)++ = 0xFEEF;
-    size += sizeof(short);
+    reinterpret_cast<uint16_t*>(dest) = 0xFEEF;
+    dest += sizeof(uint16_t);
+    size += sizeof(uint16_t);
 #endif
 
     /* Write the method size first (using between 1 and 5 bytes) */
@@ -1794,8 +1795,9 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
         if (header->epilogAtEnd == 0 || header->epilogCount != 1)
         {
 #if VERIFY_GC_TABLES
-            *castto(dest, unsigned short*)++ = 0xFACE;
-            size += sizeof(short);
+            reinterpret_cast<uint16_t*>(dest) = 0xFACE;
+            dest += sizeof(uint16_t);
+            size += sizeof(uint16_t);
 #endif
 
             /* Simply write a sorted array of offsets using encodeUDelta */

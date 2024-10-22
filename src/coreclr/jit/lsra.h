@@ -273,6 +273,9 @@ class LinearScan
     friend class Lowering;
 
     Compiler* compiler;
+#ifdef DEBUG
+    const bool verbose;
+#endif
 
 public:
     LinearScan(Compiler* compiler);
@@ -1773,7 +1776,7 @@ public:
             printf("Assigning related ");
             newRelatedInterval->microDump();
             printf(" to ");
-            this->microDump();
+            microDump();
             printf("\n");
         }
 #endif // DEBUG
@@ -1794,7 +1797,7 @@ public:
             if (VERBOSE)
             {
                 printf("Interval ");
-                this->microDump();
+                microDump();
                 printf(" already has a related interval\n");
             }
 #endif // DEBUG

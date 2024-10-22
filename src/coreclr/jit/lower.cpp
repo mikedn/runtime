@@ -4662,7 +4662,7 @@ void Lowering::Run()
 
 #ifdef DEBUG
     JITDUMP("Lower has completed modifying nodes.\n");
-    if (VERBOSE)
+    if (comp->verbose)
     {
         comp->fgDispBasicBlocks(true);
     }

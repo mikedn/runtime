@@ -541,6 +541,7 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
 LinearScan::LinearScan(Compiler* compiler)
     : compiler(compiler)
 #ifdef DEBUG
+    , verbose(compiler->verbose)
     , lsraStressMask(JitConfig.JitStressRegs())
 #endif
     , regSelector(new (compiler, CMK_LSRA) RegisterSelection(this))
@@ -964,10 +965,10 @@ void LinearScan::addToBlockSequenceWorkList(BlockSet sequencedBlockSet, BasicBlo
 void LinearScan::doLinearScan()
 {
     buildIntervals();
-    DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_REFPOS));
+    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_REFPOS));
     compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
 
-    DBEXEC(VERBOSE, lsraDumpIntervals("after buildIntervals"));
+    DBEXEC(verbose, lsraDumpIntervals("after buildIntervals"));
 
     initVarRegMaps();
     allocateRegisters();
@@ -980,17 +981,13 @@ void LinearScan::doLinearScan()
     assert(blockSetVersion == compiler->GetBlockSetVersion());
 
 #if TRACK_LSRA_STATS
-    if ((JitConfig.DisplayLsraStats() == 1)
-#ifdef DEBUG
-        || VERBOSE
-#endif
-        )
+    if ((JitConfig.DisplayLsraStats() == 1)INDEBUG(|| verbose))
     {
         dumpLsraStats(jitstdout);
     }
-#endif // TRACK_LSRA_STATS
+#endif
 
-    DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_POST));
+    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_POST));
 }
 
 VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb)
@@ -1031,7 +1028,7 @@ void LinearScan::identifyCandidatesExceptionDataflow()
     }
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         JITDUMP("EH Vars: ");
         INDEBUG(dumpConvertedVarSet(compiler, exceptVars));
@@ -1406,7 +1403,7 @@ void LinearScan::identifyCandidates()
         }
 
         JITDUMP("  ");
-        DBEXEC(VERBOSE, newInt->dump());
+        DBEXEC(verbose, newInt->dump());
     }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -1445,7 +1442,7 @@ void LinearScan::identifyCandidates()
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         printf("\nFP callee save candidate vars: ");
         if (enregisterLocalVars && !VarSetOps::IsEmpty(compiler, fpCalleeSaveCandidateVars))
@@ -1468,8 +1465,9 @@ void LinearScan::identifyCandidates()
         (compiler->fgReturnBlocks == nullptr || compiler->fgReturnBlocks->next == nullptr))
     {
         assert(enregisterLocalVars);
+
 #ifdef DEBUG
-        if (VERBOSE)
+        if (verbose)
         {
             printf("Adding additional fp callee save candidates: \n");
             if (!VarSetOps::IsEmpty(compiler, fpMaybeCandidateVars))
@@ -1691,7 +1689,7 @@ VarToRegMap LinearScan::setInVarToRegMap(unsigned int bbNum, VarToRegMap srcVarT
 #ifdef DEBUG
 void LinearScan::checkLastUses(BasicBlock* block)
 {
-    if (VERBOSE)
+    if (verbose)
     {
         JITDUMP("\n\nCHECKING LAST USES for " FMT_BB ", liveout=", block->bbNum);
         dumpConvertedVarSet(compiler, block->bbLiveOut);
@@ -2617,13 +2615,7 @@ void LinearScan::spillInterval(Interval* interval, RefPosition* fromRefPosition 
 
     assert(toRefPosition != nullptr);
 
-#ifdef DEBUG
-    if (VERBOSE)
-    {
-        dumpLsraAllocationEvent(LSRA_EVENT_SPILL, interval);
-    }
-#endif // DEBUG
-
+    DBEXEC(verbose, dumpLsraAllocationEvent(LSRA_EVENT_SPILL, interval));
     INTRACK_STATS(updateLsraStat(STAT_SPILL, fromRefPosition->bbNum));
 
     interval->isActive = false;
@@ -3771,14 +3763,12 @@ void LinearScan::freeRegisters(regMaskTP regsToFree)
     }
 }
 
-//------------------------------------------------------------------------
-// LinearScan::allocateRegisters: Perform the actual register allocation by iterating over
-//                                all of the previously constructed Intervals
-//
+// Perform the actual register allocation by iterating over
+// all of the previously constructed Intervals
 void LinearScan::allocateRegisters()
 {
     JITDUMP("*************** In LinearScan::allocateRegisters()\n");
-    DBEXEC(VERBOSE, lsraDumpIntervals("before allocateRegisters"));
+    DBEXEC(verbose, lsraDumpIntervals("before allocateRegisters"));
 
     // at start, nothing is active except for register args
     for (Interval& interval : intervals)
@@ -3837,7 +3827,7 @@ void LinearScan::allocateRegisters()
     }
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         dumpRefPositions("BEFORE ALLOCATION");
         dumpVarRefPositions("BEFORE ALLOCATION");
@@ -3904,7 +3894,7 @@ void LinearScan::allocateRegisters()
 #ifdef DEBUG
         // Set the activeRefPosition to null until we're done with any boundary handling.
         activeRefPosition = nullptr;
-        if (VERBOSE)
+        if (verbose)
         {
             // We're really dumping the RegRecords "after" the previous RefPosition, but it's more convenient
             // to do this here, since there are a number of "continue"s in this loop.
@@ -4675,7 +4665,7 @@ void LinearScan::allocateRegisters()
 #ifdef DEBUG
             else
             {
-                if (VERBOSE)
+                if (verbose)
                 {
                     if (currentInterval->isConstant && (currentRefPosition->treeNode != nullptr) &&
                         currentRefPosition->treeNode->IsReuseRegVal())
@@ -4884,7 +4874,7 @@ void LinearScan::allocateRegisters()
     }
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         // Dump the RegRecords after the last RefPosition is handled.
         dumpRegRecords();
@@ -6167,7 +6157,7 @@ void LinearScan::resolveRegisters()
     if (enregisterLocalVars)
     {
 #ifdef DEBUG
-        if (VERBOSE)
+        if (verbose)
         {
             printf("-----------------------\n");
             printf("RESOLVING BB BOUNDARIES\n");
@@ -6336,7 +6326,7 @@ void LinearScan::resolveRegisters()
     }
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         printf("Trees after linear scan register allocator (LSRA)\n");
         compiler->fgDispBasicBlocks(true);
@@ -7842,8 +7832,9 @@ void LinearScan::dumpLsraStats(FILE* file)
 
     fprintf(file, "----------\n");
     fprintf(file, "LSRA Stats");
+
 #ifdef DEBUG
-    if (!VERBOSE)
+    if (!verbose)
     {
         fprintf(file, " : %s\n", compiler->info.compFullName);
     }
@@ -8353,7 +8344,7 @@ void RegRecord::tinyDump()
 
 void LinearScan::dumpDefList()
 {
-    if (!VERBOSE)
+    if (!verbose)
     {
         return;
     }
@@ -8761,10 +8752,11 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 void LinearScan::dumpLsraAllocationEvent(
     LsraDumpEvent event, Interval* interval, regNumber reg, BasicBlock* currentBlock, RegisterScore registerScore)
 {
-    if (!(VERBOSE))
+    if (!verbose)
     {
         return;
     }
+
     if ((interval != nullptr) && (reg != REG_NA) && (reg != REG_STK))
     {
         registersToDump |= getRegMask(reg, interval->registerType);
@@ -9238,7 +9230,7 @@ void LinearScan::dumpEmptyRefPosition()
 //
 void LinearScan::dumpNewBlock(BasicBlock* currentBlock, LsraLocation location)
 {
-    if (!VERBOSE)
+    if (!verbose)
     {
         return;
     }
@@ -9393,7 +9385,7 @@ bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
 //    If verbose is set, this will also dump a table of the final allocations.
 void LinearScan::verifyFinalAllocation()
 {
-    if (VERBOSE)
+    if (verbose)
     {
         printf("\nFinal allocation\n");
     }
@@ -9411,7 +9403,7 @@ void LinearScan::verifyFinalAllocation()
         interval.physReg     = REG_NA;
     }
 
-    DBEXEC(VERBOSE, dumpRegRecordTitle());
+    DBEXEC(verbose, dumpRegRecordTitle());
 
     BasicBlock* currentBlock  = nullptr;
     unsigned    blockSeqIndex = 0;
@@ -9541,7 +9533,7 @@ void LinearScan::verifyFinalAllocation()
                         }
                     }
 
-                    if (VERBOSE)
+                    if (verbose)
                     {
                         dumpRefPositionShort(currentRefPosition, currentBlock);
                         dumpRegRecords();
@@ -9641,7 +9633,7 @@ void LinearScan::verifyFinalAllocation()
                 {
                     interval->isActive = true;
 
-                    if (VERBOSE)
+                    if (verbose)
                     {
                         if (interval->isConstant && (currentRefPosition->treeNode != nullptr) &&
                             currentRefPosition->treeNode->IsReuseRegVal())
@@ -9665,7 +9657,8 @@ void LinearScan::verifyFinalAllocation()
                     interval->physReg                       = regNum;
                     interval->assignedReg                   = regRecord;
                     regRecord->assignedInterval             = interval;
-                    if (VERBOSE)
+
+                    if (verbose)
                     {
                         dumpEmptyRefPosition();
                         printf("Move     %-4s ", getRegName(regRecord->regNum));
@@ -9683,7 +9676,7 @@ void LinearScan::verifyFinalAllocation()
                 {
                     if (currentRefPosition->spillAfter)
                     {
-                        if (VERBOSE)
+                        if (verbose)
                         {
                             // If refPos is marked as copyReg, then the reg that is spilled
                             // is the homeReg of the interval not the reg currently assigned
@@ -9731,7 +9724,7 @@ void LinearScan::verifyFinalAllocation()
                 // No action to take.
                 // However, we will assert that, at resolution time, no registers contain GC refs.
                 {
-                    DBEXEC(VERBOSE, printf("           "));
+                    DBEXEC(verbose, printf("           "));
                     regMaskTP candidateRegs = currentRefPosition->registerAssignment;
                     while (candidateRegs != RBM_NONE)
                     {
@@ -9748,8 +9741,8 @@ void LinearScan::verifyFinalAllocation()
             case RefTypeExpUse:
             case RefTypeDummyDef:
                 // Do nothing; these will be handled by the RefTypeBB.
-                DBEXEC(VERBOSE, dumpRefPositionShort(currentRefPosition, currentBlock));
-                DBEXEC(VERBOSE, printf("              "));
+                DBEXEC(verbose, dumpRefPositionShort(currentRefPosition, currentBlock));
+                DBEXEC(verbose, printf("              "));
                 break;
 
             case RefTypeInvalid:
@@ -9759,7 +9752,7 @@ void LinearScan::verifyFinalAllocation()
 
         if (currentRefPosition->refType != RefTypeBB)
         {
-            DBEXEC(VERBOSE, dumpRegRecords());
+            DBEXEC(verbose, dumpRegRecords());
             if (interval != nullptr)
             {
                 if (currentRefPosition->copyReg)
@@ -9823,7 +9816,7 @@ void LinearScan::verifyFinalAllocation()
             // If we haven't enregistered an lclVars, we have no resolution blocks.
             assert(enregisterLocalVars);
 
-            if (VERBOSE)
+            if (verbose)
             {
                 dumpRegRecordTitle();
                 printf(shortRefPositionFormat, 0, 0);
@@ -9897,7 +9890,7 @@ void LinearScan::verifyFinalAllocation()
         }
     }
 
-    DBEXEC(VERBOSE, printf("\n"));
+    DBEXEC(verbose, printf("\n"));
 }
 
 //------------------------------------------------------------------------
@@ -9935,7 +9928,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         rightInterval->assignedReg             = &physRegs[leftRegNum];
         physRegs[rightRegNum].assignedInterval = leftInterval;
         physRegs[leftRegNum].assignedInterval  = rightInterval;
-        if (VERBOSE)
+
+        if (verbose)
         {
             printf(shortRefPositionFormat, currentLocation, 0);
             dumpIntervalName(leftInterval);
@@ -9994,7 +9988,8 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
         interval->assignedReg = nullptr;
         interval->isActive    = false;
     }
-    if (VERBOSE)
+
+    if (verbose)
     {
         printf(shortRefPositionFormat, currentLocation, 0);
         dumpIntervalName(interval);

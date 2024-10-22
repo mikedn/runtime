@@ -5,6 +5,8 @@ extern ICorJitHost* g_jitHost;
 
 inline var_types CorTypeToVarType(CorInfoType type);
 
+constexpr int VPTR_OFFS = 0; // offset of vtable pointer from obj ptr
+
 FORCEINLINE
 void Compiler::eeGetCallInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
                              CORINFO_RESOLVED_TOKEN* pConstrainedToken,

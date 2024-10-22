@@ -1274,7 +1274,7 @@ bool EmitterBase::GetLocationInfo(const emitLocation& loc, insGroup** pig, instr
 
     for (int i = 0; i != insNum; ++i)
     {
-        castto(id, uint8_t*) += id->GetDescSize();
+        id = reinterpret_cast<instrDesc*>(reinterpret_cast<uint8_t*>(id) + id->GetDescSize());
     }
 
     // Return the info we found

@@ -833,7 +833,7 @@ int DefaultPolicy::DetermineCallsiteNativeSizeEstimate(CORINFO_METHOD_INFO* meth
     }
 
     CORINFO_ARG_LIST_HANDLE argLst = methInfo->args.args;
-    COMP_HANDLE             comp   = m_RootCompiler->info.compCompHnd;
+    ICorJitInfo*            comp   = m_RootCompiler->info.compCompHnd;
 
     for (unsigned i = (hasThis ? 1 : 0); i < methInfo->args.totalILArgs(); i++, argLst = comp->getArgNext(argLst))
     {
@@ -2328,7 +2328,7 @@ void DiscretionaryPolicy::MethodInfoObservations(CORINFO_METHOD_INFO* methodInfo
 
     unsigned                j             = 0;
     CORINFO_ARG_LIST_HANDLE argListHandle = args.args;
-    COMP_HANDLE             comp          = m_RootCompiler->info.compCompHnd;
+    ICorJitInfo*            comp          = m_RootCompiler->info.compCompHnd;
 
     while ((i < MAX_ARGS) && (j < argCount))
     {

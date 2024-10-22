@@ -97,7 +97,7 @@ Interval* LinearScan::newInterval(var_types regType)
     Interval* newInt = &intervals.back();
 
     INDEBUG(newInt->intervalIndex = static_cast<unsigned>(intervals.size() - 1);)
-    DBEXEC(VERBOSE, newInt->dump());
+    DBEXEC(verbose, newInt->dump());
     return newInt;
 }
 
@@ -393,7 +393,7 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
 
     LinkRefPosition(newRP);
 
-    DBEXEC(VERBOSE, newRP->dump(this));
+    DBEXEC(verbose, newRP->dump(this));
 
     return newRP;
 }
@@ -401,7 +401,7 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
 RefPosition* LinearScan::newBlockRefPosition(LsraLocation location)
 {
     RefPosition* newRP = newRefPositionRaw(location, nullptr, RefTypeBB);
-    DBEXEC(VERBOSE, newRP->dump(this));
+    DBEXEC(verbose, newRP->dump(this));
     return newRP;
 }
 
@@ -410,7 +410,7 @@ RefPosition* LinearScan::newKillGCRegsRefPosition(LsraLocation location, GenTree
     RefPosition* newRP        = newRefPositionRaw(location, node, RefTypeKillGCRefs);
     newRP->isFixedRegRef      = isSingleRegister(mask);
     newRP->registerAssignment = mask;
-    DBEXEC(VERBOSE, newRP->dump(this));
+    DBEXEC(verbose, newRP->dump(this));
     return newRP;
 }
 
@@ -484,7 +484,8 @@ RefPosition* LinearScan::newRefPosition(
             (interval->firstRefPosition == newRP) && (node == nullptr || !node->IsMultiRegLclStore());
     }
 
-    DBEXEC(VERBOSE, newRP->dump(this));
+    DBEXEC(verbose, newRP->dump(this));
+
     return newRP;
 }
 
@@ -1461,11 +1462,12 @@ void LinearScan::buildIntervals()
     JITDUMP("\nbuildIntervals ========\n");
 
 #ifdef DEBUG
-    if (VERBOSE)
+    if (verbose)
     {
         printf("\n-----------------\n");
         printf("LIVENESS:\n");
         printf("-----------------\n");
+
         for (BasicBlock* const block : compiler->Blocks())
         {
             printf(FMT_BB " use def in out\n", block->bbNum);
@@ -1491,7 +1493,7 @@ void LinearScan::buildIntervals()
 
     BlockSet visited = setBlockSequence();
 
-    DBEXEC(VERBOSE, TupleStyleDump(LSRA_DUMP_PRE));
+    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_PRE));
 
     JITDUMP("\nbuildIntervals second part ========\n");
 
@@ -1823,7 +1825,7 @@ void LinearScan::buildIntervals()
 #ifdef DEBUG
             checkLastUses(block);
 
-            if (VERBOSE)
+            if (verbose)
             {
                 printf("use: ");
                 dumpConvertedVarSet(compiler, block->bbVarUse);
@@ -1938,11 +1940,12 @@ void LinearScan::buildIntervals()
         assert(BlockSetOps::IsMember(compiler, visited, block->bbNum));
     }
 
-    if (VERBOSE)
+    if (verbose)
     {
         lsraDumpIntervals("BEFORE VALIDATING INTERVALS");
         dumpRefPositions("BEFORE VALIDATING INTERVALS");
     }
+
     validateIntervals();
 
 #endif // DEBUG
@@ -2144,11 +2147,13 @@ void LinearScan::validateIntervals()
             JITDUMP("-----------------\n");
             for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
             {
-                if (VERBOSE)
+                if (verbose)
                 {
                     ref->dump(this);
                 }
+
                 RefType refType = ref->refType;
+
                 if (!defined && RefTypeIsUse(refType) && (lastUseBBNum == ref->bbNum))
                 {
                     if (!ref->lastUse)
@@ -2732,7 +2737,7 @@ void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
     BuildUse(src->GetOp(0));
     BuildUse(src->GetOp(1));
 #else
-    GenTree* src = node->GetOp(0);
+    GenTree* src  = node->GetOp(0);
 
 #ifdef TARGET_AMD64
     if (node->OperIs(GT_OVF_UTRUNC))

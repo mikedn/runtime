@@ -205,8 +205,8 @@ unsigned SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 
     Compiler* comp = compiler;
 
-    DBEXEC(VERBOSE, comp->fgDispBasicBlocks());
-    DBEXEC(VERBOSE, comp->fgDispHandlerTab());
+    DBEXEC(comp->verbose, comp->fgDispBasicBlocks());
+    DBEXEC(comp->verbose, comp->fgDispHandlerTab());
 
     auto DumpBlockAndSuccessors = [](Compiler* comp, BasicBlock* block) {
 #ifdef DEBUG
