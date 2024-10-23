@@ -4436,16 +4436,7 @@ private:
         }
 
         const char* insName = GetInsName(id);
-        printf(" %-9s", insName);
-
-#ifndef HOST_UNIX
-        if (strnlen_s(insName, 10) >= 9)
-#else
-        if (strnlen(insName, 10) >= 9)
-#endif
-        {
-            printf(" ");
-        }
+        printf(" %-8s ", insName);
 
         instruction ins = id->idIns();
         emitAttr    attr;
