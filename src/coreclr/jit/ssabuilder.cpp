@@ -141,7 +141,7 @@ void SsaBuilder::Build()
 #define DBG_SSA_JITDUMP(...)                                                                                           \
     if (JitTls::GetCompiler()->verboseSsa)                                                                             \
     {                                                                                                                  \
-        logf(__VA_ARGS__);                                                                                             \
+        jitprintf(__VA_ARGS__);                                                                                             \
     }
 #else
 #define DBG_SSA_JITDUMP(...)
@@ -814,7 +814,7 @@ private:
 #ifdef DEBUG
     void DumpStack(SsaDefStack* stack, SsaDefStackNode* top) const
     {
-        if (JitTls::GetCompiler()->verboseSsa)
+        if (compiler->verboseSsa)
         {
             if (stack == &memoryStack)
             {

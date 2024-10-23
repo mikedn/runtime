@@ -2172,7 +2172,6 @@ struct Importer
     void fgDispHandlerTab();
     void gtDispStmt(Statement* stmt);
     void gtDispTree(GenTree* tree);
-    void JitLogEE(unsigned level, const char* fmt, ...);
 #endif
 
     void eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -5923,22 +5922,15 @@ protected:
     size_t compMaxUncheckedOffsetForNullObject;
 
 public:
-    CompAllocator getAllocator(CompMemKind cmk)
+    CompAllocator getAllocator(CompMemKind cmk) const
     {
         return {compArenaAllocator, cmk};
     }
 
 #ifdef DEBUG
-    // One line log function. Default level is 0. Increasing it gives you
-    // more log information
-
-    // levels are currently unused: #define JITDUMP(level,...)                     ();
-    void JitLogEE(unsigned level, const char* fmt, ...);
-
     bool compDebugBreak = false;
 
     bool compJitHaltMethod();
-
 #endif
 
     /*

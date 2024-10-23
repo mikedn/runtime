@@ -797,7 +797,7 @@ void InlineResult::Report()
     if (IsDecided())
     {
         const char* format = "INLINER: during '%s' result '%s' reason '%s'\n";
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, format, m_Description, ResultString(), ReasonString()));
+        JITLOG(LL_INFO100000, format, m_Description, ResultString(), ReasonString());
         m_RootCompiler->info.compCompHnd->reportInliningDecision(m_Caller, m_Callee, Result(), ReasonString());
     }
 }

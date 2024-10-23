@@ -2,9 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 #include "compiler.h"
 
 #if MEASURE_FATAL
@@ -16,6 +13,8 @@ unsigned fatal_noWayAssertBody;
 unsigned fatal_NYI;
 INDEBUG(unsigned fatal_noWayAssertBodyArgs;)
 #endif
+
+constexpr DWORD FATAL_JIT_EXCEPTION = 0x02345678;
 
 void DECLSPEC_NORETURN fatal(int errCode)
 {
@@ -91,7 +90,7 @@ void DECLSPEC_NORETURN noWayAssertBody()
     fatal(CORJIT_RECOVERABLEERROR);
 }
 
-inline static bool ShouldThrowOnNoway()
+static bool ShouldThrowOnNoway()
 {
     return JitTls::GetCompiler() == nullptr || JitTls::GetCompiler()->compShouldThrowOnNoway();
 }
@@ -110,7 +109,11 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
 
     if ((compiler == nullptr) || (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT)))
     {
-        NOWAY_MSG_FILE_AND_LINE(msg, filename, line);
+#ifdef DEBUG
+        noWayAssertBodyConditional(msg, filename, line);
+#else
+        noWayAssertBodyConditional();
+#endif
         return;
     }
 
@@ -120,19 +123,19 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
 
     if ((logCompiler != nullptr) && logCompiler->verbose)
     {
-        printf("\n\n%s - NYI (%s:%d - %s)\n", logCompiler->info.compFullName, filename, line, msg);
+        jitprintf("\n\n%s - NYI (%s:%u - %s)\n", logCompiler->info.compFullName, filename, line, msg);
     }
 #endif
 
-    if (Compiler::compJitFuncInfoFile != nullptr)
+    if (FILE* funcInfoFile = Compiler::compJitFuncInfoFile)
     {
 #ifdef DEBUG
-        fprintf(Compiler::compJitFuncInfoFile, "%s - NYI (%s:%d - %s)\n",
-                (logCompiler == nullptr) ? "UNKNOWN" : logCompiler->info.compFullName, filename, line, msg);
+        fprintf(funcInfoFile, "%s - NYI (%s:%u - %s)\n",
+                logCompiler == nullptr ? "UNKNOWN" : logCompiler->info.compFullName, filename, line, msg);
 #else
-        fprintf(Compiler::compJitFuncInfoFile, "NYI (%s:%d - %s)\n", filename, line, msg);
+        fprintf(funcInfoFile, "NYI (%s:%u - %s)\n", filename, line, msg);
 #endif
-        fflush(Compiler::compJitFuncInfoFile);
+        fflush(funcInfoFile);
     }
 #endif // FUNC_INFO_LOGGING
 
@@ -141,14 +144,14 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
     compiler->compFunctionTraceEnd(nullptr, 0, true);
 #endif
 
-    DWORD value = JitConfig.AltJitAssertOnNYI();
+    int value = JitConfig.AltJitAssertOnNYI();
 
     // 0 means just silently skip
     // If we are in retail builds, assume ignore
     // 1 means popup the assert (abort=abort, retry=debugger, ignore=skip)
     // 2 means silently don't skip (same as 3 for retail)
     // 3 means popup the assert (abort=abort, retry=debugger, ignore=don't skip)
-    if (value & 1)
+    if ((value & 1) != 0)
     {
 #ifdef DEBUG
         assertAbort(msg, filename, line);
@@ -187,10 +190,78 @@ LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& 
 
 #ifdef DEBUG
 
-DWORD getBreakOnBadCode()
+static int jitvfprintf(FILE* file, const char* fmt, va_list args)
 {
-    return JitConfig.JitBreakOnBadCode();
+    // 0-length string means flush
+    if (fmt[0] == '\0')
+    {
+        fflush(file);
+        return 0;
+    }
+
+    return vfprintf(file, fmt, args);
 }
+
+int jitprintf(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int written = jitvfprintf(jitstdout, fmt, args);
+    va_end(args);
+    return written;
+}
+
+int jitfprintf(FILE* file, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int written = jitvfprintf(file, fmt, args);
+    va_end(args);
+    return written;
+}
+
+static bool vmvlogf(unsigned level, const char* fmt, va_list args)
+{
+    static bool enabled = true;
+
+    enabled = enabled && JitTls::GetJitInfo()->logMsg(level, fmt, args);
+
+    return enabled;
+}
+
+static void vmlogf(unsigned level, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vmvlogf(level, fmt, args);
+    va_end(args);
+}
+
+#if defined(HOST_X86) && !defined(TARGET_UNIX)
+
+// While debugging in an Debugger, the "int 3" will cause the program to break
+// Outside, the exception handler will just filter out the "int 3".
+
+#define BreakIfDebuggerPresent()                                                                                       \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        __try                                                                                                          \
+        {                                                                                                              \
+            __asm {int 3}                                                                                              \
+        }                                                                                                              \
+        __except (EXCEPTION_EXECUTE_HANDLER)                                                                           \
+        {                                                                                                              \
+        }                                                                                                              \
+    } while (0)
+
+#else
+#define BreakIfDebuggerPresent()                                                                                       \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (IsDebuggerPresent())                                                                                       \
+            DebugBreak();                                                                                              \
+    } while (0)
+#endif
 
 void debugError(const char* msg, const char* file, unsigned line)
 {
@@ -204,14 +275,12 @@ void debugError(const char* msg, const char* file, unsigned line)
         tail = file;
     }
 
-    Compiler* logCompiler = JitTls::GetLogCompiler();
-
-    logf(LL_ERROR, "COMPILATION FAILED: file: %s:%d compiling method %s reason %s\n", tail, line,
-         logCompiler->info.compFullName, msg);
+    vmlogf(LL_ERROR, "COMPILATION FAILED: file: %s:%u compiling method %s reason %s\n", tail, line,
+           JitTls::GetLogCompiler()->info.compFullName, msg);
 
     // We now only assert when user explicitly set ComPlus_JitRequired=1
     // If ComPlus_JitRequired is 0 or is not set, we will not assert.
-    if ((JitConfig.JitRequired() == 1) || getBreakOnBadCode())
+    if ((JitConfig.JitRequired() == 1) || JitConfig.JitBreakOnBadCode())
     {
         assertAbort(msg, file, line);
     }
@@ -224,27 +293,27 @@ void assertAbort(const char* why, const char* file, unsigned line)
     const char* msg         = why;
     Compiler*   logCompiler = JitTls::GetLogCompiler();
     const int   BUFF_SIZE   = 8192;
-    char*       buff        = (char*)alloca(BUFF_SIZE);
+    char*       buff        = static_cast<char*>(alloca(BUFF_SIZE));
     const char* phaseName   = "unknown phase";
 
     if (logCompiler != nullptr)
     {
         phaseName = PhaseNames[logCompiler->mostRecentlyActivePhase];
-        _snprintf_s(buff, BUFF_SIZE, _TRUNCATE, "Assertion failed '%s' in '%s' (%x) during '%s' (IL size %d)\n", why,
+        _snprintf_s(buff, BUFF_SIZE, _TRUNCATE, "Assertion failed '%s' in '%s' (%x) during '%s' (IL size %u)\n", why,
                     logCompiler->info.compFullName, logCompiler->info.compMethodHash(), phaseName,
                     logCompiler->info.compILCodeSize);
         msg = buff;
     }
 
-    printf(""); // null string means flush
+    fflush(jitstdout);
 
 #if FUNC_INFO_LOGGING
-    if (Compiler::compJitFuncInfoFile != nullptr)
+    if (FILE* funcInfoFile = Compiler::compJitFuncInfoFile)
     {
-        fprintf(Compiler::compJitFuncInfoFile, "%s - Assertion failed (%s:%d - %s) during %s\n",
-                (logCompiler == nullptr) ? "UNKNOWN" : logCompiler->info.compFullName, file, line, why, phaseName);
+        fprintf(funcInfoFile, "%s - Assertion failed (%s:%u - %s) during %s\n",
+                logCompiler == nullptr ? "UNKNOWN" : logCompiler->info.compFullName, file, line, why, phaseName);
     }
-#endif // FUNC_INFO_LOGGING
+#endif
 
     if (JitTls::GetJitInfo()->doAssert(file, line, msg))
     {
@@ -270,105 +339,63 @@ void assertAbort(const char* why, const char* file, unsigned line)
     }
 }
 
-bool vlogf(unsigned level, const char* fmt, va_list args)
-{
-    return JitTls::GetJitInfo()->logMsg(level, fmt, args);
-}
-
-int vflogf(FILE* file, const char* fmt, va_list args)
-{
-    // 0-length string means flush
-    if (fmt[0] == '\0')
-    {
-        fflush(file);
-        return 0;
-    }
-
-    return vfprintf(file, fmt, args);
-}
-
-int flogf(FILE* file, const char* fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int written = vflogf(file, fmt, args);
-    va_end(args);
-    return written;
-}
-
-int logf(const char* fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int written = vflogf(jitstdout, fmt, args);
-    va_end(args);
-    return written;
-}
-
 void gcDump_logf(const char* fmt, ...)
 {
-    va_list     args;
-    static bool logToEEfailed = false;
+    va_list args;
+    va_start(args, fmt);
+    bool enabled = vmvlogf(LL_INFO1000, fmt, args);
+    va_end(args);
 
-    // We remember when the EE failed to log, because vlogf()
-    // is very slow in a checked build.
-    // If it fails to log an LL_INFO1000 message once
-    // it will always fail when logging an LL_INFO1000 message.
-    if (!logToEEfailed)
-    {
-        va_start(args, fmt);
-        if (!vlogf(LL_INFO1000, fmt, args))
-        {
-            logToEEfailed = true;
-        }
-        va_end(args);
-    }
-
-    if (logToEEfailed)
+    if (!enabled)
     {
         // if the EE refuses to log it, we try to send it to stdout
         va_start(args, fmt);
-        vflogf(jitstdout, fmt, args);
+        jitvfprintf(jitstdout, fmt, args);
         va_end(args);
     }
 #if 0  // Enable this only when you need it
     else
     {
-        //
-        // The EE just successfully logged our message
-        //
         static ConfigDWORD fJitBreakOnDumpToken;
         DWORD breakOnDumpToken = fJitBreakOnDumpToken.val(CLRConfig::INTERNAL_BreakOnDumpToken);
-        static DWORD forbidEntry = 0;
+        static bool forbidEntry = false;
 
-        if ((breakOnDumpToken != 0xffffffff) && (forbidEntry == 0))
+        if ((breakOnDumpToken != 0xffffffff) && !forbidEntry)
         {
-            forbidEntry = 1;
+            forbidEntry = true;
 
             // Use value of 0 to get the dump
-            static DWORD currentLine = 1;
+            static unsigned currentLine = 1;
 
             if (currentLine == breakOnDumpToken)
             {
                 assert(!"Dump token reached");
             }
 
-            printf("(Token=0x%x) ", currentLine++);
-            forbidEntry = 0;
+            jitprintf("(Token=0x%x) ", currentLine++);
+            forbidEntry = false;
         }
     }
 #endif // 0
 }
 
-void logf(unsigned level, const char* fmt, ...)
+void JitLogEE(unsigned level, const char* fmt, ...)
 {
     va_list args;
+
+    if (JitTls::GetCompiler()->verbose)
+    {
+        va_start(args, fmt);
+        jitvfprintf(jitstdout, fmt, args);
+        va_end(args);
+    }
+
     va_start(args, fmt);
-    vlogf(level, fmt, args);
+    vmvlogf(level, fmt, args);
     va_end(args);
 }
 
-void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, __in_z const char* file, unsigned line)
+void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, const char* file, unsigned line)
 {
     const int BUFF_SIZE = 512;
     char      buf1[BUFF_SIZE];
@@ -380,9 +407,8 @@ void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, __in
     badCode();
 }
 
-void noWayAssertAbortHelper(const char* cond, const char* file, unsigned line)
+static void noWayAssertAbortHelper(const char* cond, const char* file, unsigned line)
 {
-    // Show the assert UI.
     if (JitConfig.JitEnableNoWayAssert())
     {
         assertAbort(cond, file, line);

@@ -480,9 +480,9 @@ void jitInlineCode(InlineInfo* inlineInfo)
         return;
     }
 
-    JITLOG_THIS(inlinerCompiler, (LL_INFO100000, "INLINER: tokenLookupContextHandle for %s is 0x%p:\n",
-                                  inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
-                                  inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd)));
+    JITLOG(LL_INFO100000, "INLINER: tokenLookupContextHandle for %s is 0x%p:\n",
+           inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
+           inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd));
 
     struct Param : ErrorTrapParam
     {
@@ -650,8 +650,8 @@ void Compiler::inlMain()
         info.compFlags |= CORINFO_FLG_FORCEINLINE;
     }
 
-    JITLOG((LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
-            eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle)));
+    JITLOG(LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
+           eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle));
 
 #ifdef DEBUG
     if (verbose)

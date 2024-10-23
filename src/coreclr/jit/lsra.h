@@ -1771,7 +1771,7 @@ public:
     void assignRelatedInterval(Interval* newRelatedInterval)
     {
 #ifdef DEBUG
-        if (VERBOSE)
+        if (JitTls::GetCompiler()->verbose)
         {
             printf("Assigning related ");
             newRelatedInterval->microDump();
@@ -1794,7 +1794,7 @@ public:
         else
         {
 #ifdef DEBUG
-            if (VERBOSE)
+            if (JitTls::GetCompiler()->verbose)
             {
                 printf("Interval ");
                 microDump();
