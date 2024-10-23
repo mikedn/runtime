@@ -284,18 +284,7 @@ int vflogf(FILE* file, const char* fmt, va_list args)
         return 0;
     }
 
-    const int BUFF_SIZE = 8192;
-    char      buffer[BUFF_SIZE];
-    int       written = _vsnprintf_s(&buffer[0], BUFF_SIZE, _TRUNCATE, fmt, args);
-
-    if (JitConfig.JitDumpToDebugger())
-    {
-        OutputDebugStringA(buffer);
-    }
-
-    // We use fputs here so that this executes as fast a possible
-    fputs(&buffer[0], file);
-    return written;
+    return vfprintf(file, fmt, args);
 }
 
 int flogf(FILE* file, const char* fmt, ...)
