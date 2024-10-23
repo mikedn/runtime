@@ -912,10 +912,9 @@ void DefaultPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     if (m_CalleeNativeSizeEstimate > threshold)
     {
         // Inline appears to be unprofitable
-        JITLOG_THIS(m_RootCompiler,
-                    (LL_INFO100000, "Native estimate for function size exceeds threshold"
-                                    " for inlining %g > %g (multiplier = %g)\n",
-                     (double)m_CalleeNativeSizeEstimate / SIZE_SCALE, (double)threshold / SIZE_SCALE, m_Multiplier));
+        JITLOG(LL_INFO100000, "Native estimate for function size exceeds threshold"
+                              " for inlining %g > %g (multiplier = %g)\n",
+               (double)m_CalleeNativeSizeEstimate / SIZE_SCALE, (double)threshold / SIZE_SCALE, m_Multiplier);
 
         // Fail the inline
         if (m_IsPrejitRoot)
@@ -930,10 +929,9 @@ void DefaultPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     else
     {
         // Inline appears to be profitable
-        JITLOG_THIS(m_RootCompiler,
-                    (LL_INFO100000, "Native estimate for function size is within threshold"
-                                    " for inlining %g <= %g (multiplier = %g)\n",
-                     (double)m_CalleeNativeSizeEstimate / SIZE_SCALE, (double)threshold / SIZE_SCALE, m_Multiplier));
+        JITLOG(LL_INFO100000, "Native estimate for function size is within threshold"
+                              " for inlining %g <= %g (multiplier = %g)\n",
+               (double)m_CalleeNativeSizeEstimate / SIZE_SCALE, (double)threshold / SIZE_SCALE, m_Multiplier);
 
         // Update candidacy
         if (m_IsPrejitRoot)
@@ -1165,7 +1163,7 @@ void RandomPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     if (randomValue > threshold)
     {
         // Inline appears to be unprofitable
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Random rejection (r=%d > t=%d)\n", randomValue, threshold));
+        JITLOG(LL_INFO100000, "Random rejection (r=%d > t=%d)\n", randomValue, threshold);
 
         // Fail the inline
         if (m_IsPrejitRoot)
@@ -1180,7 +1178,7 @@ void RandomPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     else
     {
         // Inline appears to be profitable
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Random acceptance (r=%d <= t=%d)\n", randomValue, threshold));
+        JITLOG(LL_INFO100000, "Random acceptance (r=%d <= t=%d)\n", randomValue, threshold);
 
         // Update candidacy
         if (m_IsPrejitRoot)
@@ -2744,8 +2742,8 @@ void ModelPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     if (m_ModelCodeSizeEstimate <= 0)
     {
         // Inline will likely decrease code size
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Inline profitable, will decrease code size by %g bytes\n",
-                                     (double)-m_ModelCodeSizeEstimate / SIZE_SCALE));
+        JITLOG(LL_INFO100000, "Inline profitable, will decrease code size by %g bytes\n",
+               (double)-m_ModelCodeSizeEstimate / SIZE_SCALE);
 
         if (m_IsPrejitRoot)
         {
@@ -2814,10 +2812,9 @@ void ModelPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
         double threshold    = 0.20;
         bool   shouldInline = (benefit > threshold);
 
-        JITLOG_THIS(m_RootCompiler,
-                    (LL_INFO100000, "Inline %s profitable: benefit=%g (weight=%g, percall=%g, size=%g)\n",
-                     shouldInline ? "is" : "is not", benefit, callSiteWeight,
-                     (double)m_PerCallInstructionEstimate / SIZE_SCALE, (double)m_ModelCodeSizeEstimate / SIZE_SCALE));
+        JITLOG(LL_INFO100000, "Inline %s profitable: benefit=%g (weight=%g, percall=%g, size=%g)\n",
+               shouldInline ? "is" : "is not", benefit, callSiteWeight,
+               (double)m_PerCallInstructionEstimate / SIZE_SCALE, (double)m_ModelCodeSizeEstimate / SIZE_SCALE);
 
         if (!shouldInline)
         {
@@ -2959,8 +2956,8 @@ void ProfilePolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     if (m_ModelCodeSizeEstimate <= 0)
     {
         // Inline will likely decrease code size
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Inline profitable, will decrease code size by %g bytes\n",
-                                     (double)-m_ModelCodeSizeEstimate / SIZE_SCALE));
+        JITLOG(LL_INFO100000, "Inline profitable, will decrease code size by %g bytes\n",
+               (double)-m_ModelCodeSizeEstimate / SIZE_SCALE);
 
         if (m_IsPrejitRoot)
         {
@@ -3013,10 +3010,9 @@ void ProfilePolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     double threshold    = JitConfig.JitInlinePolicyProfileThreshold() / 256.0;
     bool   shouldInline = (benefit > threshold);
 
-    JITLOG_THIS(m_RootCompiler,
-                (LL_INFO100000, "Inline %s profitable: benefit=%g (perCall=%g, local=%g, global=%g, size=%g)\n",
-                 shouldInline ? "is" : "is not", benefit, perCallBenefit, localBenefit, globalImportance,
-                 (double)m_PerCallInstructionEstimate / SIZE_SCALE, (double)m_ModelCodeSizeEstimate / SIZE_SCALE));
+    JITLOG(LL_INFO100000, "Inline %s profitable: benefit=%g (perCall=%g, local=%g, global=%g, size=%g)\n",
+           shouldInline ? "is" : "is not", benefit, perCallBenefit, localBenefit, globalImportance,
+           (double)m_PerCallInstructionEstimate / SIZE_SCALE, (double)m_ModelCodeSizeEstimate / SIZE_SCALE);
 
     if (!shouldInline)
     {
@@ -3147,9 +3143,8 @@ void SizePolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     if (newSize <= initialSize)
     {
         // Estimated size impact is acceptable, so inline here.
-        JITLOG_THIS(m_RootCompiler,
-                    (LL_INFO100000, "Inline profitable, root size estimate %d is less than initial size %d\n",
-                     newSize / SIZE_SCALE, initialSize / SIZE_SCALE));
+        JITLOG(LL_INFO100000, "Inline profitable, root size estimate %d is less than initial size %d\n",
+               newSize / SIZE_SCALE, initialSize / SIZE_SCALE);
 
         if (m_IsPrejitRoot)
         {
@@ -3653,7 +3648,7 @@ void ReplayPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
 
     if (accept)
     {
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Inline accepted via log replay"));
+        JITLOG(LL_INFO100000, "Inline accepted via log replay");
 
         if (m_IsPrejitRoot)
         {
@@ -3666,7 +3661,7 @@ void ReplayPolicy::DetermineProfitability(CORINFO_METHOD_INFO* methodInfo)
     }
     else
     {
-        JITLOG_THIS(m_RootCompiler, (LL_INFO100000, "Inline rejected via log replay"));
+        JITLOG(LL_INFO100000, "Inline rejected via log replay");
 
         if (m_IsPrejitRoot)
         {

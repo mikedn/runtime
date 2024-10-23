@@ -75,26 +75,6 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 #endif
 #endif // FEATURE_JIT_METHOD_PERF
 
-#ifdef DEBUG
-
-void Compiler::JitLogEE(unsigned level, const char* fmt, ...)
-{
-    va_list args;
-
-    if (verbose)
-    {
-        va_start(args, fmt);
-        vflogf(jitstdout, fmt, args);
-        va_end(args);
-    }
-
-    va_start(args, fmt);
-    vlogf(level, fmt, args);
-    va_end(args);
-}
-
-#endif // DEBUG
-
 #if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
 static unsigned genMethodCnt;  // total number of methods JIT'ted
 unsigned        genMethodICnt; // number of interruptible methods
@@ -2018,7 +1998,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 
     if (opts.optFlags == CLFLG_MINOPT)
     {
-        JITLOG((LL_INFO100, "CLFLG_MINOPT set for method %s\n", info.compFullName));
+        JITLOG(LL_INFO100, "CLFLG_MINOPT set for method %s\n", info.compFullName);
         theMinOptsValue = true;
     }
 
@@ -2136,36 +2116,36 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     {
         if (JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
         {
-            JITLOG((LL_INFO10, "IL Code Size exceeded, using MinOpts for method %s\n", info.compFullName));
+            JITLOG(LL_INFO10, "IL Code Size exceeded, using MinOpts for method %s\n", info.compFullName);
             theMinOptsValue = true;
         }
         else if (JitConfig.JitMinOptsInstrCount() < ilStats.instrCount)
         {
-            JITLOG((LL_INFO10, "IL instruction count exceeded, using MinOpts for method %s\n", info.compFullName));
+            JITLOG(LL_INFO10, "IL instruction count exceeded, using MinOpts for method %s\n", info.compFullName);
             theMinOptsValue = true;
         }
         else if (JitConfig.JitMinOptsBbCount() < fgBBcount)
         {
-            JITLOG((LL_INFO10, "Basic Block count exceeded, using MinOpts for method %s\n", info.compFullName));
+            JITLOG(LL_INFO10, "Basic Block count exceeded, using MinOpts for method %s\n", info.compFullName);
             theMinOptsValue = true;
         }
         else if (JitConfig.JitMinOptsLvNumCount() < lvaCount)
         {
-            JITLOG((LL_INFO10, "Local Variable Num count exceeded, using MinOpts for method %s\n", info.compFullName));
+            JITLOG(LL_INFO10, "Local Variable Num count exceeded, using MinOpts for method %s\n", info.compFullName);
             theMinOptsValue = true;
         }
         else if (JitConfig.JitMinOptsLvRefCount() < ilStats.lclRefCount)
         {
-            JITLOG((LL_INFO10, "Local Variable Ref count exceeded, using MinOpts for method %s\n", info.compFullName));
+            JITLOG(LL_INFO10, "Local Variable Ref count exceeded, using MinOpts for method %s\n", info.compFullName);
             theMinOptsValue = true;
         }
 
         if (theMinOptsValue)
         {
-            JITLOG((LL_INFO10000, "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count "
-                                  "%3d,%3d for method %s\n",
-                    info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount,
-                    info.compFullName));
+            JITLOG(LL_INFO10000, "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count "
+                                 "%3d,%3d for method %s\n",
+                   info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount,
+                   info.compFullName);
             if (JitConfig.JitBreakOnMinOpts() != 0)
             {
                 assert(!"MinOpts enabled");
@@ -2185,9 +2165,9 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     }
 #endif // DEBUG
 
-    JITLOG((LL_INFO10000,
-            "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count %3d,%3d for method %s\n",
-            info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount, info.compFullName));
+    JITLOG(LL_INFO10000,
+           "IL Code Size,Instr %4d,%4d, Basic Block count %3d, Local Variable Num,Ref count %3d,%3d for method %s\n",
+           info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount, info.compFullName);
 
 #if 0
     // The code in this #if has been useful in debugging loop cloning issues, by
@@ -2991,15 +2971,15 @@ unsigned Compiler::compMethodHash(CORINFO_METHOD_HANDLE methodHnd)
 void Compiler::compCompileFinish()
 {
 #if FUNC_INFO_LOGGING
-    if (compJitFuncInfoFile != nullptr)
+    if (FILE* funcInfoFile = compJitFuncInfoFile)
     {
         assert(!compIsForInlining());
 #ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
-        fprintf(compJitFuncInfoFile, "%s\n", info.compFullName);
+        fprintf(funcInfoFile, "%s\n", info.compFullName);
 #elif FEATURE_SIMD
-        fprintf(compJitFuncInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
+        fprintf(funcInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
 #endif
-        fprintf(compJitFuncInfoFile, ""); // in our logic this causes a flush
+        fflush(funcInfoFile);
     }
 #endif // FUNC_INFO_LOGGING
 

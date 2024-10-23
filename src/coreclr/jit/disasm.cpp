@@ -29,7 +29,7 @@
 #ifdef DISASM_DEBUG
 #ifdef DEBUG
 #define DISASM_DUMP(...)                                                                                               \
-    if (VERBOSE)                                                                                                       \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
     printf(__VA_ARGS__)
 #else // !DEBUG
 #define DISASM_DUMP(...) printf(__VA_ARGS__)

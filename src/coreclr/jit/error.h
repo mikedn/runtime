@@ -3,10 +3,7 @@
 
 #pragma once
 
-#include <corjit.h>   // for CORJIT_INTERNALERROR
-#include <safemath.h> // For FitsIn, used by SafeCvt methods.
-
-#define FATAL_JIT_EXCEPTION 0x02345678
+#include <corjit.h>
 
 class Compiler;
 
@@ -28,26 +25,26 @@ struct NestedErrorTrapParam : ErrorTrapParam
 };
 
 // Only catch JIT internal errors (will not catch EE generated Errors)
-extern LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& param);
+LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& param);
 
-// clang-format off
-extern void debugError(const char* msg, const char* file, unsigned line);
-extern void DECLSPEC_NORETURN badCode();
-extern void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, __in_z const char* file, unsigned line);
-extern void DECLSPEC_NORETURN noWay();
-extern void DECLSPEC_NORETURN implLimitation();
-extern void DECLSPEC_NORETURN NOMEM();
-extern void DECLSPEC_NORETURN fatal(int errCode);
+void debugError(const char* msg, const char* file, unsigned line);
 
-extern void DECLSPEC_NORETURN noWayAssertBody();
-extern void DECLSPEC_NORETURN noWayAssertBody(const char* cond, const char* file, unsigned line);
+void DECLSPEC_NORETURN badCode();
+void DECLSPEC_NORETURN badCode3(const char* msg, const char* msg2, int arg, const char* file, unsigned line);
+void DECLSPEC_NORETURN noWay();
+void DECLSPEC_NORETURN implLimitation();
+void DECLSPEC_NORETURN NOMEM();
+void DECLSPEC_NORETURN fatal(int errCode);
+
+void DECLSPEC_NORETURN noWayAssertBody();
+void DECLSPEC_NORETURN noWayAssertBody(const char* cond, const char* file, unsigned line);
 
 // Conditionally invoke the noway assert body. The conditional predicate is evaluated using a method on the tlsCompiler.
 // If a noway_assert is hit, we ask the Compiler whether to raise an exception (i.e., conditionally raise exception.)
 // To have backward compatibility between v4.5 and v4.0, in min-opts we take a shot at codegen rather than rethrow.
-extern void ANALYZER_NORETURN noWayAssertBodyConditional();
+void ANALYZER_NORETURN noWayAssertBodyConditional();
 
-extern void ANALYZER_NORETURN noWayAssertBodyConditional(const char* cond, const char* file, unsigned line);
+void ANALYZER_NORETURN noWayAssertBodyConditional(const char* cond, const char* file, unsigned line);
 
 // Define MEASURE_NOWAY to 1 to enable code to count and rank individual noway_assert calls by occurrence.
 // These asserts would be dynamically executed, but not necessarily fail. The provides some insight into
@@ -55,16 +52,18 @@ extern void ANALYZER_NORETURN noWayAssertBodyConditional(const char* cond, const
 // well as DEBUG builds.
 #ifdef DEBUG
 #define MEASURE_NOWAY 1
-#else 
+#else
 #define MEASURE_NOWAY 0
 #endif
 
 #if MEASURE_NOWAY
-extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* condStr);
+void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* condStr);
 #define RECORD_NOWAY_ASSERT(condStr) RecordNowayAssertGlobal(__FILE__, __LINE__, condStr);
 #else
 #define RECORD_NOWAY_ASSERT(condStr)
 #endif
+
+// clang-format off
 
 #ifdef DEBUG
 
@@ -85,9 +84,6 @@ extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const c
     } while (0)
 #define unreached() noWayAssertBody("unreached", __FILE__, __LINE__)
 
-#define NOWAY_MSG(msg) noWayAssertBodyConditional(msg, __FILE__, __LINE__)
-#define NOWAY_MSG_FILE_AND_LINE(msg, file, line) noWayAssertBodyConditional(msg, file, line)
-
 // IMPL_LIMITATION is called when we encounter valid IL that is not
 // supported by our current implementation because of various
 // limitations (that could be removed in the future)
@@ -103,7 +99,6 @@ extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const c
 // supported by our current implementation because of various
 // limitations (that could be removed in the future)
 #define IMPL_LIMITATION(msg) implLimitation()
-#define NOWAY_ASSERT_BODY_ARGUMENTS
 
 #define noway_assert(cond)                                                                                             \
     do                                                                                                                 \
@@ -111,13 +106,11 @@ extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const c
         RECORD_NOWAY_ASSERT(#cond)                                                                                     \
         if (!(cond))                                                                                                   \
         {                                                                                                              \
-            noWayAssertBodyConditional(NOWAY_ASSERT_BODY_ARGUMENTS);                                                   \
+            noWayAssertBodyConditional();                                                                              \
+            noWayAssertBodyConditional();                                                                              \
         }                                                                                                              \
     } while (0)
 #define unreached() noWayAssertBody()
-
-#define NOWAY_MSG(msg) noWayAssertBodyConditional(NOWAY_ASSERT_BODY_ARGUMENTS)
-#define NOWAY_MSG_FILE_AND_LINE(msg, file, line) noWayAssertBodyConditional(NOWAY_ASSERT_BODY_ARGUMENTS)
 
 #endif // !DEBUG
 
@@ -125,7 +118,7 @@ extern void RecordNowayAssertGlobal(const char* filename, unsigned line, const c
 #if 1 // All platforms currently enable NYI; this should be a tighter condition to exclude some platforms from NYI
 
 // This can return based on Config flag/Debugger
-extern void notYetImplemented(const char* msg, const char* file, unsigned line);
+void notYetImplemented(const char* msg, const char* file, unsigned line);
 #define NYIRAW(msg) notYetImplemented(msg, __FILE__, __LINE__)
 
 #define NYI(msg)                    NYIRAW("NYI: " msg)
@@ -175,56 +168,3 @@ extern void notYetImplemented(const char* msg, const char* file, unsigned line);
 #endif // NYI not available
 
 // clang-format on
-
-#if defined(HOST_X86) && !defined(TARGET_UNIX)
-
-// While debugging in an Debugger, the "int 3" will cause the program to break
-// Outside, the exception handler will just filter out the "int 3".
-
-#define BreakIfDebuggerPresent()                                                                                       \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        __try                                                                                                          \
-        {                                                                                                              \
-            __asm {int 3}                                                                                              \
-        }                                                                                                              \
-        __except (EXCEPTION_EXECUTE_HANDLER)                                                                           \
-        {                                                                                                              \
-        }                                                                                                              \
-    } while (0)
-
-#else
-#define BreakIfDebuggerPresent()                                                                                       \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (IsDebuggerPresent())                                                                                       \
-            DebugBreak();                                                                                              \
-    } while (0)
-#endif
-
-#ifdef DEBUG
-DWORD getBreakOnBadCode();
-#endif
-
-// For narrowing numeric conversions, the following two methods ensure that the
-// source value fits in the destination type, using either "assert" or
-// "noway_assert" to validate the conversion.  Obviously, each returns the source value as
-// the destination type.
-
-// (There is an argument that these should be macros, to let the preprocessor capture
-// a more useful file/line for the error message.  But then we have to use comma expressions
-// so that these can be used in expressions, etc., which is ugly.  So I propose we rely on
-// getting stack traces in other ways.)
-template <typename Dst, typename Src>
-inline Dst SafeCvtAssert(Src val)
-{
-    assert(FitsIn<Dst>(val));
-    return static_cast<Dst>(val);
-}
-
-template <typename Dst, typename Src>
-inline Dst SafeCvtNowayAssert(Src val)
-{
-    noway_assert(FitsIn<Dst>(val));
-    return static_cast<Dst>(val);
-}

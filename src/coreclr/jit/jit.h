@@ -176,30 +176,22 @@ using ssize_t = ptrdiff_t;
 #ifdef DEBUG
 #define JITDUMP(...)                                                                                                   \
     if (JitTls::GetCompiler()->verbose)                                                                                \
-    {                                                                                                                  \
-        logf(__VA_ARGS__);                                                                                             \
-    }
+        jitprintf(__VA_ARGS__);
+
 #define JITDUMPTREE(tree, ...)                                                                                         \
     if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        logf(__VA_ARGS__);                                                                                             \
+        jitprintf(__VA_ARGS__);                                                                                        \
         JitTls::GetCompiler()->gtDispTree(tree);                                                                       \
     }
+
 #define JITDUMPRANGE(range, t, ...)                                                                                    \
     if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        logf(__VA_ARGS__);                                                                                             \
+        jitprintf(__VA_ARGS__);                                                                                        \
         JitTls::GetCompiler()->gtDispTreeRange(range, t);                                                              \
     }
 
-#define JITLOG(x)                                                                                                      \
-    {                                                                                                                  \
-        JitLogEE x;                                                                                                    \
-    }
-#define JITLOG_THIS(t, x)                                                                                              \
-    {                                                                                                                  \
-        (t)->JitLogEE x;                                                                                               \
-    }
 #define DBEXEC(flg, expr)                                                                                              \
     if (flg)                                                                                                           \
     {                                                                                                                  \
@@ -224,13 +216,10 @@ using ssize_t = ptrdiff_t;
 #define DISPBLOCK(b)                                                                                                   \
     if (JitTls::GetCompiler()->verbose)                                                                                \
         JitTls::GetCompiler()->fgTableDispBasicBlock(b);
-#define VERBOSE JitTls::GetCompiler()->verbose
 #else // !DEBUG
 #define JITDUMP(...)
 #define JITDUMPTREE(...)
 #define JITDUMPRANGE(...)
-#define JITLOG(x)
-#define JITLOG_THIS(t, x)
 #define DBEXEC(flg, expr)
 #define DISPNODE(t)
 #define DISPTREE(t)
@@ -238,7 +227,6 @@ using ssize_t = ptrdiff_t;
 #define DISPRANGE(range)
 #define DISPTREERANGE(range, t)
 #define DISPBLOCK(b)
-#define VERBOSE 0
 #endif // !DEBUG
 
 #if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC

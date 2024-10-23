@@ -4,27 +4,29 @@
 #ifdef DEBUG
 
 #undef printf
-#define printf logf
+#define printf jitprintf
 
 #undef fprintf
-#define fprintf flogf
+#define fprintf jitfprintf
 
-bool vlogf(unsigned level, const char* fmt, va_list args);
-int vflogf(FILE* file, const char* fmt, va_list args);
-int logf(const char* fmt, ...);
-int flogf(FILE* file, const char* fmt, ...);
+int jitprintf(const char* fmt, ...);
+int jitfprintf(FILE* file, const char* fmt, ...);
 void gcDump_logf(const char* fmt, ...);
-void logf(unsigned level, const char* fmt, ...);
+void JitLogEE(unsigned level, const char* fmt, ...);
 
 void assertAbort(const char* why, const char* file, unsigned line);
 
 #undef assert
 #define assert(p) (void)((p) || (assertAbort(#p, __FILE__, __LINE__), 0))
 
+#define JITLOG(...) JitLogEE(__VA_ARGS__)
+
 #else // DEBUG
 
 #undef assert
 #define assert(p) (void)0
+
+#define JITLOG(...)
 
 #endif // DEBUG
 

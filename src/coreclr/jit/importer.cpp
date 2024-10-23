@@ -5227,7 +5227,7 @@ void Importer::impCheckForPInvokeCall(
         }
     }
 
-    JITLOG((LL_INFO1000000, "\nInline a CALLI PINVOKE call from method %s", info.compFullName));
+    JITLOG(LL_INFO1000000, "\nInline a CALLI PINVOKE call from method %s", info.compFullName);
 
     call->gtFlags |= GTF_CALL_UNMANAGED;
     call->unmgdCallConv = unmanagedCallConv;
@@ -17129,22 +17129,6 @@ void Importer::gtDispStmt(Statement* stmt)
 void Importer::gtDispTree(GenTree* tree)
 {
     return comp->gtDispTree(tree);
-}
-
-void Importer::JitLogEE(unsigned level, const char* fmt, ...)
-{
-    va_list args;
-
-    if (verbose)
-    {
-        va_start(args, fmt);
-        vflogf(jitstdout, fmt, args);
-        va_end(args);
-    }
-
-    va_start(args, fmt);
-    vlogf(level, fmt, args);
-    va_end(args);
 }
 
 #endif // DEBUG
