@@ -1381,10 +1381,10 @@ void LinearScan::identifyCandidates()
         }
         else
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            if (regType(type) == FloatRegisterType)
+            if (varTypeUsesFloatReg(type))
         {
             floatVarCount++;
-            BasicBlock::weight_t refCntWtd = varDsc->lvRefCntWtd();
+            BasicBlock::weight_t refCntWtd = varDsc->GetRefWeight();
 
             if (varDsc->IsRegParam())
             {
@@ -10823,7 +10823,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
 
     // For floating point, we want to be less aggressive about using callee-save registers.
     // So in that case, we just need to ensure that the current RefPosition is covered.
-    if (useFloatReg(currentInterval->registerType))
+    if (varTypeUsesFloatReg(currentInterval->registerType))
     {
         rangeEndRefPosition = refPosition;
         preferCalleeSave    = currentInterval->preferCalleeSave;

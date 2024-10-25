@@ -425,7 +425,7 @@ RefPosition* LinearScan::newRefPosition(
     }
 
 #ifdef DEBUG
-    if (regType(interval->registerType) == FloatRegisterType)
+    if (varTypeUsesFloatReg(interval->registerType))
     {
         // In the case we're using floating point registers we must make sure
         // this flag was set previously in the compiler since this will mandate

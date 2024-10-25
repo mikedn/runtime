@@ -18,40 +18,18 @@ class RegRecord;
 // Each node is assigned two LsraLocations - one for all the uses and all but the last
 // def, and a second location for the last def (if any)
 
-typedef unsigned int LsraLocation;
-const unsigned int   MinLocation = 0;
-const unsigned int   MaxLocation = UINT_MAX;
-// max number of registers an operation could require internally (in addition to uses and defs)
-const unsigned int MaxInternalRegisters = 8;
-const unsigned int RegisterTypeCount    = 2;
+using LsraLocation = unsigned;
+
+constexpr LsraLocation MinLocation = 0;
+constexpr LsraLocation MaxLocation = UINT_MAX;
 
 /*****************************************************************************
 * Register types
 *****************************************************************************/
-typedef var_types RegisterType;
-#define IntRegisterType TYP_INT
-#define FloatRegisterType TYP_FLOAT
+using RegisterType = var_types;
 
-inline RegisterType regType(var_types type)
-{
-    return varTypeUsesFloatReg(type) ? FloatRegisterType : IntRegisterType;
-}
-
-//------------------------------------------------------------------------
-// useFloatReg: Check if the given var_type should be allocated to a FloatRegisterType
-//
-inline bool useFloatReg(var_types type)
-{
-    return regType(type) == FloatRegisterType;
-}
-
-//------------------------------------------------------------------------
-// registerTypesEquivalent: Check to see if two RegisterTypes are equivalent
-//
-inline bool registerTypesEquivalent(RegisterType a, RegisterType b)
-{
-    return varTypeIsIntegralOrI(a) == varTypeIsIntegralOrI(b);
-}
+constexpr RegisterType IntRegisterType   = TYP_INT;
+constexpr RegisterType FloatRegisterType = TYP_FLOAT;
 
 //------------------------------------------------------------------------
 // calleeSaveRegs: Get the set of callee-save registers of the given RegisterType
