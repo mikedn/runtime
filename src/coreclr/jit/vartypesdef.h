@@ -8,6 +8,12 @@ enum var_types : uint8_t
 #define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) TYP_##tn,
 #include "typelist.h"
     TYP_COUNT,
+    TYP_INT_MIN = TYP_BOOL,
+    TYP_INT_MAX = TYP_ULONG,
+#ifdef FEATURE_SIMD
+    TYP_VEC_MIN = TYP_SIMD8,
+    TYP_VEC_MAX = TYP_SIMD32,
+#endif
 #ifdef TARGET_64BIT
     TYP_I_IMPL = TYP_LONG,
     TYP_U_IMPL = TYP_ULONG

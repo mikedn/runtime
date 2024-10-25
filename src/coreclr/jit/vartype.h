@@ -100,12 +100,12 @@ inline bool varActualTypeIsInt(var_types vt)
 
 inline bool varTypeIsLong(var_types vt)
 {
-    return (vt >= TYP_LONG) && (vt <= TYP_ULONG);
+    return (vt == TYP_LONG) || (vt == TYP_ULONG);
 }
 
 inline bool varTypeIsIntegral(var_types vt)
 {
-    return (varTypeKinds[vt] & VTK_INT) != 0;
+    return (TYP_INT_MIN <= vt) && (vt <= TYP_INT_MAX);
 }
 
 inline bool varActualTypeIsIntOrI(var_types vt)
@@ -118,21 +118,6 @@ inline bool varTypeIsIntOrI(var_types t)
     return (t == TYP_INT) || (t == TYP_I_IMPL);
 }
 
-inline bool varTypeIsIntegralOrI(var_types vt)
-{
-    return (varTypeKinds[vt] & (VTK_INT | VTK_I)) != 0;
-}
-
-inline bool varTypeIsUnsigned(var_types vt)
-{
-    return (varTypeKinds[vt] & VTK_UNSIGNED) != 0;
-}
-
-inline bool varTypeIsSigned(var_types t)
-{
-    return varTypeIsIntegralOrI(t) && !varTypeIsUnsigned(t);
-}
-
 inline bool varTypeIsFloating(var_types vt)
 {
     return (vt == TYP_FLOAT) || (vt == TYP_DOUBLE);
@@ -140,7 +125,7 @@ inline bool varTypeIsFloating(var_types vt)
 
 inline bool varTypeIsArithmetic(var_types t)
 {
-    return (varTypeKinds[t] & (VTK_INT | VTK_FLOAT)) != 0;
+    return varTypeIsIntegral(t) || varTypeIsFloating(t);
 }
 
 inline bool varTypeIsGC(var_types vt)
@@ -148,30 +133,38 @@ inline bool varTypeIsGC(var_types vt)
     return (vt == TYP_REF) || (vt == TYP_BYREF);
 }
 
+inline bool varTypeIsIntegralOrI(var_types vt)
+{
+    return varTypeIsIntegral(vt) || varTypeIsGC(vt);
+}
+
 inline bool varTypeIsI(var_types vt)
 {
-    return (varTypeKinds[vt] & VTK_I) != 0;
+    return (vt == TYP_I_IMPL) || varTypeIsGC(vt);
+}
+
+inline bool varTypeIsUnsigned(var_types vt)
+{
+    return varTypeIsSmallUnsigned(vt) || (vt == TYP_UINT) || (vt == TYP_ULONG);
+}
+
+inline bool varTypeIsSigned(var_types vt)
+{
+    return varTypeIsSmallSigned(vt) || (vt == TYP_INT) || (vt == TYP_LONG);
 }
 
 inline bool varTypeIsSIMD(var_types vt)
 {
-    switch (vt)
-    {
 #ifdef FEATURE_SIMD
-        case TYP_SIMD8:
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-        case TYP_SIMD32:
-            return true;
+    return (TYP_VEC_MIN <= vt) && (vt <= TYP_VEC_MAX);
+#else
+    return false;
 #endif
-        default:
-            return false;
-    }
 }
 
 inline bool varTypeIsStruct(var_types vt)
 {
-    return (varTypeKinds[vt] & VTK_STRUCT) != 0;
+    return (vt == TYP_STRUCT) || varTypeIsSIMD(vt);
 }
 
 inline bool varTypeIsComposite(var_types t)
@@ -205,8 +198,6 @@ inline bool varTypeIsSingleReg(var_types vt)
 
 inline bool varTypeUsesFloatReg(var_types vt)
 {
-    // Note that not all targets support SIMD, but if they don't, varTypeIsSIMD will
-    // always return false.
     return varTypeIsFloating(vt) || varTypeIsSIMD(vt);
 }
 
