@@ -3013,60 +3013,60 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
     };
 #endif
 
-    for (LclVarDsc* varDsc : compiler->Locals())
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        if (!varDsc->lvMustInit)
+        if (!lcl->lvMustInit)
         {
             continue;
         }
 
         // TODO-Review: I'm not sure that we're correctly handling the mustInit case for
         // partially-enregistered vars in the case where we don't use a block init.
-        noway_assert(varDsc->lvIsInReg() || varDsc->lvOnFrame);
+        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame);
 
         // lvMustInit can only be set for GC types or TYP_STRUCT types
         // or when compInitMem is true
         // or when in debug code
 
-        noway_assert(varTypeIsGC(varDsc->TypeGet()) || (varDsc->TypeGet() == TYP_STRUCT) ||
-                     compiler->info.compInitMem || compiler->opts.compDbgCode);
+        noway_assert(varTypeIsGC(lcl->GetType()) || lcl->TypeIs(TYP_STRUCT) || compiler->info.compInitMem ||
+                     compiler->opts.compDbgCode);
 
-        if (!varDsc->lvOnFrame)
+        if (!lcl->lvOnFrame)
         {
             continue;
         }
 
-        if (varDsc->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && varDsc->HasGCPtr())
+        if (lcl->TypeIs(TYP_STRUCT) && !compiler->info.compInitMem && lcl->HasGCPtr())
         {
             // We only initialize the GC variables in the TYP_STRUCT
-            ClassLayout* layout = varDsc->GetLayout();
+            ClassLayout* layout = lcl->GetLayout();
 
             for (unsigned i = 0; i < layout->GetSlotCount(); i++)
             {
                 if (layout->IsGCPtr(i))
                 {
                     GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, GetZeroReg(),
-                                              GetStackAddrMode(varDsc, i * REGSIZE_BYTES));
+                                              GetStackAddrMode(lcl, i * REGSIZE_BYTES));
                 }
             }
         }
         else
         {
-            regNumber zeroReg = GetZeroReg();
+            RegNum zeroReg = GetZeroReg();
 
             // zero out the whole thing rounded up to a single stack slot size
-            unsigned lclSize = roundUp(varDsc->GetFrameSize(), 4);
+            unsigned lclSize = roundUp(lcl->GetFrameSize(), 4);
             unsigned i;
             for (i = 0; i + REGSIZE_BYTES <= lclSize; i += REGSIZE_BYTES)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, GetStackAddrMode(varDsc, i));
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_I_IMPL), EA_PTRSIZE, zeroReg, GetStackAddrMode(lcl, i));
             }
 
 #ifdef TARGET_64BIT
             assert(i == lclSize || (i + sizeof(int) == lclSize));
             if (i != lclSize)
             {
-                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, GetStackAddrMode(varDsc, i));
+                GetEmitter()->emitIns_S_R(ins_Store(TYP_INT), EA_4BYTE, zeroReg, GetStackAddrMode(lcl, i));
                 i += sizeof(int);
             }
 #endif // TARGET_64BIT
@@ -5236,7 +5236,7 @@ void CodeGen::GenStoreLclVarMultiReg(GenTreeLclStore* store)
         var_types  srcType     = value->GetMultiRegType(compiler, i);
         unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(i);
         LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
-        var_types  fieldType   = fieldLcl->TypeGet();
+        var_types  fieldType   = fieldLcl->GetType();
         RegNum     fieldReg    = store->GetRegNum(i);
 
         if (fieldReg != REG_NA)

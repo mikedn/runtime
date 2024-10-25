@@ -687,12 +687,6 @@ public:
         return lvType;
     }
 
-    // [[deprecated]]
-    var_types TypeGet() const
-    {
-        return lvType;
-    }
-
     bool TypeIs(var_types type) const
     {
         return lvType == type;

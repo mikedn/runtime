@@ -2678,7 +2678,7 @@ void CodeGen::GenCmpXchg(GenTreeCmpXchg* node)
     // atomics as the input registers are multiply-used. As such, we need to mark the addr register
     // as containing a GC pointer until we are finished generating the code for this node.
 
-    liveness.SetGCRegType(addrReg, addr->TypeGet());
+    liveness.SetGCRegType(addrReg, addr->GetType());
 
     emitAttr size = emitTypeSize(node->GetType());
     // We don't expect small int types to be used, otherwise we'd need
@@ -3253,7 +3253,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
 
     regNumber reg = UseReg(op1);
 
-    emitAttr attr = emitActualTypeSize(op1->TypeGet());
+    emitAttr attr = emitActualTypeSize(op1->GetType());
 
     if (tree->gtFlags & GTF_JCMP_TST)
     {

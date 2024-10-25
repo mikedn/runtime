@@ -2425,16 +2425,17 @@ var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
 //
 var_types LclVarDsc::GetRegisterType() const
 {
-    if (TypeGet() != TYP_STRUCT)
+    if (lvType != TYP_STRUCT)
     {
-#if !defined(TARGET_64BIT)
-        if (TypeGet() == TYP_LONG)
+#ifndef TARGET_64BIT
+        if (lvType == TYP_LONG)
         {
             return TYP_UNDEF;
         }
 #endif
-        return TypeGet();
+        return lvType;
     }
+
     assert(m_layout != nullptr);
     return m_layout->GetRegisterType();
 }
@@ -2698,7 +2699,7 @@ void Compiler::lvaComputeRefCountsHIR()
 
                 // TODO: Zero-inits in LSRA are created with below condition. Try to use
                 // similar condition here as well.
-                // if (compiler->info.compInitMem || varTypeIsGC(lcl->TypeGet()))
+                // if (compiler->info.compInitMem || varTypeIsGC(lcl->GetType()))
 
                 bool needsExplicitZeroInit = m_compiler->fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn);
 

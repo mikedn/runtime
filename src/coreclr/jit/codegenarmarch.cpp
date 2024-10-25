@@ -907,7 +907,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
     if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
     {
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
-        GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->TypeGet()), indexReg, tmpReg);
+        GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->GetType()), indexReg, tmpReg);
         genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 

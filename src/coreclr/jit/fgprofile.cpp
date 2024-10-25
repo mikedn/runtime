@@ -1329,7 +1329,7 @@ public:
         //         ... args ...)
         //
 
-        assert(call->gtCallThisArg->GetNode()->TypeGet() == TYP_REF);
+        assert(call->gtCallThisArg->GetNode()->TypeIs(TYP_REF));
 
         // Sanity check that we're looking at the right schema entry
         //

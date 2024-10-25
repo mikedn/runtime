@@ -1515,10 +1515,9 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
                 // instead of removing them we replace with a NOP.
                 // ARGPLACE nodes are not represented in the LIR sequence. Ignore them.
                 // The argument of a JTRUE doesn't produce a value (just sets a flag).
-                assert(((node->OperGet() == GT_CALL) &&
+                assert((node->OperIs(GT_CALL) &&
                         (def->OperIsStore() || def->OperIs(GT_PUTARG_STK, GT_NOP, GT_ARGPLACE))) ||
-                       ((node->OperGet() == GT_JTRUE) && (def->TypeGet() == TYP_VOID) &&
-                        ((def->gtFlags & GTF_SET_FLAGS) != 0)));
+                       (node->OperIs(GT_JTRUE) && def->TypeIs(TYP_VOID) && ((def->gtFlags & GTF_SET_FLAGS) != 0)));
                 continue;
             }
 

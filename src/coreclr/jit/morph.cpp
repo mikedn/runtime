@@ -5463,7 +5463,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // result. TODO-CQ: Fix this.
     if (info.compRetBuffArg != BAD_VAR_NUM)
     {
-        noway_assert(call->TypeGet() == TYP_VOID);
+        noway_assert(call->TypeIs(TYP_VOID));
+
         GenTree* retValBuf = call->gtCallArgs->GetNode();
         if (!retValBuf->OperIs(GT_LCL_LOAD) || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
         {
@@ -5616,13 +5617,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
                 }
             }
 
-            if (call->gtCallThisArg != nullptr)
+            if ((call->gtCallThisArg != nullptr) && !call->gtCallThisArg->GetNode()->TypeIs(TYP_REF))
             {
-                var_types thisArgType = call->gtCallThisArg->GetNode()->TypeGet();
-                if (thisArgType != TYP_REF)
-                {
-                    flags |= CORINFO_TAILCALL_THIS_ARG_IS_BYREF;
-                }
+                flags |= CORINFO_TAILCALL_THIS_ARG_IS_BYREF;
             }
 
             if (!info.compCompHnd->getTailCallHelpers(token, sig, (CORINFO_GET_TAILCALL_HELPERS_FLAGS)flags,
@@ -5647,7 +5644,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // a recursive call into a loop.  Another option is to modify gtIsRecursiveCall() to check that the
     // generic type parameters of both caller and callee generic method are the same.
     if (opts.compTailCallLoopOpt && canFastTailCall && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
-        !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam && !varTypeIsStruct(call->TypeGet()))
+        !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam && !varTypeIsStruct(call->GetType()))
     {
         fastTailCallToLoop = true;
     }
@@ -6322,7 +6319,7 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          orig
             lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
         lvaSetAddressExposed(tmpRetBufLcl);
 
-        var_types tmpRetBufType = tmpRetBufLcl->TypeGet();
+        var_types tmpRetBufType = tmpRetBufLcl->GetType();
 
         retValArg = gtNewLclAddr(tmpRetBufLcl);
 
@@ -9025,11 +9022,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     return qmark;
 }
 
-/*****************************************************************************
- *
- *  Transform the given GTK_SMPOP tree for code generation.
- */
-
 #ifdef _PREFAST_
 #pragma warning(push)
 #pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
@@ -9038,21 +9030,18 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 {
     assert(tree->OperKind() & GTK_SMPOP);
 
-    /* The steps in this function are :
-       o Perform required preorder processing
-       o Process the first, then second operand, if any
-       o Perform required postorder morphing
-       o Perform optional postorder morphing if optimizing
-     */
+    // The steps in this function are :
+    // o Perform required preorder processing
+    // o Process the first, then second operand, if any
+    // o Perform required postorder morphing
+    // o Perform optional postorder morphing if optimizing
 
-    genTreeOps oper = tree->OperGet();
-    var_types  typ  = tree->TypeGet();
+    genTreeOps oper = tree->GetOper();
+    var_types  typ  = tree->GetType();
     GenTree*   op1  = tree->AsOp()->gtOp1;
     GenTree*   op2  = tree->gtGetOp2IfPresent();
 
-    /*-------------------------------------------------------------------------
-     * First do any PRE-ORDER processing
-     */
+    // First do any PRE-ORDER processing
 
     switch (oper)
     {
@@ -10746,8 +10735,8 @@ DONE_MORPHING_CHILDREN:
                 tree = fgRecognizeAndMorphBitwiseRotation(tree);
 
                 // fgRecognizeAndMorphBitwiseRotation may return a new tree
-                oper = tree->OperGet();
-                typ  = tree->TypeGet();
+                oper = tree->GetOper();
+                typ  = tree->GetType();
                 op1  = tree->AsOp()->gtOp1;
                 op2  = tree->AsOp()->gtOp2;
             }
@@ -13509,10 +13498,10 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     GenTree* trueExpr  = qmark->GetThen();
     GenTree* falseExpr = qmark->GetElse();
 
-    assert(!varTypeIsFloating(condExpr->TypeGet()));
+    assert(!varTypeIsFloating(condExpr->GetType()));
 
-    bool hasTrueExpr  = (trueExpr->OperGet() != GT_NOP);
-    bool hasFalseExpr = (falseExpr->OperGet() != GT_NOP);
+    bool hasTrueExpr  = !trueExpr->OperIs(GT_NOP);
+    bool hasFalseExpr = !falseExpr->OperIs(GT_NOP);
     assert(hasTrueExpr || hasFalseExpr); // We expect to have at least one arm of the qmark!
 
     // Create remainder, cond and "else" blocks. After this, the blocks are in this order:

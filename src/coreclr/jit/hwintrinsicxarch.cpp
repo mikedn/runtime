@@ -821,7 +821,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
             assert(sig.retType == TYP_VOID);
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->TypeGet(), 0, op1, op2);
+            return gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
         }
 
         default:

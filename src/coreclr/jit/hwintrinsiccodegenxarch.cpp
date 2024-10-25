@@ -1340,7 +1340,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
             assert(!varTypeIsFloating(baseType));
 
             instruction ins  = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-            emitAttr    attr = emitActualTypeSize(node->TypeGet());
+            emitAttr    attr = emitActualTypeSize(node->GetType());
 
             auto emitSwCase = [&](int8_t i) { inst_RV_TT_IV(ins, attr, targetReg, op1, i); };
 
@@ -1400,7 +1400,7 @@ void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                assert(op1->TypeGet() == op2->TypeGet());
+                assert(op1->GetType() == op2->GetType());
                 assert((targetType == TYP_INT) || (targetType == TYP_LONG));
                 genHWIntrinsic_R_RM(node, INS_crc32, emitTypeSize(targetType), targetReg, op2);
             }
@@ -1423,7 +1423,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
     NamedIntrinsic intrinsicId = node->GetIntrinsic();
     var_types      baseType    = node->GetSimdBaseType();
     emitAttr       attr        = emitVecTypeSize(node->GetSimdSize());
-    var_types      targetType  = node->TypeGet();
+    var_types      targetType  = node->GetType();
     instruction    ins         = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
     int            numArgs     = node->GetNumOps();
     GenTree*       op1         = numArgs >= 1 ? node->GetOp(0) : nullptr;
@@ -1514,7 +1514,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
                 emit->emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, maskReg, maskReg, maskReg);
             }
 
-            bool isVector128GatherWithVector256Index = (targetType == TYP_SIMD16) && (indexOp->TypeGet() == TYP_SIMD32);
+            bool isVector128GatherWithVector256Index = (targetType == TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32);
 
             // hwintrinsiclistxarch.h uses Dword index instructions in default
             if (varTypeIsLong(node->GetAuxiliaryType()))
@@ -1579,7 +1579,7 @@ void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
     regNumber      targetReg   = node->GetRegNum();
     GenTree*       op1         = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
     GenTree*       op2         = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
-    var_types      targetType  = node->TypeGet();
+    var_types      targetType  = node->GetType();
     instruction    ins         = HWIntrinsicInfo::lookupIns(intrinsicId, targetType);
     emitter*       emit        = GetEmitter();
 
@@ -1603,7 +1603,7 @@ void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
         {
             assert(op2 != nullptr);
             assert((targetType == TYP_INT) || (targetType == TYP_LONG));
-            genHWIntrinsic_R_R_RM(node, ins, emitTypeSize(node->TypeGet()));
+            genHWIntrinsic_R_R_RM(node, ins, emitTypeSize(node->GetType()));
             break;
         }
 
@@ -1616,7 +1616,7 @@ void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
         {
             assert(op2 == nullptr);
             assert((targetType == TYP_INT) || (targetType == TYP_LONG));
-            genHWIntrinsic_R_RM(node, ins, emitTypeSize(node->TypeGet()), targetReg, op1);
+            genHWIntrinsic_R_RM(node, ins, emitTypeSize(node->GetType()), targetReg, op1);
             break;
         }
 

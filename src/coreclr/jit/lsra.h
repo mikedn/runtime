@@ -32,16 +32,9 @@ typedef var_types RegisterType;
 #define IntRegisterType TYP_INT
 #define FloatRegisterType TYP_FLOAT
 
-//------------------------------------------------------------------------
-// regType: Return the RegisterType to use for a given type
-//
-// Arguments:
-//    type - the type of interest
-//
-template <class T>
-RegisterType regType(T type)
+inline RegisterType regType(var_types type)
 {
-    return varTypeUsesFloatReg(TypeGet(type)) ? FloatRegisterType : IntRegisterType;
+    return varTypeUsesFloatReg(type) ? FloatRegisterType : IntRegisterType;
 }
 
 //------------------------------------------------------------------------
@@ -49,7 +42,7 @@ RegisterType regType(T type)
 //
 inline bool useFloatReg(var_types type)
 {
-    return (regType(type) == FloatRegisterType);
+    return regType(type) == FloatRegisterType;
 }
 
 //------------------------------------------------------------------------

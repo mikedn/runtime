@@ -4306,11 +4306,11 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                     // insertps has its own special handling
                     assert(containingNode->GetSimdBaseType() != TYP_FLOAT);
                     // We should only get here for integral nodes.
-                    assert(varTypeIsIntegral(node->TypeGet()));
+                    assert(varTypeIsIntegral(node->GetType()));
 
-                    assert(supportsAlignedSIMDLoads == false);
-                    assert(supportsUnalignedSIMDLoads == false);
-                    assert(supportsSIMDScalarLoads == false);
+                    assert(!supportsAlignedSIMDLoads );
+                    assert(!supportsUnalignedSIMDLoads );
+                    assert(!supportsSIMDScalarLoads );
 
                     unsigned expectedSize = varTypeSize(containingNode->GetSimdBaseType());
                     unsigned operandSize  = varTypeSize(node->GetType());
@@ -4371,7 +4371,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 {
                     // The memory form of this already takes a pointer, and cannot be further contained.
                     // The containable form is the one that takes a SIMD value, that may be in memory.
-                    supportsGeneralLoads = (node->TypeGet() == TYP_SIMD16);
+                    supportsGeneralLoads = node->TypeIs(TYP_SIMD16);
                     break;
                 }
 
@@ -4384,7 +4384,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_SSE2_X64_ConvertScalarToVector128Int64:
                 case NI_SSE2_X64_ConvertScalarToVector128UInt64:
                 {
-                    if (!varTypeIsIntegral(node->TypeGet()))
+                    if (!varTypeIsIntegral(node->GetType()))
                     {
                         // The floating-point overload doesn't require any special semantics
                         assert(containingIntrinsicId == NI_SSE2_ConvertScalarToVector128Double);
@@ -4421,7 +4421,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
         case HW_Category_Scalar:
         {
             // We should only get here for integral nodes.
-            assert(varTypeIsIntegral(node->TypeGet()));
+            assert(varTypeIsIntegral(node->GetType()));
 
             assert(supportsAlignedSIMDLoads == false);
             assert(supportsUnalignedSIMDLoads == false);
@@ -4652,7 +4652,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ConvertToVector256Int16:
                     case NI_AVX2_ConvertToVector256Int32:
                     case NI_AVX2_ConvertToVector256Int64:
-                        if (!varTypeIsSIMD(node->GetOp(0)->TypeGet()))
+                        if (!varTypeIsSIMD(node->GetOp(0)->GetType()))
                         {
                             ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
                             return;

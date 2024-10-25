@@ -1346,7 +1346,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         {
             lvaSetLiveInOutOfHandler(lcl);
 
-            if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->TypeGet()))
+            if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->GetType()))
             {
                 lcl->lvMustInit = true;
             }

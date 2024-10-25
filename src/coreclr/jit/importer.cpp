@@ -8571,7 +8571,7 @@ void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
 
 GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass)
 {
-    assert(op1->TypeGet() == TYP_REF);
+    assert(op1->TypeIs(TYP_REF));
 
     // Don't optimize for minopts or debug codegen.
     if (opts.OptimizationDisabled())
@@ -9948,7 +9948,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_CKFINITE:
                 op1  = impPopStack().val;
-                type = op1->TypeGet();
+                type = op1->GetType();
                 op1  = gtNewOperNode(GT_CKFINITE, type, op1);
                 op1->gtFlags |= GTF_EXCEPT;
                 impPushOnStack(op1);
@@ -9998,7 +9998,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_BRFALSE:
             case CEE_BRFALSE_S:
                 op1  = impPopStack().val;
-                type = op1->TypeGet();
+                type = op1->GetType();
 
                 // Per Ecma-355, brfalse and brtrue are only specified for nint, ref, and byref.
                 //

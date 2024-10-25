@@ -3863,12 +3863,12 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 //
 GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 {
-    assert((node->OperGet() == GT_DIV) || (node->OperGet() == GT_MOD));
+    assert(node->OperIs(GT_DIV, GT_MOD));
     GenTree* divMod   = node;
     GenTree* dividend = divMod->gtGetOp1();
     GenTree* divisor  = divMod->gtGetOp2();
 
-    const var_types type = divMod->TypeGet();
+    const var_types type = divMod->GetType();
     assert((type == TYP_INT) || (type == TYP_LONG));
 
 #ifdef USE_HELPERS_FOR_INT_DIV
@@ -4458,12 +4458,12 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     DISPTREERANGE(BlockRange(), arrElem);
     JITDUMP("\n");
 
-    assert(arrElem->gtArrObj->TypeGet() == TYP_REF);
+    assert(arrElem->GetArray()->TypeIs(TYP_REF));
 
     // We need to have the array object in a lclVar.
     // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) results in poor CQ,
     // we really should have the array reference in a register.
-    if (!arrElem->gtArrObj->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    if (!arrElem->GetArray()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
         LIR::Use arrObjUse(BlockRange(), &arrElem->gtArrObj, arrElem);
         ReplaceWithLclLoad(arrObjUse);
@@ -4532,7 +4532,7 @@ GenTree* Lowering::LowerArrElem(GenTree* node)
     GenTree* leaBase = comp->gtCloneSimple(arrObjNode);
     BlockRange().InsertBefore(insertionPoint, leaBase);
 
-    GenTree* leaNode = new (comp, GT_LEA) GenTreeAddrMode(arrElem->TypeGet(), leaBase, leaIndexNode, scale, offset);
+    GenTree* leaNode = new (comp, GT_LEA) GenTreeAddrMode(arrElem->GetType(), leaBase, leaIndexNode, scale, offset);
 
     BlockRange().InsertBefore(insertionPoint, leaNode);
 

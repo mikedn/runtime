@@ -172,12 +172,7 @@ bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
 #error Unsupported platform
 #endif
 
-    if (varActualType(op->TypeGet()) != TYP_INT)
-    {
-        return false;
-    }
-
-    return true;
+    return varActualTypeIsInt(op->GetType());
 }
 
 GenTree* Importer::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout)
@@ -192,7 +187,7 @@ GenTree* Importer::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* par
     }
 
     GenTree* arg = impSIMDPopStack(paramType);
-    assert(varTypeIsSIMD(arg->TypeGet()));
+    assert(varTypeIsSIMD(arg->GetType()));
     return arg;
 }
 
@@ -768,12 +763,12 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
                 case NI_AdvSimd_AddWideningUpper:
                 case NI_AdvSimd_SubtractWideningUpper:
-                    assert(varTypeIsSIMD(op1->TypeGet()));
+                    assert(varTypeIsSIMD(op1->GetType()));
                     retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[0]->GetElementType());
                     break;
 
                 case NI_AdvSimd_Arm64_AddSaturateScalar:
-                    assert(varTypeIsSIMD(op2->TypeGet()));
+                    assert(varTypeIsSIMD(op2->GetType()));
                     retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
                     break;
 
@@ -828,14 +823,14 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
             if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
             {
-                assert(varTypeIsSIMD(op2->TypeGet()));
+                assert(varTypeIsSIMD(op2->GetType()));
                 retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
             }
 #elif defined(TARGET_ARM64)
             if (category == HW_Category_SIMDByIndexedElement)
             {
-                assert(varTypeIsSIMD(op2->TypeGet()));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(op2->TypeGet());
+                assert(varTypeIsSIMD(op2->GetType()));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(op2->GetType());
             }
 #endif
             break;
@@ -853,8 +848,8 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (category == HW_Category_SIMDByIndexedElement)
             {
-                assert(varTypeIsSIMD(op3->TypeGet()));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(op3->TypeGet());
+                assert(varTypeIsSIMD(op3->GetType()));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(op3->GetType());
             }
             break;
 #endif

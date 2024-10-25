@@ -3728,7 +3728,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 #ifdef TARGET_64BIT
         // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case that the index
         // is a native int on a 64-bit platform, we will need to widen the array length and then compare.
-        if (index->TypeGet() == TYP_I_IMPL)
+        if (index->TypeIs(TYP_I_IMPL))
         {
             GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
             GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, indexReg, tmpReg);
@@ -3743,7 +3743,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
     }
 
 #ifdef TARGET_64BIT
-    if (index->TypeGet() != TYP_I_IMPL)
+    if (!index->TypeIs(TYP_I_IMPL))
     {
         // LEA needs 64-bit operands so we need to widen the index if it's TYP_INT.
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tmpReg, indexReg, /* canSkip */ false);
@@ -3776,7 +3776,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
             break;
     }
 
-    GetEmitter()->emitIns_R_ARX(INS_lea, emitTypeSize(node->TypeGet()), dstReg, baseReg, tmpReg, scale,
+    GetEmitter()->emitIns_R_ARX(INS_lea, emitTypeSize(node->GetType()), dstReg, baseReg, tmpReg, scale,
                                 node->GetDataOffs());
 
     // TODO-MIKE-Review: Hrm, what if baseReg is a local variable reg?!
@@ -4433,7 +4433,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~RBM_ARG_REGS);
     liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~RBM_ARG_REGS);
 
-    var_types returnType = call->TypeGet();
+    var_types returnType = call->GetType();
     if (returnType != TYP_VOID)
     {
 #ifdef TARGET_X86

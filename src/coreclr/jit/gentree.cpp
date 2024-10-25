@@ -4679,7 +4679,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
             case GT_ARR_INDEX:
                 copy = new (this, GT_ARR_INDEX)
-                    GenTreeArrIndex(tree->TypeGet(),
+                    GenTreeArrIndex(tree->GetType(),
                                     gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, constLcl, constVal),
                                     gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, constLcl, constVal),
                                     tree->AsArrIndex()->gtCurrDim, tree->AsArrIndex()->gtArrRank,
@@ -9217,7 +9217,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 
     // Only proceed when both box sources have the same actual type.
     // (this rules out long/int mismatches)
-    if (varActualType(thisVal->TypeGet()) != varActualType(flagVal->TypeGet()))
+    if (varActualType(thisVal->GetType()) != varActualType(flagVal->GetType()))
     {
         JITDUMP("bailing, pre-boxed values have different types\n");
         return nullptr;
@@ -12191,7 +12191,7 @@ bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
             assert(IsUnary());
             return (m_intrinsic == NI_AVX2_BroadcastScalarToVector128 ||
                     m_intrinsic == NI_AVX2_BroadcastScalarToVector256) &&
-                   GetOp(0)->TypeGet() != TYP_SIMD16;
+                   !GetOp(0)->TypeIs(TYP_SIMD16);
         }
         else if (category == HW_Category_IMM)
         {

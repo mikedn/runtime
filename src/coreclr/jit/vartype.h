@@ -58,22 +58,6 @@ inline var_types varActualType(var_types type)
     return static_cast<var_types>(varTypeActualTypes[type]);
 }
 
-// make any class with a TypeGet member also have a function TypeGet() that does the same thing
-template <class T>
-inline var_types TypeGet(T* t)
-{
-    return t->TypeGet();
-}
-
-// make a TypeGet function which is the identity function for var_types
-// the point of this and the preceding template is now you can make template functions
-// that work on var_types as well as any object that exposes a TypeGet method.
-// such as all of these varTypeIs* functions
-inline var_types TypeGet(var_types v)
-{
-    return v;
-}
-
 inline bool varTypeIsByte(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_UBYTE);

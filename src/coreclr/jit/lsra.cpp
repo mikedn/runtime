@@ -2003,7 +2003,7 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
                 // This doesn't apply to a 32-bit system, on which long values occupy multiple registers.
                 // (We could sign-extend, but we would have to always sign-extend, because if we reuse more
                 // than once, we won't have access to the instruction that originally defines the constant).
-                if ((refPosition->treeNode->TypeGet() == otherTreeNode->TypeGet()) || (v1 >= 0))
+                if ((refPosition->treeNode->GetType() == otherTreeNode->GetType()) || (v1 >= 0))
 #endif // TARGET_64BIT
                 {
                     return true;
@@ -5453,7 +5453,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
     }
     else
     {
-        var_types regType = tree->TypeGet();
+        var_types regType = tree->GetType();
+
         if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
         {
             assert(compiler->compEnregStructLocals());

@@ -736,11 +736,6 @@ public:
         return gtOper;
     }
 
-    var_types TypeGet() const
-    {
-        return gtType;
-    }
-
     genTreeOps GetOper() const
     {
         return gtOper;
@@ -2145,8 +2140,8 @@ public:
     //
     static bool Equals(GenTreeFieldList* list1, GenTreeFieldList* list2)
     {
-        assert(list1->TypeGet() == TYP_STRUCT);
-        assert(list2->TypeGet() == TYP_STRUCT);
+        assert(list1->TypeIs(TYP_STRUCT));
+        assert(list2->TypeIs(TYP_STRUCT));
 
         UseIterator i1   = list1->Uses().begin();
         UseIterator end1 = list1->Uses().end();
@@ -5723,7 +5718,7 @@ public:
 
     static bool Equals(GenTreeHWIntrinsic* simd1, GenTreeHWIntrinsic* simd2)
     {
-        if ((simd1->TypeGet() != simd2->TypeGet()) || (simd1->m_intrinsic != simd2->m_intrinsic) ||
+        if ((simd1->GetType() != simd2->GetType()) || (simd1->m_intrinsic != simd2->m_intrinsic) ||
             (simd1->m_simdBaseType != simd2->m_simdBaseType) || (simd1->m_simdSize != simd2->m_simdSize) ||
             (simd1->m_auxiliaryType != simd2->m_auxiliaryType) || (simd1->m_numOps != simd2->m_numOps))
         {

@@ -5177,7 +5177,7 @@ void OptBoolsDsc::optOptimizeBoolsGcStress()
 
     GenTree* comparand = optIsBoolComp(&test);
 
-    if (comparand == nullptr || !varTypeIsGC(comparand->TypeGet()))
+    if (comparand == nullptr || !varTypeIsGC(comparand->GetType()))
     {
         return;
     }
@@ -5473,7 +5473,7 @@ void Compiler::optAddCopies()
 
     for (LclVarDsc* varDsc : Locals())
     {
-        var_types typ = varDsc->TypeGet();
+        var_types typ = varDsc->GetType();
 
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
