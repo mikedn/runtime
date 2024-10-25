@@ -3247,7 +3247,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
 
-    assert(!varTypeIsFloating(tree));
+    assert(!varTypeIsFloating(tree->GetType()));
     assert(op2->IsIntCon());
     assert(op2->isContained());
 

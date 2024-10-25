@@ -1697,7 +1697,7 @@ private:
 
             isTrue = (assertion->kind == OAK_EQUAL) == relop->OperIs(GT_EQ);
         }
-        else if (!relop->IsRelopUnsigned() && varActualTypeIsInt(relop->GetOp(0)))
+        else if (!relop->IsRelopUnsigned() && varActualTypeIsInt(relop->GetOp(0)->GetType()))
         {
             genTreeOps     oper    = relop->GetOper();
             ValueNum       vn      = vnStore->ExtractValue(relop->GetOp(0)->GetConservativeVN());

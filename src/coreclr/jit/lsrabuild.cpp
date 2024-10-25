@@ -831,7 +831,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
                 }
                 else
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                    if (varTypeIsFloating(varDsc) &&
+                    if (varTypeIsFloating(varDsc->GetType()) &&
                         !VarSetOps::IsMember(compiler, fpCalleeSaveCandidateVars, varIndex))
                 {
                     continue;

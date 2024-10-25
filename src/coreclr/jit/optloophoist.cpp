@@ -403,7 +403,7 @@ bool LoopHoist::IsHoistingProfitable(GenTree* tree, unsigned lnum)
     int loopVarCount;
     int varInOutCount;
 
-    if (varTypeIsFloating(tree))
+    if (varTypeIsFloating(tree->GetType()))
     {
         intHoistedExprCount = stats.floatHoistedExprCount;
         loopVarCount        = stats.floatLocalCount;

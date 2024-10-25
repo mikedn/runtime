@@ -296,7 +296,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             // For x86 we must mark all integral fields as contained or reg-optional, and handle them
             // accordingly in code generation, since we may have up to 8 fields, which cannot all be in
             // registers to be consumed atomically by the call.
-            if (varTypeIsIntegralOrI(fieldNode))
+            if (varTypeIsIntegralOrI(fieldNode->GetType()))
             {
                 if (fieldNode->OperIs(GT_LCL_LOAD))
                 {

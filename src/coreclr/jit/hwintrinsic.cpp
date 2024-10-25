@@ -228,7 +228,7 @@ GenTree* Importer::addRangeCheckIfNeeded(
     }
 
     assert(!immOp->IsIntCon());
-    assert(varTypeIsUnsigned(immOp));
+    assert(varTypeIsUnsigned(immOp->GetType()));
 
     return addRangeCheckForHWIntrinsic(immOp, immLowerBound, immUpperBound);
 }

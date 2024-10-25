@@ -7578,11 +7578,11 @@ public:
     static_assert((GT_GT - GT_EQ) == SGT, "bad relop");
     static_assert((GT_TEST_NE - GT_TEST_EQ) == (NE & ~Unsigned), "bad relop");
 
-    static GenCondition FromRelop(GenTree* relop)
+    static GenCondition FromRelop(GenTreeOp* relop)
     {
         assert(relop->OperIsCompare());
 
-        if (varTypeIsFloating(relop->gtGetOp1()))
+        if (varTypeIsFloating(relop->GetOp(0)->GetType()))
         {
             return FromFloatRelop(relop);
         }
@@ -7592,9 +7592,9 @@ public:
         }
     }
 
-    static GenCondition FromFloatRelop(GenTree* relop)
+    static GenCondition FromFloatRelop(GenTreeOp* relop)
     {
-        assert(varTypeIsFloating(relop->AsOp()->GetOp(0)) && varTypeIsFloating(relop->AsOp()->GetOp(1)));
+        assert(varTypeIsFloating(relop->GetOp(0)->GetType()) && varTypeIsFloating(relop->GetOp(1)->GetType()));
 
         return FromFloatRelop(relop->GetOper(), relop->IsRelopUnordered());
     }
@@ -7615,9 +7615,9 @@ public:
         return GenCondition(static_cast<Code>(code));
     }
 
-    static GenCondition FromIntegralRelop(GenTree* relop)
+    static GenCondition FromIntegralRelop(GenTreeOp* relop)
     {
-        assert(!varTypeIsFloating(relop->AsOp()->GetOp(0)) && !varTypeIsFloating(relop->AsOp()->GetOp(1)));
+        assert(!varTypeIsFloating(relop->GetOp(0)->GetType()) && !varTypeIsFloating(relop->GetOp(1)->GetType()));
 
         return FromIntegralRelop(relop->GetOper(), relop->IsRelopUnsigned());
     }

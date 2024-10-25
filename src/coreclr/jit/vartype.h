@@ -74,28 +74,24 @@ inline var_types TypeGet(var_types v)
     return v;
 }
 
-template <class T>
-inline bool varTypeIsByte(T vt)
+inline bool varTypeIsByte(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_UBYTE);
+    return (vt >= TYP_BOOL) && (vt <= TYP_UBYTE);
 }
 
-template <class T>
-inline bool varTypeIsShort(T vt)
+inline bool varTypeIsShort(var_types vt)
 {
-    return (TypeGet(vt) == TYP_SHORT) || (TypeGet(vt) == TYP_USHORT);
+    return (vt == TYP_SHORT) || (vt == TYP_USHORT);
 }
 
-template <class T>
-inline bool varTypeIsSmall(T vt)
+inline bool varTypeIsSmall(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_USHORT);
+    return (vt >= TYP_BOOL) && (vt <= TYP_USHORT);
 }
 
-template <class T>
-inline bool varTypeIsSmallInt(T vt)
+inline bool varTypeIsSmallInt(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_BYTE) && (TypeGet(vt) <= TYP_USHORT);
+    return (vt >= TYP_BYTE) && (vt <= TYP_USHORT);
 }
 
 inline bool varTypeIsSmallSigned(var_types t)
@@ -113,28 +109,24 @@ constexpr bool varTypeIsInt(var_types t)
     return (t == TYP_INT) || (t == TYP_UINT);
 }
 
-template <class T>
-inline bool varActualTypeIsInt(T vt)
+inline bool varActualTypeIsInt(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_UINT);
+    return (vt >= TYP_BOOL) && (vt <= TYP_UINT);
 }
 
-template <class T>
-inline bool varTypeIsLong(T vt)
+inline bool varTypeIsLong(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_LONG) && (TypeGet(vt) <= TYP_ULONG);
+    return (vt >= TYP_LONG) && (vt <= TYP_ULONG);
 }
 
-template <class T>
-inline bool varTypeIsIntegral(T vt)
+inline bool varTypeIsIntegral(var_types vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTK_INT) != 0;
+    return (varTypeKinds[vt] & VTK_INT) != 0;
 }
 
-template <class T>
-inline bool varActualTypeIsIntOrI(T vt)
+inline bool varActualTypeIsIntOrI(var_types vt)
 {
-    return (TypeGet(vt) >= TYP_BOOL) && (TypeGet(vt) <= TYP_U_IMPL);
+    return (vt >= TYP_BOOL) && (vt <= TYP_U_IMPL);
 }
 
 inline bool varTypeIsIntOrI(var_types t)
@@ -142,16 +134,14 @@ inline bool varTypeIsIntOrI(var_types t)
     return (t == TYP_INT) || (t == TYP_I_IMPL);
 }
 
-template <class T>
-inline bool varTypeIsIntegralOrI(T vt)
+inline bool varTypeIsIntegralOrI(var_types vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & (VTK_INT | VTK_I)) != 0;
+    return (varTypeKinds[vt] & (VTK_INT | VTK_I)) != 0;
 }
 
-template <class T>
-inline bool varTypeIsUnsigned(T vt)
+inline bool varTypeIsUnsigned(var_types vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTK_UNSIGNED) != 0;
+    return (varTypeKinds[vt] & VTK_UNSIGNED) != 0;
 }
 
 inline bool varTypeIsSigned(var_types t)
@@ -159,11 +149,9 @@ inline bool varTypeIsSigned(var_types t)
     return varTypeIsIntegralOrI(t) && !varTypeIsUnsigned(t);
 }
 
-template <class T>
-inline bool varTypeIsFloating(T vt)
+inline bool varTypeIsFloating(var_types vt)
 {
-    var_types type = TypeGet(vt);
-    return (type == TYP_FLOAT) || (type == TYP_DOUBLE);
+    return (vt == TYP_FLOAT) || (vt == TYP_DOUBLE);
 }
 
 inline bool varTypeIsArithmetic(var_types t)
@@ -171,23 +159,19 @@ inline bool varTypeIsArithmetic(var_types t)
     return (varTypeKinds[t] & (VTK_INT | VTK_FLOAT)) != 0;
 }
 
-template <class T>
-inline bool varTypeIsGC(T vt)
+inline bool varTypeIsGC(var_types vt)
 {
-    var_types type = TypeGet(vt);
-    return (type == TYP_REF) || (type == TYP_BYREF);
+    return (vt == TYP_REF) || (vt == TYP_BYREF);
 }
 
-template <class T>
-inline bool varTypeIsI(T vt)
+inline bool varTypeIsI(var_types vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTK_I) != 0;
+    return (varTypeKinds[vt] & VTK_I) != 0;
 }
 
-template <class T>
-inline bool varTypeIsSIMD(T vt)
+inline bool varTypeIsSIMD(var_types vt)
 {
-    switch (TypeGet(vt))
+    switch (vt)
     {
 #ifdef FEATURE_SIMD
         case TYP_SIMD8:
@@ -201,10 +185,9 @@ inline bool varTypeIsSIMD(T vt)
     }
 }
 
-template <class T>
-inline bool varTypeIsStruct(T vt)
+inline bool varTypeIsStruct(var_types vt)
 {
-    return (varTypeKinds[TypeGet(vt)] & VTK_STRUCT) != 0;
+    return (varTypeKinds[vt] & VTK_STRUCT) != 0;
 }
 
 inline bool varTypeIsComposite(var_types t)
@@ -227,7 +210,7 @@ inline bool varTypeIsMultiReg(var_types vt)
 #ifdef TARGET_64BIT
     return false;
 #else
-    return (TypeGet(vt) == TYP_LONG);
+    return vt == TYP_LONG;
 #endif
 }
 
@@ -236,8 +219,7 @@ inline bool varTypeIsSingleReg(var_types vt)
     return !varTypeIsMultiReg(vt);
 }
 
-template <class T>
-inline bool varTypeUsesFloatReg(T vt)
+inline bool varTypeUsesFloatReg(var_types vt)
 {
     // Note that not all targets support SIMD, but if they don't, varTypeIsSIMD will
     // always return false.

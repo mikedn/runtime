@@ -5912,7 +5912,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
             // We always "push" floating point fields (i.e. they are full slot values that don't
             // require special handling).
-            assert(varTypeIsIntegralOrI(fieldNode) || varTypeIsSIMD(fieldNode));
+            assert(varTypeIsIntegralOrI(fieldNode->GetType()) || varTypeIsSIMD(fieldNode->GetType()));
 
             // If we can't push this field, it needs to be in a register so that we can store
             // it to the stack location.
