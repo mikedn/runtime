@@ -2987,7 +2987,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetType();
 
-    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG));
+    assert(varTypeIsIntOrI(srcType));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
 
     RegNum srcReg = UseReg(src);

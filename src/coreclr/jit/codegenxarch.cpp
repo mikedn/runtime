@@ -5308,23 +5308,11 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
 
-    GenTree* src = cast->GetOp(0);
-
-    assert(varTypeIsIntegral(src->GetType()));
+    GenTree*  src     = cast->GetOp(0);
     var_types srcType = varActualType(src->GetType());
     var_types dstType = cast->GetType();
 
-    if (cast->OperIs(GT_UTOF))
-    {
-        srcType = varTypeToUnsigned(srcType);
-    }
-
-#ifdef TARGET_64BIT
-    noway_assert((srcType == TYP_INT) || (srcType == TYP_LONG) || (srcType == TYP_ULONG));
-#else
-    noway_assert(srcType == TYP_INT);
-#endif
-
+    assert(varTypeIsIntOrI(srcType));
     assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
 
     UseRMRegs(src);
@@ -5334,10 +5322,11 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 
     assert((srcReg == REG_NA) || genIsValidIntReg(srcReg));
     assert(genIsValidFloatReg(dstReg));
-
-    // The source shift is never a small int but it may be produced by a small int typed
-    // IND or other memory node and in that case the source must not be contained.
+    // The source value is never a small int but it may be produced by a small int typed
+    // IND_LOAD or other memory node and in that case the source must not be contained.
     assert(!varTypeIsSmall(src->GetType()) || (srcReg != REG_NA));
+
+    Emitter& emit = *GetEmitter();
 
     // To convert int to a float/double, cvtsi2ss/sd SSE2 instruction is used
     // which does a partial write to lower 4/8 bytes of xmm register keeping the other
@@ -5347,9 +5336,9 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
     // customer reported version of SpectralNorm benchmark, resulting in 2x perf
     // regression.  To avoid false dependency, we emit "xorps xmmReg, xmmReg" before
     // cvtsi2ss/sd instruction.
-    GetEmitter()->emitIns_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg);
+    emit.emitIns_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg);
 
-    instruction ins  = (dstType == TYP_FLOAT) ? INS_cvtsi2ss : INS_cvtsi2sd;
+    instruction ins  = dstType == TYP_FLOAT ? INS_cvtsi2ss : INS_cvtsi2sd;
     emitAttr    size = emitTypeSize(srcType);
 
     emitInsRegRM(ins, size, cast->GetRegNum(), src);
@@ -5357,7 +5346,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 #ifdef TARGET_64BIT
     // SSE2 conversion instructions only support signed integers so we need to adjust
     // the result for values greater than LONG_MAX, which are interpreted as negative.
-    if (srcType == TYP_ULONG)
+    if ((srcType == TYP_LONG) && cast->OperIs(GT_UTOF))
     {
         assert(srcReg != REG_NA);
 
@@ -5372,8 +5361,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
         {
             if (u8ToDblBitmask == nullptr)
             {
-                u8ToDblBitmask =
-                    GetEmitter()->GetFloatConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), TYP_DOUBLE);
+                u8ToDblBitmask = emit.GetFloatConst(jitstd::bit_cast<double>(0x43f0000000000000ULL), TYP_DOUBLE);
             }
 
             ins  = INS_addsd;
@@ -5384,7 +5372,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
         {
             if (u8ToFltBitmask == nullptr)
             {
-                u8ToFltBitmask = GetEmitter()->GetFloatConst(jitstd::bit_cast<float>(0x5f800000U), TYP_FLOAT);
+                u8ToFltBitmask = emit.GetFloatConst(jitstd::bit_cast<float>(0x5f800000U), TYP_FLOAT);
             }
 
             ins  = INS_addss;
@@ -5392,11 +5380,11 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
             data = u8ToFltBitmask;
         }
 
-        insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
-        GetEmitter()->emitIns_J(INS_jge, label);
-        GetEmitter()->emitIns_R_C(ins, size, dstReg, data);
-        GetEmitter()->DefineTempLabel(label);
+        insGroup* label = emit.CreateTempLabel();
+        emit.emitIns_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
+        emit.emitIns_J(INS_jge, label);
+        emit.emitIns_R_C(ins, size, dstReg, data);
+        emit.DefineTempLabel(label);
     }
 #endif
 
