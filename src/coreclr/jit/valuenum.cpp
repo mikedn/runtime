@@ -3154,8 +3154,7 @@ ValueNumPair ValueNumbering::CastStruct(ValueNumPair valueVNP, ClassLayout* from
 ValueNum ValueNumbering::CoerceStoreValue(
     GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout)
 {
-    ValueNum  valueVN   = vnStore->ExtractValue(value->GetVN(vnk));
-    var_types valueType = vnStore->TypeOfVN(valueVN);
+    ValueNum valueVN = vnStore->ExtractValue(value->GetVN(vnk));
 
     unsigned  fieldSize = fieldType == TYP_STRUCT ? fieldLayout->GetSize() : varTypeSize(fieldType);
     var_types storeType;
@@ -3231,66 +3230,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
         return vnStore->VNForExpr(fieldType);
     }
 
-    // TODO-MIKE-Cleanup: This special casing is inherited from old code, it's probably not
-    // necessary if the issue described below is properly fixed.
-
-    if (vnStore->IsConst(valueVN) && (valueType == varActualType(fieldType)))
-    {
-        if (varTypeIsSmall(fieldType))
-        {
-            VNFunc vnf;
-
-            switch (fieldType)
-            {
-                case TYP_BOOL:
-                case TYP_UBYTE:
-                    vnf = VNF_CONVU8;
-                    break;
-                case TYP_BYTE:
-                    vnf = VNF_CONVS8;
-                    break;
-                case TYP_SHORT:
-                    vnf = VNF_CONVS16;
-                    break;
-                default:
-                    assert(fieldType == TYP_USHORT);
-                    vnf = VNF_CONVU16;
-                    break;
-            }
-
-            valueVN = vnStore->VNForFunc(TYP_INT, vnf, valueVN);
-        }
-
-        return valueVN;
-    }
-
-    // TODO-MIKE-CQ: Value numbering of small int load/stores is messy and may cause CQ issues.
-    // Stores do not truncate the stored values, loads do not widen the loaded value to INT.
-    // Truncation might not be necessary but the lack of explicit load widening (e.g. VNF_Cast)
-    // is problematic as it may produce different value numbers for the same value. If we store
-    // an INT value into a SHORT field and then load a SHORT the resulting value number should
-    // be the same as the value number of a CAST from INT to SHORT. But the type of CAST is INT
-    // so according to this check it doesn't fit into the field and we get a unique VN. The old
-    // code did generate a VNF_Cast here but surprise, VNForCast doesn't attempt to eliminate
-    // redundant casts and we end up with:
-    //     CAST(x) = VNF_Cast<INT, SHORT>(x)
-    //     LOAD<SHORT>(STORE<SHORT>(x) = VNF_Cast<INT, SHORT>(VNF_Cast<INT, SHORT>(x))
-    // which is pretty much pointless, pointless enough that generating a unique number in this
-    // case results in no diffs.
-    // What probably needs to be done is:
-    //   - allow storing INT values to small int fields here
-    //   - widen loads from small int fields (add VNF_Cast in CoerceLoadValue when the field
-    //     type is small int)
-    //   - ensure that VNForCast deals with redundant casts
-    // It's not clear if storing to small int fields should truncate. If loads are guaranteed
-    // to perform widening it seems unnecessary to do anything when storing. Besides, it's not
-    // even clear what truncation means anyway - VNF_Cast to field's small int type? That's
-    // not quite right as that really produces an INT value, the JIT doesn't have a notion of
-    // small int values. Also, there's a pretty good chance to have stores without subsequent
-    // loads in the same method so truncation will just allocate a useless value number. So
-    // probably no truncation it is.
-    // All this may also allow elimination of small int typed value numbers. They just cause
-    // confusion and waste memory due to how value number "chunks" are managed.
+    var_types valueType = vnStore->TypeOfVN(valueVN);
 
     if (valueType != fieldType)
     {
@@ -3298,7 +3238,27 @@ ValueNum ValueNumbering::CoerceStoreValue(
         {
             valueVN = vnStore->VNForFunc(TYP_INT, VNOP_TRUNC, valueVN);
         }
-        else if ((varTypeSize(valueType) == varTypeSize(fieldType)) && !varTypeIsSmall(valueType))
+        else if (varTypeIsIntegral(valueType) && varTypeIsSmall(fieldType))
+        {
+            switch (fieldType)
+            {
+                case TYP_BOOL:
+                case TYP_UBYTE:
+                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVU8, valueVN);
+                    break;
+                case TYP_BYTE:
+                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVS8, valueVN);
+                    break;
+                case TYP_SHORT:
+                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVS16, valueVN);
+                    break;
+                default:
+                    assert(fieldType = TYP_USHORT);
+                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVU16, valueVN);
+                    break;
+            }
+        }
+        else if (varTypeSize(varActualType(valueType)) == varTypeSize(fieldType))
         {
             valueVN = vnStore->VNForBitCast(valueVN, fieldType);
         }
@@ -4086,7 +4046,7 @@ ValueNum ValueNumbering::LoadStaticField(GenTreeIndir* load, FieldSeqNode* field
         // contents, we cannot use the same value to load the reference.
 
         // TODO-MIKE-CQ: Enable this. It produces good improvements thanks to CSE
-        // but there are also significatn regressions, apparently due to the lack
+        // but there are also significant regressions, apparently due to the lack
         // of OBJ address mode marking.
         //
         // return vnStore->VNForMapSelect(VNK_Liberal, TYP_REF, vnStore->ReadOnlyMemoryMapVN(), fieldVN);
@@ -4171,7 +4131,7 @@ ValueNum ValueNumbering::StoreObjField(GenTreeIndir* store, ValueNum objVN, Fiel
         // If the store is wider than the field then update the entire memory.
         // TODO-MIKE-CQ: This is overly conservative, in practice such a store can only
         // modify fields of the same object, anything else (static fields, arrays) can
-        // be modified but it's undefined behaviour and can be igored. We could probably
+        // be modified but it's undefined behaviour and can be ignored. We could probably
         // enumerate this object's fields and store unique values in those that overlap
         // the store.
         return vnStore->VNForExpr(TYP_STRUCT);
