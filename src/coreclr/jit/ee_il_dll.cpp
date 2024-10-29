@@ -17,12 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd/algorithm.h"
 #include "codegen.h"
 
-#ifndef HOST_UNIX
-#include <io.h>    // For _dup, _setmode
-#include <fcntl.h> // For _O_TEXT
-#include <errno.h> // For EINVAL
-#endif
-
 #ifndef DLLEXPORT
 #define DLLEXPORT
 #endif
@@ -91,30 +85,6 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
     }
 #endif // DEBUG
 
-#ifndef HOST_UNIX
-    if (jitstdout == nullptr)
-    {
-        int stdoutFd = _fileno(procstdout());
-
-        if ((stdoutFd != -1) && (stdoutFd != -2))
-        {
-            int jitstdoutFd = _dup(_fileno(procstdout()));
-
-            if (jitstdoutFd != -1)
-            {
-                _setmode(jitstdoutFd, _O_TEXT);
-                jitstdout = _fdopen(jitstdoutFd, "w");
-                assert(jitstdout != nullptr);
-                // Prevent the FILE* from buffering its output in order
-                // to avoid calls to fflush throughout the code.
-                setvbuf(jitstdout, nullptr, _IONBF, 0);
-            }
-        }
-    }
-#endif // !HOST_UNIX
-
-    // If jitstdout is still null, fallback to whatever procstdout() was
-    // initially set to.
     if (jitstdout == nullptr)
     {
         jitstdout = procstdout();

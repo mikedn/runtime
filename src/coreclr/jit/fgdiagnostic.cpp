@@ -1629,7 +1629,6 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
 
     if (dontClose)
     {
-        // fgxFile is jitstdout or stderr
         fprintf(fgxFile, "\n");
     }
     else

@@ -363,7 +363,7 @@ void InlineContext::AddChild(InlineContext* child)
 #if defined(DEBUG) || defined(INLINE_DATA)
 
 //------------------------------------------------------------------------
-// Dump: Dump an InlineContext entry and all descendants to jitstdout
+// Dump: Dump an InlineContext entry and all descendants
 //
 // Arguments:
 //    indent   - indentation level for this node

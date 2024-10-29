@@ -301,7 +301,7 @@ void DisplayNowayAssertMap()
             fout = _wfopen(strJitMeasureNowayAssertFile, W("a"));
             if (fout == nullptr)
             {
-                fprintf(jitstdout, "Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
+                printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
                 return;
             }
         }
@@ -443,14 +443,10 @@ void Compiler::compShutdown()
     GenTree::ReportOperBashing(jitstdout);
 #endif
 
-    // Where should we write our statistics output?
-    FILE* fout = jitstdout;
-
 #ifdef FEATURE_JIT_METHOD_PERF
     if (compJitTimeLogFilename != nullptr)
     {
-        FILE* jitTimeLogFile = _wfopen(compJitTimeLogFilename, W("a"));
-        if (jitTimeLogFile != nullptr)
+        if (FILE* jitTimeLogFile = _wfopen(compJitTimeLogFilename, W("a")))
         {
             CompTimeSummaryInfo::s_compTimeSummary.Print(jitTimeLogFile);
             fclose(jitTimeLogFile);
@@ -459,6 +455,8 @@ void Compiler::compShutdown()
 
     JitTimer::Shutdown();
 #endif // FEATURE_JIT_METHOD_PERF
+
+    FILE* const fout = jitstdout;
 
 #if COUNT_AST_OPERS
 
