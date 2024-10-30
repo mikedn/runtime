@@ -162,55 +162,23 @@ private:
 #endif
 };
 
-VNFunc GetRelopVNFunc(GenTree* node)
+VNFunc GetRelopVNFunc(GenTreeOp* node)
 {
-    if (node->OperIs(GT_EQ))
-    {
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
-        {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
-            assert(!node->IsRelopUnordered());
-        }
-    }
-    else if (node->OperIs(GT_NE))
-    {
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
-        {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
-            assert(node->IsRelopUnordered());
-        }
-    }
-    else
-    {
-        assert(node->OperIs(GT_LT, GT_LE, GT_GT, GT_GE));
+    return static_cast<VNFunc>(VNF_COND_NONE + GenCondition::FromRelop(node).GetCode());
+}
 
-        static const VNFunc relopUnFuncs[]{VNF_LT_UN, VNF_LE_UN, VNF_GE_UN, VNF_GT_UN};
-        static_assert_no_msg(GT_LE - GT_LT == 1);
-        static_assert_no_msg(GT_GE - GT_LT == 2);
-        static_assert_no_msg(GT_GT - GT_LT == 3);
+VNFunc SwapRelopVNFunc(VNFunc cond)
+{
+    assert((VNF_COND_SLT <= cond) && (cond <= VNF_COND_FGTU));
+    return static_cast<VNFunc>(VNF_COND_NONE +
+                               GenCondition::Swap(static_cast<GenCondition::Code>(cond - VNF_COND_NONE)).GetCode());
+}
 
-        if (varTypeIsFloating(node->AsOp()->GetOp(0)->GetType()))
-        {
-            assert(varTypeIsFloating(node->AsOp()->GetOp(1)->GetType()));
-
-            if (node->IsRelopUnordered())
-            {
-                return relopUnFuncs[node->GetOper() - GT_LT];
-            }
-        }
-        else
-        {
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(0)->GetType()));
-            assert(varTypeIsIntegralOrI(node->AsOp()->GetOp(1)->GetType()));
-
-            if (node->IsRelopUnsigned())
-            {
-                return relopUnFuncs[node->GetOper() - GT_LT];
-            }
-        }
-    }
-
-    return static_cast<VNFunc>(node->GetOper());
+VNFunc ReverseRelopVNFunc(VNFunc cond)
+{
+    assert((VNF_COND_SLT <= cond) && (cond <= VNF_COND_FGTU));
+    return static_cast<VNFunc>(VNF_COND_NONE +
+                               GenCondition::Reverse(static_cast<GenCondition::Code>(cond - VNF_COND_NONE)).GetCode());
 }
 
 ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
@@ -265,7 +233,7 @@ bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1) const
 
     VNFuncApp funcXs1;
     GetVNFunc(xs1, &funcXs1);
-    assert(funcXs1.m_func == VNF_ExsetCons);
+    assert(funcXs1.Is(VNF_ExsetCons));
 
     return item < funcXs1[0];
 }
@@ -880,12 +848,12 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     {
         if (const VNHandle* h1 = IsHandle(arg1))
         {
-            if (func == VNOP_EQ)
+            if (func == VNF_COND_EQ)
             {
                 assert(type == TYP_INT);
                 return VNForIntCon(h0->addr == h1->addr);
             }
-            else if (func == VNOP_NE)
+            else if (func == VNF_COND_NE)
             {
                 assert(type == TYP_INT);
                 return VNForIntCon(h0->addr != h1->addr);
@@ -1127,7 +1095,7 @@ TailCall:
     else if ((func == VNF_Phi) || ((func == VNF_MemoryPhi) && (vnk == VNK_Liberal)))
     {
         GetVNFunc(funcApp[0], &funcApp);
-        assert(funcApp.m_func == VNF_PhiArgs);
+        assert(funcApp.Is(VNF_PhiArgs));
         ValueNum argVN     = funcApp[0];
         ValueNum argListVN = funcApp[1];
 
@@ -1769,16 +1737,28 @@ bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
         case VNOP_FMUL:
         case VNOP_FDIV:
         case VNOP_FMOD:
-        case VNOP_EQ:
-        case VNOP_NE:
-        case VNOP_GT:
-        case VNOP_GE:
-        case VNOP_LT:
-        case VNOP_LE:
-        case VNF_GT_UN:
-        case VNF_GE_UN:
-        case VNF_LT_UN:
-        case VNF_LE_UN:
+        case VNF_COND_EQ:
+        case VNF_COND_NE:
+        case VNF_COND_SGT:
+        case VNF_COND_SGE:
+        case VNF_COND_SLT:
+        case VNF_COND_SLE:
+        case VNF_COND_UGT:
+        case VNF_COND_UGE:
+        case VNF_COND_ULT:
+        case VNF_COND_ULE:
+        case VNF_COND_FEQ:
+        case VNF_COND_FNE:
+        case VNF_COND_FGT:
+        case VNF_COND_FGE:
+        case VNF_COND_FLT:
+        case VNF_COND_FLE:
+        case VNF_COND_FEQU:
+        case VNF_COND_FNEU:
+        case VNF_COND_FGTU:
+        case VNF_COND_FGEU:
+        case VNF_COND_FLTU:
+        case VNF_COND_FLEU:
             return true;
         default:
             return false;
@@ -1861,27 +1841,27 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
         case VNOP_ROR:
             return static_cast<T>(jitstd::rotr(static_cast<UT>(v0), static_cast<int>(v1)));
 
-        case VNOP_EQ:
+        case VNF_COND_EQ:
             return v0 == v1;
-        case VNOP_NE:
+        case VNF_COND_NE:
             return v0 != v1;
 
-        case VNOP_GT:
+        case VNF_COND_SGT:
             return v0 > v1;
-        case VNOP_GE:
+        case VNF_COND_SGE:
             return v0 >= v1;
-        case VNOP_LT:
+        case VNF_COND_SLT:
             return v0 < v1;
-        case VNOP_LE:
+        case VNF_COND_SLE:
             return v0 <= v1;
 
-        case VNF_GT_UN:
+        case VNF_COND_UGT:
             return static_cast<UT>(v0) > static_cast<UT>(v1);
-        case VNF_GE_UN:
+        case VNF_COND_UGE:
             return static_cast<UT>(v0) >= static_cast<UT>(v1);
-        case VNF_LT_UN:
+        case VNF_COND_ULT:
             return static_cast<UT>(v0) < static_cast<UT>(v1);
-        case VNF_LE_UN:
+        case VNF_COND_ULE:
             return static_cast<UT>(v0) <= static_cast<UT>(v1);
 
         default:
@@ -2204,26 +2184,29 @@ static int EvalFloatComparison(VNFunc vnf, T v0, T v1)
 
     if (Traits::IsNaN(v0) || Traits::IsNaN(v1))
     {
-        return (vnf == VNOP_NE) || (vnf == VNF_GT_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN);
+        return (vnf == VNF_COND_FNEU) || (vnf == VNF_COND_FGTU) || (vnf == VNF_COND_FGEU) || (vnf == VNF_COND_FLTU) ||
+               (vnf == VNF_COND_FLEU);
     }
 
     switch (vnf)
     {
-        case VNOP_EQ:
+        case VNF_COND_FEQ:
+        case VNF_COND_FEQU:
             return v0 == v1;
-        case VNOP_NE:
+        case VNF_COND_FNE:
+        case VNF_COND_FNEU:
             return v0 != v1;
-        case VNOP_GT:
-        case VNF_GT_UN:
+        case VNF_COND_FGT:
+        case VNF_COND_FGTU:
             return v0 > v1;
-        case VNOP_GE:
-        case VNF_GE_UN:
+        case VNF_COND_FGE:
+        case VNF_COND_FGEU:
             return v0 >= v1;
-        case VNOP_LT:
-        case VNF_LT_UN:
+        case VNF_COND_FLT:
+        case VNF_COND_FLTU:
             return v0 < v1;
-        case VNOP_LE:
-        case VNF_LE_UN:
+        case VNF_COND_FLE:
+        case VNF_COND_FLEU:
             return v0 <= v1;
         default:
             unreached();
@@ -2390,65 +2373,59 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             }
             break;
 
-        case VNOP_EQ:
+        case VNF_COND_EQ:
             if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
             {
                 return VNZeroForType(type);
             }
             FALLTHROUGH;
-        case VNOP_GE:
-        case VNOP_LE:
-            if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
+        case VNF_COND_SGE:
+        case VNF_COND_SLE:
+            if (arg0VN == arg1VN)
             {
                 return VNOneForType(type);
             }
             break;
 
-        case VNOP_NE:
+        case VNF_COND_NE:
             if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
             {
                 return VNOneForType(type);
             }
 
-            if ((arg0VN == arg1VN) && varTypeIsIntegralOrI(TypeOfVN(arg0VN)))
-            {
-                return VNZeroForType(type);
-            }
-            break;
-
-        case VNOP_GT:
-        case VNOP_LT:
             if (arg0VN == arg1VN)
             {
                 return VNZeroForType(type);
             }
             break;
 
-        case VNF_LT_UN:
-            std::swap(arg0VN, arg1VN);
-            FALLTHROUGH;
-        case VNF_GT_UN:
-            argType = TypeOfVN(arg0VN);
-            if (varTypeIsIntegralOrI(argType))
+        case VNF_COND_SGT:
+        case VNF_COND_SLT:
+            if (arg0VN == arg1VN)
             {
-                if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
-                {
-                    return VNZeroForType(type);
-                }
+                return VNZeroForType(type);
             }
             break;
 
-        case VNF_GE_UN:
+        case VNF_COND_ULT:
             std::swap(arg0VN, arg1VN);
             FALLTHROUGH;
-        case VNF_LE_UN:
+        case VNF_COND_UGT:
             argType = TypeOfVN(arg0VN);
-            if (varTypeIsIntegralOrI(argType))
+            if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
             {
-                if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
-                {
-                    return VNOneForType(type);
-                }
+                return VNZeroForType(type);
+            }
+            break;
+
+        case VNF_COND_UGE:
+            std::swap(arg0VN, arg1VN);
+            FALLTHROUGH;
+        case VNF_COND_ULE:
+            argType = TypeOfVN(arg0VN);
+            if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
+            {
+                return VNOneForType(type);
             }
             break;
 
@@ -2910,7 +2887,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
         ValueNum      unscaledOffsetVN;
         target_size_t scale;
 
-        if (offsetVNFunc.m_func == VNOP_MUL)
+        if (offsetVNFunc.Is(VNOP_MUL))
         {
             if (const target_ssize_t* scaleValue = IsConstIntN(offsetVNFunc[1]))
             {
@@ -2927,7 +2904,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
                 break;
             }
         }
-        else if (offsetVNFunc.m_func == VNOP_LSH)
+        else if (offsetVNFunc.Is(VNOP_LSH))
         {
             if (const int32_t* scaleValue = IsConstInt32(offsetVNFunc[1]))
             {
@@ -4173,7 +4150,7 @@ ValueNum ValueNumbering::LoadObjField(GenTreeIndir* load, ValueNum objVN, FieldS
 
 ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& elemAddr, GenTree* value)
 {
-    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(elemAddr.Is(VNF_PtrToArrElem));
 
     // TODO-MIKE-CQ: Currently struct stores are not handled.
     if (store->TypeIs(TYP_STRUCT))
@@ -4241,7 +4218,7 @@ ValueNum ValueNumbering::StoreArrayElem(GenTreeIndir* store, const VNFuncApp& el
 
 ValueNum ValueNumbering::LoadArrayElem(GenTreeIndir* load, const VNFuncApp& elemAddr)
 {
-    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(elemAddr.Is(VNF_PtrToArrElem));
 
     ValueNum      elemTypeVN = elemAddr[0];
     ValueNum      arrayVN    = elemAddr[1];
@@ -4437,13 +4414,13 @@ void ValueNumStore::GetCompareCheckedBound(const VNFuncApp& funcApp, CompareChec
 
     if (IsVNCheckedBound(funcApp[1]))
     {
-        info->cmpOper = static_cast<genTreeOps>(funcApp.m_func);
+        info->cmpFunc = funcApp.m_func;
         info->cmpOp   = funcApp[0];
         info->vnBound = funcApp[1];
     }
     else
     {
-        info->cmpOper = GenTree::SwapRelop(static_cast<genTreeOps>(funcApp.m_func));
+        info->cmpFunc = SwapRelopVNFunc(funcApp.m_func);
         info->cmpOp   = funcApp[1];
         info->vnBound = funcApp[0];
     }
@@ -4451,7 +4428,7 @@ void ValueNumStore::GetCompareCheckedBound(const VNFuncApp& funcApp, CompareChec
 
 bool ValueNumStore::IsVNCheckedBoundArith(const VNFuncApp& funcApp)
 {
-    return funcApp.Is(GT_ADD, GT_SUB) && (IsVNCheckedBound(funcApp[0]) || IsVNCheckedBound(funcApp[1]));
+    return funcApp.Is(VNOP_ADD, VNOP_SUB) && (IsVNCheckedBound(funcApp[0]) || IsVNCheckedBound(funcApp[1]));
 }
 
 bool ValueNumStore::IsVNCompareCheckedBoundArith(const VNFuncApp& funcApp)
@@ -4471,19 +4448,19 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
 
     if (GetVNFunc(funcApp[1], &arithFuncApp) && IsVNCheckedBoundArith(arithFuncApp))
     {
-        info->cmpOper = static_cast<genTreeOps>(funcApp.m_func);
+        info->cmpFunc = funcApp.m_func;
         info->cmpOp   = funcApp[0];
     }
     else
     {
-        info->cmpOper = GenTree::SwapRelop(static_cast<genTreeOps>(funcApp.m_func));
+        info->cmpFunc = SwapRelopVNFunc(funcApp.m_func);
         info->cmpOp   = funcApp[1];
 
         GetVNFunc(funcApp[0], &arithFuncApp);
         assert(IsVNCheckedBoundArith(arithFuncApp));
     }
 
-    info->arrOper = static_cast<genTreeOps>(arithFuncApp.m_func);
+    info->addFunc = arithFuncApp.m_func;
 
     if (IsVNCheckedBound(arithFuncApp[1]))
     {
@@ -5182,7 +5159,7 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
 
 void ValueNumStore::DumpValWithExc(const VNFuncApp& valWithExc)
 {
-    assert(valWithExc.m_func == VNF_ValWithExset);
+    assert(valWithExc.Is(VNF_ValWithExset));
 
     ValueNum normVN = valWithExc[0]; // First arg is the VN from normal execution
     ValueNum excVN  = valWithExc[1]; // Second arg is the set of possible exceptions
@@ -5200,7 +5177,7 @@ void ValueNumStore::DumpValWithExc(const VNFuncApp& valWithExc)
 
 void ValueNumStore::DumpExcSeq(const VNFuncApp& excSeq, bool isHead)
 {
-    assert(excSeq.m_func == VNF_ExsetCons);
+    assert(excSeq.Is(VNF_ExsetCons));
 
     ValueNum curExc  = excSeq[0];
     bool     hasTail = excSeq[1] != EmptyExsetVN();
@@ -5228,7 +5205,7 @@ void ValueNumStore::DumpExcSeq(const VNFuncApp& excSeq, bool isHead)
 
 void ValueNumStore::DumpFieldSeq(const VNFuncApp& fieldSeq, bool isHead)
 {
-    assert(fieldSeq.m_func == VNF_FieldSeq);
+    assert(fieldSeq.Is(VNF_FieldSeq));
 
     printf("FieldSeq(");
     compiler->dmpFieldSeqFields(ConstantHostPtr<FieldSeqNode>(fieldSeq[0]));
@@ -5237,7 +5214,7 @@ void ValueNumStore::DumpFieldSeq(const VNFuncApp& fieldSeq, bool isHead)
 
 void ValueNumStore::DumpMapSelect(const VNFuncApp& mapSelect)
 {
-    assert(mapSelect.m_func == VNF_MapSelect);
+    assert(mapSelect.Is(VNF_MapSelect));
 
     ValueNum mapVN   = mapSelect[0];
     ValueNum indexVN = mapSelect[1];
@@ -5255,7 +5232,7 @@ void ValueNumStore::DumpMapSelect(const VNFuncApp& mapSelect)
 
 void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
 {
-    assert(mapStore.m_func == VNF_MapStore);
+    assert(mapStore.Is(VNF_MapStore));
 
     ValueNum mapVN    = mapStore[0];
     ValueNum indexVN  = mapStore[1];
@@ -5281,8 +5258,8 @@ void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
 
 void ValueNumStore::DumpMemOpaque(const VNFuncApp& memOpaque)
 {
-    assert(memOpaque.m_func == VNF_MemOpaque);
-    const unsigned loopNum = memOpaque[0];
+    assert(memOpaque.Is(VNF_MemOpaque));
+    unsigned loopNum = memOpaque[0];
 
     if (loopNum == NoLoopNum)
     {
@@ -5300,7 +5277,7 @@ void ValueNumStore::DumpMemOpaque(const VNFuncApp& memOpaque)
 
 void ValueNumStore::DumpLclAddr(const VNFuncApp& func)
 {
-    assert(func.m_func == VNF_LclAddr);
+    assert(func.Is(VNF_LclAddr));
 
     unsigned      lclNum     = static_cast<unsigned>(GetConstInt32(func[0]));
     target_size_t offset     = static_cast<target_size_t>(GetConstIntN(func[1]));
@@ -5313,7 +5290,7 @@ void ValueNumStore::DumpLclAddr(const VNFuncApp& func)
 
 void ValueNumStore::DumpBitCast(const VNFuncApp& cast) const
 {
-    assert(cast.m_func == VNF_BitCast);
+    assert(cast.Is(VNF_BitCast));
 
     uint32_t  packedCastType = static_cast<uint32_t>(GetConstInt32(cast[1]));
     var_types toType         = static_cast<var_types>(packedCastType >> 1);
@@ -5324,7 +5301,7 @@ void ValueNumStore::DumpBitCast(const VNFuncApp& cast) const
 
 void ValueNumStore::DumpPtrToArrElem(const VNFuncApp& elemAddr)
 {
-    assert(elemAddr.m_func == VNF_PtrToArrElem);
+    assert(elemAddr.Is(VNF_PtrToArrElem));
 
     ValueNum      elemTypeVN = elemAddr[0];
     ValueNum      arrayVN    = elemAddr[1];
@@ -5427,8 +5404,7 @@ VNFunc ValueNumStore::GenTreeOpToVNFunc(genTreeOps oper)
 
 bool ValueNumStore::VNFuncIsComparison(VNFunc vnf)
 {
-    return (vnf == VNOP_EQ) || (vnf == VNOP_NE) || (vnf == VNOP_LT) || (vnf == VNOP_LE) || (vnf == VNOP_GE) ||
-           (vnf == VNOP_GT) || (vnf == VNF_LT_UN) || (vnf == VNF_LE_UN) || (vnf == VNF_GE_UN) || (vnf == VNF_GT_UN);
+    return (VNF_COND_SLT <= vnf) && (vnf <= VNF_COND_FGTU);
 }
 
 #ifdef DEBUG
@@ -5524,7 +5500,7 @@ void ValueNumStore::RunTests(Compiler* comp)
     assert(!vns->IsConst(vnForFunc2a));
     VNFuncApp fa2a;
     vns->GetVNFunc(vnForFunc2a, &fa2a);
-    assert(fa2a.m_func == VNF_Add && fa2a.m_arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
+    assert(fa2a.Is(VNF_Add) && fa2a.m_arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
 
     ValueNum vnForFunc2b = vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100);
     assert(vnForFunc2b == vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100));
@@ -6704,6 +6680,21 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_OVF_UMUL:
             NumberOvfBinOp(node->AsOp());
             break;
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+        {
+            ValueNumPair exset1;
+            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+            ValueNumPair exset2;
+            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+            ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
+            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+            break;
+        }
         case GT_ADD:
             ValueNum addrVN;
             addrVN = AddField(node->AsOp());
@@ -6733,8 +6724,9 @@ void ValueNumbering::NumberNode(GenTree* node)
             else if (GenTree::OperIsBinary(oper))
             {
                 assert(!node->OperMayThrow(compiler));
+                assert(!node->OperIsRelop());
 
-                VNFunc vnf = node->OperIsRelop() ? GetRelopVNFunc(node) : static_cast<VNFunc>(node->GetOper());
+                VNFunc vnf = static_cast<VNFunc>(node->GetOper());
                 assert(ValueNumStore::VNFuncIsLegal(vnf));
 
                 ValueNumPair exset1;

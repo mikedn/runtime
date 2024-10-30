@@ -625,8 +625,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             continue;
         }
 
-        Limit      limit;
-        genTreeOps cmpOper = GT_NONE;
+        Limit  limit;
+        VNFunc cmpFunc = VNF_None;
 
         if (assertion.IsCompareCheckedBoundArith()) // (i < length - C) ==/!= 0
         {
@@ -636,7 +636,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             vnStore->GetVNFunc(assertion.GetVN(), &funcApp);
             ValueNumStore::CompareCheckedBoundArithInfo info;
             vnStore->GetCompareCheckedBoundArithInfo(funcApp, &info);
-            assert((info.arrOper == GT_ADD) || (info.arrOper == GT_SUB));
+            assert((info.addFunc == VNOP_ADD) || (info.addFunc == VNOP_SUB));
 
             if (vn != info.cmpOp)
             {
@@ -650,8 +650,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
                 continue;
             }
 
-            limit   = Limit::VN(info.vnBound, info.arrOper == GT_SUB ? -*cons : *cons);
-            cmpOper = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
+            limit   = Limit::VN(info.vnBound, info.addFunc == VNOP_SUB ? -*cons : *cons);
+            cmpFunc = assertion.IsEqual() ? ReverseRelopVNFunc(info.cmpFunc) : info.cmpFunc;
         }
         else if (assertion.IsCompareCheckedBound()) // (i < length) ==/!= 0
         {
@@ -665,7 +665,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             if (vn == info.vnBound)
             {
                 std::swap(info.vnBound, info.cmpOp);
-                info.cmpOper = GenTree::SwapRelop(info.cmpOper);
+                info.cmpFunc = SwapRelopVNFunc(info.cmpFunc);
             }
             else if (vn != info.cmpOp)
             {
@@ -673,7 +673,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             }
 
             limit   = Limit::VN(info.vnBound);
-            cmpOper = assertion.IsEqual() ? GenTree::ReverseRelop(info.cmpOper) : info.cmpOper;
+            cmpFunc = assertion.IsEqual() ? ReverseRelopVNFunc(info.cmpFunc) : info.cmpFunc;
         }
         else if (assertion.IsRange()) // i IN [C1..C2]
         {
@@ -691,12 +691,12 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             if (max == INT32_MAX)
             {
                 limit   = Limit::Constant(min);
-                cmpOper = GT_GE;
+                cmpFunc = VNF_COND_SGE;
             }
             else if (min == INT32_MIN)
             {
                 limit   = Limit::Constant(max);
-                cmpOper = GT_LE;
+                cmpFunc = VNF_COND_SLE;
             }
             else
             {
@@ -720,12 +720,12 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
             if (assertion.IsEqual())
             {
                 limit   = Limit::Constant(*constValue);
-                cmpOper = GT_EQ;
+                cmpFunc = VNF_COND_EQ;
             }
             else if ((*constValue == 0) && vnStore->IsVNCheckedBound(assertion.GetVN()))
             {
                 limit   = Limit::Constant(1);
-                cmpOper = GT_GE;
+                cmpFunc = VNF_COND_SGE;
             }
             else
             {
@@ -740,7 +740,7 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         JITDUMP("Assertion: ");
         DBEXEC(compiler->verbose, ssa.DumpBoundsAssertion(assertion));
         assert(limit.IsVN() || limit.IsConstant());
-        assert(cmpOper != GT_NONE);
+        assert(cmpFunc != VNF_None);
 
         // Limits are sometimes VN + constant, where VN is also constant.
         if (limit.IsVN() && vnStore->IsConstInt32(limit.GetVN()))
@@ -754,7 +754,8 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
         }
 
         // Ranges are inclusive, adjust limit as needed.
-        if (((cmpOper == GT_LT) || (cmpOper == GT_GT)) && !limit.AddConstant(cmpOper == GT_LT ? -1 : 1))
+        if (((cmpFunc == VNF_COND_SLT) || (cmpFunc == VNF_COND_SGT)) &&
+            !limit.AddConstant(cmpFunc == VNF_COND_SLT ? -1 : 1))
         {
             continue;
         }
@@ -794,17 +795,17 @@ void RangeCheck::MergeEdgeAssertions(ValueNum vn, const ASSERT_TP assertions, Ra
 
         JITDUMP("Assertion: %s -> ", ToString(*range));
 
-        switch (cmpOper)
+        switch (cmpFunc)
         {
-            case GT_LT:
-            case GT_LE:
+            case VNF_COND_SLT:
+            case VNF_COND_SLE:
                 range->max = limit;
                 break;
-            case GT_GT:
-            case GT_GE:
+            case VNF_COND_SGT:
+            case VNF_COND_SGE:
                 range->min = limit;
                 break;
-            case GT_EQ:
+            case VNF_COND_EQ:
                 range->max = limit;
                 range->min = limit;
                 break;

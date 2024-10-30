@@ -790,12 +790,12 @@ public:
 
             vnStore->GetCompareCheckedBoundArithInfo(cmpVNFuncApp, &info);
 
-            if (op1->GetOper() == info.arrOper)
+            if (info.addFunc == static_cast<VNFunc>(op1->GetOper()))
             {
                 // The arithmetic node is the bound's parent.
                 boundParent = op1;
             }
-            else if (op2->GetOper() == info.arrOper)
+            else if (info.addFunc == static_cast<VNFunc>(op2->GetOper()))
             {
                 // The arithmetic node is the bound's parent.
                 boundParent = op2;
@@ -2557,12 +2557,10 @@ public:
         {
             vnStore->GetCompareCheckedBoundArithInfo(funcApp, &info);
 
-            newCmpArgVN = vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), static_cast<VNFunc>(info.arrOper),
-                                             info.arrOp, newExprVN);
+            newCmpArgVN = vnStore->VNForFunc(vnStore->TypeOfVN(info.arrOp), info.addFunc, info.arrOp, newExprVN);
         }
 
-        ValueNum newCmpVN =
-            vnStore->VNForFunc(vnStore->TypeOfVN(cmpVN), static_cast<VNFunc>(info.cmpOper), info.cmpOp, newCmpArgVN);
+        ValueNum newCmpVN = vnStore->VNForFunc(vnStore->TypeOfVN(cmpVN), info.cmpFunc, info.cmpOp, newCmpArgVN);
 
         cmp->SetConservativeVN(newCmpVN);
     }

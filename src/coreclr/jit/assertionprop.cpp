@@ -666,30 +666,30 @@ private:
         return index;
     }
 
-    AssertionIndex AddRangeAssertions(genTreeOps oper, ValueNum vn, ssize_t limit)
+    AssertionIndex AddRangeAssertions(VNFunc cond, ValueNum vn, ssize_t limit)
     {
-        assert((GT_LT <= oper) && (oper <= GT_GT));
+        assert((VNF_COND_SLT <= cond) && (cond <= VNF_COND_SGT));
 
         ssize_t min = INT32_MIN;
         ssize_t max = INT32_MAX;
 
-        switch (oper)
+        switch (cond)
         {
-            case GT_LT:
+            case VNF_COND_SLT:
                 if (limit == INT32_MIN)
                 {
                     return NO_ASSERTION_INDEX;
                 }
                 max = limit - 1;
                 break;
-            case GT_LE:
+            case VNF_COND_SLE:
                 if (limit == INT32_MAX)
                 {
                     return NO_ASSERTION_INDEX;
                 }
                 max = limit;
                 break;
-            case GT_GE:
+            case VNF_COND_SGE:
                 if (limit == INT32_MIN)
                 {
                     return NO_ASSERTION_INDEX;
@@ -697,7 +697,7 @@ private:
                 min = limit;
                 break;
             default:
-                assert(oper == GT_GT);
+                assert(cond == VNF_COND_SGT);
                 if (limit == INT32_MAX)
                 {
                     return NO_ASSERTION_INDEX;
@@ -843,7 +843,7 @@ private:
             // "i LT|LE|GE|GT j" where either i or j is constant
             else
             {
-                genTreeOps     oper    = static_cast<genTreeOps>(funcApp.m_func);
+                VNFunc         cond    = funcApp.m_func;
                 ValueNum       vn      = funcApp[0];
                 ValueNum       limitVN = funcApp[1];
                 const int32_t* limitVal;
@@ -851,7 +851,7 @@ private:
                 if ((limitVal = vnStore->IsConstInt32(vn)) != nullptr)
                 {
                     std::swap(vn, limitVN);
-                    oper = GenTree::SwapRelop(oper);
+                    cond = SwapRelopVNFunc(cond);
                 }
                 else if ((limitVal = vnStore->IsConstInt32(limitVN)) == nullptr)
                 {
@@ -860,10 +860,10 @@ private:
 
                 if (kind == OAK_EQUAL)
                 {
-                    oper = GenTree::ReverseRelop(oper);
+                    cond = ReverseRelopVNFunc(cond);
                 }
 
-                return AddRangeAssertions(oper, vn, *limitVal);
+                return AddRangeAssertions(cond, vn, *limitVal);
             }
 
             AssertionDsc dsc;
@@ -894,12 +894,12 @@ private:
 
         // Conditions like "(uint)i < (uint)length" generate BoundsChk or Range assertions.
 
-        if ((func == VNF_GT_UN) || (func == VNF_LE_UN))
+        if ((func == VNF_COND_UGT) || (func == VNF_COND_ULE))
         {
-            func = func == VNF_GT_UN ? VNF_LT_UN : VNF_GE_UN;
+            func = func == VNF_COND_UGT ? VNF_COND_ULT : VNF_COND_UGE;
             std::swap(funcApp.m_args[0], funcApp.m_args[1]);
         }
-        else if ((func != VNF_LT_UN) && (func != VNF_GE_UN))
+        else if ((func != VNF_COND_ULT) && (func != VNF_COND_UGE))
         {
             return NO_ASSERTION_INDEX;
         }
@@ -926,7 +926,7 @@ private:
                 index = AddBoundsChkAssertion(funcApp[0], funcApp[1]);
             }
 
-            isTrue = func == VNF_LT_UN;
+            isTrue = func == VNF_COND_ULT;
         }
         else if (vnStore->IsVNCheckedBound(funcApp[0]) && vnStore->IsConstInt32(funcApp[1]))
         {
@@ -939,7 +939,7 @@ private:
             }
 
             index  = AddRangeAssertion(funcApp[0], constVal, INT32_MAX);
-            isTrue = func == VNF_GE_UN;
+            isTrue = func == VNF_COND_UGE;
         }
         else
         {
@@ -2273,12 +2273,12 @@ private:
                 VNFuncApp funcApp;
                 vnStore->GetVNFunc(op1.vn, &funcApp);
                 assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
-                genTreeOps oper = static_cast<genTreeOps>(funcApp.m_func);
+                VNFunc cond = funcApp.m_func;
 
                 if (funcApp[0] == lengthVN)
                 {
                     std::swap(funcApp.m_args[0], funcApp.m_args[1]);
-                    oper = GenTree::SwapRelop(oper);
+                    cond = SwapRelopVNFunc(cond);
                 }
                 else if (funcApp[1] != lengthVN)
                 {
@@ -2287,7 +2287,7 @@ private:
 
                 if (kind == OAK_EQUAL)
                 {
-                    oper = GenTree::ReverseRelop(oper);
+                    cond = ReverseRelopVNFunc(cond);
                 }
 
                 // TODO-MIKE-Cleanup: We get "len > C" as O1K_BOUND_LOOP_BND but it really should
@@ -2298,11 +2298,11 @@ private:
                 {
                     ssize_t constVal = *c;
 
-                    if ((oper == GT_LT) && (constVal != INT32_MAX))
+                    if ((cond == VNF_COND_SLT) && (constVal != INT32_MAX))
                     {
                         constVal++;
                     }
-                    else if (oper != GT_LE)
+                    else if (cond != VNF_COND_SLE)
                     {
                         continue;
                     }
@@ -2318,7 +2318,7 @@ private:
                     continue;
                 }
 
-                if ((funcApp[0] == indexVN) && (oper == GT_LT))
+                if ((funcApp[0] == indexVN) && (cond == VNF_COND_SLT))
                 {
                     indexMaxVN = lengthVN;
                 }
@@ -3449,7 +3449,7 @@ private:
 
         bool ChangeToLocalAddress(GenTree* node, const VNFuncApp& lclAddr)
         {
-            assert(lclAddr.m_func == VNF_LclAddr);
+            assert(lclAddr.Is(VNF_LclAddr));
 
             // It doesn't seem to be worth the trouble dealing with side effects on local address trees,
             // they do exist but they're usually COMMAs where the value operand is a LCL_VAR|FLD_ADDR

@@ -6,6 +6,40 @@
 // <is-shared-static>)
 
 // clang-format off
+ValueNumFuncDef(COND_NONE, 2, false, false, false)
+ValueNumFuncDef(COND_RESERVED, 2, false, false, false)
+ValueNumFuncDef(COND_SLT, 2, false, false, false)
+ValueNumFuncDef(COND_SLE, 2, false, false, false)
+ValueNumFuncDef(COND_SGE, 2, false, false, false)
+ValueNumFuncDef(COND_SGT, 2, false, false, false)
+ValueNumFuncDef(COND_S, 2, false, false, false)
+ValueNumFuncDef(COND_NS, 2, false, false, false)
+ValueNumFuncDef(COND_EQ, 2, true, false, false)
+ValueNumFuncDef(COND_NE, 2, true, false, false)
+ValueNumFuncDef(COND_ULT, 2, false, false, false)
+ValueNumFuncDef(COND_ULE, 2, false, false, false)
+ValueNumFuncDef(COND_UGE, 2, false, false, false)
+ValueNumFuncDef(COND_UGT, 2, false, false, false)
+ValueNumFuncDef(COND_C, 2, false, false, false)
+ValueNumFuncDef(COND_NC, 2, false, false, false)
+ValueNumFuncDef(COND_FEQ, 2, true, false, false)
+ValueNumFuncDef(COND_FNE, 2, true, false, false)
+ValueNumFuncDef(COND_FLT, 2, false, false, false)
+ValueNumFuncDef(COND_FLE, 2, false, false, false)
+ValueNumFuncDef(COND_FGE, 2, false, false, false)
+ValueNumFuncDef(COND_FGT, 2, false, false, false)
+ValueNumFuncDef(COND_O, 2, false, false, false)
+ValueNumFuncDef(COND_NO, 2, false, false, false)
+ValueNumFuncDef(COND_FEQU, 2, true, false, false)
+ValueNumFuncDef(COND_FNEU, 2, true, false, false)
+ValueNumFuncDef(COND_FLTU, 2, false, false, false)
+ValueNumFuncDef(COND_FLEU, 2, false, false, false)
+ValueNumFuncDef(COND_FGEU, 2, false, false, false)
+ValueNumFuncDef(COND_FGTU, 2, false, false, false)
+ValueNumFuncDef(COND_P, 2, false, false, false)
+ValueNumFuncDef(COND_NP, 2, false, false, false)
+
+
 ValueNumFuncDef(MemOpaque, 1, false, false, false)  // Args: 0: loop num
 ValueNumFuncDef(MemLoad, 3, false, false, false)    // Args: 0: type, 1: address; 2: memory value
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
@@ -165,11 +199,6 @@ ValueNumFuncDef(NonNullIndirect, 1, false, true, false)  // this indirect is exp
 ValueNumFuncDef(Unbox, 2, false, true, false)
 
 ValueNumFuncDef(ObjMT, 1, false, true, false)
-
-ValueNumFuncDef(LT_UN, 2, false, false, false)      // unsigned or unordered comparisons
-ValueNumFuncDef(LE_UN, 2, false, false, false)
-ValueNumFuncDef(GE_UN, 2, false, false, false)
-ValueNumFuncDef(GT_UN, 2, false, false, false)
 
 #if defined(TARGET_XARCH)
 #define HARDWARE_INTRINSIC(isa, name, size, argCount, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \

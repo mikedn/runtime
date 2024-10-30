@@ -78,7 +78,9 @@ inline uint8_t VNFuncSimdSize(VNFunc vnf)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-VNFunc GetRelopVNFunc(GenTree* node);
+VNFunc GetRelopVNFunc(GenTreeOp* node);
+VNFunc SwapRelopVNFunc(VNFunc cond);
+VNFunc ReverseRelopVNFunc(VNFunc cond);
 
 // An instance of this struct represents an application of the function symbol
 // "m_func" to the first "m_arity" (<= 4) argument values in "m_args."
@@ -88,20 +90,9 @@ struct VNFuncApp
     unsigned m_arity;
     ValueNum m_args[4];
 
-    bool Is(genTreeOps oper) const
-    {
-        return m_func == static_cast<VNFunc>(oper);
-    }
-
     bool Is(VNFunc func) const
     {
         return m_func == func;
-    }
-
-    template <typename... T>
-    bool Is(genTreeOps oper, T... rest) const
-    {
-        return Is(oper) || Is(rest...);
     }
 
     template <typename... T>
@@ -764,24 +755,24 @@ public:
     struct CompareCheckedBoundArithInfo
     {
         // (vnBound - 1) > vnOp
-        // (vnBound arrOper arrOp) cmpOper cmpOp
-        ValueNum   vnBound = NoVN;
-        genTreeOps arrOper = GT_NONE;
-        ValueNum   arrOp   = NoVN;
-        genTreeOps cmpOper = GT_NONE;
-        ValueNum   cmpOp   = NoVN;
+        // (vnBound addFunc arrOp) cmpFunc cmpOp
+        ValueNum vnBound = NoVN;
+        VNFunc   addFunc = VNF_None;
+        ValueNum arrOp   = NoVN;
+        VNFunc   cmpFunc = VNF_None;
+        ValueNum cmpOp   = NoVN;
 
 #ifdef DEBUG
         void Dump() const
         {
-            if (arrOper == GT_NONE)
+            if (addFunc == VNF_None)
             {
-                printf("%s(" FMT_VN ", " FMT_VN ")", GenTree::OpName(cmpOper), cmpOp, vnBound);
+                printf("%s(" FMT_VN ", " FMT_VN ")", GetFuncName(cmpFunc), cmpOp, vnBound);
             }
             else
             {
-                printf("%s(" FMT_VN ", %s(" FMT_VN ", " FMT_VN "))", GenTree::OpName(cmpOper), cmpOp,
-                       GenTree::OpName(arrOper), vnBound, arrOp);
+                printf("%s(" FMT_VN ", %s(" FMT_VN ", " FMT_VN "))", GetFuncName(cmpFunc), cmpOp, GetFuncName(addFunc),
+                       vnBound, arrOp);
             }
         }
 #endif
@@ -789,7 +780,7 @@ public:
 
     static bool IsVNCompareCheckedBoundRelop(const VNFuncApp& funcApp)
     {
-        return funcApp.Is(GT_LE, GT_GE, GT_LT, GT_GT);
+        return funcApp.Is(VNF_COND_SLE, VNF_COND_SGE, VNF_COND_SLT, VNF_COND_SGT);
     }
 
     // If "vn" is of the form "var < len" or "len <= var" return true.

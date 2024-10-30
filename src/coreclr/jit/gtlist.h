@@ -135,12 +135,12 @@ GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(SMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
 GTNODE(UMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
 
-GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
-GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
-GTNODE(LT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
-GTNODE(LE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
-GTNODE(GE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
-GTNODE(GT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_VN)
+GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_COMMUTE)
+GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_COMMUTE)
+GTNODE(LT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
+GTNODE(LE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
+GTNODE(GE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
+GTNODE(GT               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN)
 
 // These are similar to GT_EQ/GT_NE but they generate "test" instead of "cmp" instructions.
 // Currently these are generated during lowering for code like ((x & y) eq|ne 0) only on
