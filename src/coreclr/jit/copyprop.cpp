@@ -251,20 +251,21 @@ public:
 
         for (const auto& pair : lclSsaStackMap)
         {
-            LclVarDsc*     newLcl = m_compiler->lvaGetDesc(pair.key);
             GenTreeLclDef* newDef = pair.value.Top()->lclDef;
 
-            if ((lcl == newLcl) || (newDef == nullptr))
+            if ((newDef == nullptr) || (newDef->GetConservativeVN() != defVN))
+            {
+                continue;
+            }
+
+            LclVarDsc* newLcl = newDef->GetLcl();
+
+            if (newLcl == lcl)
             {
                 continue;
             }
 
             if (varActualType(newLcl->GetType()) != varActualType(lcl->GetType()))
-            {
-                continue;
-            }
-
-            if (newDef->GetConservativeVN() != defVN)
             {
                 continue;
             }

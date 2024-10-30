@@ -141,7 +141,7 @@ void SsaBuilder::Build()
 #define DBG_SSA_JITDUMP(...)                                                                                           \
     if (JitTls::GetCompiler()->verboseSsa)                                                                             \
     {                                                                                                                  \
-        jitprintf(__VA_ARGS__);                                                                                             \
+        jitprintf(__VA_ARGS__);                                                                                        \
     }
 #else
 #define DBG_SSA_JITDUMP(...)
