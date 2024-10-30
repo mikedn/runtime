@@ -912,10 +912,14 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     {
         vn = EvalUsingMathIdentity(type, func, arg0, arg1);
 
-        if ((vn == NoVN) || (TypeOfVN(vn) != type))
+        if (vn == NoVN)
         {
             vn = GetAllocChunk(type, ChunkKind::Func2)->AllocVN(func2);
             m_func2VNMap->Set(func2, vn);
+        }
+        else
+        {
+            assert(varActualType(TypeOfVN(vn)) == varActualType(type));
         }
     }
 
