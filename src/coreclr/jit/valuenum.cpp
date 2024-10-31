@@ -2260,9 +2260,9 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
 
     switch (func)
     {
-        ValueNum  zeroVN;
-        ValueNum  oneVN;
-        var_types argType;
+        ValueNum zeroVN;
+        ValueNum oneVN;
+        int64_t  value;
 
         case VNOP_ADD:
             zeroVN = VNZeroForType(type);
@@ -2411,8 +2411,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             std::swap(arg0VN, arg1VN);
             FALLTHROUGH;
         case VNF_COND_UGT:
-            argType = TypeOfVN(arg0VN);
-            if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
+            if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
             {
                 return VNZeroForType(type);
             }
@@ -2422,8 +2421,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             std::swap(arg0VN, arg1VN);
             FALLTHROUGH;
         case VNF_COND_ULE:
-            argType = TypeOfVN(arg0VN);
-            if ((arg0VN == arg1VN) || (arg0VN == VNZeroForType(argType)))
+            if ((arg0VN == arg1VN) || (IsConstInt(arg0VN, &value) && (value == 0)))
             {
                 return VNOneForType(type);
             }

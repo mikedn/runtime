@@ -2024,11 +2024,11 @@ private:
 
         for (VNFuncApp funcApp; vnStore->GetVNFunc(baseVN, &funcApp) == VNOP_ADD;)
         {
-            if (vnStore->IsConst(funcApp[1]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[1])))
+            if (varTypeIsIntegral(vnStore->GetConstType(funcApp[1])))
             {
                 baseVN = funcApp[0];
             }
-            else if (vnStore->IsConst(funcApp[0]) && varTypeIsIntegral(vnStore->TypeOfVN(funcApp[0])))
+            else if (varTypeIsIntegral(vnStore->GetConstType(funcApp[0])))
             {
                 baseVN = funcApp[1];
             }
