@@ -671,10 +671,8 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
         case TYP_SHORT:
         case TYP_USHORT:
         case TYP_INT:
-        case TYP_UINT:
             return VNForIntCon(0);
         case TYP_LONG:
-        case TYP_ULONG:
             return VNForLongCon(0);
         case TYP_FLOAT:
             return VNForFloatCon(0.0f);
@@ -718,9 +716,9 @@ ValueNum ValueNumStore::ReadOnlyMemoryMapVN()
     return m_readOnlyMemoryMap;
 }
 
-ValueNum ValueNumStore::VNOneForType(var_types typ)
+ValueNum ValueNumStore::VNOneForType(var_types type)
 {
-    switch (typ)
+    switch (type)
     {
         case TYP_BOOL:
         case TYP_BYTE:
@@ -728,17 +726,11 @@ ValueNum ValueNumStore::VNOneForType(var_types typ)
         case TYP_SHORT:
         case TYP_USHORT:
         case TYP_INT:
-        case TYP_UINT:
             return VNForIntCon(1);
         case TYP_LONG:
-        case TYP_ULONG:
             return VNForLongCon(1);
-        case TYP_FLOAT:
-            return VNForFloatCon(1.0f);
-        case TYP_DOUBLE:
-            return VNForDoubleCon(1.0);
         default:
-            return NoVN;
+            unreached();
     }
 }
 

@@ -630,13 +630,8 @@ public:
         return {EmptyExsetVN(), EmptyExsetVN()};
     }
 
-    // Returns the value number for zero of the given "typ".
-    // It has an unreached() for a "typ" that has no zero value, such as TYP_VOID.
-    ValueNum VNZeroForType(var_types typ);
-
-    // Returns the value number for one of the given "typ".
-    // It returns NoVN for a "typ" that has no one value, such as TYP_REF.
-    ValueNum VNOneForType(var_types typ);
+    ValueNum VNZeroForType(var_types type);
+    ValueNum VNOneForType(var_types type);
 
     ValueNum ExsetCreate(ValueNum x);
     ValueNumPair ExsetCreate(ValueNumPair x);
