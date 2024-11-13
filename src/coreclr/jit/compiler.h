@@ -4955,9 +4955,6 @@ public:
     bool optInvertWhileLoop(BasicBlock* block);
 
 private:
-    static bool optIterSmallOverflow(int iterAtExit, var_types incrType);
-    static bool optIterSmallUnderflow(int iterAtExit, var_types decrType);
-
     bool optComputeLoopRep(int        constInit,
                            int        constLimit,
                            int        iterInc,

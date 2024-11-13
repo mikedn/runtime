@@ -2806,104 +2806,6 @@ void Compiler::optUpdateLoopHead(unsigned loopInd, BasicBlock* from, BasicBlock*
 }
 
 //-----------------------------------------------------------------------------
-// optIterSmallOverflow: Helper for loop unrolling. Determine if "i += const" will
-// cause an overflow exception for the small types.
-//
-// Arguments:
-//    iterAtExit - iteration constant at loop exit
-//    incrType   - type of increment
-//
-// Returns:
-//   true if overflow
-//
-// static
-bool Compiler::optIterSmallOverflow(int iterAtExit, var_types incrType)
-{
-    int type_MAX;
-
-    switch (incrType)
-    {
-        case TYP_BYTE:
-            type_MAX = SCHAR_MAX;
-            break;
-        case TYP_UBYTE:
-            type_MAX = UCHAR_MAX;
-            break;
-        case TYP_SHORT:
-            type_MAX = SHRT_MAX;
-            break;
-        case TYP_USHORT:
-            type_MAX = USHRT_MAX;
-            break;
-
-        case TYP_UINT: // Detected by checking for 32bit ....
-        case TYP_INT:
-            return false; // ... overflow same as done for TYP_INT
-
-        default:
-            NO_WAY("Bad type");
-    }
-
-    if (iterAtExit > type_MAX)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-//-----------------------------------------------------------------------------
-// optIterSmallUnderflow: Helper for loop unrolling. Determine if "i -= const" will
-// cause an underflow exception for the small types.
-//
-// Arguments:
-//    iterAtExit - iteration constant at loop exit
-//    decrType   - type of decrement
-//
-// Returns:
-//   true if overflow
-//
-// static
-bool Compiler::optIterSmallUnderflow(int iterAtExit, var_types decrType)
-{
-    int type_MIN;
-
-    switch (decrType)
-    {
-        case TYP_BYTE:
-            type_MIN = SCHAR_MIN;
-            break;
-        case TYP_SHORT:
-            type_MIN = SHRT_MIN;
-            break;
-        case TYP_UBYTE:
-            type_MIN = 0;
-            break;
-        case TYP_USHORT:
-            type_MIN = 0;
-            break;
-
-        case TYP_UINT: // Detected by checking for 32bit ....
-        case TYP_INT:
-            return false; // ... underflow same as done for TYP_INT
-
-        default:
-            NO_WAY("Bad type");
-    }
-
-    if (iterAtExit < type_MIN)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-//-----------------------------------------------------------------------------
 // optComputeLoopRep: Helper for loop unrolling. Computes the number of repetitions
 // in a constant loop.
 //
@@ -2921,15 +2823,15 @@ bool Compiler::optIterSmallUnderflow(int iterAtExit, var_types decrType)
 // Returns:
 //   true if the loop has a constant repetition count, false if that cannot be proven
 //
-bool Compiler::optComputeLoopRep(int        constInit,
-                                 int        constLimit,
-                                 int        iterInc,
-                                 genTreeOps iterOper,
-                                 var_types  iterOperType,
-                                 genTreeOps testOper,
-                                 bool       unsTest,
-                                 bool       dupCond,
-                                 unsigned*  iterCount)
+bool Compiler::optComputeLoopRep(const int        constInit,
+                                 const int        constLimit,
+                                 int              iterInc,
+                                 const genTreeOps iterOper,
+                                 const var_types  iterOperType,
+                                 const genTreeOps testOper,
+                                 const bool       unsTest,
+                                 const bool       dupCond,
+                                 unsigned*        iterCount)
 {
     noway_assert(iterOperType == TYP_INT);
 
@@ -3046,13 +2948,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                         iterAtExitX = (unsigned)iterAtExitX;
                     }
 
-                    // Check if iteration incr will cause overflow for small types
-                    if (optIterSmallOverflow((int)iterAtExitX, iterOperType))
-                    {
-                        return false;
-                    }
-
-                    // iterator with 32bit overflow. Bad for TYP_(U)INT
                     if (iterAtExitX < constLimitX)
                     {
                         return false;
@@ -3089,13 +2984,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                         iterAtExitX = (unsigned)iterAtExitX;
                     }
 
-                    // Check if iteration incr will cause overflow for small types
-                    if (optIterSmallOverflow((int)iterAtExitX, iterOperType))
-                    {
-                        return false;
-                    }
-
-                    // iterator with 32bit overflow. Bad for TYP_(U)INT
                     if (iterAtExitX < constLimitX)
                     {
                         return false;
@@ -3132,13 +3020,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                         iterAtExitX = (unsigned)iterAtExitX;
                     }
 
-                    // Check if iteration incr will cause overflow for small types
-                    if (optIterSmallOverflow((int)iterAtExitX, iterOperType))
-                    {
-                        return false;
-                    }
-
-                    // iterator with 32bit overflow. Bad for TYP_(U)INT
                     if (iterAtExitX <= constLimitX)
                     {
                         return false;
@@ -3175,13 +3056,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                         iterAtExitX = (unsigned)iterAtExitX;
                     }
 
-                    // Check if small types will underflow
-                    if (optIterSmallUnderflow((int)iterAtExitX, iterOperType))
-                    {
-                        return false;
-                    }
-
-                    // iterator with 32bit underflow. Bad for TYP_INT and unsigneds
                     if (iterAtExitX > constLimitX)
                     {
                         return false;
@@ -3218,13 +3092,6 @@ bool Compiler::optComputeLoopRep(int        constInit,
                         iterAtExitX = (unsigned)iterAtExitX;
                     }
 
-                    // Check if small types will underflow
-                    if (optIterSmallUnderflow((int)iterAtExitX, iterOperType))
-                    {
-                        return false;
-                    }
-
-                    // iterator with 32bit underflow. Bad for TYP_INT and unsigneds
                     if (iterAtExitX >= constLimitX)
                     {
                         return false;
