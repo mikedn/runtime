@@ -89,7 +89,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
         {
             assert(varActualTypeIsInt(lcl->GetType()));
 
-            if (!varTypeIsUnsigned(lcl->GetType()))
+            if (!varTypeIsSmallUnsigned(lcl->GetType()))
             {
                 ssize_t value = con->GetValue();
 

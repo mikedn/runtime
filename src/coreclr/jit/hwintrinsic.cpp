@@ -223,7 +223,6 @@ GenTree* Importer::addRangeCheckIfNeeded(
     }
 
     assert(!immOp->IsIntCon());
-    assert(varTypeIsUnsigned(immOp->GetType()));
 
     return addRangeCheckForHWIntrinsic(immOp, immLowerBound, immUpperBound);
 }

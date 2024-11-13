@@ -880,7 +880,8 @@ private:
             {
                 if (loadSize == lclSize)
                 {
-                    if (varTypeIsSmall(loadType) && (varTypeIsUnsigned(loadType) != varTypeIsUnsigned(lclType)))
+                    if (varTypeIsSmall(loadType) &&
+                        (varTypeIsSmallUnsigned(loadType) != varTypeIsSmallUnsigned(lclType)))
                     {
                         // There's no reason to write something like `*(short*)&ushortLocal` instead of just
                         // `(short)ushortLocal`, except that generics code can't do such casts and sometimes

@@ -5001,7 +5001,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
         // The common type cannot be smaller than any of the operand types, we're probably mixing int/long
         assert(varTypeSize(type) >= Max(varTypeSize(type1), varTypeSize(type2)));
         // Small unsigned int types should use unsigned comparisons
-        assert(!(varTypeIsSmallInt(type) && varTypeIsUnsigned(type)) || cmp->IsRelopUnsigned());
+        assert(!varTypeIsSmallUnsigned(type) || cmp->IsRelopUnsigned());
         // If op1 is smaller then it cannot be in memory, we're probably missing a cast
         assert((varTypeSize(type1) >= varTypeSize(type)) || !op1->isContained());
         // If op2 is smaller then it cannot be in memory, we're probably missing a cast
@@ -5013,8 +5013,6 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 
     // The type cannot be larger than the machine word size
     assert(varTypeSize(type) <= varTypeSize(TYP_I_IMPL));
-    // TYP_UINT and TYP_ULONG should not appear here, only small types can be unsigned
-    assert(!varTypeIsUnsigned(type) || varTypeIsSmall(type));
 
     emitAttr attr = emitTypeSize(type);
 
@@ -5203,7 +5201,7 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     GenTree*    src    = cast->GetOp(0);
     RegNum      srcReg = src->isUsedFromReg() ? UseReg(src) : REG_NA;
     RegNum      dstReg = cast->GetRegNum();
-    instruction ins    = varTypeIsUnsigned(cast->GetType()) ? INS_movzx : INS_movsx;
+    instruction ins    = varTypeIsSmallUnsigned(cast->GetType()) ? INS_movzx : INS_movsx;
     emitAttr    size   = emitTypeSize(cast->GetType());
 
     if (srcReg == REG_NA)
@@ -8515,7 +8513,7 @@ instruction CodeGen::ins_Move_Extend(var_types type)
 
     if (varTypeIsSmall(type))
     {
-        return varTypeIsUnsigned(type) ? INS_movzx : INS_movsx;
+        return varTypeIsSmallUnsigned(type) ? INS_movzx : INS_movsx;
     }
 
     return INS_mov;
@@ -8544,7 +8542,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 
     if (varTypeIsSmall(srcType))
     {
-        return varTypeIsUnsigned(srcType) ? INS_movzx : INS_movsx;
+        return varTypeIsSmallUnsigned(srcType) ? INS_movzx : INS_movsx;
     }
 
     return INS_mov;

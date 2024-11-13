@@ -794,7 +794,8 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
                 op2 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(indexMask));
             }
 
-            return gtNewSimdHWIntrinsicNode(sig.retType, NI_Vector128_GetElement, baseType, 16, op1, op2);
+            return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement, baseType, 16, op1,
+                                            op2);
         }
 
         case NI_SSE_Prefetch0:

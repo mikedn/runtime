@@ -63,7 +63,7 @@ void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
         {
             assert(varActualTypeIsInt(lcl->GetType()));
 
-            if (!varTypeIsUnsigned(lcl->GetType()))
+            if (!varTypeIsSmallUnsigned(lcl->GetType()))
             {
                 ssize_t value = con->GetValue();
 
@@ -950,7 +950,7 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
 
     if (cmp->GetOp(0)->GetType() == cmp->GetOp(1)->GetType())
     {
-        if (varTypeIsSmall(cmp->GetOp(0)->GetType()) && varTypeIsUnsigned(cmp->GetOp(0)->GetType()))
+        if (varTypeIsSmallUnsigned(cmp->GetOp(0)->GetType()))
         {
             // If both operands have the same type then codegen will use the common operand type to
             // determine the instruction type. For small types this would result in performing a

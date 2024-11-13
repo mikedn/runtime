@@ -87,7 +87,7 @@ GenTree* Compiler::fgMorphOverflowConvPost(GenTreeUnOp* conv)
         }
     }
 
-    if (conv->OperIs(GT_OVF_UCONV) && !varTypeIsUnsigned(srcType))
+    if (conv->OperIs(GT_OVF_UCONV) && !varTypeIsSmallUnsigned(srcType))
     {
         return nullptr;
     }
@@ -389,8 +389,8 @@ bool Compiler::fgMorphNarrowTreeRec(GenTree* const tree, const var_types type, c
         {
             const unsigned dstSize = varTypeSize(type);
 
-            if ((dstSize > varTypeSize(tree->GetType())) && varTypeIsUnsigned(type) &&
-                !varTypeIsUnsigned(tree->GetType()))
+            if ((dstSize > varTypeSize(tree->GetType())) && varTypeIsSmallUnsigned(type) &&
+                !varTypeIsSmallUnsigned(tree->GetType()))
             {
                 return false;
             }
@@ -459,7 +459,7 @@ bool Compiler::fgMorphNarrowTreeRec(GenTree* const tree, const var_types type, c
             // the result of the AND will also fit into type and can be narrowed.
             // The same is true if one of the operands is an int const and can be narrowed into `type`.
 
-            if (op2->IsIntCon() || varTypeIsUnsigned(type))
+            if (op2->IsIntCon() || varTypeIsSmallUnsigned(type))
             {
                 if (fgMorphNarrowTreeRec(op2, type, false))
                 {
@@ -472,7 +472,7 @@ bool Compiler::fgMorphNarrowTreeRec(GenTree* const tree, const var_types type, c
                 }
             }
 
-            if ((opToNarrow == nullptr) && (op1->IsIntCon() || varTypeIsUnsigned(type)))
+            if ((opToNarrow == nullptr) && (op1->IsIntCon() || varTypeIsSmallUnsigned(type)))
             {
                 if (fgMorphNarrowTreeRec(op1, type, false))
                 {

@@ -803,9 +803,9 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         //    - SXTB x0, w0 and LSL x0, x0, #12 <=> SBFIZ x0, x0, #12, #8
         //    - SXTW x0, w0 and ASR x0, x0, #12 <=> SBFX x0, x0, #12, #20
 
-        GenTreeUnOp* cast = op1->AsUnOp();
+        GenTreeUnOp* conv = op1->AsUnOp();
 
-        assert(varTypeIsSmall(cast->GetType()));
+        assert(varTypeIsSmall(conv->GetType()));
 
         // Currently the JIT IR doesn't allow direct extension from small int types to LONG.
         // This code likely works fine with such casts but it cannot be tested.
@@ -821,8 +821,8 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
         // be folded together with AND(x, mask) but nothing in the JIT seems to be
         // doing this so code like "(x_byte & 3) << 6" also generates an extra uxtb.
 
-        unsigned bitFieldWidth = varTypeBitSize(cast->GetType());
-        bool     isUnsigned    = varTypeIsUnsigned(cast->GetType());
+        unsigned bitFieldWidth = varTypeBitSize(conv->GetType());
+        bool     isUnsigned    = varTypeIsSmallUnsigned(conv->GetType());
 
         unsigned    bitSize = EA_SIZE_IN_BYTES(size) * 8;
         instruction ins     = INS_none;
@@ -900,14 +900,14 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
 
         if (ins != INS_none)
         {
-            op1 = cast->GetOp(0);
+            op1 = conv->GetOp(0);
             op1->ClearContained();
 
             shift->SetIns(ins, size);
             shift->SetOp(0, op1);
             shift->SetImmediate(imm);
 
-            BlockRange().Remove(cast);
+            BlockRange().Remove(conv);
 
             return;
         }
@@ -1753,9 +1753,9 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
     {
         var_types castType = op1->GetType();
 
-        assert(varTypeIsSmall(castType));
+        assert(varTypeIsSmallInt(castType));
 
-        if (varTypeIsUnsigned(castType) || !cmp->OperIs(GT_GT))
+        if (varTypeIsSmallUnsigned(castType) || !cmp->OperIs(GT_GT))
         {
             BlockRange().Remove(op1);
 

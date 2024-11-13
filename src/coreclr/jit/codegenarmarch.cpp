@@ -2829,11 +2829,11 @@ instruction CodeGen::ins_Conv(var_types dstType)
 
     if (varTypeIsByte(dstType))
     {
-        return varTypeIsUnsigned(dstType) ? INS_uxtb : INS_sxtb;
+        return varTypeIsSmallUnsigned(dstType) ? INS_uxtb : INS_sxtb;
     }
 
     assert(varTypeIsShort(dstType));
-    return varTypeIsUnsigned(dstType) ? INS_uxth : INS_sxth;
+    return varTypeIsSmallUnsigned(dstType) ? INS_uxth : INS_sxth;
 }
 
 instruction CodeGen::ins_Load(var_types srcType, bool aligned)
@@ -2853,11 +2853,11 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
     {
         if (varTypeIsByte(srcType))
         {
-            return varTypeIsUnsigned(srcType) ? INS_ldrb : INS_ldrsb;
+            return varTypeIsSmallUnsigned(srcType) ? INS_ldrb : INS_ldrsb;
         }
 
         assert(varTypeIsShort(srcType));
-        return varTypeIsUnsigned(srcType) ? INS_ldrh : INS_ldrsh;
+        return varTypeIsSmallUnsigned(srcType) ? INS_ldrh : INS_ldrsh;
     }
 
     return INS_ldr;

@@ -12497,10 +12497,10 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
 
     if (varTypeSize(fromType) < varTypeSize(toType))
     {
-        return !varTypeIsUnsigned(fromType) && varTypeIsUnsigned(toType);
+        return !varTypeIsSmallUnsigned(fromType) && varTypeIsSmallUnsigned(toType);
     }
 
-    return varTypeIsUnsigned(fromType) != varTypeIsUnsigned(toType);
+    return varTypeIsSmallUnsigned(fromType) != varTypeIsSmallUnsigned(toType);
 }
 
 GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
