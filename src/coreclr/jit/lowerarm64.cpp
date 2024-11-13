@@ -1971,7 +1971,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
             useJCMP   = true;
             jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : GTF_EMPTY);
 
-            if (varTypeIsLong(relop->AsOp()->GetOp(0)->GetType()))
+            if (relop->AsOp()->GetOp(0)->TypeIs(TYP_LONG))
             {
                 relopOp2->AsIntCon()->SetValue(63);
             }
@@ -1982,7 +1982,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
         }
         else if (relop->OperIs(GT_TEST_EQ, GT_TEST_NE))
         {
-            if (!varTypeIsLong(relop->GetOp(0)->GetType()))
+            if (!relop->GetOp(0)->TypeIs(TYP_LONG))
             {
                 // Discard any spurious sign bits a 32 bit constant may have due to the use of ssize_t.
                 imm &= UINT32_MAX;

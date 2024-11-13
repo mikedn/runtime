@@ -678,7 +678,7 @@ public:
 #ifdef TARGET_64BIT
         return lvPromoted;
 #else
-        return lvPromoted && !varTypeIsLong(lvType);
+        return lvPromoted && (lvType != TYP_LONG);
 #endif
     }
 

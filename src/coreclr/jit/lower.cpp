@@ -4153,7 +4153,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
     if (shiftBy->OperIs(GT_CNS_INT))
     {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        size_t mask = varTypeIsLong(shift->GetType()) ? 0x3f : 0x1f;
+        size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86) || defined(TARGET_ARM)
         size_t mask = 0x1f;
 #else
@@ -4271,7 +4271,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
     else
     {
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
-        size_t mask = varTypeIsLong(shift->GetType()) ? 0x3f : 0x1f;
+        size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86)
         size_t mask = 0x1f;
 #elif defined(TARGET_ARM)

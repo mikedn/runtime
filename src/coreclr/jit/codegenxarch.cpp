@@ -818,7 +818,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
     assert(div->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD) && varTypeIsIntOrI(div->GetType()));
 
 #ifdef TARGET_X86
-    if (varTypeIsLong(div->GetOp(0)->GetType()))
+    if (div->GetOp(0)->TypeIs(TYP_LONG))
     {
         GenUModLong(div);
 

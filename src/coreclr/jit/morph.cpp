@@ -7607,7 +7607,7 @@ GenTree* Compiler::fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree
         {
             if ((lclOffs == 0) && (size == lclSize) && !varTypeIsFloating(lcl->GetType())
 #ifndef TARGET_64BIT
-                && !varTypeIsLong(lcl->GetType())
+                && !lcl->TypeIs(TYP_LONG)
 #endif
                     )
             {
@@ -7693,13 +7693,13 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                              bool           extendToActualType,
                                              var_types      simdBaseType)
 {
-    assert(type != TYP_STRUCT);
+    assert((type != TYP_STRUCT) && (type != TYP_UINT) && (type != TYP_ULONG));
 
     var_types initPatternType;
 
     if (varTypeIsSIMD(type))
     {
-        if (varTypeIsLong(simdBaseType))
+        if (simdBaseType == TYP_LONG)
         {
             // It is not useful to produce a 64 bit init pattern, especially on 32 bit targets.
             initPatternType = TYP_INT;

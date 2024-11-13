@@ -1295,7 +1295,7 @@ public:
             // Treat floating point and 64 bit integers as always on the stack
             // TODO-MIKE-Review: What the crap does FP has to do with X86?
             // And LONG locals can get promoted and thus enregistered, this is nonsense.
-            if (varTypeIsFloating(lcl->GetType()) || varTypeIsLong(lcl->GetType()))
+            if (varTypeIsFloating(lcl->GetType()) || lcl->TypeIs(TYP_LONG))
             {
                 onStack = true;
             }

@@ -2626,9 +2626,9 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 #endif
     }
 #ifndef TARGET_64BIT
-    else if (varTypeIsLong(src->GetType()))
+    else if (src->TypeIs(TYP_LONG))
     {
-        // GT_MUL_LONG is handled by the IsMultiRegNode case above.
+        // MUL_LONG is handled by the IsMultiRegNode case above.
         assert(src->OperIs(GT_LONG));
         assert(src->isContained());
         assert(!src->AsOp()->GetOp(0)->isContained() && !src->AsOp()->GetOp(1)->isContained());

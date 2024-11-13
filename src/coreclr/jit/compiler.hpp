@@ -404,6 +404,8 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
     , gtTreeID(JitTls::GetCompiler()->compGenTreeID++)
 #endif
 {
+    assert((type != TYP_UINT) && (type != TYP_ULONG));
+
 #ifdef DEBUG
     assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
 

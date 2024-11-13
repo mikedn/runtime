@@ -3217,7 +3217,7 @@ private:
 #ifndef TARGET_64BIT
             // We can't replace the operands of a LONG MUL on 32 bit targets, they're
             // supposed to be INT to LONG CASTs and be marked GTF_DONT_CSE.
-            assert((user == nullptr) || !user->OperIs(GT_MUL) || !varTypeIsLong(user->GetType()));
+            assert((user == nullptr) || !user->OperIs(GT_MUL) || !user->TypeIs(TYP_LONG));
 #endif
 
             switch (tree->GetOper())

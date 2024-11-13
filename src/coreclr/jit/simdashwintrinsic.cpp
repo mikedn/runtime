@@ -2076,7 +2076,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
         return gtNewSimdHWIntrinsicNode(TYP_SIMD16, postIntrinsic, eltType, 16, op1, constUses[2]);
     }
 
-    assert((eltType == TYP_INT) || (eltType == TYP_UINT) || varTypeIsLong(eltType));
+    assert(varTypeIsInt(eltType) || varTypeIsLong(eltType));
 
     GenTree* uses[2][2];
     impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax temp"));

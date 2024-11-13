@@ -1715,7 +1715,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
         return nullptr;
     }
 
-    if (varTypeIsLong(tree->GetType()))
+    if (tree->TypeIs(TYP_LONG))
     {
         return nullptr;
     }
@@ -1923,7 +1923,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     FALLTHROUGH;
                 case GT_LCL_STORE_FLD:
 #ifndef TARGET_64BIT
-                    if (varTypeIsLong(tree->GetType()))
+                    if (tree->TypeIs(TYP_LONG))
                     {
                         costEx = 7;
                         costSz = 6;
@@ -2231,7 +2231,7 @@ void Compiler::gtSetCosts(GenTree* tree)
 
 #ifndef TARGET_64BIT
         // TODO-MIKE-Review: Why does this check op1's type instead of tree's type?
-        if (varTypeIsLong(op1->GetType()))
+        if (op1->TypeIs(TYP_LONG))
         {
             costEx += 3;
             costSz += 3;
@@ -2373,7 +2373,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     costSz += 1;
                 }
 #ifndef TARGET_64BIT
-                else if (varTypeIsLong(tree->GetType()))
+                else if (tree->TypeIs(TYP_LONG))
                 {
                     costEx += 3;
                     costSz += 3;
@@ -3984,7 +3984,7 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
 
     call->GetRetDesc()->Reset();
 #ifndef TARGET_64BIT
-    if (varTypeIsLong(call->GetType()))
+    if (call->TypeIs(TYP_LONG))
     {
         call->GetRetDesc()->InitializeLong();
     }
@@ -4075,7 +4075,7 @@ GenTreeCall* Compiler::gtNewCallNode(
     node->ClearOtherRegs();
 
 #ifndef TARGET_64BIT
-    if (varTypeIsLong(type))
+    if (type == TYP_LONG)
     {
         node->GetRetDesc()->InitializeLong();
     }
@@ -10400,7 +10400,7 @@ INTEGRAL_OVF:
     JITDUMPTREE(tree, "\nFolding operator with constant nodes:\n");
 
     op1 = gtNewHelperCallNode(CORINFO_HELP_OVERFLOW, TYP_VOID);
-    op2 = varTypeIsLong(tree->GetType()) ? gtNewLconNode(0) : gtNewIconNode(0);
+    op2 = tree->TypeIs(TYP_LONG) ? gtNewLconNode(0) : gtNewIconNode(0);
 
     if (vnStore != nullptr)
     {

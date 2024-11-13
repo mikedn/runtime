@@ -435,7 +435,7 @@ bool LoopHoist::IsHoistingProfitable(GenTree* tree, unsigned lnum)
         }
 #ifndef TARGET_64BIT
         // For our 32-bit targets Long types take two registers.
-        if (varTypeIsLong(tree->GetType()))
+        if (tree->TypeIs(TYP_LONG))
         {
             availRegCount = (availRegCount + 1) / 2;
         }
@@ -999,7 +999,7 @@ void LoopHoist::HoistCandidate(GenTree* tree, unsigned lnum)
         stats.intHoistedExprCount++;
 #ifndef TARGET_64BIT
         // For our 32-bit targets Long types take two registers.
-        if (varTypeIsLong(tree->GetType()))
+        if (tree->TypeIs(TYP_LONG))
         {
             stats.intHoistedExprCount++;
         }

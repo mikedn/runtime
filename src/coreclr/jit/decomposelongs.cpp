@@ -39,16 +39,16 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
     // Handle the case where we are implicitly using the lower half of a long lclVar.
     if (tree->TypeIs(TYP_INT) && tree->OperIs(GT_LCL_LOAD))
     {
-        LclVarDsc* varDsc = tree->AsLclLoad()->GetLcl();
+        LclVarDsc* lcl = tree->AsLclLoad()->GetLcl();
 
-        if (varTypeIsLong(varDsc->GetType()) && varDsc->IsPromoted())
+        if (lcl->TypeIs(TYP_LONG) && lcl->IsPromoted())
         {
             JITDUMPRANGE(
                 Range(), tree,
                 "Changing implicit reference to low half of LONG local to an explicit reference of its promoted "
                 "half:\n");
 
-            tree->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
+            tree->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
 
             return tree->gtNext;
         }
@@ -1246,7 +1246,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 {
     assert(node == use.Def());
     assert((node->GetIntrinsic() == NI_Vector128_GetElement) || (node->GetIntrinsic() == NI_Vector256_GetElement));
-    assert(varTypeIsLong(node->GetType()));
+    assert(node->TypeIs(TYP_LONG));
 
     GenTree*  op1      = node->GetOp(0);
     GenTree*  op2      = node->GetOp(1);

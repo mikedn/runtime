@@ -994,8 +994,8 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     regNumber reg1  = UseReg(op1);
     regNumber reg2  = op2->isContained() ? REG_NA : UseReg(op2);
 
-    assert(!varTypeIsLong(type1));
-    assert(!varTypeIsLong(type2));
+    assert(type1 != TYP_LONG);
+    assert(type2 != TYP_LONG);
 
     emitter* emit = GetEmitter();
 

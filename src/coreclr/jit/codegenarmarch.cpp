@@ -454,7 +454,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
         DefReg(bitcast);
     }
 #ifdef TARGET_ARM
-    else if (varTypeIsLong(dstType) && src->TypeIs(TYP_DOUBLE))
+    else if ((dstType == TYP_LONG) && src->TypeIs(TYP_DOUBLE))
     {
         regNumber srcReg  = UseReg(src);
         regNumber dstReg1 = bitcast->GetRegNum(0);

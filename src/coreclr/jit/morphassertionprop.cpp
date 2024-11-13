@@ -1087,7 +1087,7 @@ GenTree* Compiler::morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load)
 #endif
 
 #ifndef TARGET_64BIT
-            if (varTypeIsLong(load->GetType()))
+            if (load->TypeIs(TYP_LONG))
             {
                 return load->ChangeToLngCon(0);
             }

@@ -6178,7 +6178,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
     //     ldc.i4 2
     //     stsfld int64 foo::bar
 
-    if (value->TypeIs(TYP_INT) && value->IsIntCon() && varTypeIsLong(storeType))
+    if (value->TypeIs(TYP_INT) && value->IsIntCon() && (storeType == TYP_LONG))
     {
         value->ChangeToLngCon(value->AsIntCon()->GetInt32Value());
     }
