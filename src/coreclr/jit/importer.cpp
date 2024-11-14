@@ -229,6 +229,20 @@ Importer::StackEntry& Importer::impStackTop(unsigned n)
     return verCurrentState.esStack[verCurrentState.esStackDepth - n - 1];
 }
 
+Importer::StackEntry& Importer::GetConvStackValue()
+{
+    StackEntry& se = impStackTop();
+
+    assert(se.seTypeInfo.IsNone());
+
+    if (varTypeIsGC(se.val->GetType()))
+    {
+        se.val = gtNewGCBitcastNode(se.val);
+    }
+
+    return se;
+}
+
 unsigned Importer::impStackHeight()
 {
     return verCurrentState.esStackDepth;
@@ -17815,16 +17829,15 @@ void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
 {
     assert(varTypeIsFloating(toType));
 
-    StackEntry& se = impStackTop();
-    assert(se.seTypeInfo.IsNone());
-    GenTree* value = se.val;
+    StackEntry& se       = GetConvStackValue();
+    GenTree*    value    = se.val;
+    var_types   fromType = value->GetType();
 
-    if (value->GetType() == toType)
+    if (fromType == toType)
     {
         return;
     }
 
-    var_types  fromType = value->GetType();
     genTreeOps oper;
 
     if (fromType == TYP_DOUBLE)
@@ -17858,16 +17871,9 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 {
     assert(varTypeIsIntegral(toType));
 
-    StackEntry& se = impStackTop();
-    assert(se.seTypeInfo.IsNone());
-    GenTree* value = se.val;
-
-    if (varTypeIsGC(value->GetType()))
-    {
-        value = gtNewGCBitcastNode(value);
-    }
-
-    var_types fromType = value->GetType();
+    StackEntry& se       = GetConvStackValue();
+    GenTree*    value    = se.val;
+    var_types   fromType = value->GetType();
 
     if (varTypeIsFloating(fromType))
     {
@@ -17935,16 +17941,9 @@ void Importer::ImportSmallIntConv(var_types toType)
 {
     assert(varTypeIsSmallInt(toType));
 
-    StackEntry& se = impStackTop();
-    assert(se.seTypeInfo.IsNone());
-    GenTree* value = se.val;
-
-    if (varTypeIsGC(value->GetType()))
-    {
-        value = gtNewGCBitcastNode(value);
-    }
-
-    var_types fromType = value->GetType();
+    StackEntry& se       = GetConvStackValue();
+    GenTree*    value    = se.val;
+    var_types   fromType = value->GetType();
 
     if (varTypeIsFloating(fromType))
     {
@@ -18016,16 +18015,9 @@ void Importer::ImportConv(var_types toType)
 {
     assert(varTypeIsInt(toType) || varTypeIsLong(toType));
 
-    StackEntry& se = impStackTop();
-    assert(se.seTypeInfo.IsNone());
-    GenTree* value = se.val;
-
-    if (varTypeIsGC(value->GetType()))
-    {
-        value = gtNewGCBitcastNode(value);
-    }
-
-    var_types fromType = value->GetType();
+    StackEntry& se       = GetConvStackValue();
+    GenTree*    value    = se.val;
+    var_types   fromType = value->GetType();
 
     if (varTypeIsFloating(fromType))
     {

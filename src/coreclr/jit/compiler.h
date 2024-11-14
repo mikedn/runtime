@@ -2006,6 +2006,7 @@ struct Importer
     StackEntry impPopStack();
     GenTree* impPopStackCoerceArg(var_types signatureType);
     StackEntry& impStackTop(unsigned n = 0);
+    StackEntry& GetConvStackValue();
     unsigned impStackHeight();
 
     typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
