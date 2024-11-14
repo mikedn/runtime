@@ -10305,10 +10305,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CONV_I1:
-                ImportConv(TYP_BYTE);
+                ImportSmallIntConv(TYP_BYTE);
                 break;
             case CEE_CONV_I2:
-                ImportConv(TYP_SHORT);
+                ImportSmallIntConv(TYP_SHORT);
                 break;
             case CEE_CONV_I4:
                 ImportConv(TYP_INT);
@@ -10321,10 +10321,10 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CONV_U1:
-                ImportConv(TYP_UBYTE);
+                ImportSmallIntConv(TYP_UBYTE);
                 break;
             case CEE_CONV_U2:
-                ImportConv(TYP_USHORT);
+                ImportSmallIntConv(TYP_USHORT);
                 break;
             case CEE_CONV_U4:
                 ImportConv(TYP_UINT);
@@ -17931,8 +17931,10 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
     se.val = value;
 }
 
-void Importer::ImportConv(var_types toType)
+void Importer::ImportSmallIntConv(var_types toType)
 {
+    assert(varTypeIsSmallInt(toType));
+
     StackEntry& se = impStackTop();
     assert(se.seTypeInfo.IsNone());
     GenTree* value = se.val;
@@ -17946,15 +17948,10 @@ void Importer::ImportConv(var_types toType)
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_FTOU : GT_FTOS, varActualType(toType),
-                              value);
-
-        if (varTypeIsSmallInt(toType))
-        {
-            value = gtNewOperNode(GT_CONV, toType, value);
-        }
+        value = gtNewOperNode(GT_FTOS, TYP_INT, value);
+        value = gtNewOperNode(GT_CONV, toType, value);
     }
-    else if (varTypeIsSmallInt(toType))
+    else
     {
         if ((fromType == TYP_INT) && value->OperIs(GT_AND))
         {
@@ -18010,6 +18007,30 @@ void Importer::ImportConv(var_types toType)
         {
             value = comp->gtFoldExprConst(value);
         }
+    }
+
+    se.val = value;
+}
+
+void Importer::ImportConv(var_types toType)
+{
+    assert(varTypeIsInt(toType) || varTypeIsLong(toType));
+
+    StackEntry& se = impStackTop();
+    assert(se.seTypeInfo.IsNone());
+    GenTree* value = se.val;
+
+    if (varTypeIsGC(value->GetType()))
+    {
+        value = gtNewGCBitcastNode(value);
+    }
+
+    var_types fromType = value->GetType();
+
+    if (varTypeIsFloating(fromType))
+    {
+        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_FTOU : GT_FTOS, varTypeNodeType(toType),
+                              value);
     }
     else if ((fromType == TYP_LONG) != varTypeIsLong(toType))
     {
