@@ -17898,33 +17898,36 @@ void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigne
         value = gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_INT) && !toUnsigned && (fromType == TYP_LONG))
+    else if ((toType == TYP_INT) && (fromType == TYP_LONG))
     {
-        value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
-        value->AddSideEffects(GTF_EXCEPT);
-    }
-    else if ((toType == TYP_INT) && toUnsigned && (fromType == TYP_LONG))
-    {
-        value = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, value);
-        value->AddSideEffects(GTF_EXCEPT);
-    }
-    else if ((toType == TYP_LONG) && toUnsigned && !fromUnsigned && (fromType != TYP_LONG))
-    {
-        if (!varTypeIsSmallUnsigned(fromType))
+        genTreeOps oper;
+
+        if (toUnsigned)
         {
-            value = gtNewOperNode(GT_OVF_U, TYP_INT, value);
-            value->AddSideEffects(GTF_EXCEPT);
+            oper = GT_OVF_UTRUNC;
+        }
+        else
+        {
+            oper = fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC;
         }
 
-        value = gtNewOperNode(GT_UXT, TYP_LONG, value);
+        value = gtNewOperNode(oper, TYP_INT, value);
+        value->AddSideEffects(GTF_EXCEPT);
     }
     else if ((toType == TYP_LONG) && (fromType != TYP_LONG))
     {
+        if (toUnsigned && !fromUnsigned && !varTypeIsSmallUnsigned(fromType))
+        {
+            value = gtNewOperNode(GT_OVF_U, TYP_INT, value);
+            value->AddSideEffects(GTF_EXCEPT);
+            fromUnsigned = true;
+        }
+
         value = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
     }
     else if (fromUnsigned != toUnsigned)
     {
-        assert(varActualType(fromType) == varActualType(toType));
+        assert(varActualType(fromType) == toType);
 
         if (!varTypeIsSmallUnsigned(fromType))
         {
