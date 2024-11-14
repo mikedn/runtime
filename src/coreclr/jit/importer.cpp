@@ -10255,67 +10255,67 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CONV_OVF_I1:
-                ImportConvOvf(TYP_BYTE, false);
+                ImportConvOvf(TYP_BYTE, false, false);
                 break;
             case CEE_CONV_OVF_I2:
-                ImportConvOvf(TYP_SHORT, false);
+                ImportConvOvf(TYP_SHORT, false, false);
                 break;
             case CEE_CONV_OVF_I4:
-                ImportConvOvf(TYP_INT, false);
+                ImportConvOvf(TYP_INT, false, false);
                 break;
             case CEE_CONV_OVF_I8:
-                ImportConvOvf(TYP_LONG, false);
+                ImportConvOvf(TYP_LONG, false, false);
                 break;
             case CEE_CONV_OVF_I:
-                ImportConvOvf(TYP_I_IMPL, false);
+                ImportConvOvf(TYP_I_IMPL, false, false);
                 break;
 
             case CEE_CONV_OVF_U1:
-                ImportConvOvf(TYP_UBYTE, false);
+                ImportConvOvf(TYP_UBYTE, false, false);
                 break;
             case CEE_CONV_OVF_U2:
-                ImportConvOvf(TYP_USHORT, false);
+                ImportConvOvf(TYP_USHORT, false, false);
                 break;
             case CEE_CONV_OVF_U4:
-                ImportConvOvf(TYP_UINT, false);
+                ImportConvOvf(TYP_INT, true, false);
                 break;
             case CEE_CONV_OVF_U8:
-                ImportConvOvf(TYP_ULONG, false);
+                ImportConvOvf(TYP_LONG, true, false);
                 break;
             case CEE_CONV_OVF_U:
-                ImportConvOvf(TYP_U_IMPL, false);
+                ImportConvOvf(TYP_I_IMPL, true, false);
                 break;
 
             case CEE_CONV_OVF_I1_UN:
-                ImportConvOvf(TYP_BYTE, true);
+                ImportConvOvf(TYP_BYTE, false, true);
                 break;
             case CEE_CONV_OVF_I2_UN:
-                ImportConvOvf(TYP_SHORT, true);
+                ImportConvOvf(TYP_SHORT, false, true);
                 break;
             case CEE_CONV_OVF_I4_UN:
-                ImportConvOvf(TYP_INT, true);
+                ImportConvOvf(TYP_INT, false, true);
                 break;
             case CEE_CONV_OVF_I8_UN:
-                ImportConvOvf(TYP_LONG, true);
+                ImportConvOvf(TYP_LONG, false, true);
                 break;
             case CEE_CONV_OVF_I_UN:
-                ImportConvOvf(TYP_I_IMPL, true);
+                ImportConvOvf(TYP_I_IMPL, false, true);
                 break;
 
             case CEE_CONV_OVF_U1_UN:
-                ImportConvOvf(TYP_UBYTE, true);
+                ImportConvOvf(TYP_UBYTE, false, true);
                 break;
             case CEE_CONV_OVF_U2_UN:
-                ImportConvOvf(TYP_USHORT, true);
+                ImportConvOvf(TYP_USHORT, false, true);
                 break;
             case CEE_CONV_OVF_U4_UN:
-                ImportConvOvf(TYP_UINT, true);
+                ImportConvOvf(TYP_INT, true, true);
                 break;
             case CEE_CONV_OVF_U8_UN:
-                ImportConvOvf(TYP_ULONG, true);
+                ImportConvOvf(TYP_LONG, true, true);
                 break;
             case CEE_CONV_OVF_U_UN:
-                ImportConvOvf(TYP_U_IMPL, true);
+                ImportConvOvf(TYP_I_IMPL, true, true);
                 break;
 
             case CEE_CONV_I1:
@@ -10325,13 +10325,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ImportSmallIntConv(TYP_SHORT);
                 break;
             case CEE_CONV_I4:
-                ImportConv(TYP_INT);
+                ImportConv(TYP_INT, false);
                 break;
             case CEE_CONV_I8:
-                ImportConv(TYP_LONG);
+                ImportConv(TYP_LONG, false);
                 break;
             case CEE_CONV_I:
-                ImportConv(TYP_I_IMPL);
+                ImportConv(TYP_I_IMPL, false);
                 break;
 
             case CEE_CONV_U1:
@@ -10341,13 +10341,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ImportSmallIntConv(TYP_USHORT);
                 break;
             case CEE_CONV_U4:
-                ImportConv(TYP_UINT);
+                ImportConv(TYP_INT, true);
                 break;
             case CEE_CONV_U8:
-                ImportConv(TYP_ULONG);
+                ImportConv(TYP_LONG, true);
                 break;
             case CEE_CONV_U:
-                ImportConv(TYP_U_IMPL);
+                ImportConv(TYP_I_IMPL, true);
                 break;
 
             case CEE_CONV_R4:
@@ -17867,7 +17867,7 @@ void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
     comp->compFloatingPointUsed = true;
 }
 
-void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
+void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigned)
 {
     assert(varTypeIsIntegral(toType));
 
@@ -17877,8 +17877,7 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_OVF_FTOU : GT_OVF_FTOS,
-                              varActualType(toType), value);
+        value = gtNewOperNode(toUnsigned ? GT_OVF_FTOU : GT_OVF_FTOS, varActualType(toType), value);
         value->AddSideEffects(GTF_EXCEPT);
 
         if (varTypeIsSmallInt(toType))
@@ -17899,17 +17898,17 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
         value = gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_INT) && (fromType == TYP_LONG))
+    else if ((toType == TYP_INT) && !toUnsigned && (fromType == TYP_LONG))
     {
         value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_UINT) && (fromType == TYP_LONG))
+    else if ((toType == TYP_INT) && toUnsigned && (fromType == TYP_LONG))
     {
         value = gtNewOperNode(GT_OVF_UTRUNC, TYP_INT, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
-    else if ((toType == TYP_ULONG) && !fromUnsigned && (fromType != TYP_LONG))
+    else if ((toType == TYP_LONG) && toUnsigned && !fromUnsigned && (fromType != TYP_LONG))
     {
         if (!varTypeIsSmallUnsigned(fromType))
         {
@@ -17919,11 +17918,11 @@ void Importer::ImportConvOvf(var_types toType, bool fromUnsigned)
 
         value = gtNewOperNode(GT_UXT, TYP_LONG, value);
     }
-    else if ((toType == TYP_LONG || toType == TYP_ULONG) && (fromType != TYP_LONG))
+    else if ((toType == TYP_LONG) && (fromType != TYP_LONG))
     {
         value = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
     }
-    else if (fromUnsigned != (toType == TYP_UINT || toType == TYP_ULONG))
+    else if (fromUnsigned != toUnsigned)
     {
         assert(varActualType(fromType) == varActualType(toType));
 
@@ -18011,9 +18010,9 @@ void Importer::ImportSmallIntConv(var_types toType)
     se.val = value;
 }
 
-void Importer::ImportConv(var_types toType)
+void Importer::ImportConv(var_types toType, bool toUnsigned)
 {
-    assert(varTypeIsInt(toType) || varTypeIsLong(toType));
+    assert((toType == TYP_INT) || (toType == TYP_LONG));
 
     StackEntry& se       = GetConvStackValue();
     GenTree*    value    = se.val;
@@ -18021,23 +18020,22 @@ void Importer::ImportConv(var_types toType)
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode((toType == TYP_UINT || toType == TYP_ULONG) ? GT_FTOU : GT_FTOS, varTypeNodeType(toType),
-                              value);
+        value = gtNewOperNode(toUnsigned ? GT_FTOU : GT_FTOS, toType, value);
     }
-    else if ((fromType == TYP_LONG) != varTypeIsLong(toType))
+    else if ((fromType == TYP_LONG) != (toType == TYP_LONG))
     {
         genTreeOps oper;
 
-        if (varTypeIsLong(toType))
+        if (toType == TYP_LONG)
         {
-            oper = toType == TYP_ULONG ? GT_UXT : GT_SXT;
+            oper = toUnsigned ? GT_UXT : GT_SXT;
         }
         else
         {
             oper = GT_TRUNC;
         }
 
-        value = gtNewOperNode(oper, varTypeNodeType(toType), value);
+        value = gtNewOperNode(oper, toType, value);
 
         if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
         {
