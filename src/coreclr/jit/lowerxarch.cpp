@@ -2500,10 +2500,12 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             case TYP_INT:
             case TYP_UINT:
                 node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
+                node->SetType(TYP_INT);
                 break;
             case TYP_LONG:
             case TYP_ULONG:
                 node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, TYP_LONG, 1);
+                node->SetType(TYP_LONG);
                 break;
             default:
                 unreached();
