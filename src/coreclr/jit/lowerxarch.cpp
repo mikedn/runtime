@@ -2013,7 +2013,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             v[i / 4] = UnpackLow(TYP_USHORT, v[i], v[i + 1]);
         }
 
-        eltType = TYP_UINT;
+        eltType = TYP_INT;
         numOps  = 4;
     }
 
@@ -2028,7 +2028,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     {
         assert((eltType == TYP_INT) || (eltType == TYP_UINT));
         intrinsic = NI_SSE2_UnpackLow;
-        eltType   = TYP_ULONG;
+        eltType   = TYP_LONG;
     }
     else
     {
@@ -2298,14 +2298,14 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         BlockRange().InsertAfter(tmp1, tmp2, vec);
         LowerNode(vec);
 
-        eltType = TYP_UINT;
+        INDEBUG(eltType = TYP_INT);
     }
 
     assert((eltType == TYP_INT) || (eltType == TYP_UINT));
 
     GenTree* idx = comp->gtNewIconNode(0);
     BlockRange().InsertBefore(node, idx);
-    node->SetIntrinsic(NI_SSE2_Shuffle, TYP_UINT, 2);
+    node->SetIntrinsic(NI_SSE2_Shuffle, TYP_INT, 2);
     node->SetOp(0, vec);
     node->SetOp(1, idx);
 }
@@ -2493,23 +2493,17 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         switch (eltType)
         {
-            case TYP_LONG:
-                node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, eltType, 1);
-                break;
-            case TYP_ULONG:
-                node->SetIntrinsic(NI_SSE2_X64_ConvertToUInt64, eltType, 1);
-                break;
-            case TYP_INT:
-                node->SetIntrinsic(NI_SSE2_ConvertToInt32, eltType, 1);
-                break;
-            case TYP_UINT:
-                node->SetIntrinsic(NI_SSE2_ConvertToUInt32, eltType, 1);
-                break;
-            case TYP_SHORT:
-            case TYP_USHORT:
             case TYP_BYTE:
             case TYP_UBYTE:
+            case TYP_SHORT:
+            case TYP_USHORT:
+            case TYP_INT:
+            case TYP_UINT:
                 node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
+                break;
+            case TYP_LONG:
+            case TYP_ULONG:
+                node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, TYP_LONG, 1);
                 break;
             default:
                 unreached();
@@ -4308,9 +4302,9 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                     // We should only get here for integral nodes.
                     assert(varTypeIsIntegral(node->GetType()));
 
-                    assert(!supportsAlignedSIMDLoads );
-                    assert(!supportsUnalignedSIMDLoads );
-                    assert(!supportsSIMDScalarLoads );
+                    assert(!supportsAlignedSIMDLoads);
+                    assert(!supportsUnalignedSIMDLoads);
+                    assert(!supportsSIMDScalarLoads);
 
                     unsigned expectedSize = varTypeSize(containingNode->GetSimdBaseType());
                     unsigned operandSize  = varTypeSize(node->GetType());

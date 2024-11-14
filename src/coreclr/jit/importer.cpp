@@ -5427,14 +5427,12 @@ GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
         case TYP_USHORT:
             ival = *static_cast<uint16_t*>(addr);
             goto IVAL_COMMON;
-        case TYP_UINT:
         case TYP_INT:
             ival = *static_cast<int32_t*>(addr);
         IVAL_COMMON:
             return gtNewIconNode(ival);
 
         case TYP_LONG:
-        case TYP_ULONG:
             return gtNewLconNode(*static_cast<int64_t*>(addr));
 
         case TYP_FLOAT:
@@ -5444,8 +5442,7 @@ GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
             return gtNewDconNode(*static_cast<double*>(addr), TYP_DOUBLE);
 
         default:
-            assert(!"Unexpected type");
-            return nullptr;
+            unreached();
     }
 }
 

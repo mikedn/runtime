@@ -2492,8 +2492,8 @@ GenTree* Importer::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, Gen
     hi1          = gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi1, op2Uses[1]);
     GenTree* hi2 = gtNewSimdHWIntrinsicNode(type, srl, TYP_LONG, size, op2Uses[2], gtNewIconNode(32));
     hi2          = gtNewSimdHWIntrinsicNode(type, mul, TYP_ULONG, size, hi2, op1Uses[2]);
-    GenTree* hi  = gtNewSimdHWIntrinsicNode(type, add, TYP_ULONG, size, hi1, hi2);
-    hi           = gtNewSimdHWIntrinsicNode(type, sll, TYP_ULONG, size, hi, gtNewIconNode(32));
+    GenTree* hi  = gtNewSimdHWIntrinsicNode(type, add, TYP_LONG, size, hi1, hi2);
+    hi           = gtNewSimdHWIntrinsicNode(type, sll, TYP_LONG, size, hi, gtNewIconNode(32));
     return gtNewSimdHWIntrinsicNode(type, add, TYP_LONG, size, lo, hi);
 }
 
