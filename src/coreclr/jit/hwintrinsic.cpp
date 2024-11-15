@@ -831,7 +831,6 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             if (category == HW_Category_SIMDByIndexedElement)
             {
                 assert(varTypeIsSIMD(op2->GetType()));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(op2->GetType());
             }
 #endif
             break;
@@ -850,7 +849,6 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             if (category == HW_Category_SIMDByIndexedElement)
             {
                 assert(varTypeIsSIMD(op3->GetType()));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(op3->GetType());
             }
             break;
 #endif
