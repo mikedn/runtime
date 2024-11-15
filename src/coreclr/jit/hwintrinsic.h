@@ -64,10 +64,6 @@ enum HWIntrinsicCategory : unsigned int
     // Helper intrinsics
     // - do not directly correspond to a instruction, such as Vector64.AllBitsSet
     HW_Category_Helper,
-
-    // Special intrinsics
-    // - have to be addressed specially
-    HW_Category_Special
 };
 
 #else
@@ -85,10 +81,6 @@ enum HWIntrinsicFlag : unsigned int
     // NoCodeGen
     // - should be transformed in the compiler front-end, cannot reach CodeGen
     HW_Flag_NoCodeGen = 0x2,
-
-    // Multi-instruction
-    // - that one intrinsic can generate multiple instructions
-    HW_Flag_MultiIns = 0x4,
 
     // Select base type using the first argument type
     HW_Flag_BaseTypeFromFirstArg = 0x8,
@@ -113,8 +105,11 @@ enum HWIntrinsicFlag : unsigned int
     // but may be table-driven in the back-end
     HW_Flag_SpecialImport = 0x100,
 
-// The below is for defining platform-specific flags
 #if defined(TARGET_XARCH)
+    // Multi-instruction
+    // - that one intrinsic can generate multiple instructions
+    HW_Flag_MultiIns = 0x4,
+
     // Full range IMM intrinsic
     // - the immediate value is valid on the full range of imm8 (0-255)
     HW_Flag_FullRangeIMM = 0x200,
@@ -588,12 +583,6 @@ struct HWIntrinsicInfo
         return (flags & HW_Flag_NoCodeGen) == 0;
     }
 
-    static bool GeneratesMultipleIns(NamedIntrinsic id)
-    {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_MultiIns) != 0;
-    }
-
     static bool SupportsContainment(NamedIntrinsic id)
     {
         HWIntrinsicFlag flags = lookupFlags(id);
@@ -619,6 +608,12 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_XARCH
+    static bool GeneratesMultipleIns(NamedIntrinsic id)
+    {
+        HWIntrinsicFlag flags = lookupFlags(id);
+        return (flags & HW_Flag_MultiIns) != 0;
+    }
+
     static bool HasFullRangeImm(NamedIntrinsic id)
     {
         HWIntrinsicFlag flags = lookupFlags(id);
@@ -739,15 +734,6 @@ struct HWIntrinsic final
         assert(HWIntrinsicInfo::RequiresCodegen(id));
 
         InitializeBaseType(node);
-    }
-
-    bool IsTableDriven() const
-    {
-        // TODO-Arm64-Cleanup - make more categories to the table-driven framework
-        bool isTableDrivenCategory = category != HW_Category_Helper;
-        bool isTableDrivenFlag = !HWIntrinsicInfo::GeneratesMultipleIns(id) && !HWIntrinsicInfo::HasSpecialCodegen(id);
-
-        return isTableDrivenCategory && isTableDrivenFlag;
     }
 
 private:

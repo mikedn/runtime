@@ -298,7 +298,7 @@ bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa)
 //
 static bool impIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
 {
-    return (category != HW_Category_Special) && HWIntrinsicInfo::RequiresCodegen(intrinsicId) &&
+    return NOT_ARM64((category != HW_Category_Special) &&) HWIntrinsicInfo::RequiresCodegen(intrinsicId) &&
            !HWIntrinsicInfo::HasSpecialImport(intrinsicId);
 }
 
@@ -499,7 +499,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     }
 
     // Immediately return if the category is other than scalar/special and this is not a supported base type.
-    if ((category != HW_Category_Special) && (category != HW_Category_Scalar) &&
+    if (NOT_ARM64((category != HW_Category_Special) &&)(category != HW_Category_Scalar) &&
         !isSupportedBaseType(intrinsic, baseType))
     {
         return nullptr;

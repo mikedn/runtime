@@ -51,13 +51,6 @@ struct ExpandNonConstImmHelper
         }
         else
         {
-            // At the moment, this helper supports only intrinsics that correspond to one machine instruction.
-            // If we ever encounter an intrinsic that is either lowered into multiple instructions or the
-            // number of instructions that correspond to each case is unknown apriori - we can extend
-            // support to these by using the same approach as in hwintrinsicxarch.cpp - adding an additional
-            // indirection level in form of a branch table.
-            assert(!HWIntrinsicInfo::GeneratesMultipleIns(intrin->GetIntrinsic()));
-
             branchTargetReg = intrin->GetSingleTempReg();
         }
 
@@ -210,7 +203,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     Emitter& emit = *GetEmitter();
 
-    if (intrin.IsTableDriven())
+    if (!HWIntrinsicInfo::HasSpecialCodegen(intrin.id))
     {
         const instruction ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
         assert(ins != INS_invalid);
