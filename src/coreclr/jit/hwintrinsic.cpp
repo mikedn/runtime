@@ -823,7 +823,9 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
             {
                 assert(varTypeIsSIMD(op2->GetType()));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
+                var_types indexType = sigReader.paramLayout[1]->GetElementType();
+                assert((indexType == TYP_INT) || (indexType == TYP_LONG));
+                retNode->AsHWIntrinsic()->SetAuxiliaryType(indexType);
             }
 #elif defined(TARGET_ARM64)
             if (category == HW_Category_SIMDByIndexedElement)

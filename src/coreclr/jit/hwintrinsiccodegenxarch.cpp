@@ -1480,7 +1480,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
             bool isVector128GatherWithVector256Index = (targetType == TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32);
 
             // hwintrinsiclistxarch.h uses Dword index instructions in default
-            if (varTypeIsLong(node->GetAuxiliaryType()))
+            if (node->GetAuxiliaryType() == TYP_LONG)
             {
                 switch (ins)
                 {
@@ -1511,8 +1511,7 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
                 }
             }
 
-            assert(lastOp->IsCnsIntOrI());
-            ssize_t ival = lastOp->AsIntCon()->IconValue();
+            ssize_t ival = lastOp->AsIntCon()->GetValue();
             assert((ival >= 0) && (ival <= 255));
 
             assert(targetReg != maskReg);

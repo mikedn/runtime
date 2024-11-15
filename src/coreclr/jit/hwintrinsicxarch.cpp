@@ -872,7 +872,9 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
 
             GenTreeHWIntrinsic* retNode =
                 gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize, op1, op2, op3, op4, op5);
-            retNode->SetAuxiliaryType(sig.paramLayout[2]->GetElementType());
+            var_types indexType = sig.paramLayout[2]->GetElementType();
+            assert((indexType == TYP_INT) || (indexType == TYP_LONG));
+            retNode->SetAuxiliaryType(indexType);
             return retNode;
         }
 
