@@ -29,12 +29,6 @@ static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* n
 }
 #endif // DEBUG
 
-static bool genIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
-{
-    return (category != HW_Category_Special) && (category != HW_Category_Scalar) && (category != HW_Category_Helper) &&
-           !HWIntrinsicInfo::HasSpecialCodegen(intrinsicId);
-}
-
 void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic         intrinsicId = node->GetIntrinsic();
@@ -46,7 +40,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     assert(HWIntrinsicInfo::RequiresCodegen(intrinsicId));
 
-    if (genIsTableDrivenHWIntrinsic(intrinsicId, category))
+    if (!HWIntrinsicInfo::HasSpecialCodegen(intrinsicId))
     {
         GenTree*  op1      = node->GetOp(0);
         RegNum    dstReg   = node->GetRegNum();
