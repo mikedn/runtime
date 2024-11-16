@@ -5,6 +5,16 @@
 
 #ifdef FEATURE_SIMD
 
+static constexpr bool varTypeIsInt(var_types t)
+{
+    return (t == TYP_INT) || (t == TYP_UINT);
+}
+
+static constexpr bool varTypeIsLong(var_types t)
+{
+    return (t == TYP_LONG) || (t == TYP_ULONG);
+}
+
 var_types Compiler::GetVectorTSimdType()
 {
 #if defined(TARGET_XARCH)

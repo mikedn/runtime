@@ -3318,7 +3318,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     // but due to decomposition it ends up with 4 operands in lowering so we need to
                     // prevent reordering.
                     && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_Create) ||
-                        !varTypeIsLong(tree->AsHWIntrinsic()->GetSimdBaseType()))
+                        (tree->AsHWIntrinsic()->GetSimdBaseType() != TYP_LONG))
 #endif
                         )
                 {

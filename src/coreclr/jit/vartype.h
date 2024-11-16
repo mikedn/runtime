@@ -88,19 +88,9 @@ inline bool varTypeIsSmallUnsigned(var_types t)
     return (t == TYP_BOOL) || (t == TYP_UBYTE) || (t == TYP_USHORT);
 }
 
-constexpr bool varTypeIsInt(var_types t)
-{
-    return (t == TYP_INT) || (t == TYP_UINT);
-}
-
 inline bool varActualTypeIsInt(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_UINT);
-}
-
-inline bool varTypeIsLong(var_types vt)
-{
-    return (vt == TYP_LONG) || (vt == TYP_ULONG);
 }
 
 inline bool varTypeIsIntegral(var_types vt)
