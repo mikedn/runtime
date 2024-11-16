@@ -1383,45 +1383,44 @@ void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
 
 void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsicId = node->GetIntrinsic();
-    var_types      baseType    = node->GetSimdBaseType();
-    emitAttr       attr        = emitVecTypeSize(node->GetSimdSize());
-    var_types      targetType  = node->GetType();
-    instruction    ins         = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
-    int            numArgs     = node->GetNumOps();
-    GenTree*       op1         = numArgs >= 1 ? node->GetOp(0) : nullptr;
-    GenTree*       op2         = numArgs >= 2 ? node->GetOp(1) : nullptr;
-    regNumber      op1Reg      = REG_NA;
-    regNumber      op2Reg      = REG_NA;
-    regNumber      targetReg   = node->GetRegNum();
-    emitter*       emit        = GetEmitter();
+    NamedIntrinsic intrinsic = node->GetIntrinsic();
+    var_types      eltType   = node->GetSimdBaseType();
+    RegNum         dstReg    = node->GetRegNum();
+    Emitter&       emit      = *GetEmitter();
 
     genConsumeHWIntrinsicOperands(node);
 
-    switch (intrinsicId)
+    switch (intrinsic)
     {
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
-            op1Reg = op1->GetRegNum();
-            assert(numArgs == 1);
-            assert(varTypeIsInt(baseType));
-            assert(HWIntrinsicInfo::lookupIns(intrinsicId, baseType) == INS_movd);
-            emit->emitIns_Mov(INS_movd, EA_4BYTE, targetReg, op1Reg, /* canSkip */ false);
+        {
+            assert(node->TypeIs(TYP_INT));
+            assert(node->GetNumOps() == 1);
+            assert(HWIntrinsicInfo::lookupIns(intrinsic, eltType) == INS_movd);
+
+            GenTree* op1 = node->GetOp(0);
+            emit.emitIns_Mov(INS_movd, EA_4BYTE, dstReg, op1->GetRegNum(), /* canSkip */ false);
             break;
+        }
 
         case NI_AVX2_ConvertToVector256Int16:
         case NI_AVX2_ConvertToVector256Int32:
         case NI_AVX2_ConvertToVector256Int64:
         {
-            instruction ins = HWIntrinsicInfo::lookupIns(intrinsicId, baseType);
+            assert(node->TypeIs(TYP_SIMD32));
+            assert(node->GetNumOps() == 1);
+
+            GenTree*    op1 = node->GetOp(0);
+            instruction ins = HWIntrinsicInfo::lookupIns(intrinsic, eltType);
 
             if (!varTypeIsSIMD(op1->GetType()))
             {
-                GetEmitter()->emitIns_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
+                emit.emitIns_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
             }
             else
             {
-                genHWIntrinsic_R_RM(node, ins, EA_32BYTE, targetReg, op1);
+                genHWIntrinsic_R_RM(node, ins, EA_32BYTE, dstReg, op1);
             }
             break;
         }
@@ -1429,72 +1428,61 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
         case NI_AVX2_GATHERD:
         case NI_AVX2_GATHERQ:
         {
-            op1Reg = op1->GetRegNum();
-            op2Reg = op2->GetRegNum();
+            emitAttr attr       = emitVecTypeSize(node->GetSimdSize());
+            GenTree* baseOp     = nullptr;
+            GenTree* indexOp    = nullptr;
+            GenTree* scaleOp    = nullptr;
+            RegNum   maskDstReg = node->ExtractTempReg(RBM_ALLFLOAT);
 
-            GenTree* op3     = node->GetOp(2);
-            GenTree* op4     = nullptr;
-            GenTree* lastOp  = nullptr;
-            GenTree* indexOp = nullptr;
-
-            RegNum op3Reg       = REG_NA;
-            RegNum op4Reg       = REG_NA;
-            RegNum addrBaseReg  = REG_NA;
-            RegNum addrIndexReg = REG_NA;
-            RegNum maskReg      = node->ExtractTempReg(RBM_ALLFLOAT);
-
-            if (numArgs == 5)
+            if (node->GetNumOps() == 5)
             {
-                op4          = node->GetOp(3);
-                lastOp       = node->GetOp(4);
-                op3Reg       = op3->GetRegNum();
-                op4Reg       = op4->GetRegNum();
-                addrBaseReg  = op2Reg;
-                addrIndexReg = op3Reg;
-                indexOp      = op3;
+                GenTree* srcOp  = node->GetOp(0);
+                baseOp          = node->GetOp(1);
+                indexOp         = node->GetOp(2);
+                GenTree* maskOp = node->GetOp(3);
+                scaleOp         = node->GetOp(4);
 
-                // copy op4Reg into the tmp mask register,
-                // the mask register will be cleared by gather instructions
-                emit->emitIns_Mov(INS_movaps, attr, maskReg, op4Reg, /* canSkip */ false);
-
-                // copy source vector to the target register for masking merge
-                emit->emitIns_Mov(INS_movaps, attr, targetReg, op1Reg, /* canSkip */ true);
+                emit.emitIns_Mov(INS_movaps, attr, maskDstReg, maskOp->GetRegNum(), /* canSkip */ false);
+                emit.emitIns_Mov(INS_movaps, attr, dstReg, srcOp->GetRegNum(), /* canSkip */ true);
             }
             else
             {
-                addrBaseReg  = op1Reg;
-                addrIndexReg = op2Reg;
-                indexOp      = op2;
-                lastOp       = op3;
+                assert(node->GetNumOps() == 3);
 
-                // generate all-one mask vector
-                emit->emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, maskReg, maskReg, maskReg);
+                baseOp  = node->GetOp(0);
+                indexOp = node->GetOp(1);
+                scaleOp = node->GetOp(2);
+
+                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, maskDstReg, maskDstReg, maskDstReg);
             }
 
-            if ((intrinsicId == NI_AVX2_GATHERQ) && (targetType == TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32) &&
+            instruction ins = HWIntrinsicInfo::lookupIns(intrinsic, eltType);
+
+            if ((intrinsic == NI_AVX2_GATHERQ) && node->TypeIs(TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32) &&
                 (ins == INS_vpgatherqd || ins == INS_vgatherqps))
             {
                 attr = EA_32BYTE;
             }
 
-            ssize_t ival = lastOp->AsIntCon()->GetValue();
-            assert((ival >= 0) && (ival <= 255));
+            RegNum  baseReg  = baseOp->GetRegNum();
+            RegNum  indexReg = indexOp->GetRegNum();
+            ssize_t scale    = scaleOp->AsIntCon()->GetValue();
 
-            assert(targetReg != maskReg);
-            assert(targetReg != addrIndexReg);
-            assert(maskReg != addrIndexReg);
-            emit->emitIns_R_AR_R(ins, attr, targetReg, maskReg, addrBaseReg, addrIndexReg, static_cast<int8_t>(ival),
-                                 0);
+            assert(dstReg != maskDstReg);
+            assert(dstReg != indexReg);
+            assert(maskDstReg != indexReg);
+            assert((scale >= 0) && (scale <= 8));
+
+            emit.emitIns_R_AR_R(ins, attr, dstReg, maskDstReg, baseReg, indexReg, static_cast<int8_t>(scale), 0);
 
             break;
         }
 
         default:
             unreached();
-            break;
     }
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genAESIntrinsic(GenTreeHWIntrinsic* node)
