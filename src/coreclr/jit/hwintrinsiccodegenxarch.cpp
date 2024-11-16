@@ -31,14 +31,8 @@ static bool IsContainableHWIntrinsicOp(Compiler* compiler, GenTreeHWIntrinsic* n
 
 static bool genIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
 {
-    // TODO - make more categories to the table-driven framework
-    // HW_Category_Helper and HW_Flag_MultiIns/HW_Flag_SpecialCodeGen usually need manual codegen
-
-    const bool tableDrivenCategory =
-        (category != HW_Category_Special) && (category != HW_Category_Scalar) && (category != HW_Category_Helper);
-    const bool tableDrivenFlag =
-        !HWIntrinsicInfo::GeneratesMultipleIns(intrinsicId) && !HWIntrinsicInfo::HasSpecialCodegen(intrinsicId);
-    return tableDrivenCategory && tableDrivenFlag;
+    return (category != HW_Category_Special) && (category != HW_Category_Scalar) && (category != HW_Category_Helper) &&
+           !HWIntrinsicInfo::HasSpecialCodegen(intrinsicId);
 }
 
 void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)

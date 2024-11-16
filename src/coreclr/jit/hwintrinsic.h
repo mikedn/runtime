@@ -106,10 +106,6 @@ enum HWIntrinsicFlag : unsigned int
     HW_Flag_SpecialImport = 0x100,
 
 #if defined(TARGET_XARCH)
-    // Multi-instruction
-    // - that one intrinsic can generate multiple instructions
-    HW_Flag_MultiIns = 0x4,
-
     // Full range IMM intrinsic
     // - the immediate value is valid on the full range of imm8 (0-255)
     HW_Flag_FullRangeIMM = 0x200,
@@ -608,12 +604,6 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_XARCH
-    static bool GeneratesMultipleIns(NamedIntrinsic id)
-    {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_MultiIns) != 0;
-    }
-
     static bool HasFullRangeImm(NamedIntrinsic id)
     {
         HWIntrinsicFlag flags = lookupFlags(id);
