@@ -795,6 +795,8 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
 #ifdef TARGET_ARM64
+            assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op2->GetType()));
+
             if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
             {
                 op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
@@ -819,12 +821,6 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
                                : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
 
-#ifdef TARGET_ARM64
-            if (category == HW_Category_SIMDByIndexedElement)
-            {
-                assert(varTypeIsSIMD(op2->GetType()));
-            }
-#endif
             break;
 
 #ifdef TARGET_ARM64
@@ -835,13 +831,10 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             op2 = impPopArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
+            assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op3->GetType()));
             assert(!isScalar);
-            retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
 
-            if (category == HW_Category_SIMDByIndexedElement)
-            {
-                assert(varTypeIsSIMD(op3->GetType()));
-            }
+            retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
             break;
 #endif
 
