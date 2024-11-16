@@ -1276,13 +1276,13 @@ private:
         }
 
         GenTree* lastExpr = lastStmt->GetRootNode();
-        if (!lastExpr->OperIs(GT_RETURN))
+        if (!lastExpr->OperIs(GT_RETURN) || lastExpr->TypeIs(TYP_VOID))
         {
             return nullptr;
         }
 
         GenTree* retExpr = lastExpr->AsUnOp()->GetOp(0);
-        if ((retExpr == nullptr) || !retExpr->IsIntegralConst())
+        if (!retExpr->IsIntegralConst())
         {
             return nullptr;
         }

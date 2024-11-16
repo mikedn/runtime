@@ -2176,7 +2176,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
         var_types retActualType = varActualType(comp->info.retDesc.GetRegType(0));
         var_types srcActualType = varActualType(src->GetType());
 
-        bool constStructInit                  = src->IsConstInitVal();
+        bool constStructInit                  = src->IsIntCon(0);
         bool implicitCastFromSameOrBiggerSize = varTypeSize(retActualType) <= varTypeSize(srcActualType);
 
         // This could happen if we have retyped op1 as a primitive type during struct promotion.

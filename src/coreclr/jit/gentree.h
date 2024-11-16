@@ -1270,11 +1270,6 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    bool IsConstInitVal() const
-    {
-        return OperIs(GT_CNS_INT) || (OperIs(GT_INIT_VAL) && gtGetOp1()->OperIs(GT_CNS_INT));
-    }
-
     bool OperIsPutArgSplit() const
     {
 #if FEATURE_ARG_SPLIT

@@ -471,8 +471,6 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
         BuildInternalIntDef(interlocked);
     }
 
-    assert(!interlocked->gtGetOp1()->isContained());
-
     RefPosition* op1Use = BuildUse(interlocked->GetOp(0));
     RefPosition* op2Use = nullptr;
 

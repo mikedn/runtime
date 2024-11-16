@@ -8431,7 +8431,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         return tree;
     }
 
-    ssize_t val = cons->AsIntConCommon()->GetValue();
+    ssize_t val = cons->AsIntCon()->GetValue();
 
     // Transforms that would drop op cannot be performed if op has side effects
     bool opHasSideEffects = (op->gtFlags & GTF_SIDE_EFFECT) != 0;
@@ -8721,7 +8721,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
         return tree;
     }
 
-    ssize_t const val = cons->AsIntConCommon()->GetValue();
+    ssize_t const val = cons->AsIntCon()->GetValue();
 
     if (val != 0)
     {
