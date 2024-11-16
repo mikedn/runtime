@@ -2392,7 +2392,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
     assert(sig.paramCount == 2);
 
     var_types vecType = sig.retType;
-    var_types eltType = sig.retLayout->GetElementType();
+    var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
     assert((vecType == TYP_SIMD16) || (vecType == TYP_SIMD32));
 
@@ -2401,7 +2401,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
     if (sig.paramLayout[0] == nullptr)
     {
-        assert(sig.paramType[0] == eltType);
+        assert(sig.paramType[0] == sig.retLayout->GetElementType());
         assert(sig.paramLayout[1] == sig.retLayout);
 
         op2 = impSIMDPopStack(sig.paramType[1]);
@@ -2412,7 +2412,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
     else if (sig.paramLayout[1] == nullptr)
     {
         assert(sig.paramLayout[0] == sig.retLayout);
-        assert(sig.paramType[1] == eltType);
+        assert(sig.paramType[1] == sig.retLayout->GetElementType());
 
         op2 = impPopStack().val;
         op1 = impSIMDPopStack(sig.paramType[0]);
@@ -2432,7 +2432,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         return impVectorTMultiplyByte(sig.retLayout, op1, op2);
     }
 
-    if (varTypeIsLong(eltType))
+    if (eltType == TYP_LONG)
     {
         return impVectorTMultiplyLong(sig.retLayout, op1, op2);
     }
@@ -2453,7 +2453,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
             intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
             break;
         default:
-            assert((eltType == TYP_INT) || (eltType == TYP_UINT));
+            assert(eltType == TYP_INT);
             intrinsic = isAVX ? NI_AVX2_MultiplyLow : NI_SSE41_MultiplyLow;
             break;
     }
