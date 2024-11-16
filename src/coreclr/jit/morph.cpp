@@ -2696,7 +2696,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         {
             arg->ChangeToDblCon(TYP_DOUBLE, 0);
         }
-        else if (varTypeIsLong(argRegType))
+        else if (argRegType == TYP_LONG)
         {
             arg->SetType(TYP_LONG);
         }
@@ -2715,7 +2715,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #endif
         else
         {
-            assert(varActualType(argRegType) == TYP_INT);
+            assert(varActualTypeIsInt(argRegType));
         }
 
         return;
@@ -7594,7 +7594,7 @@ GenTree* Compiler::fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree
             if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
                 !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
 #ifndef TARGET_64BIT
-                && !varTypeIsLong(fieldType)
+                && (fieldType != TYP_LONG)
 #endif
                     )
             {
@@ -7731,7 +7731,7 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
         initVal->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(initPattern));
     }
 #ifndef TARGET_64BIT
-    else if (varTypeIsLong(initPatternType))
+    else if (initPatternType == TYP_LONG)
     {
         initVal->ChangeToLngCon(initPattern);
     }
@@ -11299,7 +11299,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         {
             val->ChangeToDblCon(TYP_DOUBLE, 0);
         }
-        else if (varTypeIsLong(regType))
+        else if (regType == TYP_LONG)
         {
             val->SetType(TYP_LONG);
         }

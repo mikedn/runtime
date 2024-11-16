@@ -12278,7 +12278,7 @@ void ReturnTypeDesc::InitializePrimitive(var_types regType)
     {
         m_regCount = 0;
     }
-    else if (varTypeIsLong(regType))
+    else if (regType == TYP_LONG)
     {
         InitializeLong();
     }

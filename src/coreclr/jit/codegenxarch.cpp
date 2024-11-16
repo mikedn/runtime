@@ -5862,7 +5862,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
         // Long-typed nodes should have been handled by the decomposition pass, and lowering should have sorted the
         // field list in descending order by offset.
-        assert(!varTypeIsLong(fieldType));
+        assert(fieldType != TYP_LONG);
         assert(fieldOffset <= prevFieldOffset);
 
         UseRMRegs(fieldNode);
@@ -6313,12 +6313,11 @@ void CodeGen::GenPutArgReg(GenTreeUnOp* putArg)
 #ifdef TARGET_X86
 void CodeGen::genPushReg(var_types type, regNumber srcReg)
 {
-    assert(!varTypeIsLong(type));
-
     unsigned size = varTypeSize(type);
 
     if (varTypeIsIntegralOrI(type))
     {
+        assert(size <= 4);
         assert(genIsValidIntReg(srcReg));
         GetEmitter()->emitIns_R(INS_push, emitActualTypeSize(type), srcReg);
     }
