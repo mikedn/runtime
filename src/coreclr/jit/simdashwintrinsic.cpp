@@ -1019,8 +1019,10 @@ GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op
         return gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_DOUBLE, 16, op1);
     }
 
-    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, varTypeIsLong(eltType) ? NI_AdvSimd_Arm64_AddPairwiseScalar
-                                                                      : NI_AdvSimd_Arm64_AddAcross,
+    eltType = varTypeToSigned(eltType);
+
+    op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, eltType == TYP_LONG ? NI_AdvSimd_Arm64_AddPairwiseScalar
+                                                                   : NI_AdvSimd_Arm64_AddAcross,
                                    eltType, 16, op1);
     return gtNewSimdGetElementNode(TYP_SIMD16, sig.retType, op1, gtNewIconNode(0));
 }
@@ -1046,7 +1048,9 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
         return gtNewSimdHWIntrinsicNode(TYP_DOUBLE, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_DOUBLE, 16, op1);
     }
 
-    if (varTypeIsLong(eltType))
+    eltType = varTypeToSigned(eltType);
+
+    if (eltType == TYP_LONG)
     {
         // Since we eventually need a scalar result it's cheaper to simply extract
         // the 2 long elements and perform scalar multiplication/addition.
@@ -2710,7 +2714,7 @@ GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenT
 
     if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_CompareEqual, eltType, 16, op1, op2);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_CompareEqual, TYP_LONG, 16, op1, op2);
     }
 
     GenTree* eq = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, op1, op2);
@@ -2720,7 +2724,7 @@ GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenT
     GenTree* shuffleEq =
         gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, eqUses[0], gtNewIconNode(SHUFFLE_ZWXY));
 
-    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, shuffleEq, eqUses[1]);
+    return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_And, TYP_LONG, 16, shuffleEq, eqUses[1]);
 }
 
 GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,

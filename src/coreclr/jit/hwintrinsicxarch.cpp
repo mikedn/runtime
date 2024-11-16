@@ -780,7 +780,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
             GenTree* op2 = impPopStackCoerceArg(TYP_INT);
             GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
 
-            var_types baseType  = sig.paramLayout[0]->GetElementType();
+            var_types eltType   = sig.paramLayout[0]->GetElementType();
             int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
 
             if (GenTreeIntCon* intCon = op2->IsIntCon())
@@ -792,8 +792,8 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
                 op2 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(indexMask));
             }
 
-            return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement, baseType, 16, op1,
-                                            op2);
+            return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement,
+                                            varTypeNodeType(eltType), 16, op1, op2);
         }
 
         case NI_SSE_Prefetch0:
