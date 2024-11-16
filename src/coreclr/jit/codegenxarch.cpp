@@ -1877,7 +1877,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
 #endif
 
-    if (size->IsCnsIntOrI())
+    if (size->IsIntCon())
     {
         // We should reach here only for non-zero, constant size allocations.
         assert(amount > 0);

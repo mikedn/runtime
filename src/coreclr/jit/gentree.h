@@ -1782,7 +1782,6 @@ public:
         return (gtFlags & GTF_RELOP_NAN_UN) != 0;
     }
 
-    bool           IsCnsIntOrI() const;
     bool           IsIntegralConst() const;
     GenTreeIntCon* IsIntConFitsInInt32();
     GenTreeIntCon* IsIntCon(HandleKind kind);
@@ -2568,12 +2567,7 @@ struct GenTreeIntConCommon : public GenTree
     {
     }
 
-    int64_t LngValue() const;
-    void SetLngValue(int64_t val);
-
-    ssize_t IconValue() const;
-    void SetIconValue(ssize_t val);
-
+    void SetInt64Value(int64_t val);
     int64_t GetValue() const;
 
 #if DEBUGGABLE_GENTREE
@@ -2588,7 +2582,8 @@ struct GenTreeIntConCommon : public GenTree
 // In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
 struct GenTreeIntCon : public GenTreeIntConCommon
 {
-    ssize_t gtIconVal; // Must have the same offset as the gtIconVal field in GenTreeLngCon below.
+private:
+    ssize_t value;
 
     // If this constant represents the offset of one or more fields, "m_fieldSeq"
     // represents that sequence of fields.
@@ -2601,22 +2596,25 @@ struct GenTreeIntCon : public GenTreeIntConCommon
     // we also need to store a compile time handle, which goes in this field.
     void* m_compileTimeHandle = nullptr;
 
+#ifdef DEBUG
     // Handle used to display extra information in dumps (e.g. method names).
-    INDEBUG(void* m_dumpHandle = nullptr;)
+    void* m_dumpHandle = nullptr;
+#endif
 
+public:
     GenTreeIntCon(var_types type, ssize_t value)
-        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), m_fieldSeq(FieldSeqStore::NotAField())
+        : GenTreeIntConCommon(GT_CNS_INT, type), value(value), m_fieldSeq(FieldSeqStore::NotAField())
     {
     }
 
     GenTreeIntCon(var_types type, ssize_t value, FieldSeqNode* fieldSeq)
-        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(value), m_fieldSeq(fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), value(value), m_fieldSeq(fieldSeq)
     {
         assert(fieldSeq != nullptr);
     }
 
     GenTreeIntCon(var_types type, void* addr, HandleKind kind, FieldSeqNode* fieldSeq)
-        : GenTreeIntConCommon(GT_CNS_INT, type), gtIconVal(reinterpret_cast<ssize_t>(addr)), m_fieldSeq(fieldSeq)
+        : GenTreeIntConCommon(GT_CNS_INT, type), value(reinterpret_cast<ssize_t>(addr)), m_fieldSeq(fieldSeq)
     {
         assert(fieldSeq != nullptr);
         SetHandleKind(kind);
@@ -2624,7 +2622,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     GenTreeIntCon(const GenTreeIntCon* copyFrom)
         : GenTreeIntConCommon(GT_CNS_INT, copyFrom->GetType())
-        , gtIconVal(copyFrom->gtIconVal)
+        , value(copyFrom->value)
         , m_fieldSeq(copyFrom->m_fieldSeq)
         , m_compileTimeHandle(copyFrom->m_compileTimeHandle)
 #ifdef DEBUG
@@ -2635,7 +2633,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     ssize_t GetValue() const
     {
-        return gtIconVal;
+        return value;
     }
 
     ssize_t GetValue(var_types type) const
@@ -2643,17 +2641,17 @@ struct GenTreeIntCon : public GenTreeIntConCommon
         switch (type)
         {
             case TYP_BYTE:
-                return static_cast<int8_t>(gtIconVal);
+                return static_cast<int8_t>(value);
             case TYP_UBYTE:
             case TYP_BOOL:
-                return static_cast<uint8_t>(gtIconVal);
+                return static_cast<uint8_t>(value);
             case TYP_SHORT:
-                return static_cast<int16_t>(gtIconVal);
+                return static_cast<int16_t>(value);
             case TYP_USHORT:
-                return static_cast<uint16_t>(gtIconVal);
+                return static_cast<uint16_t>(value);
 #ifdef TARGET_64BIT
             case TYP_INT:
-                return static_cast<int32_t>(gtIconVal);
+                return static_cast<int32_t>(value);
             case TYP_UINT:
                 // Disallow UINT for now as it's not needed and it's not clear if we should
                 // sign extend or zero extend. Sign extend seems to make more sense - if we
@@ -2661,94 +2659,94 @@ struct GenTreeIntCon : public GenTreeIntConCommon
                 // 32 bit value that's considered to have type INT and if we store that in
                 // in an IntCon we'd have to sign extend.
                 assert(false);
-                return static_cast<int32_t>(gtIconVal);
+                return static_cast<int32_t>(value);
 #endif
             default:
-                assert(varTypeIsI(type) || (varTypeIsStruct(type) && (gtIconVal == 0)));
-                return gtIconVal;
+                assert(varTypeIsI(type) || (varTypeIsStruct(type) && (value == 0)));
+                return value;
         }
     }
 
     size_t GetUnsignedValue() const
     {
-        return static_cast<size_t>(gtIconVal);
+        return static_cast<size_t>(value);
     }
 
     uint8_t GetUInt8Value() const
     {
-        return static_cast<uint8_t>(gtIconVal & 0xFF);
+        return static_cast<uint8_t>(value & 0xFF);
     }
 
     uint16_t GetUInt16Value() const
     {
-        return static_cast<uint16_t>(gtIconVal);
+        return static_cast<uint16_t>(value & 0xFFFF);
     }
 
     uint32_t GetUInt32Value() const
     {
-        return static_cast<uint32_t>(gtIconVal);
+        return static_cast<uint32_t>(value);
     }
 
     int32_t GetInt32Value() const
     {
-        return static_cast<int32_t>(gtIconVal);
+        return static_cast<int32_t>(value);
     }
 
 #ifdef TARGET_64BIT
     int64_t GetInt64Value() const
     {
-        return gtIconVal;
+        return value;
     }
 
     uint64_t GetUInt64Value() const
     {
-        return static_cast<uint64_t>(gtIconVal);
+        return static_cast<uint64_t>(value);
     }
 #endif
 
     void* GetAddr() const
     {
         assert(IsHandle());
-        return reinterpret_cast<void*>(gtIconVal);
+        return reinterpret_cast<void*>(value);
     }
 
     void SetAddr(void* addr, HandleKind kind)
     {
-        gtIconVal = reinterpret_cast<ssize_t>(addr);
+        value = reinterpret_cast<ssize_t>(addr);
         SetHandleKind(kind);
         m_fieldSeq = FieldSeqStore::NotAField();
     }
 
-    void SetValue(ssize_t value)
+    void SetValue(ssize_t val)
     {
 #ifdef TARGET_64BIT
         if (gtType == TYP_INT)
         {
-            value = static_cast<int32_t>(value);
+            val = static_cast<int32_t>(val);
         }
 #endif
 
-        gtIconVal  = value;
+        value      = val;
         m_fieldSeq = FieldSeqStore::NotAField();
     }
 
-    void SetValue(var_types type, ssize_t value)
+    void SetValue(var_types type, ssize_t val)
     {
 #ifdef TARGET_64BIT
         if (type == TYP_INT)
         {
-            value = static_cast<int32_t>(value);
+            val = static_cast<int32_t>(val);
         }
 #endif
 
         gtType     = type;
-        gtIconVal  = value;
+        value      = val;
         m_fieldSeq = FieldSeqStore::NotAField();
     }
 
     void SetValue(unsigned offset, FieldSeqNode* fieldSeq)
     {
-        gtIconVal  = offset;
+        value      = offset;
         m_fieldSeq = fieldSeq;
     }
 
@@ -2807,7 +2805,7 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 
     bool HasSingleSetBit() const
     {
-        ssize_t value = gtIconVal;
+        ssize_t val = value;
 
 #ifdef TARGET_64BIT
         if (varActualTypeIsInt(gtType))
@@ -2816,11 +2814,11 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 #endif
         {
 #ifdef HOST_64BIT
-            value &= UINT_MAX;
+            val &= UINT_MAX;
 #endif
         }
 
-        return isPow2<size_t>(static_cast<size_t>(value));
+        return isPow2<size_t>(static_cast<size_t>(val));
     }
 
     void SetDumpHandle(void* handle)
@@ -2845,62 +2843,43 @@ struct GenTreeIntCon : public GenTreeIntConCommon
 #ifndef TARGET_64BIT
 struct GenTreeLngCon : public GenTreeIntConCommon
 {
-    int64_t gtLconVal; // Must have the same offset as the gtIconVal field in GenTreeIntCon above.
+private:
+    int64_t value;
 
-    GenTreeLngCon(int64_t value) : GenTreeIntConCommon(GT_CNS_LNG, TYP_LONG)
+public:
+    GenTreeLngCon(int64_t value) : GenTreeIntConCommon(GT_CNS_LNG, TYP_LONG), value(value)
     {
-        SetLngValue(value);
     }
 
     int64_t GetValue() const
     {
-        return gtLconVal;
+        return value;
     }
 
     uint64_t GetUInt64Value() const
     {
-        return static_cast<uint64_t>(gtLconVal);
+        return static_cast<uint64_t>(value);
     }
 
-    void SetValue(int64_t value)
+    void SetValue(int64_t val)
     {
-        gtLconVal = value;
+        value = val;
     }
 
 #if DEBUGGABLE_GENTREE
     GenTreeLngCon() = default;
 #endif
 };
-
-static_assert_no_msg(offsetof(GenTreeLngCon, gtLconVal) == offsetof(GenTreeIntCon, gtIconVal));
 #endif // !TARGET_64BIT
 
-inline int64_t GenTreeIntConCommon::LngValue() const
+inline void GenTreeIntConCommon::SetInt64Value(int64_t val)
 {
-#ifdef TARGET_64BIT
-    return AsIntCon()->GetValue();
-#else
-    return AsLngCon()->GetValue();
-#endif
-}
-
-inline void GenTreeIntConCommon::SetLngValue(int64_t val)
-{
+    assert(TypeIs(TYP_LONG));
 #ifdef TARGET_64BIT
     AsIntCon()->SetValue(val);
 #else
     AsLngCon()->SetValue(val);
 #endif
-}
-
-inline ssize_t GenTreeIntConCommon::IconValue() const
-{
-    return AsIntCon()->GetValue();
-}
-
-inline void GenTreeIntConCommon::SetIconValue(ssize_t val)
-{
-    AsIntCon()->SetValue(val);
 }
 
 inline int64_t GenTreeIntConCommon::GetValue() const
@@ -2914,50 +2893,52 @@ inline int64_t GenTreeIntConCommon::GetValue() const
 
 struct GenTreeDblCon : public GenTree
 {
-    double gtDconVal;
+private:
+    double value;
 
-    GenTreeDblCon(double val, var_types type = TYP_DOUBLE) : GenTree(GT_CNS_DBL, type), gtDconVal(val)
+public:
+    GenTreeDblCon(double val, var_types type = TYP_DOUBLE) : GenTree(GT_CNS_DBL, type), value(val)
     {
         assert(varTypeIsFloating(type));
     }
 
     double GetValue() const
     {
-        return gtDconVal;
+        return value;
     }
 
     double GetDoubleValue() const
     {
         assert(gtType == TYP_DOUBLE);
-        return gtDconVal;
+        return value;
     }
 
     float GetFloatValue() const
     {
         assert(gtType == TYP_FLOAT);
-        return static_cast<float>(gtDconVal);
+        return static_cast<float>(value);
     }
 
     uint64_t GetBits() const
     {
-        return jitstd::bit_cast<uint64_t>(gtDconVal);
+        return jitstd::bit_cast<uint64_t>(value);
     }
 
     uint64_t GetDoubleBits() const
     {
         assert(gtType == TYP_DOUBLE);
-        return jitstd::bit_cast<uint64_t>(gtDconVal);
+        return jitstd::bit_cast<uint64_t>(value);
     }
 
     uint32_t GetFloatBits() const
     {
         assert(gtType == TYP_FLOAT);
-        return jitstd::bit_cast<uint32_t>(static_cast<float>(gtDconVal));
+        return jitstd::bit_cast<uint32_t>(static_cast<float>(value));
     }
 
-    void SetValue(double value)
+    void SetValue(double val)
     {
-        gtDconVal = value;
+        value = val;
     }
 
     bool IsPositiveZero() const
@@ -7737,20 +7718,6 @@ inline bool GenTree::IsHWIntrinsicZero() const
     return false;
 }
 
-//------------------------------------------------------------------------
-// IsIntegralConst: Checks whether this is a constant node with the given value
-//
-// Arguments:
-//    constVal - the value of interest
-//
-// Return Value:
-//    Returns true iff the tree is an integral constant opcode, with
-//    the given value.
-//
-// Notes:
-//    Like gtIconVal, the argument is of ssize_t, so cannot check for
-//    long constants in a target-independent way.
-
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const
 {
     if ((gtOper == GT_CNS_INT) && (AsIntCon()->GetValue() == constVal))
@@ -8021,11 +7988,6 @@ inline bool GenTree::IsCopyOrReloadOfMultiRegCall() const
     }
 
     return false;
-}
-
-inline bool GenTree::IsCnsIntOrI() const
-{
-    return IsIntCon();
 }
 
 inline bool GenTree::IsIntegralConst() const

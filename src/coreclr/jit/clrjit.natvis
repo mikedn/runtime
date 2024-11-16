@@ -35,16 +35,16 @@ Documentation for VS debugger format specifiers: https://docs.microsoft.com/en-u
     <DisplayString>[{gtOper,en}, {gtType,en}]</DisplayString>
   </Type>
   <Type Name="GenTreeIntCon">
-    <DisplayString>[IntCon={((GenTreeIntCon*)this)-&gt;gtIconVal, d}]</DisplayString>
+    <DisplayString>[IntCon={((GenTreeIntCon*)this)-&gt;value, d}]</DisplayString>
   </Type>
   <Type Name="GenTreeDblCon">
-    <DisplayString>[DblCon={((GenTreeDblCon*)this)-&gt;gtDconVal, g}]</DisplayString>
+    <DisplayString>[DblCon={((GenTreeDblCon*)this)-&gt;value, g}]</DisplayString>
   </Type>
   <Type Name="GenTreeStrCon">
     <DisplayString>CNS_STR</DisplayString>
   </Type>
   <Type Name="GenTreeLngCon">
-    <DisplayString>[LngCon={((GenTreeLngCon*)this)-&gt;gtLconVal, l}]</DisplayString>
+    <DisplayString>[LngCon={((GenTreeLngCon*)this)-&gt;value, l}]</DisplayString>
   </Type>
   <Type Name="GenTreeOp">
     <DisplayString>[{gtOper,en}, {gtType,en}]</DisplayString>

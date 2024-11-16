@@ -2634,7 +2634,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41) && ((index != 0) || elt->IsDblCon()))
             {
                 intrinsic = NI_SSE41_Insert;
-                idx->AsIntCon()->SetIconValue(index << 4);
+                idx->AsIntCon()->SetValue(index << 4);
             }
             else if (index == 0)
             {
@@ -4861,7 +4861,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                             GenTree* lastOp = node->GetLastOp();
                             assert(lastOp != nullptr);
 
-                            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && lastOp->IsCnsIntOrI())
+                            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && lastOp->IsIntCon())
                             {
                                 assert(lastOp->isContained());
                             }

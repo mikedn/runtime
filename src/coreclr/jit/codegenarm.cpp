@@ -492,7 +492,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
 
     // Put aligned allocation size to regCnt
-    if (size->IsCnsIntOrI())
+    if (size->IsIntCon())
     {
         // 'amount' is the total number of bytes to localloc to properly STACK_ALIGN
         uint32_t amount = size->AsIntCon()->GetUInt32Value();

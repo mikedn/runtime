@@ -107,7 +107,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                         RegNum valueReg = UseReg(extract->GetOp(0));
 
                         ins  = HWIntrinsicInfo::lookupIns(extract->GetIntrinsic(), extract->GetSimdBaseType());
-                        ival = static_cast<int>(extract->GetOp(1)->AsIntCon()->IconValue());
+                        ival = extract->GetOp(1)->AsIntCon()->GetInt32Value();
 
                         emit.emitIns_A_R_I(ins, EA_32BYTE, op1, valueReg, ival);
                     }
@@ -1295,9 +1295,9 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
 
             auto emitSwCase = [&](int8_t i) { inst_RV_TT_IV(ins, attr, targetReg, op1, i); };
 
-            if (op2->IsCnsIntOrI())
+            if (op2->IsIntCon())
             {
-                ssize_t ival = op2->AsIntCon()->IconValue();
+                ssize_t ival = op2->AsIntCon()->GetValue();
                 assert((ival >= 0) && (ival <= 255));
                 emitSwCase((int8_t)ival);
             }

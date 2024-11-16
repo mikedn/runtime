@@ -9336,7 +9336,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // array.Length is always positive so GT_DIV can be changed to GT_UDIV
             // if op2 is a positive cns
             if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
-                op2->AsIntCon()->IconValue() >= 2) // for 0 and 1 it doesn't matter if it's UMOD or MOD
+                (op2->AsIntCon()->GetValue() >= 2)) // for 0 and 1 it doesn't matter if it's UMOD or MOD
             {
                 assert(tree->OperIs(GT_MOD));
                 tree->ChangeOper(GT_UMOD);
@@ -9355,7 +9355,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // morph to a helper call - it can be done faster inline using idiv.
 
             if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_NATIVELONG) && opts.ConstantFold() &&
-                (op2->AsIntConCommon()->LngValue() >= 2) && (op2->AsIntConCommon()->LngValue() <= 0x3fffffff))
+                (op2->AsIntConCommon()->GetValue() >= 2) && (op2->AsIntConCommon()->GetValue() <= 0x3fffffff))
             {
                 op1 = fgMorphTree(op1);
                 noway_assert(op1->TypeIs(TYP_LONG));
@@ -9455,7 +9455,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             if (tree->OperIs(GT_MOD) && op2->IsIntegralConst())
             {
-                ssize_t divisorValue    = op2->AsIntCon()->IconValue();
+                ssize_t divisorValue    = op2->AsIntCon()->GetValue();
                 size_t  absDivisorValue = (divisorValue == SSIZE_T_MIN) ? static_cast<size_t>(divisorValue)
                                                                        : static_cast<size_t>(abs(divisorValue));
 
@@ -10013,7 +10013,7 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    if (!rshiftOp->AsOp()->gtOp2->IsCnsIntOrI())
+                    if (!rshiftOp->AsOp()->gtOp2->IsIntCon())
                     {
                         goto SKIP;
                     }
@@ -10058,13 +10058,13 @@ DONE_MORPHING_CHILDREN:
 
                         uint64_t newAndOperand = 1ull << shiftAmount;
 
-                        andOp->AsOp()->gtOp2->AsIntConCommon()->SetLngValue(newAndOperand);
+                        andOp->AsOp()->gtOp2->AsIntConCommon()->SetInt64Value(newAndOperand);
 
                         // Reverse the cond if necessary
                         if (ival2 == 1)
                         {
                             gtReverseRelop(tree->AsOp());
-                            cns2->AsIntConCommon()->SetLngValue(0);
+                            cns2->AsIntConCommon()->SetInt64Value(0);
                             oper = tree->GetOper();
                         }
                     }
@@ -12016,7 +12016,7 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
                             CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifndef TARGET_64BIT
-                            if (!shiftIndexWithoutAdd->IsCnsIntOrI() && (rotatedValueBitSize == 64))
+                            if (!shiftIndexWithoutAdd->IsIntCon() && (rotatedValueBitSize == 64))
                             {
                                 // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
                                 // GT_LSH, GT_RSH, and GT_RSZ have helpers for this case. We may need

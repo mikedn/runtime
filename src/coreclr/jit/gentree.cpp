@@ -8444,12 +8444,12 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
     GenTree* op;
     GenTree* cons;
 
-    if (op1->IsCnsIntOrI())
+    if (op1->IsIntCon())
     {
         op   = op2;
         cons = op1;
     }
-    else if (op2->IsCnsIntOrI())
+    else if (op2->IsIntCon())
     {
         op   = op1;
         cons = op2;
@@ -8459,9 +8459,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         return tree;
     }
 
-    /* Get the constant value */
-
-    ssize_t val = cons->AsIntConCommon()->IconValue();
+    ssize_t val = cons->AsIntConCommon()->GetValue();
 
     // Transforms that would drop op cannot be performed if op has side effects
     bool opHasSideEffects = (op->gtFlags & GTF_SIDE_EFFECT) != 0;
@@ -8736,12 +8734,12 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     GenTree*       op;
     GenTree*       cons;
 
-    if (op1->IsCnsIntOrI())
+    if (op1->IsIntCon())
     {
         op   = op2;
         cons = op1;
     }
-    else if (op2->IsCnsIntOrI())
+    else if (op2->IsIntCon())
     {
         op   = op1;
         cons = op2;
@@ -8751,7 +8749,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
         return tree;
     }
 
-    ssize_t const val = cons->AsIntConCommon()->IconValue();
+    ssize_t const val = cons->AsIntConCommon()->GetValue();
 
     if (val != 0)
     {

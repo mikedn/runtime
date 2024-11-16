@@ -238,7 +238,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     }
 
     GenTreeIntCon* offsetNode = addr->AsOp()->GetOp(1)->AsIntCon();
-    ssize_t        offset     = offsetNode->IconValue();
+    ssize_t        offset     = offsetNode->GetValue();
 
     if (!IsValidGenericLoadStoreOffset(offset, size ARM64_ARG(size >= 2 * REGSIZE_BYTES)))
     {

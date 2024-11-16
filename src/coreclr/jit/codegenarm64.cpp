@@ -2150,7 +2150,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         stackAdjustment += outgoingArgSpaceSize;
     }
 
-    if (size->IsCnsIntOrI())
+    if (size->IsIntCon())
     {
         // We should reach here only for non-zero, constant size allocations.
         assert(amount > 0);

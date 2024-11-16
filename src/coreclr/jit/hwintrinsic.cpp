@@ -537,7 +537,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
         assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp));
         assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp2));
 
-        if (!immOp2->IsCnsIntOrI())
+        if (!immOp2->IsIntCon())
         {
             assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
             return impNonConstFallback(intrinsic, retType, baseType);
@@ -555,7 +555,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
         HWIntrinsicInfo::lookupImmBounds(intrinsic, otherSimdSize, otherBaseType, &immLowerBound2, &immUpperBound2);
 
-        const int immVal2 = (int)immOp2->AsIntCon()->IconValue();
+        const int immVal2 = immOp2->AsIntCon()->GetInt32Value();
 
         if ((immVal2 < immLowerBound2) || (immVal2 > immUpperBound2))
         {
@@ -622,9 +622,9 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
         }
 #endif
 
-        if (!hasFullRangeImm && immOp->IsCnsIntOrI())
+        if (!hasFullRangeImm && immOp->IsIntCon())
         {
-            const int ival = (int)immOp->AsIntCon()->IconValue();
+            const int ival = immOp->AsIntCon()->GetInt32Value();
             bool      immOutOfRange;
 #ifdef TARGET_XARCH
             if (HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic))
@@ -645,7 +645,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 return nullptr;
             }
         }
-        else if (!immOp->IsCnsIntOrI())
+        else if (!immOp->IsIntCon())
         {
             if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
             {

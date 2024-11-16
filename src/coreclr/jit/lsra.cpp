@@ -1991,8 +1991,8 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
     {
         case GT_CNS_INT:
         {
-            ssize_t v1 = refPosition->treeNode->AsIntCon()->IconValue();
-            ssize_t v2 = otherTreeNode->AsIntCon()->IconValue();
+            ssize_t v1 = refPosition->treeNode->AsIntCon()->GetValue();
+            ssize_t v2 = otherTreeNode->AsIntCon()->GetValue();
             if ((v1 == v2) &&
                 (varTypeGCKind(refPosition->treeNode->GetType()) == varTypeGCKind(otherTreeNode->GetType()) || v1 == 0))
             {

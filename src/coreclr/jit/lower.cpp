@@ -3781,8 +3781,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         }
 
         divisor->SetType(TYP_I_IMPL);
-
-        divisor->AsIntCon()->SetIconValue(magic);
+        divisor->AsIntCon()->SetValue(magic);
 
         if (isDiv && !postShift && (type == TYP_I_IMPL))
         {
@@ -3875,12 +3874,12 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     assert(!"unreachable: integral GT_DIV/GT_MOD should get morphed into helper calls");
 #endif
 
-    if (!divisor->IsCnsIntOrI())
+    if (!divisor->IsIntCon())
     {
         return nullptr; // no transformations to make
     }
 
-    if (dividend->IsCnsIntOrI())
+    if (dividend->IsIntCon())
     {
         // We shouldn't see a divmod with constant operands here but if we do then it's likely
         // because optimizations are disabled or it's a case that's supposed to throw an exception.
@@ -3888,7 +3887,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         return nullptr;
     }
 
-    ssize_t divisorValue = divisor->AsIntCon()->IconValue();
+    ssize_t divisorValue = divisor->AsIntCon()->GetValue();
 
     if (divisorValue == -1 || divisorValue == 0)
     {
@@ -3944,7 +3943,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 #endif
         }
 
-        divisor->AsIntConCommon()->SetIconValue(magic);
+        divisor->AsIntCon()->SetValue(magic);
 
         // Insert a new GT_MULHI node in front of the existing GT_DIV/GT_MOD node.
         // The existing node will later be transformed into a GT_ADD/GT_SUB that
@@ -4082,7 +4081,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     if (isDiv)
     {
         // perform the division by right shifting the adjusted dividend
-        divisor->AsIntCon()->SetIconValue(genLog2(absDivisorValue));
+        divisor->AsIntCon()->SetValue(genLog2(absDivisorValue));
 
         newDivMod = comp->gtNewOperNode(GT_RSH, type, adjustedDividend, divisor);
         BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
