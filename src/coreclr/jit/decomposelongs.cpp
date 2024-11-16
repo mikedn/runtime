@@ -469,10 +469,10 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
 
     Range().Remove(longNode);
 
-    loUse->SetNode(longNode->gtGetOp1());
+    loUse->SetNode(longNode->GetOp(0));
     loUse->SetType(TYP_INT);
 
-    fieldList->InsertFieldLIR(m_compiler, loUse, longNode->gtGetOp2(), loUse->GetOffset() + 4, TYP_INT);
+    fieldList->InsertFieldLIR(m_compiler, loUse, longNode->GetOp(1), loUse->GetOffset() + 4, TYP_INT);
 
     return fieldList->gtNext;
 }

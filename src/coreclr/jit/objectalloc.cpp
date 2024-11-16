@@ -678,7 +678,7 @@ bool ObjectAllocator::CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* userSt
                 break;
 
             case GT_COMMA:
-                if (user->AsOp()->gtGetOp1() == userStack->Top(userIndex - 1))
+                if (user->AsOp()->GetOp(0) == userStack->Top(userIndex - 1))
                 {
                     // Left child of GT_COMMA, it will be discarded
                     canLclVarEscapeViaParentStack = false;

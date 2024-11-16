@@ -3580,7 +3580,7 @@ bool Compiler::fgOptimizeSwitchJumps()
         Statement* const  switchStmt     = block->lastStmt();
         GenTree* const    switchTree     = switchStmt->GetRootNode();
         assert(switchTree->OperIs(GT_SWITCH));
-        GenTree* const switchValue = switchTree->AsOp()->gtGetOp1();
+        GenTree* const switchValue = switchTree->AsUnOp()->GetOp(0);
 
         // Split the switch block just before at the switch.
         //

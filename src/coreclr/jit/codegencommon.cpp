@@ -5337,7 +5337,7 @@ bool CodeGen::IsLocalMemoryOperand(GenTree* op, StackAddrMode* am)
 void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
 {
     assert(jtrue->OperIs(GT_JTRUE));
-    assert(block->bbJumpKind == BBJ_COND);
+    assert(block->KindIs(BBJ_COND));
 
     GenTreeOp*   relop     = jtrue->GetOp(0)->AsOp();
     GenCondition condition = GenCondition::FromRelop(relop);
@@ -5348,9 +5348,8 @@ void CodeGen::GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block)
     }
 
 #if defined(TARGET_XARCH)
-    if ((condition.GetCode() == GenCondition::FNEU) &&
-        (relop->gtGetOp1()->GetRegNum() == relop->gtGetOp2()->GetRegNum()) &&
-        !relop->gtGetOp1()->isUsedFromSpillTemp() && !relop->gtGetOp2()->isUsedFromSpillTemp())
+    if (condition.Is(GenCondition::FNEU) && (relop->GetOp(0)->GetRegNum() == relop->GetOp(1)->GetRegNum()) &&
+        !relop->GetOp(0)->isUsedFromSpillTemp() && !relop->GetOp(1)->isUsedFromSpillTemp())
     {
         // For floating point, `x != x` is a common way of
         // checking for NaN. So, in the case where both

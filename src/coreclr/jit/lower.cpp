@@ -3510,8 +3510,8 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     // Save the (potentially) unused operands before changing the address to LEA.
     ArrayStack<GenTree*> unusedStack(comp->getAllocator(CMK_ArrayStack));
-    unusedStack.Push(addr->AsOp()->gtGetOp1());
-    unusedStack.Push(addr->AsOp()->gtGetOp2());
+    unusedStack.Push(addr->AsOp()->GetOp(0));
+    unusedStack.Push(addr->AsOp()->GetOp(1));
 
     addr->ChangeOper(GT_LEA);
     // Make sure there are no leftover side effects (though the existing ADD we're
@@ -3864,9 +3864,9 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD));
-    GenTree* divMod   = node;
-    GenTree* dividend = divMod->gtGetOp1();
-    GenTree* divisor  = divMod->gtGetOp2();
+    GenTreeOp* divMod   = node->AsOp();
+    GenTree*   dividend = divMod->GetOp(0);
+    GenTree*   divisor  = divMod->GetOp(1);
 
     const var_types type = divMod->GetType();
     assert((type == TYP_INT) || (type == TYP_LONG));

@@ -1198,7 +1198,7 @@ private:
 
                     // Remove GT_RETURN since constReturnBlock returns the constant.
                     assert(returnBlock->lastStmt()->GetRootNode()->OperIs(GT_RETURN));
-                    assert(returnBlock->lastStmt()->GetRootNode()->gtGetOp1()->IsIntegralConst());
+                    assert(returnBlock->lastStmt()->GetRootNode()->AsUnOp()->GetOp(0)->IsIntegralConst());
                     comp->fgRemoveStmt(returnBlock, returnBlock->lastStmt());
 
                     // Using 'returnBlock' as the insertion point for 'mergedReturnBlock'
@@ -1281,7 +1281,7 @@ private:
             return nullptr;
         }
 
-        GenTree* retExpr = lastExpr->gtGetOp1();
+        GenTree* retExpr = lastExpr->AsUnOp()->GetOp(0);
         if ((retExpr == nullptr) || !retExpr->IsIntegralConst())
         {
             return nullptr;

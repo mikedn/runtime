@@ -6792,8 +6792,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
         // of switch's operand.
         if (op1->OperIs(GT_COPY))
         {
-            GenTree* srcOp1 = op1->gtGetOp1();
-            consumedRegs |= genRegMask(srcOp1->GetRegNum());
+            consumedRegs |= genRegMask(op1->AsUnOp()->GetOp(0)->GetRegNum());
         }
     }
 
@@ -6819,12 +6818,12 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
 
         if (lastNode->OperIs(GT_JCMP))
         {
-            GenTree* op1 = lastNode->gtGetOp1();
+            GenTree* op1 = lastNode->AsOp()->GetOp(0);
             consumedRegs |= genRegMask(op1->GetRegNum());
 
             if (op1->OperIs(GT_COPY))
             {
-                consumedRegs |= genRegMask(op1->gtGetOp1()->GetRegNum());
+                consumedRegs |= genRegMask(op1->AsUnOp()->GetOp(0)->GetRegNum());
             }
             else if (op1->OperIs(GT_LCL_LOAD))
             {

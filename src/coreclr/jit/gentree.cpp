@@ -4756,24 +4756,16 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 break;
         }
 
-        if (tree->AsOp()->gtOp1 != nullptr)
+        if (GenTree* op1 = tree->AsOp()->gtOp1)
         {
-            copy->AsOp()->gtOp1 = gtCloneExpr(tree->AsOp()->gtOp1, addFlags, constLcl, constVal);
-        }
-
-        if (tree->gtGetOp2IfPresent() != nullptr)
-        {
-            copy->AsOp()->gtOp2 = gtCloneExpr(tree->AsOp()->gtOp2, addFlags, constLcl, constVal);
-        }
-
-        if (copy->AsOp()->gtOp1 != nullptr)
-        {
+            copy->AsOp()->gtOp1 = gtCloneExpr(op1, addFlags, constLcl, constVal);
             copy->gtFlags |= copy->AsOp()->gtOp1->GetSideEffects();
         }
 
-        if (copy->gtGetOp2IfPresent() != nullptr)
+        if (GenTree* op2 = tree->gtGetOp2IfPresent())
         {
-            copy->gtFlags |= copy->gtGetOp2()->GetSideEffects();
+            copy->AsOp()->gtOp2 = gtCloneExpr(op2, addFlags, constLcl, constVal);
+            copy->gtFlags |= copy->AsOp()->gtOp2->GetSideEffects();
         }
 
         goto DONE;

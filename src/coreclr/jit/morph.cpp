@@ -10516,8 +10516,8 @@ DONE_MORPHING_CHILDREN:
                 if (GenTree* foldedTree = fgMorphAssociative(tree->AsOp()))
                 {
                     tree = foldedTree;
-                    op1  = tree->gtGetOp1();
-                    op2  = tree->gtGetOp2();
+                    op1  = tree->AsOp()->GetOp(0);
+                    op2  = tree->AsOp()->GetOp(1);
 
                     if (!tree->OperIs(oper))
                     {
@@ -10775,7 +10775,7 @@ DONE_MORPHING_CHILDREN:
             if (op1->OperIs(oper) && opts.OptimizationEnabled())
             {
                 JITDUMP("Remove double negation/not\n")
-                GenTree* op1op1 = op1->gtGetOp1();
+                GenTree* op1op1 = op1->AsUnOp()->GetOp(0);
                 DEBUG_DESTROY_NODE(tree);
                 DEBUG_DESTROY_NODE(op1);
                 return op1op1;
@@ -11904,20 +11904,20 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
     assert(fgOperIsBitwiseRotationRoot(oper));
 
     // Check if we have an LSH on one side of the OR and an RSZ on the other side.
-    GenTree* op1            = tree->AsOp()->GetOp(0);
-    GenTree* op2            = tree->AsOp()->GetOp(1);
-    GenTree* leftShiftTree  = nullptr;
-    GenTree* rightShiftTree = nullptr;
+    GenTree*   op1            = tree->AsOp()->GetOp(0);
+    GenTree*   op2            = tree->AsOp()->GetOp(1);
+    GenTreeOp* leftShiftTree  = nullptr;
+    GenTreeOp* rightShiftTree = nullptr;
 
     if (op1->OperIs(GT_LSH) && op2->OperIs(GT_RSZ))
     {
-        leftShiftTree  = op1;
-        rightShiftTree = op2;
+        leftShiftTree  = op1->AsOp();
+        rightShiftTree = op2->AsOp();
     }
     else if (op1->OperIs(GT_RSZ) && op2->OperIs(GT_LSH))
     {
-        leftShiftTree  = op2;
-        rightShiftTree = op1;
+        leftShiftTree  = op2->AsOp();
+        rightShiftTree = op1->AsOp();
     }
     else
     {
@@ -11926,14 +11926,14 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
 
     // Check if the trees representing the value to shift are identical.
     // We already checked that there are no side effects above.
-    if (GenTree::Compare(leftShiftTree->gtGetOp1(), rightShiftTree->gtGetOp1()))
+    if (GenTree::Compare(leftShiftTree->GetOp(0), rightShiftTree->GetOp(0)))
     {
-        GenTree*  rotatedValue           = leftShiftTree->gtGetOp1();
+        GenTree*  rotatedValue           = leftShiftTree->GetOp(0);
         var_types rotatedValueActualType = varActualType(rotatedValue->GetType());
         ssize_t   rotatedValueBitSize    = varTypeSize(rotatedValueActualType) * 8;
         noway_assert((rotatedValueBitSize == 32) || (rotatedValueBitSize == 64));
-        GenTree* leftShiftIndex  = leftShiftTree->gtGetOp2();
-        GenTree* rightShiftIndex = rightShiftTree->gtGetOp2();
+        GenTree* leftShiftIndex  = leftShiftTree->AsOp()->GetOp(1);
+        GenTree* rightShiftIndex = rightShiftTree->AsOp()->GetOp(1);
 
         // The shift index may be masked. At least (rotatedValueBitSize - 1) lower bits
         // shouldn't be masked for the transformation to be valid. If additional
@@ -11979,33 +11979,33 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
             return tree;
         }
 
-        GenTree*   shiftIndexWithAdd    = nullptr;
+        GenTreeOp* shiftIndexWithAdd    = nullptr;
         GenTree*   shiftIndexWithoutAdd = nullptr;
         genTreeOps rotateOp             = GT_NONE;
         GenTree*   rotateIndex          = nullptr;
 
         if (leftShiftIndex->OperIs(GT_ADD))
         {
-            shiftIndexWithAdd    = leftShiftIndex;
+            shiftIndexWithAdd    = leftShiftIndex->AsOp();
             shiftIndexWithoutAdd = rightShiftIndex;
             rotateOp             = GT_ROR;
         }
         else if (rightShiftIndex->OperIs(GT_ADD))
         {
-            shiftIndexWithAdd    = rightShiftIndex;
+            shiftIndexWithAdd    = rightShiftIndex->AsOp();
             shiftIndexWithoutAdd = leftShiftIndex;
             rotateOp             = GT_ROL;
         }
 
         if (shiftIndexWithAdd != nullptr)
         {
-            if (GenTreeIntCon* mask = shiftIndexWithAdd->gtGetOp2()->IsIntCon())
+            if (GenTreeIntCon* mask = shiftIndexWithAdd->GetOp(1)->IsIntCon())
             {
                 if (mask->GetValue() == rotatedValueBitSize)
                 {
-                    if (shiftIndexWithAdd->gtGetOp1()->OperIs(GT_NEG))
+                    if (shiftIndexWithAdd->GetOp(0)->OperIs(GT_NEG))
                     {
-                        if (GenTree::Compare(shiftIndexWithAdd->gtGetOp1()->gtGetOp1(), shiftIndexWithoutAdd))
+                        if (GenTree::Compare(shiftIndexWithAdd->GetOp(0)->AsUnOp()->GetOp(0), shiftIndexWithoutAdd))
                         {
                             // We found one of these patterns:
                             // (x << (y & M)) | (x >>> ((-y + N) & M))

@@ -99,15 +99,15 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents)
 {
     GenTreeIntrinsic* intrinsic = (*use)->AsIntrinsic();
-
     GenTreeCall::Use* args;
+
     if (intrinsic->AsOp()->gtOp2 == nullptr)
     {
-        args = comp->gtNewCallArgs(intrinsic->gtGetOp1());
+        args = comp->gtNewCallArgs(intrinsic->GetOp(0));
     }
     else
     {
-        args = comp->gtNewCallArgs(intrinsic->gtGetOp1(), intrinsic->gtGetOp2());
+        args = comp->gtNewCallArgs(intrinsic->GetOp(0), intrinsic->GetOp(1));
     }
 
     RewriteNodeAsCall(use, parents, intrinsic->gtMethodHandle,
@@ -146,7 +146,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     {
         case GT_BOX:
             // GT_BOX at this level just passes through so get rid of it
-            use.ReplaceWith(comp, node->gtGetOp1());
+            use.ReplaceWith(comp, node->AsBox()->GetOp(0));
             BlockRange().Remove(node);
             break;
 
@@ -235,7 +235,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
         case GT_COMMA:
         {
-            GenTree*           op1         = node->gtGetOp1();
+            GenTree*           op1         = node->AsOp()->GetOp(0);
             bool               isClosed    = false;
             unsigned           sideEffects = 0;
             LIR::ReadOnlyRange lhsRange    = BlockRange().GetTreeRange(op1, &isClosed, &sideEffects);
@@ -256,7 +256,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
             BlockRange().Remove(node);
 
-            GenTree* value = node->gtGetOp2();
+            GenTree* value = node->AsOp()->GetOp(1);
             if (!use.IsDummyUse())
             {
                 use.ReplaceWith(comp, value);

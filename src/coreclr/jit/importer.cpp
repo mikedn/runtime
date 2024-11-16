@@ -2356,7 +2356,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         unsigned argIndex = 0;
         GenTree* comma;
 
-        for (comma = argsArg->GetNode(); Match::IsComma(comma); comma = comma->gtGetOp2())
+        for (comma = argsArg->GetNode(); Match::IsComma(comma); comma = comma->AsOp()->GetOp(1))
         {
             if (lowerBoundsSpecified)
             {

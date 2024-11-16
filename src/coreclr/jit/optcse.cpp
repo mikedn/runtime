@@ -809,14 +809,14 @@ public:
             // Find which child of boundParent is the bound.  Abort if neither
             // conservative value number matches the one from the compare VN.
 
-            GenTree* child1 = boundParent->gtGetOp1();
+            GenTree* child1 = boundParent->AsOp()->GetOp(0);
             if ((info.vnBound == child1->GetConservativeVN()) && child1->HasCseInfo())
             {
                 bound = child1;
             }
             else
             {
-                GenTree* child2 = boundParent->gtGetOp2();
+                GenTree* child2 = boundParent->AsOp()->GetOp(1);
                 if ((info.vnBound == child2->GetConservativeVN()) && child2->HasCseInfo())
                 {
                     bound = child2;

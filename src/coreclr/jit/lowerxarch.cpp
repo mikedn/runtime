@@ -1208,17 +1208,17 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
     const bool negMul = argX->OperIs(GT_FNEG) != argY->OperIs(GT_FNEG);
     if (argX->OperIs(GT_FNEG))
     {
-        uses[0]->SetNode(argX->gtGetOp1());
+        uses[0]->SetNode(argX->AsUnOp()->GetOp(0));
         BlockRange().Remove(argX);
     }
     if (argY->OperIs(GT_FNEG))
     {
-        uses[1]->SetNode(argY->gtGetOp1());
+        uses[1]->SetNode(argY->AsUnOp()->GetOp(0));
         BlockRange().Remove(argY);
     }
     if (argZ->OperIs(GT_FNEG))
     {
-        uses[2]->SetNode(argZ->gtGetOp1());
+        uses[2]->SetNode(argZ->AsUnOp()->GetOp(0));
         BlockRange().Remove(argZ);
         node->SetIntrinsic(negMul ? NI_FMA_MultiplySubtractNegatedScalar : NI_FMA_MultiplySubtractScalar);
     }
@@ -1792,7 +1792,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 #endif // TARGET_AMD64
     }
 
-    if ((eltType == TYP_LONG))
+    if (eltType == TYP_LONG)
     {
 #ifndef TARGET_AMD64
         unreached();
