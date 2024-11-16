@@ -5462,8 +5462,10 @@ private:
     NamedIntrinsic m_intrinsic;
     var_types      m_simdBaseType;
     uint8_t        m_simdSize;
-    var_types      m_auxiliaryType;
-    uint8_t        m_numOps;
+#ifdef TARGET_ARM64
+    var_types m_auxiliaryType;
+#endif
+    uint8_t m_numOps;
     union {
         Use  m_inlineUses[3];
         Use* m_uses;
@@ -5475,7 +5477,9 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
+#ifdef TARGET_ARM64
         , m_auxiliaryType(TYP_UNDEF)
+#endif
         , m_numOps(0)
     {
         assert(size < UINT8_MAX);
@@ -5486,7 +5490,9 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
+#ifdef TARGET_ARM64
         , m_auxiliaryType(TYP_UNDEF)
+#endif
         , m_numOps(1)
         , m_inlineUses{op1}
     {
@@ -5506,7 +5512,9 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
+#ifdef TARGET_ARM64
         , m_auxiliaryType(TYP_UNDEF)
+#endif
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
@@ -5532,7 +5540,9 @@ public:
         , m_intrinsic(intrinsic)
         , m_simdBaseType(baseType)
         , m_simdSize(static_cast<uint8_t>(size))
+#ifdef TARGET_ARM64
         , m_auxiliaryType(TYP_UNDEF)
+#endif
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
     {
@@ -5553,7 +5563,9 @@ public:
         , m_intrinsic(copyFrom->m_intrinsic)
         , m_simdBaseType(copyFrom->m_simdBaseType)
         , m_simdSize(copyFrom->m_simdSize)
+#ifdef TARGET_ARM64
         , m_auxiliaryType(copyFrom->m_auxiliaryType)
+#endif
         , m_numOps(0)
     {
         SetNumOps(copyFrom->GetNumOps(), alloc);
@@ -5595,7 +5607,9 @@ public:
         SetSimdBaseType(simdBaseType);
         SetSimdSize(simdSize);
         SetNumOps(numOps);
+#ifdef TARGET_ARM64
         SetAuxiliaryType(TYP_UNDEF);
+#endif
     }
 
     var_types GetSimdBaseType() const
@@ -5706,6 +5720,7 @@ public:
         return MakeIteratorPair(uses, uses + GetNumOps());
     }
 
+#ifdef TARGET_ARM64
     var_types GetAuxiliaryType() const
     {
         return m_auxiliaryType;
@@ -5715,12 +5730,13 @@ public:
     {
         m_auxiliaryType = type;
     }
+#endif
 
     static bool Equals(GenTreeHWIntrinsic* simd1, GenTreeHWIntrinsic* simd2)
     {
         if ((simd1->GetType() != simd2->GetType()) || (simd1->m_intrinsic != simd2->m_intrinsic) ||
             (simd1->m_simdBaseType != simd2->m_simdBaseType) || (simd1->m_simdSize != simd2->m_simdSize) ||
-            (simd1->m_auxiliaryType != simd2->m_auxiliaryType) || (simd1->m_numOps != simd2->m_numOps))
+            ARM64_ONLY((simd1->m_auxiliaryType != simd2->m_auxiliaryType) ||)(simd1->m_numOps != simd2->m_numOps))
         {
             return false;
         }

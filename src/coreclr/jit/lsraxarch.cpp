@@ -1769,29 +1769,28 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 buildUses = false;
                 break;
 
-            case NI_AVX2_GatherVector128:
-            case NI_AVX2_GatherVector256:
-                assert(numOps == 3);
-                assert(op3->IsContainedIntCon());
-                assert(!isRMW);
+            case NI_AVX2_GATHERD:
+            case NI_AVX2_GATHERQ:
+                if (numOps == 3)
+                {
+                    assert(op3->IsContainedIntCon());
+                    assert(!isRMW);
 
-                BuildUse(op1);
-                BuildDelayFreeUse(op2);
-                BuildInternalFloatDef(node, allSIMDRegs());
-                setInternalRegsDelayFree = true;
-                buildUses                = false;
-                break;
+                    BuildUse(op1);
+                    BuildDelayFreeUse(op2);
+                }
+                else
+                {
+                    assert(numOps == 5);
+                    assert(node->GetOp(4)->IsContainedIntCon());
+                    assert(!isRMW);
 
-            case NI_AVX2_GatherMaskVector128:
-            case NI_AVX2_GatherMaskVector256:
-                assert(numOps == 5);
-                assert(node->GetOp(4)->IsContainedIntCon());
-                assert(!isRMW);
+                    BuildUse(op1);
+                    BuildUse(op2);
+                    BuildDelayFreeUse(op3);
+                    BuildDelayFreeUse(node->GetOp(3));
+                }
 
-                BuildUse(op1);
-                BuildUse(op2);
-                BuildDelayFreeUse(op3);
-                BuildDelayFreeUse(node->GetOp(3));
                 BuildInternalFloatDef(node, allSIMDRegs());
                 setInternalRegsDelayFree = true;
                 buildUses                = false;

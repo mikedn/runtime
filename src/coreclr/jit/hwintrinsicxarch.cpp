@@ -204,22 +204,18 @@ int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
     {
         case NI_AVX_Compare:
         case NI_AVX_CompareScalar:
-        {
             assert(!HWIntrinsicInfo::HasFullRangeImm(id));
             return 31; // enum FloatComparisonMode has 32 values
-        }
-
         case NI_AVX2_GatherVector128:
         case NI_AVX2_GatherVector256:
         case NI_AVX2_GatherMaskVector128:
         case NI_AVX2_GatherMaskVector256:
+        case NI_AVX2_GATHERD:
+        case NI_AVX2_GATHERQ:
             return 8;
-
         default:
-        {
             assert(HWIntrinsicInfo::HasFullRangeImm(id));
             return 255;
-        }
     }
 }
 
@@ -240,6 +236,8 @@ bool HWIntrinsicInfo::isAVX2GatherIntrinsic(NamedIntrinsic id)
         case NI_AVX2_GatherVector256:
         case NI_AVX2_GatherMaskVector128:
         case NI_AVX2_GatherMaskVector256:
+        case NI_AVX2_GATHERD:
+        case NI_AVX2_GATHERQ:
             return true;
         default:
             return false;
@@ -856,6 +854,27 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
             return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, 32, control, left);
         }
 
+        case NI_AVX2_GatherVector128:
+        case NI_AVX2_GatherVector256:
+        {
+            assert(sig.paramCount == 3);
+
+            GenTree* op3 = impPopArgForHWIntrinsic(sig.paramType[2], sig.paramLayout[2]);
+            GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
+            GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+
+            unsigned  vecSize   = sig.retLayout->GetSize();
+            var_types eltType   = sig.retLayout->GetElementType();
+            var_types indexType = sig.paramLayout[1]->GetElementType();
+            assert((indexType == TYP_INT) || (indexType == TYP_LONG));
+
+            intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
+
+            GenTree* node = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3);
+            node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+            return node;
+        }
+
         case NI_AVX2_GatherMaskVector128:
         case NI_AVX2_GatherMaskVector256:
         {
@@ -867,15 +886,16 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
             GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
             GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
 
-            var_types eltType  = sig.retLayout->GetElementType();
-            unsigned  simdSize = sig.retLayout->GetSize();
-
-            GenTreeHWIntrinsic* retNode =
-                gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize, op1, op2, op3, op4, op5);
+            unsigned  vecSize   = sig.retLayout->GetSize();
+            var_types eltType   = sig.retLayout->GetElementType();
             var_types indexType = sig.paramLayout[2]->GetElementType();
             assert((indexType == TYP_INT) || (indexType == TYP_LONG));
-            retNode->SetAuxiliaryType(indexType);
-            return retNode;
+
+            intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
+
+            GenTree* node = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3, op4, op5);
+            node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+            return node;
         }
 
         default:

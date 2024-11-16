@@ -1426,30 +1426,25 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
-        case NI_AVX2_GatherVector128:
-        case NI_AVX2_GatherVector256:
-        case NI_AVX2_GatherMaskVector128:
-        case NI_AVX2_GatherMaskVector256:
+        case NI_AVX2_GATHERD:
+        case NI_AVX2_GATHERQ:
         {
             op1Reg = op1->GetRegNum();
-
             op2Reg = op2->GetRegNum();
 
-            GenTree* op3 = node->GetOp(2);
-
+            GenTree* op3     = node->GetOp(2);
             GenTree* op4     = nullptr;
             GenTree* lastOp  = nullptr;
             GenTree* indexOp = nullptr;
 
-            regNumber op3Reg       = REG_NA;
-            regNumber op4Reg       = REG_NA;
-            regNumber addrBaseReg  = REG_NA;
-            regNumber addrIndexReg = REG_NA;
-            regNumber maskReg      = node->ExtractTempReg(RBM_ALLFLOAT);
+            RegNum op3Reg       = REG_NA;
+            RegNum op4Reg       = REG_NA;
+            RegNum addrBaseReg  = REG_NA;
+            RegNum addrIndexReg = REG_NA;
+            RegNum maskReg      = node->ExtractTempReg(RBM_ALLFLOAT);
 
             if (numArgs == 5)
             {
-                assert(intrinsicId == NI_AVX2_GatherMaskVector128 || intrinsicId == NI_AVX2_GatherMaskVector256);
                 op4          = node->GetOp(3);
                 lastOp       = node->GetOp(4);
                 op3Reg       = op3->GetRegNum();
@@ -1467,7 +1462,6 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
             }
             else
             {
-                assert(intrinsicId == NI_AVX2_GatherVector128 || intrinsicId == NI_AVX2_GatherVector256);
                 addrBaseReg  = op1Reg;
                 addrIndexReg = op2Reg;
                 indexOp      = op2;
@@ -1477,38 +1471,10 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
                 emit->emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, maskReg, maskReg, maskReg);
             }
 
-            bool isVector128GatherWithVector256Index = (targetType == TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32);
-
-            // hwintrinsiclistxarch.h uses Dword index instructions in default
-            if (node->GetAuxiliaryType() == TYP_LONG)
+            if ((intrinsicId == NI_AVX2_GATHERQ) && (targetType == TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32) &&
+                (ins == INS_vpgatherqd || ins == INS_vgatherqps))
             {
-                switch (ins)
-                {
-                    case INS_vpgatherdd:
-                        ins = INS_vpgatherqd;
-                        if (isVector128GatherWithVector256Index)
-                        {
-                            // YMM index in address mode
-                            attr = EA_32BYTE;
-                        }
-                        break;
-                    case INS_vpgatherdq:
-                        ins = INS_vpgatherqq;
-                        break;
-                    case INS_vgatherdps:
-                        ins = INS_vgatherqps;
-                        if (isVector128GatherWithVector256Index)
-                        {
-                            // YMM index in address mode
-                            attr = EA_32BYTE;
-                        }
-                        break;
-                    case INS_vgatherdpd:
-                        ins = INS_vgatherqpd;
-                        break;
-                    default:
-                        unreached();
-                }
+                attr = EA_32BYTE;
             }
 
             ssize_t ival = lastOp->AsIntCon()->GetValue();
@@ -1517,7 +1483,8 @@ void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
             assert(targetReg != maskReg);
             assert(targetReg != addrIndexReg);
             assert(maskReg != addrIndexReg);
-            emit->emitIns_R_AR_R(ins, attr, targetReg, maskReg, addrBaseReg, addrIndexReg, (int8_t)ival, 0);
+            emit->emitIns_R_AR_R(ins, attr, targetReg, maskReg, addrBaseReg, addrIndexReg, static_cast<int8_t>(ival),
+                                 0);
 
             break;
         }

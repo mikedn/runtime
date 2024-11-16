@@ -1259,7 +1259,9 @@ AGAIN:
             hash += tree->AsHWIntrinsic()->GetIntrinsic();
             hash += tree->AsHWIntrinsic()->GetSimdBaseType();
             hash += tree->AsHWIntrinsic()->GetSimdSize();
+#ifdef TARGET_ARM64
             hash += tree->AsHWIntrinsic()->GetAuxiliaryType();
+#endif
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
@@ -7346,10 +7348,12 @@ void Compiler::gtDispTreeRec(
                        : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
                    tree->AsHWIntrinsic()->GetSimdSize());
 
+#ifdef TARGET_ARM64
             if (tree->AsHWIntrinsic()->GetAuxiliaryType() != TYP_UNDEF)
             {
                 printf(" %s", varTypeName(tree->AsHWIntrinsic()->GetAuxiliaryType()));
             }
+#endif
 
             gtDispCommonEndLine(tree);
 

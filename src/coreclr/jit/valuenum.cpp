@@ -6790,6 +6790,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
         ClearMemory(node DEBUGARG("HWIntrinsic store"));
     }
 
+#ifdef TARGET_ARM64
     if (node->GetAuxiliaryType() != TYP_UNDEF)
     {
         // TODO-MIKE-CQ: We can't generate a proper VN for nodes that use the auxiliary
@@ -6798,6 +6799,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
         node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
         return;
     }
+#endif
 
     VNFunc func = VNFuncHWIntrinsic(node);
 

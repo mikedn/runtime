@@ -819,15 +819,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
                                : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
 
-#ifdef TARGET_XARCH
-            if ((intrinsic == NI_AVX2_GatherVector128) || (intrinsic == NI_AVX2_GatherVector256))
-            {
-                assert(varTypeIsSIMD(op2->GetType()));
-                var_types indexType = sigReader.paramLayout[1]->GetElementType();
-                assert((indexType == TYP_INT) || (indexType == TYP_LONG));
-                retNode->AsHWIntrinsic()->SetAuxiliaryType(indexType);
-            }
-#elif defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
             if (category == HW_Category_SIMDByIndexedElement)
             {
                 assert(varTypeIsSIMD(op2->GetType()));
