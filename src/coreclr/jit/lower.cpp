@@ -5735,12 +5735,10 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
                 u16[index] = value->AsIntCon()->GetUInt16Value();
                 return true;
             case TYP_INT:
-            case TYP_UINT:
                 u32[index] = value->AsIntCon()->GetUInt32Value();
                 return true;
 #ifdef TARGET_64BIT
             case TYP_LONG:
-            case TYP_ULONG:
                 u64[index] = value->AsIntCon()->GetUInt64Value();
                 return true;
 #endif

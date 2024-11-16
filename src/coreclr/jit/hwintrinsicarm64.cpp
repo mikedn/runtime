@@ -340,7 +340,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             assert(sig.paramCount == 0);
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            eltType  = sig.retLayout->GetElementType();
+            eltType  = varTypeNodeType(sig.retLayout->GetElementType());
             simdSize = sig.retLayout->GetSize();
 
             return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
@@ -355,7 +355,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return nullptr;
             }
 
-            eltType  = sig.retLayout->GetElementType();
+            eltType  = varTypeNodeType(sig.retLayout->GetElementType());
             simdSize = sig.retLayout->GetSize();
 
             {
@@ -451,7 +451,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             assert(sig.paramCount == 1);
             assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD8));
 
-            eltType = sig.retLayout->GetElementType();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
             op1 = impSIMDPopStack(TYP_SIMD16);
             op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType, 8);

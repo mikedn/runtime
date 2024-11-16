@@ -503,7 +503,7 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
     {
         CORINFO_InstructionSet requiredIsa;
         var_types              eltType;
-        unsigned               simdSize;
+        unsigned               vecSize;
         GenTree*               op1;
         GenTree*               op2;
 
@@ -557,15 +557,15 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
             }
 
             intrinsic = sig.retType == TYP_SIMD16 ? NI_Vector256_GetLower : NI_Vector128_ToVector256;
-            eltType   = sig.paramLayout[0]->GetElementType();
-            simdSize  = sig.retType == TYP_SIMD16 ? 32 : 16;
-            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize, op1);
+            eltType   = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+            vecSize   = sig.retType == TYP_SIMD16 ? 32 : 16;
+            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1);
 
         case NI_Vector128_ToVector256Unsafe:
             assert(sig.paramCount == 1);
             assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD32));
 
-            eltType = sig.retLayout->GetElementType();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
             if (!compExactlyDependsOn(InstructionSet_AVX))
             {
@@ -582,15 +582,15 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
             assert(sig.paramCount == 0);
             assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
-            eltType  = sig.retLayout->GetElementType();
-            simdSize = sig.retLayout->GetSize();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+            vecSize = sig.retLayout->GetSize();
 
             if (!compExactlyDependsOn(sig.retType == TYP_SIMD32 ? InstructionSet_AVX : InstructionSet_SSE))
             {
                 return nullptr;
             }
 
-            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize);
 
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
@@ -599,8 +599,8 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
             assert((sig.paramCount >= 1) && (sig.paramCount <= 32));
             assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
-            eltType  = sig.retLayout->GetElementType();
-            simdSize = sig.retLayout->GetSize();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+            vecSize = sig.retLayout->GetSize();
 
             if (sig.retType == TYP_SIMD32)
             {
@@ -617,7 +617,7 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
             }
 
             {
-                GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+                GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
                 for (unsigned i = 0; i < sig.paramCount; i++)

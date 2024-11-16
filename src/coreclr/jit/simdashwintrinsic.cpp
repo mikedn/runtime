@@ -544,7 +544,7 @@ GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
     assert(sig.paramCount == 0);
 
     var_types type    = sig.retLayout->GetSIMDType();
-    var_types eltType = sig.retLayout->GetElementType();
+    var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
     unsigned  size    = sig.retLayout->GetSize();
 
     GenTree* one = gtNewOneConNode(eltType);
@@ -579,7 +579,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     else
     {
         create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
-                                          layout->GetElementType(), layout->GetSize(), arg);
+                                          varTypeNodeType(layout->GetElementType()), layout->GetSize(), arg);
     }
 
     if (destAddr != nullptr)
@@ -1175,7 +1175,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = impSIMDPopStack(sig.paramType[1]);
         op1 = impPopStack().val;
 
-        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, op1);
+        op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, varTypeNodeType(eltType), 16, op1);
     }
     else if (sig.paramLayout[1] == nullptr)
     {
@@ -1192,7 +1192,8 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         else
         {
             intrinsic = eltType == TYP_DOUBLE ? NI_AdvSimd_Arm64_MultiplyByScalar : NI_AdvSimd_MultiplyByScalar;
-            op2       = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, 16, op2);
+            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varTypeNodeType(eltType), 16,
+                                           op2);
         }
     }
     else
@@ -1825,11 +1826,11 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
     assert(sig.paramType[0] == TYP_SIMD16);
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
 
-    var_types eltType = sig.paramLayout[0]->GetElementType();
+    var_types eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
 
     bool hasSse41 = compOpportunisticallyDependsOn(InstructionSet_SSE41);
 
-    if ((varTypeIsInt(eltType) || varTypeIsLong(eltType)) && !hasSse41)
+    if ((eltType == TYP_INT || eltType == TYP_LONG) && !hasSse41)
     {
         return nullptr;
     }
@@ -1854,12 +1855,10 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_DOUBLE, 16, op1, op2);
             break;
         case TYP_LONG:
-        case TYP_ULONG:
             op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
-        case TYP_UINT:
             op1     = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, 16, op1, op2);
             eltType = TYP_INT;
             break;
@@ -1885,7 +1884,7 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
     assert(sig.paramType[0] == TYP_SIMD32);
     assert(sig.paramLayout[0] == sig.paramLayout[1]);
 
-    var_types eltType = sig.paramLayout[0]->GetElementType();
+    var_types eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
 
     GenTree* op1 = impSIMDPopStack(TYP_SIMD32);
     GenTree* op2 = impSIMDPopStack(TYP_SIMD32);
@@ -1904,12 +1903,10 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX_Multiply, TYP_DOUBLE, 32, op1, op2);
             break;
         case TYP_LONG:
-        case TYP_ULONG:
             op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
-        case TYP_UINT:
             op1     = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_MultiplyLow, TYP_INT, 32, op1, op2);
             eltType = TYP_INT;
             break;
@@ -2785,7 +2782,8 @@ GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
         return gt;
     }
 
-    GenTree* allBitsSet = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_get_AllBitsSet, eltType, 16);
+    GenTree* allBitsSet =
+        gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_get_AllBitsSet, varTypeNodeType(eltType), 16);
     return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, gt, allBitsSet);
 }
 

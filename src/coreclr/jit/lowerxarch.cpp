@@ -1672,12 +1672,12 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsSIMD(node->GetType()));
-    assert(varTypeIsArithmetic(eltType));
+    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
     assert((size == 16) || (size == 32));
     assert((numOps == (size / varTypeSize(eltType))) || ((numOps == 2) && (eltType == TYP_FLOAT)));
 
 #ifndef TARGET_64BIT
-    if (varTypeIsLong(eltType))
+    if (eltType == TYP_LONG)
     {
         assert((numOps == 2) || (numOps == 4));
 
@@ -1771,7 +1771,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     GenTree* op1 = node->GetOp(0);
 
-    if (varTypeIsLong(eltType) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41_X64))
+    if ((eltType == TYP_LONG) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41_X64))
     {
 #ifndef TARGET_AMD64
         unreached();
@@ -1792,7 +1792,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 #endif // TARGET_AMD64
     }
 
-    if (varTypeIsLong(eltType))
+    if ((eltType == TYP_LONG))
     {
 #ifndef TARGET_AMD64
         unreached();
@@ -2026,7 +2026,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     if (eltType != TYP_FLOAT)
     {
-        assert((eltType == TYP_INT) || (eltType == TYP_UINT));
+        assert(eltType == TYP_INT);
         intrinsic = NI_SSE2_UnpackLow;
         eltType   = TYP_LONG;
     }
@@ -2050,7 +2050,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     GenTree*       op1       = node->GetOp(0);
 
     assert(varTypeIsSIMD(node->GetType()));
-    assert(varTypeIsArithmetic(eltType));
+    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
     assert((size == 8) || (size == 12) || (size == 16) || (size == 32));
 
     VectorConstant vecConst;
@@ -2248,7 +2248,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         return;
     }
 
-    if (varTypeIsLong(eltType))
+    if (eltType == TYP_LONG)
     {
         node->SetOp(0, vec);
         LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
@@ -2273,7 +2273,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         return;
     }
 
-    assert(varTypeIsIntegral(eltType) && !varTypeIsLong(eltType));
+    assert(varTypeIsIntegral(eltType) && (eltType != TYP_LONG));
 
     if (varTypeIsByte(eltType))
     {
@@ -2301,7 +2301,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
         INDEBUG(eltType = TYP_INT);
     }
 
-    assert((eltType == TYP_INT) || (eltType == TYP_UINT));
+    assert(eltType == TYP_INT);
 
     GenTree* idx = comp->gtNewIconNode(0);
     BlockRange().InsertBefore(node, idx);
@@ -2472,13 +2472,11 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         switch (eltType)
         {
             case TYP_LONG:
-            case TYP_ULONG:
                 node->SetIntrinsic(NI_SSE41_X64_Extract);
                 break;
             case TYP_BYTE:
             case TYP_UBYTE:
             case TYP_INT:
-            case TYP_UINT:
                 node->SetIntrinsic(NI_SSE41_Extract);
                 break;
             case TYP_SHORT:
@@ -2498,12 +2496,10 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
             case TYP_SHORT:
             case TYP_USHORT:
             case TYP_INT:
-            case TYP_UINT:
                 node->SetIntrinsic(NI_SSE2_ConvertToInt32, TYP_INT, 1);
                 node->SetType(TYP_INT);
                 break;
             case TYP_LONG:
-            case TYP_ULONG:
                 node->SetIntrinsic(NI_SSE2_X64_ConvertToInt64, TYP_LONG, 1);
                 node->SetType(TYP_LONG);
                 break;
@@ -2545,6 +2541,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
     unsigned       count   = node->GetSimdSize() / varTypeSize(eltType);
 
     assert(index < count);
+    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
 
     LclVarDsc* vec256TempLcl = nullptr;
     unsigned   index256      = index;
@@ -2577,7 +2574,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
     }
 
 #ifndef TARGET_64BIT
-    if (varTypeIsLong(eltType))
+    if (eltType == TYP_LONG)
     {
         assert(elt->OperIs(GT_LONG));
         assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
@@ -2614,13 +2611,11 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         case TYP_BYTE:
         case TYP_UBYTE:
         case TYP_INT:
-        case TYP_UINT:
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
             intrinsic = NI_SSE41_Insert;
             break;
 #ifdef TARGET_64BIT
         case TYP_LONG:
-        case TYP_ULONG:
             assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
             intrinsic = NI_SSE41_X64_Insert;
             break;

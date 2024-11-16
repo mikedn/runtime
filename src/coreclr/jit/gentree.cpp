@@ -11961,13 +11961,13 @@ GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
 {
     return new (this, GT_HWINTRINSIC)
         GenTreeHWIntrinsic(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
-                           layout->GetElementType(), layout->GetSize());
+                           varTypeNodeType(layout->GetElementType()), layout->GetSize());
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType)
 {
     return new (this, GT_HWINTRINSIC)
-        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), baseType, varTypeSize(type));
+        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(baseType), varTypeSize(type));
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
@@ -12077,20 +12077,20 @@ GenTreeHWIntrinsic* Compiler::NewExtractVectorElement(var_types vecType,
     return gtNewSimdGetElementNode(vecType, eltType, vec, gtNewIconNode(index));
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
-                                                      var_types elementType,
+GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types vecType,
+                                                      var_types eltType,
                                                       GenTree*  value,
                                                       GenTree*  index)
 {
-    assert(varTypeIsSIMD(simdType));
-    assert(varTypeIsArithmetic(elementType));
-    assert(varActualType(index->GetType()) == TYP_INT);
+    assert(varTypeIsSIMD(vecType));
+    assert(varTypeIsArithmetic(eltType));
+    assert(varActualTypeIsInt(index->GetType()));
 
     NamedIntrinsic intrinsic = NI_Vector128_GetElement;
     unsigned       size;
 
 #ifdef TARGET_XARCH
-    if (simdType == TYP_SIMD32)
+    if (vecType == TYP_SIMD32)
     {
         intrinsic = NI_Vector256_GetElement;
         size      = 32;
@@ -12100,7 +12100,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
         size = 16;
     }
 #elif defined(TARGET_ARM64)
-    if (simdType == TYP_SIMD8)
+    if (vecType == TYP_SIMD8)
     {
         intrinsic = NI_Vector64_GetElement;
         size      = 8;
@@ -12113,7 +12113,8 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types simdType,
 #error Unsupported platform
 #endif
 
-    return gtNewSimdHWIntrinsicNode(varTypeNodeType(elementType), intrinsic, elementType, size, value, index);
+    eltType = varTypeNodeType(eltType);
+    return gtNewSimdHWIntrinsicNode(eltType, intrinsic, eltType, size, value, index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
@@ -12144,7 +12145,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
 #error Unsupported platform
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, simdSize, vec, idx, elt);
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, varTypeNodeType(eltType), simdSize, vec, idx, elt);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
