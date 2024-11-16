@@ -68,7 +68,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             case 1:
             {
-                if (node->OperIsMemoryLoad())
+                if (node->IsMemoryLoad())
                 {
                     genConsumeAddress(op1);
                     emit.emitIns_R_A(ins, vecSize, dstReg, op1);
@@ -446,7 +446,7 @@ bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, Con
 #ifdef FEATURE_HW_INTRINSICS
     else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())
     {
-        assert(intrin->OperIsMemoryLoad());
+        assert(intrin->IsMemoryLoad());
         assert(intrin->IsUnary());
 
         loadAddr = intrin->GetOp(0);

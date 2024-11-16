@@ -2897,7 +2897,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 // TODO-MIKE-Review: Something's bogus here, only loads are unary and stores need address modes.
                 // And if an address mode isn't marked the costs revert to the default of 1, even if these are
                 // still load/stores...
-                if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+                if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->IsMemoryLoadOrStore())
                 {
                     gtSetCosts(tree->AsHWIntrinsic()->GetOp(0));
 
@@ -3297,7 +3297,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
         {
 #ifdef TARGET_XARCH
             // TODO-MIKE-Review: Something's bogus here, only loads are unary...
-            if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+            if (tree->AsHWIntrinsic()->IsUnary() && tree->AsHWIntrinsic()->IsMemoryLoadOrStore())
             {
                 return gtSetOrder(tree->AsHWIntrinsic()->GetOp(0));
             }
@@ -5149,7 +5149,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return AsHWIntrinsic()->OperIsMemoryLoadOrStore();
+            return AsHWIntrinsic()->IsMemoryLoadOrStore();
 #endif
 
         case GT_OVF_U:
@@ -5184,7 +5184,7 @@ bool GenTree::OperRequiresAsgFlag() const
 {
     return OperIs(GT_LCL_DEF, GT_MEMORYBARRIER) || OperIsStore()
 #ifdef FEATURE_HW_INTRINSICS
-           || (OperIs(GT_HWINTRINSIC) && AsHWIntrinsic()->OperIsMemoryStore())
+           || (OperIs(GT_HWINTRINSIC) && AsHWIntrinsic()->IsMemoryStore())
 #endif
         ;
 }
@@ -12166,93 +12166,63 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2, op3);
 }
 
-// Returns true for the HW Intrinsic instructions that have MemoryLoad semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryLoad() const
+bool GenTreeHWIntrinsic::IsMemoryLoad() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
-    if (category == HW_Category_MemoryLoad)
+    if (HWIntrinsicInfo::lookupCategory(m_intrinsic) == HW_Category_MemoryLoad)
     {
         return true;
     }
-#ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
-    {
-        // Some intrinsics (without HW_Category_MemoryLoad) also have MemoryLoad semantics
-
-        if (category == HW_Category_SIMDScalar)
-        {
-            // Avx2.BroadcastScalarToVector128/256 have vector and pointer overloads both, e.g.,
-            // Vector128<byte> BroadcastScalarToVector128(Vector128<byte> value)
-            // Vector128<byte> BroadcastScalarToVector128(byte* source)
-            // So, we need to check the argument's type is memory-reference or Vector128
-            assert(IsUnary());
-            return (m_intrinsic == NI_AVX2_BroadcastScalarToVector128 ||
-                    m_intrinsic == NI_AVX2_BroadcastScalarToVector256) &&
-                   !GetOp(0)->TypeIs(TYP_SIMD16);
-        }
-        else if (category == HW_Category_IMM)
-        {
-            // Do we have less than 3 operands?
-            if (GetNumOps() < 3)
-            {
-                return false;
-            }
-            else if (HWIntrinsicInfo::isAVX2GatherIntrinsic(m_intrinsic))
-            {
-                return true;
-            }
-        }
-    }
-#endif // TARGET_XARCH
-#endif // TARGET_XARCH || TARGET_ARM64
-    return false;
-}
-
-// Returns true for the HW Intrinsic instructions that have MemoryStore semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryStore() const
-{
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(m_intrinsic);
-    if (category == HW_Category_MemoryStore)
-    {
-        return true;
-    }
-#ifdef TARGET_XARCH
-    else if (HWIntrinsicInfo::MaybeMemoryStore(m_intrinsic) &&
-             (category == HW_Category_IMM || category == HW_Category_Scalar))
-    {
-        // Some intrinsics (without HW_Category_MemoryStore) also have MemoryStore semantics
-
-        // Bmi2/Bmi2.X64.MultiplyNoFlags may return the lower half result by a out argument
-        // unsafe ulong MultiplyNoFlags(ulong left, ulong right, ulong* low)
-        //
-        // So, the 3-argument form is MemoryStore
-        if (IsTernary())
-        {
-            switch (m_intrinsic)
-            {
-                case NI_BMI2_MultiplyNoFlags:
-                case NI_BMI2_X64_MultiplyNoFlags:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-    }
-#endif // TARGET_XARCH
-#endif // TARGET_XARCH || TARGET_ARM64
-    return false;
-}
-
-// Returns true for the HW Intrinsic instructions that have MemoryLoad or MemoryStore semantics, false otherwise
-bool GenTreeHWIntrinsic::OperIsMemoryLoadOrStore() const
-{
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    return OperIsMemoryLoad() || OperIsMemoryStore();
-#else
-    return false;
 #endif
+
+#ifdef TARGET_XARCH
+    if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
+    {
+        if (m_intrinsic == NI_AVX2_BroadcastScalarToVector128 || m_intrinsic == NI_AVX2_BroadcastScalarToVector256)
+        {
+            // Avx2.BroadcastScalarToVector128/256 have vector and pointer overloads:
+            //    Vector128<byte> BroadcastScalarToVector128(Vector128<byte> value)
+            //    Vector128<byte> BroadcastScalarToVector128(byte* source)
+            // So, we need to check the argument's type is memory-reference or Vector128
+            return !GetOp(0)->TypeIs(TYP_SIMD16);
+        }
+
+        assert(m_intrinsic == NI_AVX2_GATHERD || m_intrinsic == NI_AVX2_GATHERQ);
+
+        return true;
+    }
+#endif
+
+    return false;
+}
+
+bool GenTreeHWIntrinsic::IsMemoryStore() const
+{
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    if (HWIntrinsicInfo::lookupCategory(m_intrinsic) == HW_Category_MemoryStore)
+    {
+        return true;
+    }
+#endif
+
+#ifdef TARGET_XARCH
+    if (HWIntrinsicInfo::MaybeMemoryStore(m_intrinsic))
+    {
+        assert((m_intrinsic == NI_BMI2_MultiplyNoFlags) || (m_intrinsic == NI_BMI2_X64_MultiplyNoFlags));
+
+        // Bmi2/Bmi2.X64.MultiplyNoFlags may return the lower half result by a out argument:
+        //     ulong MultiplyNoFlags(ulong left, ulong right, ulong* low)
+        // So, the 3-argument form is MemoryStore
+        return IsTernary();
+    }
+#endif
+
+    return false;
+}
+
+bool GenTreeHWIntrinsic::IsMemoryLoadOrStore() const
+{
+    return IsMemoryLoad() || IsMemoryStore();
 }
 
 #endif // FEATURE_HW_INTRINSICS

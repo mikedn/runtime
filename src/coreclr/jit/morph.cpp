@@ -13890,10 +13890,10 @@ GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 
     GenTreeFlags sideEffects = GTF_NONE;
 
-    if (tree->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+    if (tree->AsHWIntrinsic()->IsMemoryLoadOrStore())
     {
         sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
-        if (tree->AsHWIntrinsic()->OperIsMemoryStore())
+        if (tree->AsHWIntrinsic()->IsMemoryStore())
         {
             sideEffects |= GTF_ASG;
         }

@@ -260,11 +260,11 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
             // We can't call vnClearMemory unless the block has recorded a MemoryDef
             //
-            if (hwIntrinsicNode->OperIsMemoryStore())
+            if (hwIntrinsicNode->IsMemoryStore())
             {
                 state.fgCurMemoryDef = true;
             }
-            if (hwIntrinsicNode->OperIsMemoryLoad())
+            if (hwIntrinsicNode->IsMemoryLoad())
             {
                 state.fgCurMemoryUse = true;
             }

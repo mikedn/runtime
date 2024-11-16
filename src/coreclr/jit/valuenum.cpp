@@ -6403,7 +6403,7 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            if (node->AsHWIntrinsic()->OperIsMemoryStore())
+            if (node->AsHWIntrinsic()->IsMemoryStore())
             {
                 // TODO-MIKE-CQ: Ideally we'd figure out the store address (in most cases it's the first operand)
                 // and restrict the store, at least in the trivial case of arrays where we just update the entire
@@ -6784,7 +6784,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO: model the exceptions for intrinsics
 
-    if (node->OperIsMemoryStore())
+    if (node->IsMemoryStore())
     {
         // TODO-MIKE-Review: It would seem that NullRef exceptions aren't added to intrinsic stores.
         ClearMemory(node DEBUGARG("HWIntrinsic store"));
@@ -6803,7 +6803,7 @@ void ValueNumbering::NumberHWIntrinsic(GenTreeHWIntrinsic* node)
 
     VNFunc func = VNFuncHWIntrinsic(node);
 
-    if (node->OperIsMemoryLoad())
+    if (node->IsMemoryLoad())
     {
         if (node->GetNumOps() > 1)
         {
@@ -7910,7 +7910,7 @@ void ValueNumbering::AddNullRefExset(GenTree* node, GenTree* addr)
 {
 #ifdef FEATURE_HW_INTRINSICS
     assert(node->IsIndir() || node->OperIs(GT_ARR_LENGTH, GT_COPY_BLK, GT_INIT_BLK) || node->OperIsAtomicOp() ||
-           (node->IsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryLoadOrStore()));
+           (node->IsHWIntrinsic() && node->AsHWIntrinsic()->IsMemoryLoadOrStore()));
 #else
     assert(node->IsIndir() || node->OperIs(GT_ARR_LENGTH, GT_COPY_BLK, GT_INIT_BLK) || node->OperIsAtomicOp());
 #endif

@@ -5498,7 +5498,7 @@ public:
     {
         assert(size < UINT8_MAX);
 
-        if (OperIsMemoryStore())
+        if (IsMemoryStore())
         {
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
@@ -5520,7 +5520,7 @@ public:
     {
         assert(size < UINT8_MAX);
 
-        if (OperIsMemoryStore())
+        if (IsMemoryStore())
         {
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
@@ -5548,7 +5548,7 @@ public:
     {
         assert(size < UINT8_MAX);
 
-        if (OperIsMemoryStore())
+        if (IsMemoryStore())
         {
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
@@ -5752,12 +5752,9 @@ public:
         return true;
     }
 
-    bool OperIsMemoryLoad() const;  // Returns true for the HW Intrinsic instructions that have MemoryLoad semantics,
-                                    // false otherwise
-    bool OperIsMemoryStore() const; // Returns true for the HW Intrinsic instructions that have MemoryStore semantics,
-                                    // false otherwise
-    bool OperIsMemoryLoadOrStore() const; // Returns true for the HW Intrinsic instructions that have MemoryLoad or
-                                          // MemoryStore semantics, false otherwise
+    bool IsMemoryLoad() const;
+    bool IsMemoryStore() const;
+    bool IsMemoryLoadOrStore() const;
 
     // Delete some functions inherited from GenTree to avoid accidental use, at least
     // when the node object is accessed via GenTreeHWIntrinsic* rather than GenTree*.

@@ -134,7 +134,7 @@ AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
         isMemoryAccess = true;
     }
 #ifdef FEATURE_HW_INTRINSICS
-    else if (node->IsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryLoadOrStore())
+    else if (node->IsHWIntrinsic() && node->AsHWIntrinsic()->IsMemoryLoadOrStore())
     {
         isMemoryAccess = true;
     }

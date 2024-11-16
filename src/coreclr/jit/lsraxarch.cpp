@@ -1556,7 +1556,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 #ifdef FEATURE_HW_INTRINSICS
             else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
             {
-                if (hwi->OperIsMemoryLoad())
+                if (hwi->IsMemoryLoad())
                 {
                     BuildAddrUses(hwi->GetOp(0));
                 }
@@ -1805,7 +1805,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             assert((numOps > 0) && (numOps < 4));
 
-            if (node->OperIsMemoryLoadOrStore())
+            if (node->IsMemoryLoadOrStore())
             {
                 BuildAddrUses(op1);
             }
@@ -1820,7 +1820,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
             if (op2 != nullptr)
             {
-                if (op2->IsHWIntrinsic() && op2->AsHWIntrinsic()->OperIsMemoryLoad() && op2->isContained())
+                if (op2->IsHWIntrinsic() && op2->AsHWIntrinsic()->IsMemoryLoad() && op2->isContained())
                 {
                     BuildAddrUses(op2->AsHWIntrinsic()->GetOp(0));
                 }

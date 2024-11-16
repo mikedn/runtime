@@ -658,7 +658,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             vecRegToVecRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
         }
 
-        if (node->OperIsMemoryLoadOrStore())
+        if (node->IsMemoryLoadOrStore())
         {
             BuildAddrUses(intrin.op1);
         }

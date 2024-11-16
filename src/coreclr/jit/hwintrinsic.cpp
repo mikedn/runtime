@@ -842,9 +842,9 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             return nullptr;
     }
 
-    const bool isMemoryStore = retNode->OperIsMemoryStore();
+    const bool isMemoryStore = retNode->IsMemoryStore();
 
-    if (isMemoryStore || retNode->OperIsMemoryLoad())
+    if (isMemoryStore || retNode->IsMemoryLoad())
     {
         if (isMemoryStore)
         {
