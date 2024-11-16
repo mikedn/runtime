@@ -4943,8 +4943,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
         // Operator flags
 
-        genTreeOps op = tree->OperGet();
-        switch (op)
+        switch (tree->GetOper())
         {
             case GT_LCL_LOAD:
             case GT_LCL_STORE:

@@ -2728,7 +2728,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         if (block->IsLIR())
         {
             GenTree* jumpTable = switchTree->AsOp()->gtOp2;
-            assert(jumpTable->OperGet() == GT_JMPTABLE);
+            assert(jumpTable->OperIs(GT_JMPTABLE));
             blockRange->Remove(jumpTable);
         }
 
@@ -3135,9 +3135,9 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
             LIR::Range& blockRange = LIR::AsRange(block);
             GenTree*    jmp        = blockRange.LastNode();
             assert(jmp->OperIsConditionalJump());
-            if (jmp->OperGet() == GT_JTRUE)
+            if (jmp->OperIs(GT_JTRUE))
             {
-                jmp->AsOp()->gtOp1->gtFlags &= ~GTF_SET_FLAGS;
+                jmp->AsUnOp()->GetOp(0)->gtFlags &= ~GTF_SET_FLAGS;
             }
 
             bool               isClosed;
@@ -5463,11 +5463,11 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
                         GenTree* test = block->lastNode();
                         noway_assert(test->OperIsConditionalJump());
 
-                        if (test->OperGet() == GT_JTRUE)
+                        if (test->OperIs(GT_JTRUE))
                         {
-                            GenTree* cond = gtReverseCond(test->AsOp()->gtOp1);
-                            assert(cond == test->AsOp()->gtOp1); // Ensure `gtReverseCond` did not create a new node.
-                            test->AsOp()->gtOp1 = cond;
+                            GenTree* cond = gtReverseCond(test->AsUnOp()->GetOp(0));
+                            assert(cond == test->AsUnOp()->GetOp(0)); // Ensure `gtReverseCond` did not create a new node.
+                            test->AsUnOp()->SetOp(0, cond);
                         }
                         else
                         {

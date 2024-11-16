@@ -287,7 +287,7 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 
 void Lowering::LowerRotate(GenTree* tree)
 {
-    if (tree->OperGet() == GT_ROL)
+    if (tree->OperIs(GT_ROL))
     {
         // There is no ROL instruction on ARM. Convert ROL into ROR.
         GenTree* rotatedValue        = tree->AsOp()->GetOp(0);

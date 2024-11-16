@@ -2167,7 +2167,7 @@ void CodeGen::AssignUseOrder(GenTree* const operand, int& useNum) const
     assert(operand != nullptr);
 
     // Ignore argument placeholders.
-    if (operand->OperGet() == GT_ARGPLACE)
+    if (operand->OperIs(GT_ARGPLACE))
     {
         return;
     }
@@ -2211,7 +2211,7 @@ void CodeGen::VerifyUseOrder(GenTree* const node)
         }
     }
 
-    assert((node->OperGet() == GT_CATCH_ARG) || ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0));
+    assert(node->OperIs(GT_CATCH_ARG) || ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) == 0));
     assert((lastConsumedNode == nullptr) || (node->gtUseNum == -1) || (node->gtUseNum > lastConsumedNode->gtUseNum));
 
     node->gtDebugFlags |= GTF_DEBUG_NODE_CG_CONSUMED;

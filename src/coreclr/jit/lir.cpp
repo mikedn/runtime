@@ -1224,7 +1224,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
             // Mark the node's operands
             firstNode->VisitOperands([&markCount](GenTree* operand) -> GenTree::VisitResult {
                 // Do not mark nodes that do not appear in the execution order
-                if (operand->OperGet() == GT_ARGPLACE)
+                if (operand->OperIs(GT_ARGPLACE))
                 {
                     return GenTree::VisitResult::Continue;
                 }
@@ -1617,16 +1617,12 @@ void LIR::InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range)
             case BBJ_COND:
                 assert(insertionPoint->OperIsConditionalJump());
                 break;
-
             case BBJ_SWITCH:
-                assert((insertionPoint->OperGet() == GT_SWITCH) || (insertionPoint->OperGet() == GT_SWITCH_TABLE));
+                assert(insertionPoint->OperIs(GT_SWITCH, GT_SWITCH_TABLE));
                 break;
-
             case BBJ_RETURN:
-                assert((insertionPoint->OperGet() == GT_RETURN) || (insertionPoint->OperGet() == GT_JMP) ||
-                       (insertionPoint->OperGet() == GT_CALL));
+                assert(insertionPoint->OperIs(GT_RETURN, GT_JMP, GT_CALL));
                 break;
-
             default:
                 unreached();
         }

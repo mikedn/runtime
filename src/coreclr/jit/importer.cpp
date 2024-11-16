@@ -15122,7 +15122,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // Bail if we know nothing.
     if (objClass == NO_CLASS_HANDLE)
     {
-        JITDUMP("\nimpDevirtualizeCall: no type available (op=%s)\n", GenTree::OpName(thisObj->OperGet()));
+        JITDUMP("\nimpDevirtualizeCall: no type available (op=%s)\n", GenTree::OpName(thisObj->GetOper()));
 
         // Don't try guarded devirtualiztion when we're doing late devirtualization.
         //

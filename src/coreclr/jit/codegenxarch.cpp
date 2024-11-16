@@ -411,7 +411,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 {
     // The last statement of the block must be a GT_RETFILT, which has already been generated.
     assert(block->lastNode() != nullptr);
-    assert(block->lastNode()->OperGet() == GT_RETFILT);
+    assert(block->lastNode()->OperIs(GT_RETFILT));
 
     if (block->bbJumpKind == BBJ_EHFINALLYRET)
     {

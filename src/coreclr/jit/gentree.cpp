@@ -990,11 +990,6 @@ inline unsigned genTreeHashAdd(unsigned old, void* add)
     return genTreeHashAdd(old, (unsigned)(size_t)add);
 }
 
-/*****************************************************************************
- *
- *  Given an arbitrary expression tree, compute a hash value for it.
- */
-
 unsigned Compiler::gtHashValue(GenTree* tree)
 {
     genTreeOps oper;
@@ -1005,18 +1000,12 @@ unsigned Compiler::gtHashValue(GenTree* tree)
 AGAIN:
     assert(tree);
 
-    /* Figure out what kind of a node we have */
-
-    oper = tree->OperGet();
+    oper = tree->GetOper();
     kind = tree->OperKind();
-
-    /* Include the operator value in the hash */
 
     hash = genTreeHashAdd(hash, oper);
 
-    /* Is this a constant or leaf node? */
-
-    if (kind & GTK_LEAF)
+    if ((kind & GTK_LEAF) != 0)
     {
         size_t add;
 
@@ -1307,15 +1296,9 @@ DONE:
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Return a relational operator that is the reverse of the given one.
- */
-
-/* static */
 genTreeOps GenTree::ReverseRelop(genTreeOps relop)
 {
-    static const genTreeOps reverseOps[] = {
+    static const genTreeOps reverseOps[]{
         GT_NE,      // GT_EQ
         GT_EQ,      // GT_NE
         GT_GE,      // GT_LT
@@ -4555,15 +4538,11 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
         return nullptr;
     }
 
-    /* Figure out what kind of a node we have */
-
-    genTreeOps oper = tree->OperGet();
+    genTreeOps oper = tree->GetOper();
     unsigned   kind = tree->OperKind();
     GenTree*   copy;
 
-    /* Is this a constant or leaf node? */
-
-    if (kind & GTK_LEAF)
+    if ((kind & GTK_LEAF) != 0)
     {
         switch (oper)
         {
@@ -5337,7 +5316,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
 
     // NOTE: the switch statement below must be updated when introducing new nodes.
 
-    switch (m_node->OperGet())
+    switch (m_node->GetOper())
     {
         // Leaf nodes
         case GT_LCL_USE:
@@ -8152,23 +8131,24 @@ GenTree* Compiler::gtCreateHandleCompare(genTreeOps             oper,
 
 GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 {
+    const genTreeOps oper = tree->GetOper();
+
     // Only handle EQ and NE
     // (maybe relop vs null someday)
-    const genTreeOps oper = tree->OperGet();
     if ((oper != GT_EQ) && (oper != GT_NE))
     {
         return tree;
     }
 
     // Screen for the right kinds of operands
-    GenTree* const         op1     = tree->AsOp()->gtOp1;
+    GenTree* const         op1     = tree->AsOp()->GetOp(0);
     const TypeProducerKind op1Kind = gtGetTypeProducerKind(op1);
     if (op1Kind == TPK_Unknown)
     {
         return tree;
     }
 
-    GenTree* const         op2     = tree->AsOp()->gtOp2;
+    GenTree* const         op2     = tree->AsOp()->GetOp(1);
     const TypeProducerKind op2Kind = gtGetTypeProducerKind(op2);
     if (op2Kind == TPK_Unknown)
     {
@@ -8249,7 +8229,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     {
         GenTree* arg1;
 
-        if (op1->OperGet() == GT_INTRINSIC)
+        if (op1->OperIs(GT_INTRINSIC))
         {
             arg1 = op1->AsUnOp()->gtOp1;
         }
@@ -8262,7 +8242,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
         GenTree* arg2;
 
-        if (op2->OperGet() == GT_INTRINSIC)
+        if (op2->OperIs(GT_INTRINSIC))
         {
             arg2 = op2->AsUnOp()->gtOp1;
         }
@@ -8326,7 +8306,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     GenTree* objOp = nullptr;
 
     // Note we may see intrinsified or regular calls to GetType
-    if (opOther->OperGet() == GT_INTRINSIC)
+    if (opOther->OperIs(GT_INTRINSIC))
     {
         objOp = opOther->AsUnOp()->gtOp1;
     }
@@ -8722,15 +8702,15 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     assert(tree->OperKind() & GTK_BINOP);
     assert(tree->OperIs(GT_GT, GT_EQ, GT_NE));
 
-    genTreeOps const oper = tree->OperGet();
+    genTreeOps const oper = tree->GetOper();
 
     if ((oper == GT_GT) && !tree->IsRelopUnsigned())
     {
         return tree;
     }
 
-    GenTree* const op1 = tree->AsOp()->gtOp1;
-    GenTree* const op2 = tree->AsOp()->gtOp2;
+    GenTree* const op1 = tree->AsOp()->GetOp(0);
+    GenTree* const op2 = tree->AsOp()->GetOp(1);
     GenTree*       op;
     GenTree*       cons;
 
@@ -10711,33 +10691,6 @@ Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
 }
 
 //------------------------------------------------------------------------
-// gtHasCallOnStack:
-//
-// Arguments:
-//    parentStack: a context (stack of parent nodes)
-//
-// Return Value:
-//     returns true if any of the parent nodes are a GT_CALL
-//
-// Assumptions:
-//    We have a stack of parent nodes. This generally requires that
-//    we are performing a recursive tree walk using struct fgWalkData
-//
-//------------------------------------------------------------------------
-/* static */ bool Compiler::gtHasCallOnStack(GenTreeStack* parentStack)
-{
-    for (unsigned i = 0; i < parentStack->Size(); i++)
-    {
-        GenTree* node = parentStack->Top(i);
-        if (node->OperGet() == GT_CALL)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-//------------------------------------------------------------------------
 // gtGetTypeProducerKind: determine if a tree produces a runtime type, and
 //    if so, how.
 //
@@ -11154,24 +11107,24 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                 objClass  = objLcl->lvClassHnd;
                 *pIsExact = objLcl->lvClassIsExact;
             }
-            else if (addr->OperGet() == GT_ARR_ELEM)
+            else if (addr->OperIs(GT_ARR_ELEM))
             {
                 // indir(arr_elem(...)) -> array element type
 
-                GenTree* array = addr->AsArrElem()->gtArrObj;
+                GenTree* array = addr->AsArrElem()->GetArray();
 
                 objClass    = gtGetArrayElementClassHandle(array);
                 *pIsExact   = false;
                 *pIsNonNull = false;
             }
-            else if (addr->OperGet() == GT_ADD)
+            else if (addr->OperIs(GT_ADD))
             {
                 // This could be a static field access.
                 //
                 // See if op1 is a static field base helper call
                 // and if so, op2 will have the field info.
-                GenTree* op1 = addr->AsOp()->gtOp1;
-                GenTree* op2 = addr->AsOp()->gtOp2;
+                GenTree* op1 = addr->AsOp()->GetOp(0);
+                GenTree* op2 = addr->AsOp()->GetOp(1);
 
                 const bool op1IsStaticFieldBase = gtIsStaticGCBaseHelperCall(op1);
 

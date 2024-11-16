@@ -1937,7 +1937,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 // Lower "jmp <method>" tail call to insert PInvoke method epilog if required.
 void Lowering::LowerJmpMethod(GenTree* jmp)
 {
-    assert(jmp->OperGet() == GT_JMP);
+    assert(jmp->OperIs(GT_JMP));
 
     JITDUMP("lowering GT_JMP\n");
     DISPNODE(jmp);
@@ -2326,7 +2326,8 @@ void Lowering::LowerStructCall(GenTreeCall* call)
     if (BlockRange().TryGetUse(call, &callUse))
     {
         GenTree* user = callUse.User();
-        switch (user->OperGet())
+
+        switch (user->GetOper())
         {
             case GT_RETURN:
                 call->SetType(varActualType(regType));
@@ -3903,7 +3904,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         return nullptr;
     }
 
-    bool isDiv = divMod->OperGet() == GT_DIV;
+    bool isDiv = divMod->OperIs(GT_DIV);
 
     if (isDiv)
     {
@@ -4775,7 +4776,7 @@ void Lowering::CheckCall(GenTreeCall* call)
 
 void Lowering::CheckNode(GenTree* node)
 {
-    switch (node->OperGet())
+    switch (node->GetOper())
     {
         case GT_CALL:
             CheckCall(node->AsCall());

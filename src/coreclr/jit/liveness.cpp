@@ -955,7 +955,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
     {
         next = node->gtPrev;
 
-        switch (node->OperGet())
+        switch (node->GetOper())
         {
             case GT_LCL_LOAD:
             case GT_LCL_LOAD_FLD:

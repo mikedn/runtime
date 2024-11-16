@@ -731,11 +731,6 @@ public:
 #undef GTSTRUCT_2_SPECIAL
 #undef GTSTRUCT_3_SPECIAL
 
-    genTreeOps OperGet() const
-    {
-        return gtOper;
-    }
-
     genTreeOps GetOper() const
     {
         return gtOper;
@@ -1211,7 +1206,7 @@ public:
 
     bool OperIs(genTreeOps oper) const
     {
-        return OperGet() == oper;
+        return gtOper == oper;
     }
 
     template <typename... T>
@@ -3211,7 +3206,7 @@ public:
 
     static bool Equals(GenTreeLclFld* f1, GenTreeLclFld* f2)
     {
-        assert((f1->OperGet() == f2->OperGet()) && (f1->GetType() == f2->GetType()));
+        assert((f1->GetOper() == f2->GetOper()) && (f1->GetType() == f2->GetType()));
         return (f1->GetLcl() == f2->GetLcl()) && (f1->m_lclOffs == f2->m_lclOffs) &&
                ((f1->m_layoutNum == f2->m_layoutNum) || !varTypeIsStruct(f1->GetType()));
     }

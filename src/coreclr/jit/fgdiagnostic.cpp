@@ -907,7 +907,7 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
             {
                 if (block->lastNode() != nullptr)
                 {
-                    rootTreeOpName = GenTree::OpName(block->lastNode()->OperGet());
+                    rootTreeOpName = GenTree::OpName(block->lastNode()->GetOper());
                 }
             }
 

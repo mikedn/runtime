@@ -814,7 +814,7 @@ Compiler::fgWalkResult ObjectAllocator::AssertWhenAllocObjFoundVisitor(GenTree**
     GenTree* tree = *pTree;
 
     assert(tree != nullptr);
-    assert(tree->OperGet() != GT_ALLOCOBJ);
+    assert(!tree->OperIs(GT_ALLOCOBJ));
 
     return Compiler::fgWalkResult::WALK_CONTINUE;
 }

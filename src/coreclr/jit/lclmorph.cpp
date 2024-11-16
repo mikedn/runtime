@@ -643,7 +643,7 @@ private:
         if (!lcl->IsParam() && !lcl->IsPromotedField() && varActualTypeIsInt(lcl->GetType()))
         {
             // TODO-Cleanup: This should simply check if the user is a call node, not if a call ancestor exists.
-            if (Compiler::gtHasCallOnStack(&m_ancestors))
+            if (HasCallOnStack())
             {
                 lcl->lvQuirkToLong = true;
                 JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", addrVal.Lcl()->GetLclNum(),
@@ -651,6 +651,19 @@ private:
             }
         }
 #endif // TARGET_64BIT
+    }
+
+    bool HasCallOnStack() const
+    {
+        for (unsigned i = 0; i < m_ancestors.Size(); i++)
+        {
+            if (m_ancestors.Top(i)->OperIs(GT_CALL))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)

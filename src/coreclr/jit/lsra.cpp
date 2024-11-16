@@ -1982,12 +1982,12 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
     GenTree* otherTreeNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
     noway_assert(otherTreeNode != nullptr);
 
-    if (refPosition->treeNode->OperGet() != otherTreeNode->OperGet())
+    if (refPosition->treeNode->GetOper() != otherTreeNode->GetOper())
     {
         return false;
     }
 
-    switch (otherTreeNode->OperGet())
+    switch (otherTreeNode->GetOper())
     {
         case GT_CNS_INT:
         {
@@ -5445,7 +5445,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
     // child needs to be copied or reloaded to that reg.
     if (parent->IsCopyOrReload())
     {
-        noway_assert(parent->OperGet() == oper);
+        noway_assert(parent->GetOper() == oper);
         noway_assert(tree->IsMultiRegNode());
         GenTreeCopyOrReload* copyOrReload = parent->AsCopyOrReload();
         noway_assert(copyOrReload->GetRegNum(multiRegIdx) == REG_NA);
@@ -5642,14 +5642,12 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     else
     {
         JITDUMP("at end of " FMT_BB ":\n", block->bbNum);
-        if (block->bbJumpKind == BBJ_COND || block->bbJumpKind == BBJ_SWITCH)
+        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
         {
             noway_assert(!blockRange.IsEmpty());
 
             GenTree* branch = blockRange.LastNode();
-            assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
-                   branch->OperGet() == GT_SWITCH);
-
+            assert(branch->OperIsConditionalJump() || branch->OperIs(GT_SWITCH_TABLE, GT_SWITCH));
             blockRange.InsertBefore(branch, restoreLcl, simdNode);
         }
         else
@@ -6434,14 +6432,12 @@ void LinearScan::insertMove(
     {
         // Put the copy at the bottom
         GenTree* lastNode = blockRange.LastNode();
-        if (block->bbJumpKind == BBJ_COND || block->bbJumpKind == BBJ_SWITCH)
+        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
         {
             noway_assert(!blockRange.IsEmpty());
 
             GenTree* branch = lastNode;
-            assert(branch->OperIsConditionalJump() || branch->OperGet() == GT_SWITCH_TABLE ||
-                   branch->OperGet() == GT_SWITCH);
-
+            assert(branch->OperIsConditionalJump() || branch->OperIs(GT_SWITCH_TABLE, GT_SWITCH));
             blockRange.InsertBefore(branch, src);
         }
         else
@@ -8141,7 +8137,7 @@ void RefPosition::dump(LinearScan* linearScan)
     }
     if (this->treeNode)
     {
-        printf("%s", treeNode->OpName(treeNode->OperGet()));
+        printf("%s", treeNode->OpName(treeNode->GetOper()));
         if (this->treeNode->IsMultiRegNode())
         {
             printf("[%d]", this->multiRegIdx);
@@ -9360,7 +9356,7 @@ bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
             return true;
         }
 
-        if (!IsLsraAdded(node) || (node->OperGet() != GT_LCL_LOAD))
+        if (!IsLsraAdded(node) || !node->OperIs(GT_LCL_LOAD))
         {
             return false;
         }
@@ -9950,9 +9946,9 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
     regNumber      dstRegNum = dst->GetRegNum();
     regNumber      srcRegNum;
     GenTreeLclVar* lcl;
-    if (dst->OperGet() == GT_COPY)
+    if (dst->OperIs(GT_COPY))
     {
-        lcl       = dst->gtGetOp1()->AsLclVar();
+        lcl       = dst->AsUnOp()->GetOp(0)->AsLclVar();
         srcRegNum = lcl->GetRegNum();
     }
     else

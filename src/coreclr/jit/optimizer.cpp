@@ -2081,15 +2081,14 @@ private:
 
             if ((block->bbJumpKind == BBJ_COND) && (block->bbJumpDest == newNext))
             {
-                /* Reverse the jump condition */
                 GenTree* test = block->lastNode();
                 noway_assert(test->OperIsConditionalJump());
 
-                if (test->OperGet() == GT_JTRUE)
+                if (test->OperIs(GT_JTRUE))
                 {
-                    GenTree* cond = comp->gtReverseCond(test->AsOp()->gtOp1);
-                    assert(cond == test->AsOp()->gtOp1); // Ensure `gtReverseCond` did not create a new node.
-                    test->AsOp()->gtOp1 = cond;
+                    GenTree* cond = comp->gtReverseCond(test->AsUnOp()->GetOp(0));
+                    assert(cond == test->AsUnOp()->GetOp(0)); // Ensure `gtReverseCond` did not create a new node.
+                    test->AsUnOp()->SetOp(0, cond);
                 }
                 else
                 {
@@ -3587,7 +3586,7 @@ static Compiler::fgWalkResult optInvertCountTreeInfo(GenTree** pTree, Compiler::
         o->sharedStaticHelperCount += 1;
     }
 
-    if ((*pTree)->OperGet() == GT_ARR_LENGTH)
+    if ((*pTree)->OperIs(GT_ARR_LENGTH))
     {
         o->arrayLengthCount += 1;
     }

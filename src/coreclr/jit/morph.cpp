@@ -11900,20 +11900,21 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
         return tree;
     }
 
-    genTreeOps oper = tree->OperGet();
+    genTreeOps oper = tree->GetOper();
     assert(fgOperIsBitwiseRotationRoot(oper));
 
     // Check if we have an LSH on one side of the OR and an RSZ on the other side.
-    GenTree* op1            = tree->gtGetOp1();
-    GenTree* op2            = tree->gtGetOp2();
+    GenTree* op1            = tree->AsOp()->GetOp(0);
+    GenTree* op2            = tree->AsOp()->GetOp(1);
     GenTree* leftShiftTree  = nullptr;
     GenTree* rightShiftTree = nullptr;
-    if ((op1->OperGet() == GT_LSH) && (op2->OperGet() == GT_RSZ))
+
+    if (op1->OperIs(GT_LSH) && op2->OperIs(GT_RSZ))
     {
         leftShiftTree  = op1;
         rightShiftTree = op2;
     }
-    else if ((op1->OperGet() == GT_RSZ) && (op2->OperGet() == GT_LSH))
+    else if (op1->OperIs(GT_RSZ) && op2->OperIs(GT_LSH))
     {
         leftShiftTree  = op2;
         rightShiftTree = op1;
@@ -13323,7 +13324,8 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         true2Expr  = nestedQmark;
         false2Expr = gtNewIconNode(0, TYP_I_IMPL);
     }
-    assert(false2Expr->OperGet() == trueExpr->OperGet());
+
+    assert(false2Expr->GetOper() == trueExpr->GetOper());
 
     // Create the chain of blocks. See method header comment.
     // The order of blocks after this is the following:

@@ -3220,12 +3220,6 @@ public:
     FindLinkData gtFindLink(Statement* stmt, GenTree* node);
     bool impHasCatchArg(GenTree* tree);
 
-    typedef ArrayStack<GenTree*> GenTreeStack;
-
-    static bool gtHasCallOnStack(GenTreeStack* parentStack);
-
-//=========================================================================
-// BasicBlock functions
 #ifdef DEBUG
     // This is a debug flag we will use to assert when creating block during codegen
     // as this interferes with procedure splitting. If you know what you're doing, set
@@ -6480,7 +6474,7 @@ public:
 template <typename TVisitor>
 void GenTree::VisitOperands(TVisitor visitor)
 {
-    switch (OperGet())
+    switch (gtOper)
     {
         // Leaf nodes
         case GT_LCL_USE:
@@ -6864,7 +6858,7 @@ public:
             }
         }
 
-        switch (node->OperGet())
+        switch (node->GetOper())
         {
             case GT_LCL_LOAD:
             case GT_LCL_LOAD_FLD:
