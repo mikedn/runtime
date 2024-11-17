@@ -656,6 +656,37 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             break;
 
         case 2:
+#ifdef TARGET_ARM64
+            switch (intrinsic)
+            {
+                case NI_AdvSimd_AddWideningLower:
+                    if (baseType == sigReader.paramLayout[0]->GetElementType())
+                    {
+                        intrinsic = NI_AdvSimd_ADDL;
+                    }
+                    break;
+                case NI_AdvSimd_SubtractWideningLower:
+                    if (baseType == sigReader.paramLayout[0]->GetElementType())
+                    {
+                        intrinsic = NI_AdvSimd_SUBL;
+                    }
+                    break;
+                case NI_AdvSimd_AddWideningUpper:
+                    if (baseType == sigReader.paramLayout[0]->GetElementType())
+                    {
+                        intrinsic = NI_AdvSimd_ADDL2;
+                    }
+                    break;
+                case NI_AdvSimd_SubtractWideningUpper:
+                    if (baseType == sigReader.paramLayout[0]->GetElementType())
+                    {
+                        intrinsic = NI_AdvSimd_SUBL2;
+                    }
+                    break;
+                default:
+                    break;
+            }
+#endif
             op2 = impPopArgForHWIntrinsic(sigReader.paramType[1], sigReader.paramLayout[1]);
             op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
@@ -678,12 +709,6 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_Crc32_Arm64_ComputeCrc32:
                 case NI_Crc32_Arm64_ComputeCrc32C:
                     retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
-                    break;
-
-                case NI_AdvSimd_AddWideningUpper:
-                case NI_AdvSimd_SubtractWideningUpper:
-                    assert(varTypeIsSIMD(op1->GetType()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[0]->GetElementType());
                     break;
 
                 case NI_AdvSimd_Arm64_AddSaturateScalar:

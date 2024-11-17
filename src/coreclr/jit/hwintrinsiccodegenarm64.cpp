@@ -296,68 +296,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        instruction ins = INS_invalid;
-
-        switch (intrin.id)
-        {
-            case NI_AdvSimd_AddWideningLower:
-                assert(varTypeIsIntegral(intrin.baseType));
-
-                if (intrin.op1->TypeIs(TYP_SIMD8))
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_uaddl : INS_saddl;
-                }
-                else
-                {
-                    assert(intrin.op1->TypeIs(TYP_SIMD16));
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_uaddw : INS_saddw;
-                }
-                break;
-
-            case NI_AdvSimd_SubtractWideningLower:
-                assert(varTypeIsIntegral(intrin.baseType));
-
-                if (intrin.op1->TypeIs(TYP_SIMD8))
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_usubl : INS_ssubl;
-                }
-                else
-                {
-                    assert(intrin.op1->TypeIs(TYP_SIMD16));
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_usubw : INS_ssubw;
-                }
-                break;
-
-            case NI_AdvSimd_AddWideningUpper:
-                assert(varTypeIsIntegral(intrin.baseType));
-
-                if (node->GetAuxiliaryType() == intrin.baseType)
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_uaddl2 : INS_saddl2;
-                }
-                else
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_uaddw2 : INS_saddw2;
-                }
-                break;
-
-            case NI_AdvSimd_SubtractWideningUpper:
-                assert(varTypeIsIntegral(intrin.baseType));
-
-                if (node->GetAuxiliaryType() == intrin.baseType)
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_usubl2 : INS_ssubl2;
-                }
-                else
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_usubw2 : INS_ssubw2;
-                }
-                break;
-
-            default:
-                ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
-                break;
-        }
+        instruction ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
 
         assert(ins != INS_invalid);
 
@@ -608,12 +547,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
             case NI_AdvSimd_Store:
                 emit.emitIns_R_R(ins, emitSize, regs[1], regs[0], opt);
-                break;
-            case NI_AdvSimd_AddWideningLower:
-            case NI_AdvSimd_AddWideningUpper:
-            case NI_AdvSimd_SubtractWideningLower:
-            case NI_AdvSimd_SubtractWideningUpper:
-                emit.emitIns_R_R_R(ins, emitSize, defReg, regs[0], regs[1], opt);
                 break;
             case NI_Vector64_get_Zero:
             case NI_Vector128_get_Zero:
