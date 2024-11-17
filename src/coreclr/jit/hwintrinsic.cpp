@@ -6,7 +6,18 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-static const HWIntrinsicInfo hwIntrinsicInfoArray[]
+struct HWIntrinsicInfoEntry
+{
+    const char*            name;
+    CORINFO_InstructionSet isa;
+    int                    simdSize;
+    int                    numArgs;
+    HWIntrinsicCategory    category;
+    HWIntrinsicFlag        flags;
+    instruction            ins[10];
+};
+
+static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
 {
 // clang-format off
 #if defined(TARGET_XARCH)
@@ -25,6 +36,43 @@ static const HWIntrinsicInfo hwIntrinsicInfoArray[]
     // clang-format on
 };
 
+static const HWIntrinsicInfoEntry& GetHWIntrinsicInfo(NamedIntrinsic id)
+{
+    assert(NI_HW_INTRINSIC_FIRST <= id && id <= NI_HW_INTRINSIC_LAST);
+
+    return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_FIRST];
+}
+
+CORINFO_InstructionSet HWIntrinsicInfo::GetIsa(NamedIntrinsic id)
+{
+    return GetHWIntrinsicInfo(id).isa;
+}
+
+HWIntrinsicCategory HWIntrinsicInfo::GetCategory(NamedIntrinsic id)
+{
+    return GetHWIntrinsicInfo(id).category;
+}
+
+static unsigned GetSimdSize(NamedIntrinsic id)
+{
+    return static_cast<unsigned>(GetHWIntrinsicInfo(id).simdSize);
+}
+
+instruction HWIntrinsicInfo::GetIns(NamedIntrinsic id, var_types type)
+{
+    if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
+    {
+        assert(!"Unexpected type");
+        return INS_invalid;
+    }
+    return GetHWIntrinsicInfo(id).ins[type - TYP_BYTE];
+}
+
+bool HWIntrinsicInfo::HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag)
+{
+    return (GetHWIntrinsicInfo(id).flags & flag) != 0;
+}
+
 #ifdef DEBUG
 const char* GetHWIntrinsicIdName(NamedIntrinsic id)
 {
@@ -42,13 +90,6 @@ const char* GetHWIntrinsicIdName(NamedIntrinsic id)
     return (NI_HW_INTRINSIC_FIRST <= id && id <= NI_HW_INTRINSIC_LAST) ? names[id - NI_HW_INTRINSIC_FIRST] : "NI_???";
 }
 #endif
-
-const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
-{
-    assert(NI_HW_INTRINSIC_FIRST <= id && id <= NI_HW_INTRINSIC_LAST);
-
-    return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_FIRST];
-}
 
 NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
                                          CORINFO_SIG_INFO* sig,
@@ -79,7 +120,7 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
 
     for (unsigned i = 0; i < NI_HW_INTRINSIC_LAST - NI_HW_INTRINSIC_FIRST + 1; i++)
     {
-        const HWIntrinsicInfo& info = hwIntrinsicInfoArray[i];
+        const HWIntrinsicInfoEntry& info = hwIntrinsicInfoArray[i];
 
         if (isa != info.isa)
         {
@@ -362,7 +403,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     sig.Read(comp, sigInfo);
 
     var_types    baseType  = TYP_UNDEF;
-    unsigned     simdSize  = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
+    unsigned     simdSize  = GetSimdSize(intrinsic);
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 

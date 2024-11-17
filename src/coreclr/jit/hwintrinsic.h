@@ -281,16 +281,6 @@ enum class FloatRoundingMode : unsigned char
 
 struct HWIntrinsicInfo
 {
-    const char*            name;
-    CORINFO_InstructionSet isa;
-    int                    simdSize;
-    int                    numArgs;
-    HWIntrinsicCategory    category;
-    HWIntrinsicFlag        flags;
-    instruction            ins[10];
-
-    static const HWIntrinsicInfo& lookup(NamedIntrinsic id);
-
     static NamedIntrinsic lookupId(Compiler*         comp,
                                    CORINFO_SIG_INFO* sig,
                                    const char*       className,
@@ -317,30 +307,10 @@ struct HWIntrinsicInfo
     static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 
-    static CORINFO_InstructionSet GetIsa(NamedIntrinsic id)
-    {
-        return lookup(id).isa;
-    }
-
-    static HWIntrinsicCategory GetCategory(NamedIntrinsic id)
-    {
-        return lookup(id).category;
-    }
-
-    static instruction GetIns(NamedIntrinsic id, var_types type)
-    {
-        if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
-        {
-            assert(!"Unexpected type");
-            return INS_invalid;
-        }
-        return lookup(id).ins[type - TYP_BYTE];
-    }
-
-    static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag)
-    {
-        return (lookup(id).flags & flag) != 0;
-    }
+    static CORINFO_InstructionSet GetIsa(NamedIntrinsic id);
+    static HWIntrinsicCategory GetCategory(NamedIntrinsic id);
+    static instruction GetIns(NamedIntrinsic id, var_types type);
+    static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag);
 
     static bool IsCommutative(NamedIntrinsic id)
     {
