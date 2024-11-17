@@ -155,7 +155,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            switch (HWIntrinsicInfo::lookupCategory(node->AsHWIntrinsic()->GetIntrinsic()))
+            switch (HWIntrinsicInfo::GetCategory(node->AsHWIntrinsic()->GetIntrinsic()))
             {
 #ifdef TARGET_XARCH
                 case HW_Category_SimpleSIMD:

@@ -12104,7 +12104,7 @@ GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
 bool GenTreeHWIntrinsic::IsMemoryLoad() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    if (HWIntrinsicInfo::lookupCategory(m_intrinsic) == HW_Category_MemoryLoad)
+    if (HWIntrinsicInfo::GetCategory(m_intrinsic) == HW_Category_MemoryLoad)
     {
         return true;
     }
@@ -12134,7 +12134,7 @@ bool GenTreeHWIntrinsic::IsMemoryLoad() const
 bool GenTreeHWIntrinsic::IsMemoryStore() const
 {
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    if (HWIntrinsicInfo::lookupCategory(m_intrinsic) == HW_Category_MemoryStore)
+    if (HWIntrinsicInfo::GetCategory(m_intrinsic) == HW_Category_MemoryStore)
     {
         return true;
     }

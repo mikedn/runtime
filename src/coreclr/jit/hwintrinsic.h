@@ -317,12 +317,17 @@ struct HWIntrinsicInfo
     static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 
-    static CORINFO_InstructionSet lookupIsa(NamedIntrinsic id)
+    static CORINFO_InstructionSet GetIsa(NamedIntrinsic id)
     {
         return lookup(id).isa;
     }
 
-    static instruction lookupIns(NamedIntrinsic id, var_types type)
+    static HWIntrinsicCategory GetCategory(NamedIntrinsic id)
+    {
+        return lookup(id).category;
+    }
+
+    static instruction GetIns(NamedIntrinsic id, var_types type)
     {
         if ((type < TYP_BYTE) || (type > TYP_DOUBLE))
         {
@@ -330,11 +335,6 @@ struct HWIntrinsicInfo
             return INS_invalid;
         }
         return lookup(id).ins[type - TYP_BYTE];
-    }
-
-    static HWIntrinsicCategory lookupCategory(NamedIntrinsic id)
-    {
-        return lookup(id).category;
     }
 
     static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag)
@@ -473,7 +473,7 @@ struct HWIntrinsic final
 
     HWIntrinsic(const GenTreeHWIntrinsic* node)
         : id(node->GetIntrinsic())
-        , category(HWIntrinsicInfo::lookupCategory(id))
+        , category(HWIntrinsicInfo::GetCategory(id))
         , baseType(TYP_UNDEF)
         , numOperands(node->GetNumOps())
         , op1(numOperands >= 1 ? node->GetOp(0) : nullptr)

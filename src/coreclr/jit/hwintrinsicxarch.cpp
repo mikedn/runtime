@@ -198,7 +198,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
 //
 int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
 {
-    assert(HWIntrinsicInfo::lookupCategory(id) == HW_Category_IMM);
+    assert(HWIntrinsicInfo::GetCategory(id) == HW_Category_IMM);
 
     switch (id)
     {
@@ -608,7 +608,7 @@ GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
 
 GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
-    switch (HWIntrinsicInfo::lookupIsa(intrinsic))
+    switch (HWIntrinsicInfo::GetIsa(intrinsic))
     {
         case InstructionSet_Vector128:
         case InstructionSet_Vector256:

@@ -1518,7 +1518,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     if (numOps != 0)
     {
         NamedIntrinsic      intrinsicId = node->GetIntrinsic();
-        HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
+        HWIntrinsicCategory category    = HWIntrinsicInfo::GetCategory(intrinsicId);
 
         GenTree* op1    = node->GetOp(0);
         GenTree* op2    = numOps >= 2 ? node->GetOp(1) : nullptr;

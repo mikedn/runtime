@@ -213,33 +213,33 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
 //    pImmUpperBound [OUT] - The upper incl. bound for a value of the intrinsic immediate operand
 //
 void HWIntrinsicInfo::lookupImmBounds(
-    NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* pImmLowerBound, int* pImmUpperBound)
+    NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* pLowerBound, int* pUpperBound)
 {
-    HWIntrinsicCategory category            = HWIntrinsicInfo::lookupCategory(intrinsic);
+    HWIntrinsicCategory category            = HWIntrinsicInfo::GetCategory(intrinsic);
     bool                hasImmediateOperand = HasImmediateOperand(intrinsic);
 
     assert(hasImmediateOperand);
 
-    assert(pImmLowerBound != nullptr);
-    assert(pImmUpperBound != nullptr);
+    assert(pLowerBound != nullptr);
+    assert(pUpperBound != nullptr);
 
-    int immLowerBound = 0;
-    int immUpperBound = 0;
+    int lowerBound = 0;
+    int upperBound = 0;
 
     if (category == HW_Category_ShiftLeftByImmediate)
     {
         // The left shift amount is in the range 0 to the element width in bits minus 1.
-        immUpperBound = varTypeBitSize(baseType) - 1;
+        upperBound = varTypeBitSize(baseType) - 1;
     }
     else if (category == HW_Category_ShiftRightByImmediate)
     {
         // The right shift amount, in the range 1 to the element width in bits.
-        immLowerBound = 1;
-        immUpperBound = varTypeBitSize(baseType);
+        lowerBound = 1;
+        upperBound = varTypeBitSize(baseType);
     }
     else if (category == HW_Category_SIMDByIndexedElement)
     {
-        immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
+        upperBound = getSIMDVectorLength(simdSize, baseType) - 1;
     }
     else
     {
@@ -256,7 +256,7 @@ void HWIntrinsicInfo::lookupImmBounds(
             case NI_AdvSimd_StoreSelectedScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                immUpperBound = getSIMDVectorLength(simdSize, baseType) - 1;
+                upperBound = getSIMDVectorLength(simdSize, baseType) - 1;
                 break;
 
             default:
@@ -264,10 +264,10 @@ void HWIntrinsicInfo::lookupImmBounds(
         }
     }
 
-    assert(immLowerBound <= immUpperBound);
+    assert(lowerBound <= upperBound);
 
-    *pImmLowerBound = immLowerBound;
-    *pImmUpperBound = immUpperBound;
+    *pLowerBound = lowerBound;
+    *pUpperBound = upperBound;
 }
 
 //------------------------------------------------------------------------

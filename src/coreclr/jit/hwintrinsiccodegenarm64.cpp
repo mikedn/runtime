@@ -24,7 +24,7 @@ struct ExpandNonConstImmHelper
     {
         assert(varTypeIsIntegral(immOp->GetType()));
 
-        const HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrin->GetIntrinsic());
+        const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrin->GetIntrinsic());
         unsigned                  simdSize;
 
         if (category == HW_Category_SIMDByIndexedElement)
@@ -205,7 +205,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (!HWIntrinsicInfo::HasSpecialCodegen(intrin.id))
     {
-        const instruction ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
+        const instruction ins = HWIntrinsicInfo::GetIns(intrin.id, intrin.baseType);
         assert(ins != INS_invalid);
 
         if (intrin.category == HW_Category_SIMDByIndexedElement)
@@ -296,7 +296,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        instruction ins = HWIntrinsicInfo::lookupIns(intrin.id, intrin.baseType);
+        instruction ins = HWIntrinsicInfo::GetIns(intrin.id, intrin.baseType);
 
         assert(ins != INS_invalid);
 
@@ -586,7 +586,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (!varTypeIsFloating(eltType) || (destReg != vecReg) || (indexValue != 0))
         {
-            instruction ins = HWIntrinsicInfo::lookupIns(node->GetIntrinsic(), eltType);
+            instruction ins = HWIntrinsicInfo::GetIns(node->GetIntrinsic(), eltType);
 
             emit.emitIns_R_R_I(ins, emitTypeSize(eltType), destReg, vecReg, indexValue, INS_OPTS_NONE);
         }

@@ -107,7 +107,7 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
 bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
 {
 #ifdef TARGET_XARCH
-    if (HWIntrinsicInfo::lookupCategory(id) != HW_Category_IMM)
+    if (HWIntrinsicInfo::GetCategory(id) != HW_Category_IMM)
     {
         return false;
     }
@@ -404,7 +404,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrinsic);
+    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
     if (baseType == TYP_UNDEF)
     {
@@ -617,7 +617,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
 
     const bool isScalar = (category == HW_Category_Scalar);
 
-    if (!isScalar && ((HWIntrinsicInfo::lookupIns(intrinsic, baseType) == INS_invalid) ||
+    if (!isScalar && ((HWIntrinsicInfo::GetIns(intrinsic, baseType) == INS_invalid) ||
                       ((simdSize != 8) && (simdSize != 16) && (simdSize != 32))))
     {
         assert(!"Unexpected HW Intrinsic");

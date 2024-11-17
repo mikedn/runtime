@@ -276,7 +276,7 @@ GenTree* Importer::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
         return impVector234TSpecial(intrinsic, signature, layout, isNewObj);
     }
 
-    if (!compOpportunisticallyDependsOn(HWIntrinsicInfo::lookupIsa(hwIntrinsic)))
+    if (!compOpportunisticallyDependsOn(HWIntrinsicInfo::GetIsa(hwIntrinsic)))
     {
         return nullptr;
     }

@@ -4149,7 +4149,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                                           bool*               supportsRegOptional)
 {
     NamedIntrinsic      containingIntrinsicId = containingNode->GetIntrinsic();
-    HWIntrinsicCategory category              = HWIntrinsicInfo::lookupCategory(containingIntrinsicId);
+    HWIntrinsicCategory category              = HWIntrinsicInfo::GetCategory(containingIntrinsicId);
 
     // We shouldn't have called in here if containingNode doesn't support containment
     assert(HWIntrinsicInfo::SupportsContainment(containingIntrinsicId));
@@ -4534,7 +4534,7 @@ void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* ad
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsicId = node->GetIntrinsic();
-    HWIntrinsicCategory category    = HWIntrinsicInfo::lookupCategory(intrinsicId);
+    HWIntrinsicCategory category    = HWIntrinsicInfo::GetCategory(intrinsicId);
     int                 numArgs     = node->GetNumOps();
     var_types           baseType    = node->GetSimdBaseType();
     unsigned            simdSize    = node->GetSimdSize();
@@ -4550,7 +4550,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    if (HWIntrinsicInfo::lookupCategory(intrinsicId) == HW_Category_IMM)
+    if (HWIntrinsicInfo::GetCategory(intrinsicId) == HW_Category_IMM)
     {
         if ((intrinsicId == NI_SSE41_Insert) && (baseType == TYP_FLOAT))
         {
