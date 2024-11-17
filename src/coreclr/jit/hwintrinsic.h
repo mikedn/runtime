@@ -285,9 +285,9 @@ struct HWIntrinsicInfo
     CORINFO_InstructionSet isa;
     int                    simdSize;
     int                    numArgs;
-    instruction            ins[10];
     HWIntrinsicCategory    category;
     HWIntrinsicFlag        flags;
+    instruction            ins[10];
 
     static const HWIntrinsicInfo& lookup(NamedIntrinsic id);
 
@@ -314,18 +314,13 @@ struct HWIntrinsicInfo
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
     static FloatComparisonMode SwapFloatComparisonMode(FloatComparisonMode comparison);
+    static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
-
-    // Member lookup
 
     static CORINFO_InstructionSet lookupIsa(NamedIntrinsic id)
     {
         return lookup(id).isa;
     }
-
-#ifdef TARGET_XARCH
-    static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
-#endif
 
     static instruction lookupIns(NamedIntrinsic id, var_types type)
     {
@@ -342,32 +337,27 @@ struct HWIntrinsicInfo
         return lookup(id).category;
     }
 
-    static HWIntrinsicFlag lookupFlags(NamedIntrinsic id)
+    static bool HasFlag(NamedIntrinsic id, HWIntrinsicFlag flag)
     {
-        return lookup(id).flags;
+        return (lookup(id).flags & flag) != 0;
     }
-
-    // Flags lookup
 
     static bool IsCommutative(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_Commutative) != 0;
+        return HasFlag(id, HW_Flag_Commutative);
     }
 
     static bool RequiresCodegen(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_NoCodeGen) == 0;
+        return !HasFlag(id, HW_Flag_NoCodeGen);
     }
 
     static bool SupportsContainment(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
 #if defined(TARGET_XARCH)
-        return (flags & HW_Flag_NoContainment) == 0;
+        return !HasFlag(id, HW_Flag_NoContainment);
 #elif defined(TARGET_ARM64)
-        return (flags & HW_Flag_SupportsContainment) != 0;
+        return HasFlag(id, HW_Flag_SupportsContainment);
 #else
 #error Unsupported platform
 #endif
@@ -375,73 +365,62 @@ struct HWIntrinsicInfo
 
     static bool BaseTypeFromFirstArg(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_BaseTypeFromFirstArg) != 0;
+        return HasFlag(id, HW_Flag_BaseTypeFromFirstArg);
     }
 
     static bool IsFloatingPointUsed(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_NoFloatingPointUsed) == 0;
+        return HasFlag(id, HW_Flag_NoFloatingPointUsed);
     }
 
 #ifdef TARGET_XARCH
     static bool HasFullRangeImm(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_FullRangeIMM) != 0;
+        return HasFlag(id, HW_Flag_FullRangeIMM);
     }
 
     static bool MaybeImm(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_MaybeIMM) != 0;
+        return HasFlag(id, HW_Flag_MaybeIMM);
     }
 
     static bool CopiesUpperBits(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_CopyUpperBits) != 0;
+        return HasFlag(id, HW_Flag_CopyUpperBits);
     }
 
     static bool MaybeMemoryLoad(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_MaybeMemoryLoad) != 0;
+        return HasFlag(id, HW_Flag_MaybeMemoryLoad);
     }
 
     static bool MaybeMemoryStore(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_MaybeMemoryStore) != 0;
+        return HasFlag(id, HW_Flag_MaybeMemoryStore);
     }
 #endif
 
     static bool NoJmpTableImm(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_NoJmpTableIMM) != 0;
+        return HasFlag(id, HW_Flag_NoJmpTableIMM);
     }
 
     static bool BaseTypeFromSecondArg(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_BaseTypeFromSecondArg) != 0;
+        return HasFlag(id, HW_Flag_BaseTypeFromSecondArg);
     }
 
     static bool HasSpecialCodegen(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_SpecialCodeGen) != 0;
+        return HasFlag(id, HW_Flag_SpecialCodeGen);
     }
 
     static bool HasRMWSemantics(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
 #if defined(TARGET_XARCH)
-        return (flags & HW_Flag_NoRMWSemantics) == 0;
+        return !HasFlag(id, HW_Flag_NoRMWSemantics);
 #elif defined(TARGET_ARM64)
-        return (flags & HW_Flag_HasRMWSemantics) != 0;
+        return HasFlag(id, HW_Flag_HasRMWSemantics);
 #else
 #error Unsupported platform
 #endif
@@ -449,21 +428,18 @@ struct HWIntrinsicInfo
 
     static bool HasSpecialImport(NamedIntrinsic id)
     {
-        HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_SpecialImport) != 0;
+        return HasFlag(id, HW_Flag_SpecialImport);
     }
 
 #ifdef TARGET_ARM64
     static bool SIMDScalar(NamedIntrinsic id)
     {
-        const HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_SIMDScalar) != 0;
+        return HasFlag(id, HW_Flag_SIMDScalar);
     }
 
     static bool HasImmediateOperand(NamedIntrinsic id)
     {
-        const HWIntrinsicFlag flags = lookupFlags(id);
-        return (flags & HW_Flag_HasImmediateOperand) != 0;
+        return HasFlag(id, HW_Flag_HasImmediateOperand);
     }
 #endif // TARGET_ARM64
 };
