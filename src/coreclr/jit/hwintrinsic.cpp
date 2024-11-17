@@ -683,6 +683,12 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                         intrinsic = NI_AdvSimd_SUBL2;
                     }
                     break;
+                case NI_AdvSimd_Arm64_AddSaturateScalar:
+                    if (baseType != sigReader.paramLayout[1]->GetElementType())
+                    {
+                        intrinsic = NI_AdvSimd_Arm64_SUQADD;
+                    }
+                    break;
                 default:
                     break;
             }
@@ -709,11 +715,6 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 case NI_Crc32_Arm64_ComputeCrc32:
                 case NI_Crc32_Arm64_ComputeCrc32C:
                     retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
-                    break;
-
-                case NI_AdvSimd_Arm64_AddSaturateScalar:
-                    assert(varTypeIsSIMD(op2->GetType()));
-                    retNode->AsHWIntrinsic()->SetAuxiliaryType(sigReader.paramLayout[1]->GetElementType());
                     break;
 
                 case NI_ArmBase_Arm64_MultiplyHigh:

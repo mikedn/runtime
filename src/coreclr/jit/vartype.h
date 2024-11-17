@@ -78,12 +78,12 @@ inline bool varTypeIsSmallInt(var_types vt)
     return (vt >= TYP_BYTE) && (vt <= TYP_USHORT);
 }
 
-inline bool varTypeIsSmallSigned(var_types t)
+constexpr bool varTypeIsSmallSigned(var_types t)
 {
     return (t == TYP_BYTE) || (t == TYP_SHORT);
 }
 
-inline bool varTypeIsSmallUnsigned(var_types t)
+constexpr bool varTypeIsSmallUnsigned(var_types t)
 {
     return (t == TYP_BOOL) || (t == TYP_UBYTE) || (t == TYP_USHORT);
 }
@@ -131,16 +131,6 @@ inline bool varTypeIsIntegralOrI(var_types vt)
 inline bool varTypeIsI(var_types vt)
 {
     return (vt == TYP_I_IMPL) || varTypeIsGC(vt);
-}
-
-inline bool varTypeIsUnsigned(var_types vt)
-{
-    return varTypeIsSmallUnsigned(vt) || (vt == TYP_UINT) || (vt == TYP_ULONG);
-}
-
-inline bool varTypeIsSigned(var_types vt)
-{
-    return varTypeIsSmallSigned(vt) || (vt == TYP_INT) || (vt == TYP_LONG);
 }
 
 inline bool varTypeIsSIMD(var_types vt)

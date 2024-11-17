@@ -457,19 +457,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                                  INS_OPTS_NONE);
                 break;
 
-            case NI_AdvSimd_Arm64_AddSaturateScalar:
-                if (varTypeIsUnsigned(node->GetAuxiliaryType()) != varTypeIsUnsigned(intrin.baseType))
-                {
-                    ins = varTypeIsUnsigned(intrin.baseType) ? INS_usqadd : INS_suqadd;
-
-                    emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-                    emit.emitIns_R_R(ins, emitSize, defReg, regs[1], opt);
-                    break;
-                }
-
-                emit.emitIns_R_R_R(ins, emitSize, defReg, regs[0], regs[1], opt);
-                break;
-
             case NI_AdvSimd_DuplicateToVector64:
             case NI_AdvSimd_DuplicateToVector128:
             case NI_AdvSimd_Arm64_DuplicateToVector64:

@@ -15,6 +15,16 @@ static constexpr bool varTypeIsLong(var_types t)
     return (t == TYP_LONG) || (t == TYP_ULONG);
 }
 
+static constexpr bool varTypeIsSigned(var_types t)
+{
+    return varTypeIsSmallSigned(t) || (t == TYP_INT) || (t == TYP_LONG);
+}
+
+static constexpr bool varTypeIsUnsigned(var_types t)
+{
+    return varTypeIsSmallUnsigned(t) || (t == TYP_UINT) || (t == TYP_ULONG);
+}
+
 var_types Compiler::GetVectorTSimdType()
 {
 #if defined(TARGET_XARCH)

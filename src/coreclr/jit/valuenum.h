@@ -61,9 +61,6 @@ constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseT
 
 inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-#ifdef TARGET_ARM64
-    assert(node->GetAuxiliaryType() == TYP_UNDEF);
-#endif
     return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
 }
 
