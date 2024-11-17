@@ -2195,7 +2195,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
         {
             if (varTypeIsSmall(retRegType))
             {
-                retRegType = varTypeToUnsigned(retRegType);
+                retRegType = varTypeToSmallUnsigned(retRegType);
             }
 
             src->ChangeOper(GT_IND_LOAD);
@@ -4261,7 +4261,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
             if (src->OperIs(GT_LCL_LOAD_FLD, GT_IND_LOAD) && varTypeIsSmall(src->GetType()) &&
                 (consumedBits <= varTypeBitSize(src->GetType())))
             {
-                src->SetType(varTypeToUnsigned(src->GetType()));
+                src->SetType(varTypeToSmallUnsigned(src->GetType()));
             }
 #endif
 

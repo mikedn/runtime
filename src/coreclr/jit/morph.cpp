@@ -2573,7 +2573,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
             {
                 // argType is a signed type but this is a struct so sign extension isn't necessary.
                 // On XARCH it causes MOVSX to be generated, which has larger encoding than MOVZX.
-                argType = varTypeToUnsigned(argType);
+                argType = varTypeToSmallUnsigned(argType);
             }
 
             arg->SetType(argType);
@@ -2687,7 +2687,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     {
         // This being a struct, sign extension isn't needed so use unsigned small int types.
         // On XARCH we get MOVZX which may end up being shorter than MOVSX.
-        argRegType = varTypeToUnsigned(argRegType);
+        argRegType = varTypeToSmallUnsigned(argRegType);
     }
 
     if (arg->IsIntegralConst(0))
@@ -2997,7 +2997,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
 
                 if (needZeroExtend)
                 {
-                    var_types type = varTypeToUnsigned(fieldLcl->GetType());
+                    var_types type = varTypeToSmallUnsigned(fieldLcl->GetType());
 
 #if LOCAL_ASSERTION_PROP
                     if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclLoad(), type))

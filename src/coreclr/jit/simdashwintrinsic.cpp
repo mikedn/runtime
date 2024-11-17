@@ -2255,7 +2255,7 @@ GenTree* Importer::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree*
 
     assert((eltType == TYP_SHORT) || (eltType == TYP_INT));
 
-    var_types retEltType = varTypeToUnsigned(sig.retLayout->GetElementType());
+    var_types retEltType = varTypeToSmallUnsigned(sig.retLayout->GetElementType());
     ssize_t   retEltSize = varTypeSize(retEltType) * 8;
 
     op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, 32, op1, gtNewIconNode(retEltSize));

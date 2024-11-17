@@ -234,7 +234,7 @@ inline var_types varTypeToSigned(var_types type)
     }
 }
 
-inline var_types varTypeToUnsigned(var_types type)
+inline var_types varTypeToSmallUnsigned(var_types type)
 {
     switch (type)
     {
@@ -242,10 +242,6 @@ inline var_types varTypeToUnsigned(var_types type)
             return TYP_UBYTE;
         case TYP_SHORT:
             return TYP_USHORT;
-        case TYP_INT:
-            return TYP_UINT;
-        case TYP_LONG:
-            return TYP_ULONG;
         default:
             return type;
     }
