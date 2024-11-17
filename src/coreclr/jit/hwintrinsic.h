@@ -314,7 +314,7 @@ struct HWIntrinsicInfo
 
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
-    static FloatComparisonMode lookupFloatComparisonModeForSwappedArgs(FloatComparisonMode comparison);
+    static FloatComparisonMode SwapFloatComparisonMode(FloatComparisonMode comparison);
 #endif
 
     // Member lookup
@@ -335,7 +335,7 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_XARCH
-    static int lookupIval(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
+    static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 
     static int lookupNumArgs(NamedIntrinsic id)
