@@ -160,7 +160,7 @@ inline var_types CorTypeToPreciseVarType(CorInfoType type)
         TYP_FLOAT,  // CORINFO_TYPE_FLOAT
         TYP_DOUBLE, // CORINFO_TYPE_DOUBLE
         TYP_REF,    // CORINFO_TYPE_STRING
-        TYP_U_IMPL, // CORINFO_TYPE_PTR
+        TYP_I_IMPL, // CORINFO_TYPE_PTR
         TYP_BYREF,  // CORINFO_TYPE_BYREF
         TYP_STRUCT, // CORINFO_TYPE_VALUECLASS
         TYP_REF,    // CORINFO_TYPE_CLASS
@@ -171,7 +171,7 @@ inline var_types CorTypeToPreciseVarType(CorInfoType type)
     // Spot check to make certain enumerations have not changed.
     static_assert_no_msg(map[CORINFO_TYPE_CLASS] == TYP_REF);
     static_assert_no_msg(map[CORINFO_TYPE_BYREF] == TYP_BYREF);
-    static_assert_no_msg(map[CORINFO_TYPE_PTR] == TYP_U_IMPL);
+    static_assert_no_msg(map[CORINFO_TYPE_PTR] == TYP_I_IMPL);
     static_assert_no_msg(map[CORINFO_TYPE_INT] == TYP_INT);
     static_assert_no_msg(map[CORINFO_TYPE_UINT] == TYP_UINT);
     static_assert_no_msg(map[CORINFO_TYPE_DOUBLE] == TYP_DOUBLE);
