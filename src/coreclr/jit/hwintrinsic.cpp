@@ -697,42 +697,38 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             op2 = addRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
             op1 = impPopArgForHWIntrinsic(sigReader.paramType[0], sigReader.paramLayout[0]);
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2)
-                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
+            if (!isScalar)
+            {
+                retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
+            }
+            else
+            {
+                retNode = gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
 
+                switch (intrinsic)
+                {
 #ifdef TARGET_XARCH
-            if ((intrinsic == NI_SSE42_Crc32) || (intrinsic == NI_SSE42_X64_Crc32))
-            {
-                // TODO-XArch-Cleanup: currently we use the BaseType to bring the type of the second argument
-                // to the code generator. May encode the overload info in other way.
-                retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
-            }
-#elif defined(TARGET_ARM64)
-            switch (intrinsic)
-            {
-                case NI_Crc32_ComputeCrc32:
-                case NI_Crc32_ComputeCrc32C:
-                case NI_Crc32_Arm64_ComputeCrc32:
-                case NI_Crc32_Arm64_ComputeCrc32C:
-                    retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
-                    break;
-
-                case NI_ArmBase_Arm64_MultiplyHigh:
-                    if (sig->retType == CORINFO_TYPE_ULONG)
-                    {
-                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_ULONG);
-                    }
-                    else
-                    {
-                        assert(sig->retType == CORINFO_TYPE_LONG);
-                        retNode->AsHWIntrinsic()->SetSimdBaseType(TYP_LONG);
-                    }
-                    break;
-
-                default:
-                    break;
-            }
+                    case NI_SSE42_Crc32:
+                    case NI_SSE42_X64_Crc32:
 #endif
+#ifdef TARGET_ARM64
+                    case NI_ArmBase_Arm64_MultiplyHigh:
+                        assert(sigReader.retType == TYP_LONG || sigReader.retType == TYP_ULONG);
+                        assert(sigReader.retType == sigReader.paramType[0]);
+                        assert(sigReader.retType == sigReader.paramType[1]);
+                        FALLTHROUGH;
+                    case NI_Crc32_ComputeCrc32:
+                    case NI_Crc32_ComputeCrc32C:
+                    case NI_Crc32_Arm64_ComputeCrc32:
+                    case NI_Crc32_Arm64_ComputeCrc32C:
+#endif
+                        retNode->AsHWIntrinsic()->SetSimdBaseType(sigReader.paramType[1]);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
             break;
 
         case 3:
