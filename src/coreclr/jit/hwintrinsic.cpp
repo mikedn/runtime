@@ -50,41 +50,6 @@ const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
     return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_FIRST];
 }
 
-var_types Importer::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
-                                                     CORINFO_SIG_INFO* sigInfo,
-                                                     var_types         baseType,
-                                                     ClassLayout**     argLayout)
-{
-    assert(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
-
-    CORINFO_ARG_LIST_HANDLE arg = sigInfo->args;
-
-    if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
-    {
-        arg = info.compCompHnd->getArgNext(arg);
-    }
-
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoType          argCorType = strip(info.compCompHnd->getArgType(sigInfo, arg, &argClass));
-
-    if (argCorType == CORINFO_TYPE_PTR)
-    {
-        argClass = info.compCompHnd->getArgClass(sigInfo, arg);
-        CORINFO_CLASS_HANDLE childClassHandle;
-        return CorTypeToVarType(info.compCompHnd->getChildType(argClass, &childClassHandle));
-    }
-
-    var_types argType = CorTypeToVarType(argCorType);
-
-    if (argType != TYP_STRUCT)
-    {
-        return argType;
-    }
-
-    *argLayout = typGetObjLayout(argClass);
-    return (*argLayout)->GetElementType();
-}
-
 NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
                                          CORINFO_SIG_INFO* sig,
                                          const char*       className,
@@ -332,24 +297,59 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
     for (unsigned i = 0; i < min(_countof(paramType), sig->numArgs); i++, param = vm->getArgNext(param))
     {
         CORINFO_CLASS_HANDLE paramClass;
-        paramType[i] = CorTypeToPreciseVarType(strip(vm->getArgType(sig, param, &paramClass)));
+        CorInfoType          corType = strip(vm->getArgType(sig, param, &paramClass));
+
+        paramType[i] = CorTypeToPreciseVarType(corType);
+
+        if (corType == CORINFO_TYPE_PTR)
+        {
+            CORINFO_CLASS_HANDLE pointerClass;
+
+            paramLayout[i]      = nullptr;
+            paramPointerType[i] = CorTypeToVarType(vm->getChildType(vm->getArgClass(sig, param), &pointerClass));
+
+            continue;
+        }
+
+        paramPointerType[i] = TYP_UNDEF;
 
         if (paramType[i] != TYP_STRUCT)
         {
             paramLayout[i] = nullptr;
+            continue;
         }
-        else
-        {
-            if (prevClass != paramClass)
-            {
-                prevClass  = paramClass;
-                prevLayout = compiler->typGetObjLayout(prevClass);
-            }
 
-            paramLayout[i] = prevLayout;
-            paramType[i]   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
+        if (prevClass != paramClass)
+        {
+            prevClass  = paramClass;
+            prevLayout = compiler->typGetObjLayout(prevClass);
         }
+
+        paramLayout[i] = prevLayout;
+        paramType[i]   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
     }
+}
+
+var_types HWIntrinsicSignature::GetBaseTypeFromParam(NamedIntrinsic intrinsic, ClassLayout** layout) const
+{
+    assert(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
+
+    unsigned index = HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic);
+
+    if (var_types pointerType = paramPointerType[index])
+    {
+        *layout = nullptr;
+        return pointerType;
+    }
+
+    if (!varTypeIsSIMD(paramType[index]))
+    {
+        *layout = nullptr;
+        return paramType[index];
+    }
+
+    *layout = paramLayout[index];
+    return paramLayout[index]->GetElementType();
 }
 
 GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
@@ -358,13 +358,11 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_SIG_INFO*     sigInfo,
                                   bool                  mustExpand)
 {
-    CORINFO_InstructionSet isa      = HWIntrinsicInfo::lookupIsa(intrinsic);
-    HWIntrinsicCategory    category = HWIntrinsicInfo::lookupCategory(intrinsic);
-    var_types              baseType = TYP_UNDEF;
-    unsigned               simdSize = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
-
     HWIntrinsicSignature sig;
     sig.Read(comp, sigInfo);
+
+    var_types    baseType  = TYP_UNDEF;
+    unsigned     simdSize  = static_cast<unsigned>(HWIntrinsicInfo::lookup(intrinsic).simdSize);
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 
@@ -383,7 +381,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
     {
         ClassLayout* argLayout = nullptr;
-        baseType               = impGetHWIntrinsicBaseTypeFromArg(intrinsic, sigInfo, baseType, &argLayout);
+        baseType               = sig.GetBaseTypeFromParam(intrinsic, &argLayout);
 
         if ((argLayout != nullptr) && argLayout->IsVector())
         {
@@ -405,6 +403,8 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
             simdSize = retLayout->GetSize();
         }
     }
+
+    HWIntrinsicCategory category = HWIntrinsicInfo::lookupCategory(intrinsic);
 
     if (baseType == TYP_UNDEF)
     {

@@ -2349,10 +2349,6 @@ struct Importer
                                                    GenTree*       op2);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
-    var_types impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
-                                               CORINFO_SIG_INFO* sig,
-                                               var_types         baseType,
-                                               ClassLayout**     argLayout);
 #endif // FEATURE_HW_INTRINSICS
 
     static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);

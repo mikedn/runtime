@@ -693,9 +693,11 @@ struct HWIntrinsicSignature final
     bool         hasThisParam;
     unsigned     paramCount;
     var_types    paramType[5];
+    var_types    paramPointerType[5];
     ClassLayout* paramLayout[5];
 
     void Read(class Compiler* compiler, CORINFO_SIG_INFO* sig);
+    var_types GetBaseTypeFromParam(NamedIntrinsic intrinsic, ClassLayout** argLayout) const;
 };
 
 #ifdef TARGET_ARM64
