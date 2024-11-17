@@ -104,13 +104,13 @@ static constexpr SysNumSimdIntrinsicInfo sysNumSimdIntrinsicInfo[]
 };
 
 static_assert_no_msg(_countof(sysNumSimdIntrinsicInfo) ==
-                     NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1);
+                     NI_SIMD_AS_HWINTRINSIC_LAST - NI_SIMD_AS_HWINTRINSIC_FIRST + 1);
 
 static const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
 {
-    assert((NI_SIMD_AS_HWINTRINSIC_START < id) && (id < NI_SIMD_AS_HWINTRINSIC_END));
+    assert(NI_SIMD_AS_HWINTRINSIC_FIRST <= id && id <= NI_SIMD_AS_HWINTRINSIC_LAST);
 
-    return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_START - 1];
+    return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_FIRST];
 }
 
 static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char* enclosingClassName)
@@ -179,7 +179,7 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
             continue;
         }
 
-        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_START + 1 + i);
+        return static_cast<NamedIntrinsic>(NI_SIMD_AS_HWINTRINSIC_FIRST + i);
     }
 
     return NI_Illegal;

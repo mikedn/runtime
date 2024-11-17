@@ -55,7 +55,7 @@ constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseT
     // Such intrinsics are usually available for all element types so it's
     // unlikely that user code will reinterpret vectors in such a way that
     // we could see some benefit from canonicalization.
-    return static_cast<VNFunc>((VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_START - 1)) |
+    return static_cast<VNFunc>((VNF_HWI_FIRST + (intrinsic - NI_HW_INTRINSIC_FIRST)) |
                                (static_cast<uint8_t>(simdBaseType) << 16) | (simdSize << 24));
 }
 

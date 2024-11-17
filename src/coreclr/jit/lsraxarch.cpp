@@ -1797,7 +1797,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
 
             default:
-                assert((intrinsicId > NI_HW_INTRINSIC_START) && (intrinsicId < NI_HW_INTRINSIC_END));
+                assert(NI_HW_INTRINSIC_FIRST <= intrinsicId && intrinsicId <= NI_HW_INTRINSIC_LAST);
                 break;
         }
 

@@ -6,7 +6,8 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-static const HWIntrinsicInfo hwIntrinsicInfoArray[] = {
+static const HWIntrinsicInfo hwIntrinsicInfoArray[]
+{
 // clang-format off
 #if defined(TARGET_XARCH)
 #define INS_movsdsse2 INS_movsd
@@ -24,22 +25,29 @@ static const HWIntrinsicInfo hwIntrinsicInfoArray[] = {
     // clang-format on
 };
 
-//------------------------------------------------------------------------
-// lookup: Gets the HWIntrinsicInfo associated with a given NamedIntrinsic
-//
-// Arguments:
-//    id -- The NamedIntrinsic associated with the HWIntrinsic to lookup
-//
-// Return Value:
-//    The HWIntrinsicInfo associated with id
+#ifdef DEBUG
+const char* GetHWIntrinsicIdName(NamedIntrinsic id)
+{
+    static const char* const names[]
+    {
+#if defined(TARGET_XARCH)
+#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#include "hwintrinsiclistxarch.h"
+#elif defined(TARGET_ARM64)
+#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
+#include "hwintrinsiclistarm64.h"
+#endif
+    };
+
+    return (NI_HW_INTRINSIC_FIRST <= id && id <= NI_HW_INTRINSIC_LAST) ? names[id - NI_HW_INTRINSIC_FIRST] : "NI_???";
+}
+#endif
+
 const HWIntrinsicInfo& HWIntrinsicInfo::lookup(NamedIntrinsic id)
 {
-    assert(id != NI_Illegal);
+    assert(NI_HW_INTRINSIC_FIRST <= id && id <= NI_HW_INTRINSIC_LAST);
 
-    assert(id > NI_HW_INTRINSIC_START);
-    assert(id < NI_HW_INTRINSIC_END);
-
-    return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_START - 1];
+    return hwIntrinsicInfoArray[id - NI_HW_INTRINSIC_FIRST];
 }
 
 var_types Importer::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic,
@@ -77,18 +85,6 @@ var_types Importer::impGetHWIntrinsicBaseTypeFromArg(NamedIntrinsic    intrinsic
     return (*argLayout)->GetElementType();
 }
 
-//------------------------------------------------------------------------
-// lookupId: Gets the NamedIntrinsic for a given method name and InstructionSet
-//
-// Arguments:
-//    comp       -- The compiler
-//    sig        -- The signature of the intrinsic
-//    className  -- The name of the class associated with the HWIntrinsic to lookup
-//    methodName -- The name of the method associated with the HWIntrinsic to lookup
-//    enclosingClassName -- The name of the enclosing class of X64 classes
-//
-// Return Value:
-//    The NamedIntrinsic associated with methodName and isa
 NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
                                          CORINFO_SIG_INFO* sig,
                                          const char*       className,
@@ -110,30 +106,31 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
         return isIsaSupported ? (comp->compExactlyDependsOn(isa) ? NI_IsSupported_True : NI_IsSupported_Dynamic)
                               : NI_IsSupported_False;
     }
-    else if (!isIsaSupported)
+
+    if (!isIsaSupported)
     {
         return NI_Throw_PlatformNotSupportedException;
     }
 
-    for (int i = 0; i < (NI_HW_INTRINSIC_END - NI_HW_INTRINSIC_START - 1); i++)
+    for (unsigned i = 0; i < NI_HW_INTRINSIC_LAST - NI_HW_INTRINSIC_FIRST + 1; i++)
     {
-        const HWIntrinsicInfo& intrinsicInfo = hwIntrinsicInfoArray[i];
+        const HWIntrinsicInfo& info = hwIntrinsicInfoArray[i];
 
-        if (isa != hwIntrinsicInfoArray[i].isa)
+        if (isa != info.isa)
         {
             continue;
         }
 
-        int numArgs = static_cast<unsigned>(intrinsicInfo.numArgs);
+        unsigned numArgs = static_cast<unsigned>(info.numArgs);
 
-        if ((numArgs != -1) && (sig->numArgs != static_cast<unsigned>(intrinsicInfo.numArgs)))
+        if ((numArgs != UINT_MAX) && (sig->numArgs != numArgs))
         {
             continue;
         }
 
-        if (strcmp(methodName, intrinsicInfo.name) == 0)
+        if (strcmp(methodName, info.name) == 0)
         {
-            return intrinsicInfo.id;
+            return info.id;
         }
     }
 
@@ -142,15 +139,6 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
     return NI_Illegal;
 }
 
-//------------------------------------------------------------------------
-// isImmOp: Checks whether the HWIntrinsic node has an imm operand
-//
-// Arguments:
-//    id -- The NamedIntrinsic associated with the HWIntrinsic to lookup
-//    op -- The operand to check
-//
-// Return Value:
-//     true if the node has an imm operand; otherwise, false
 bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
 {
 #ifdef TARGET_XARCH
@@ -191,24 +179,9 @@ GenTree* Importer::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* par
     return arg;
 }
 
-//------------------------------------------------------------------------
-// addRangeCheckIfNeeded: add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic
-//
-// Arguments:
-//    intrinsic     -- intrinsic ID
-//    immOp         -- the immediate operand of the intrinsic
-//    mustExpand    -- true if the compiler is compiling the fallback(GT_CALL) of this intrinsics
-//    immLowerBound -- lower incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
-//    immUpperBound -- upper incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
-//
-// Return Value:
-//     add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic, which would throw ArgumentOutOfRangeException
-//     when the imm-argument is not in the valid range
-//
 GenTree* Importer::addRangeCheckIfNeeded(
-    NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound)
+    NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int lowerBound, int upperBound)
 {
-    assert(immOp != nullptr);
     // Full-range imm-intrinsics do not need the range-check
     // because the imm-parameter of the intrinsic method is a byte.
     // AVX2 Gather intrinsics no not need the range-check
@@ -224,21 +197,9 @@ GenTree* Importer::addRangeCheckIfNeeded(
 
     assert(!immOp->IsIntCon());
 
-    return addRangeCheckForHWIntrinsic(immOp, immLowerBound, immUpperBound);
+    return addRangeCheckForHWIntrinsic(immOp, lowerBound, upperBound);
 }
 
-//------------------------------------------------------------------------
-// addRangeCheckForHWIntrinsic: add a GT_HW_INTRINSIC_CHK node for an intrinsic
-//
-// Arguments:
-//    immOp         -- the immediate operand of the intrinsic
-//    immLowerBound -- lower incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
-//    immUpperBound -- upper incl. bound for a value of the immediate operand (for a non-full-range imm-intrinsic)
-//
-// Return Value:
-//     add a GT_HW_INTRINSIC_CHK node for non-full-range imm-intrinsic, which would throw ArgumentOutOfRangeException
-//     when the imm-argument is not in the valid range
-//
 GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound)
 {
     // Bounds check for value of an immediate operand
@@ -268,14 +229,6 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
     return gtNewCommaNode(check, immOpUses[0]);
 }
 
-//------------------------------------------------------------------------
-// compSupportsHWIntrinsic: check whether a given instruction is enabled via configuration
-//
-// Arguments:
-//    isa - Instruction set
-//
-// Return Value:
-//    true iff the given instruction set is enabled via configuration (environment variables, etc.).
 bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa)
 {
     return JitConfig.EnableHWIntrinsic() && (featureSIMD || HWIntrinsicInfo::isScalarIsa(isa)) &&
@@ -286,32 +239,12 @@ bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa)
                HWIntrinsicInfo::isFullyImplementedIsa(isa));
 }
 
-//------------------------------------------------------------------------
-// impIsTableDrivenHWIntrinsic:
-//
-// Arguments:
-//    intrinsicId - HW intrinsic id
-//    category - category of a HW intrinsic
-//
-// Return Value:
-//    returns true if this category can be table-driven in the importer
-//
 static bool impIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
 {
     return NOT_ARM64((category != HW_Category_Special) &&) HWIntrinsicInfo::RequiresCodegen(intrinsicId) &&
            !HWIntrinsicInfo::HasSpecialImport(intrinsicId);
 }
 
-//------------------------------------------------------------------------
-// isSupportedBaseType
-//
-// Arguments:
-//    intrinsicId - HW intrinsic id
-//    baseType - Base type of the intrinsic.
-//
-// Return Value:
-//    returns true if the baseType is supported for given intrinsic.
-//
 static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
 {
     // We don't actually check the intrinsic outside of the false case as we expect
@@ -419,19 +352,6 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
     }
 }
 
-//------------------------------------------------------------------------
-// impHWIntrinsic: Import a hardware intrinsic as a GT_HWINTRINSIC node if possible
-//
-// Arguments:
-//    intrinsic  -- id of the intrinsic function.
-//    clsHnd     -- class handle containing the intrinsic function.
-//    method     -- method handle of the intrinsic function.
-//    sig        -- signature of the intrinsic call
-//    mustExpand -- true if the intrinsic must return a GenTree*; otherwise, false
-
-// Return Value:
-//    The GT_HWINTRINSIC node, or nullptr if not a supported intrinsic
-//
 GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                                   CORINFO_CLASS_HANDLE  clsHnd,
                                   CORINFO_METHOD_HANDLE method,
@@ -881,22 +801,5 @@ GenTree* Importer::impVectorGetElement(ClassLayout* layout, GenTree* value, GenT
 
     return gtNewSimdGetElementNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
 }
-
-#ifdef DEBUG
-const char* GetHWIntrinsicIdName(NamedIntrinsic id)
-{
-    static const char* const names[] = {
-#if defined(TARGET_XARCH)
-#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
-#include "hwintrinsiclistxarch.h"
-#elif defined(TARGET_ARM64)
-#define HARDWARE_INTRINSIC(isa, name, ...) #isa "_" #name,
-#include "hwintrinsiclistarm64.h"
-#endif // !defined(TARGET_XARCH) && !defined(TARGET_ARM64)
-    };
-
-    return (id > NI_HW_INTRINSIC_START && id < NI_HW_INTRINSIC_END) ? names[id - NI_HW_INTRINSIC_START - 1] : "NI_???";
-}
-#endif
 
 #endif // FEATURE_HW_INTRINSICS

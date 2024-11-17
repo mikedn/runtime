@@ -2623,7 +2623,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             }
 
 #ifdef FEATURE_HW_INTRINSICS
-            if ((ni > NI_HW_INTRINSIC_START) && (ni < NI_HW_INTRINSIC_END))
+            if (NI_HW_INTRINSIC_FIRST <= ni && ni <= NI_HW_INTRINSIC_LAST)
             {
                 GenTree* hwintrinsic = impHWIntrinsic(ni, clsHnd, method, sig, mustExpand);
 
@@ -2635,7 +2635,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 return hwintrinsic;
             }
 
-            if ((ni > NI_SIMD_AS_HWINTRINSIC_START) && (ni < NI_SIMD_AS_HWINTRINSIC_END))
+            if (NI_SIMD_AS_HWINTRINSIC_FIRST <= ni && ni <= NI_SIMD_AS_HWINTRINSIC_LAST)
             {
                 // These intrinsics aren't defined recursively and so they will never be mustExpand
                 // Instead, they provide software fallbacks that will be executed instead.
