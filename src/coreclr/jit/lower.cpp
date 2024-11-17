@@ -5728,18 +5728,18 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
         {
             case TYP_BYTE:
             case TYP_UBYTE:
-                u8[index] = value->AsIntCon()->GetUInt8Value();
+                u8[index] = icon->GetUInt8Value();
                 return true;
             case TYP_SHORT:
             case TYP_USHORT:
-                u16[index] = value->AsIntCon()->GetUInt16Value();
+                u16[index] = icon->GetUInt16Value();
                 return true;
             case TYP_INT:
-                u32[index] = value->AsIntCon()->GetUInt32Value();
+                u32[index] = icon->GetUInt32Value();
                 return true;
 #ifdef TARGET_64BIT
             case TYP_LONG:
-                u64[index] = value->AsIntCon()->GetUInt64Value();
+                u64[index] = icon->GetUInt64Value();
                 return true;
 #endif
             default:
@@ -5751,11 +5751,11 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
     {
         if (type == TYP_FLOAT)
         {
-            u32[index] = value->AsDblCon()->GetFloatBits();
+            u32[index] = dcon->GetFloatBits();
         }
         else
         {
-            u64[index] = value->AsDblCon()->GetDoubleBits();
+            u64[index] = dcon->GetDoubleBits();
         }
 
         return true;
