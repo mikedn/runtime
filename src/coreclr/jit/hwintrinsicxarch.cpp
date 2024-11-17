@@ -920,9 +920,12 @@ GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
         case NI_BMI2_X64_ZeroHighBits:
         {
             assert(sig.paramCount == 2);
+            assert(sig.retType == sig.paramType[0]);
+            assert(sig.retType == TYP_UINT || sig.retType == TYP_ULONG);
 
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impPopStack().val;
+            var_types type = varTypeNodeType(sig.retType);
+            GenTree*  op2  = impPopStack().val;
+            GenTree*  op1  = impPopStack().val;
 
             if (!gtCanSwapOrder(op1, op2))
             {
@@ -930,7 +933,7 @@ GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
 
                 LclVarDsc* tempLcl = lvaAllocTemp(true DEBUGARG("BMI.BitFieldExtract/ZeroHightBits temp"));
                 impAppendTempStore(tempLcl, op1, CHECK_SPILL_ALL);
-                op1 = comp->gtNewLclLoad(tempLcl, varActualType(sig.paramType[0]));
+                op1 = comp->gtNewLclLoad(tempLcl, type);
             }
 
             // Instructions BZHI and BEXTR require to encode op2 (3rd register) in VEX.vvvv and op1
@@ -939,7 +942,7 @@ GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntr
             // TODO-MIKE-Review: It would be better for codegen to handle this instead of having
             // to swap here and potentially add a temp...
 
-            return gtNewScalarHWIntrinsicNode(varActualType(sig.retType), intrinsic, op2, op1);
+            return gtNewScalarHWIntrinsicNode(type, intrinsic, op2, op1);
         }
 
         default:
