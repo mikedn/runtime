@@ -281,7 +281,6 @@ enum class FloatRoundingMode : unsigned char
 
 struct HWIntrinsicInfo
 {
-    NamedIntrinsic         id;
     const char*            name;
     CORINFO_InstructionSet isa;
     int                    simdSize;
@@ -319,16 +318,6 @@ struct HWIntrinsicInfo
 
     // Member lookup
 
-    static NamedIntrinsic lookupId(NamedIntrinsic id)
-    {
-        return lookup(id).id;
-    }
-
-    static const char* lookupName(NamedIntrinsic id)
-    {
-        return lookup(id).name;
-    }
-
     static CORINFO_InstructionSet lookupIsa(NamedIntrinsic id)
     {
         return lookup(id).isa;
@@ -337,11 +326,6 @@ struct HWIntrinsicInfo
 #ifdef TARGET_XARCH
     static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
-
-    static int lookupNumArgs(NamedIntrinsic id)
-    {
-        return lookup(id).numArgs;
-    }
 
     static instruction lookupIns(NamedIntrinsic id, var_types type)
     {
