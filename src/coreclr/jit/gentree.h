@@ -743,7 +743,7 @@ public:
 
     void SetType(var_types type)
     {
-        assert(((TYP_UNDEF < type) && (type < TYP_UNKNOWN)) && (type != TYP_UINT) && (type != TYP_ULONG));
+        assert(((TYP_UNDEF < type) && (type < TYP_UNKNOWN)) && (varTypeNodeType(type) == type));
         gtType = type;
     }
 

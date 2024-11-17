@@ -7693,7 +7693,7 @@ GenTree* Compiler::fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                              bool           extendToActualType,
                                              var_types      simdBaseType)
 {
-    assert((type != TYP_STRUCT) && (type != TYP_UINT) && (type != TYP_ULONG));
+    assert((type != TYP_STRUCT) && (varTypeNodeType(type) == type));
 
     var_types initPatternType;
 

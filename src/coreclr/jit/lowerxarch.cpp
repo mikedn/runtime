@@ -1672,7 +1672,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsSIMD(node->GetType()));
-    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
+    assert(varTypeIsArithmetic(eltType) && (varTypeNodeType(eltType) == eltType));
     assert((size == 16) || (size == 32));
     assert((numOps == (size / varTypeSize(eltType))) || ((numOps == 2) && (eltType == TYP_FLOAT)));
 
@@ -2050,7 +2050,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     GenTree*       op1       = node->GetOp(0);
 
     assert(varTypeIsSIMD(node->GetType()));
-    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
+    assert(varTypeIsArithmetic(eltType) && (varTypeNodeType(eltType) == eltType));
     assert((size == 8) || (size == 12) || (size == 16) || (size == 32));
 
     VectorConstant vecConst;
@@ -2541,7 +2541,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
     unsigned       count   = node->GetSimdSize() / varTypeSize(eltType);
 
     assert(index < count);
-    assert(varTypeIsArithmetic(eltType) && (eltType != TYP_UINT) && (eltType != TYP_ULONG));
+    assert(varTypeIsArithmetic(eltType) && (varTypeNodeType(eltType) == eltType));
 
     LclVarDsc* vec256TempLcl = nullptr;
     unsigned   index256      = index;
