@@ -188,13 +188,17 @@ GenTree* Importer::impPopArgForHWIntrinsic(var_types paramType, ClassLayout* par
 GenTree* Importer::addRangeCheckIfNeeded(
     NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int lowerBound, int upperBound)
 {
+#ifdef TARGET_XARCH
+    // AVX2 Gather intrinsics no not need the range-check (their imm has discrete valid
+    // values that are handle by managed code) and have special importing code.
+    assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
+#endif
+
     // Full-range imm-intrinsics do not need the range-check
     // because the imm-parameter of the intrinsic method is a byte.
-    // AVX2 Gather intrinsics no not need the range-check
-    // because their imm-parameter have discrete valid values that are handle by managed code
     if (!mustExpand || !HWIntrinsicInfo::isImmOp(intrinsic, immOp)
 #ifdef TARGET_XARCH
-        || HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic) || HWIntrinsicInfo::HasFullRangeImm(intrinsic)
+        || HWIntrinsicInfo::HasFullRangeImm(intrinsic)
 #endif
             )
     {
