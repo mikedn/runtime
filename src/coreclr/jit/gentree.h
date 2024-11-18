@@ -1142,8 +1142,7 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsLong() ||
-                   OperIsHWIntrinsic());
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsHWIntrinsic());
             return false;
         }
 
@@ -1486,15 +1485,6 @@ public:
     bool OperIsHWIntrinsic() const
     {
         return OperIsHWIntrinsic(gtOper);
-    }
-
-    bool OperIsLong() const
-    {
-#ifdef TARGET_64BIT
-        return false;
-#else
-        return gtOper == GT_LONG;
-#endif
     }
 
     bool OperIsConditionalJump() const
