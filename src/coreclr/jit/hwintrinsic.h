@@ -304,7 +304,7 @@ struct HWIntrinsicInfo
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
     static FloatComparisonMode SwapFloatComparisonMode(FloatComparisonMode comparison);
-    static int GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
+    static int GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 
     static CORINFO_InstructionSet GetIsa(NamedIntrinsic id);

@@ -244,7 +244,7 @@ bool HWIntrinsicInfo::isAVX2GatherIntrinsic(NamedIntrinsic id)
     }
 }
 
-int HWIntrinsicInfo::GetImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX)
+int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX)
 {
     switch (id)
     {
@@ -902,7 +902,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
                 // hardware supported. Instead, they start with "swapped operands" and we fix that here.
 
                 FloatComparisonMode comparison =
-                    static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImm(intrinsic, true));
+                    static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImplicitImm(intrinsic, true));
                 return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
                                                 gtNewIconNode(static_cast<int>(comparison)));
             }

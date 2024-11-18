@@ -48,7 +48,13 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
         assert(ins != INS_invalid);
         emitAttr vecSize = emitVecTypeSize(node->GetSimdSize());
         assert(vecSize != 0);
-        int imm = HWIntrinsicInfo::GetImm(intrinsic, compiler->compOpportunisticallyDependsOn(InstructionSet_AVX));
+        int implicitImm = -1;
+
+        if (varTypeIsFloating(baseType))
+        {
+            implicitImm = HWIntrinsicInfo::GetImplicitImm(intrinsic,
+                                                          compiler->compOpportunisticallyDependsOn(InstructionSet_AVX));
+        }
 
         switch (node->GetNumOps())
         {
@@ -63,11 +69,11 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     RegNum op1Reg = UseReg(op1);
 
-                    if ((imm != -1) && varTypeIsFloating(baseType))
+                    if (implicitImm != -1)
                     {
-                        assert((imm >= 0) && (imm <= 127));
-
-                        emit.emitIns_SIMD_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg, static_cast<int8_t>(imm));
+                        assert((implicitImm >= 0) && (implicitImm <= 127));
+                        emit.emitIns_SIMD_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg,
+                                                  static_cast<int8_t>(implicitImm));
                     }
                     else
                     {
@@ -78,11 +84,10 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     genConsumeRegs(op1);
 
-                    if ((imm != -1) && varTypeIsFloating(baseType))
+                    if (implicitImm != -1)
                     {
-                        assert((imm >= 0) && (imm <= 127));
-
-                        genHWIntrinsic_R_RM_I(node, ins, static_cast<int8_t>(imm));
+                        assert((implicitImm >= 0) && (implicitImm <= 127));
+                        genHWIntrinsic_R_RM_I(node, ins, static_cast<int8_t>(implicitImm));
                     }
                     else
                     {
@@ -109,8 +114,8 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         RegNum valueReg = UseReg(extract->GetOp(0));
 
-                        ins = HWIntrinsicInfo::GetIns(extract->GetIntrinsic(), extract->GetSimdBaseType());
-                        imm = extract->GetOp(1)->AsIntCon()->GetInt32Value();
+                        ins     = HWIntrinsicInfo::GetIns(extract->GetIntrinsic(), extract->GetSimdBaseType());
+                        int imm = extract->GetOp(1)->AsIntCon()->GetInt32Value();
 
                         emit.emitIns_A_R_I(ins, EA_32BYTE, op1, valueReg, imm);
                     }
@@ -143,10 +148,10 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                     op1Reg = dstReg;
                 }
 
-                if ((imm != -1) && varTypeIsFloating(baseType))
+                if (implicitImm != -1)
                 {
-                    assert((imm >= 0) && (imm <= 127));
-                    genHWIntrinsic_R_R_RM_I(node, ins, static_cast<int8_t>(imm));
+                    assert((implicitImm >= 0) && (implicitImm <= 127));
+                    genHWIntrinsic_R_R_RM_I(node, ins, static_cast<int8_t>(implicitImm));
                 }
                 else if (category == HW_Category_MemoryLoad)
                 {
@@ -176,14 +181,14 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else if (HWIntrinsicInfo::isImmOp(intrinsic, op2))
                 {
-                    assert(imm == -1);
+                    assert(implicitImm == -1);
                     auto emitSwCase = [&](int8_t i) { genHWIntrinsic_R_RM_I(node, ins, i); };
 
                     if (op2->IsIntCon())
                     {
-                        ssize_t ival = op2->AsIntCon()->GetValue();
-                        assert((ival >= 0) && (ival <= 255));
-                        emitSwCase(static_cast<int8_t>(ival));
+                        ssize_t imm = op2->AsIntCon()->GetValue();
+                        assert((imm >= 0) && (imm <= 255));
+                        emitSwCase(static_cast<int8_t>(imm));
                     }
                     else
                     {
@@ -206,6 +211,8 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case 3:
             {
+                assert(implicitImm == -1);
+
                 GenTree* op2 = node->GetOp(1);
                 GenTree* op3 = node->GetOp(2);
 
@@ -219,15 +226,13 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (HWIntrinsicInfo::isImmOp(intrinsic, op3))
                 {
-                    assert(imm == -1);
-
                     auto emitSwCase = [&](int8_t i) { genHWIntrinsic_R_R_RM_I(node, ins, i); };
 
                     if (op3->IsIntCon())
                     {
-                        ssize_t ival = op3->AsIntCon()->GetValue();
-                        assert((ival >= 0) && (ival <= 255));
-                        emitSwCase(static_cast<int8_t>(ival));
+                        ssize_t imm = op3->AsIntCon()->GetValue();
+                        assert((imm >= 0) && (imm <= 255));
+                        emitSwCase(static_cast<int8_t>(imm));
                     }
                     else
                     {
