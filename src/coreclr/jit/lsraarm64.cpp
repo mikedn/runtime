@@ -640,7 +640,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     // Determine whether this is an RMW operation where op2+ must be marked delayFree so that it
     // is not allocated the same register as the target.
-    const bool isRMW = node->isRMWHWIntrinsic(compiler);
+    const bool isRMW = node->IsRMW(compiler);
 
     if (intrin.op1 != nullptr)
     {

@@ -124,7 +124,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 RegNum op1Reg = op1->GetRegNum();
                 RegNum op2Reg = op2->GetRegNum();
 
-                if ((op1Reg != dstReg) && (op2Reg == dstReg) && node->isRMWHWIntrinsic(compiler))
+                if ((op1Reg != dstReg) && (op2Reg == dstReg) && node->IsRMW(compiler))
                 {
                     // We have "reg2 = reg1 op reg2" where "reg1 != reg2" on a RMW intrinsic.
                     //
@@ -586,7 +586,7 @@ void CodeGen::genHWIntrinsic_R_R_RM(
         assert(IsContainableHWIntrinsicOp(compiler, node, op2));
     }
 
-    inst_RV_RV_TT(ins, attr, targetReg, op1Reg, op2, node->isRMWHWIntrinsic(compiler));
+    inst_RV_RV_TT(ins, attr, targetReg, op1Reg, op2, node->IsRMW(compiler));
 }
 
 void CodeGen::inst_RV_RV_TT(
@@ -676,7 +676,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     {
         regNumber op2Reg = op2->GetRegNum();
 
-        if ((op1Reg != targetReg) && (op2Reg == targetReg) && node->isRMWHWIntrinsic(compiler))
+        if ((op1Reg != targetReg) && (op2Reg == targetReg) && node->IsRMW(compiler))
         {
             // We have "reg2 = reg1 op reg2" where "reg1 != reg2" on a RMW intrinsic.
             //
@@ -1646,7 +1646,7 @@ void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
 
     if (isCommutative && (op1Reg != targetReg) && (op2Reg == targetReg))
     {
-        assert(node->isRMWHWIntrinsic(compiler));
+        assert(node->IsRMW(compiler));
 
         // We have "reg2 = (reg1 * reg2) +/- op3" where "reg1 != reg2" on a RMW intrinsic.
         //

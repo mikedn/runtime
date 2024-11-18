@@ -11816,21 +11816,39 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
 }
 #endif // DEBUG
 
-#ifdef FEATURE_HW_INTRINSICS
-bool GenTree::isCommutativeHWIntrinsic() const
+bool GenTree::OperIsCommutative() const
 {
-    assert(OperIs(GT_HWINTRINSIC));
-
-#ifdef TARGET_XARCH
-    return HWIntrinsicInfo::IsCommutative(AsHWIntrinsic()->GetIntrinsic());
-#else
-    return false;
-#endif // TARGET_XARCH
+    return OperIsCommutative(gtOper)
+#ifdef FEATURE_HW_INTRINSICS
+           || (IsHWIntrinsic() && AsHWIntrinsic()->IsCommutative())
+#endif
+        ;
 }
 
-bool GenTree::isContainableHWIntrinsic() const
+#ifdef DEBUG
+bool GenTree::CanBeContained() const
 {
-    switch (AsHWIntrinsic()->GetIntrinsic())
+    return ((OperKind() & GTK_NOCONTAIN) == 0) &&
+#ifdef FEATURE_HW_INTRINSICS
+           (!IsHWIntrinsic() || AsHWIntrinsic()->IsContainable()) &&
+#endif
+           IsValue() && !IsUnusedValue() && !HasRegs();
+}
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+bool GenTreeHWIntrinsic::IsCommutative() const
+{
+#ifdef TARGET_XARCH
+    return HWIntrinsicInfo::IsCommutative(m_intrinsic);
+#else
+    return false;
+#endif
+}
+
+bool GenTreeHWIntrinsic::IsContainable() const
+{
+    switch (m_intrinsic)
     {
 #ifdef TARGET_XARCH
         case NI_SSE_LoadAlignedVector128:
@@ -11850,21 +11868,20 @@ bool GenTree::isContainableHWIntrinsic() const
 #endif
         case NI_Vector128_get_Zero:
             return true;
-
         default:
             return false;
     }
 }
 
-bool GenTree::isRMWHWIntrinsic(Compiler* comp)
+bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 {
 #if defined(TARGET_XARCH)
     if (!comp->canUseVexEncoding())
     {
-        return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
+        return HWIntrinsicInfo::HasRMWSemantics(m_intrinsic);
     }
 
-    switch (AsHWIntrinsic()->GetIntrinsic())
+    switch (m_intrinsic)
     {
         // TODO-XArch-Cleanup: Move this switch block to be table driven.
 
@@ -11885,7 +11902,7 @@ bool GenTree::isRMWHWIntrinsic(Compiler* comp)
             return false;
     }
 #elif defined(TARGET_ARM64)
-    return HWIntrinsicInfo::HasRMWSemantics(AsHWIntrinsic()->GetIntrinsic());
+    return HWIntrinsicInfo::HasRMWSemantics(m_intrinsic);
 #else
     return false;
 #endif

@@ -179,7 +179,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
         opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
     }
 
-    const bool isRMW         = node->isRMWHWIntrinsic(compiler);
+    const bool isRMW         = node->IsRMW(compiler);
     const bool hasImmOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
 
     regNumber defReg = node->GetRegNum();

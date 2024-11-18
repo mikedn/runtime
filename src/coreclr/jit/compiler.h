@@ -5470,6 +5470,7 @@ private:
         return ((opts.compSupportsISA & (1ULL << isa)) != 0);
     }
 
+public:
     bool canUseVexEncoding() const
     {
 #ifdef TARGET_XARCH

@@ -1537,7 +1537,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
 
         var_types baseType  = node->GetSimdBaseType();
-        bool      isRMW     = node->isRMWHWIntrinsic(compiler);
+        bool      isRMW     = node->IsRMW(compiler);
         bool      buildUses = true;
 
         auto BuildOperand = [this](GenTree* node) {

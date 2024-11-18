@@ -826,11 +826,7 @@ public:
     }
 
 #ifdef DEBUG
-    bool CanBeContained() const
-    {
-        return ((OperKind() & GTK_NOCONTAIN) == 0) && (!OperIsHWIntrinsic() || isContainableHWIntrinsic()) &&
-               IsValue() && !IsUnusedValue() && !HasRegs();
-    }
+    bool CanBeContained() const;
 #endif
 
     void SetContained()
@@ -1370,36 +1366,12 @@ public:
         return OperIsSimple(gtOper);
     }
 
-#ifdef FEATURE_HW_INTRINSICS
-    bool isCommutativeHWIntrinsic() const;
-    bool isContainableHWIntrinsic() const;
-    bool isRMWHWIntrinsic(Compiler* comp);
-#else
-    bool isCommutativeHWIntrinsic() const
-    {
-        return false;
-    }
-
-    bool isContainableHWIntrinsic() const
-    {
-        return false;
-    }
-
-    bool isRMWHWIntrinsic(Compiler* comp)
-    {
-        return false;
-    }
-#endif // FEATURE_HW_INTRINSICS
-
     static bool OperIsCommutative(genTreeOps oper)
     {
         return (OperKind(oper) & GTK_COMMUTE) != 0;
     }
 
-    bool OperIsCommutative()
-    {
-        return OperIsCommutative(gtOper) || (OperIsHWIntrinsic(gtOper) && isCommutativeHWIntrinsic());
-    }
+    bool OperIsCommutative() const;
 
     static bool IsOverflowOp(genTreeOps oper)
     {
@@ -5625,6 +5597,10 @@ public:
     {
         return m_numOps == 3;
     }
+
+    bool IsCommutative() const;
+    bool IsContainable() const;
+    bool IsRMW(Compiler* comp) const;
 
     GenTree* GetOp(unsigned index) const
     {
