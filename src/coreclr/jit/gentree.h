@@ -1371,8 +1371,6 @@ public:
         return (OperKind(oper) & GTK_COMMUTE) != 0;
     }
 
-    bool OperIsCommutative() const;
-
     static bool IsOverflowOp(genTreeOps oper)
     {
         switch (oper)
@@ -2392,10 +2390,13 @@ struct GenTreeOp : public GenTreeUnOp
         }
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeOp() : GenTreeUnOp(), gtOp2(nullptr)
+    bool IsCommutative() const
     {
+        return OperIsCommutative(gtOper);
     }
+
+#if DEBUGGABLE_GENTREE
+    GenTreeOp() = default;
 #endif
 };
 
@@ -3694,6 +3695,8 @@ public:
         m_field = {typeNum, offset, fieldSeq};
     }
 
+    bool IsCommutative() = delete;
+
 #if DEBUGGABLE_GENTREE
     GenTreeInsert() = default;
 #endif
@@ -3737,6 +3740,8 @@ public:
     }
 
     ClassLayout* GetLayout(Compiler* compiler) const;
+
+    bool IsCommutative() = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeExtract() = default;
@@ -5209,6 +5214,7 @@ struct GenTreeTernaryOp : public GenTreeOp
     const GenTreeUnOp* AsUnOp() const            = delete;
     GenTreeOp*         AsOp()                    = delete;
     const GenTreeOp*   AsOp() const              = delete;
+    bool               IsCommutative()           = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeTernaryOp() : GenTreeOp()
@@ -5302,8 +5308,6 @@ struct GenTreeQmark : public GenTreeTernaryOp
 #endif
 };
 
-/* gtIntrinsic   -- intrinsic   (possibly-binary op [NULL op2 is allowed] with an additional field) */
-
 struct GenTreeIntrinsic : public GenTreeOp
 {
 private:
@@ -5344,10 +5348,10 @@ public:
         return m_intrinsicName;
     }
 
+    bool IsCommutative() = delete;
+
 #if DEBUGGABLE_GENTREE
-    GenTreeIntrinsic() : GenTreeOp()
-    {
-    }
+    GenTreeIntrinsic() = default;
 #endif
 };
 
@@ -5797,10 +5801,10 @@ public:
 
     ClassLayout* GetLayout(Compiler* compiler) const;
 
+    bool IsCommutative() = delete;
+
 #if DEBUGGABLE_GENTREE
-    GenTreeIndexAddr() : GenTreeOp()
-    {
-    }
+    GenTreeIndexAddr() = default;
 #endif
 };
 
@@ -5908,6 +5912,8 @@ struct GenTreeBoundsChk : public GenTreeOp
         return (c1->GetOper() == c2->GetOper()) && (c1->m_throwKind == c2->m_throwKind) &&
                Compare(c1->gtOp1, c2->gtOp1) && Compare(c1->gtOp2, c2->gtOp2);
     }
+
+    bool IsCommutative() = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeBoundsChk() = default;
@@ -6047,6 +6053,8 @@ struct GenTreeArrIndex : public GenTreeOp
     {
         return gtOp2;
     }
+
+    bool IsCommutative() = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeArrIndex() = default;
@@ -6227,6 +6235,8 @@ public:
         m_offset = offset;
     }
 
+    bool IsCommutative() = delete;
+
 #if DEBUGGABLE_GENTREE
     GenTreeAddrMode() = default;
 #endif
@@ -6304,6 +6314,8 @@ public:
     {
         return (gtFlags & GTF_IND_INVARIANT) != 0;
     }
+
+    bool IsCommutative() = delete;
 
 #if DEBUGGABLE_GENTREE
     GenTreeIndir() = default;

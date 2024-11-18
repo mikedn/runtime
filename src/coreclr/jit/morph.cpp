@@ -11388,10 +11388,10 @@ GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
     assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH));
 
     genTreeOps oper = tree->GetOper();
-    GenTree*   op1  = tree->gtOp1;
-    GenTree*   op2  = tree->gtOp2;
+    GenTree*   op1  = tree->GetOp(0);
+    GenTree*   op2  = tree->GetOp(1);
 
-    if (fgGlobalMorph && GenTree::OperIsCommutative(oper))
+    if (fgGlobalMorph && tree->IsCommutative())
     {
         if (tree->IsReverseOp())
         {

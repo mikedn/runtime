@@ -51,7 +51,7 @@ GTNODE(COPY             , GenTreeCopyOrReload , GTK_UNOP) // Copies a variable f
                                                           // code generation constraints. The child is the actual lclVar node.
 GTNODE(RELOAD           , GenTreeCopyOrReload , GTK_UNOP)
 
-GTNODE(INTRINSIC        , GenTreeIntrinsic    , GTK_BINOP|GTK_EXOP)     
+GTNODE(INTRINSIC        , GenTreeIntrinsic    , GTK_BINOP|GTK_EXOP)
 
 GTNODE(LOCKADD          , GenTreeOp           , GTK_BINOP|GTK_NOVALUE)
 GTNODE(XAND             , GenTreeOp           , GTK_BINOP)

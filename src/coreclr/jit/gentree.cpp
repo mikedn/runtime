@@ -3142,7 +3142,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 FALLTHROUGH;
             default:
                 // TODO-MIKE-Review: Shouldn't we simply force a swap if op1 is const and ignore costs?
-                if (((level1 + level2) == 0) && op1->OperIsConst() && tree->OperIsCommutative())
+                if (((level1 + level2) == 0) && op1->OperIsConst() && tree->AsOp()->IsCommutative())
                 {
                     level2++;
                 }
@@ -11816,15 +11816,6 @@ void FieldSeqStore::DebugCheck(FieldSeqNode* f)
 }
 #endif // DEBUG
 
-bool GenTree::OperIsCommutative() const
-{
-    return OperIsCommutative(gtOper)
-#ifdef FEATURE_HW_INTRINSICS
-           || (IsHWIntrinsic() && AsHWIntrinsic()->IsCommutative())
-#endif
-        ;
-}
-
 #ifdef DEBUG
 bool GenTree::CanBeContained() const
 {
@@ -11834,18 +11825,8 @@ bool GenTree::CanBeContained() const
 #endif
            IsValue() && !IsUnusedValue() && !HasRegs();
 }
-#endif
 
 #ifdef FEATURE_HW_INTRINSICS
-bool GenTreeHWIntrinsic::IsCommutative() const
-{
-#ifdef TARGET_XARCH
-    return HWIntrinsicInfo::IsCommutative(m_intrinsic);
-#else
-    return false;
-#endif
-}
-
 bool GenTreeHWIntrinsic::IsContainable() const
 {
     switch (m_intrinsic)
@@ -11871,6 +11852,18 @@ bool GenTreeHWIntrinsic::IsContainable() const
         default:
             return false;
     }
+}
+#endif // FEATURE_HW_INTRINSICS
+#endif // DEBUG
+
+#ifdef FEATURE_HW_INTRINSICS
+bool GenTreeHWIntrinsic::IsCommutative() const
+{
+#ifdef TARGET_XARCH
+    return HWIntrinsicInfo::IsCommutative(m_intrinsic);
+#else
+    return false;
+#endif
 }
 
 bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const

@@ -1082,7 +1082,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
         // TODO-MIKE-Cleanup: Why doesn't lowering swap the operands? Leaving this
         // to codegen would make sense if we could mark both operands reg-optional
         // but since we cannot this is just added complication.
-        assert(node->OperIsCommutative());
+        assert(node->IsCommutative());
         assert(op2->isUsedFromReg());
 
         std::swap(op1, op2);
@@ -1102,7 +1102,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     }
     else if (reg2 == dstReg)
     {
-        assert(node->OperIsCommutative());
+        assert(node->IsCommutative());
 
         src = op1;
     }

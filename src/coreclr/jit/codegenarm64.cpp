@@ -1740,7 +1740,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 
     GenTreeIntCon* immOp = op2->IsContainedIntCon();
 
-    if ((immOp == nullptr) && node->OperIsCommutative())
+    if ((immOp == nullptr) && node->IsCommutative())
     {
         immOp = op1->IsContainedIntCon();
 

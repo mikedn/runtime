@@ -529,7 +529,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
 #endif
 
     bool prefOp1 = !op1->isContained();
-    bool prefOp2 = node->OperIsCommutative() && !op2->isContained();
+    bool prefOp2 = node->IsCommutative() && !op2->isContained();
 
     // Determine which operand, if any, should be delayRegFree. Normally, this would be op2,
     // but if we have a commutative operator and op1 is a contained memory op, it would be op1.
@@ -542,7 +542,7 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     // operands. Also, we may need to handle more cases than IND_LOAD (e.g. spill temps).
     GenTree* delayUseOperand = op2;
 
-    if (node->OperIsCommutative())
+    if (node->IsCommutative())
     {
         if (op1->isContained() && op2 != nullptr)
         {

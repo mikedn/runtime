@@ -133,7 +133,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                     // as target. However, for commutative intrinsics, we can just swap the operands
                     // in order to have "reg2 = reg2 op reg1" which will end up producing the right code.
 
-                    noway_assert(node->OperIsCommutative());
+                    noway_assert(node->IsCommutative());
                     op2Reg = op1Reg;
                     op1Reg = dstReg;
                 }
@@ -515,7 +515,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
 
     assert(targetReg != REG_NA);
-    assert(!node->OperIsCommutative()); // One operand intrinsics cannot be commutative
+    assert(!node->IsCommutative()); // One operand intrinsics cannot be commutative
 
     if (op1->isContained() || op1->isUsedFromSpillTemp())
     {
@@ -685,7 +685,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             // as target. However, for commutative intrinsics, we can just swap the operands
             // in order to have "reg2 = reg2 op reg1" which will end up producing the right code.
 
-            noway_assert(node->OperIsCommutative());
+            noway_assert(node->IsCommutative());
             op2Reg = op1Reg;
             op1Reg = targetReg;
         }
@@ -1331,7 +1331,7 @@ void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
     assert(targetReg != REG_NA);
     assert(op1Reg != REG_NA);
     assert(op2 != nullptr);
-    assert(!node->OperIsCommutative());
+    assert(!node->IsCommutative());
 
     switch (intrinsicId)
     {

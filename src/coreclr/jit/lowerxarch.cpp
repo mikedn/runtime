@@ -3152,7 +3152,8 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
         GenTree* op1 = op->AsOp()->GetOp(0);
         GenTree* op2 = op->AsOp()->GetOp(1);
 
-        if (op->OperIsCommutative() && op2->OperIs(GT_IND_LOAD) && IsIndLoadRMWCandidate(store, op2->AsIndLoad(), op1))
+        if (op->AsOp()->IsCommutative() && op2->OperIs(GT_IND_LOAD) &&
+            IsIndLoadRMWCandidate(store, op2->AsIndLoad(), op1))
         {
             return op2->AsIndLoad();
         }
@@ -3219,7 +3220,7 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
 {
     assert(tree->OperIsBinary());
-    assert(tree->OperIsCommutative() || tree->OperIsCompare() || tree->OperIs(GT_CMP));
+    assert(tree->IsCommutative() || tree->OperIsCompare() || tree->OperIs(GT_CMP));
 
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
@@ -3617,7 +3618,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         {
             load = op1;
         }
-        else if ((op2 != nullptr) && src->OperIsCommutative() && op2->IsLclVarCommon() &&
+        else if ((op2 != nullptr) && src->AsOp()->IsCommutative() && op2->IsLclVarCommon() &&
                  (op2->AsLclVarCommon()->GetLcl() == lcl) && (op2->AsLclVarCommon()->GetLclOffs() == lclOffs))
         {
             load = op2;
@@ -3907,7 +3908,7 @@ void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 
         if (load == src)
         {
-            assert(op->OperIsCommutative());
+            assert(op->AsOp()->IsCommutative());
 
             src = op->AsOp()->GetOp(0);
             op->AsOp()->SetOp(0, load);
@@ -3985,7 +3986,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         }
     }
 
-    if (node->OperIsCommutative())
+    if (node->IsCommutative())
     {
         if ((varTypeSize(op1->GetType()) == operatorSize) && IsMemOperand(op1))
         {
@@ -4047,7 +4048,7 @@ void Lowering::SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, boo
 
     const unsigned operatorSize = varTypeSize(tree->GetType());
 
-    const bool op1Legal = isSafeToMarkOp1 && tree->OperIsCommutative() && (operatorSize == varTypeSize(op1->GetType()));
+    const bool op1Legal = isSafeToMarkOp1 && tree->IsCommutative() && (operatorSize == varTypeSize(op1->GetType()));
     const bool op2Legal = isSafeToMarkOp2 && (operatorSize == varTypeSize(op2->GetType()));
 
     GenTree* regOptionalOperand = nullptr;
@@ -5106,7 +5107,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         }
     }
 
-    if (!op2->isContained() && node->OperIsCommutative())
+    if (!op2->isContained() && node->IsCommutative())
     {
         // Though we have GT_ADD(op1=memOp, op2=non-memOp, we try to reorder the operands
         // as long as it is safe so that the following efficient code sequence is generated:
