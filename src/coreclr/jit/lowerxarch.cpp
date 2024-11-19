@@ -1190,7 +1190,7 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        if (!use.GetNode()->OperIsHWIntrinsic() ||
+        if (!use.GetNode()->IsHWIntrinsic() ||
             (use.GetNode()->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_CreateScalarUnsafe))
         {
             // Math(F).FusedMultiplyAdd is expected to emit three NI_Vector128_CreateScalarUnsafe
@@ -1250,7 +1250,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 LowerHWIntrinsicCreate(node);
             }
-            assert(!node->OperIsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
             LowerNode(node);
             return;
 
@@ -4191,7 +4191,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
     switch (category)
     {
         case HW_Category_MemoryLoad:
-            supportsGeneralLoads = (!node->OperIsHWIntrinsic());
+            supportsGeneralLoads = !node->IsHWIntrinsic();
             break;
 
         case HW_Category_SimpleSIMD:
@@ -4204,10 +4204,8 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_AVX2_ConvertToVector256Int16:
                 case NI_AVX2_ConvertToVector256Int32:
                 case NI_AVX2_ConvertToVector256Int64:
-                {
-                    supportsGeneralLoads = (!node->OperIsHWIntrinsic());
+                    supportsGeneralLoads = !node->IsHWIntrinsic();
                     break;
-                }
 
                 default:
                 {
@@ -4446,7 +4444,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
     noway_assert(supportsRegOptional != nullptr);
     *supportsRegOptional = supportsGeneralLoads;
 
-    if (!node->OperIsHWIntrinsic())
+    if (!node->IsHWIntrinsic())
     {
         return supportsGeneralLoads && IsMemOperand(node);
     }
@@ -4700,7 +4698,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 case HW_Category_MemoryStore:
                     ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
 
-                    if (((intrinsicId == NI_SSE_Store) || (intrinsicId == NI_SSE2_Store)) && op2->OperIsHWIntrinsic() &&
+                    if (((intrinsicId == NI_SSE_Store) || (intrinsicId == NI_SSE2_Store)) && op2->IsHWIntrinsic() &&
                         ((op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX_ExtractVector128) ||
                          (op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
                         op2->AsHWIntrinsic()->GetOp(1)->IsIntCon())

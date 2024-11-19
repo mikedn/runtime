@@ -1358,7 +1358,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
 
                     // TODO-MIKE-Cleanup: So why bother at all?
 
-                    assert(arg->OperIsHWIntrinsic() || arg->OperIs(GT_IND_LOAD));
+                    assert(arg->IsHWIntrinsic() || arg->OperIs(GT_IND_LOAD));
                     tempLcl->lvType = arg->GetType();
                 }
 
@@ -8350,7 +8350,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         JITDUMP("src is a call\n");
         promote = false;
     }
-    else if (src->OperIsHWIntrinsic())
+    else if (src->IsHWIntrinsic())
     {
         JITDUMP("src is a HWINTRINSIC node\n");
         promote = false;
@@ -12679,7 +12679,7 @@ bool Compiler::fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
 
     GenTree* tree = stmt->GetRootNode();
 
-    if (tree->IsControlFlow() || tree->OperIsHWIntrinsic() || tree->OperIs(GT_NO_OP))
+    if (tree->IsControlFlow() || tree->IsHWIntrinsic() || tree->OperIs(GT_NO_OP))
     {
         return false;
     }

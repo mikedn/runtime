@@ -1138,7 +1138,7 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || OperIsHWIntrinsic());
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || IsHWIntrinsic());
             return false;
         }
 
@@ -1443,19 +1443,12 @@ public:
         }
     }
 
-    static bool OperIsHWIntrinsic(genTreeOps oper)
+#ifndef FEATURE_HW_INTRINSICS
+    bool IsHWIntrinsic() const
     {
-#ifdef FEATURE_HW_INTRINSICS
-        return oper == GT_HWINTRINSIC;
-#else
         return false;
+    }
 #endif
-    }
-
-    bool OperIsHWIntrinsic() const
-    {
-        return OperIsHWIntrinsic(gtOper);
-    }
 
     bool OperIsConditionalJump() const
     {

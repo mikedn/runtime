@@ -276,7 +276,7 @@ LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenT
 
             // TODO-MIKE-Cleanup: So if it's enough why bother to begin with?
 
-            assert(def->OperIsHWIntrinsic() || def->OperIs(GT_IND_LOAD));
+            assert(def->IsHWIntrinsic() || def->OperIs(GT_IND_LOAD));
 
             lcl->lvType = type;
         }

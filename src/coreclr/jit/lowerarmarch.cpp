@@ -423,7 +423,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 LowerHWIntrinsicCreate(node);
             }
-            assert(!node->OperIsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
             LowerNode(node);
             return;
 

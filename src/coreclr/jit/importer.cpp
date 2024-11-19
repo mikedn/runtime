@@ -952,7 +952,7 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
         }
     }
 
-    if (value->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ) || value->OperIsHWIntrinsic())
+    if (value->OperIs(GT_LCL_LOAD, GT_IND_LOAD_OBJ) || value->IsHWIntrinsic())
     {
         if (store->OperIs(GT_LCL_STORE))
         {
