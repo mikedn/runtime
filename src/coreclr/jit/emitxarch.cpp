@@ -4483,6 +4483,24 @@ private:
                 case INS_pinsrq:
                     mattr = EA_8BYTE;
                     break;
+                case INS_pmovsxbw:
+                case INS_pmovzxbw:
+                case INS_pmovsxwd:
+                case INS_pmovzxwd:
+                case INS_pmovsxdq:
+                case INS_pmovzxdq:
+                    mattr = attr == EA_32BYTE ? EA_16BYTE : EA_8BYTE;
+                    break;
+                case INS_pmovsxbd:
+                case INS_pmovzxbd:
+                case INS_pmovsxwq:
+                case INS_pmovzxwq:
+                    mattr = attr == EA_32BYTE ? EA_8BYTE : EA_4BYTE;
+                    break;
+                case INS_pmovsxbq:
+                case INS_pmovzxbq:
+                    mattr = attr == EA_32BYTE ? EA_4BYTE : EA_2BYTE;
+                    break;
                 case INS_lea:
                     mattr = EA_UNKNOWN;
                     break;
