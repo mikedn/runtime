@@ -13892,16 +13892,16 @@ GenTree* Compiler::fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 
     GenTreeFlags sideEffects = GTF_NONE;
 
-    if (tree->AsHWIntrinsic()->IsMemoryLoadOrStore())
+    if (tree->IsMemoryLoadOrStore())
     {
         sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
-        if (tree->AsHWIntrinsic()->IsMemoryStore())
+        if (tree->IsMemoryStore())
         {
             sideEffects |= GTF_ASG;
         }
     }
 
-    for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
+    for (GenTreeHWIntrinsic::Use& use : tree->Uses())
     {
         use.SetNode(fgMorphTree(use.GetNode()));
         sideEffects |= use.GetNode()->GetSideEffects();
