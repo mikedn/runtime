@@ -4352,9 +4352,35 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
     // a VNF_BitCast to FLOAT. But then the 2 loads still get different value numbers
     // and it would be up to CSE to figure out that it can replace the FLOAT load with
     // a BITCAST of the CSEd INT load. Probably too much work to be worthwhile.
-    ValueNum typeVN = vnStore->VNForIntCon(type);
+    ValueNum typeVN  = vnStore->VNForIntCon(type);
+    ValueNum valueVN = vnStore->VNForFunc(varActualType(type), VNF_MemLoad, typeVN, addrVN, memoryVN);
 
-    return vnStore->VNForFunc(type, VNF_MemLoad, typeVN, addrVN, memoryVN);
+    if (varTypeIsSmall(type))
+    {
+        VNFunc vnf;
+
+        switch (type)
+        {
+            case TYP_UBYTE:
+            case TYP_BOOL:
+                vnf = VNF_CONVU8;
+                break;
+            case TYP_BYTE:
+                vnf = VNF_CONVS8;
+                break;
+            case TYP_SHORT:
+                vnf = VNF_CONVS16;
+                break;
+            default:
+                assert(type == TYP_USHORT);
+                vnf = VNF_CONVU16;
+                break;
+        }
+
+        valueVN = vnStore->VNForFunc(TYP_INT, vnf, valueVN);
+    }
+
+    return valueVN;
 }
 
 //------------------------------------------------------------------------
