@@ -7295,10 +7295,9 @@ ValueNum ValueNumStore::VNForCast(ValueNum vn, var_types toType)
                 return VNForFunc(TYP_INT, VNOP_TRUNC, vn);
             }
 
-            if (vnType == TYP_INT)
-            {
-                return vn;
-            }
+            assert(vnType == TYP_INT);
+
+            return vn;
         }
     }
 
