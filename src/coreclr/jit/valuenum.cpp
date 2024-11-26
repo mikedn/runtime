@@ -3122,6 +3122,20 @@ ValueNumPair ValueNumbering::CastStruct(ValueNumPair valueVNP, ClassLayout* from
             CastStruct(VNK_Conservative, valueVNP.GetConservative(), fromLayout, toLayout)};
 }
 
+static VNFunc GetConvFunc(var_types type)
+{
+    assert(varTypeIsSmall(type));
+
+    static constexpr VNFunc funcs[]{VNF_CONVU8, VNF_CONVS8, VNF_CONVU8, VNF_CONVS16, VNF_CONVU16};
+    static_assert_no_msg(funcs[TYP_BOOL - TYP_BOOL] == VNF_CONVU8);
+    static_assert_no_msg(funcs[TYP_BYTE - TYP_BOOL] == VNF_CONVS8);
+    static_assert_no_msg(funcs[TYP_UBYTE - TYP_BOOL] == VNF_CONVU8);
+    static_assert_no_msg(funcs[TYP_SHORT - TYP_BOOL] == VNF_CONVS16);
+    static_assert_no_msg(funcs[TYP_USHORT - TYP_BOOL] == VNF_CONVU16);
+
+    return funcs[type - TYP_BOOL];
+}
+
 ValueNum ValueNumbering::CoerceStoreValue(
     GenTree* store, GenTree* value, ValueNumKind vnk, var_types fieldType, ClassLayout* fieldLayout)
 {
@@ -3211,23 +3225,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
         }
         else if (varTypeIsIntegral(valueType) && varTypeIsSmall(fieldType))
         {
-            switch (fieldType)
-            {
-                case TYP_BOOL:
-                case TYP_UBYTE:
-                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVU8, valueVN);
-                    break;
-                case TYP_BYTE:
-                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVS8, valueVN);
-                    break;
-                case TYP_SHORT:
-                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVS16, valueVN);
-                    break;
-                default:
-                    assert(fieldType = TYP_USHORT);
-                    valueVN = vnStore->VNForFunc(TYP_INT, VNF_CONVU16, valueVN);
-                    break;
-            }
+            valueVN = vnStore->VNForFunc(TYP_INT, GetConvFunc(fieldType), valueVN);
         }
         else if (varTypeSize(varActualType(valueType)) == varTypeSize(fieldType))
         {
@@ -4357,27 +4355,7 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
 
     if (varTypeIsSmall(type))
     {
-        VNFunc vnf;
-
-        switch (type)
-        {
-            case TYP_UBYTE:
-            case TYP_BOOL:
-                vnf = VNF_CONVU8;
-                break;
-            case TYP_BYTE:
-                vnf = VNF_CONVS8;
-                break;
-            case TYP_SHORT:
-                vnf = VNF_CONVS16;
-                break;
-            default:
-                assert(type == TYP_USHORT);
-                vnf = VNF_CONVU16;
-                break;
-        }
-
-        valueVN = vnStore->VNForFunc(TYP_INT, vnf, valueVN);
+        valueVN = vnStore->VNForFunc(TYP_INT, GetConvFunc(type), valueVN);
     }
 
     return valueVN;
@@ -7255,26 +7233,8 @@ void ValueNumbering::NumberConv(GenTreeUnOp* node)
 
     ValueNumPair exset;
     ValueNumPair vnp = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset);
-    VNFunc       vnf;
 
-    switch (node->GetType())
-    {
-        case TYP_UBYTE:
-            vnf = VNF_CONVU8;
-            break;
-        case TYP_BYTE:
-            vnf = VNF_CONVS8;
-            break;
-        case TYP_SHORT:
-            vnf = VNF_CONVS16;
-            break;
-        default:
-            assert(node->TypeIs(TYP_USHORT));
-            vnf = VNF_CONVU16;
-            break;
-    }
-
-    vnp = vnStore->VNPairForFunc(TYP_INT, vnf, vnp);
+    vnp = vnStore->VNPairForFunc(TYP_INT, GetConvFunc(node->GetType()), vnp);
     node->SetVNP(vnStore->PackExset(vnp, exset));
 }
 
@@ -7318,39 +7278,27 @@ ValueNum ValueNumStore::VNForCast(ValueNum vn, var_types toType)
 
     if (varTypeIsIntegral(vnType))
     {
-        switch (toType)
+        if (varTypeIsSmall(toType))
         {
-            case TYP_BOOL:
-            case TYP_UBYTE:
-                return VNForFunc(TYP_INT, VNF_CONVU8, vn);
-            case TYP_BYTE:
-                return VNForFunc(TYP_INT, VNF_CONVS8, vn);
-            case TYP_SHORT:
-                return VNForFunc(TYP_INT, VNF_CONVS16, vn);
-            case TYP_USHORT:
-                return VNForFunc(TYP_INT, VNF_CONVU16, vn);
-            case TYP_INT:
-                switch (vnType)
-                {
-                    case TYP_BOOL:
-                    case TYP_UBYTE:
-                        return VNForFunc(TYP_INT, VNF_CONVU8, vn);
-                    case TYP_BYTE:
-                        return VNForFunc(TYP_INT, VNF_CONVS8, vn);
-                    case TYP_SHORT:
-                        return VNForFunc(TYP_INT, VNF_CONVS16, vn);
-                    case TYP_USHORT:
-                        return VNForFunc(TYP_INT, VNF_CONVU16, vn);
-                    case TYP_INT:
-                        return vn;
-                    case TYP_LONG:
-                        return VNForFunc(TYP_INT, VNOP_TRUNC, vn);
-                    default:
-                        break;
-                }
-                break;
-            default:
-                break;
+            return VNForFunc(TYP_INT, GetConvFunc(toType), vn);
+        }
+
+        if (toType == TYP_INT)
+        {
+            if (varTypeIsSmall(vnType))
+            {
+                return VNForFunc(TYP_INT, GetConvFunc(vnType), vn);
+            }
+
+            if (vnType == TYP_LONG)
+            {
+                return VNForFunc(TYP_INT, VNOP_TRUNC, vn);
+            }
+
+            if (vnType == TYP_INT)
+            {
+                return vn;
+            }
         }
     }
 
