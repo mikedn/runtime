@@ -833,7 +833,7 @@ public:
     }
 
 #ifdef DEBUG
-    void Dump(ValueNum vn, bool isPtr = false);
+    void Dump(ValueNum vn);
     void DumpFieldSeq(const VNFuncApp& fieldSeq, bool isHead);
     void DumpMapSelect(const VNFuncApp& mapSelect);
     void DumpMapStore(const VNFuncApp& mapStore);

@@ -4948,7 +4948,7 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 
 #ifdef DEBUG
 
-void ValueNumStore::Dump(ValueNum vn, bool isPtr)
+void ValueNumStore::Dump(ValueNum vn)
 {
     VNFuncApp funcApp;
 
@@ -4969,46 +4969,32 @@ void ValueNumStore::Dump(ValueNum vn, bool isPtr)
             case TYP_INT:
             {
                 int32_t val = GetConstInt32(vn);
-                if (isPtr)
+                printf("IntCns");
+                if ((val > -1000) && (val < 1000))
                 {
-                    printf("PtrCns[%p]", dspPtr(val));
+                    printf(" %ld", val);
                 }
                 else
                 {
-                    printf("IntCns");
-                    if ((val > -1000) && (val < 1000))
-                    {
-                        printf(" %ld", val);
-                    }
-                    else
-                    {
-                        printf(" 0x%X", val);
-                    }
+                    printf(" 0x%X", val);
                 }
             }
             break;
             case TYP_LONG:
             {
                 int64_t val = GetConstInt64(vn);
-                if (isPtr)
+                printf("LngCns: ");
+                if ((val > -1000) && (val < 1000))
                 {
-                    printf("LngPtrCns: 0x%p", dspPtr(val));
+                    printf(" %ld", val);
+                }
+                else if ((val & 0xFFFFFFFF00000000LL) == 0)
+                {
+                    printf(" 0x%X", val);
                 }
                 else
                 {
-                    printf("LngCns: ");
-                    if ((val > -1000) && (val < 1000))
-                    {
-                        printf(" %ld", val);
-                    }
-                    else if ((val & 0xFFFFFFFF00000000LL) == 0)
-                    {
-                        printf(" 0x%X", val);
-                    }
-                    else
-                    {
-                        printf(" 0x%llx", val);
-                    }
+                    printf(" 0x%llx", val);
                 }
             }
             break;
@@ -5278,7 +5264,7 @@ void ValueNumStore::DumpLclAddr(const VNFuncApp& func)
     ValueNum      fieldSeqVN = func[2];
 
     printf("LclAddr(V%02u, @%u,", lclNum, static_cast<unsigned>(offset));
-    Dump(fieldSeqVN, false);
+    Dump(fieldSeqVN);
     printf(")");
 }
 
