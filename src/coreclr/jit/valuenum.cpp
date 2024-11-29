@@ -5883,8 +5883,9 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
     for (; (stmt != nullptr) && stmt->GetRootNode()->IsPhiDef(); stmt = stmt->GetNextStmt())
     {
-        GenTreeLclDef* def = stmt->GetRootNode()->AsLclDef();
-        GenTreePhi*    phi = def->GetValue()->AsPhi();
+        GenTreeLclDef* def  = stmt->GetRootNode()->AsLclDef();
+        GenTreePhi*    phi  = def->GetValue()->AsPhi();
+        var_types      type = def->GetType();
         ValueNumPair   phiVNP;
         ValueNumPair   argsVNP;
         bool           isMeaningless = true;
@@ -5897,7 +5898,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             if (argVNP.GetLiberal() == NoVN)
             {
-                argVNP.SetBoth(vnStore->VNForFunc(def->GetType(), VNF_PhiArgDef, vnStore->VNForHostPtr(argDef)));
+                argVNP.SetBoth(vnStore->VNForFunc(varActualType(type), VNF_PhiArgDef, vnStore->VNForHostPtr(argDef)));
                 INDEBUG(vnStore->Trace(argVNP));
             }
 
@@ -5911,7 +5912,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             else
             {
                 isMeaningless &= (phiVNP == argVNP);
-                argsVNP = vnStore->VNPairForFunc(def->GetType(), VNF_PhiArgs, argVNP, argsVNP);
+                argsVNP = vnStore->VNPairForFunc(varActualType(type), VNF_PhiArgs, argVNP, argsVNP);
                 INDEBUG(vnStore->Trace(argsVNP));
             }
         }
@@ -5929,8 +5930,7 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             ValueNum lclNumVN = vnStore->VNForIntCon(def->GetLcl()->GetLclNum());
 
-            phiVNP =
-                vnStore->VNPairForFunc(def->GetType(), VNF_Phi, argsVNP, ValueNumPair{blockVN}, ValueNumPair{lclNumVN});
+            phiVNP = vnStore->VNPairForFunc(type, VNF_Phi, argsVNP, ValueNumPair{blockVN}, ValueNumPair{lclNumVN});
         }
 
         def->SetVNP(phiVNP);
