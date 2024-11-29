@@ -5723,7 +5723,7 @@ void ValueNumbering::NumberInitDefs()
     for (GenTreeLclDef* def = ssa.GetInitLclDefs(); def != nullptr; def = static_cast<GenTreeLclDef*>(def->gtNext))
     {
         LclVarDsc* lcl      = def->GetLcl();
-        var_types  type     = lcl->GetType();
+        var_types  type     = varActualType(lcl->GetType());
         bool       isZeroed = false;
 
         if (!lcl->IsParam())
