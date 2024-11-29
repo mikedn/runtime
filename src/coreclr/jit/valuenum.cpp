@@ -3539,7 +3539,14 @@ void ValueNumbering::NumberLclLoad(GenTreeLclLoad* load)
 
     if (!load->GetLcl()->IsAddressExposed())
     {
-        load->SetVNP(ValueNumPair{vnStore->VNForExpr(load->GetType())});
+        ValueNum valueVN = vnStore->VNForExpr(load->GetType());
+
+        if (varTypeIsSmall(load->GetType()))
+        {
+            valueVN = vnStore->VNForFunc(TYP_INT, GetConvFunc(load->GetType()), valueVN);
+        }
+
+        load->SetVNP(ValueNumPair{valueVN});
 
         return;
     }
