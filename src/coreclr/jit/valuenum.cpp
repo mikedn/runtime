@@ -6540,8 +6540,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
         case GT_CATCH_ARG:
-            // We know nothing about the value of a caught expression.
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
+            assert(node->TypeIs(TYP_REF));
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_REF)});
             break;
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
