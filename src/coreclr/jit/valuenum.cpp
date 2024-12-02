@@ -6656,36 +6656,6 @@ void ValueNumbering::NumberNode(GenTree* node)
                 node->SetVNP(node->AsUnOp()->GetOp(0)->GetVNP());
             }
             break;
-        case GT_DIV:
-        case GT_UDIV:
-        case GT_MOD:
-        case GT_UMOD:
-            NumberDivMod(node->AsOp());
-            break;
-        case GT_OVF_SADD:
-        case GT_OVF_UADD:
-        case GT_OVF_SSUB:
-        case GT_OVF_USUB:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            NumberOvfBinOp(node->AsOp());
-            break;
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        {
-            ValueNumPair exset1;
-            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
-            ValueNumPair exset2;
-            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-            ValueNumPair vnp =
-                vnStore->VNPairForFunc(varActualType(node->GetType()), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
-            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-            break;
-        }
         case GT_NOT:
         case GT_NEG:
         case GT_BSWAP:
@@ -6709,6 +6679,22 @@ void ValueNumbering::NumberNode(GenTree* node)
             ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
             vnp              = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
             node->SetVNP(vnStore->PackExset(vnp, exset));
+            break;
+        }
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+        {
+            ValueNumPair exset1;
+            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+            ValueNumPair exset2;
+            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+            ValueNumPair vnp =
+                vnStore->VNPairForFunc(varActualType(node->GetType()), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
+            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
             break;
         }
         case GT_ADD:
@@ -6754,6 +6740,20 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
             break;
         }
+        case GT_DIV:
+        case GT_UDIV:
+        case GT_MOD:
+        case GT_UMOD:
+            NumberDivMod(node->AsOp());
+            break;
+        case GT_OVF_SADD:
+        case GT_OVF_UADD:
+        case GT_OVF_SSUB:
+        case GT_OVF_USUB:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+            NumberOvfBinOp(node->AsOp());
+            break;
         default:
             unreached();
     }
