@@ -6470,9 +6470,7 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 
 void ValueNumbering::NumberNode(GenTree* node)
 {
-    genTreeOps oper = node->GetOper();
-
-    switch (oper)
+    switch (node->GetOper())
     {
         case GT_CNS_INT:
             node->SetVNP(ValueNumPair{GetIntConVN(node->AsIntCon())});
@@ -6635,9 +6633,10 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_LABEL:
         // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
         case GT_ARR_ELEM:
-        // TODO-MIKE-Review: Does FIELD_LIST need a VN?
-        case GT_FIELD_LIST:
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
+            break;
+        case GT_FIELD_LIST:
+            assert(node->TypeIs(TYP_STRUCT));
             break;
         case GT_CKFINITE:
             NumbeCkFinite(node->AsUnOp());
@@ -6719,7 +6718,6 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_RSZ:
         case GT_ROL:
         case GT_ROR:
-        case GT_INDEX_ADDR:
         case GT_FADD:
         case GT_FSUB:
         case GT_FMUL:
