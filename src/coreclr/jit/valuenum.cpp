@@ -6628,15 +6628,20 @@ void ValueNumbering::NumberNode(GenTree* node)
             NumberHWIntrinsic(node->AsHWIntrinsic());
             break;
 #endif
-        case GT_LCLHEAP:
-        // It is not necessary to model the StackOverflow exception for LCLHEAP
         case GT_LABEL:
-        // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
+        case GT_LCLHEAP:
+            assert(node->TypeIs(TYP_I_IMPL));
+            // It is not necessary to model the StackOverflow exception for LCLHEAP
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_I_IMPL)});
+            break;
         case GT_ARR_ELEM:
-            node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
+            assert(node->TypeIs(TYP_BYREF));
+            // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_BYREF)});
             break;
         case GT_FIELD_LIST:
             assert(node->TypeIs(TYP_STRUCT));
+            node->SetVNP(ValueNumPair{vnStore->VNForExpr(TYP_STRUCT)});
             break;
         case GT_CKFINITE:
             NumbeCkFinite(node->AsUnOp());
@@ -6680,22 +6685,6 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(vnStore->PackExset(vnp, exset));
             break;
         }
-        case GT_EQ:
-        case GT_NE:
-        case GT_LT:
-        case GT_LE:
-        case GT_GT:
-        case GT_GE:
-        {
-            ValueNumPair exset1;
-            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
-            ValueNumPair exset2;
-            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-            ValueNumPair vnp =
-                vnStore->VNPairForFunc(varActualType(node->GetType()), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
-            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-            break;
-        }
         case GT_ADD:
             ValueNum addrVN;
             addrVN = AddField(node->AsOp());
@@ -6735,6 +6724,23 @@ void ValueNumbering::NumberNode(GenTree* node)
             ValueNumPair exset2;
             ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
             ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
+            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+            break;
+        }
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+        {
+            assert(node->TypeIs(TYP_INT));
+
+            ValueNumPair exset1;
+            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+            ValueNumPair exset2;
+            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+            ValueNumPair vnp  = vnStore->VNPairForFunc(TYP_INT, GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
             node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
             break;
         }
