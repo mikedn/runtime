@@ -4634,37 +4634,21 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_FIELD_ADDR:
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
                 break;
-
             case GT_INDEX_ADDR:
                 copy = new (this, GT_INDEX_ADDR) GenTreeIndexAddr(tree->AsIndexAddr());
                 break;
-
             case GT_ALLOCOBJ:
                 copy = new (this, GT_ALLOCOBJ) GenTreeAllocObj(tree->AsAllocObj());
                 break;
-
             case GT_RUNTIMELOOKUP:
-            {
-                GenTreeRuntimeLookup* asRuntimeLookup = tree->AsRuntimeLookup();
-
-                copy = new (this, GT_RUNTIMELOOKUP)
-                    GenTreeRuntimeLookup(asRuntimeLookup->gtHnd, asRuntimeLookup->gtHndType, asRuntimeLookup->gtOp1);
-            }
-            break;
-
+                copy = new (this, GT_RUNTIMELOOKUP) GenTreeRuntimeLookup(tree->AsRuntimeLookup());
+                break;
             case GT_ARR_LENGTH:
                 copy = new (this, GT_ARR_LENGTH) GenTreeArrLen(tree->AsArrLen());
                 break;
-
             case GT_ARR_INDEX:
-                copy = new (this, GT_ARR_INDEX)
-                    GenTreeArrIndex(tree->GetType(),
-                                    gtCloneExpr(tree->AsArrIndex()->ArrObj(), addFlags, constLcl, constVal),
-                                    gtCloneExpr(tree->AsArrIndex()->IndexExpr(), addFlags, constLcl, constVal),
-                                    tree->AsArrIndex()->gtCurrDim, tree->AsArrIndex()->gtArrRank,
-                                    tree->AsArrIndex()->gtArrElemType);
+                copy = new (this, GT_ARR_INDEX) GenTreeArrIndex(tree->AsArrIndex());
                 break;
-
             case GT_LCL_STORE:
                 copy = new (this, GT_LCL_STORE) GenTreeLclStore(tree->AsLclStore());
                 break;
@@ -4680,7 +4664,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_INSERT:
                 copy = new (this, GT_INSERT) GenTreeInsert(tree->AsInsert());
                 break;
-
             case GT_NULLCHECK:
                 copy = new (this, GT_NULLCHECK) GenTreeNullCheck(tree->AsNullCheck());
                 break;
@@ -4715,11 +4698,8 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_RELOAD:
                 copy = new (this, oper) GenTreeCopyOrReload(oper, tree->GetType(), tree->AsUnOp()->GetOp(0));
                 break;
-
             case GT_BOUNDS_CHECK:
                 copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
-                copy->AsBoundsChk()->SetIndex(tree->AsBoundsChk()->GetIndex());
-                copy->AsBoundsChk()->SetLength(tree->AsBoundsChk()->GetLength());
                 break;
 
 #ifndef TARGET_64BIT

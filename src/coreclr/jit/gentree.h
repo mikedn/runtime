@@ -6037,6 +6037,15 @@ struct GenTreeArrIndex : public GenTreeOp
         gtFlags |= GTF_EXCEPT;
     }
 
+    GenTreeArrIndex(const GenTreeArrIndex* copyFrom)
+        : GenTreeOp(copyFrom)
+        , gtCurrDim(copyFrom->gtCurrDim)
+        , gtArrRank(copyFrom->gtArrRank)
+        , gtArrElemType(copyFrom->gtArrElemType)
+    {
+        gtFlags |= GTF_EXCEPT;
+    }
+
     GenTree*& ArrObj()
     {
         return gtOp1;
@@ -7300,13 +7309,18 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
     CORINFO_GENERIC_HANDLE   gtHnd;
     CorInfoGenericHandleType gtHndType;
 
-    GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)
+    GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE handle, CorInfoGenericHandleType hndTyp, GenTree* tree)
         : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->GetType(), tree DEBUGARG(/* largeNode */ false))
-        , gtHnd(hnd)
+        , gtHnd(handle)
         , gtHndType(hndTyp)
     {
-        assert(hnd != nullptr);
+        assert(handle != nullptr);
         assert(tree != nullptr);
+    }
+
+    GenTreeRuntimeLookup(const GenTreeRuntimeLookup* copyFrom)
+        : GenTreeUnOp(copyFrom), gtHnd(copyFrom->gtHnd), gtHndType(copyFrom->gtHndType)
+    {
     }
 
     bool IsClassHandle() const

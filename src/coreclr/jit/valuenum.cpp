@@ -6433,7 +6433,8 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
             break;
 
         case GT_CLS_VAR_ADDR:
-            node->SetLiberalVN(vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+            assert(node->TypeIs(TYP_I_IMPL));
+            node->SetLiberalVN(vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic,
                                                   vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq())));
             break;
 
@@ -6485,7 +6486,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(ValueNumPair{vnStore->VNForDblCon(node->GetType(), node->AsDblCon()->GetValue())});
             break;
         case GT_CLS_VAR_ADDR:
-            node->SetVNP(ValueNumPair{vnStore->VNForFunc(node->GetType(), VNF_PtrToStatic,
+            assert(node->TypeIs(TYP_I_IMPL));
+            node->SetVNP(ValueNumPair{vnStore->VNForFunc(TYP_I_IMPL, VNF_PtrToStatic,
                                                          vnStore->VNForFieldSeq(node->AsClsVar()->GetFieldSeq()))});
             break;
         case GT_LCL_ADDR:
@@ -6678,8 +6680,33 @@ void ValueNumbering::NumberNode(GenTree* node)
             ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
             ValueNumPair exset2;
             ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-            ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
+            ValueNumPair vnp =
+                vnStore->VNPairForFunc(varActualType(node->GetType()), GetRelopVNFunc(node->AsOp()), vnp1, vnp2);
             node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+            break;
+        }
+        case GT_NOT:
+        case GT_NEG:
+        case GT_BSWAP:
+        case GT_BSWAP16:
+        case GT_SXT:
+        case GT_UXT:
+        case GT_TRUNC:
+        case GT_FNEG:
+        case GT_FXT:
+        case GT_FTRUNC:
+        case GT_RUNTIMELOOKUP:
+        case GT_INIT_VAL:
+        {
+            assert(!node->OperMayThrow(compiler));
+
+            VNFunc vnf = static_cast<VNFunc>(node->GetOper());
+            assert(ValueNumStore::VNFuncIsLegal(vnf));
+
+            ValueNumPair exset;
+            ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
+            vnp              = vnStore->VNPairForFunc(node->GetType(), vnf, vnp);
+            node->SetVNP(vnStore->PackExset(vnp, exset));
             break;
         }
         case GT_ADD:
@@ -6695,20 +6722,9 @@ void ValueNumbering::NumberNode(GenTree* node)
             }
             FALLTHROUGH;
         default:
-            assert(!node->IsOverflowOp());
+            assert(!node->IsOverflowOp() && !GenTree::OperIsUnary(oper));
 
-            if (GenTree::OperIsUnary(oper))
-            {
-                assert(!node->OperMayThrow(compiler));
-
-                VNFunc vnf = static_cast<VNFunc>(node->GetOper());
-                assert(ValueNumStore::VNFuncIsLegal(vnf));
-
-                ValueNumPair exset;
-                ValueNumPair vnp = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset);
-                node->SetVNP(vnStore->PackExset(vnStore->VNPairForFunc(node->GetType(), vnf, vnp), exset));
-            }
-            else if (GenTree::OperIsBinary(oper))
+            if (GenTree::OperIsBinary(oper))
             {
                 assert(!node->OperMayThrow(compiler));
                 assert(!node->OperIsRelop());
@@ -7078,6 +7094,7 @@ void ValueNumbering::NumberOvfTruncate(GenTreeUnOp* node)
 void ValueNumbering::NumberOvfBinOp(GenTreeOp* node)
 {
     assert(node->OperIs(GT_OVF_SADD, GT_OVF_UADD, GT_OVF_SSUB, GT_OVF_USUB, GT_OVF_SMUL, GT_OVF_UMUL));
+    assert(node->TypeIs(TYP_INT, TYP_LONG));
 
     VNFunc       vnf  = static_cast<VNFunc>(node->GetOper());
     ValueNumPair vnp1 = node->AsOp()->GetOp(0)->GetVNP();
@@ -7879,7 +7896,7 @@ void ValueNumbering::AddNullRefExset(GenTree* node, GenTree* addr)
 void ValueNumbering::NumberDivMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
-    assert(ValueNumStore::VNFuncIsLegal(static_cast<VNFunc>(node->GetOper())));
+    assert(node->TypeIs(TYP_INT, TYP_LONG));
 
     ValueNumPair exset1;
     ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);

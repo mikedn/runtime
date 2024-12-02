@@ -668,46 +668,45 @@ public:
 
     // A method that does the work for VNForMapSelect and may call itself recursively.
     ValueNum VNForMapSelectWork(
-        ValueNumKind vnk, var_types typ, ValueNum op1VN, ValueNum op2VN, int* pBudget, bool* pUsedRecursiveVN);
+        ValueNumKind vnk, var_types type, ValueNum op1VN, ValueNum op2VN, int* pBudget, bool* pUsedRecursiveVN);
 
     // A specialized version of VNForFunc that is used for VNF_MapStore and provides some logging when verbose is set
-    ValueNum VNForMapStore(var_types typ, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN);
+    ValueNum VNForMapStore(var_types type, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN);
 
-    // These functions parallel the ones above, except that they take liberal/conservative VN pairs
-    // as arguments, and return such a pair (the pair of the function applied to the liberal args, and
-    // the function applied to the conservative args).
-    ValueNumPair VNPairForFunc(var_types typ, VNFunc func)
+    ValueNumPair VNPairForFunc(var_types type, VNFunc func)
     {
-        ValueNumPair res;
-        res.SetBoth(VNForFunc(typ, func));
-        return res;
+        return ValueNumPair(VNForFunc(type, func));
     }
-    ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair opVN)
+
+    ValueNumPair VNPairForFunc(var_types type, VNFunc func, ValueNumPair opVN)
     {
-        return {VNForFunc(typ, func, opVN.GetLiberal()), VNForFunc(typ, func, opVN.GetConservative())};
+        return {VNForFunc(type, func, opVN.GetLiberal()), VNForFunc(type, func, opVN.GetConservative())};
     }
-    ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN)
+
+    ValueNumPair VNPairForFunc(var_types type, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN)
     {
-        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal()),
-                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative())};
+        return {VNForFunc(type, func, op1VN.GetLiberal(), op2VN.GetLiberal()),
+                VNForFunc(type, func, op1VN.GetConservative(), op2VN.GetConservative())};
     }
-    ValueNumPair VNPairForFunc(var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN)
+
+    ValueNumPair VNPairForFunc(var_types type, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN)
     {
-        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal()),
-                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative())};
+        return {VNForFunc(type, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal()),
+                VNForFunc(type, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative())};
     }
+
     ValueNumPair VNPairForFunc(
-        var_types typ, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN, ValueNumPair op4VN)
+        var_types type, VNFunc func, ValueNumPair op1VN, ValueNumPair op2VN, ValueNumPair op3VN, ValueNumPair op4VN)
     {
-        return {VNForFunc(typ, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal(), op4VN.GetLiberal()),
-                VNForFunc(typ, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative(),
+        return {VNForFunc(type, func, op1VN.GetLiberal(), op2VN.GetLiberal(), op3VN.GetLiberal(), op4VN.GetLiberal()),
+                VNForFunc(type, func, op1VN.GetConservative(), op2VN.GetConservative(), op3VN.GetConservative(),
                           op4VN.GetConservative())};
     }
 
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
-    ValueNum VNForExpr(BasicBlock* block, var_types typ);
-    ValueNum VNForExpr(var_types typ);
+    ValueNum VNForExpr(BasicBlock* block, var_types type);
+    ValueNum VNForExpr(var_types type);
     ValueNum UniqueVN(var_types type);
 
     ValueNum VNForBitCast(ValueNum valueVN, var_types toType);
