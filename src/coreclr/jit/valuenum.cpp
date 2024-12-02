@@ -6630,12 +6630,13 @@ void ValueNumbering::NumberNode(GenTree* node)
             NumberHWIntrinsic(node->AsHWIntrinsic());
             break;
 #endif
-        case GT_LEA:
-        // LEAs could probably value numbered as ADD/MUL expressions but
-        // they should not appear in frontend so it's not worth the trouble.
         case GT_LCLHEAP:
         // It is not necessary to model the StackOverflow exception for LCLHEAP
         case GT_LABEL:
+        // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN. Also note that it is missing exceptions.
+        case GT_ARR_ELEM:
+        // TODO-MIKE-Review: Does FIELD_LIST need a VN?
+        case GT_FIELD_LIST:
             node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
             break;
         case GT_CKFINITE:
@@ -6698,6 +6699,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_RUNTIMELOOKUP:
         case GT_INIT_VAL:
         {
+            assert(!varTypeIsSmall(node->GetType()));
             assert(!node->OperMayThrow(compiler));
 
             VNFunc vnf = static_cast<VNFunc>(node->GetOper());
@@ -6721,35 +6723,39 @@ void ValueNumbering::NumberNode(GenTree* node)
                 break;
             }
             FALLTHROUGH;
-        default:
-            assert(!node->IsOverflowOp() && !GenTree::OperIsUnary(oper));
+        case GT_SUB:
+        case GT_MUL:
+        case GT_AND:
+        case GT_OR:
+        case GT_XOR:
+        case GT_LSH:
+        case GT_RSH:
+        case GT_RSZ:
+        case GT_ROL:
+        case GT_ROR:
+        case GT_INDEX_ADDR:
+        case GT_FADD:
+        case GT_FSUB:
+        case GT_FMUL:
+        case GT_FDIV:
+        {
+            assert(!varTypeIsSmall(node->GetType()));
+            assert(!node->OperMayThrow(compiler));
+            assert(!node->OperIsRelop());
 
-            if (GenTree::OperIsBinary(oper))
-            {
-                assert(!node->OperMayThrow(compiler));
-                assert(!node->OperIsRelop());
+            VNFunc vnf = static_cast<VNFunc>(node->GetOper());
+            assert(ValueNumStore::VNFuncIsLegal(vnf));
 
-                VNFunc vnf = static_cast<VNFunc>(node->GetOper());
-                assert(ValueNumStore::VNFuncIsLegal(vnf));
-
-                ValueNumPair exset1;
-                ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
-                ValueNumPair exset2;
-                ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
-                ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
-                node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
-            }
-            else
-            {
-                // TODO-MIKE-CQ: It would be nice to give GT_ARR_ELEM a proper VN...
-                noway_assert(GenTree::OperIsSpecial(oper));
-                // TODO-MIKE-Fix: Using VNForExpr with the current block for arbitrary nodes is suspect.
-                // Also, it might be better to explicitly list all the opers in this switch so
-                // we don't accidentally miss one that may have some sort of side effects that
-                // need special handling.
-                node->SetVNP(ValueNumPair{vnStore->VNForExpr(node->GetType())});
-            }
+            ValueNumPair exset1;
+            ValueNumPair vnp1 = vnStore->UnpackExset(node->AsOp()->GetOp(0)->GetVNP(), &exset1);
+            ValueNumPair exset2;
+            ValueNumPair vnp2 = vnStore->UnpackExset(node->AsOp()->GetOp(1)->GetVNP(), &exset2);
+            ValueNumPair vnp  = vnStore->VNPairForFunc(node->GetType(), vnf, vnp1, vnp2);
+            node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
             break;
+        }
+        default:
+            unreached();
     }
 
 #ifdef DEBUG
