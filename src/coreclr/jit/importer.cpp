@@ -2495,8 +2495,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     return store;
 }
 
-//------------------------------------------------------------------------
-// impIntrinsic: possibly expand intrinsic call into alternate IR sequence
+// Possibly expand intrinsic call into alternate IR sequence
 //
 // Arguments:
 //    newobjThis - for constructor calls, the tree for the newly allocated object
@@ -2520,7 +2519,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 //    the intrinsic call like a normal call.
 //
 //    pIntrinsicID set to non-illegal value if the call is recognized as a
-//    traditional jit intrinsic, even if the intrinsic is not expaned.
+//    traditional jit intrinsic, even if the intrinsic is not expanded.
 //
 //    isSpecial set true if the expansion is subject to special
 //    optimizations later in the jit processing
@@ -2533,8 +2532,8 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 //
 //    Intrinsics are generally not recognized in minopts and debug codegen.
 //
-//    However, certain traditional intrinsics are identifed as "must expand"
-//    if there is no fallback implmentation to invoke; these must be handled
+//    However, certain traditional intrinsics are identified as "must expand"
+//    if there is no fallback implementation to invoke; these must be handled
 //    in all codegen modes.
 //
 //    New style intrinsics (where the fallback implementation is in IL) are
@@ -2802,84 +2801,55 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             // If we're calling GetType on a boxed value, just get the type directly.
             if (GenTreeBox* box = op1->IsBox())
             {
-                JITDUMP("Attempting to optimize box(...).getType() to direct type construction\n");
-
-                // Try and clean up the box. Obtain the handle we
-                // were going to pass to the newobj.
-                GenTree* boxTypeHandle =
-                    comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE);
-
-                if (boxTypeHandle != nullptr)
+                if (GenTree* typeHandle =
+                        comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW_WANT_TYPE_HANDLE))
                 {
-                    // Note we don't need to play the TYP_STRUCT games here like
-                    // do for LDTOKEN since the return value of this operator is Type,
-                    // not RuntimeTypeHandle.
                     impPopStack();
-                    GenTreeCall::Use* helperArgs = gtNewCallArgs(boxTypeHandle);
-                    GenTree*          runtimeType =
-                        gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, helperArgs);
-                    retNode = runtimeType;
+
+                    retNode =
+                        gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
+
+                    break;
                 }
+            }
+
+            if (constrainedResolvedToken == nullptr)
+            {
+                impPopStack();
+
+                retNode = new (comp, GT_INTRINSIC) GenTreeIntrinsic(TYP_REF, op1, ni, method);
+                // This intrinsic gets lowered to a call and may throw NullReferenceException.
+                retNode->AddSideEffects(GTF_CALL | GTF_EXCEPT);
+                isSpecial = true;
+
+                break;
             }
 
             // If we have a constrained callvirt with a "box this" transform
             // we know we have a value class and hence an exact type.
-            //
             // If so, instead of boxing and then extracting the type, just
             // construct the type directly.
-            if ((retNode == nullptr) && (constrainedResolvedToken != nullptr) &&
-                (callInfo->thisTransform == CORINFO_BOX_THIS))
+            if ((callInfo->thisTransform == CORINFO_BOX_THIS) &&
+                info.compCompHnd->getBoxHelper(constrainedResolvedToken->hClass) == CORINFO_HELP_BOX)
             {
-                // Ensure this is one of the is simple box cases (in particular, rule out nullables).
-                const CorInfoHelpFunc boxHelper = info.compCompHnd->getBoxHelper(constrainedResolvedToken->hClass);
-                const bool            isSafeToOptimize = (boxHelper == CORINFO_HELP_BOX);
-
-                if (isSafeToOptimize)
-                {
-                    JITDUMP("Optimizing constrained box-this obj.getType() to direct type construction\n");
-                    impPopStack();
-                    GenTree* typeHandleOp = impTokenToHandle(constrainedResolvedToken, /* mustRestoreHandle */ true);
-                    if (typeHandleOp == nullptr)
-                    {
-                        assert(compDonotInline());
-                        return nullptr;
-                    }
-                    GenTreeCall::Use* helperArgs = gtNewCallArgs(typeHandleOp);
-                    GenTree*          runtimeType =
-                        gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, helperArgs);
-                    retNode = runtimeType;
-                }
-            }
-
-            if (retNode != nullptr)
-            {
-                JITDUMPTREE(retNode, "Optimized field for call to GetType is\n");
-            }
-
-            // Else expand as an intrinsic, unless the call is constrained,
-            // in which case we defer expansion to allow impImportCall do the
-            // special constraint processing.
-            if ((retNode == nullptr) && (constrainedResolvedToken == nullptr))
-            {
-                JITDUMP("Expanding as special intrinsic\n");
                 impPopStack();
-                op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(TYP_REF, op1, ni, method);
 
-                // Set the CALL flag to indicate that the operator is implemented by a call.
-                // Set also the EXCEPTION flag because the native implementation of
-                // CORINFO_INTRINSIC_Object_GetType intrinsic can throw NullReferenceException.
-                op1->gtFlags |= (GTF_CALL | GTF_EXCEPT);
-                retNode = op1;
-                // Might be further optimizable, so arrange to leave a mark behind
-                isSpecial = true;
+                GenTree* typeHandle = impTokenToHandle(constrainedResolvedToken, /* mustRestoreHandle */ true);
+
+                if (typeHandle == nullptr)
+                {
+                    assert(compDonotInline());
+                    return nullptr;
+                }
+
+                retNode =
+                    gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
+
+                break;
             }
 
-            if (retNode == nullptr)
-            {
-                JITDUMP("Leaving as normal call\n");
-                // Might be further optimizable, so arrange to leave a mark behind
-                isSpecial = true;
-            }
+            // Allow impImportCall do the special constraint processing.
+            isSpecial = true;
 
             break;
         }
@@ -3357,12 +3327,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         return impUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig, mustExpand);
     }
 
-    // Optionally report if this intrinsic is special
-    // (that is, potentially re-optimizable during morph).
-    if (isSpecialIntrinsic != nullptr)
-    {
-        *isSpecialIntrinsic = isSpecial;
-    }
+    *isSpecialIntrinsic = isSpecial;
 
     return retNode;
 }

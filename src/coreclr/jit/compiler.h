@@ -1988,7 +1988,7 @@ struct Importer
                           CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
                           CORINFO_CALL_INFO*      callInfo,
                           CorInfoIntrinsics*      pIntrinsicId,
-                          bool*                   isSpecialIntrinsic = nullptr);
+                          bool*                   isSpecialIntrinsic);
     GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                               CORINFO_SIG_INFO*     sig,
                               var_types             callType,
