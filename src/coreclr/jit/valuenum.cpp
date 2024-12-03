@@ -145,7 +145,7 @@ private:
     ValueNum ExtractStructField(GenTree* load, ValueNumKind vnk, ValueNum structVN, FieldSeqNode* fieldSeq);
     ValueNumPair ExtractStructField(GenTree* load, ValueNumPair structVN, FieldSeqNode* fieldSeq);
     ValueNum CoerceLoadValue(GenTree* load, ValueNum valueVN, var_types fieldType, ClassLayout* fieldLayout);
-    ValueNum AddField(GenTreeOp* add);
+    bool AddField(GenTreeOp* add);
     FieldSeqNode* IsFieldAddr(GenTree* addr, GenTree** obj);
     FieldSeqNode* IsStaticStructFieldAddr(GenTree* addr);
     bool IsArrayElemAddr(GenTree* addr, ArrayInfo* arrayInfo);
@@ -2545,9 +2545,9 @@ ValueNum ValueNumStore::FieldSeqVNAppend(ValueNum fieldSeqVN, FieldSeqNode* fiel
     return fieldSeqVN;
 }
 
-ValueNum ValueNumbering::AddField(GenTreeOp* add)
+bool ValueNumbering::AddField(GenTreeOp* add)
 {
-    assert(add->OperIs(GT_ADD));
+    assert(add->OperIs(GT_ADD) && add->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
     ArrayInfo arrInfo;
     if (IsArrayElemAddr(add, &arrInfo))
@@ -2569,24 +2569,36 @@ ValueNum ValueNumbering::AddField(GenTreeOp* add)
         ValueNum exset = vnStore->ExtractExset(add->GetOp(0)->GetLiberalVN());
         exset          = vnStore->ExsetUnion(exset, vnStore->ExtractExset(add->GetOp(1)->GetLiberalVN()));
 
-        return vnStore->PackExset(addrVN, exset);
+        addrVN = vnStore->PackExset(addrVN, exset);
+        // We don't care about differences between liberal and conservative for pointer values.
+        // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
+        add->SetVNP({addrVN, addrVN});
+
+        return true;
     }
 
     if (GenTreeIntCon* intCon = add->GetOp(1)->IsIntCon())
     {
-        FieldSeqNode* fldSeq = intCon->GetFieldSeq();
-        if ((fldSeq != nullptr) && !fldSeq->IsArrayElement())
+        FieldSeqNode* fieldSeq = intCon->GetFieldSeq();
+
+        if ((fieldSeq != nullptr) && !fieldSeq->IsArrayElement())
         {
             ValueNum exset;
             ValueNum addrVN = vnStore->UnpackExset(add->GetOp(0)->GetLiberalVN(), &exset);
 
-            addrVN = vnStore->ExtendPtrVN(addrVN, fldSeq, static_cast<target_size_t>(intCon->GetValue()));
+            addrVN = vnStore->ExtendPtrVN(addrVN, fieldSeq, static_cast<target_size_t>(intCon->GetValue()));
 
-            return addrVN == NoVN ? addrVN : vnStore->PackExset(addrVN, exset);
+            if (addrVN != NoVN)
+            {
+                addrVN = vnStore->PackExset(addrVN, exset);
+                add->SetVNP({addrVN, addrVN});
+
+                return true;
+            }
         }
     }
 
-    return NoVN;
+    return false;
 }
 
 FieldSeqNode* ValueNumbering::IsFieldAddr(GenTree* addr, GenTree** pObj)
@@ -4291,6 +4303,8 @@ void ValueNumbering::NumberNullCheck(GenTreeNullCheck* node)
 
 void ValueNumbering::NumberArrLen(GenTreeArrLen* node)
 {
+    assert(node->TypeIs(TYP_INT));
+
     GenTree*     array    = node->GetArray();
     ValueNumPair arrayVNP = vnStore->ExtractValue(array->GetVNP());
 
@@ -6686,14 +6700,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             break;
         }
         case GT_ADD:
-            ValueNum addrVN;
-            addrVN = AddField(node->AsOp());
-
-            if (addrVN != NoVN)
+            if (node->TypeIs(TYP_I_IMPL, TYP_BYREF) && AddField(node->AsOp()))
             {
-                // We don't care about differences between liberal and conservative for pointer values.
-                // TODO-MIKE-Fix: That doesn't make a lot of sense, ExtendPtrVN only looks at the liberal VN.
-                node->SetVNP({addrVN, addrVN});
                 break;
             }
             FALLTHROUGH;
