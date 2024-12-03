@@ -486,7 +486,7 @@ private:
 
     bool CanMoveNullCheckPastNode(GenTree* node, bool isInsideTry)
     {
-        if (((node->gtFlags & GTF_CALL) != 0) && node->OperRequiresCallFlag(compiler))
+        if (node->HasAnySideEffect(GTF_CALL) && node->OperRequiresCallFlag(compiler))
         {
             return false;
         }
@@ -495,12 +495,12 @@ private:
         // they usually throw NullReferenceException. But they can also throw
         // AccessViolationException so it's more complicated. Maybe do it only if
         // the address can be traced back to a REF?
-        if (((node->gtFlags & GTF_EXCEPT) != 0) && node->OperMayThrow(compiler))
+        if (node->HasAnySideEffect(GTF_EXCEPT) && node->OperMayThrow(compiler))
         {
             return false;
         }
 
-        if ((node->gtFlags & GTF_ASG) != 0)
+        if (node->HasAnySideEffect(GTF_ASG))
         {
             if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {

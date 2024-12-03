@@ -6673,7 +6673,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_RUNTIMELOOKUP:
         case GT_INIT_VAL:
         {
-            assert(!varTypeIsSmall(node->GetType()));
+            assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_STRUCT));
             assert(!node->OperMayThrow(compiler));
 
             VNFunc vnf = static_cast<VNFunc>(node->GetOper());
@@ -6712,7 +6712,7 @@ void ValueNumbering::NumberNode(GenTree* node)
         case GT_FMUL:
         case GT_FDIV:
         {
-            assert(!varTypeIsSmall(node->GetType()));
+            assert(node->TypeIs(TYP_INT, TYP_LONG, TYP_FLOAT, TYP_DOUBLE, TYP_BYREF));
             assert(!node->OperMayThrow(compiler));
             assert(!node->OperIsRelop());
 

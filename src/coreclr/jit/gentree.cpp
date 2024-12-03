@@ -5085,14 +5085,6 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_FIELD_ADDR:
             return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
-        case GT_BOUNDS_CHECK:
-        case GT_ARR_ELEM:
-        case GT_ARR_INDEX:
-        case GT_ARR_OFFSET:
-        case GT_LCLHEAP: // TODO-MIKE-Review: Do we really care about this?
-        case GT_CKFINITE:
-            return true;
-
         case GT_INDEX_ADDR:
             return (gtFlags & GTF_INX_RNGCHK) != 0;
 
@@ -5101,6 +5093,12 @@ bool GenTree::OperMayThrow(Compiler* comp) const
             return AsHWIntrinsic()->IsMemoryLoadOrStore();
 #endif
 
+        case GT_LCLHEAP: // TODO-MIKE-Review: Do we really care about this?
+        case GT_BOUNDS_CHECK:
+        case GT_ARR_ELEM:
+        case GT_ARR_INDEX:
+        case GT_ARR_OFFSET:
+        case GT_CKFINITE:
         case GT_OVF_U:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:

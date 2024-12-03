@@ -793,7 +793,7 @@ public:
             if (!treeIsInvariant)
             {
                 // We have a tree that is not loop invariant and we thus cannot hoist
-                assert(treeIsHoistable == false);
+                assert(!treeIsHoistable);
 
                 // Check if we should clear m_beforeSideEffect.
                 // If 'tree' can throw an exception then we need to set m_beforeSideEffect to false.
