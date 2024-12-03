@@ -4520,7 +4520,7 @@ void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
 
 ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN)
 {
-    assert(compiler->IsMathIntrinsic(intrin));
+    assert(Compiler::IsMathIntrinsic(intrin));
     assert((type == TYP_DOUBLE) || (type == TYP_FLOAT) ||
            ((type == TYP_INT) && ((intrin == NI_System_Math_ILogB) || (intrin == NI_System_Math_Round))));
 
@@ -4824,7 +4824,7 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin,
 ValueNum ValueNumStore::EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN)
 {
     assert(varTypeIsFloating(type));
-    assert(compiler->IsMathIntrinsic(intrin));
+    assert(Compiler::IsMathIntrinsic(intrin));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
@@ -6788,9 +6788,8 @@ void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* intrinsic)
     ValueNumPair exset1;
     ValueNumPair vnp1 = vnStore->UnpackExset(intrinsic->GetOp(0)->GetVNP(), &exset1);
 
-    if (!compiler->IsMathIntrinsic(intrinsic->GetIntrinsic()))
+    if (intrinsic->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType)
     {
-        assert(intrinsic->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType);
         assert(intrinsic->gtOp2 == nullptr);
 
         vnp1 = vnStore->VNPairForFunc(intrinsic->GetType(), VNF_ObjGetType, vnp1);
@@ -6805,7 +6804,8 @@ void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* intrinsic)
     {
         ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
         ValueNumPair vnp2   = vnStore->UnpackExset(intrinsic->GetOp(1)->GetVNP(), &exset2);
-        ValueNumPair vnp    = vnStore->EvalMathFuncBinary(intrinsic->GetType(), intrinsic->GetIntrinsic(), vnp1, vnp2);
+
+        ValueNumPair vnp = vnStore->EvalMathFuncBinary(intrinsic->GetType(), intrinsic->GetIntrinsic(), vnp1, vnp2);
         intrinsic->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
     }
 }

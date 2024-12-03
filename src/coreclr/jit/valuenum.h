@@ -794,16 +794,16 @@ public:
     ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
     ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
 
-    ValueNumPair EvalMathFuncUnary(var_types typ, NamedIntrinsic mthFunc, ValueNumPair arg0VNP)
+    ValueNumPair EvalMathFuncUnary(var_types type, NamedIntrinsic func, ValueNumPair arg0VNP)
     {
-        return {EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetLiberal()),
-                EvalMathFuncUnary(typ, mthFunc, arg0VNP.GetConservative())};
+        return {EvalMathFuncUnary(type, func, arg0VNP.GetLiberal()),
+                EvalMathFuncUnary(type, func, arg0VNP.GetConservative())};
     }
 
-    ValueNumPair EvalMathFuncBinary(var_types typ, NamedIntrinsic mthFunc, ValueNumPair arg0VNP, ValueNumPair arg1VNP)
+    ValueNumPair EvalMathFuncBinary(var_types type, NamedIntrinsic func, ValueNumPair arg0VNP, ValueNumPair arg1VNP)
     {
-        return {EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
-                EvalMathFuncBinary(typ, mthFunc, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
+        return {EvalMathFuncBinary(type, func, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
+                EvalMathFuncBinary(type, func, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
     }
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to

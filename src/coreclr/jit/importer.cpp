@@ -3418,7 +3418,7 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                                     bool                  tailCall)
 {
     assert(callType != TYP_STRUCT);
-    assert(IsMathIntrinsic(intrinsicName));
+    assert(Compiler::IsMathIntrinsic(intrinsicName));
 
 #ifdef FEATURE_HW_INTRINSICS
     if (intrinsicName == NI_System_Math_FusedMultiplyAdd)
@@ -14890,53 +14890,9 @@ bool Compiler::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
     return !IsTargetIntrinsic(intrinsicName);
 }
 
-bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsicName)
+bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsic)
 {
-    switch (intrinsicName)
-    {
-        case NI_System_Math_Abs:
-        case NI_System_Math_Acos:
-        case NI_System_Math_Acosh:
-        case NI_System_Math_Asin:
-        case NI_System_Math_Asinh:
-        case NI_System_Math_Atan:
-        case NI_System_Math_Atanh:
-        case NI_System_Math_Atan2:
-        case NI_System_Math_Cbrt:
-        case NI_System_Math_Ceiling:
-        case NI_System_Math_Cos:
-        case NI_System_Math_Cosh:
-        case NI_System_Math_Exp:
-        case NI_System_Math_Floor:
-        case NI_System_Math_FMod:
-        case NI_System_Math_FusedMultiplyAdd:
-        case NI_System_Math_ILogB:
-        case NI_System_Math_Log:
-        case NI_System_Math_Log2:
-        case NI_System_Math_Log10:
-        case NI_System_Math_Pow:
-        case NI_System_Math_Round:
-        case NI_System_Math_Sin:
-        case NI_System_Math_Sinh:
-        case NI_System_Math_Sqrt:
-        case NI_System_Math_Tan:
-        case NI_System_Math_Tanh:
-        {
-            assert((intrinsicName > NI_SYSTEM_MATH_START) && (intrinsicName < NI_SYSTEM_MATH_END));
-            return true;
-        }
-
-        default:
-        {
-            assert((intrinsicName < NI_SYSTEM_MATH_START) || (intrinsicName > NI_SYSTEM_MATH_END));
-            return false;
-        }
-    }
-}
-
-bool Compiler::IsMathIntrinsic(GenTree* tree)
-{
-    return tree->IsIntrinsic() && IsMathIntrinsic(tree->AsIntrinsic()->GetIntrinsic());
+    return (NI_SYSTEM_MATH_START < intrinsic) && (intrinsic < NI_SYSTEM_MATH_END);
 }
 
 //------------------------------------------------------------------------
@@ -16938,16 +16894,6 @@ bool Importer::compOpportunisticallyDependsOn(CORINFO_InstructionSet isa)
 bool Importer::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
 {
     return comp->IsIntrinsicImplementedByUserCall(intrinsicName);
-}
-
-bool Importer::IsMathIntrinsic(NamedIntrinsic intrinsicName)
-{
-    return comp->IsMathIntrinsic(intrinsicName);
-}
-
-bool Importer::IsMathIntrinsic(GenTree* tree)
-{
-    return comp->IsMathIntrinsic(tree);
 }
 
 void Importer::setMethodHasExpRuntimeLookup()

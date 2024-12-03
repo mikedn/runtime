@@ -1571,8 +1571,6 @@ struct Importer
     bool compExactlyDependsOn(CORINFO_InstructionSet isa);
     bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
-    bool IsMathIntrinsic(NamedIntrinsic intrinsicName);
-    bool IsMathIntrinsic(GenTree* tree);
     void setMethodHasExpRuntimeLookup();
     void setMethodHasGuardedDevirtualization();
     INDEBUG(bool compTailCallStress();)
@@ -3618,10 +3616,9 @@ public:
                                                GenTreeCall::Use*       args               = nullptr,
                                                CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
 
-    bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
-    bool IsTargetIntrinsic(NamedIntrinsic intrinsicName);
-    bool IsMathIntrinsic(NamedIntrinsic intrinsicName);
-    bool IsMathIntrinsic(GenTree* tree);
+    bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsic);
+    bool IsTargetIntrinsic(NamedIntrinsic intrinsic);
+    static bool IsMathIntrinsic(NamedIntrinsic intrinsic);
 
 private:
     //----------------- Importing the method ----------------------------------
