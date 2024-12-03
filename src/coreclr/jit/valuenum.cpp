@@ -6781,32 +6781,32 @@ void ValueNumbering::NumberNode(GenTree* node)
 #endif
 }
 
-void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* intrinsic)
+void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* node)
 {
-    // TODO: model the exceptions for Intrinsics
+    // TODO: model the exceptions for intrinsics
 
     ValueNumPair exset1;
-    ValueNumPair vnp1 = vnStore->UnpackExset(intrinsic->GetOp(0)->GetVNP(), &exset1);
+    ValueNumPair vnp1 = vnStore->UnpackExset(node->GetOp(0)->GetVNP(), &exset1);
 
-    if (intrinsic->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType)
+    if (node->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType)
     {
-        assert(intrinsic->gtOp2 == nullptr);
+        assert(node->TypeIs(TYP_REF) && (node->gtOp2 == nullptr));
 
-        vnp1 = vnStore->VNPairForFunc(intrinsic->GetType(), VNF_ObjGetType, vnp1);
-        intrinsic->SetVNP(vnStore->PackExset(vnp1, exset1));
+        vnp1 = vnStore->VNPairForFunc(node->GetType(), VNF_ObjGetType, vnp1);
+        node->SetVNP(vnStore->PackExset(vnp1, exset1));
     }
-    else if (intrinsic->gtOp2 == nullptr)
+    else if (node->gtOp2 == nullptr)
     {
-        vnp1 = vnStore->EvalMathFuncUnary(intrinsic->GetType(), intrinsic->GetIntrinsic(), vnp1);
-        intrinsic->SetVNP(vnStore->PackExset(vnp1, exset1));
+        vnp1 = vnStore->EvalMathFuncUnary(node->GetType(), node->GetIntrinsic(), vnp1);
+        node->SetVNP(vnStore->PackExset(vnp1, exset1));
     }
     else
     {
         ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
-        ValueNumPair vnp2   = vnStore->UnpackExset(intrinsic->GetOp(1)->GetVNP(), &exset2);
+        ValueNumPair vnp2   = vnStore->UnpackExset(node->GetOp(1)->GetVNP(), &exset2);
 
-        ValueNumPair vnp = vnStore->EvalMathFuncBinary(intrinsic->GetType(), intrinsic->GetIntrinsic(), vnp1, vnp2);
-        intrinsic->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
+        ValueNumPair vnp = vnStore->EvalMathFuncBinary(node->GetType(), node->GetIntrinsic(), vnp1, vnp2);
+        node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
     }
 }
 
