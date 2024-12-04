@@ -756,7 +756,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func)
 
 ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 {
-    assert((func != VNOP_NONE) && (func != VNF_MemOpaque));
+    assert((func != VNOP_NONE) && (func != VNF_Unique));
     assert(!HasExset(arg0));
 
     if (CanEvalForConstantArgs1(func) && IsConst(arg0))
@@ -782,7 +782,7 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 
 ValueNum ValueNumStore::HasFunc(var_types type, VNFunc func, ValueNum arg0)
 {
-    assert(func != VNF_MemOpaque);
+    assert(func != VNF_Unique);
     assert(!HasExset(arg0));
 
     if (m_func1VNMap == nullptr)
@@ -968,29 +968,11 @@ ValueNumPair ValueNumStore::VNForMapSelect(var_types type, ValueNumPair map, Val
             VNForMapSelect(VNK_Conservative, type, map.GetConservative(), index.GetConservative())};
 }
 
-//------------------------------------------------------------------------------
-// VNForMapSelectWork : A method that does the work for VNForMapSelect and may call itself recursively.
-//
-//
-// Arguments:
-//    vnk  -             Value number kind
-//    typ  -             Value type
-//    arg0VN  -          Zeroth argument
-//    arg1VN  -          First argument
-//    pBudget -          Remaining budget for the outer evaluation
-//    pUsedRecursiveVN - Out-parameter that is set to true iff RecursiveVN was returned from this method
-//                       or from a method called during one of recursive invocations.
-//
-// Return Value:
-//    Value number for the result of the evaluation.
-//
-// Notes:
-//    This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
-//    "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
-//    (liberal/conservative) to read from the SSA def referenced in the phi argument.
-
+// This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
+// "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
+// (liberal/conservative) to read from the SSA def referenced in the phi argument.
 ValueNum ValueNumStore::VNForMapSelectWork(
-    ValueNumKind vnk, var_types typ, ValueNum mapVN, const ValueNum indexVN, int* pBudget, bool* pUsedRecursiveVN)
+    ValueNumKind vnk, var_types type, ValueNum mapVN, const ValueNum indexVN, int* pBudget, bool* pUsedRecursiveVN)
 {
 // This label allows us to directly implement a tail call by setting up the arguments, and doing a goto to here.
 TailCall:
@@ -1010,10 +992,10 @@ TailCall:
 
     if (mapVN == ZeroMapVN())
     {
-        return VNZeroForType(typ);
+        return VNZeroForType(type);
     }
 
-    VNFuncDef2 fstruct(VNF_MapSelect, mapVN, indexVN);
+    const VNFuncDef2 fstruct(VNF_MapSelect, mapVN, indexVN);
 
     if (m_func2VNMap == nullptr)
     {
@@ -1032,7 +1014,7 @@ TailCall:
         // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
         // that permits the BasicBlock attribution.
         // TODO-MIKE-Review: This should probably be MapSelect from the current map.
-        ValueNum uniqueVN = VNForExpr(nullptr, typ);
+        ValueNum uniqueVN = VNForExpr(nullptr, type);
         m_func2VNMap->Set(fstruct, uniqueVN);
         return uniqueVN;
     }
@@ -1079,7 +1061,7 @@ TailCall:
         if (IsVNConstant(indexVN) && (IsVNConstant(storeIndexVN) || (GetVNFunc(storeIndexVN, &funcApp) == VNF_LclAddr)))
         {
             // This is the equivalent of the recursive tail call:
-            // return VNForMapSelect(vnk, typ, storeMapVN, indexVN);
+            // return VNForMapSelect(vnk, type, storeMapVN, indexVN);
             mapVN = storeMapVN;
             goto TailCall;
         }
@@ -1112,7 +1094,7 @@ TailCall:
             // We need to be careful about breaking infinite recursion. Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            ValueNum sameValueVN = VNForMapSelectWork(vnk, typ, argVN, indexVN, pBudget, pUsedRecursiveVN);
+            ValueNum sameValueVN = VNForMapSelectWork(vnk, type, argVN, indexVN, pBudget, pUsedRecursiveVN);
 
             // We don't have any budget remaining to verify that all PHI args are the same
             // so setup the default failure case now.
@@ -1152,7 +1134,7 @@ TailCall:
                 }
 
                 bool     usedRecursiveVN = false;
-                ValueNum valueVN         = VNForMapSelectWork(vnk, typ, argVN, indexVN, pBudget, &usedRecursiveVN);
+                ValueNum valueVN         = VNForMapSelectWork(vnk, type, argVN, indexVN, pBudget, &usedRecursiveVN);
                 *pUsedRecursiveVN |= usedRecursiveVN;
 
                 if (sameValueVN == RecursiveVN)
@@ -1172,9 +1154,9 @@ TailCall:
 
             if (allSame && (sameValueVN != RecursiveVN))
             {
-                // To avoid exponential searches, we make sure that this result is memo-ized.
+                // To avoid exponential searches, we make sure that this result is memoized.
                 // The result is always valid for memoization if we didn't rely on RecursiveVN to get it.
-                // If RecursiveVN was used, we are processing a loop and we can't memo-ize this intermediate
+                // If RecursiveVN was used, we are processing a loop and we can't memoize this intermediate
                 // result if, e.g., this block is in a multi-entry loop.
                 if (!*pUsedRecursiveVN)
                 {
@@ -1190,7 +1172,7 @@ TailCall:
     else
     {
         // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
-        assert(((func == VNF_MemoryPhi) && (vnk == VNK_Conservative)) || (func == VNF_MemOpaque) ||
+        assert(((func == VNF_MemoryPhi) && (vnk == VNK_Conservative)) || (func == VNF_Unique) ||
                (func == VNF_MapSelect) || varTypeIsSIMD(TypeOfVN(mapVN)));
     }
 
@@ -1199,7 +1181,7 @@ TailCall:
     // We may have run out of budget and already assigned a result
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(typ, ChunkKind::Func2)->AllocVN(fstruct);
+        *vn = GetAllocChunk(type, ChunkKind::Func2)->AllocVN(fstruct);
     }
 
     return *vn;
@@ -2444,7 +2426,7 @@ ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
     LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNFuncDef1{VNF_MemOpaque, loopNum});
+    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNFuncDef1{VNF_Unique, loopNum});
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -3051,7 +3033,7 @@ ValueNum ValueNumbering::CastStruct(ValueNumKind         vnk,
     // into an empty map by using field handles from the new struct layout.
 
     VNFuncApp funcApp;
-    if ((valueVN == vnStore->ZeroMapVN()) || (vnStore->GetVNFunc(valueVN, &funcApp) == VNF_MemOpaque))
+    if ((valueVN == vnStore->ZeroMapVN()) || (vnStore->GetVNFunc(valueVN, &funcApp) == VNF_Unique))
     {
         return valueVN;
     }
@@ -4390,7 +4372,7 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
 }
 
 //------------------------------------------------------------------------
-// LoopOfVN: If the given value number is VNF_MemOpaque, VNF_MapStore, or
+// LoopOfVN: If the given value number is VNF_Unique, VNF_MapStore, or
 //    VNF_MemoryPhiDef, return the loop number where the memory update occurs,
 //    otherwise returns MaxLoopNum.
 //
@@ -4407,7 +4389,7 @@ LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
 
     switch (GetVNFunc(vn, &funcApp))
     {
-        case VNF_MemOpaque:
+        case VNF_Unique:
             return static_cast<LoopNum>(funcApp[0]);
         case VNF_MapStore:
             return static_cast<LoopNum>(funcApp[3]);
@@ -5084,8 +5066,8 @@ void ValueNumStore::Dump(ValueNum vn)
             case VNF_ValWithExset:
                 DumpValWithExc(funcApp);
                 break;
-            case VNF_MemOpaque:
-                DumpMemOpaque(funcApp);
+            case VNF_Unique:
+                DumpUnique(funcApp);
                 break;
             case VNF_LclAddr:
                 DumpLclAddr(funcApp);
@@ -5264,10 +5246,10 @@ void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
     printf(")");
 }
 
-void ValueNumStore::DumpMemOpaque(const VNFuncApp& memOpaque)
+void ValueNumStore::DumpUnique(const VNFuncApp& unique)
 {
-    assert(memOpaque.Is(VNF_MemOpaque));
-    unsigned loopNum = memOpaque[0];
+    assert(unique.Is(VNF_Unique));
+    unsigned loopNum = unique[0];
 
     if (loopNum == NoLoopNum)
     {
@@ -6318,6 +6300,8 @@ void ValueNumbering::ClearMemory(GenTree* node DEBUGARG(const char* comment))
 void ValueNumbering::UpdateMemory(GenTree* node, ValueNum memVN DEBUGARG(const char* comment))
 {
     assert(vnStore->GetCurrentBlock()->bbMemoryDef);
+    assert(vnStore->IsVNFunc<ValueNumStore::VNFuncDef4>(memVN, VNF_MapStore) ||
+           vnStore->IsVNFunc<ValueNumStore::VNFuncDef1>(memVN, VNF_Unique));
 
     fgCurMemoryVN = memVN;
     INDEBUG(TraceMem(fgCurMemoryVN, comment));

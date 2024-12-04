@@ -1038,7 +1038,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     {
         invariant = !compiler->optLoopContains(lnum, vnStore->ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum());
     }
-    else if (func == VNF_MemOpaque)
+    else if (func == VNF_Unique)
     {
         invariant = !compiler->optLoopContains(lnum, funcApp[0]);
     }

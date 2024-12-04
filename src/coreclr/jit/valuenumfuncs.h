@@ -40,7 +40,8 @@ ValueNumFuncDef(COND_P, 2, false, false, false)
 ValueNumFuncDef(COND_NP, 2, false, false, false)
 
 
-ValueNumFuncDef(MemOpaque, 1, false, false, false)  // Args: 0: loop num
+ValueNumFuncDef(Unique, 1, false, false, false)     // Args: 0: loop num
+
 ValueNumFuncDef(MemLoad, 3, false, false, false)    // Args: 0: type, 1: address; 2: memory value
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
 ValueNumFuncDef(MapSelect, 2, false, false, false)  // Args: 0: map, 1: key.

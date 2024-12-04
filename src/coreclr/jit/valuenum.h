@@ -839,7 +839,7 @@ public:
     void DumpFieldSeq(const VNFuncApp& fieldSeq, bool isHead);
     void DumpMapSelect(const VNFuncApp& mapSelect);
     void DumpMapStore(const VNFuncApp& mapStore);
-    void DumpMemOpaque(const VNFuncApp& memOpaque);
+    void DumpUnique(const VNFuncApp& memOpaque);
     void DumpValWithExc(const VNFuncApp& valWithExc);
     void DumpLclAddr(const VNFuncApp& lclAddr);
     void DumpBitCast(const VNFuncApp& cast) const;
