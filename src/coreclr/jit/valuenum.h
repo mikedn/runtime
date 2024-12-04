@@ -134,9 +134,12 @@ struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
 using NodeBlockMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
 
 class SsaOptimizer;
+class ValueNumbering;
 
 class ValueNumStore
 {
+    friend class ValueNumbering;
+
     template <class Value, class KeyFuncs = JitLargePrimitiveKeyFuncs<Value>>
     class VNMap : public JitHashTable<Value, KeyFuncs, ValueNum>
     {

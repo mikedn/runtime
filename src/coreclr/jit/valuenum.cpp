@@ -3237,7 +3237,14 @@ ValueNum ValueNumbering::CoerceStoreValue(
         }
         else if (varTypeIsIntegral(valueType) && varTypeIsSmall(fieldType))
         {
-            valueVN = vnStore->VNForFunc(TYP_INT, GetConvFunc(fieldType), valueVN);
+            VNFunc conv = GetConvFunc(fieldType);
+
+            // TODO-MIKE-Cleanup: Move this redundant CONV check to VNForFunc?
+
+            if (!vnStore->IsVNFunc<ValueNumStore::VNFuncDef1>(valueVN, conv))
+            {
+                valueVN = vnStore->VNForFunc(TYP_INT, conv, valueVN);
+            }
         }
         else if (varTypeSize(varActualType(valueType)) == varTypeSize(fieldType))
         {
