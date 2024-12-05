@@ -120,6 +120,7 @@ private:
 
     ValueNum GetIntConVN(GenTreeIntCon* intCon);
     ValueNum LoadMemory(var_types type, ValueNum addrVN);
+    ValueNum LoadMemoryInvariant(var_types type, VNFunc func, ValueNum addrVN);
     ValueNum StoreStaticField(GenTreeIndir* store, FieldSeqNode* fieldSeq, GenTree* value);
     ValueNum LoadStaticField(GenTreeIndir* load, FieldSeqNode* fieldSeq);
     ValueNum StoreObjField(GenTreeIndir* store, ValueNum objVN, FieldSeqNode* fieldSeq, GenTree* value);
@@ -706,16 +707,6 @@ ValueNum ValueNumStore::ZeroMapVN()
     return m_zeroMap;
 }
 
-ValueNum ValueNumStore::ReadOnlyMemoryMapVN()
-{
-    if (m_readOnlyMemoryMap == NoVN)
-    {
-        m_readOnlyMemoryMap = VNForExpr(compiler->fgFirstBB, TYP_STRUCT);
-    }
-
-    return m_readOnlyMemoryMap;
-}
-
 ValueNum ValueNumStore::VNOneForType(var_types type)
 {
     switch (type)
@@ -960,12 +951,6 @@ ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum
     INDEBUG(Trace(result));
 
     return result;
-}
-
-ValueNumPair ValueNumStore::VNForMapSelect(var_types type, ValueNumPair map, ValueNumPair index)
-{
-    return {VNForMapSelect(VNK_Liberal, type, map.GetLiberal(), index.GetLiberal()),
-            VNForMapSelect(VNK_Conservative, type, map.GetConservative(), index.GetConservative())};
 }
 
 // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
@@ -3872,14 +3857,17 @@ void ValueNumbering::NumberIndLoad(GenTreeIndir* load)
     {
         assert(!load->IsVolatile());
 
-        if ((load->gtFlags & GTF_IND_NONNULL) != 0)
+        if (load->TypeIs(TYP_STRUCT))
         {
-            vnp = vnStore->VNPairForFunc(load->GetType(), VNF_NonNullIndirect, addrVNP);
+            // LoadMemoryInvariant does not support STRUCTs because it doesn't know the size/layout.
+            vnp.SetBoth(vnStore->VNForExpr(compiler->fgFirstBB, TYP_STRUCT));
         }
         else
         {
-            vnp.SetBoth(vnStore->ReadOnlyMemoryMapVN());
-            vnp = vnStore->VNForMapSelect(load->GetType(), vnp, addrVNP);
+            VNFunc func = ((load->gtFlags & GTF_IND_NONNULL) != 0) ? VNF_MemLoadNotNull : VNF_MemLoadInvariant;
+
+            vnp = {LoadMemoryInvariant(load->GetType(), func, addrVNP.GetLiberal()),
+                   LoadMemoryInvariant(load->GetType(), func, addrVNP.GetConservative())};
         }
     }
     else
@@ -4362,6 +4350,23 @@ ValueNum ValueNumbering::LoadMemory(var_types type, ValueNum addrVN)
     // a BITCAST of the CSEd INT load. Probably too much work to be worthwhile.
     ValueNum typeVN  = vnStore->VNForIntCon(type);
     ValueNum valueVN = vnStore->VNForFunc(varActualType(type), VNF_MemLoad, typeVN, addrVN, memoryVN);
+
+    if (varTypeIsSmall(type))
+    {
+        valueVN = vnStore->VNForFunc(TYP_INT, GetConvFunc(type), valueVN);
+    }
+
+    return valueVN;
+}
+
+ValueNum ValueNumbering::LoadMemoryInvariant(var_types type, VNFunc func, ValueNum addrVN)
+{
+    assert(type != TYP_STRUCT);
+    assert((func == VNF_MemLoadInvariant) || (func == VNF_MemLoadNotNull));
+    assert(!vnStore->HasExset(addrVN));
+
+    ValueNum typeVN  = vnStore->VNForIntCon(type);
+    ValueNum valueVN = vnStore->VNForFunc(varActualType(type), func, typeVN, addrVN);
 
     if (varTypeIsSmall(type))
     {

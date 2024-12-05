@@ -437,8 +437,7 @@ class ValueNumStore
     unsigned m_currentNotAFieldChunk   = 0;
     unsigned m_currentFuncChunk[MaxFuncArity + 1][TYP_COUNT]{};
 
-    ValueNum     m_zeroMap           = NoVN;
-    ValueNum     m_readOnlyMemoryMap = NoVN;
+    ValueNum     m_zeroMap = NoVN;
     ValueNum     m_smallInt32VNMap[SmallIntConstNum];
     Int32VNMap*  m_int32VNMap  = nullptr;
     Int64VNMap*  m_int64VNMap  = nullptr;
@@ -603,10 +602,6 @@ public:
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
     ValueNum ZeroMapVN();
 
-    // The ROH map is the map for "read-only memory".  We assume that this is never mutated, and always
-    // has the same value number.
-    ValueNum ReadOnlyMemoryMapVN();
-
     static ValueNum NullVN()
     {
         return ValueNum(SRC_Null);
@@ -663,18 +658,10 @@ public:
     ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2);
     ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3);
 
-    // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
-    // "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
-    // (liberal/conservative) to read from the SSA def referenced in the phi argument.
-    ValueNum VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum op1VN, ValueNum op2VN);
-    ValueNumPair VNForMapSelect(var_types type, ValueNumPair map, ValueNumPair index);
-
-    // A method that does the work for VNForMapSelect and may call itself recursively.
+    ValueNum VNForMapSelect(ValueNumKind vnk, var_types type, ValueNum mapVN, ValueNum indexVN);
     ValueNum VNForMapSelectWork(
-        ValueNumKind vnk, var_types type, ValueNum op1VN, ValueNum op2VN, int* pBudget, bool* pUsedRecursiveVN);
-
-    // A specialized version of VNForFunc that is used for VNF_MapStore and provides some logging when verbose is set
-    ValueNum VNForMapStore(var_types type, ValueNum arg0VN, ValueNum arg1VN, ValueNum arg2VN);
+        ValueNumKind vnk, var_types type, ValueNum mapVN, ValueNum indexVN, int* budget, bool* usedRecursiveVN);
+    ValueNum VNForMapStore(var_types type, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN);
 
     ValueNumPair VNPairForFunc(var_types type, VNFunc func)
     {

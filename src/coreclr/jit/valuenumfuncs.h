@@ -43,6 +43,9 @@ ValueNumFuncDef(COND_NP, 2, false, false, false)
 ValueNumFuncDef(Unique, 1, false, false, false)     // Args: 0: loop num
 
 ValueNumFuncDef(MemLoad, 3, false, false, false)    // Args: 0: type, 1: address; 2: memory value
+ValueNumFuncDef(MemLoadInvariant, 2, false, false, false)
+ValueNumFuncDef(MemLoadNotNull, 2, false, true, false)
+
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
 ValueNumFuncDef(MapSelect, 2, false, false, false)  // Args: 0: map, 1: key.
 
@@ -196,7 +199,6 @@ ValueNumFuncDef(Box, 3, false, false, false)
 ValueNumFuncDef(BoxNullable, 3, false, false, false)
 
 ValueNumFuncDef(LazyStrCns, 2, false, true, false)  // lazy-initialized string literal (helper)
-ValueNumFuncDef(NonNullIndirect, 1, false, true, false)  // this indirect is expected to always return a non-null value
 ValueNumFuncDef(Unbox, 2, false, true, false)
 
 ValueNumFuncDef(ObjMT, 1, false, true, false)
