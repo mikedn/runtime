@@ -939,48 +939,36 @@ ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum i
 // This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
 // "select(m1, ind)", ..., "select(mk, ind)" to see if they agree. It needs to know which kind of value number
 // (liberal/conservative) to read from the SSA def referenced in the phi argument.
-ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types typ, ValueNum mapVN, ValueNum indexVN)
+ValueNum ValueNumStore::VNForMapSelect(ValueNumKind vnk, var_types type, ValueNum mapVN, ValueNum indexVN)
 {
-    int      budget          = m_mapSelectBudget;
-    bool     usedRecursiveVN = false;
-    ValueNum result          = VNForMapSelectWork(vnk, typ, mapVN, indexVN, &budget, &usedRecursiveVN);
+    bool        usedRecursiveVN = false;
+    VNMapSelect select{vnk, type, indexVN, m_mapSelectBudget};
+    ValueNum    result = VNForMapSelectWork(select, mapVN, &usedRecursiveVN);
 
     // The remaining budget should always be between [0..m_mapSelectBudget]
-    assert((budget >= 0) && (budget <= m_mapSelectBudget));
+    assert((select.budget >= 0) && (select.budget <= m_mapSelectBudget));
 
     INDEBUG(Trace(result));
 
     return result;
 }
 
-// This requires a "ValueNumKind" because it will attempt, given "select(phi(m1, ..., mk), ind)", to evaluate
-// "select(m1, ind)", ..., "select(mk, ind)" to see if they agree.  It needs to know which kind of value number
-// (liberal/conservative) to read from the SSA def referenced in the phi argument.
-ValueNum ValueNumStore::VNForMapSelectWork(
-    ValueNumKind vnk, var_types type, ValueNum mapVN, const ValueNum indexVN, int* pBudget, bool* pUsedRecursiveVN)
+ValueNum ValueNumStore::VNForMapSelectWork(VNMapSelect& select, ValueNum mapVN, bool* pUsedRecursiveVN)
 {
 // This label allows us to directly implement a tail call by setting up the arguments, and doing a goto to here.
 TailCall:
-    assert((mapVN != NoVN) && (indexVN != NoVN));
-    assert(!HasExset(mapVN));
-    assert(!HasExset(indexVN));
-    assert(varTypeIsStruct(TypeOfVN(mapVN)));
-
-    *pUsedRecursiveVN = false;
-
-#ifdef DEBUG
+    assert((select.indexVN != NoVN) && !HasExset(select.indexVN));
+    assert(varTypeIsStruct(TypeOfVN(mapVN)) && !HasExset(mapVN));
+    assert(!*pUsedRecursiveVN);
     // Provide a mechanism for writing tests that ensure we don't call this ridiculously often.
-    m_numMapSels++;
-    unsigned selLim = JitConfig.JitVNMapSelLimit();
-    assert(selLim == 0 || m_numMapSels < selLim);
-#endif
+    assert((JitConfig.JitVNMapSelLimit() == 0) || (++m_numMapSels < JitConfig.JitVNMapSelLimit()));
 
     if (mapVN == ZeroMapVN())
     {
-        return VNZeroForType(type);
+        return VNZeroForType(select.type);
     }
 
-    const VNFuncDef2 fstruct(VNF_MapSelect, mapVN, indexVN);
+    const VNFuncDef2 fstruct(VNF_MapSelect, mapVN, select.indexVN);
 
     if (m_func2VNMap == nullptr)
     {
@@ -991,23 +979,20 @@ TailCall:
         return *cached;
     }
 
-    // Give up if we've run out of budget.
-    if (*pBudget == 0)
+    if (select.budget == 0)
     {
         // We have to use 'nullptr' for the basic block here, because subsequent expressions
         // in different blocks may find this result in the VNFunc2Map -- other expressions in
         // the IR may "evaluate" to this same VNForExpr, so it is not "unique" in the sense
         // that permits the BasicBlock attribution.
         // TODO-MIKE-Review: This should probably be MapSelect from the current map.
-        ValueNum uniqueVN = VNForExpr(nullptr, type);
+        ValueNum uniqueVN = VNForExpr(nullptr, select.type);
         m_func2VNMap->Set(fstruct, uniqueVN);
         return uniqueVN;
     }
 
-    // Reduce our budget by one
-    (*pBudget)--;
+    select.budget--;
 
-    // If it's recursive, stop the recursion.
     if (m_fixedPointMapSels.Contains(mapVN))
     {
         *pUsedRecursiveVN = true;
@@ -1023,7 +1008,7 @@ TailCall:
         ValueNum storeIndexVN = funcApp[1];
 
         // select(store(m, i, v), i) == v
-        if (storeIndexVN == indexVN)
+        if (storeIndexVN == select.indexVN)
         {
             RecordLoopMemoryDependence(m_currentNode, m_currentBlock, storeMapVN);
             return funcApp[2];
@@ -1043,15 +1028,14 @@ TailCall:
         // They could alias in an array map since local addresses are basically constants but
         // good luck writing any meaningful code that uses a local address as an array index.
 
-        if (IsVNConstant(indexVN) && (IsVNConstant(storeIndexVN) || (GetVNFunc(storeIndexVN, &funcApp) == VNF_LclAddr)))
+        if (IsVNConstant(select.indexVN) &&
+            (IsVNConstant(storeIndexVN) || (GetVNFunc(storeIndexVN, &funcApp) == VNF_LclAddr)))
         {
-            // This is the equivalent of the recursive tail call:
-            // return VNForMapSelect(vnk, type, storeMapVN, indexVN);
             mapVN = storeMapVN;
             goto TailCall;
         }
     }
-    else if ((func == VNF_Phi) || ((func == VNF_MemoryPhi) && (vnk == VNK_Liberal)))
+    else if ((func == VNF_Phi) || ((func == VNF_MemoryPhi) && (select.vnk == VNK_Liberal)))
     {
         GetVNFunc(funcApp[0], &funcApp);
         assert(funcApp.Is(VNF_PhiArgs));
@@ -1062,11 +1046,11 @@ TailCall:
 
         if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
         {
-            void* def = ConstantHostPtr<void*>(f->m_arg0);
+            void* def = ConstantHostPtr<void>(f->m_arg0);
 
             if (func == VNF_Phi)
             {
-                argVN = static_cast<GenTreeLclDef*>(def)->GetVN(vnk);
+                argVN = static_cast<GenTreeLclDef*>(def)->GetVN(select.vnk);
             }
             else
             {
@@ -1079,11 +1063,12 @@ TailCall:
             // We need to be careful about breaking infinite recursion. Record the outer map.
             m_fixedPointMapSels.Push(mapVN);
 
-            ValueNum sameValueVN = VNForMapSelectWork(vnk, type, argVN, indexVN, pBudget, pUsedRecursiveVN);
+            *pUsedRecursiveVN    = false;
+            ValueNum sameValueVN = VNForMapSelectWork(select, argVN, pUsedRecursiveVN);
 
             // We don't have any budget remaining to verify that all PHI args are the same
             // so setup the default failure case now.
-            bool allSame = *pBudget > 0;
+            bool allSame = select.budget > 0;
 
             while ((argListVN != NoVN) && allSame)
             {
@@ -1100,11 +1085,11 @@ TailCall:
 
                 if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
                 {
-                    void* def = ConstantHostPtr<void*>(f->m_arg0);
+                    void* def = ConstantHostPtr<void>(f->m_arg0);
 
                     if (func == VNF_Phi)
                     {
-                        argVN = static_cast<GenTreeLclDef*>(def)->GetVN(vnk);
+                        argVN = static_cast<GenTreeLclDef*>(def)->GetVN(select.vnk);
                     }
                     else
                     {
@@ -1119,7 +1104,7 @@ TailCall:
                 }
 
                 bool     usedRecursiveVN = false;
-                ValueNum valueVN         = VNForMapSelectWork(vnk, type, argVN, indexVN, pBudget, &usedRecursiveVN);
+                ValueNum valueVN         = VNForMapSelectWork(select, argVN, &usedRecursiveVN);
                 *pUsedRecursiveVN |= usedRecursiveVN;
 
                 if (sameValueVN == RecursiveVN)
@@ -1151,13 +1136,11 @@ TailCall:
                 return sameValueVN;
             }
         }
-
-        // Otherwise, fall through to creating the select(phi(m1, m2), x) function application.
     }
     else
     {
         // TODO-MIKE-Consider: Using maps for SIMD values is questionable...
-        assert(((func == VNF_MemoryPhi) && (vnk == VNK_Conservative)) || (func == VNF_Unique) ||
+        assert(((func == VNF_MemoryPhi) && (select.vnk == VNK_Conservative)) || (func == VNF_Unique) ||
                (func == VNF_MapSelect) || varTypeIsSIMD(TypeOfVN(mapVN)));
     }
 
@@ -1166,7 +1149,7 @@ TailCall:
     // We may have run out of budget and already assigned a result
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(type, ChunkKind::Func2)->AllocVN(fstruct);
+        *vn = GetAllocChunk(select.type, ChunkKind::Func2)->AllocVN(fstruct);
     }
 
     return *vn;

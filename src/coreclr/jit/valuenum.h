@@ -658,9 +658,16 @@ public:
     ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2);
     ValueNum VNForFunc(var_types type, VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3);
 
+    struct VNMapSelect
+    {
+        ValueNumKind const vnk;
+        var_types const    type;
+        ValueNum const     indexVN;
+        int                budget;
+    };
+
     ValueNum VNForMapSelect(ValueNumKind vnk, var_types type, ValueNum mapVN, ValueNum indexVN);
-    ValueNum VNForMapSelectWork(
-        ValueNumKind vnk, var_types type, ValueNum mapVN, ValueNum indexVN, int* budget, bool* usedRecursiveVN);
+    ValueNum VNForMapSelectWork(VNMapSelect& select, ValueNum mapVN, bool* usedRecursiveVN);
     ValueNum VNForMapStore(var_types type, ValueNum mapVN, ValueNum indexVN, ValueNum valueVN);
 
     ValueNumPair VNPairForFunc(var_types type, VNFunc func)

@@ -150,9 +150,9 @@ CONFIG_INTEGER(JitStressFP, W("JitStressFP"), 0)                       // Intern
 CONFIG_INTEGER(JitStressModeNamesOnly, W("JitStressModeNamesOnly"), 0) // Internal Jit stress: if nonzero, only enable
                                                                        // stress modes listed in JitStressModeNames
 CONFIG_INTEGER(JitStressRegs, W("JitStressRegs"), 0)
-CONFIG_INTEGER(JitVNMapSelLimit, W("JitVNMapSelLimit"), 0) // If non-zero, assert if # of VNF_MapSelect applications
-                                                           // considered reaches this
-CONFIG_INTEGER(NgenHashDump, W("NgenHashDump"), -1)        // same as JitHashDump, but for ngen
+CONFIG_UNSIGNED(JitVNMapSelLimit, W("JitVNMapSelLimit"), 0) // If non-zero, assert if # of VNF_MapSelect applications
+                                                            // considered reaches this
+CONFIG_INTEGER(NgenHashDump, W("NgenHashDump"), -1)         // same as JitHashDump, but for ngen
 CONFIG_INTEGER(NgenOrder, W("NgenOrder"), 0)
 CONFIG_INTEGER(RunAltJitCode, W("RunAltJitCode"), 1) // If non-zero, and the compilation succeeds for an AltJit, then
                                                      // use the code. If zero, then we always throw away the generated
