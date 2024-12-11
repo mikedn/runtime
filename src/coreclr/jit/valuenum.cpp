@@ -5604,16 +5604,16 @@ public:
         assert(m_toDoAllPredsDone.Empty());
 
         // If we have no blocks with all preds done, then (ideally, if all cycles have been captured by loops)
-        // we must have at least one block within a loop.  We want to do the loops first.  Doing a loop entry block
-        // should break the cycle, making the rest of the body of the loop (unless there's a nested loop) doable by the
-        // all-preds-done rule.  If several loop entry blocks are available, at least one should have all non-loop preds
-        // done -- we choose that.
+        // we must have at least one block within a loop. We want to do the loops first. Doing a loop entry block
+        // should break the cycle, making the rest of the body of the loop (unless there's a nested loop) doable
+        // by the all-preds-done rule. If several loop entry blocks are available, at least one should have all
+        // non-loop preds done -- we choose that.
         for (unsigned i = 0; i < m_toDoNotAllPredsDone.Size(); i++)
         {
             BasicBlock* cand = m_toDoNotAllPredsDone.Get(i);
 
             // Skip any already-completed blocks (a block may have all its preds finished, get added to the
-            // all-preds-done todo set, and get processed there).  Do this by moving the last one down, to
+            // all-preds-done todo set, and get processed there). Do this by moving the last one down, to
             // keep the array compact.
             while (GetVisitBit(cand->bbNum, BVB_complete))
             {
@@ -5625,11 +5625,12 @@ public:
                 else
                 {
                     // "cand" is the last element; delete it.
-                    (void)m_toDoNotAllPredsDone.Pop();
+                    m_toDoNotAllPredsDone.Pop();
                     break;
                 }
             }
-            // We may have run out of non-complete candidates above.  If so, we're done.
+
+            // We may have run out of non-complete candidates above. If so, we're done.
             if (i == m_toDoNotAllPredsDone.Size())
             {
                 break;
@@ -5643,17 +5644,10 @@ public:
 
                 // "lnum" is the innermost loop of which "cand" is the entry; find the outermost.
 
-                for (unsigned lnumPar = loopTable[lnum].lpParent; lnumPar != NoLoopNum;
-                     lnumPar          = loopTable[lnumPar].lpParent)
+                for (unsigned lnumPar                                                    = loopTable[lnum].lpParent;
+                     lnumPar != NoLoopNum && loopTable[lnumPar].lpEntry == cand; lnumPar = loopTable[lnumPar].lpParent)
                 {
-                    if (loopTable[lnumPar].lpEntry == cand)
-                    {
-                        lnum = lnumPar;
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    lnum = lnumPar;
                 }
 
                 bool allNonLoopPredsDone = true;
@@ -5661,12 +5655,9 @@ public:
                 {
                     BasicBlock* predBlock = pred->getBlock();
 
-                    if (!loopTable[lnum].lpContains(predBlock))
+                    if (!loopTable[lnum].lpContains(predBlock) && !GetVisitBit(predBlock->bbNum, BVB_complete))
                     {
-                        if (!GetVisitBit(predBlock->bbNum, BVB_complete))
-                        {
-                            allNonLoopPredsDone = false;
-                        }
+                        allNonLoopPredsDone = false;
                     }
                 }
 
@@ -5685,26 +5676,19 @@ public:
     // Record that "blk" has been visited, and add any unvisited successors of "blk" to the appropriate todo set.
     void FinishVisit(BasicBlock* blk)
     {
-        JITDUMP("finish(" FMT_BB ").\n", blk->bbNum);
-
         SetVisitBit(blk->bbNum, BVB_complete);
 
         for (BasicBlock* succ : blk->GetAllSuccs(m_comp))
         {
-            JITDUMP("   Succ(" FMT_BB ").\n", succ->bbNum);
-
             if (GetVisitBit(succ->bbNum, BVB_complete))
             {
                 continue;
             }
 
-            JITDUMP("     Not yet completed.\n");
-
             bool allPredsVisited = true;
             for (flowList* pred = m_comp->BlockPredsWithEH(succ); pred != nullptr; pred = pred->flNext)
             {
-                BasicBlock* predBlock = pred->getBlock();
-                if (!GetVisitBit(predBlock->bbNum, BVB_complete))
+                if (!GetVisitBit(pred->getBlock()->bbNum, BVB_complete))
                 {
                     allPredsVisited = false;
                     break;
@@ -5713,24 +5697,15 @@ public:
 
             if (allPredsVisited)
             {
-                JITDUMP("     All preds complete, adding to allDone.\n");
-
                 assert(!GetVisitBit(succ->bbNum, BVB_onAllDone)); // Only last completion of last succ should add to
                                                                   // this.
                 m_toDoAllPredsDone.Push(succ);
                 SetVisitBit(succ->bbNum, BVB_onAllDone);
             }
-            else
+            else if (!GetVisitBit(succ->bbNum, BVB_onNotAllDone))
             {
-                JITDUMP("     Not all preds complete  Adding to notallDone, if necessary...\n");
-
-                if (!GetVisitBit(succ->bbNum, BVB_onNotAllDone))
-                {
-                    JITDUMP("       Was necessary.\n");
-
-                    m_toDoNotAllPredsDone.Push(succ);
-                    SetVisitBit(succ->bbNum, BVB_onNotAllDone);
-                }
+                m_toDoNotAllPredsDone.Push(succ);
+                SetVisitBit(succ->bbNum, BVB_onNotAllDone);
             }
         }
     }
@@ -5926,6 +5901,8 @@ bool ValueNumbering::BlockIsLoopEntry(BasicBlock* block, unsigned* loopNum)
 
 void ValueNumbering::NumberBlock(BasicBlock* block)
 {
+    JITDUMP("-------------- Value numbering " FMT_BB " --------------\n", block->bbNum);
+
     vnStore->SetCurrentBlock(block);
 
     Statement* stmt    = block->firstStmt();
