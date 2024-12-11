@@ -5051,6 +5051,12 @@ void ValueNumStore::Dump(ValueNum vn)
             case VNF_MapStore:
                 DumpMapStore(funcApp);
                 break;
+            case VNF_Phi:
+                DumpPhi(funcApp);
+                break;
+            case VNF_MemoryPhi:
+                DumpMemoryPhi(funcApp);
+                break;
             case VNF_ValWithExset:
                 DumpValWithExc(funcApp);
                 break;
@@ -5231,6 +5237,52 @@ void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
     {
         printf(", " FMT_LP, loopNum);
     }
+    printf(")");
+}
+
+void ValueNumStore::DumpMemoryPhi(const VNFuncApp& phi)
+{
+    assert(phi.Is(VNF_MemoryPhi));
+    printf("MemoryPhi(");
+
+    ValueNum  argsVN = phi[0];
+    VNFuncApp arg;
+
+    while ((argsVN != NoVN) && (GetVNFunc(argsVN, &arg) == VNF_PhiArgs))
+    {
+        argsVN = arg[1];
+        Print(arg[0], GetVNFunc(arg[0], &arg) == VNF_PhiArgDef);
+        printf(", ");
+    }
+
+    if (argsVN != NoVN)
+    {
+        Print(argsVN, 0);
+    }
+
+    printf(")");
+}
+
+void ValueNumStore::DumpPhi(const VNFuncApp& phi)
+{
+    assert(phi.Is(VNF_Phi));
+    printf("Phi(");
+
+    ValueNum  argsVN = phi[0];
+    VNFuncApp arg;
+
+    while ((argsVN != NoVN) && (GetVNFunc(argsVN, &arg) == VNF_PhiArgs))
+    {
+        argsVN = arg[1];
+        Print(arg[0], GetVNFunc(arg[0], &arg) == VNF_PhiArgDef);
+        printf(", ");
+    }
+
+    if (argsVN != NoVN)
+    {
+        Print(argsVN, 0);
+    }
+
     printf(")");
 }
 
@@ -5896,7 +5948,9 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
             if (argVNP.GetLiberal() == NoVN)
             {
-                argVNP.SetBoth(vnStore->VNForFunc(varActualType(type), VNF_PhiArgDef, vnStore->VNForHostPtr(argDef)));
+                ValueNum defVN = vnStore->VNForHostPtr(argDef);
+                INDEBUG(vnStore->Trace(defVN, "backward lcl def"));
+                argVNP.SetBoth(vnStore->VNForFunc(varActualType(type), VNF_PhiArgDef, defVN));
                 INDEBUG(vnStore->Trace(argVNP));
             }
 
@@ -5911,7 +5965,6 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
             {
                 isMeaningless &= (phiVNP == argVNP);
                 argsVNP = vnStore->VNPairForFunc(varActualType(type), VNF_PhiArgs, argVNP, argsVNP);
-                INDEBUG(vnStore->Trace(argsVNP));
             }
         }
 
@@ -5960,7 +6013,10 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
                 if (argVN == NoVN)
                 {
-                    argVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiArgDef, vnStore->VNForHostPtr(arg));
+                    ValueNum defVN = vnStore->VNForHostPtr(arg);
+                    INDEBUG(vnStore->Trace(defVN, "backward mem def"));
+                    argVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiArgDef, defVN);
+                    INDEBUG(vnStore->Trace(argVN));
                 }
 
                 if (argsVN == NoVN)
@@ -5972,7 +6028,6 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
                 {
                     isMeaningless &= (phiVN == argVN);
                     argsVN = vnStore->VNForFunc(TYP_STRUCT, VNF_PhiArgs, argVN, argsVN);
-                    INDEBUG(vnStore->Trace(argsVN));
                 }
             }
 
