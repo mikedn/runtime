@@ -6226,56 +6226,58 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
         loopNum = loopsInNest;
     }
 
-    if (vnLoopTable[loopNum].hasMemoryHavoc)
+    const VNLoop& vnLoop = vnLoopTable[loopNum];
+
+    if (vnLoop.hasMemoryHavoc)
     {
         JITDUMP("    Loop " FMT_LP " has memory havoc effect\n", loopNum);
+
         return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
     }
 
     // Otherwise, find the predecessors of the entry block that are not in the loop.
-    // If there is only one such, use its memory value as the "base."  If more than one,
+    // If there is only one such, use its memory value as the "base." If more than one,
     // use a new unique VN.
+
     BasicBlock* nonLoopPred          = nullptr;
     bool        multipleNonLoopPreds = false;
+
     for (flowList* pred = compiler->BlockPredsWithEH(entryBlock); pred != nullptr; pred = pred->flNext)
     {
         BasicBlock* predBlock = pred->getBlock();
+
         if (!loopTable[loopNum].lpContains(predBlock))
         {
-            if (nonLoopPred == nullptr)
-            {
-                nonLoopPred = predBlock;
-            }
-            else
+            if (nonLoopPred != nullptr)
             {
                 multipleNonLoopPreds = true;
                 break;
             }
+
+            nonLoopPred = predBlock;
         }
     }
+
     if (multipleNonLoopPreds)
     {
         JITDUMP("    Loop " FMT_LP " entry block has multiple non-loop predecessors\n", loopNum);
+
         return vnStore->VNForExpr(entryBlock, TYP_STRUCT);
     }
-    // Otherwise, there is a single non-loop pred.
-    assert(nonLoopPred != nullptr);
-    // What is its memory post-state?
+
     ValueNum newMemoryVN = nonLoopPred->memoryExitDef->vn;
-    assert(newMemoryVN != NoVN); // We must have processed the single non-loop pred before reaching the
-                                 // loop entry.
+
+    // We must have processed the single non-loop pred before reaching the loop entry.
+    assert(newMemoryVN != NoVN);
 
     INDEBUG(TraceMem(newMemoryVN DEBUGARG("loop entry memory")));
 
     // Modify "base" by setting all the modified fields/field maps/array maps to unknown values.
 
-    // First the fields/field maps.
-    FieldHandleSet* fieldsMod = vnLoopTable[loopNum].modifiedFields;
-    if (fieldsMod != nullptr)
+    if (FieldHandleSet* fieldsMod = vnLoop.modifiedFields)
     {
         for (CORINFO_FIELD_HANDLE fieldHandle : *fieldsMod)
         {
-            ValueNum  fieldVN   = vnStore->VNForFieldSeqHandle(fieldHandle);
             var_types fieldType = TYP_STRUCT;
 
             if (vm->isFieldStatic(fieldHandle))
@@ -6283,13 +6285,13 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
                 fieldType = CorTypeToVarType(vm->getFieldType(fieldHandle));
             }
 
-            newMemoryVN =
-                vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fieldVN, vnStore->VNForExpr(entryBlock, fieldType));
+            ValueNum fieldVN  = vnStore->VNForFieldSeqHandle(fieldHandle);
+            ValueNum uniqueVN = vnStore->VNForExpr(entryBlock, fieldType);
+            newMemoryVN       = vnStore->VNForMapStore(TYP_STRUCT, newMemoryVN, fieldVN, uniqueVN);
         }
     }
-    // Now do the array maps.
-    TypeNumSet* elemTypesMod = vnLoopTable[loopNum].modifiedArrayElemTypes;
-    if (elemTypesMod != nullptr)
+
+    if (TypeNumSet* elemTypesMod = vnLoop.modifiedArrayElemTypes)
     {
         for (unsigned elemTypeNum : *elemTypesMod)
         {
@@ -6299,7 +6301,7 @@ ValueNum ValueNumbering::BuildLoopEntryMemory(BasicBlock* entryBlock, unsigned i
         }
     }
 
-    if (vnLoopTable[loopNum].modifiesAddressExposedLocals)
+    if (vnLoop.modifiesAddressExposedLocals)
     {
         // We currently don't try to resolve address exposed loads to stores so do a dummy local store for now.
         ValueNum lclAddrVN = vnStore->VNForFunc(TYP_I_IMPL, VNF_LclAddr, vnStore->VNForIntCon(0),
