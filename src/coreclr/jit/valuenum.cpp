@@ -765,6 +765,16 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
                 return arg[0];
             }
             break;
+
+        case VNOP_NEG:
+        case VNOP_NOT:
+        case VNOP_FNEG:
+        case VNOP_BSWAP:
+            if (GetVNFunc(arg0, &arg) && arg.Is(func))
+            {
+                return arg[0];
+            }
+            break;
     }
 
     if (m_func1VNMap == nullptr)
