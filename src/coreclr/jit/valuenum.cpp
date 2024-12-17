@@ -755,6 +755,18 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
         return EvalFuncForConstantArgs(type, func, arg0);
     }
 
+    switch (func)
+    {
+        VNFuncApp arg;
+
+        case VNOP_TRUNC:
+            if (GetVNFunc(arg0, &arg) && arg.Is(VNOP_SXT, VNOP_UXT))
+            {
+                return arg[0];
+            }
+            break;
+    }
+
     if (m_func1VNMap == nullptr)
     {
         m_func1VNMap = new (alloc) Func1VNMap(alloc);
