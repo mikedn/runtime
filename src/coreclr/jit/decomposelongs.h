@@ -39,6 +39,7 @@ private:
     GenTree* DecomposeIndLoad(LIR::Use& use);
     GenTree* DecomposeIndStore(LIR::Use& use);
     GenTree* DecomposeNot(LIR::Use& use);
+    GenTree* DecomposeBswap(LIR::Use& use);
     GenTree* DecomposeNeg(LIR::Use& use);
     GenTree* DecomposeAddSub(LIR::Use& use);
     GenTree* DecomposeBitwise(LIR::Use& use);

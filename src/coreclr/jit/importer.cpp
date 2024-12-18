@@ -3258,10 +3258,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
                 case CorInfoType::CORINFO_TYPE_INT:
                 case CorInfoType::CORINFO_TYPE_UINT:
-#ifdef TARGET_64BIT
                 case CorInfoType::CORINFO_TYPE_LONG:
                 case CorInfoType::CORINFO_TYPE_ULONG:
-#endif
                     retNode = gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
                     break;
 

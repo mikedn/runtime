@@ -114,6 +114,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_NOT:
             nextNode = DecomposeNot(use);
             break;
+        case GT_BSWAP:
+            nextNode = DecomposeBswap(use);
+            break;
         case GT_AND:
         case GT_OR:
         case GT_XOR:
@@ -575,6 +578,26 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
     Range().InsertAfter(node, hiNode);
 
     return FinalizeDecomposition(use, node, hiNode, hiNode);
+}
+
+GenTree* DecomposeLongs::DecomposeBswap(LIR::Use& use)
+{
+    assert(use.Def()->OperIs(GT_BSWAP));
+
+    GenTreeUnOp* node = use.Def()->AsUnOp();
+    GenTreeOp* value = node->GetOp(0)->AsOp();
+    assert(value->OperIs(GT_LONG));
+    GenTree* loValue = value->GetOp(0);
+    GenTree* hiValue = value->GetOp(1);
+    Range().Remove(value);
+
+    node->SetType(TYP_INT);
+    node->SetOp(0, loValue);
+
+    GenTree* hiNode = new (m_compiler, GT_BSWAP) GenTreeOp(GT_BSWAP, TYP_INT, hiValue, nullptr);
+    Range().InsertAfter(node, hiNode);
+
+    return FinalizeDecomposition(use, hiNode, node, hiNode);
 }
 
 GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
