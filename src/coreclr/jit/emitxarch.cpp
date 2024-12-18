@@ -1454,7 +1454,7 @@ void X86Emitter::emitIns(instruction ins)
 
 void X86Emitter::emitIns(instruction ins, emitAttr attr)
 {
-    assert((ins == INS_cdq) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
+    assert((ins == INS_cdq) || (ins == INS_cdqe) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
            (ins == INS_rep_stos));
     assert((attr == EA_1BYTE) || (attr == EA_4BYTE)AMD64_ONLY(|| (attr == EA_8BYTE)));
 
@@ -7591,7 +7591,7 @@ uint8_t* X86Encoder::EncodeNoOperands(uint8_t* dst, instrDesc* id)
 #ifdef TARGET_AMD64
     if (id->idOpSize() == EA_8BYTE)
     {
-        assert((ins == INS_cdq) || (ins == INS_stos) || (ins == INS_movs));
+        assert((ins == INS_cdq) || (ins == INS_cdqe) || (ins == INS_stos) || (ins == INS_movs));
 
         code = AddRexWPrefix(code);
         dst += EncodeRexPrefix(dst, code);
@@ -8486,6 +8486,7 @@ Encoder::InstrPerfScore Encoder::GetInstrPerfScore(instrDesc* id)
             break;
 
         case INS_cdq:
+        case INS_cdqe:
             result.throughput = PERFSCORE_THROUGHPUT_1C;
             result.latency    = PERFSCORE_LATENCY_1C;
             break;

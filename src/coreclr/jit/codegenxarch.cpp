@@ -5245,6 +5245,10 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
         UseRMRegs(src);
         emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
+    else if ((dstReg == REG_RAX) && (srcReg == REG_EAX))
+    {
+        GetEmitter()->emitIns(INS_cdqe, EA_8BYTE);
+    }
     else
     {
         GetEmitter()->emitIns_Mov(INS_movsxd, EA_4BYTE, dstReg, srcReg, false);

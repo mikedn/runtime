@@ -592,6 +592,7 @@ INST1(lock,             "lock",             RD, 0xF0,                           
 INST1(leave,            "leave",            RD, 0xC9,                                                         None)
                                                                                                                   
 INST1(cdq,              "cdq",              RD, 0x99,                                                         RexW)
+INST1(cdqe,             "cdqe",             RD, 0x98,                                                         RexW)
                                                                                                                   
 INST1(shld,             "shld",             RW, h0F(0xA4),                                                    RexW | ShiftNFlags)
 INST1(shrd,             "shrd",             RW, h0F(0xAC),                                                    RexW | ShiftNFlags)
