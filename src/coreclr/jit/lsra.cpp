@@ -2,12 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-                 Linear Scan Register Allocation
-
-                         a.k.a. LSRA
+  Linear Scan Register Allocation
 
   Preconditions
     - All register requirements are expressed in the code stream, either as destination
@@ -86,91 +82,11 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
       as it processes the trees, since a variable can (now) be assigned different
       registers over its lifetimes.
 
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "lsra.h"
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                    Small Helper functions                                 XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-//-------------------------------------------------------------
-// getWeight: Returns the weight of the RefPosition.
-//
-// Arguments:
-//    refPos   -   ref position
-//
-// Returns:
-//    Weight of ref position.
-BasicBlock::weight_t LinearScan::getWeight(RefPosition* refPos)
-{
-    BasicBlock::weight_t weight;
-    GenTree*             treeNode = refPos->treeNode;
-
-    if (treeNode != nullptr)
-    {
-        if (isCandidateLclVar(treeNode))
-        {
-            // Tracked locals: use weighted ref cnt as the weight of the
-            // ref position.
-            LclVarDsc* varDsc = treeNode->AsLclVar()->GetLcl();
-            weight            = varDsc->lvRefCntWtd();
-            if (refPos->getInterval()->isSpilled)
-            {
-                // Decrease the weight if the interval has already been spilled.
-                if (varDsc->lvLiveInOutOfHndlr || refPos->getInterval()->firstRefPosition->singleDefSpill)
-                {
-                    // An EH-var/single-def is always spilled at defs, and we'll decrease the weight by half,
-                    // since only the reload is needed.
-                    weight = weight / 2;
-                }
-                else
-                {
-                    weight -= BB_UNITY_WEIGHT;
-                }
-            }
-        }
-        else
-        {
-            // Non-candidate local ref or non-lcl tree node.
-            // These are considered to have two references in the basic block:
-            // a def and a use and hence weighted ref count would be 2 times
-            // the basic block weight in which they appear.
-            // However, it is generally more harmful to spill tree temps, so we
-            // double that.
-            const unsigned TREE_TEMP_REF_COUNT    = 2;
-            const unsigned TREE_TEMP_BOOST_FACTOR = 2;
-            weight = TREE_TEMP_REF_COUNT * TREE_TEMP_BOOST_FACTOR * blockInfo[refPos->bbNum].weight;
-        }
-    }
-    else
-    {
-        // Non-tree node ref positions.  These will have a single
-        // reference in the basic block and hence their weighted
-        // refcount is equal to the block weight in which they
-        // appear.
-        weight = blockInfo[refPos->bbNum].weight;
-    }
-
-    return weight;
-}
-
-// allRegs represents a set of registers that can
-// be used to allocate the specified type in any point
-// in time (more of a 'bank' of registers).
 regMaskTP LinearScan::allRegs(RegisterType rt) const
 {
     if (rt == TYP_FLOAT)
@@ -277,6 +193,50 @@ void LinearScan::updateNextIntervalRef(regNumber reg, Interval* interval)
 #endif
 }
 
+BasicBlock::weight_t LinearScan::getWeight(RefPosition* refPos)
+{
+    if (GenTree* node = refPos->treeNode)
+    {
+        if (isCandidateLclVar(node))
+        {
+            // Tracked locals: use weighted ref cnt as the weight of the ref position.
+            LclVarDsc*           lcl    = node->AsLclVar()->GetLcl();
+            BasicBlock::weight_t weight = lcl->GetRefWeight();
+
+            if (refPos->getInterval()->isSpilled)
+            {
+                // Decrease the weight if the interval has already been spilled.
+                if (lcl->lvLiveInOutOfHndlr || refPos->getInterval()->firstRefPosition->singleDefSpill)
+                {
+                    // An EH-var/single-def is always spilled at defs, and we'll decrease the weight by half,
+                    // since only the reload is needed.
+                    weight = weight / 2;
+                }
+                else
+                {
+                    weight -= BB_UNITY_WEIGHT;
+                }
+            }
+
+            return weight;
+        }
+
+        // Non-candidate local ref or non-lcl tree node.
+        // These are considered to have two references in the basic block:
+        // a def and a use and hence weighted ref count would be 2 times the basic block
+        // weight in which they appear.
+        // However, it is generally more harmful to spill tree temps, so we double that.
+        const unsigned TREE_TEMP_REF_COUNT    = 2;
+        const unsigned TREE_TEMP_BOOST_FACTOR = 2;
+
+        return TREE_TEMP_REF_COUNT * TREE_TEMP_BOOST_FACTOR * blockInfo[refPos->bbNum].weight;
+    }
+
+    // Non-tree node ref positions. These will have a single reference in the basic block
+    // and hence their weighted refcount is equal to the block weight in which they appear.
+    return blockInfo[refPos->bbNum].weight;
+}
+
 void LinearScan::updateSpillCost(regNumber reg, Interval* interval)
 {
     // An interval can have no recentRefPosition if this is the initial assignment
@@ -322,7 +282,7 @@ RegRecord* LinearScan::getRegisterRecord(regNumber regNum)
 //                           be present in new regMask.
 //
 // Return Value:
-//     New regMask that has minRegCount registers after instersection.
+//     New regMask that has minRegCount registers after intersection.
 //     Otherwise returns regMaskActual.
 regMaskTP LinearScan::getConstrainedRegMask(regMaskTP regMaskActual, regMaskTP regMaskConstraint, unsigned minRegCount)
 {
@@ -866,11 +826,9 @@ void LinearScan::dumpVarRefPositions(const char* title)
 RegisterType LinearScan::getRegisterType(Interval* currentInterval, RefPosition* refPosition)
 {
     assert(refPosition->getInterval() == currentInterval);
-    RegisterType regType    = currentInterval->registerType;
-    regMaskTP    candidates = refPosition->registerAssignment;
+    assert((refPosition->registerAssignment & allRegs(currentInterval->registerType)) != RBM_NONE);
 
-    assert((candidates & allRegs(regType)) != RBM_NONE);
-    return regType;
+    return currentInterval->registerType;
 }
 
 //------------------------------------------------------------------------
@@ -1097,14 +1055,12 @@ float LinearScan::getSpillWeight(RegRecord* physRegRecord)
 {
     assert(physRegRecord->assignedInterval != nullptr);
     RefPosition* recentAssignedRef = physRegRecord->assignedInterval->recentRefPosition;
-    float        weight            = BB_ZERO_WEIGHT;
-
     // We shouldn't call this method if there is no recentAssignedRef.
     assert(recentAssignedRef != nullptr);
     // We shouldn't call this method if the register is active at this location.
     assert(!isRefPositionActive(recentAssignedRef, currentLoc));
-    weight = getWeight(recentAssignedRef);
-    return weight;
+
+    return getWeight(recentAssignedRef);
 }
 
 #ifdef TARGET_ARM
@@ -2031,15 +1987,9 @@ bool LinearScan::isSecondHalfReg(RegRecord* regRec, Interval* interval)
 //
 RegRecord* LinearScan::getSecondHalfRegRec(RegRecord* regRec)
 {
-    regNumber  secondHalfRegNum;
-    RegRecord* secondHalfRegRec;
-
     assert(genIsValidDoubleReg(regRec->regNum));
 
-    secondHalfRegNum = REG_NEXT(regRec->regNum);
-    secondHalfRegRec = getRegisterRecord(secondHalfRegNum);
-
-    return secondHalfRegRec;
+    return getRegisterRecord(REG_NEXT(regRec->regNum));
 }
 //------------------------------------------------------------------------------------------
 // findAnotherHalfRegRec: Find another half RegRecord which forms same ARM32 double register
@@ -2055,8 +2005,7 @@ RegRecord* LinearScan::getSecondHalfRegRec(RegRecord* regRec)
 //
 RegRecord* LinearScan::findAnotherHalfRegRec(RegRecord* regRec)
 {
-    regNumber anotherHalfRegNum = findAnotherHalfRegNum(regRec->regNum);
-    return getRegisterRecord(anotherHalfRegNum);
+    return getRegisterRecord(findAnotherHalfRegNum(regRec->regNum));
 }
 //------------------------------------------------------------------------------------------
 // findAnotherHalfRegNum: Find another half register's number which forms same ARM32 double register
