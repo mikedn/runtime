@@ -493,7 +493,7 @@ private:
     static bool IsLegalVNFuncOper(genTreeOps oper);
     static bool VNFuncIsComparison(VNFunc vnf);
 
-    static bool CanEvalForConstantArgs1(VNFunc vnf);
+    static bool CanSimplifyUnaryFunc(VNFunc vnf);
     static bool CanEvalForConstantArgs2(VNFunc vnf);
 
 public:
@@ -532,7 +532,7 @@ private:
     // Assumes that "vnf" is a operator of the appropriate arity (unary for the first, binary for the second).
     // Assume that "CanEvalForConstantArgs(vnf)" is true.
     // Returns the result of evaluating the function with those constant arguments.
-    ValueNum EvalFuncForConstantArgs(var_types type, VNFunc vnf, ValueNum vn0);
+    ValueNum EvalFuncForConstantArgs(var_types type, VNFunc vnf, ValueNum vn0, var_types argType);
     ValueNum EvalFuncForConstantArgs(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
     ValueNum EvalFloatFunc(var_types resultType, VNFunc vnf, var_types type, ValueNum vn0, ValueNum vn1);
 
@@ -826,6 +826,26 @@ public:
 
         const T* def = &static_cast<T*>(chunk->m_defs)[index];
         return def->m_func == func ? def : nullptr;
+    }
+
+    template <typename T>
+    const T* IsVNFunc(ValueNum vn) const
+    {
+        if (vn == NoVN)
+        {
+            return nullptr;
+        }
+
+        Chunk* chunk = m_chunks.Get(GetChunkNum(vn));
+        unsigned index = ChunkOffset(vn);
+        assert(index < chunk->m_count);
+
+        if (chunk->m_kind != T::Kind)
+        {
+            return nullptr;
+        }
+
+        return &static_cast<T*>(chunk->m_defs)[index];
     }
 
 #ifdef DEBUG

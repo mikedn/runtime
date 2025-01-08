@@ -750,31 +750,38 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
     assert((func != VNOP_NONE) && (func != VNF_Unique));
     assert(!HasExset(arg0));
 
-    if (CanEvalForConstantArgs1(func) && IsConst(arg0))
+    if (CanSimplifyUnaryFunc(func))
     {
-        return EvalFuncForConstantArgs(type, func, arg0);
-    }
+        if (var_types argType = GetConstType(arg0))
+        {
+            return EvalFuncForConstantArgs(type, func, arg0, argType);
+        }
 
-    switch (func)
-    {
-        VNFuncApp arg;
-
-        case VNOP_TRUNC:
-            if (GetVNFunc(arg0, &arg) && arg.Is(VNOP_SXT, VNOP_UXT))
+        if (const VNFuncDef1* argFunc = IsVNFunc<VNFuncDef1>(arg0))
+        {
+            switch (argFunc->m_func)
             {
-                return arg[0];
-            }
-            break;
+                case VNOP_SXT:
+                case VNOP_UXT:
+                    if (func == VNOP_TRUNC)
+                    {
+                        return argFunc->m_arg0;
+                    }
+                    break;
 
-        case VNOP_NEG:
-        case VNOP_NOT:
-        case VNOP_FNEG:
-        case VNOP_BSWAP:
-            if (GetVNFunc(arg0, &arg) && arg.Is(func))
-            {
-                return arg[0];
+                case VNOP_NEG:
+                case VNOP_NOT:
+                case VNOP_FNEG:
+                case VNOP_BSWAP:
+                    if (func == argFunc->m_func)
+                    {
+                        return argFunc->m_arg0;
+                    }
+                    break;
+                default:
+                    break;
             }
-            break;
+        }
     }
 
     if (m_func1VNMap == nullptr)
@@ -1500,7 +1507,7 @@ const VNHandle* ValueNumStore::IsHandle(ValueNum vn) const
     return &static_cast<VNHandle*>(c->m_defs)[ChunkOffset(vn)];
 }
 
-bool ValueNumStore::CanEvalForConstantArgs1(VNFunc vnf)
+bool ValueNumStore::CanSimplifyUnaryFunc(VNFunc vnf)
 {
     switch (vnf)
     {
@@ -1530,9 +1537,9 @@ bool ValueNumStore::CanEvalForConstantArgs1(VNFunc vnf)
     }
 }
 
-ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN)
+ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, ValueNum arg0VN, var_types argType)
 {
-    switch (TypeOfVN(arg0VN))
+    switch (argType)
     {
         case TYP_INT:
         {
