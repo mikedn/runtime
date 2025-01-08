@@ -89,38 +89,31 @@
 
 regMaskTP LinearScan::allRegs(RegisterType rt) const
 {
-    if (rt == TYP_FLOAT)
-    {
-        return allFloatRegs();
-    }
-    else if ((rt == TYP_DOUBLE) || varTypeIsSIMD(rt))
-    {
-        return availableDoubleRegs;
-    }
-    else
-    {
-        assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
-        return allIntRegs();
-    }
-}
+    assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
 
-regMaskTP LinearScan::allIntRegs() const
-{
-    return availableIntRegs;
-}
-
-regMaskTP LinearScan::allByteRegs() const
-{
-#ifdef TARGET_X86
-    return availableIntRegs & RBM_BYTE_REGS;
-#else
-    return availableIntRegs;
+#ifdef TARGET_ARM
+    if (rt == TYP_DOUBLE)
+    {
+        return availableRegs & RBM_ALLDOUBLE;
+    }
 #endif
+
+    return varTypeUsesFloatReg(rt) ? allFloatRegs() : allIntRegs();
 }
 
 regMaskTP LinearScan::allFloatRegs() const
 {
-    return availableFloatRegs;
+    return availableRegs & RBM_ALLFLOAT;
+}
+
+regMaskTP LinearScan::allIntRegs() const
+{
+    return availableRegs & RBM_ALLINT;
+}
+
+regMaskTP LinearScan::allByteRegs() const
+{
+    return allIntRegs() X86_ONLY(&RBM_BYTE_REGS);
 }
 
 void LinearScan::updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPosition)
@@ -564,10 +557,10 @@ LinearScan::LinearScan(Compiler* compiler)
 #endif // DEBUG
 
 #ifdef TARGET_ARM64
-    availableIntRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
+    availableRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
 #endif
 #if ETW_EBP_FRAMED
-    availableIntRegs &= ~RBM_FPBASE;
+    availableRegs &= ~RBM_FPBASE;
 #endif
 
 #ifdef TARGET_AMD64
@@ -576,9 +569,7 @@ LinearScan::LinearScan(Compiler* compiler)
         // On x64 when the EnC option is set, we always save exactly RBP, RSI and RDI.
         // RBP is not available to the register allocator, so RSI and RDI are the only
         // callee-save registers available.
-        availableIntRegs &= ~RBM_CALLEE_SAVED | RBM_RSI | RBM_RDI;
-        availableFloatRegs &= ~RBM_CALLEE_SAVED;
-        availableDoubleRegs &= ~RBM_CALLEE_SAVED;
+        availableRegs &= ~RBM_CALLEE_SAVED | RBM_RSI | RBM_RDI;
     }
 #endif // TARGET_AMD64
 }
@@ -5405,29 +5396,17 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
     // and they would be more space-efficient as well.
     VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock->bbNum);
     VarToRegMap toVarToRegMap   = getInVarToRegMap(toBlock->bbNum);
-
-#ifdef TARGET_ARM
-    regMaskTP freeRegs;
-    if (type == TYP_DOUBLE)
-    {
-        // We have to consider all float registers for TYP_DOUBLE
-        freeRegs = allFloatRegs();
-    }
-    else
-    {
-        freeRegs = allRegs(type);
-    }
-#else  // !TARGET_ARM
-    regMaskTP freeRegs      = allRegs(type);
-#endif // !TARGET_ARM
+    // We have to consider all float registers for TYP_DOUBLE
+    regMaskTP freeRegs = ARM_ONLY(type == TYP_DOUBLE ? allFloatRegs() :) allRegs(type);
 
 #ifdef DEBUG
     if (getStressLimitRegs() == LSRA_LIMIT_SMALL_SET)
     {
         return REG_NA;
     }
+
+    freeRegs = stressLimitRegs(nullptr, freeRegs);
 #endif // DEBUG
-    INDEBUG(freeRegs = stressLimitRegs(nullptr, freeRegs));
 
     // We are only interested in the variables that are live-in to the "to" block.
     for (VarSetOps::Enumerator e(compiler, toBlock->bbLiveIn); e.MoveNext() && (freeRegs != RBM_NONE);)
@@ -5457,11 +5436,8 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
     {
         return REG_NA;
     }
-    else
-    {
-        regNumber tempReg = genRegNumFromMask(genFindLowestBit(freeRegs));
-        return tempReg;
-    }
+
+    return genRegNumFromMask(genFindLowestBit(freeRegs));
 }
 
 #ifdef DEBUG
@@ -6942,10 +6918,12 @@ void dumpRegMask(regMaskTP regs)
     {
         printf("[allFloat]");
     }
+#ifdef TARGET_ARM
     else if (regs == RBM_ALLDOUBLE)
     {
         printf("[allDouble]");
     }
+#endif
     else
     {
         dspRegMask(regs);

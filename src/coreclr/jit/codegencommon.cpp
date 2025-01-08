@@ -2079,7 +2079,11 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
             if (compiler->opts.UseHfa())
             {
+#ifdef TARGET_ARM
                 fpAvailMask &= RBM_ALLDOUBLE;
+#else
+                fpAvailMask &= RBM_ALLFLOAT;
+#endif
             }
 
             if (fpAvailMask == RBM_NONE)
@@ -2088,7 +2092,11 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
                 if (compiler->opts.UseHfa())
                 {
+#ifdef TARGET_ARM
                     fpAvailMask &= RBM_ALLDOUBLE;
+#else
+                    fpAvailMask &= RBM_ALLFLOAT;
+#endif
                 }
             }
 

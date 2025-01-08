@@ -1995,14 +1995,14 @@ void LinearScan::setFrameType()
     }
 #endif
 
-    if ((removeMask != RBM_NONE) && ((availableIntRegs & removeMask) != 0))
+    if ((removeMask != RBM_NONE) && ((availableRegs & removeMask) != 0))
     {
         // We know that we're already in "read mode" for availableIntRegs. However,
         // we need to remove these registers, so subsequent users (like callers
         // to allRegs()) get the right thing. The RemoveRegistersFromMasks() code
         // fixes up everything that already took a dependency on the value that was
         // previously read, so this completes the picture.
-        availableIntRegs.OverrideAssign(availableIntRegs & ~removeMask);
+        availableRegs.OverrideAssign(availableRegs & ~removeMask);
     }
 }
 
@@ -3483,12 +3483,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, Ref
 
     regMaskTP defCandidates = RBM_NONE;
     var_types type          = lcl->GetRegisterType();
-
-#ifdef TARGET_X86
-    defCandidates = varTypeIsByte(type) ? allByteRegs() : allRegs(type);
-#else
-    defCandidates = allRegs(type);
-#endif
+    defCandidates           = X86_ONLY(varTypeIsByte(type) ? allByteRegs() :) allRegs(type);
 
     RefPosition* def = newRefPosition(varDefInterval, currentLoc + 1, RefTypeDef, store, defCandidates, index);
 
@@ -3747,7 +3742,7 @@ void LinearScan::BuildOvfTruncate(GenTreeUnOp* node)
     BuildUse(src->GetOp(0));
     BuildUse(src->GetOp(1));
 #else
-    GenTree* src  = node->GetOp(0);
+    GenTree* src = node->GetOp(0);
 
 #ifdef TARGET_AMD64
     if (node->OperIs(GT_OVF_UTRUNC))

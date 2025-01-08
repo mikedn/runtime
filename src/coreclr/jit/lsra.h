@@ -1246,9 +1246,7 @@ private:
     // A temporary VarToRegMap used during the resolution of critical edges.
     VarToRegMap sharedCriticalVarToRegMap;
 
-    PhasedVar<regMaskTP> availableIntRegs{RBM_ALLINT};
-    PhasedVar<regMaskTP> availableFloatRegs{RBM_ALLFLOAT};
-    PhasedVar<regMaskTP> availableDoubleRegs{RBM_ALLDOUBLE};
+    PhasedVar<regMaskTP> availableRegs{RBM_ALLINT | RBM_ALLFLOAT};
 
     // The set of all register candidates. Note that this may be a subset of tracked vars.
     VARSET_TP registerCandidateVars;

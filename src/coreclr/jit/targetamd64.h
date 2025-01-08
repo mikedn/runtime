@@ -62,7 +62,6 @@
 #endif // !UNIX_AMD64_ABI
 
   #define RBM_ALLFLOAT            (RBM_XMM0 | RBM_XMM1 | RBM_XMM2 | RBM_XMM3 | RBM_XMM4 | RBM_XMM5 | RBM_XMM6 | RBM_XMM7 | RBM_XMM8 | RBM_XMM9 | RBM_XMM10 | RBM_XMM11 | RBM_XMM12 | RBM_XMM13 | RBM_XMM14 | RBM_XMM15)
-  #define RBM_ALLDOUBLE            RBM_ALLFLOAT
   #define REG_FP_FIRST             REG_XMM0
   #define REG_FP_LAST              REG_XMM15
   #define FIRST_FP_ARGREG          REG_XMM0
