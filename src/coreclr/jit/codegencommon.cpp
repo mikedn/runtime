@@ -573,7 +573,7 @@ unsigned CodeGen::funGetFuncIdx(BasicBlock* block)
 void CodeGen::genAllocateRegisters()
 {
     m_lsra = new (compiler, CMK_LSRA) LinearScan(compiler);
-    m_lsra->doLinearScan();
+    m_lsra->Run();
 
     regMaskTP modifiedRegs = m_lsra->GetAllocatedRegs();
 

@@ -251,8 +251,7 @@ class LinearScan
 public:
     LinearScan(Compiler* compiler);
 
-    // This is the main driver
-    void doLinearScan();
+    void Run();
 
     regMaskTP GetAllocatedRegs() const
     {
@@ -271,15 +270,27 @@ public:
     }
 #endif
 
+    VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb) const;
+
+private:
     static bool isSingleRegister(regMaskTP regMask)
     {
-        return (genExactlyOneBit(regMask));
+        return genExactlyOneBit(regMask);
     }
 
-    VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb);
-
-    // This does the dataflow analysis and builds the intervals
     void buildIntervals();
+    void identifyCandidates();
+    bool isRegCandidate(LclVarDsc* varDsc);
+    void identifyCandidatesExceptionDataflow();
+
+#ifdef DEBUG
+    void checkLastUses(BasicBlock* block);
+    unsigned GetRegisterDstCount(GenTree* node) const;
+    unsigned ComputeOperandDstCount(GenTree* operand) const;
+    unsigned ComputeAvailableSrcCount(GenTree* node) const;
+#endif
+
+    void setFrameType();
 
     // This is where the actual assignment is done
     void allocateRegisters();
@@ -358,7 +369,6 @@ public:
     bool     needDoubleTmpForFPCall = false;
 
 #ifdef DEBUG
-private:
     //------------------------------------------------------------------------
     // Should we stress lsra? This uses the COMPlus_JitStressRegs variable.
     //
@@ -621,28 +631,6 @@ private:
     }
 #endif // !DEBUG
 
-public:
-    // Used by Lowering when considering whether to split Longs, as well as by identifyCandidates().
-    bool isRegCandidate(LclVarDsc* varDsc);
-
-private:
-    // Determine which locals are candidates for allocation
-    void identifyCandidates();
-
-    // determine which locals are used in EH constructs we don't want to deal with
-    void identifyCandidatesExceptionDataflow();
-
-    void buildPhysRegRecords();
-
-#ifdef DEBUG
-    void checkLastUses(BasicBlock* block);
-    unsigned GetRegisterDstCount(GenTree* node) const;
-    unsigned ComputeOperandDstCount(GenTree* operand) const;
-    unsigned ComputeAvailableSrcCount(GenTree* node) const;
-#endif
-
-    void setFrameType();
-
     // Update allocations at start/end of block
     void unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap inVarToRegMap);
 
@@ -718,10 +706,10 @@ private:
     // Given some tree node add refpositions for all the registers this node kills
     bool buildKillPositionsForNode(GenTree* tree, LsraLocation currentLoc, regMaskTP killMask);
 
-    regMaskTP allRegs(RegisterType rt);
-    regMaskTP allByteRegs();
-    regMaskTP allSIMDRegs();
-    regMaskTP internalFloatRegCandidates();
+    regMaskTP allRegs(RegisterType rt) const;
+    regMaskTP allByteRegs() const;
+    regMaskTP allSIMDRegs() const;
+    regMaskTP internalFloatRegCandidates() const;
 
     void makeRegisterInactive(RegRecord* physRegRecord);
     void freeRegister(RegRecord* physRegRecord);
@@ -779,7 +767,6 @@ private:
         BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
 #endif
 
-private:
     Interval* newInterval(var_types regType);
 
     Interval* HasLclInterval(unsigned index) const
@@ -1020,18 +1007,14 @@ private:
         }
         return splitBBNumToTargetBBNumMap;
     }
-    SplitEdgeInfo getSplitEdgeInfo(unsigned int bbNum);
+    SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
 
     void initVarRegMaps();
     void setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
-    void setOutVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
-    VarToRegMap getInVarToRegMap(unsigned int bbNum);
-    VarToRegMap getOutVarToRegMap(unsigned int bbNum);
-    void setVarReg(VarToRegMap map, unsigned int trackedVarIndex, regNumber reg);
-    regNumber getVarReg(VarToRegMap map, unsigned int trackedVarIndex);
-    // Initialize the incoming VarToRegMap to the given map values (generally a predecessor of
-    // the block)
-    VarToRegMap setInVarToRegMap(unsigned int bbNum, VarToRegMap srcVarToRegMap);
+    VarToRegMap getInVarToRegMap(unsigned bbNum) const;
+    VarToRegMap getOutVarToRegMap(unsigned bbNum);
+    void setVarReg(VarToRegMap map, unsigned trackedVarIndex, regNumber reg);
+    regNumber getVarReg(VarToRegMap map, unsigned trackedVarIndex);
 
     regNumber getTempRegForResolution(BasicBlock* fromBlock, BasicBlock* toBlock, var_types type);
 
