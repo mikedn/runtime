@@ -25,7 +25,7 @@ void LinearScan::BuildNode(GenTree* tree)
                 // We need an internal register different from targetReg in which 'interlocked'
                 // produces its result because both targetReg and internal reg will be in
                 // use at the same time.
-                BuildInternalFloatDef(tree, allSIMDRegs());
+                BuildInternalFloatDef(tree, allFloatRegs());
                 setInternalRegsDelayFree = true;
                 BuildInternalUses();
             }
@@ -429,8 +429,8 @@ void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
 
 void LinearScan::BuildCmpXchg(GenTreeCmpXchg* cmpxchg)
 {
-    BuildUse(cmpxchg->GetOp(0), allRegs(TYP_INT) & ~RBM_RAX);
-    BuildUse(cmpxchg->GetOp(1), allRegs(TYP_INT) & ~RBM_RAX);
+    BuildUse(cmpxchg->GetOp(0), allIntRegs() & ~RBM_RAX);
+    BuildUse(cmpxchg->GetOp(1), allIntRegs() & ~RBM_RAX);
     BuildUse(cmpxchg->GetOp(2), RBM_RAX);
     BuildDef(cmpxchg, RBM_RAX);
 }
@@ -648,7 +648,7 @@ void LinearScan::BuildShiftRotate(GenTreeOp* tree)
     }
     else
     {
-        regCandidates = allRegs(TYP_INT) & ~RBM_RCX;
+        regCandidates = allIntRegs() & ~RBM_RCX;
     }
 
 #ifdef TARGET_X86
@@ -791,7 +791,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
             // Don't assign the call target to any of the argument registers because
             // we will use them to also pass floating point arguments as required
             // by win-x64 ABI.
-            ctrlExprCandidates = allRegs(TYP_INT) & ~RBM_ARG_REGS;
+            ctrlExprCandidates = allIntRegs() & ~RBM_ARG_REGS;
         }
 #endif
 
@@ -1271,7 +1271,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 // RBM_NON_BYTE_REGS from internal candidates.
                 if ((size % XMM_REGSIZE_BYTES) != 0)
                 {
-                    regMaskTP regMask = allRegs(TYP_INT);
+                    regMaskTP regMask = allIntRegs();
 
 #ifdef TARGET_X86
                     if ((size % 2) != 0)
@@ -1463,7 +1463,7 @@ void LinearScan::BuildDivMod(GenTreeOp* tree)
         tgtPrefUse = BuildUse(op1, RBM_EAX);
     }
 
-    BuildDelayFreeOperandUses(op2, op1, allRegs(TYP_INT) & ~(RBM_RAX | RBM_RDX));
+    BuildDelayFreeOperandUses(op2, op1, allIntRegs() & ~(RBM_RAX | RBM_RDX));
     BuildInternalUses();
     BuildKills(tree, RBM_RAX | RBM_RDX);
     BuildDef(tree, tree->OperIs(GT_DIV, GT_UDIV) ? RBM_RAX : RBM_RDX);
@@ -1791,7 +1791,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     BuildDelayFreeUse(node->GetOp(3));
                 }
 
-                BuildInternalFloatDef(node, allSIMDRegs());
+                BuildInternalFloatDef(node, allFloatRegs());
                 setInternalRegsDelayFree = true;
                 buildUses                = false;
                 break;

@@ -337,7 +337,7 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         }
         else
         {
-            BuildInternalIntDef(putArg, allRegs(TYP_INT) & ~argRegMask);
+            BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
 
             if (src->OperIs(GT_IND_LOAD_OBJ))
             {
@@ -409,7 +409,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
     regMaskTP dstAddrRegMask     = RBM_NONE;
     regMaskTP srcRegMask         = RBM_NONE;
     regMaskTP sizeRegMask        = RBM_NONE;
-    regMaskTP internalIntRegMask = allRegs(TYP_INT);
+    regMaskTP internalIntRegMask = allIntRegs();
 
     switch (kind)
     {

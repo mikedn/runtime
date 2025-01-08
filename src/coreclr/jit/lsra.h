@@ -707,8 +707,9 @@ private:
     bool buildKillPositionsForNode(GenTree* tree, LsraLocation currentLoc, regMaskTP killMask);
 
     regMaskTP allRegs(RegisterType rt) const;
+    regMaskTP allIntRegs() const;
     regMaskTP allByteRegs() const;
-    regMaskTP allSIMDRegs() const;
+    regMaskTP allFloatRegs() const;
     regMaskTP internalFloatRegCandidates() const;
 
     void makeRegisterInactive(RegRecord* physRegRecord);
@@ -1316,7 +1317,7 @@ private:
 
     void resetAvailableRegs()
     {
-        m_AvailableRegs          = (availableIntRegs | availableFloatRegs);
+        m_AvailableRegs          = allIntRegs() | allFloatRegs();
         m_RegistersWithConstants = RBM_NONE;
     }
 

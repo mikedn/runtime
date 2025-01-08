@@ -872,7 +872,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
 
     if (compiler->killGCRefs(tree))
     {
-        newKillGCRegsRefPosition(currentLoc, tree, allRegs(TYP_REF) & ~RBM_ARG_REGS);
+        newKillGCRegsRefPosition(currentLoc, tree, allIntRegs() & ~RBM_ARG_REGS);
         insertedKills = true;
     }
 
@@ -962,13 +962,13 @@ RefPosition* LinearScan::defineNewInternalTemp(GenTree* node, RegisterType regTy
 
 RefPosition* LinearScan::buildInternalIntRegisterDefForNode(GenTree* node, regMaskTP regMask)
 {
-    assert((regMask & ~allRegs(TYP_INT)) == RBM_NONE);
+    assert((regMask & ~allIntRegs()) == RBM_NONE);
     return defineNewInternalTemp(node, IntRegisterType, regMask);
 }
 
 RefPosition* LinearScan::buildInternalFloatRegisterDefForNode(GenTree* node, regMaskTP regMask)
 {
-    assert((regMask & ~allRegs(TYP_FLOAT)) == RBM_NONE);
+    assert((regMask & ~allFloatRegs()) == RBM_NONE);
     return defineNewInternalTemp(node, FloatRegisterType, regMask);
 }
 
@@ -3273,7 +3273,7 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
     {
         if (regCandidates == RBM_NONE)
         {
-            regCandidates = allRegs(TYP_INT);
+            regCandidates = allIntRegs();
         }
 
         regCandidates &= ~RBM_NON_BYTE_REGS;
@@ -3612,7 +3612,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
         if (!src->OperIs(GT_CNS_INT))
         {
             // Need an additional register to extract upper 4 bytes of Vector3.
-            BuildInternalFloatDef(store, allSIMDRegs());
+            BuildInternalFloatDef(store, allFloatRegs());
         }
     }
 #endif
@@ -3630,7 +3630,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 #ifdef TARGET_X86
         if (lcl->IsRegCandidate() && src->IsCall() && src->TypeIs(TYP_SIMD8))
         {
-            BuildInternalFloatDef(store, allSIMDRegs());
+            BuildInternalFloatDef(store, allFloatRegs());
             setInternalRegsDelayFree = true;
         }
 #endif
@@ -4040,7 +4040,7 @@ regMaskTP LinearScan::internalFloatRegCandidates() const
 {
     if (compiler->compFloatingPointUsed)
     {
-        return allRegs(TYP_FLOAT);
+        return allFloatRegs();
     }
     else
     {

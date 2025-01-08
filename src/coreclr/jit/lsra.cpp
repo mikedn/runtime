@@ -91,7 +91,7 @@ regMaskTP LinearScan::allRegs(RegisterType rt) const
 {
     if (rt == TYP_FLOAT)
     {
-        return availableFloatRegs;
+        return allFloatRegs();
     }
     else if ((rt == TYP_DOUBLE) || varTypeIsSIMD(rt))
     {
@@ -100,8 +100,13 @@ regMaskTP LinearScan::allRegs(RegisterType rt) const
     else
     {
         assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
-        return availableIntRegs;
+        return allIntRegs();
     }
+}
+
+regMaskTP LinearScan::allIntRegs() const
+{
+    return availableIntRegs;
 }
 
 regMaskTP LinearScan::allByteRegs() const
@@ -113,7 +118,7 @@ regMaskTP LinearScan::allByteRegs() const
 #endif
 }
 
-regMaskTP LinearScan::allSIMDRegs() const
+regMaskTP LinearScan::allFloatRegs() const
 {
     return availableFloatRegs;
 }
@@ -2832,7 +2837,7 @@ void LinearScan::allocateRegisters()
                     regMaskTP regMask = genRegMask(reg);
                     // If this isn't available or if it's still waiting to be freed (i.e. it was in
                     // delayRegsToFree and so now it's in regsToFree), then skip it.
-                    if ((regMask & (availableIntRegs | availableFloatRegs) & ~regsToFree) == RBM_NONE)
+                    if ((regMask & (allIntRegs() | allFloatRegs()) & ~regsToFree) == RBM_NONE)
                     {
                         continue;
                     }
@@ -5406,7 +5411,7 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
     if (type == TYP_DOUBLE)
     {
         // We have to consider all float registers for TYP_DOUBLE
-        freeRegs = allRegs(TYP_FLOAT);
+        freeRegs = allFloatRegs();
     }
     else
     {

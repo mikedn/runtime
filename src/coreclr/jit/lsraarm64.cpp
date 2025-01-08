@@ -23,7 +23,7 @@ void LinearScan::BuildNode(GenTree* tree)
             {
                 // We need an internal register different from targetReg in which 'interlocked' produces its result
                 // because both targetReg and internal reg will be in use at the same time.
-                BuildInternalFloatDef(tree, allSIMDRegs());
+                BuildInternalFloatDef(tree, allFloatRegs());
                 setInternalRegsDelayFree = true;
                 BuildInternalUses();
             }
