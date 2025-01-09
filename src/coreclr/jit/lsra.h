@@ -102,7 +102,6 @@ enum LsraStat
 #undef LSRA_STAT_DEF
 #define REG_SEL_DEF(enum_name, value, short_str, orderSeqId) STAT_##enum_name,
 #include "lsra_score.h"
-#undef REG_SEL_DEF
     COUNT
 };
 #endif // TRACK_LSRA_STATS
@@ -129,7 +128,6 @@ enum RegisterScore
 {
 #define REG_SEL_DEF(enum_name, value, short_str, orderSeqId) enum_name = value,
 #include "lsra_score.h"
-#undef REG_SEL_DEF
     NONE = 0
 };
 
@@ -876,16 +874,21 @@ private:
 
     class RegisterSelection
     {
+        LinearScan* const linearScan;
+#ifdef DEBUG
+        RegisterScore      RegSelectionOrder[REGSELECT_HEURISTIC_COUNT]{};
+        ScoreMappingTable* mappingTable = nullptr;
+#endif
+
     public:
         RegisterSelection(LinearScan* linearScan);
 
         // Perform register selection and update currentInterval or refPosition
-        FORCEINLINE regMaskTP select(Interval*    currentInterval,
-                                     RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
+        regMaskTP select(Interval* currentInterval, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
 
         // If the register is from unassigned set such that it was not already
         // assigned to the current interval
-        FORCEINLINE bool foundUnassignedReg()
+        bool foundUnassignedReg() const
         {
             assert(found && isSingleRegister(foundRegBit));
             bool isUnassignedReg = ((foundRegBit & unassignedSet) != RBM_NONE);
@@ -893,30 +896,40 @@ private:
         }
 
         // Did register selector decide to spill this interval
-        FORCEINLINE bool isSpilling()
+        bool isSpilling() const
         {
             return (foundRegBit & freeCandidates) == RBM_NONE;
         }
 
         // Is the value one of the constant that is already in a register
-        FORCEINLINE bool isMatchingConstant()
+        bool isMatchingConstant() const
         {
             assert(found && isSingleRegister(foundRegBit));
             return (matchingConstants & foundRegBit) != RBM_NONE;
         }
 
         // Did we apply CONST_AVAILABLE heuristics
-        FORCEINLINE bool isConstAvailable()
+        bool isConstAvailable() const
         {
             return (score & CONST_AVAILABLE) != 0;
         }
 
     private:
-#ifdef DEBUG
-        RegisterScore      RegSelectionOrder[REGSELECT_HEURISTIC_COUNT] = {NONE};
-        ScoreMappingTable* mappingTable                                 = nullptr;
-#endif
-        LinearScan*  linearScan      = nullptr;
+        // If the selected register is already assigned to the current internal
+        bool isAlreadyAssigned() const
+        {
+            assert(found && isSingleRegister(candidates));
+            return (prevRegBit & preferences) == foundRegBit;
+        }
+
+        bool applySelection(int selectionScore, regMaskTP selectionCandidates);
+        bool applySingleRegSelection(int selectionScore, regMaskTP selectionCandidate);
+        void calculateCoversSets();
+        void reset(Interval* interval, RefPosition* refPosition);
+
+#define REG_SEL_DEF(stat, value, shortname, orderSeqId) FORCEINLINE void try_##stat();
+#include "lsra_score.h"
+
         int          score           = 0;
         Interval*    currentInterval = nullptr;
         RefPosition* refPosition     = nullptr;
@@ -957,22 +970,6 @@ private:
         bool      found                = false;
         bool      skipAllocation       = false;
         regNumber foundReg             = REG_NA;
-
-        // If the selected register is already assigned to the current internal
-        FORCEINLINE bool isAlreadyAssigned()
-        {
-            assert(found && isSingleRegister(candidates));
-            return (prevRegBit & preferences) == foundRegBit;
-        }
-
-        bool applySelection(int selectionScore, regMaskTP selectionCandidates);
-        bool applySingleRegSelection(int selectionScore, regMaskTP selectionCandidate);
-        FORCEINLINE void calculateCoversSets();
-        FORCEINLINE void reset(Interval* interval, RefPosition* refPosition);
-
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId) FORCEINLINE void try_##stat();
-#include "lsra_score.h"
-#undef REG_SEL_DEF
     };
 
     RegisterSelection* regSelector;

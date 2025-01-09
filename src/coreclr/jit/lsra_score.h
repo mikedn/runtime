@@ -2,10 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 // clang-format off
-
-/*****************************************************************************/
-/*****************************************************************************/
-
 #ifndef REG_SEL_DEF
 #error  Must define REG_SEL_DEF macro before including this file
 #endif
@@ -44,3 +40,4 @@ REG_SEL_DEF(PREV_REG_OPT,       0x00002,    "PRGOP",        'P')   // The previo
 REG_SEL_DEF(REG_NUM,            0x00001,    "RGNUM",        'Q')   // It has a lower register number.
 
 // clang-format on
+#undef REG_SEL_DEF
