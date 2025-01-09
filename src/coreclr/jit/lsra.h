@@ -865,19 +865,61 @@ private:
 
 #ifdef DEBUG
     class RegisterSelection;
-    // For lsra ordering experimentation
+    using HeuristicFn = void (RegisterSelection::*)();
 
-    typedef void (LinearScan::RegisterSelection::*HeuristicFn)();
-#define REGSELECT_HEURISTIC_COUNT 17
+    enum class RegisterSelectors
+    {
+#define REG_SEL_DEF(name, score, ...) name,
+#include "lsra_score.h"
+        Count
+    };
 #endif
 
     class RegisterSelection
     {
         LinearScan* const linearScan;
 #ifdef DEBUG
-        jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[REGSELECT_HEURISTIC_COUNT];
-        RegisterScore selectionScore = NONE;
+        jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[static_cast<size_t>(RegisterSelectors::Count)];
+        RegisterScore selectionScore;
 #endif
+        Interval*    currentInterval;
+        RefPosition* refPosition;
+
+        RegisterType regType;
+        LsraLocation currentLocation;
+        RefPosition* nextRefPos;
+
+        regMaskTP candidates;
+        regMaskTP preferences;
+
+        Interval* relatedInterval;
+        regMaskTP relatedPreferences;
+
+        LsraLocation rangeEndLocation;
+        LsraLocation relatedLastLocation;
+        bool         preferCalleeSave;
+        RefPosition* rangeEndRefPosition;
+        RefPosition* lastRefPosition;
+        regMaskTP    callerCalleePrefs = RBM_NONE;
+        LsraLocation lastLocation;
+        RegRecord*   prevRegRec;
+
+        regMaskTP prevRegBit = RBM_NONE;
+
+        regMaskTP freeCandidates;
+        regMaskTP matchingConstants;
+        regMaskTP unassignedSet;
+        regMaskTP foundRegBit;
+
+        regMaskTP coversSet;
+        regMaskTP preferenceSet;
+        regMaskTP coversRelatedSet;
+        regMaskTP coversFullSet;
+        bool      coversSetsCalculated;
+
+        RegisterScore score;
+        bool          found;
+        bool          skipAllocation;
 
     public:
         RegisterSelection(LinearScan* linearScan);
@@ -935,47 +977,6 @@ private:
 
 #define REG_SEL_DEF(name, ...) void try_##name();
 #include "lsra_score.h"
-
-        int          score           = 0;
-        Interval*    currentInterval = nullptr;
-        RefPosition* refPosition     = nullptr;
-
-        RegisterType regType         = TYP_UNDEF;
-        LsraLocation currentLocation = MinLocation;
-        RefPosition* nextRefPos      = nullptr;
-
-        regMaskTP candidates;
-        regMaskTP preferences     = RBM_NONE;
-        Interval* relatedInterval = nullptr;
-
-        regMaskTP    relatedPreferences = RBM_NONE;
-        LsraLocation rangeEndLocation;
-        LsraLocation relatedLastLocation;
-        bool         preferCalleeSave = false;
-        RefPosition* rangeEndRefPosition;
-        RefPosition* lastRefPosition;
-        regMaskTP    callerCalleePrefs = RBM_NONE;
-        LsraLocation lastLocation;
-        RegRecord*   prevRegRec = nullptr;
-
-        regMaskTP prevRegBit = RBM_NONE;
-
-        // These are used in the post-selection updates, and must be set for any selection.
-        regMaskTP freeCandidates;
-        regMaskTP matchingConstants;
-        regMaskTP unassignedSet;
-        regMaskTP foundRegBit;
-
-        // Compute the sets for COVERS, OWN_PREFERENCE, COVERS_RELATED, COVERS_FULL and UNASSIGNED together,
-        // as they all require similar computation.
-        regMaskTP coversSet;
-        regMaskTP preferenceSet;
-        regMaskTP coversRelatedSet;
-        regMaskTP coversFullSet;
-        bool      coversSetsCalculated = false;
-        bool      found                = false;
-        bool      skipAllocation       = false;
-        regNumber foundReg             = REG_NA;
     };
 
     RegisterSelection* regSelector;

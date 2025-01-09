@@ -940,7 +940,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
                                   RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore))
 {
     regMaskTP foundRegBit = regSelector->select(currentInterval, refPosition);
-    *registerScore        = regSelector->GetSelectionScore();
+    INDEBUG(*registerScore = regSelector->GetSelectionScore());
     if (foundRegBit == RBM_NONE)
     {
         return REG_NA;
@@ -8859,7 +8859,10 @@ LinearScan::RegisterSelection::RegisterSelection(LinearScan* linearScan) : linea
 
     if (ordering == nullptr)
     {
-        ordering = linearScan->doReverseSelect() ? W("QPONMLKJIHGFEDCBA") : W("ABCDEFGHIJKLMNOPQ");
+        // TODO-MIKE-Review: ReverseSelect doesn't work properly,
+        // DevDiv_736188 enables it and fails with an assert on arm64.
+        // ordering = linearScan->doReverseSelect() ? W("QPONMLKJIHGFEDCBA") : W("ABCDEFGHIJKLMNOPQ");
+        ordering = W("ABCDEFGHIJKLMNOPQ");
     }
 
     for (unsigned i = 0; i < _countof(selectionOrder); i++)
@@ -8880,7 +8883,7 @@ void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPo
 
     currentInterval = interval;
     refPosition     = refPos;
-    score           = 0;
+    score           = NONE;
 
     regType         = linearScan->getRegisterType(currentInterval, refPosition);
     currentLocation = refPosition->nodeLocation;
@@ -8901,7 +8904,6 @@ void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPo
     lastLocation        = MinLocation;
     prevRegRec          = currentInterval->assignedReg;
 
-    // These are used in the post-selection updates, and must be set for any selection.
     freeCandidates    = RBM_NONE;
     matchingConstants = RBM_NONE;
     unassignedSet     = RBM_NONE;
@@ -8931,7 +8933,7 @@ bool LinearScan::RegisterSelection::applySelection(RegisterScore selectionScore,
 {
     if (regMaskTP newCandidates = candidates & selectionCandidates)
     {
-        score += selectionScore;
+        score      = RegisterScore(score + selectionScore);
         candidates = newCandidates;
         return LinearScan::isSingleRegister(candidates);
     }
@@ -9456,9 +9458,10 @@ void LinearScan::RegisterSelection::calculateCoversSets()
         return;
     }
 
-    preferenceSet              = (candidates & preferences);
-    regMaskTP coversCandidates = (preferenceSet == RBM_NONE) ? candidates : preferenceSet;
-    for (; coversCandidates != RBM_NONE;)
+    preferenceSet              = candidates & preferences;
+    regMaskTP coversCandidates = preferenceSet == RBM_NONE ? candidates : preferenceSet;
+
+    while (coversCandidates != RBM_NONE)
     {
         regMaskTP coversCandidateBit = genFindLowestBit(coversCandidates);
         coversCandidates &= ~coversCandidateBit;
