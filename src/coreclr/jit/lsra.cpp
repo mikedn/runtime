@@ -6624,7 +6624,8 @@ const char* LinearScan::getStatName(unsigned stat)
 #define LSRA_STAT_DEF(stat, name) name,
 #include "lsra_stats.h"
 #undef LSRA_STAT_DEF
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId) #stat,
+
+#define REG_SEL_DEF(name, ...) #name,
 #include "lsra_score.h"
     };
 
@@ -6636,9 +6637,9 @@ LsraStat LinearScan::getLsraStatFromScore(RegisterScore registerScore)
 {
     switch (registerScore)
     {
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId)                                                                \
-    case RegisterScore::stat:                                                                                          \
-        return LsraStat::STAT_##stat;
+#define REG_SEL_DEF(name, ...)                                                                                         \
+    case RegisterScore::name:                                                                                          \
+        return LsraStat::STAT_##name;
 #include "lsra_score.h"
         default:
             return LsraStat::STAT_FREE;
@@ -6956,15 +6957,13 @@ static const char* getRefTypeShortName(RefType refType)
     }
 }
 
-//------------------------------------------------------------------------
-// getScoreName: Returns the texual name of register score
 const char* LinearScan::getScoreName(RegisterScore score)
 {
     switch (score)
     {
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId)                                                                \
-    case stat:                                                                                                         \
-        return shortname;
+#define REG_SEL_DEF(name, value, shortName)                                                                            \
+    case name:                                                                                                         \
+        return shortName;
 #include "lsra_score.h"
         default:
             return "  -  ";
@@ -8850,33 +8849,23 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
 LinearScan::RegisterSelection::RegisterSelection(LinearScan* linearScan) : linearScan(linearScan)
 {
 #ifdef DEBUG
-    mappingTable = new ScoreMappingTable(linearScan->compiler->getAllocator(CMK_LSRA));
-
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId)                                                                \
-    mappingTable->Set(stat, &LinearScan::RegisterSelection::try_##stat);
+    static const jitstd::pair<HeuristicFn, RegisterScore> selectors[]{
+#define REG_SEL_DEF(name, ...) {&LinearScan::RegisterSelection::try_##name, name},
 #include "lsra_score.h"
+    };
 
     LPCWSTR ordering = JitConfig.JitLsraOrdering();
+
     if (ordering == nullptr)
     {
         ordering = W("ABCDEFGHIJKLMNOPQ");
     }
 
-    for (unsigned orderId = 0; orderId < _countof(RegSelectionOrder); orderId++)
+    for (unsigned i = 0; i < _countof(selectionOrder); i++)
     {
-        // Make sure we do not set repeated entries
-        assert(RegSelectionOrder[orderId] == NONE);
-
-        switch (ordering[orderId])
-        {
-#define REG_SEL_DEF(enum_name, value, shortname, orderSeqId)                                                           \
-    case orderSeqId:                                                                                                   \
-        RegSelectionOrder[orderId] = enum_name;                                                                        \
-        break;
-#include "lsra_score.h"
-            default:
-                assert(!"Invalid lsraOrdering value.");
-        }
+        unsigned index = static_cast<unsigned>(ordering[i] - W('A'));
+        noway_assert(index < _countof(selectors));
+        selectionOrder[i] = selectors[index];
     }
 #endif // DEBUG
 }
@@ -9823,30 +9812,21 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
     }
 
 #ifdef DEBUG
-    for (unsigned orderId = 0; orderId < _countof(RegSelectionOrder) && !found; orderId++)
+    for (unsigned orderId = 0; orderId < _countof(selectionOrder) && !found; orderId++)
     {
-        HeuristicFn   fn;
-        RegisterScore heuristicToApply = RegSelectionOrder[orderId];
+        const auto& selector = selectionOrder[orderId];
+        (this->*selector.first)();
 
-        if (mappingTable->Lookup(heuristicToApply, &fn))
+        if (found)
         {
-            (this->*fn)();
-
-            if (found)
-            {
-                *registerScore = heuristicToApply;
-                INTRACK_STATS(
-                    linearScan->updateLsraStat(linearScan->getLsraStatFromScore(heuristicToApply), refPosition->bbNum));
-            }
-        }
-        else
-        {
-            assert(!"Unexpected heuristic value!");
+            *registerScore = selector.second;
+            INTRACK_STATS(
+                linearScan->updateLsraStat(linearScan->getLsraStatFromScore(selector.second), refPosition->bbNum));
         }
     }
 #else // !DEBUG
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId)                                                                \
-    try_##stat();                                                                                                      \
+#define REG_SEL_DEF(name, ...)                                                                                         \
+    try_##name();                                                                                                      \
     if (found)                                                                                                         \
         goto Selection_Done;
 #include "lsra_score.h"

@@ -9,6 +9,26 @@
 
 namespace jitstd
 {
+    template<class T1, class T2>
+    struct pair
+    {
+        T1 first;
+        T2 second;
+
+        pair() : first{}, second{}
+        {
+        }
+
+        pair(const T1& first, const T2& second) : first{ first }, second{ second }
+        {
+        }
+    };
+
+    template<class T1, class T2>
+    pair<T1, T2> make_pair(T1 first, T2 second)
+    {
+        return pair<T1, T2>(first, second);
+    }
 
     template<class To, class From>
     To bit_cast(const From& from)

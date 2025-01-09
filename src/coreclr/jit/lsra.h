@@ -100,7 +100,7 @@ enum LsraStat
 #define LSRA_STAT_DEF(enum_name, enum_str) enum_name,
 #include "lsra_stats.h"
 #undef LSRA_STAT_DEF
-#define REG_SEL_DEF(enum_name, value, short_str, orderSeqId) STAT_##enum_name,
+#define REG_SEL_DEF(name, ...) STAT_##name,
 #include "lsra_score.h"
     COUNT
 };
@@ -126,9 +126,9 @@ struct LsraBlockInfo
 
 enum RegisterScore
 {
-#define REG_SEL_DEF(enum_name, value, short_str, orderSeqId) enum_name = value,
+    NONE = 0,
+#define REG_SEL_DEF(name, score, ...) name = score,
 #include "lsra_score.h"
-    NONE = 0
 };
 
 // This is sort of a bit mask
@@ -868,7 +868,6 @@ private:
     // For lsra ordering experimentation
 
     typedef void (LinearScan::RegisterSelection::*HeuristicFn)();
-    typedef JitHashTable<RegisterScore, JitSmallPrimitiveKeyFuncs<RegisterScore>, HeuristicFn> ScoreMappingTable;
 #define REGSELECT_HEURISTIC_COUNT 17
 #endif
 
@@ -876,8 +875,7 @@ private:
     {
         LinearScan* const linearScan;
 #ifdef DEBUG
-        RegisterScore      RegSelectionOrder[REGSELECT_HEURISTIC_COUNT]{};
-        ScoreMappingTable* mappingTable = nullptr;
+        jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[REGSELECT_HEURISTIC_COUNT];
 #endif
 
     public:
@@ -927,7 +925,7 @@ private:
         void calculateCoversSets();
         void reset(Interval* interval, RefPosition* refPosition);
 
-#define REG_SEL_DEF(stat, value, shortname, orderSeqId) FORCEINLINE void try_##stat();
+#define REG_SEL_DEF(name, ...) void try_##name();
 #include "lsra_score.h"
 
         int          score           = 0;
