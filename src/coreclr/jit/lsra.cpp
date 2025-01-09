@@ -939,7 +939,8 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
 regNumber LinearScan::allocateReg(Interval*    currentInterval,
                                   RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore))
 {
-    regMaskTP foundRegBit = regSelector->select(currentInterval, refPosition DEBUG_ARG(registerScore));
+    regMaskTP foundRegBit = regSelector->select(currentInterval, refPosition);
+    *registerScore        = regSelector->GetSelectionScore();
     if (foundRegBit == RBM_NONE)
     {
         return REG_NA;
@@ -8875,6 +8876,8 @@ LinearScan::RegisterSelection::RegisterSelection(LinearScan* linearScan) : linea
 //
 void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPos)
 {
+    INDEBUG(selectionScore = NONE);
+
     currentInterval = interval;
     refPosition     = refPos;
     score           = 0;
@@ -8924,15 +8927,15 @@ void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPo
 //  Return Values:
 //      'true' if there was a single register candidate available after the heuristic is applied.
 //
-bool LinearScan::RegisterSelection::applySelection(int selectionScore, regMaskTP selectionCandidates)
+bool LinearScan::RegisterSelection::applySelection(RegisterScore selectionScore, regMaskTP selectionCandidates)
 {
-    regMaskTP newCandidates = candidates & selectionCandidates;
-    if (newCandidates != RBM_NONE)
+    if (regMaskTP newCandidates = candidates & selectionCandidates)
     {
         score += selectionScore;
         candidates = newCandidates;
         return LinearScan::isSingleRegister(candidates);
     }
+
     return false;
 }
 
@@ -8946,15 +8949,16 @@ bool LinearScan::RegisterSelection::applySelection(int selectionScore, regMaskTP
 //  Return Values:
 //      'true' if there was a single register candidate available after the heuristic is applied.
 //
-bool LinearScan::RegisterSelection::applySingleRegSelection(int selectionScore, regMaskTP selectionCandidate)
+bool LinearScan::RegisterSelection::applySingleRegSelection(RegisterScore selectionScore, regMaskTP selectionCandidate)
 {
     assert(LinearScan::isSingleRegister(selectionCandidate));
-    regMaskTP newCandidates = candidates & selectionCandidate;
-    if (newCandidates != RBM_NONE)
+
+    if (regMaskTP newCandidates = candidates & selectionCandidate)
     {
         candidates = newCandidates;
         return true;
     }
+
     return false;
 }
 
@@ -9527,13 +9531,8 @@ void LinearScan::RegisterSelection::calculateCoversSets()
 //  Return Values:
 //      Register bit selected (a single register) and REG_NA if no register was selected.
 //
-regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
-                                                RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore))
+regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPosition* refPosition)
 {
-#ifdef DEBUG
-    *registerScore = NONE;
-#endif
-
     reset(currentInterval, refPosition);
 
     // process data-structures
@@ -9765,9 +9764,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
         {
             candidates = prevRegBit;
             found      = true;
-#ifdef DEBUG
-            *registerScore = THIS_ASSIGNED;
-#endif
+            INDEBUG(selectionScore = THIS_ASSIGNED);
         }
     }
     else
@@ -9811,7 +9808,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
 
         if (found)
         {
-            *registerScore = selector.second;
+            selectionScore = selector.second;
             INTRACK_STATS(
                 linearScan->updateLsraStat(linearScan->getLsraStatFromScore(selector.second), refPosition->bbNum));
         }

@@ -876,13 +876,14 @@ private:
         LinearScan* const linearScan;
 #ifdef DEBUG
         jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[REGSELECT_HEURISTIC_COUNT];
+        RegisterScore selectionScore = NONE;
 #endif
 
     public:
         RegisterSelection(LinearScan* linearScan);
 
         // Perform register selection and update currentInterval or refPosition
-        regMaskTP select(Interval* currentInterval, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
+        regMaskTP select(Interval* currentInterval, RefPosition* refPosition);
 
         // If the register is from unassigned set such that it was not already
         // assigned to the current interval
@@ -912,6 +913,13 @@ private:
             return (score & CONST_AVAILABLE) != 0;
         }
 
+#ifdef DEBUG
+        RegisterScore GetSelectionScore() const
+        {
+            return selectionScore;
+        }
+#endif
+
     private:
         // If the selected register is already assigned to the current internal
         bool isAlreadyAssigned() const
@@ -920,8 +928,8 @@ private:
             return (prevRegBit & preferences) == foundRegBit;
         }
 
-        bool applySelection(int selectionScore, regMaskTP selectionCandidates);
-        bool applySingleRegSelection(int selectionScore, regMaskTP selectionCandidate);
+        bool applySelection(RegisterScore selectionScore, regMaskTP selectionCandidates);
+        bool applySingleRegSelection(RegisterScore selectionScore, regMaskTP selectionCandidate);
         void calculateCoversSets();
         void reset(Interval* interval, RefPosition* refPosition);
 
