@@ -8858,7 +8858,7 @@ LinearScan::RegisterSelection::RegisterSelection(LinearScan* linearScan) : linea
 
     if (ordering == nullptr)
     {
-        ordering = W("ABCDEFGHIJKLMNOPQ");
+        ordering = linearScan->doReverseSelect() ? W("QPONMLKJIHGFEDCBA") : W("ABCDEFGHIJKLMNOPQ");
     }
 
     for (unsigned i = 0; i < _countof(selectionOrder); i++)
@@ -9782,14 +9782,6 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
         return RBM_NONE;
     }
 
-    // TODO-Cleanup: Previously, the "reverseSelect" stress mode reversed the order of the heuristics.
-    // It needs to be re-engineered with this refactoring.
-    // In non-debug builds, this will simply get optimized away
-    bool reverseSelect = false;
-#ifdef DEBUG
-    reverseSelect = linearScan->doReverseSelect();
-#endif // DEBUG
-
     freeCandidates = linearScan->getFreeCandidates(candidates, regType);
 
     // If no free candidates, then double check if refPosition is an actual ref.
@@ -9812,9 +9804,9 @@ regMaskTP LinearScan::RegisterSelection::select(Interval*    currentInterval,
     }
 
 #ifdef DEBUG
-    for (unsigned orderId = 0; orderId < _countof(selectionOrder) && !found; orderId++)
+    for (unsigned i = 0; i < _countof(selectionOrder) && !found; i++)
     {
-        const auto& selector = selectionOrder[orderId];
+        const auto& selector = selectionOrder[i];
         (this->*selector.first)();
 
         if (found)
