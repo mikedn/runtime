@@ -252,16 +252,16 @@ void LinearScan::updateSpillCost(regNumber reg, Interval* interval)
 
 bool LinearScan::isFree(RegRecord* regRecord)
 {
-    return ((regRecord->assignedInterval == nullptr || !regRecord->assignedInterval->isActive) &&
-            // TODO-MIKE-Cleanup: There are a lot of places that use RegRecord::registerType to deal
-            // with ARM's DOUBLE regs, but then reg records are never DOUBLE, they're either INT or
-            // FLOAT. So we may as well delete registerType and pass UNDEF or something like that.
-            !isRegBusy(regRecord->regNum, regRecord->registerType()));
+    return (regRecord->assignedInterval == nullptr || !regRecord->assignedInterval->isActive) &&
+           // TODO-MIKE-Cleanup: There are a lot of places that use RegRecord::registerType to deal
+           // with ARM's DOUBLE regs, but then reg records are never DOUBLE, they're either INT or
+           // FLOAT. So we may as well delete registerType and pass UNDEF or something like that.
+           !isRegBusy(regRecord->regNum, regRecord->registerType());
 }
 
 RegRecord* LinearScan::getRegisterRecord(regNumber regNum)
 {
-    assert((unsigned)regNum < ArrLen(physRegs));
+    assert(regNum < _countof(physRegs));
     return &physRegs[regNum];
 }
 

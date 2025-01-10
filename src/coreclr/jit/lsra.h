@@ -1,14 +1,11 @@
 
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-/*****************************************************************************/
 
-#ifndef _LSRA_H_
-#define _LSRA_H_
+#pragma once
 
 #include "smallhash.h"
 
-// Minor and forward-reference types
 class Interval;
 class RefPosition;
 class LinearScan;
@@ -23,25 +20,16 @@ using LsraLocation = unsigned;
 constexpr LsraLocation MinLocation = 0;
 constexpr LsraLocation MaxLocation = UINT_MAX;
 
-/*****************************************************************************
-* Register types
-*****************************************************************************/
 using RegisterType = var_types;
 
 constexpr RegisterType IntRegisterType   = TYP_INT;
 constexpr RegisterType FloatRegisterType = TYP_FLOAT;
 
-//------------------------------------------------------------------------
-// calleeSaveRegs: Get the set of callee-save registers of the given RegisterType
-//
 inline regMaskTP calleeSaveRegs(RegisterType rt)
 {
     return varTypeIsIntegralOrI(rt) ? RBM_INT_CALLEE_SAVED : RBM_FLT_CALLEE_SAVED;
 }
 
-//------------------------------------------------------------------------
-// callerSaveRegs: Get the set of caller-save registers of the given RegisterType
-//
 inline regMaskTP callerSaveRegs(RegisterType rt)
 {
     return varTypeIsIntegralOrI(rt) ? RBM_INT_CALLEE_TRASH : RBM_FLT_CALLEE_TRASH;
@@ -121,7 +109,7 @@ struct LsraBlockInfo
 #if TRACK_LSRA_STATS
     // Per block maintained LSRA statistics.
     unsigned stats[LsraStat::COUNT];
-#endif // TRACK_LSRA_STATS
+#endif
 };
 
 enum RegisterScore
@@ -203,6 +191,9 @@ public:
     {
     }
 
+    RegRecord(const RegRecord&) = delete;
+    RegRecord& operator=(const RegRecord&) = delete;
+
     RegisterType registerType() const
     {
         return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
@@ -214,16 +205,6 @@ public:
 #endif
 };
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           LinearScan                                      XX
-XX                                                                           XX
-XX This is the container for the Linear Scan data structures and methods.    XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 // OPTION 1: The algorithm as described in "Optimized Interval Splitting in a
 // Linear Scan Register Allocator".  It is driven by iterating over the Interval
 // lists.  In this case, we need multiple IntervalLists, and Intervals will be
@@ -1159,27 +1140,21 @@ private:
 
 #if TRACK_LSRA_STATS
     unsigned regCandidateVarCount;
+    LsraStat firstRegSelStat = STAT_FREE;
+
     void updateLsraStat(LsraStat stat, unsigned currentBBNum);
     void dumpLsraStats(FILE* file);
-    LsraStat getLsraStatFromScore(RegisterScore registerScore);
-    LsraStat firstRegSelStat = STAT_FREE;
+    static const char* getStatName(unsigned stat);
+    static LsraStat getLsraStatFromScore(RegisterScore registerScore);
 
 public:
     void dumpLsraStatsCsv(FILE* file);
     void dumpLsraStatsSummary(FILE* file);
-    static const char* getStatName(unsigned stat);
 
 #define INTRACK_STATS(x) x
-#define INTRACK_STATS_IF(condition, work)                                                                              \
-    if (condition)                                                                                                     \
-    {                                                                                                                  \
-        work;                                                                                                          \
-    }
-
-#else // !TRACK_LSRA_STATS
+#else
 #define INTRACK_STATS(x)
-#define INTRACK_STATS_IF(condition, work)
-#endif // !TRACK_LSRA_STATS
+#endif
 
 private:
     CompAllocator getAllocator(Compiler* comp)
@@ -1564,18 +1539,6 @@ private:
 #endif
 };
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Interval                                        XX
-XX                                                                           XX
-XX This is the fundamental data structure for linear scan register           XX
-XX allocation.  It represents the live range(s) for a variable or temp.      XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 class Interval : public Referenceable
 {
 public:
@@ -1610,14 +1573,8 @@ public:
     {
     }
 
-#ifdef DEBUG
-    // print out representation
-    void dump();
-    // concise representation for embedding
-    void tinyDump();
-    // extremely concise representation
-    void microDump();
-#endif // DEBUG
+    Interval(const Interval&) = delete;
+    Interval& operator=(const Interval&) = delete;
 
     // Fixed registers for which this Interval has a preference
     regMaskTP registerPreferences;
@@ -1665,7 +1622,7 @@ public:
 
     // True if this interval is defined by a putArg, whose source is a non-last-use lclVar.
     // During allocation, this flag will be cleared if the source is not already in the required register.
-    // Othewise, we will leave the register allocated to the lclVar, but mark the RegRecord as
+    // Otherwise, we will leave the register allocated to the lclVar, but mark the RegRecord as
     // isBusyUntilKill, so that it won't be reused if the lclVar goes dead before the call.
     bool isSpecialPutArg : 1;
 
@@ -1679,19 +1636,8 @@ public:
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     // True if this is a special interval for saving the upper half of a large vector.
     bool isUpperVector : 1;
-    // This is a convenience method to avoid ifdef's everywhere this is used.
-    bool IsUpperVector() const
-    {
-        return isUpperVector;
-    }
-
     // True if this interval has been partially spilled
     bool isPartiallySpilled : 1;
-#else
-    bool IsUpperVector() const
-    {
-        return false;
-    }
 #endif
 
     // True if this interval is associated with a lclVar that is written to memory at each definition.
@@ -1701,17 +1647,17 @@ public:
     bool isSingleDef : 1;
 
 #ifdef DEBUG
-    unsigned int intervalIndex;
-#endif // DEBUG
+    unsigned intervalIndex;
+#endif
 
-    LclVarDsc* getLocalVar(Compiler* comp)
+    LclVarDsc* getLocalVar(Compiler* comp) const
     {
         assert(isLocalVar);
         return comp->lvaGetDescByTrackedIndex(varIndex);
     }
 
     // Get the local tracked variable "index" (lvVarIndex), used in bitmasks.
-    unsigned getVarIndex(Compiler* comp)
+    unsigned getVarIndex(Compiler* comp) const
     {
         assert(isLocalVar);
         return varIndex;
@@ -1736,7 +1682,8 @@ public:
             microDump();
             printf("\n");
         }
-#endif // DEBUG
+#endif
+
         relatedInterval = newRelatedInterval;
     }
 
@@ -1748,18 +1695,17 @@ public:
             assignRelatedInterval(newRelatedInterval);
             return true;
         }
-        else
-        {
+
 #ifdef DEBUG
-            if (JitTls::GetCompiler()->verbose)
-            {
-                printf("Interval ");
-                microDump();
-                printf(" already has a related interval\n");
-            }
-#endif // DEBUG
-            return false;
+        if (JitTls::GetCompiler()->verbose)
+        {
+            printf("Interval ");
+            microDump();
+            printf(" already has a related interval\n");
         }
+#endif
+
+        return false;
     }
 
     // Get the current preferences for this Interval.
@@ -1768,7 +1714,7 @@ public:
     // definitions. This method will return the current assigned register if any, or
     // the 'registerPreferences' otherwise.
     //
-    regMaskTP getCurrentPreferences()
+    regMaskTP getCurrentPreferences() const
     {
         return (assignedReg == nullptr) ? registerPreferences : genRegMask(assignedReg->regNum);
     }
@@ -1846,6 +1792,21 @@ public:
         // Now merge the new preferences.
         mergeRegisterPreferences(preferences);
     }
+
+    bool IsUpperVector() const
+    {
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+        return isUpperVector;
+#else
+        return false;
+#endif
+    }
+
+#ifdef DEBUG
+    void dump();
+    void tinyDump();
+    void microDump();
+#endif
 };
 
 class RefPosition
@@ -1864,8 +1825,8 @@ public:
     RefPosition* nextRefPosition = nullptr;
 
     // The remaining fields are common to both options
-    GenTree*     treeNode;
-    unsigned int bbNum;
+    GenTree* treeNode;
+    unsigned bbNum;
 
     LsraLocation nodeLocation;
 
@@ -1885,15 +1846,15 @@ public:
     // The max bits needed is based on max value of MAX_RET_REG_COUNT value
     // across all targets and that happens 4 on on Arm.  Hence index value
     // would be 0..MAX_RET_REG_COUNT-1.
-    unsigned char multiRegIdx : 2;
+    uint8_t multiRegIdx : 2;
 
     // Indicates whether this ref position is to be allocated a reg only if profitable. Currently these are the
     // ref positions that lower/codegen has indicated as reg optional and is considered a contained memory operand if
     // no reg is allocated.
-    unsigned char regOptional : 1;
+    uint8_t regOptional : 1;
 
     // Last Use - this may be true for multiple RefPositions in the same Interval
-    unsigned char lastUse : 1;
+    uint8_t lastUse : 1;
 
     // Spill and Copy info
     //   reload indicates that the value was spilled, and must be reloaded here.
@@ -1918,18 +1879,18 @@ public:
     //    we need an explicit move.
     //  - copyReg and moveReg must not exist with each other.
 
-    unsigned char reload : 1;
-    unsigned char spillAfter : 1;
-    unsigned char singleDefSpill : 1;
-    unsigned char writeThru : 1; // true if this var is defined in a register and also spilled. spillAfter must NOT be
-                                 // set.
+    uint8_t reload : 1;
+    uint8_t spillAfter : 1;
+    uint8_t singleDefSpill : 1;
+    uint8_t writeThru : 1; // true if this var is defined in a register and also spilled. spillAfter must NOT be
+                           // set.
 
-    unsigned char copyReg : 1;
-    unsigned char moveReg : 1; // true if this var is moved to a new register
+    uint8_t copyReg : 1;
+    uint8_t moveReg : 1; // true if this var is moved to a new register
 
-    unsigned char isPhysRegRef : 1; // true if 'referent' points of a RegRecord, false if it points to an Interval
-    unsigned char isFixedRegRef : 1;
-    unsigned char isLocalDefUse : 1;
+    uint8_t isPhysRegRef : 1; // true if 'referent' points of a RegRecord, false if it points to an Interval
+    uint8_t isFixedRegRef : 1;
+    uint8_t isLocalDefUse : 1;
 
     // delayRegFree indicates that the register should not be freed right away, but instead wait
     // until the next Location after it would normally be freed.  This is used for the case of
@@ -1938,12 +1899,12 @@ public:
     // Another option would be to actually change the Location of the op2 use until the same
     // Location as the def, but then it could potentially reuse a register that has been freed
     // from the other source(s), e.g. if it's a lastUse or spilled.
-    unsigned char delayRegFree : 1;
+    uint8_t delayRegFree : 1;
 
     // outOfOrder is marked on a (non-def) RefPosition that doesn't follow a definition of the
     // register currently assigned to the Interval.  This happens when we use the assigned
     // register from a predecessor that is not the most recently allocated BasicBlock.
-    unsigned char outOfOrder : 1;
+    uint8_t outOfOrder : 1;
 
 #ifdef DEBUG
     // Minimum number registers that needs to be ensured while
@@ -1978,22 +1939,27 @@ public:
     {
     }
 
-    Interval* getInterval()
+    RefPosition(const RefPosition&) = delete;
+    RefPosition& operator=(const RefPosition&) = delete;
+
+    Interval* getInterval() const
     {
         assert(!isPhysRegRef);
-        return (Interval*)referent;
+        return static_cast<Interval*>(referent);
     }
+
     void setInterval(Interval* i)
     {
         referent     = i;
         isPhysRegRef = false;
     }
 
-    RegRecord* getReg()
+    RegRecord* getReg() const
     {
         assert(isPhysRegRef);
-        return (RegRecord*)referent;
+        return static_cast<RegRecord*>(referent);
     }
+
     void setReg(RegRecord* r)
     {
         referent           = r;
@@ -2001,18 +1967,13 @@ public:
         registerAssignment = genRegMask(r->regNum);
     }
 
-    regNumber assignedReg()
+    regNumber assignedReg() const
     {
-        if (registerAssignment == RBM_NONE)
-        {
-            return REG_NA;
-        }
-
-        return genRegNumFromMask(registerAssignment);
+        return registerAssignment == RBM_NONE ? REG_NA : genRegNumFromMask(registerAssignment);
     }
 
     // Returns true if it is a reference on a gentree node.
-    bool IsActualRef()
+    bool IsActualRef() const
     {
         switch (refType)
         {
@@ -2030,16 +1991,15 @@ public:
             case RefTypeDummyDef:
             case RefTypeZeroInit:
                 assert(RegOptional());
-                return false;
-
+                FALLTHROUGH;
             default:
                 return false;
         }
     }
 
-    bool IsPhysRegRef()
+    bool IsPhysRegRef() const
     {
-        return ((refType == RefTypeFixedReg) || (refType == RefTypeKill));
+        return (refType == RefTypeFixedReg) || (refType == RefTypeKill);
     }
 
     void setRegOptional(bool val)
@@ -2049,7 +2009,7 @@ public:
 
     // Returns true whether this ref position is to be allocated
     // a reg only if it is profitable.
-    bool RegOptional()
+    bool RegOptional() const
     {
         // TODO-CQ: Right now if a ref position is marked as
         // copyreg or movereg, then it is not treated as
@@ -2064,12 +2024,12 @@ public:
         assert(multiRegIdx == idx);
     }
 
-    unsigned getMultiRegIdx()
+    unsigned getMultiRegIdx() const
     {
         return multiRegIdx;
     }
 
-    LsraLocation getRefEndLocation()
+    LsraLocation getRefEndLocation() const
     {
         return delayRegFree ? nodeLocation + 1 : nodeLocation;
     }
@@ -2092,43 +2052,30 @@ public:
         return getRangeEndRef()->getRefEndLocation();
     }
 
-    bool isIntervalRef()
+    bool isIntervalRef() const
     {
-        return (!IsPhysRegRef() && (referent != nullptr));
+        return !IsPhysRegRef() && (referent != nullptr);
     }
 
     // isFixedRefOfRegMask indicates that the RefPosition has a fixed assignment to the register
     // specified by the given mask
-    bool isFixedRefOfRegMask(regMaskTP regMask)
+    bool isFixedRefOfRegMask(regMaskTP regMask) const
     {
         assert(genMaxOneBit(regMask));
-        return (registerAssignment == regMask);
+        return registerAssignment == regMask;
     }
 
     // isFixedRefOfReg indicates that the RefPosition has a fixed assignment to the given register
-    bool isFixedRefOfReg(regNumber regNum)
+    bool isFixedRefOfReg(regNumber regNum) const
     {
-        return (isFixedRefOfRegMask(genRegMask(regNum)));
+        return isFixedRefOfRegMask(genRegMask(regNum));
     }
 
 #ifdef DEBUG
-    // operator= copies everything except 'rpNum', which must remain unique
-    RefPosition& operator=(const RefPosition& rp)
-    {
-        unsigned rpNumSave = rpNum;
-        memcpy(this, &rp, sizeof(rp));
-        rpNum = rpNumSave;
-        return *this;
-    }
-
     void dump(LinearScan* linearScan);
-#endif // DEBUG
+#endif
 };
 
 #ifdef DEBUG
 void dumpRegMask(regMaskTP regs);
-#endif // DEBUG
-
-/*****************************************************************************/
-#endif //_LSRA_H_
-/*****************************************************************************/
+#endif
