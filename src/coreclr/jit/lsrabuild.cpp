@@ -253,16 +253,12 @@ void LinearScan::resolveConflictingDefAndUse(Interval* interval, RefPosition* de
     {
         // This is case #5.
         INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE5, interval));
-        RegisterType regType = interval->registerType;
-        assert((getRegisterType(interval, defRefPosition) == regType) &&
-               (getRegisterType(interval, useRefPosition) == regType));
-        regMaskTP candidates               = allRegs(regType);
-        defRefPosition->registerAssignment = candidates;
+        defRefPosition->registerAssignment = allRegs(interval->registerType);
         defRefPosition->isFixedRegRef      = false;
         return;
     }
+
     INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE6, interval));
-    return;
 }
 
 // Set register preferences for an interval based on the given RefPosition

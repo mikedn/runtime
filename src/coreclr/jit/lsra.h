@@ -167,8 +167,8 @@ public:
     // Get the position of the next reference which is at or greater than
     // the current location (relies upon recentRefPosition being updated
     // during traversal).
-    RefPosition* getNextRefPosition();
-    LsraLocation getNextRefLocation();
+    RefPosition* getNextRefPosition()const;
+    LsraLocation getNextRefLocation()const;
 };
 
 class RegRecord : public Referenceable
@@ -791,11 +791,6 @@ private:
 
     BasicBlock::weight_t getWeight(RefPosition* refPos);
 
-    /*****************************************************************************
-     * Register management
-     ****************************************************************************/
-    RegisterType getRegisterType(Interval* currentInterval, RefPosition* refPosition);
-
 #ifdef DEBUG
     const char* getScoreName(RegisterScore score);
 #endif
@@ -913,7 +908,7 @@ private:
         bool foundUnassignedReg() const
         {
             assert(found && isSingleRegister(foundRegBit));
-            bool isUnassignedReg = ((foundRegBit & unassignedSet) != RBM_NONE);
+            bool isUnassignedReg = (foundRegBit & unassignedSet) != RBM_NONE;
             return isUnassignedReg && !isAlreadyAssigned();
         }
 
@@ -930,13 +925,12 @@ private:
             return (matchingConstants & foundRegBit) != RBM_NONE;
         }
 
-        // Did we apply CONST_AVAILABLE heuristics
+#ifdef DEBUG
         bool isConstAvailable() const
         {
             return (score & CONST_AVAILABLE) != 0;
         }
 
-#ifdef DEBUG
         RegisterScore GetSelectionScore() const
         {
             return selectionScore;
@@ -1267,7 +1261,7 @@ private:
     regMaskTP m_reservedRegs = RBM_NONE;
 #endif
 
-    regNumber getRegForType(regNumber reg, var_types regType)
+    static regNumber getRegForType(regNumber reg, var_types regType)
     {
 #ifdef TARGET_ARM
         if ((regType == TYP_DOUBLE) && !genIsValidDoubleReg(reg))
@@ -1278,7 +1272,7 @@ private:
         return reg;
     }
 
-    regMaskTP getRegMask(regNumber reg, var_types regType)
+    static regMaskTP getRegMask(regNumber reg, var_types regType)
     {
         reg               = getRegForType(reg, regType);
         regMaskTP regMask = genRegMask(reg);
@@ -1298,7 +1292,7 @@ private:
         m_RegistersWithConstants = RBM_NONE;
     }
 
-    bool isRegAvailable(regNumber reg, var_types regType)
+    bool isRegAvailable(regNumber reg, var_types regType) const
     {
         regMaskTP regMask = getRegMask(reg, regType);
         return (m_AvailableRegs & regMask) == regMask;

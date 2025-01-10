@@ -403,32 +403,15 @@ bool LinearScan::conflictingFixedRegReference(regNumber regNum, RefPosition* ref
     return false;
 }
 
-/*****************************************************************************
- * Inline functions for Interval
- *****************************************************************************/
-RefPosition* Referenceable::getNextRefPosition()
+RefPosition* Referenceable::getNextRefPosition() const
 {
-    if (recentRefPosition == nullptr)
-    {
-        return firstRefPosition;
-    }
-    else
-    {
-        return recentRefPosition->nextRefPosition;
-    }
+    return recentRefPosition == nullptr ? firstRefPosition : recentRefPosition->nextRefPosition;
 }
 
-LsraLocation Referenceable::getNextRefLocation()
+LsraLocation Referenceable::getNextRefLocation() const
 {
     RefPosition* nextRefPosition = getNextRefPosition();
-    if (nextRefPosition == nullptr)
-    {
-        return MaxLocation;
-    }
-    else
-    {
-        return nextRefPosition->nodeLocation;
-    }
+    return nextRefPosition == nullptr ? MaxLocation : nextRefPosition->nodeLocation;
 }
 
 #ifdef DEBUG
@@ -453,15 +436,13 @@ void LinearScan::dumpVarToRegMap(VarToRegMap map)
 void LinearScan::dumpInVarToRegMap(BasicBlock* block)
 {
     printf("Var=Reg beg of " FMT_BB ": ", block->bbNum);
-    VarToRegMap map = getInVarToRegMap(block->bbNum);
-    dumpVarToRegMap(map);
+    dumpVarToRegMap(getInVarToRegMap(block->bbNum));
 }
 
 void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
 {
     printf("Var=Reg end of " FMT_BB ": ", block->bbNum);
-    VarToRegMap map = getOutVarToRegMap(block->bbNum);
-    dumpVarToRegMap(map);
+    dumpVarToRegMap(getOutVarToRegMap(block->bbNum));
 }
 
 #endif // DEBUG
@@ -801,33 +782,6 @@ void LinearScan::dumpVarRefPositions(const char* title)
 #endif // DEBUG
 
 //------------------------------------------------------------------------
-// getRegisterType: Get the RegisterType to use for the given RefPosition
-//
-// Arguments:
-//    currentInterval: The interval for the current allocation
-//    refPosition:     The RefPosition of the current Interval for which a register is being allocated
-//
-// Return Value:
-//    The RegisterType that should be allocated for this RefPosition
-//
-// Notes:
-//    This will nearly always be identical to the registerType of the interval, except in the case
-//    of SIMD types of 8 bytes (currently only Vector2) when they are passed and returned in integer
-//    registers, or copied to a return temp.
-//    This method need only be called in situations where we may be dealing with the register requirements
-//    of a RefTypeUse RefPosition (i.e. not when we are only looking at the type of an interval, nor when
-//    we are interested in the "defining" type of the interval).  This is because the situation of interest
-//    only happens at the use (where it must be copied to an integer register).
-
-RegisterType LinearScan::getRegisterType(Interval* currentInterval, RefPosition* refPosition)
-{
-    assert(refPosition->getInterval() == currentInterval);
-    assert((refPosition->registerAssignment & allRegs(currentInterval->registerType)) != RBM_NONE);
-
-    return currentInterval->registerType;
-}
-
-//------------------------------------------------------------------------
 // isMatchingConstant: Check to see whether a given register contains the constant referenced
 //                     by the given RefPosition
 //
@@ -950,13 +904,10 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
     RegRecord* availablePhysRegRecord = getRegisterRecord(foundReg);
     Interval*  assignedInterval       = availablePhysRegRecord->assignedInterval;
     if ((assignedInterval != currentInterval) &&
-        isAssigned(availablePhysRegRecord ARM_ARG(getRegisterType(currentInterval, refPosition))))
+        isAssigned(availablePhysRegRecord ARM_ARG(currentInterval->registerType)))
     {
         if (regSelector->isSpilling())
         {
-            // We're spilling.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef TARGET_ARM
             if (currentInterval->registerType == TYP_DOUBLE)
             {
@@ -1174,35 +1125,27 @@ bool LinearScan::isRefPositionActive(RefPosition* refPosition, LsraLocation refL
 //
 bool LinearScan::isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* physRegRecord)
 {
-    regMaskTP    candidateBit = genRegMask(physRegRecord->regNum);
-    LsraLocation refLocation  = refPosition->nodeLocation;
-    // We shouldn't be calling this if we haven't already determined that the register is not
-    // busy until the next kill.
+    // We shouldn't be calling this if we haven't already determined that the register
+    // is not busy until the next kill.
     assert(!isRegBusy(physRegRecord->regNum, current->registerType));
     // We should already have determined that the register isn't actively in use.
     assert(!isRegInUse(physRegRecord->regNum, current->registerType));
     // We shouldn't be calling this if 'refPosition' is a fixed reference to this register.
-    assert(!refPosition->isFixedRefOfRegMask(candidateBit));
+    assert(!refPosition->isFixedRefOfRegMask(genRegMask(physRegRecord->regNum)));
     // We shouldn't be calling this if there is a fixed reference at the same location
     // (and it's not due to this reference), as checked above.
     assert(!conflictingFixedRegReference(physRegRecord->regNum, refPosition));
 
-    bool canSpill;
 #ifdef TARGET_ARM
     if (current->registerType == TYP_DOUBLE)
     {
-        canSpill = canSpillDoubleReg(physRegRecord, refLocation);
+        return canSpillDoubleReg(physRegRecord, refPosition->nodeLocation);
     }
     else
-#endif // TARGET_ARM
+#endif
     {
-        canSpill = canSpillReg(physRegRecord, refLocation);
+        return canSpillReg(physRegRecord, refPosition->nodeLocation);
     }
-    if (!canSpill)
-    {
-        return false;
-    }
-    return true;
 }
 
 // Grab a register to use to copy and then immediately use.
@@ -8885,7 +8828,7 @@ void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPo
     refPosition     = refPos;
     score           = NONE;
 
-    regType         = linearScan->getRegisterType(currentInterval, refPosition);
+    regType         = currentInterval->registerType;
     currentLocation = refPosition->nodeLocation;
     nextRefPos      = refPosition->nextRefPosition;
     candidates      = refPosition->registerAssignment;
@@ -9467,8 +9410,7 @@ void LinearScan::RegisterSelection::calculateCoversSets()
         coversCandidates &= ~coversCandidateBit;
         regNumber coversCandidateRegNum = genRegNumFromMask(coversCandidateBit);
 
-        // If we have a single candidate we don't need to compute the preference-related sets, but we
-        // do need to compute the unassignedSet.
+        // If we have a single candidate we only need to compute the unassignedSet.
         if (!found)
         {
             // Find the next RefPosition of the register.
@@ -9487,10 +9429,12 @@ void LinearScan::RegisterSelection::calculateCoversSets()
                 INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_INCREMENT_RANGE_END, currentInterval));
                 coversCandidateLocation++;
             }
+
             if (coversCandidateLocation > rangeEndLocation)
             {
                 coversSet |= coversCandidateBit;
             }
+
             if ((coversCandidateBit & relatedPreferences) != RBM_NONE)
             {
                 if (coversCandidateLocation > relatedLastLocation)
@@ -9507,12 +9451,14 @@ void LinearScan::RegisterSelection::calculateCoversSets()
                 // TODO-CQ: Consider if this should be split out.
                 coversRelatedSet |= coversCandidateBit;
             }
+
             // Does this cover the full range of the interval?
             if (coversCandidateLocation > lastLocation)
             {
                 coversFullSet |= coversCandidateBit;
             }
         }
+
         // The register is considered unassigned if it has no assignedInterval, OR
         // if its next reference is beyond the range of this interval.
         if (linearScan->nextIntervalRef[coversCandidateRegNum] > lastLocation)
