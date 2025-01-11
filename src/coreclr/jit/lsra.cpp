@@ -8856,7 +8856,7 @@ void LinearScan::RegisterSelection::reset(Interval* interval, RefPosition* refPo
     coversRelatedSet = RBM_NONE;
     coversFullSet    = RBM_NONE;
 
-    foundRegBit          = REG_NA;
+    foundRegBit          = RBM_NONE;
     found                = false;
     skipAllocation       = false;
     coversSetsCalculated = false;
@@ -8907,156 +8907,97 @@ bool LinearScan::RegisterSelection::applySingleRegSelection(RegisterScore select
     return false;
 }
 
-// ----------------------------------------------------------
-//  try_FREE: Apply the FREE heuristic.
-//
-void LinearScan::RegisterSelection::try_FREE()
+bool LinearScan::RegisterSelection::try_FREE()
 {
-    assert(!found);
     if (freeCandidates == RBM_NONE)
     {
-        return;
+        return false;
     }
 
-    found = applySelection(FREE, freeCandidates);
+    return applySelection(FREE, freeCandidates);
 }
 
-// ----------------------------------------------------------
-//  try_CONST_AVAILABLE: Apply the CONST_AVAILABLE (matching constant) heuristic.
-//
-//  Note: we always need to define the 'matchingConstants' set.
-//
-void LinearScan::RegisterSelection::try_CONST_AVAILABLE()
+bool LinearScan::RegisterSelection::try_CONST_AVAILABLE()
 {
-    assert(!found);
     if (freeCandidates == RBM_NONE)
     {
-        return;
+        return false;
     }
 
     if (currentInterval->isConstant && RefTypeIsDef(refPosition->refType))
     {
-        found = applySelection(CONST_AVAILABLE, matchingConstants);
+        // Note: we always need to define the 'matchingConstants' set.
+        return applySelection(CONST_AVAILABLE, matchingConstants);
     }
+
+    return false;
 }
 
-// ----------------------------------------------------------
-//  try_THIS_ASSIGNED: Apply the THIS_ASSIGNED heuristic.
-//
-void LinearScan::RegisterSelection::try_THIS_ASSIGNED()
+bool LinearScan::RegisterSelection::try_THIS_ASSIGNED()
 {
-    assert(!found);
+    return (freeCandidates != RBM_NONE) && (prevRegRec != nullptr) &&
+           applySelection(THIS_ASSIGNED, freeCandidates & preferences & prevRegBit);
+}
+
+bool LinearScan::RegisterSelection::try_COVERS()
+{
+    calculateCoversSets();
+
+    return applySelection(COVERS, coversSet & preferenceSet);
+}
+
+bool LinearScan::RegisterSelection::try_OWN_PREFERENCE()
+{
+#ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
+    calculateCoversSets();
+#endif
+
+    // Note: 'preferenceSet' already includes only freeCandidates.
+    return applySelection(OWN_PREFERENCE, preferenceSet & freeCandidates);
+}
+
+bool LinearScan::RegisterSelection::try_COVERS_RELATED()
+{
+#ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
+    calculateCoversSets();
+#endif
+
+    return applySelection(COVERS_RELATED, (coversRelatedSet & freeCandidates));
+}
+
+bool LinearScan::RegisterSelection::try_RELATED_PREFERENCE()
+{
+    return applySelection(RELATED_PREFERENCE, relatedPreferences & freeCandidates);
+}
+
+bool LinearScan::RegisterSelection::try_CALLER_CALLEE()
+{
+    return applySelection(CALLER_CALLEE, callerCalleePrefs & freeCandidates);
+}
+
+bool LinearScan::RegisterSelection::try_UNASSIGNED()
+{
+#ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
+    calculateCoversSets();
+#endif
+
+    return applySelection(UNASSIGNED, unassignedSet);
+}
+
+bool LinearScan::RegisterSelection::try_COVERS_FULL()
+{
+#ifdef DEBUG // In release builds covers sets is always already computed by try_COVERS.
+    calculateCoversSets();
+#endif
+
+    return applySelection(COVERS_FULL, (coversFullSet & freeCandidates));
+}
+
+bool LinearScan::RegisterSelection::try_BEST_FIT()
+{
     if (freeCandidates == RBM_NONE)
     {
-        return;
-    }
-
-    if (prevRegRec != nullptr)
-    {
-        found = applySelection(THIS_ASSIGNED, freeCandidates & preferences & prevRegBit);
-    }
-}
-
-// ----------------------------------------------------------
-//  try_COVERS: Apply the COVERS heuristic.
-//
-void LinearScan::RegisterSelection::try_COVERS()
-{
-    assert(!found);
-
-    calculateCoversSets();
-
-    found = applySelection(COVERS, coversSet & preferenceSet);
-}
-
-// ----------------------------------------------------------
-//  try_OWN_PREFERENCE: Apply the OWN_PREFERENCE heuristic.
-//
-//  Note: 'preferenceSet' already includes only freeCandidates.
-//
-void LinearScan::RegisterSelection::try_OWN_PREFERENCE()
-{
-    assert(!found);
-
-#ifdef DEBUG
-    calculateCoversSets();
-#endif
-
-    found = applySelection(OWN_PREFERENCE, (preferenceSet & freeCandidates));
-}
-
-// ----------------------------------------------------------
-//  try_COVERS_RELATED: Apply the COVERS_RELATED heuristic.
-//
-void LinearScan::RegisterSelection::try_COVERS_RELATED()
-{
-    assert(!found);
-
-#ifdef DEBUG
-    calculateCoversSets();
-#endif
-
-    found = applySelection(COVERS_RELATED, (coversRelatedSet & freeCandidates));
-}
-
-// ----------------------------------------------------------
-//  try_RELATED_PREFERENCE: Apply the RELATED_PREFERENCE heuristic.
-//
-void LinearScan::RegisterSelection::try_RELATED_PREFERENCE()
-{
-    assert(!found);
-
-    found = applySelection(RELATED_PREFERENCE, relatedPreferences & freeCandidates);
-}
-
-// ----------------------------------------------------------
-//  try_CALLER_CALLEE: Apply the CALLER_CALLEE heuristic.
-//
-void LinearScan::RegisterSelection::try_CALLER_CALLEE()
-{
-    assert(!found);
-
-    found = applySelection(CALLER_CALLEE, callerCalleePrefs & freeCandidates);
-}
-
-// ----------------------------------------------------------
-//  try_UNASSIGNED: Apply the UNASSIGNED heuristic.
-//
-void LinearScan::RegisterSelection::try_UNASSIGNED()
-{
-    assert(!found);
-
-#ifdef DEBUG
-    calculateCoversSets();
-#endif
-
-    found = applySelection(UNASSIGNED, unassignedSet);
-}
-
-// ----------------------------------------------------------
-//  try_COVERS_FULL: Apply the COVERS_FULL heuristic.
-//
-void LinearScan::RegisterSelection::try_COVERS_FULL()
-{
-    assert(!found);
-
-#ifdef DEBUG
-    calculateCoversSets();
-#endif
-
-    found = applySelection(COVERS_FULL, (coversFullSet & freeCandidates));
-}
-
-// ----------------------------------------------------------
-//  try_BEST_FIT: Apply the BEST_FIT heuristic.
-//
-void LinearScan::RegisterSelection::try_BEST_FIT()
-{
-    assert(!found);
-
-    if (freeCandidates == RBM_NONE)
-    {
-        return;
+        return false;
     }
 
     regMaskTP bestFitSet = RBM_NONE;
@@ -9064,6 +9005,7 @@ void LinearScan::RegisterSelection::try_BEST_FIT()
     // If none cover the full range, the BEST_FIT is the one that's killed later.
     bool         earliestIsBest  = ((score & COVERS_FULL) != 0);
     LsraLocation bestFitLocation = earliestIsBest ? MaxLocation : MinLocation;
+
     for (regMaskTP bestFitCandidates = candidates; bestFitCandidates != RBM_NONE;)
     {
         regMaskTP bestFitCandidateBit = genFindLowestBit(bestFitCandidates);
@@ -9110,6 +9052,7 @@ void LinearScan::RegisterSelection::try_BEST_FIT()
                     isBetter = true;
                 }
             }
+
             if (isBetter)
             {
                 bestFitSet      = bestFitCandidateBit;
@@ -9117,35 +9060,24 @@ void LinearScan::RegisterSelection::try_BEST_FIT()
             }
         }
     }
+
     assert(bestFitSet != RBM_NONE);
-    found = applySelection(BEST_FIT, bestFitSet);
+    return applySelection(BEST_FIT, bestFitSet);
 }
 
-// ----------------------------------------------------------
-//  try_IS_PREV_REG: Apply the IS_PREV_REG heuristic.
-//
-//  Note:  Oddly, the previous heuristics only considered this if it covered the range.
-//  TODO: Check if Only applies if we have freeCandidates.
-//
-void LinearScan::RegisterSelection::try_IS_PREV_REG()
+bool LinearScan::RegisterSelection::try_IS_PREV_REG()
 {
-    // TODO: We do not check found here.
-    if ((prevRegRec != nullptr) && ((score & COVERS_FULL) != 0))
-    {
-        found = applySingleRegSelection(IS_PREV_REG, prevRegBit);
-    }
+    // Note: Oddly, the previous heuristics only considered this if it covered the range.
+    // TODO: Check if Only applies if we have freeCandidates.
+
+    return (prevRegRec != nullptr) && ((score & COVERS_FULL) != 0) && applySingleRegSelection(IS_PREV_REG, prevRegBit);
 }
 
-// ----------------------------------------------------------
-//  try_REG_ORDER: Apply the REG_ORDER heuristic. Only applies if we have freeCandidates.
-//
-void LinearScan::RegisterSelection::try_REG_ORDER()
+bool LinearScan::RegisterSelection::try_REG_ORDER()
 {
-    assert(!found);
-
     if (freeCandidates == RBM_NONE)
     {
-        return;
+        return false;
     }
 
     // This will always result in a single candidate. That is, it is the tie-breaker
@@ -9153,6 +9085,7 @@ void LinearScan::RegisterSelection::try_REG_ORDER()
     // heuristic for free registers.
     unsigned  lowestRegOrder    = UINT_MAX;
     regMaskTP lowestRegOrderBit = RBM_NONE;
+
     for (regMaskTP regOrderCandidates = candidates; regOrderCandidates != RBM_NONE;)
     {
         regMaskTP regOrderCandidateBit = genFindLowestBit(regOrderCandidates);
@@ -9165,17 +9098,13 @@ void LinearScan::RegisterSelection::try_REG_ORDER()
             lowestRegOrderBit = regOrderCandidateBit;
         }
     }
+
     assert(lowestRegOrderBit != RBM_NONE);
-    found = applySingleRegSelection(REG_ORDER, lowestRegOrderBit);
+    return applySingleRegSelection(REG_ORDER, lowestRegOrderBit);
 }
 
-// ----------------------------------------------------------
-//  try_SPILL_COST: Apply the SPILL_COST heuristic.
-//
-void LinearScan::RegisterSelection::try_SPILL_COST()
+bool LinearScan::RegisterSelection::try_SPILL_COST()
 {
-    assert(!found);
-
     // The set of registers with the lowest spill weight.
     regMaskTP lowestCostSpillSet = RBM_NONE;
     // Apply the SPILL_COST heuristic and eliminate regs that can't be spilled.
@@ -9209,15 +9138,15 @@ void LinearScan::RegisterSelection::try_SPILL_COST()
 
         float        currentSpillWeight = 0;
         RefPosition* recentRefPosition  = assignedInterval != nullptr ? assignedInterval->recentRefPosition : nullptr;
+
         if ((recentRefPosition != nullptr) &&
             (recentRefPosition->RegOptional() && !(assignedInterval->isLocalVar && recentRefPosition->IsActualRef())))
         {
             // We do not "spillAfter" if previous (recent) refPosition was regOptional or if it
-            // is not an actual ref. In those cases, we will reload in future (next) refPosition.
-            // For such cases, consider the spill cost of next refposition.
+            // is not an actual ref. In those cases, we will reload in future (next) RefPosition.
+            // For such cases, consider the spill cost of next RefPosition.
             // See notes in "spillInterval()".
-            RefPosition* reloadRefPosition = assignedInterval->getNextRefPosition();
-            if (reloadRefPosition != nullptr)
+            if (RefPosition* reloadRefPosition = assignedInterval->getNextRefPosition())
             {
                 currentSpillWeight = linearScan->getWeight(reloadRefPosition);
             }
@@ -9248,7 +9177,7 @@ void LinearScan::RegisterSelection::try_SPILL_COST()
 
     if (lowestCostSpillSet == RBM_NONE)
     {
-        return;
+        return false;
     }
 
     // We won't spill if this refPosition is RegOptional() and we have no candidates
@@ -9257,23 +9186,18 @@ void LinearScan::RegisterSelection::try_SPILL_COST()
     {
         currentInterval->assignedReg = nullptr;
         skipAllocation               = true;
-        found                        = true;
     }
 
     // We must have at least one with the lowest spill cost.
     assert(lowestCostSpillSet != RBM_NONE);
-    found = applySelection(SPILL_COST, lowestCostSpillSet);
+    return applySelection(SPILL_COST, lowestCostSpillSet);
 }
 
-// ----------------------------------------------------------
-//  try_FAR_NEXT_REF: Apply the FAR_NEXT_REF heuristic.
-//
-void LinearScan::RegisterSelection::try_FAR_NEXT_REF()
+bool LinearScan::RegisterSelection::try_FAR_NEXT_REF()
 {
-    assert(!found);
-
     LsraLocation farthestLocation = MinLocation;
     regMaskTP    farthestSet      = RBM_NONE;
+
     for (regMaskTP farthestCandidates = candidates; farthestCandidates != RBM_NONE;)
     {
         regMaskTP farthestCandidateBit = genFindLowestBit(farthestCandidates);
@@ -9294,19 +9218,16 @@ void LinearScan::RegisterSelection::try_FAR_NEXT_REF()
             farthestLocation = nextPhysRefLocation;
         }
     }
+
     // We must have at least one with the lowest spill cost.
     assert(farthestSet != RBM_NONE);
-    found = applySelection(FAR_NEXT_REF, farthestSet);
+    return applySelection(FAR_NEXT_REF, farthestSet);
 }
 
-// ----------------------------------------------------------
-//  try_PREV_REG_OPT: Apply the PREV_REG_OPT heuristic.
-//
-void LinearScan::RegisterSelection::try_PREV_REG_OPT()
+bool LinearScan::RegisterSelection::try_PREV_REG_OPT()
 {
-    assert(!found);
-
     regMaskTP prevRegOptSet = RBM_NONE;
+
     for (regMaskTP prevRegOptCandidates = candidates; prevRegOptCandidates != RBM_NONE;)
     {
         regMaskTP prevRegOptCandidateBit = genFindLowestBit(prevRegOptCandidates);
@@ -9377,23 +9298,15 @@ void LinearScan::RegisterSelection::try_PREV_REG_OPT()
         }
 #endif
     }
-    found = applySelection(PREV_REG_OPT, prevRegOptSet);
+
+    return applySelection(PREV_REG_OPT, prevRegOptSet);
 }
 
-// ----------------------------------------------------------
-//  try_REG_NUM: Apply the REG_NUM heuristic.
-//
-void LinearScan::RegisterSelection::try_REG_NUM()
+bool LinearScan::RegisterSelection::try_REG_NUM()
 {
-    assert(!found);
-
-    found = applySingleRegSelection(REG_NUM, genFindLowestBit(candidates));
+    return applySingleRegSelection(REG_NUM, genFindLowestBit(candidates));
 }
 
-// ----------------------------------------------------------
-//  calculateCoversSets: Calculate the necessary covers set registers to be used
-//      for heuristics lke COVERS, COVERS_RELATED, COVERS_FULL.
-//
 void LinearScan::RegisterSelection::calculateCoversSets()
 {
     if (freeCandidates == RBM_NONE || coversSetsCalculated)
@@ -9475,7 +9388,7 @@ void LinearScan::RegisterSelection::calculateCoversSets()
 //
 // Arguments:
 //   currentInterval - Current interval for which register needs to be selected.
-//   refPosition     - Refposition within the interval for which register needs to be selected.
+//   refPosition     - RefPosition within the interval for which register needs to be selected.
 //
 //  Return Values:
 //      Register bit selected (a single register) and REG_NA if no register was selected.
@@ -9725,6 +9638,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
     {
         assert(refPosition->RegOptional());
         currentInterval->assignedReg = nullptr;
+
         return RBM_NONE;
     }
 
@@ -9737,12 +9651,12 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
         if (!refPosition->IsActualRef())
         {
             currentInterval->assignedReg = nullptr;
+
             return RBM_NONE;
         }
     }
     else
     {
-        // Set the 'matchingConstants' set.
         if (currentInterval->isConstant && RefTypeIsDef(refPosition->refType))
         {
             matchingConstants = linearScan->getMatchingConstants(candidates, currentInterval, refPosition);
@@ -9753,7 +9667,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
     for (unsigned i = 0; i < _countof(selectionOrder) && !found; i++)
     {
         const auto& selector = selectionOrder[i];
-        (this->*selector.first)();
+        found                = (this->*selector.first)();
 
         if (found)
         {
@@ -9764,7 +9678,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
     }
 #else // !DEBUG
 #define REG_SEL_DEF(name, ...)                                                                                         \
-    try_##name();                                                                                                      \
+    found = try_##name();                                                                                              \
     if (found)                                                                                                         \
         goto Selection_Done;
 #include "lsra_score.h"

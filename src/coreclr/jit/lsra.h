@@ -841,7 +841,7 @@ private:
 
 #ifdef DEBUG
     class RegisterSelection;
-    using HeuristicFn = void (RegisterSelection::*)();
+    using HeuristicFn = bool (RegisterSelection::*)();
 
     enum class RegisterSelectors
     {
@@ -950,7 +950,7 @@ private:
         void calculateCoversSets();
         void reset(Interval* interval, RefPosition* refPosition);
 
-#define REG_SEL_DEF(name, ...) void try_##name();
+#define REG_SEL_DEF(name, ...) bool try_##name();
 #include "lsra_score.h"
     };
 
