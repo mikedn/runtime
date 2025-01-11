@@ -706,11 +706,11 @@ VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum)
     return outVarToRegMaps[bbNum];
 }
 
-void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, RegNum reg)
+void LinearScan::setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg)
 {
     assert(enregisterLocalVars);
 
-    inVarToRegMaps[bbNum][lcl->GetLivenessBitIndex()] = static_cast<RegNumSmall>(reg);
+    inVarToRegMaps[bbNum][trackedVarIndex] = static_cast<RegNumSmall>(reg);
 }
 
 void LinearScan::setVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex, RegNum reg)
@@ -1298,7 +1298,7 @@ void LinearScan::setIntervalAsSplit(Interval* interval)
 {
     if (interval->isLocalVar)
     {
-        unsigned varIndex = interval->getVarIndex(compiler);
+        unsigned varIndex = interval->getVarIndex();
         if (!interval->isSplit)
         {
             VarSetOps::AddElemD(compiler, splitOrSpilledVars, varIndex);
@@ -1338,7 +1338,7 @@ void LinearScan::setIntervalAsSpilled(Interval* interval)
         RefPosition* recentRefPos = interval->recentRefPosition;
         if (!interval->isSpilled && interval->isActive && (recentRefPos != nullptr))
         {
-            VarSetOps::AddElemD(compiler, splitOrSpilledVars, interval->getVarIndex(compiler));
+            VarSetOps::AddElemD(compiler, splitOrSpilledVars, interval->getVarIndex());
             interval->isSpilled = true;
             regNumber reg       = interval->physReg;
             spillCost[reg]      = getSpillWeight(getRegisterRecord(reg));
@@ -1347,7 +1347,7 @@ void LinearScan::setIntervalAsSpilled(Interval* interval)
 #endif
     if (interval->isLocalVar)
     {
-        unsigned varIndex = interval->getVarIndex(compiler);
+        unsigned varIndex = interval->getVarIndex();
         if (!interval->isSpilled)
         {
             VarSetOps::AddElemD(compiler, splitOrSpilledVars, varIndex);
@@ -1424,9 +1424,7 @@ void LinearScan::spillInterval(Interval* interval, RefPosition* fromRefPosition 
     // on entry to this block.
     if (fromRefPosition->nodeLocation <= curBBStartLocation)
     {
-        // This must be a lclVar interval
-        assert(interval->isLocalVar);
-        setInVarRegForBB(curBBNum, interval->getLocalVar(compiler), REG_STK);
+        setInVarRegForBB(curBBNum, interval->getVarIndex(), REG_STK);
     }
 }
 
@@ -1683,7 +1681,7 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
             // to mark this as living on the stack.
             if (spillRefPosition->nodeLocation <= curBBStartLocation)
             {
-                setInVarRegForBB(curBBNum, assignedInterval->getLocalVar(compiler), REG_STK);
+                setInVarRegForBB(curBBNum, assignedInterval->getVarIndex(), REG_STK);
                 if (spillRefPosition->nextRefPosition != nullptr)
                 {
                     setIntervalAsSpilled(assignedInterval);
@@ -2030,9 +2028,9 @@ void LinearScan::unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap in
             // assigned to this register).
             assignedInterval->isActive = false;
             unassignPhysReg(assignedInterval->assignedReg, nullptr);
-            if ((inVarToRegMap != nullptr) && inVarToRegMap[assignedInterval->getVarIndex(compiler)] == assignedRegNum)
+            if ((inVarToRegMap != nullptr) && inVarToRegMap[assignedInterval->getVarIndex()] == assignedRegNum)
             {
-                inVarToRegMap[assignedInterval->getVarIndex(compiler)] = REG_STK;
+                inVarToRegMap[assignedInterval->getVarIndex()] = REG_STK;
             }
         }
         else
@@ -2339,7 +2337,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
                     }
                     if (!assignedInterval->IsUpperVector())
                     {
-                        inVarToRegMap[assignedInterval->getVarIndex(compiler)] = REG_STK;
+                        inVarToRegMap[assignedInterval->getVarIndex()] = REG_STK;
                     }
                 }
                 else
@@ -3177,7 +3175,7 @@ void LinearScan::allocateRegisters()
                 if (RefTypeIsUse(refType))
                 {
                     assert(enregisterLocalVars);
-                    assert(inVarToRegMaps[curBBNum][currentInterval->getVarIndex(compiler)] == REG_STK &&
+                    assert(inVarToRegMaps[curBBNum][currentInterval->getVarIndex()] == REG_STK &&
                            previousRefPosition->nodeLocation <= curBBStartLocation);
                     isInRegister = false;
                 }
@@ -3478,7 +3476,7 @@ void LinearScan::allocateRegisters()
 
             if (refType == RefTypeDummyDef && assignedRegister != REG_NA)
             {
-                setInVarRegForBB(curBBNum, currentInterval->getLocalVar(compiler), assignedRegister);
+                setInVarRegForBB(curBBNum, currentInterval->getVarIndex(), assignedRegister);
             }
 
             // If we allocated a register, and this is a use of a spilled value,
@@ -4653,7 +4651,7 @@ void LinearScan::resolveRegisters()
             assert(interval != nullptr && interval->isLocalVar);
             resolveLocalRef(nullptr, nullptr, currentRefPosition);
             regNumber reg      = REG_STK;
-            int       varIndex = interval->getVarIndex(compiler);
+            int       varIndex = interval->getVarIndex();
 
             if (!currentRefPosition->spillAfter && currentRefPosition->registerAssignment != RBM_NONE)
             {
@@ -4709,7 +4707,7 @@ void LinearScan::resolveRegisters()
                     reg                                         = REG_STK;
                     currentRefPosition->getInterval()->isActive = false;
                 }
-                setInVarRegForBB(curBBNum, currentRefPosition->getInterval()->getLocalVar(compiler), reg);
+                setInVarRegForBB(curBBNum, currentRefPosition->getInterval()->getVarIndex(), reg);
             }
         }
 
@@ -4755,7 +4753,7 @@ void LinearScan::resolveRegisters()
                     // mismatch.
                     assert((blockSeqIndex >= blockSeqCount - 1) ||
                            !VarSetOps::IsMember(compiler, blockSequence[blockSeqIndex + 1]->bbLiveIn,
-                                                currentRefPosition->getInterval()->getVarIndex(compiler)));
+                                                currentRefPosition->getInterval()->getVarIndex()));
                     currentRefPosition->referent->recentRefPosition = currentRefPosition;
                     continue;
                 case RefTypeKillGCRefs:

@@ -972,7 +972,7 @@ private:
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
 
     void initVarRegMaps();
-    void setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg);
+    void setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, regNumber reg);
     VarToRegMap getInVarToRegMap(unsigned bbNum) const;
     VarToRegMap getOutVarToRegMap(unsigned bbNum);
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, regNumber reg);
@@ -1633,7 +1633,7 @@ public:
     }
 
     // Get the local tracked variable "index" (lvVarIndex), used in bitmasks.
-    unsigned getVarIndex(Compiler* comp) const
+    unsigned getVarIndex() const
     {
         assert(isLocalVar);
         return varIndex;

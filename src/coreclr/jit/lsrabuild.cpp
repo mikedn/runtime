@@ -853,7 +853,7 @@ Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
             continue;
         }
         noway_assert(interval.isUpperVector);
-        if (interval.relatedInterval->getVarIndex(compiler) == varIndex)
+        if (interval.relatedInterval->getVarIndex() == varIndex)
         {
             return &interval;
         }
@@ -930,7 +930,7 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 {
     if (lclVarInterval->isPartiallySpilled)
     {
-        unsigned     varIndex            = lclVarInterval->getVarIndex(compiler);
+        unsigned     varIndex            = lclVarInterval->getVarIndex();
         Interval*    upperVectorInterval = getUpperVectorInterval(varIndex);
         RefPosition* pos = newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorRestore, node);
         lclVarInterval->isPartiallySpilled = false;
@@ -3210,7 +3210,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
         // we can update currentLiveVars at the same place that we create the RefPosition.
         if ((operand->gtFlags & GTF_VAR_DEATH) != 0)
         {
-            VarSetOps::RemoveElemD(compiler, currentLiveVars, interval->getVarIndex(compiler));
+            VarSetOps::RemoveElemD(compiler, currentLiveVars, interval->getVarIndex());
         }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
