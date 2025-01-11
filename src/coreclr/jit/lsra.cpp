@@ -9424,11 +9424,12 @@ void LinearScan::RegisterSelection::calculateCoversSets()
 // the interface to this method a bit to make that work (e.g. returning a candidate set to use, but
 // leaving the registerAssignment as-is on the def, so that if we find that we need to spill anyway
 // we can use the fixed-reg on the def.
-void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition)
+void LinearScan::RegisterSelection::resolveConflictingDefAndUse()
 {
-    assert(!interval->isLocalVar);
+    assert(!currentInterval->isLocalVar);
     assert(RefTypeIsDef(refPosition->refType));
 
+    RefPosition* defRefPosition   = refPosition;
     RefPosition* useRefPosition   = defRefPosition->nextRefPosition;
     regMaskTP    defRegAssignment = defRefPosition->registerAssignment;
     regMaskTP    useRegAssignment = useRefPosition->registerAssignment;
@@ -9503,7 +9504,7 @@ void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interv
             if (!useRegConflict)
             {
                 // This is case #2. Use the useRegAssignment
-                INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE2, interval));
+                INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE2, currentInterval));
                 defRefPosition->registerAssignment = useRegAssignment;
 
                 return;
@@ -9518,7 +9519,7 @@ void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interv
     if (defRegRecord != nullptr && !useRegConflict)
     {
         // This is case #3.
-        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE3, interval));
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE3, currentInterval));
         defRefPosition->registerAssignment = useRegAssignment;
 
         return;
@@ -9527,7 +9528,7 @@ void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interv
     if (useRegRecord != nullptr && !defRegConflict && canChangeUseAssignment)
     {
         // This is case #4.
-        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE4, interval));
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE4, currentInterval));
         useRefPosition->registerAssignment = defRegAssignment;
 
         return;
@@ -9536,14 +9537,14 @@ void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interv
     if (defRegRecord != nullptr && useRegRecord != nullptr)
     {
         // This is case #5.
-        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE5, interval));
-        defRefPosition->registerAssignment = linearScan->allRegs(interval->registerType);
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE5, currentInterval));
+        defRefPosition->registerAssignment = linearScan->allRegs(currentInterval->registerType);
         defRefPosition->isFixedRegRef      = false;
 
         return;
     }
 
-    INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE6, interval));
+    INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE6, currentInterval));
 }
 
 // ----------------------------------------------------------
@@ -9565,7 +9566,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
     {
         if (currentInterval->hasConflictingDefUse)
         {
-            resolveConflictingDefAndUse(currentInterval, refPosition);
+            resolveConflictingDefAndUse();
             candidates = refPosition->registerAssignment;
         }
         // Otherwise, check for the case of a fixed-reg def of a reg that will be killed before the

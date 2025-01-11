@@ -945,7 +945,7 @@ private:
         bool applySelection(RegisterScore selectionScore, regMaskTP selectionCandidates);
         bool applySingleRegSelection(RegisterScore selectionScore, regMaskTP selectionCandidate);
         void calculateCoversSets();
-        void resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition);
+        void resolveConflictingDefAndUse();
         void reset(Interval* interval, RefPosition* refPosition);
 
 #define REG_SEL_DEF(name, ...) bool try_##name();
