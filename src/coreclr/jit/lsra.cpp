@@ -453,7 +453,6 @@ LinearScan::LinearScan(Compiler* compiler)
     , verbose(compiler->verbose)
     , lsraStressMask(JitConfig.JitStressRegs())
 #endif
-    , regSelector(new (compiler, CMK_LSRA) RegisterSelection(this))
     , intervals(compiler->getAllocator(CMK_LSRA_Interval))
     , physRegs{
 #define REGDEF(name, num, mask, ...) {REG_##name},
@@ -893,8 +892,10 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
 regNumber LinearScan::allocateReg(Interval*    currentInterval,
                                   RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore))
 {
-    regMaskTP foundRegBit = regSelector->select(currentInterval, refPosition);
-    INDEBUG(*registerScore = regSelector->GetSelectionScore());
+    RegisterSelection regSelector(this);
+    regMaskTP         foundRegBit = regSelector.select(currentInterval, refPosition);
+    INDEBUG(*registerScore = regSelector.GetSelectionScore());
+
     if (foundRegBit == RBM_NONE)
     {
         return REG_NA;
@@ -903,10 +904,11 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
     regNumber  foundReg               = genRegNumFromMask(foundRegBit);
     RegRecord* availablePhysRegRecord = getRegisterRecord(foundReg);
     Interval*  assignedInterval       = availablePhysRegRecord->assignedInterval;
+
     if ((assignedInterval != currentInterval) &&
         isAssigned(availablePhysRegRecord ARM_ARG(currentInterval->registerType)))
     {
-        if (regSelector->isSpilling())
+        if (regSelector.isSpilling())
         {
 #ifdef TARGET_ARM
             if (currentInterval->registerType == TYP_DOUBLE)
@@ -934,10 +936,11 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             // the current interval to a previous assignment, we don't remember the previous interval.
             // Note that we need to compute this condition before calling unassignPhysReg, which wil reset
             // assignedInterval->physReg.
-            bool wasAssigned = regSelector->foundUnassignedReg() && (assignedInterval != nullptr) &&
+            bool wasAssigned = regSelector.foundUnassignedReg() && (assignedInterval != nullptr) &&
                                (assignedInterval->physReg == foundReg);
             unassignPhysReg(availablePhysRegRecord ARM_ARG(currentInterval->registerType));
-            if (regSelector->isMatchingConstant())
+
+            if (regSelector.isMatchingConstant())
             {
                 assert(assignedInterval->isConstant);
                 refPosition->treeNode->SetReuseRegVal();
@@ -948,10 +951,11 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             }
             else
             {
-                assert(!regSelector->isConstAvailable());
+                assert(!regSelector.isConstAvailable());
             }
         }
     }
+
     assignPhysReg(availablePhysRegRecord, currentInterval);
     refPosition->registerAssignment = foundRegBit;
     return foundReg;
