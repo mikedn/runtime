@@ -167,8 +167,8 @@ public:
     // Get the position of the next reference which is at or greater than
     // the current location (relies upon recentRefPosition being updated
     // during traversal).
-    RefPosition* getNextRefPosition()const;
-    LsraLocation getNextRefLocation()const;
+    RefPosition* getNextRefPosition() const;
+    LsraLocation getNextRefLocation() const;
 };
 
 class RegRecord : public Referenceable
@@ -638,8 +638,6 @@ private:
 
     void newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc);
 
-    void resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition);
-
     void buildRefPositionsForNode(GenTree* tree, LsraLocation loc);
     INDEBUG(void BuildStressConstraints(GenTree* tree, RefPositionIterator refPositionMark);)
 
@@ -822,23 +820,6 @@ private:
 
     void spillGCRefs(RefPosition* killRefPosition);
 
-    /*****************************************************************************
-    * Register selection
-    ****************************************************************************/
-    regMaskTP getFreeCandidates(regMaskTP candidates, var_types regType)
-    {
-        regMaskTP result = candidates & m_AvailableRegs;
-#ifdef TARGET_ARM
-        // For TYP_DOUBLE on ARM, we can only use register for which the odd half is
-        // also available.
-        if (regType == TYP_DOUBLE)
-        {
-            result &= (m_AvailableRegs >> 1);
-        }
-#endif // TARGET_ARM
-        return result;
-    }
-
 #ifdef DEBUG
     class RegisterSelection;
     using HeuristicFn = bool (RegisterSelection::*)();
@@ -945,9 +926,26 @@ private:
             return (prevRegBit & preferences) == foundRegBit;
         }
 
+        regMaskTP getFreeCandidates(regMaskTP candidates, var_types regType) const
+        {
+            regMaskTP available = linearScan->m_AvailableRegs;
+            regMaskTP result    = candidates & available;
+
+#ifdef TARGET_ARM
+            // For TYP_DOUBLE on ARM, we can only use register for which the odd half is also available.
+            if (regType == TYP_DOUBLE)
+            {
+                result &= (available >> 1);
+            }
+#endif
+
+            return result;
+        }
+
         bool applySelection(RegisterScore selectionScore, regMaskTP selectionCandidates);
         bool applySingleRegSelection(RegisterScore selectionScore, regMaskTP selectionCandidate);
         void calculateCoversSets();
+        void resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition);
         void reset(Interval* interval, RefPosition* refPosition);
 
 #define REG_SEL_DEF(name, ...) bool try_##name();

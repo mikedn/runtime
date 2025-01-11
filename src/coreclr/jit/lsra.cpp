@@ -9383,6 +9383,169 @@ void LinearScan::RegisterSelection::calculateCoversSets()
     coversSetsCalculated = true;
 }
 
+// Resolve the situation where we have conflicting def and use
+// register requirements on a single-def, single-use interval.
+//
+// Assumptions:
+//    The two RefPositions are for the same interval, which is a tree-temp.
+//
+// Notes:
+//    We require some special handling for the case where the use is a "delayRegFree" case of a fixedReg.
+//    In that case, if we change the registerAssignment on the useRefPosition, we will lose the fact that,
+//    even if we assign a different register (and rely on codegen to do the copy), that fixedReg also needs
+//    to remain busy until the Def register has been allocated.  In that case, we don't allow Case 1 or Case 4
+//    below.
+//    Here are the cases we consider (in this order):
+//    1. If The defRefPosition specifies a single register, and there are no conflicting
+//       FixedReg uses of it between the def and use, we use that register, and the code generator
+//       will insert the copy.  Note that it cannot be in use because there is a FixedRegRef for the def.
+//    2. If the useRefPosition specifies a single register, and it is not in use, and there are no
+//       conflicting FixedReg uses of it between the def and use, we use that register, and the code generator
+//       will insert the copy.
+//    3. If the defRefPosition specifies a single register (but there are conflicts, as determined
+//       in 1.), and there are no conflicts with the useRefPosition register (if it's a single register),
+//      we set the register requirements on the defRefPosition to the use registers, and the
+//       code generator will insert a copy on the def.  We can't rely on the code generator to put a copy
+//       on the use if it has multiple possible candidates, as it won't know which one has been allocated.
+//    4. If the useRefPosition specifies a single register, and there are no conflicts with the register
+//       on the defRefPosition, we leave the register requirements on the defRefPosition as-is, and set
+//       the useRefPosition to the def registers, for similar reasons to case #3.
+//    5. If both the defRefPosition and the useRefPosition specify single registers, but both have conflicts,
+//       We set the candidates on defRefPosition to be all regs of the appropriate type, and since they are
+//       single registers, codegen can insert the copy.
+//    6. Finally, if the RefPositions specify disjoint subsets of the registers (or the use is fixed but
+//       has a conflict), we must insert a copy.  The copy will be inserted before the use if the
+//       use is not fixed (in the fixed case, the code generator will insert the use).
+//
+// TODO-CQ: We get bad register allocation in case #3 in the situation where no register is
+// available for the lifetime.  We end up allocating a register that must be spilled, and it probably
+// won't be the register that is actually defined by the target instruction.  So, we have to copy it
+// and THEN spill it.  In this case, we should be using the def requirement.  But we need to change
+// the interface to this method a bit to make that work (e.g. returning a candidate set to use, but
+// leaving the registerAssignment as-is on the def, so that if we find that we need to spill anyway
+// we can use the fixed-reg on the def.
+void LinearScan::RegisterSelection::resolveConflictingDefAndUse(Interval* interval, RefPosition* defRefPosition)
+{
+    assert(!interval->isLocalVar);
+    assert(RefTypeIsDef(refPosition->refType));
+
+    RefPosition* useRefPosition   = defRefPosition->nextRefPosition;
+    regMaskTP    defRegAssignment = defRefPosition->registerAssignment;
+    regMaskTP    useRegAssignment = useRefPosition->registerAssignment;
+    RegRecord*   defRegRecord     = nullptr;
+    RegRecord*   useRegRecord     = nullptr;
+    regNumber    defReg           = REG_NA;
+    regNumber    useReg           = REG_NA;
+    bool         defRegConflict   = (defRegAssignment & useRegAssignment) == RBM_NONE;
+    bool         useRegConflict   = defRegConflict;
+
+    // If the useRefPosition is a "delayRegFree", we can't change the registerAssignment
+    // on it, or we will fail to ensure that the fixedReg is busy at the time the target
+    // (of the node that uses this interval) is allocated.
+    bool canChangeUseAssignment = !useRefPosition->isFixedRegRef || !useRefPosition->delayRegFree;
+
+    INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CONFLICT));
+
+    if (!canChangeUseAssignment)
+    {
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_FIXED_DELAY_USE));
+    }
+
+    if (defRefPosition->isFixedRegRef && !defRegConflict)
+    {
+        defReg       = defRefPosition->assignedReg();
+        defRegRecord = linearScan->getRegisterRecord(defReg);
+
+        if (canChangeUseAssignment)
+        {
+            RefPosition* currFixedRegRefPosition = defRegRecord->recentRefPosition;
+            assert(currFixedRegRefPosition != nullptr &&
+                   currFixedRegRefPosition->nodeLocation == defRefPosition->nodeLocation);
+
+            if (currFixedRegRefPosition->nextRefPosition == nullptr ||
+                currFixedRegRefPosition->nextRefPosition->nodeLocation > useRefPosition->getRefEndLocation())
+            {
+                // This is case #1.  Use the defRegAssignment
+                INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE1));
+                useRefPosition->registerAssignment = defRegAssignment;
+
+                return;
+            }
+
+            defRegConflict = true;
+        }
+    }
+
+    if (useRefPosition->isFixedRegRef && !useRegConflict)
+    {
+        useReg       = useRefPosition->assignedReg();
+        useRegRecord = linearScan->getRegisterRecord(useReg);
+
+        // We know that useRefPosition is a fixed use, so the nextRefPosition must not be null.
+        RefPosition* nextFixedRegRefPosition = useRegRecord->getNextRefPosition();
+        assert(nextFixedRegRefPosition != nullptr &&
+               nextFixedRegRefPosition->nodeLocation <= useRefPosition->nodeLocation);
+
+        // First, check to see if there are any conflicting FixedReg references between the def and use.
+        if (nextFixedRegRefPosition->nodeLocation == useRefPosition->nodeLocation)
+        {
+            // OK, no conflicting FixedReg references.
+            // Now, check to see whether it is currently in use.
+            if (useRegRecord->assignedInterval != nullptr)
+            {
+                RefPosition* possiblyConflictingRef         = useRegRecord->assignedInterval->recentRefPosition;
+                LsraLocation possiblyConflictingRefLocation = possiblyConflictingRef->getRefEndLocation();
+                if (possiblyConflictingRefLocation >= defRefPosition->nodeLocation)
+                {
+                    useRegConflict = true;
+                }
+            }
+            if (!useRegConflict)
+            {
+                // This is case #2. Use the useRegAssignment
+                INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE2, interval));
+                defRefPosition->registerAssignment = useRegAssignment;
+
+                return;
+            }
+        }
+        else
+        {
+            useRegConflict = true;
+        }
+    }
+
+    if (defRegRecord != nullptr && !useRegConflict)
+    {
+        // This is case #3.
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE3, interval));
+        defRefPosition->registerAssignment = useRegAssignment;
+
+        return;
+    }
+
+    if (useRegRecord != nullptr && !defRegConflict && canChangeUseAssignment)
+    {
+        // This is case #4.
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE4, interval));
+        useRefPosition->registerAssignment = defRegAssignment;
+
+        return;
+    }
+
+    if (defRegRecord != nullptr && useRegRecord != nullptr)
+    {
+        // This is case #5.
+        INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE5, interval));
+        defRefPosition->registerAssignment = linearScan->allRegs(interval->registerType);
+        defRefPosition->isFixedRegRef      = false;
+
+        return;
+    }
+
+    INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE6, interval));
+}
+
 // ----------------------------------------------------------
 //  select: For given `currentInterval` and `refPosition`, selects a register to be assigned.
 //
@@ -9402,7 +9565,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
     {
         if (currentInterval->hasConflictingDefUse)
         {
-            linearScan->resolveConflictingDefAndUse(currentInterval, refPosition);
+            resolveConflictingDefAndUse(currentInterval, refPosition);
             candidates = refPosition->registerAssignment;
         }
         // Otherwise, check for the case of a fixed-reg def of a reg that will be killed before the
@@ -9642,7 +9805,7 @@ regMaskTP LinearScan::RegisterSelection::select(Interval* currentInterval, RefPo
         return RBM_NONE;
     }
 
-    freeCandidates = linearScan->getFreeCandidates(candidates, regType);
+    freeCandidates = getFreeCandidates(candidates, regType);
 
     // If no free candidates, then double check if refPosition is an actual ref.
     if (freeCandidates == RBM_NONE)
