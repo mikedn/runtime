@@ -991,7 +991,7 @@ private:
     //     tree nodes are consumed.
     //   - In LSRA_DUMP_REFPOS, which is after the intervals are built, but before
     //     register allocation, each node is dumped, along with all of the RefPositions,
-    //     The Intervals are identifed as Lnnn for lclVar intervals, Innn for for other
+    //     The Intervals are identified as Lnnn for lclVar intervals, Innn for for other
     //     intervals, and Tnnn for internal temps.
     //   - In LSRA_DUMP_POST, which is after register allocation, the registers are
     //     shown.

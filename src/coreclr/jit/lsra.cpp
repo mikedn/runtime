@@ -87,6 +87,141 @@
 #include "jitpch.h"
 #include "lsra.h"
 
+LinearScan::LinearScan(Compiler* compiler)
+    : compiler(compiler)
+#ifdef DEBUG
+    , verbose(compiler->verbose)
+    , lsraStressMask(JitConfig.JitStressRegs())
+#endif
+    , intervals(compiler->getAllocator(CMK_LSRA_Interval))
+    , physRegs{
+#define REGDEF(name, num, mask, ...) {REG_##name},
+#include "register.h"
+    }
+    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
+    , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
+{
+    physRegs[REG_STK].regNum = REG_NA;
+
+    static const RegNumSmall lsraRegOrder[]{REG_VAR_ORDER};
+    static const RegNumSmall lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
+
+    for (unsigned i = 0; i < _countof(lsraRegOrder); i++)
+    {
+        physRegs[lsraRegOrder[i]].regOrder = static_cast<uint8_t>(i);
+    }
+
+    for (unsigned i = 0; i < _countof(lsraRegOrderFlt); i++)
+    {
+        physRegs[lsraRegOrderFlt[i]].regOrder = static_cast<uint8_t>(i);
+    }
+
+#ifdef DEBUG
+#if 0
+    if (lsraStressMask != 0)
+    {
+        // The code in this #if can be used to debug JitStressRegs issues according to
+        // method hash or method count.
+        // To use, simply set environment variables:
+        //   JitStressRegsHashLo and JitStressRegsHashHi to set the range of method hash, or
+        //   JitStressRegsStart and JitStressRegsEnd to set the range of method count
+        //     (Compiler::jitTotalMethodCount as reported by COMPlus_DumpJittedMethods).
+        unsigned methHash = compiler->info.compMethodHash();
+        char* lostr = getenv("JitStressRegsHashLo");
+        unsigned methHashLo = 0;
+        bool dump = false;
+        if (lostr != nullptr)
+        {
+            sscanf_s(lostr, "%x", &methHashLo);
+            dump = true;
+        }
+        char* histr = getenv("JitStressRegsHashHi");
+        unsigned methHashHi = UINT32_MAX;
+        if (histr != nullptr)
+        {
+            sscanf_s(histr, "%x", &methHashHi);
+            dump = true;
+        }
+        if (methHash < methHashLo || methHash > methHashHi)
+        {
+            lsraStressMask = 0;
+        }
+        // Check method count
+        unsigned count = Compiler::jitTotalMethodCompiled;
+        unsigned start = 0;
+        unsigned end = UINT32_MAX;
+        char* startStr = getenv("JitStressRegsStart");
+        char* endStr = getenv("JitStressRegsEnd");
+        if (startStr != nullptr)
+        {
+            sscanf_s(startStr, "%d", &start);
+            dump = true;
+        }
+        if (endStr != nullptr)
+        {
+            sscanf_s(endStr, "%d", &end);
+            dump = true;
+        }
+        if (count < start || (count > end))
+        {
+            lsraStressMask = 0;
+        }
+        if ((lsraStressMask != 0) && (dump == true))
+        {
+            printf("JitStressRegs = %x for method %d: %s, hash = 0x%x.\n",
+                lsraStressMask, Compiler::jitTotalMethodCompiled, compiler->info.compFullName, compiler->info.compMethodHash());
+            printf("");         // flush
+        }
+    }
+#endif // 0
+#endif // DEBUG
+
+#ifdef TARGET_ARM64
+    availableRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
+#endif
+#if ETW_EBP_FRAMED
+    availableRegs &= ~RBM_FPBASE;
+#endif
+
+#ifdef TARGET_AMD64
+    if (compiler->opts.compDbgEnC)
+    {
+        // On x64 when the EnC option is set, we always save exactly RBP, RSI and RDI.
+        // RBP is not available to the register allocator, so RSI and RDI are the only
+        // callee-save registers available.
+        availableRegs &= ~RBM_CALLEE_SAVED | RBM_RSI | RBM_RDI;
+    }
+#endif
+}
+
+void LinearScan::Run()
+{
+    buildIntervals();
+    compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
+
+    allocateRegisters();
+    compiler->EndPhase(PHASE_LINEAR_SCAN_ALLOC);
+
+    resolveRegisters();
+    compiler->EndPhase(PHASE_LINEAR_SCAN_RESOLVE);
+
+    assert(blockSetVersion == compiler->GetBlockSetVersion());
+
+#if TRACK_LSRA_STATS
+    if ((JitConfig.DisplayLsraStats() == 1)INDEBUG(|| verbose))
+    {
+        dumpLsraStats(jitstdout);
+    }
+#endif
+
+    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_POST));
+}
+
+VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb) const
+{
+    return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
+}
+
 regMaskTP LinearScan::allRegs(RegisterType rt) const
 {
     assert((rt != TYP_UNDEF) && (rt != TYP_STRUCT));
@@ -447,141 +582,6 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
 
 #endif // DEBUG
 
-LinearScan::LinearScan(Compiler* compiler)
-    : compiler(compiler)
-#ifdef DEBUG
-    , verbose(compiler->verbose)
-    , lsraStressMask(JitConfig.JitStressRegs())
-#endif
-    , intervals(compiler->getAllocator(CMK_LSRA_Interval))
-    , physRegs{
-#define REGDEF(name, num, mask, ...) {REG_##name},
-#include "register.h"
-    }
-    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
-    , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
-{
-    physRegs[REG_STK].regNum = REG_NA;
-
-    static const RegNumSmall lsraRegOrder[]{REG_VAR_ORDER};
-    static const RegNumSmall lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
-
-    for (unsigned i = 0; i < _countof(lsraRegOrder); i++)
-    {
-        physRegs[lsraRegOrder[i]].regOrder = static_cast<uint8_t>(i);
-    }
-
-    for (unsigned i = 0; i < _countof(lsraRegOrderFlt); i++)
-    {
-        physRegs[lsraRegOrderFlt[i]].regOrder = static_cast<uint8_t>(i);
-    }
-
-#ifdef DEBUG
-#if 0
-    if (lsraStressMask != 0)
-    {
-        // The code in this #if can be used to debug JitStressRegs issues according to
-        // method hash or method count.
-        // To use, simply set environment variables:
-        //   JitStressRegsHashLo and JitStressRegsHashHi to set the range of method hash, or
-        //   JitStressRegsStart and JitStressRegsEnd to set the range of method count
-        //     (Compiler::jitTotalMethodCount as reported by COMPlus_DumpJittedMethods).
-        unsigned methHash = compiler->info.compMethodHash();
-        char* lostr = getenv("JitStressRegsHashLo");
-        unsigned methHashLo = 0;
-        bool dump = false;
-        if (lostr != nullptr)
-        {
-            sscanf_s(lostr, "%x", &methHashLo);
-            dump = true;
-        }
-        char* histr = getenv("JitStressRegsHashHi");
-        unsigned methHashHi = UINT32_MAX;
-        if (histr != nullptr)
-        {
-            sscanf_s(histr, "%x", &methHashHi);
-            dump = true;
-        }
-        if (methHash < methHashLo || methHash > methHashHi)
-        {
-            lsraStressMask = 0;
-        }
-        // Check method count
-        unsigned count = Compiler::jitTotalMethodCompiled;
-        unsigned start = 0;
-        unsigned end = UINT32_MAX;
-        char* startStr = getenv("JitStressRegsStart");
-        char* endStr = getenv("JitStressRegsEnd");
-        if (startStr != nullptr)
-        {
-            sscanf_s(startStr, "%d", &start);
-            dump = true;
-        }
-        if (endStr != nullptr)
-        {
-            sscanf_s(endStr, "%d", &end);
-            dump = true;
-        }
-        if (count < start || (count > end))
-        {
-            lsraStressMask = 0;
-        }
-        if ((lsraStressMask != 0) && (dump == true))
-        {
-            printf("JitStressRegs = %x for method %d: %s, hash = 0x%x.\n",
-                lsraStressMask, Compiler::jitTotalMethodCompiled, compiler->info.compFullName, compiler->info.compMethodHash());
-            printf("");         // flush
-        }
-    }
-#endif // 0
-#endif // DEBUG
-
-#ifdef TARGET_ARM64
-    availableRegs &= ~(RBM_PR | RBM_FP | RBM_LR);
-#endif
-#if ETW_EBP_FRAMED
-    availableRegs &= ~RBM_FPBASE;
-#endif
-
-#ifdef TARGET_AMD64
-    if (compiler->opts.compDbgEnC)
-    {
-        // On x64 when the EnC option is set, we always save exactly RBP, RSI and RDI.
-        // RBP is not available to the register allocator, so RSI and RDI are the only
-        // callee-save registers available.
-        availableRegs &= ~RBM_CALLEE_SAVED | RBM_RSI | RBM_RDI;
-    }
-#endif
-}
-
-void LinearScan::Run()
-{
-    buildIntervals();
-    compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
-
-    allocateRegisters();
-    compiler->EndPhase(PHASE_LINEAR_SCAN_ALLOC);
-
-    resolveRegisters();
-    compiler->EndPhase(PHASE_LINEAR_SCAN_RESOLVE);
-
-    assert(blockSetVersion == compiler->GetBlockSetVersion());
-
-#if TRACK_LSRA_STATS
-    if ((JitConfig.DisplayLsraStats() == 1)INDEBUG(|| verbose))
-    {
-        dumpLsraStats(jitstdout);
-    }
-#endif
-
-    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_POST));
-}
-
-VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb) const
-{
-    return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
-}
-
 // TODO-Throughput: This mapping can surely be more efficiently done
 void LinearScan::initVarRegMaps()
 {
@@ -627,19 +627,13 @@ void LinearScan::initVarRegMaps()
     }
 }
 
-void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, RegNum reg)
-{
-    assert(enregisterLocalVars);
-
-    inVarToRegMaps[bbNum][lcl->GetLivenessBitIndex()] = static_cast<RegNumSmall>(reg);
-}
-
 LinearScan::SplitBBNumToTargetBBNumMap* LinearScan::getSplitBBNumToTargetBBNumMap()
 {
     if (splitBBNumToTargetBBNumMap == nullptr)
     {
         splitBBNumToTargetBBNumMap = new (getAllocator(compiler)) SplitBBNumToTargetBBNumMap(getAllocator(compiler));
     }
+
     return splitBBNumToTargetBBNumMap;
 }
 
@@ -710,6 +704,13 @@ VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum)
     }
 
     return outVarToRegMaps[bbNum];
+}
+
+void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, RegNum reg)
+{
+    assert(enregisterLocalVars);
+
+    inVarToRegMaps[bbNum][lcl->GetLivenessBitIndex()] = static_cast<RegNumSmall>(reg);
 }
 
 void LinearScan::setVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex, RegNum reg)
@@ -5979,8 +5980,8 @@ void LinearScan::resolveEdges()
                 {
                     assert((succBBNum <= bbNumMaxBeforeResolution) && (predBBNum <= bbNumMaxBeforeResolution));
                 }
-                SplitEdgeInfo info = {predBBNum, succBBNum};
-                getSplitBBNumToTargetBBNumMap()->Set(block->bbNum, info);
+
+                getSplitBBNumToTargetBBNumMap()->Set(block->bbNum, {predBBNum, succBBNum});
 
                 // Set both the live-in and live-out to the live-in of the successor (by construction liveness
                 // doesn't change in a split block).
