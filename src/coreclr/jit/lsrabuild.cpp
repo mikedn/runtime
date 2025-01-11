@@ -1792,6 +1792,7 @@ void LinearScan::buildIntervals()
 
     validateIntervals();
 
+    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_REFPOS));
 #endif // DEBUG
 }
 

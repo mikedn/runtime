@@ -551,25 +551,20 @@ LinearScan::LinearScan(Compiler* compiler)
         // callee-save registers available.
         availableRegs &= ~RBM_CALLEE_SAVED | RBM_RSI | RBM_RDI;
     }
-#endif // TARGET_AMD64
+#endif
 }
 
 void LinearScan::Run()
 {
     buildIntervals();
-    DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_REFPOS));
     compiler->EndPhase(PHASE_LINEAR_SCAN_BUILD);
 
-    DBEXEC(verbose, lsraDumpIntervals("after buildIntervals"));
-
-    initVarRegMaps();
     allocateRegisters();
-    allocationPassComplete = true;
     compiler->EndPhase(PHASE_LINEAR_SCAN_ALLOC);
+
     resolveRegisters();
     compiler->EndPhase(PHASE_LINEAR_SCAN_RESOLVE);
 
-    assert(blockSequence != nullptr); // Should do at least one traversal.
     assert(blockSetVersion == compiler->GetBlockSetVersion());
 
 #if TRACK_LSRA_STATS
@@ -592,46 +587,39 @@ void LinearScan::initVarRegMaps()
 {
     if (!enregisterLocalVars)
     {
-        inVarToRegMaps  = nullptr;
-        outVarToRegMaps = nullptr;
         return;
     }
 
-    // The compiler memory allocator requires that the allocation be an
-    // even multiple of int-sized objects
-    unsigned int varCount = compiler->lvaTrackedCount;
-    regMapCount           = roundUp(varCount, (unsigned)sizeof(int));
-
+    const unsigned regMapCount = compiler->lvaTrackedCount;
     // Not sure why blocks aren't numbered from zero, but they don't appear to be.
     // So, if we want to index by bbNum we have to know the maximum value.
-    unsigned int bbCount = compiler->fgBBNumMax + 1;
+    const unsigned bbCount = compiler->fgBBNumMax + 1;
 
-    inVarToRegMaps  = new (compiler, CMK_LSRA) regNumberSmall*[bbCount];
-    outVarToRegMaps = new (compiler, CMK_LSRA) regNumberSmall*[bbCount];
+    inVarToRegMaps  = new (compiler, CMK_LSRA) RegNumSmall*[bbCount];
+    outVarToRegMaps = new (compiler, CMK_LSRA) RegNumSmall*[bbCount];
 
-    if (varCount > 0)
+    if (regMapCount > 0)
     {
-        // This VarToRegMap is used during the resolution of critical edges.
-        sharedCriticalVarToRegMap = new (compiler, CMK_LSRA) regNumberSmall[regMapCount];
+        sharedCriticalVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
 
-        for (unsigned int i = 0; i < bbCount; i++)
+        for (unsigned i = 0; i < bbCount; i++)
         {
-            VarToRegMap inVarToRegMap  = new (compiler, CMK_LSRA) regNumberSmall[regMapCount];
-            VarToRegMap outVarToRegMap = new (compiler, CMK_LSRA) regNumberSmall[regMapCount];
+            RegNumSmall* inVarToRegMap  = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
+            RegNumSmall* outVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
 
-            for (unsigned int j = 0; j < regMapCount; j++)
+            for (unsigned j = 0; j < regMapCount; j++)
             {
                 inVarToRegMap[j]  = REG_STK;
                 outVarToRegMap[j] = REG_STK;
             }
+
             inVarToRegMaps[i]  = inVarToRegMap;
             outVarToRegMaps[i] = outVarToRegMap;
         }
     }
     else
     {
-        sharedCriticalVarToRegMap = nullptr;
-        for (unsigned int i = 0; i < bbCount; i++)
+        for (unsigned i = 0; i < bbCount; i++)
         {
             inVarToRegMaps[i]  = nullptr;
             outVarToRegMaps[i] = nullptr;
@@ -639,23 +627,35 @@ void LinearScan::initVarRegMaps()
     }
 }
 
-void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, regNumber reg)
+void LinearScan::setInVarRegForBB(unsigned bbNum, LclVarDsc* lcl, RegNum reg)
 {
     assert(enregisterLocalVars);
-    assert(reg < UCHAR_MAX);
-    inVarToRegMaps[bbNum][lcl->lvVarIndex] = static_cast<regNumberSmall>(reg);
+
+    inVarToRegMaps[bbNum][lcl->GetLivenessBitIndex()] = static_cast<RegNumSmall>(reg);
+}
+
+LinearScan::SplitBBNumToTargetBBNumMap* LinearScan::getSplitBBNumToTargetBBNumMap()
+{
+    if (splitBBNumToTargetBBNumMap == nullptr)
+    {
+        splitBBNumToTargetBBNumMap = new (getAllocator(compiler)) SplitBBNumToTargetBBNumMap(getAllocator(compiler));
+    }
+    return splitBBNumToTargetBBNumMap;
 }
 
 LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned bbNum) const
 {
     assert(enregisterLocalVars);
-    SplitEdgeInfo splitEdgeInfo;
     assert(bbNum <= compiler->fgBBNumMax);
     assert(bbNum > bbNumMaxBeforeResolution);
     assert(splitBBNumToTargetBBNumMap != nullptr);
+
+    SplitEdgeInfo splitEdgeInfo;
     splitBBNumToTargetBBNumMap->Lookup(bbNum, &splitEdgeInfo);
+
     assert(splitEdgeInfo.toBBNum <= bbNumMaxBeforeResolution);
     assert(splitEdgeInfo.fromBBNum <= bbNumMaxBeforeResolution);
+
     return splitEdgeInfo;
 }
 
@@ -663,34 +663,35 @@ VarToRegMap LinearScan::getInVarToRegMap(unsigned bbNum) const
 {
     assert(enregisterLocalVars);
     assert(bbNum <= compiler->fgBBNumMax);
+
     // For the blocks inserted to split critical edges, the inVarToRegMap is
     // equal to the outVarToRegMap at the "from" block.
     if (bbNum > bbNumMaxBeforeResolution)
     {
         SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(bbNum);
-        unsigned      fromBBNum     = splitEdgeInfo.fromBBNum;
-        if (fromBBNum == 0)
+
+        if (splitEdgeInfo.fromBBNum == 0)
         {
             assert(splitEdgeInfo.toBBNum != 0);
             return inVarToRegMaps[splitEdgeInfo.toBBNum];
         }
-        else
-        {
-            return outVarToRegMaps[fromBBNum];
-        }
+
+        return outVarToRegMaps[splitEdgeInfo.fromBBNum];
     }
 
     return inVarToRegMaps[bbNum];
 }
 
-VarToRegMap LinearScan::getOutVarToRegMap(unsigned int bbNum)
+VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum)
 {
     assert(enregisterLocalVars);
     assert(bbNum <= compiler->fgBBNumMax);
+
     if (bbNum == 0)
     {
         return nullptr;
     }
+
     // For the blocks inserted to split critical edges, the outVarToRegMap is
     // equal to the inVarToRegMap at the target.
     if (bbNum > bbNumMaxBeforeResolution)
@@ -698,54 +699,33 @@ VarToRegMap LinearScan::getOutVarToRegMap(unsigned int bbNum)
         // If this is an empty block, its in and out maps are both the same.
         // We identify this case by setting fromBBNum or toBBNum to 0, and using only the other.
         SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(bbNum);
-        unsigned      toBBNum       = splitEdgeInfo.toBBNum;
-        if (toBBNum == 0)
+
+        if (splitEdgeInfo.toBBNum == 0)
         {
             assert(splitEdgeInfo.fromBBNum != 0);
             return outVarToRegMaps[splitEdgeInfo.fromBBNum];
         }
-        else
-        {
-            return inVarToRegMaps[toBBNum];
-        }
+
+        return inVarToRegMaps[splitEdgeInfo.toBBNum];
     }
+
     return outVarToRegMaps[bbNum];
 }
 
-//------------------------------------------------------------------------
-// setVarReg: Set the register associated with a variable in the given 'bbVarToRegMap'.
-//
-// Arguments:
-//    bbVarToRegMap   - the map of interest
-//    trackedVarIndex - the lvVarIndex for the variable
-//    reg             - the register to which it is being mapped
-//
-// Return Value:
-//    None
-//
-void LinearScan::setVarReg(VarToRegMap bbVarToRegMap, unsigned int trackedVarIndex, regNumber reg)
-{
-    assert(trackedVarIndex < compiler->lvaTrackedCount);
-    regNumberSmall regSmall = (regNumberSmall)reg;
-    assert((regNumber)regSmall == reg);
-    bbVarToRegMap[trackedVarIndex] = regSmall;
-}
-
-//------------------------------------------------------------------------
-// getVarReg: Get the register associated with a variable in the given 'bbVarToRegMap'.
-//
-// Arguments:
-//    bbVarToRegMap   - the map of interest
-//    trackedVarIndex - the lvVarIndex for the variable
-//
-// Return Value:
-//    The register to which 'trackedVarIndex' is mapped
-//
-regNumber LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned int trackedVarIndex)
+void LinearScan::setVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex, RegNum reg)
 {
     assert(enregisterLocalVars);
     assert(trackedVarIndex < compiler->lvaTrackedCount);
-    return (regNumber)bbVarToRegMap[trackedVarIndex];
+
+    bbVarToRegMap[trackedVarIndex] = static_cast<RegNumSmall>(reg);
+}
+
+RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex)
+{
+    assert(enregisterLocalVars);
+    assert(trackedVarIndex < compiler->lvaTrackedCount);
+
+    return static_cast<RegNum>(bbVarToRegMap[trackedVarIndex]);
 }
 
 #ifdef DEBUG
@@ -2581,6 +2561,8 @@ void LinearScan::allocateRegisters()
     JITDUMP("*************** In LinearScan::allocateRegisters()\n");
     DBEXEC(verbose, lsraDumpIntervals("before allocateRegisters"));
 
+    initVarRegMaps();
+
     // at start, nothing is active except for register args
     for (Interval& interval : intervals)
     {
@@ -3713,6 +3695,8 @@ void LinearScan::allocateRegisters()
         printf("\n");
     }
 #endif // DEBUG
+
+    allocationPassComplete = true;
 }
 
 //-----------------------------------------------------------------------------

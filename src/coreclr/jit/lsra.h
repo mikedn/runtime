@@ -952,12 +952,6 @@ private:
 #include "lsra_score.h"
     };
 
-    /*****************************************************************************
-     * For Resolution phase
-     ****************************************************************************/
-    // TODO-Throughput: Consider refactoring this so that we keep a map from regs to vars for better scaling
-    unsigned int regMapCount;
-
     // When we split edges, we create new blocks, and instead of expanding the VarToRegMaps, we
     // rely on the property that the "in" map is the same as the "from" block of the edge, and the
     // "out" map is the same as the "to" block of the edge (by construction).
@@ -974,15 +968,7 @@ private:
     };
     typedef JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, SplitEdgeInfo> SplitBBNumToTargetBBNumMap;
     SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap = nullptr;
-    SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap()
-    {
-        if (splitBBNumToTargetBBNumMap == nullptr)
-        {
-            splitBBNumToTargetBBNumMap =
-                new (getAllocator(compiler)) SplitBBNumToTargetBBNumMap(getAllocator(compiler));
-        }
-        return splitBBNumToTargetBBNumMap;
-    }
+    SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap();
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
 
     void initVarRegMaps();
@@ -1209,11 +1195,11 @@ private:
 
     // Per-block variable location mappings: an array indexed by block number that yields a
     // pointer to an array of regNumber, one per variable.
-    VarToRegMap* inVarToRegMaps;
-    VarToRegMap* outVarToRegMaps;
+    VarToRegMap* inVarToRegMaps  = nullptr;
+    VarToRegMap* outVarToRegMaps = nullptr;
 
     // A temporary VarToRegMap used during the resolution of critical edges.
-    VarToRegMap sharedCriticalVarToRegMap;
+    VarToRegMap sharedCriticalVarToRegMap = nullptr;
 
     PhasedVar<regMaskTP> availableRegs{RBM_ALLINT | RBM_ALLFLOAT};
 
