@@ -4602,8 +4602,6 @@ void LinearScan::resolveRegisters()
     // At each branch, we identify the location of each liveOut interval, and check
     // against the RefPositions at the target.
 
-    LsraLocation currentLocation = MinLocation;
-
     // Clear register assignments - these will be reestablished as lclVar defs (including RefTypeParamDefs)
     // are encountered.
     if (enregisterLocalVars)
@@ -4636,38 +4634,38 @@ void LinearScan::resolveRegisters()
         }
     }
 
-    // handle incoming arguments and special temps
-    RefPositionIterator refPosIterator     = refPositions.begin();
-    RefPosition*        currentRefPosition = &refPosIterator;
+    RefPositionIterator refPosIterator = refPositions.begin();
 
     if (enregisterLocalVars)
     {
+        // Handle incoming arguments and special temps
         VarToRegMap entryVarToRegMap = inVarToRegMaps[compiler->fgFirstBB->bbNum];
-        for (; refPosIterator != refPositions.end() &&
-               (currentRefPosition->refType == RefTypeParamDef || currentRefPosition->refType == RefTypeZeroInit);
-             ++refPosIterator, currentRefPosition = &refPosIterator)
-        {
-            Interval* interval = currentRefPosition->getInterval();
-            assert(interval != nullptr && interval->isLocalVar);
-            resolveLocalRef(nullptr, nullptr, currentRefPosition);
-            regNumber reg      = REG_STK;
-            int       varIndex = interval->getVarIndex();
 
-            if (!currentRefPosition->spillAfter && currentRefPosition->registerAssignment != RBM_NONE)
+        for (; (refPosIterator != refPositions.end()) &&
+               (refPosIterator->refType == RefTypeParamDef || refPosIterator->refType == RefTypeZeroInit);
+             ++refPosIterator)
+        {
+            Interval* interval = refPosIterator->getInterval();
+            assert(interval != nullptr && interval->isLocalVar);
+            resolveLocalRef(nullptr, nullptr, &refPosIterator);
+            RegNum reg;
+
+            if (!refPosIterator->spillAfter && refPosIterator->registerAssignment != RBM_NONE)
             {
-                reg = currentRefPosition->assignedReg();
+                reg = refPosIterator->assignedReg();
             }
             else
             {
                 reg                = REG_STK;
                 interval->isActive = false;
             }
-            setVarReg(entryVarToRegMap, varIndex, reg);
+
+            setVarReg(entryVarToRegMap, interval->getVarIndex(), reg);
         }
     }
     else
     {
-        assert(refPosIterator == refPositions.end() ||
+        assert((refPosIterator == refPositions.end()) ||
                (refPosIterator->refType != RefTypeParamDef && refPosIterator->refType != RefTypeZeroInit));
     }
 
@@ -4683,59 +4681,58 @@ void LinearScan::resolveRegisters()
             // Record the var locations at the start of this block.
             // (If it's fgFirstBB, we've already done that above, see entryVarToRegMap)
 
-            curBBStartLocation = currentRefPosition->nodeLocation;
+            curBBStartLocation = refPosIterator->nodeLocation;
             if (block != compiler->fgFirstBB)
             {
                 processBlockStartLocations(block);
             }
 
             // Handle the DummyDefs, updating the incoming var location.
-            for (; refPosIterator != refPositions.end() && currentRefPosition->refType == RefTypeDummyDef;
-                 ++refPosIterator, currentRefPosition = &refPosIterator)
+            for (; refPosIterator != refPositions.end() && refPosIterator->refType == RefTypeDummyDef; ++refPosIterator)
             {
-                assert(currentRefPosition->isIntervalRef());
+                assert(refPosIterator->isIntervalRef());
                 // Don't mark dummy defs as reload
-                currentRefPosition->reload = false;
-                resolveLocalRef(nullptr, nullptr, currentRefPosition);
-                regNumber reg;
-                if (currentRefPosition->registerAssignment != RBM_NONE)
+                refPosIterator->reload = false;
+                resolveLocalRef(nullptr, nullptr, &refPosIterator);
+
+                RegNum reg;
+
+                if (refPosIterator->registerAssignment != RBM_NONE)
                 {
-                    reg = currentRefPosition->assignedReg();
+                    reg = refPosIterator->assignedReg();
                 }
                 else
                 {
-                    reg                                         = REG_STK;
-                    currentRefPosition->getInterval()->isActive = false;
+                    reg                                     = REG_STK;
+                    refPosIterator->getInterval()->isActive = false;
                 }
-                setInVarRegForBB(curBBNum, currentRefPosition->getInterval()->getVarIndex(), reg);
+
+                setInVarRegForBB(curBBNum, refPosIterator->getInterval()->getVarIndex(), reg);
             }
         }
 
         // The next RefPosition should be for the block.  Move past it.
         assert(refPosIterator != refPositions.end());
-        assert(currentRefPosition->refType == RefTypeBB);
+        assert(refPosIterator->refType == RefTypeBB);
         ++refPosIterator;
-        currentRefPosition = &refPosIterator;
 
         // Handle the RefPositions for the block
-        for (; refPosIterator != refPositions.end() && currentRefPosition->refType != RefTypeBB &&
-               currentRefPosition->refType != RefTypeDummyDef;
-             ++refPosIterator, currentRefPosition = &refPosIterator)
+        for (; refPosIterator != refPositions.end() && refPosIterator->refType != RefTypeBB &&
+               refPosIterator->refType != RefTypeDummyDef;
+             ++refPosIterator)
         {
-            currentLocation = currentRefPosition->nodeLocation;
-
             // Ensure that the spill & copy info is valid.
             // First, if it's reload, it must not be copyReg or moveReg
-            assert(!currentRefPosition->reload || (!currentRefPosition->copyReg && !currentRefPosition->moveReg));
+            assert(!refPosIterator->reload || (!refPosIterator->copyReg && !refPosIterator->moveReg));
             // If it's copyReg it must not be moveReg, and vice-versa
-            assert(!currentRefPosition->copyReg || !currentRefPosition->moveReg);
+            assert(!refPosIterator->copyReg || !refPosIterator->moveReg);
 
-            switch (currentRefPosition->refType)
+            switch (refPosIterator->refType)
             {
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                 case RefTypeUpperVectorSave:
                 case RefTypeUpperVectorRestore:
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+#endif
                 case RefTypeUse:
                 case RefTypeDef:
                     // These are the ones we're interested in
@@ -4743,8 +4740,8 @@ void LinearScan::resolveRegisters()
                 case RefTypeKill:
                 case RefTypeFixedReg:
                     // These require no handling at resolution time
-                    assert(currentRefPosition->referent != nullptr);
-                    currentRefPosition->referent->recentRefPosition = currentRefPosition;
+                    assert(refPosIterator->referent != nullptr);
+                    refPosIterator->referent->recentRefPosition = &refPosIterator;
                     continue;
                 case RefTypeExpUse:
                     // Ignore the ExpUse cases - a RefTypeExpUse would only exist if the
@@ -4753,32 +4750,29 @@ void LinearScan::resolveRegisters()
                     // mismatch.
                     assert((blockSeqIndex >= blockSeqCount - 1) ||
                            !VarSetOps::IsMember(compiler, blockSequence[blockSeqIndex + 1]->bbLiveIn,
-                                                currentRefPosition->getInterval()->getVarIndex()));
-                    currentRefPosition->referent->recentRefPosition = currentRefPosition;
+                                                refPosIterator->getInterval()->getVarIndex()));
+                    refPosIterator->referent->recentRefPosition = &refPosIterator;
                     continue;
                 case RefTypeKillGCRefs:
                     // No action to take at resolution time, and no interval to update recentRefPosition for.
                     continue;
-                case RefTypeDummyDef:
-                case RefTypeParamDef:
-                case RefTypeZeroInit:
-                // Should have handled all of these already
                 default:
                     unreached();
-                    break;
             }
-            updateMaxSpill(currentRefPosition);
-            GenTree* treeNode = currentRefPosition->treeNode;
+
+            updateMaxSpill(&refPosIterator);
+
+            GenTree* treeNode = refPosIterator->treeNode;
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-            if (currentRefPosition->refType == RefTypeUpperVectorSave)
+            if (refPosIterator->refType == RefTypeUpperVectorSave)
             {
                 // The treeNode is a call or something that might become one.
                 noway_assert(treeNode != nullptr);
                 // If the associated interval is an UpperVector, this must be a RefPosition for a LargeVectorType
                 // LocalVar.
                 // Otherwise, this  is a non-lclVar interval that has been spilled, and we don't need to do anything.
-                Interval* interval = currentRefPosition->getInterval();
+                Interval* interval = refPosIterator->getInterval();
                 if (interval->isUpperVector)
                 {
                     Interval* localVarInterval = interval->relatedInterval;
@@ -4789,33 +4783,38 @@ void LinearScan::resolveRegisters()
                         assert((genRegMask(localVarInterval->physReg) & getKillSetForNode(treeNode)) == RBM_NONE);
                         // If we have allocated a register to spill it to, we will use that; otherwise, we will spill it
                         // to the stack.  We can use as a temp register any non-arg caller-save register.
-                        currentRefPosition->referent->recentRefPosition = currentRefPosition;
-                        insertUpperVectorSave(treeNode, currentRefPosition, currentRefPosition->getInterval(), block);
+                        refPosIterator->referent->recentRefPosition = &refPosIterator;
+                        insertUpperVectorSave(treeNode, &refPosIterator, refPosIterator->getInterval(), block);
                         localVarInterval->isPartiallySpilled = true;
                     }
                 }
                 else
                 {
                     // This is a non-lclVar interval that must have been spilled.
-                    assert(!currentRefPosition->getInterval()->isLocalVar);
-                    assert(currentRefPosition->getInterval()->firstRefPosition->spillAfter);
+                    assert(!refPosIterator->getInterval()->isLocalVar);
+                    assert(refPosIterator->getInterval()->firstRefPosition->spillAfter);
                 }
+
                 continue;
             }
-            else if (currentRefPosition->refType == RefTypeUpperVectorRestore)
+
+            if (refPosIterator->refType == RefTypeUpperVectorRestore)
             {
                 // Since we don't do partial restores of tree temp intervals, this must be an upperVector.
-                Interval* interval         = currentRefPosition->getInterval();
+                Interval* interval         = refPosIterator->getInterval();
                 Interval* localVarInterval = interval->relatedInterval;
                 assert(interval->isUpperVector && (localVarInterval != nullptr));
+
                 if (localVarInterval->physReg != REG_NA)
                 {
                     assert(localVarInterval->isPartiallySpilled);
                     assert((localVarInterval->assignedReg != nullptr) &&
                            (localVarInterval->assignedReg->regNum == localVarInterval->physReg) &&
                            (localVarInterval->assignedReg->assignedInterval == localVarInterval));
-                    insertUpperVectorRestore(treeNode, currentRefPosition, interval, block);
+
+                    insertUpperVectorRestore(treeNode, &refPosIterator, interval, block);
                 }
+
                 localVarInterval->isPartiallySpilled = false;
             }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -4825,117 +4824,110 @@ void LinearScan::resolveRegisters()
             if (treeNode == nullptr)
             {
                 // This is either a use, a dead def, or a field of a struct
-                Interval* interval = currentRefPosition->getInterval();
-                assert(currentRefPosition->refType == RefTypeUse ||
-                       currentRefPosition->registerAssignment == RBM_NONE || interval->isStructField ||
-                       interval->IsUpperVector());
+                Interval* interval = refPosIterator->getInterval();
+                assert(refPosIterator->refType == RefTypeUse || refPosIterator->registerAssignment == RBM_NONE ||
+                       interval->isStructField || interval->IsUpperVector());
 
                 // TODO-Review: Need to handle the case where any of the struct fields
                 // are reloaded/spilled at this use
-                assert(!interval->isStructField ||
-                       (currentRefPosition->reload == false && currentRefPosition->spillAfter == false));
+                assert(!interval->isStructField || (!refPosIterator->reload && !refPosIterator->spillAfter));
 
                 if (interval->isLocalVar && !interval->isStructField)
                 {
                     LclVarDsc* varDsc = interval->getLocalVar(compiler);
-
-                    // This must be a dead definition.  We need to mark the lclVar
+                    // This must be a dead definition. We need to mark the local
                     // so that it's not considered a candidate for lvRegister, as
                     // this dead def will have to go to the stack.
-                    assert(currentRefPosition->refType == RefTypeDef);
+                    assert(refPosIterator->refType == RefTypeDef);
                     varDsc->SetRegNum(REG_STK);
                 }
+
                 continue;
             }
 
-            assert(currentRefPosition->isIntervalRef());
-            if (currentRefPosition->getInterval()->isInternal)
-            {
-                treeNode->AddTempRegs(currentRefPosition->registerAssignment);
-            }
-            else
-            {
-                writeRegisters(currentRefPosition, treeNode);
+            assert(refPosIterator->isIntervalRef());
 
-                if (treeNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && currentRefPosition->getInterval()->isLocalVar)
+            if (refPosIterator->getInterval()->isInternal)
+            {
+                treeNode->AddTempRegs(refPosIterator->registerAssignment);
+
+                continue;
+            }
+
+            writeRegisters(&refPosIterator, treeNode);
+
+            if (treeNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && refPosIterator->getInterval()->isLocalVar)
+            {
+                resolveLocalRef(block, treeNode->AsLclVar(), &refPosIterator);
+
+                continue;
+            }
+
+            // Mark spill locations on temps
+            // (local vars are handled in resolveLocalRef, above)
+            // Note that the node's register will be changed from SPILL to SPILLED
+            // in codegen, taking care of the "reload" case for temps
+            if (refPosIterator->spillAfter ||
+                (refPosIterator->nextRefPosition != nullptr && refPosIterator->nextRefPosition->moveReg))
+            {
+                noway_assert(treeNode != nullptr);
+
+                if (refPosIterator->spillAfter)
                 {
-                    resolveLocalRef(block, treeNode->AsLclVar(), currentRefPosition);
+                    treeNode->SetRegSpill(refPosIterator->getMultiRegIdx(), true);
+
+                    // If this is a constant interval that is reusing a pre-existing value, we actually need
+                    // to generate the value at this point in order to spill it.
+                    if (treeNode->IsReuseRegVal())
+                    {
+                        treeNode->ResetReuseRegVal();
+                    }
                 }
 
-                // Mark spill locations on temps
-                // (local vars are handled in resolveLocalRef, above)
-                // Note that the node's register will be changed from SPILL to SPILLED
-                // in codegen, taking care of the "reload" case for temps
-                else if (currentRefPosition->spillAfter || (currentRefPosition->nextRefPosition != nullptr &&
-                                                            currentRefPosition->nextRefPosition->moveReg))
+                // If the value is reloaded or moved to a different register, we need to insert
+                // a node to hold the register to which it should be reloaded
+                RefPosition* nextRefPosition = refPosIterator->nextRefPosition;
+                noway_assert(nextRefPosition != nullptr);
+
+                if (INDEBUG(alwaysInsertReload() ||) nextRefPosition->assignedReg() != refPosIterator->assignedReg())
                 {
-                    if (treeNode != nullptr)
-                    {
-                        if (currentRefPosition->spillAfter)
-                        {
-                            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-
-                            // If this is a constant interval that is reusing a pre-existing value, we actually need
-                            // to generate the value at this point in order to spill it.
-                            if (treeNode->IsReuseRegVal())
-                            {
-                                treeNode->ResetReuseRegVal();
-                            }
-                        }
-
-                        // If the value is reloaded or moved to a different register, we need to insert
-                        // a node to hold the register to which it should be reloaded
-                        RefPosition* nextRefPosition = currentRefPosition->nextRefPosition;
-                        noway_assert(nextRefPosition != nullptr);
-                        if (INDEBUG(alwaysInsertReload() ||)
-                                nextRefPosition->assignedReg() != currentRefPosition->assignedReg())
-                        {
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                            // Note that we asserted above that this is an Interval RefPosition.
-                            Interval* currentInterval = currentRefPosition->getInterval();
-                            if (!currentInterval->isUpperVector && nextRefPosition->refType == RefTypeUpperVectorSave)
-                            {
-                                // The currentRefPosition is a spill of a tree temp.
-                                // These have no associated Restore, as we always spill if the vector is
-                                // in a register when this is encountered.
-                                // The nextRefPosition we're interested in (where we may need to insert a
-                                // reload or flag as GTF_NOREG_AT_USE) is the subsequent RefPosition.
-                                assert(!currentInterval->isLocalVar);
-                                nextRefPosition = nextRefPosition->nextRefPosition;
-                                assert(nextRefPosition->refType != RefTypeUpperVectorSave);
-                            }
-                            // UpperVector intervals may have unique assignments at each reference.
-                            if (!currentInterval->isUpperVector)
-#endif
-                            {
-                                if (nextRefPosition->assignedReg() != REG_NA)
-                                {
-                                    insertCopyOrReload(block, treeNode, currentRefPosition->getMultiRegIdx(),
-                                                       nextRefPosition);
-                                }
-                                else
-                                {
-                                    assert(nextRefPosition->RegOptional());
-
-                                    // In case of tree temps, if def is spilled and use didn't
-                                    // get a register, set a flag on tree node to be treated as
-                                    // contained at the point of its use.
-                                    if (currentRefPosition->spillAfter && currentRefPosition->refType == RefTypeDef &&
-                                        nextRefPosition->refType == RefTypeUse)
-                                    {
-                                        assert(nextRefPosition->treeNode == nullptr);
-                                        treeNode->gtFlags |= GTF_NOREG_AT_USE;
-                                    }
-                                }
-                            }
-                        }
+                    // Note that we asserted above that this is an Interval RefPosition.
+                    Interval* currentInterval = refPosIterator->getInterval();
+                    if (!currentInterval->isUpperVector && nextRefPosition->refType == RefTypeUpperVectorSave)
+                    {
+                        // The currentRefPosition is a spill of a tree temp.
+                        // These have no associated Restore, as we always spill if the vector is
+                        // in a register when this is encountered.
+                        // The nextRefPosition we're interested in (where we may need to insert a
+                        // reload or flag as GTF_NOREG_AT_USE) is the subsequent RefPosition.
+                        assert(!currentInterval->isLocalVar);
+                        nextRefPosition = nextRefPosition->nextRefPosition;
+                        assert(nextRefPosition->refType != RefTypeUpperVectorSave);
                     }
 
-                    // We should never have to "spill after" a temp use, since
-                    // they're single use
-                    else
+                    // UpperVector intervals may have unique assignments at each reference.
+                    if (!currentInterval->isUpperVector)
+#endif
                     {
-                        unreached();
+                        if (nextRefPosition->assignedReg() != REG_NA)
+                        {
+                            insertCopyOrReload(block, treeNode, refPosIterator->getMultiRegIdx(), nextRefPosition);
+                        }
+                        else
+                        {
+                            assert(nextRefPosition->RegOptional());
+
+                            // In case of tree temps, if def is spilled and use didn't
+                            // get a register, set a flag on tree node to be treated as
+                            // contained at the point of its use.
+                            if (refPosIterator->spillAfter && refPosIterator->refType == RefTypeDef &&
+                                nextRefPosition->refType == RefTypeUse)
+                            {
+                                assert(nextRefPosition->treeNode == nullptr);
+                                treeNode->gtFlags |= GTF_NOREG_AT_USE;
+                            }
+                        }
                     }
                 }
             }
@@ -7279,8 +7271,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
     // currentRefPosition is not used for LSRA_DUMP_PRE
     // We keep separate iterators for defs, so that we can print them
     // on the lhs of the dump
-    RefPositionIterator refPosIterator     = refPositions.begin();
-    RefPosition*        currentRefPosition = &refPosIterator;
+    RefPositionIterator refPosIterator = refPositions.begin();
 
     switch (mode)
     {
@@ -7301,22 +7292,21 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
     if (mode != LSRA_DUMP_PRE)
     {
         printf("Incoming Parameters: ");
-        for (; refPosIterator != refPositions.end() && currentRefPosition->refType != RefTypeBB;
-             ++refPosIterator, currentRefPosition = &refPosIterator)
+        for (; refPosIterator != refPositions.end() && refPosIterator->refType != RefTypeBB; ++refPosIterator)
         {
-            Interval*  interval = currentRefPosition->getInterval();
+            Interval*  interval = refPosIterator->getInterval();
             LclVarDsc* varDsc   = interval->getLocalVar(compiler);
             printf(" V%02d", varDsc->GetLclNum());
             if (mode == LSRA_DUMP_POST)
             {
                 regNumber reg;
-                if (currentRefPosition->registerAssignment == RBM_NONE)
+                if (refPosIterator->registerAssignment == RBM_NONE)
                 {
                     reg = REG_STK;
                 }
                 else
                 {
-                    reg = currentRefPosition->assignedReg();
+                    reg = refPosIterator->assignedReg();
                 }
                 printf("(");
                 regNumber assignedReg = varDsc->GetRegNum();
@@ -7343,28 +7333,30 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
             bool printedBlockHeader = false;
             // We should find the boundary RefPositions in the order of exposed uses, dummy defs, and the blocks
             for (; refPosIterator != refPositions.end() &&
-                   (currentRefPosition->refType == RefTypeExpUse || currentRefPosition->refType == RefTypeDummyDef ||
-                    (currentRefPosition->refType == RefTypeBB && !printedBlockHeader));
-                 ++refPosIterator, currentRefPosition = &refPosIterator)
+                   (refPosIterator->refType == RefTypeExpUse || refPosIterator->refType == RefTypeDummyDef ||
+                    (refPosIterator->refType == RefTypeBB && !printedBlockHeader));
+                 ++refPosIterator)
             {
                 Interval* interval = nullptr;
-                if (currentRefPosition->isIntervalRef())
+
+                if (refPosIterator->isIntervalRef())
                 {
-                    interval = currentRefPosition->getInterval();
+                    interval = refPosIterator->getInterval();
                 }
-                switch (currentRefPosition->refType)
+
+                switch (refPosIterator->refType)
                 {
                     case RefTypeExpUse:
                         assert(interval != nullptr);
                         assert(interval->isLocalVar);
                         printf("  Exposed use of V%02u at #%d\n", interval->getLocalVar(compiler)->GetLclNum(),
-                               currentRefPosition->rpNum);
+                               refPosIterator->rpNum);
                         break;
                     case RefTypeDummyDef:
                         assert(interval != nullptr);
                         assert(interval->isLocalVar);
                         printf("  Dummy def of V%02u at #%d\n", interval->getLocalVar(compiler)->GetLclNum(),
-                               currentRefPosition->rpNum);
+                               refPosIterator->rpNum);
                         break;
                     case RefTypeBB:
                         block->dspBlockHeader(compiler);
@@ -7372,7 +7364,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                         printf("=====\n");
                         break;
                     default:
-                        printf("Unexpected RefPosition type at #%d\n", currentRefPosition->rpNum);
+                        printf("Unexpected RefPosition type at #%d\n", refPosIterator->rpNum);
                         break;
                 }
             }
@@ -7427,44 +7419,46 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 bool         killPrinted        = false;
                 RefPosition* lastFixedRegRefPos = nullptr;
                 for (; refPosIterator != refPositions.end() &&
-                       (currentRefPosition->refType == RefTypeUse || currentRefPosition->refType == RefTypeFixedReg ||
-                        currentRefPosition->refType == RefTypeKill || currentRefPosition->refType == RefTypeDef) &&
-                       (currentRefPosition->nodeLocation == node->gtSeqNum ||
-                        currentRefPosition->nodeLocation == node->gtSeqNum + 1);
-                     ++refPosIterator, currentRefPosition = &refPosIterator)
+                       (refPosIterator->refType == RefTypeUse || refPosIterator->refType == RefTypeFixedReg ||
+                        refPosIterator->refType == RefTypeKill || refPosIterator->refType == RefTypeDef) &&
+                       (refPosIterator->nodeLocation == node->gtSeqNum ||
+                        refPosIterator->nodeLocation == node->gtSeqNum + 1);
+                     ++refPosIterator)
                 {
                     Interval* interval = nullptr;
-                    if (currentRefPosition->isIntervalRef())
+
+                    if (refPosIterator->isIntervalRef())
                     {
-                        interval = currentRefPosition->getInterval();
+                        interval = refPosIterator->getInterval();
                     }
-                    switch (currentRefPosition->refType)
+
+                    switch (refPosIterator->refType)
                     {
                         case RefTypeUse:
-                            if (currentRefPosition->IsPhysRegRef())
+                            if (refPosIterator->IsPhysRegRef())
                             {
                                 printf("\n                               Use:R%d(#%d)",
-                                       currentRefPosition->getReg()->regNum, currentRefPosition->rpNum);
+                                       refPosIterator->getReg()->regNum, refPosIterator->rpNum);
                             }
                             else
                             {
                                 assert(interval != nullptr);
                                 printf("\n                               Use:");
                                 interval->microDump();
-                                printf("(#%d)", currentRefPosition->rpNum);
-                                if (currentRefPosition->isFixedRegRef && !interval->isInternal)
+                                printf("(#%d)", refPosIterator->rpNum);
+                                if (refPosIterator->isFixedRegRef && !interval->isInternal)
                                 {
-                                    assert(genMaxOneBit(currentRefPosition->registerAssignment));
+                                    assert(genMaxOneBit(refPosIterator->registerAssignment));
                                     assert(lastFixedRegRefPos != nullptr);
-                                    printf(" Fixed:%s(#%d)", getRegName(currentRefPosition->assignedReg()),
+                                    printf(" Fixed:%s(#%d)", getRegName(refPosIterator->assignedReg()),
                                            lastFixedRegRefPos->rpNum);
                                     lastFixedRegRefPos = nullptr;
                                 }
-                                if (currentRefPosition->isLocalDefUse)
+                                if (refPosIterator->isLocalDefUse)
                                 {
                                     printf(" LocalDefUse");
                                 }
-                                if (currentRefPosition->lastUse)
+                                if (refPosIterator->lastUse)
                                 {
                                     printf(" *");
                                 }
@@ -7476,17 +7470,17 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                             assert(interval != nullptr);
                             printf("\n        Def:");
                             interval->microDump();
-                            printf("(#%d)", currentRefPosition->rpNum);
-                            if (currentRefPosition->isFixedRegRef)
+                            printf("(#%d)", refPosIterator->rpNum);
+                            if (refPosIterator->isFixedRegRef)
                             {
-                                assert(genMaxOneBit(currentRefPosition->registerAssignment));
-                                printf(" %s", getRegName(currentRefPosition->assignedReg()));
+                                assert(genMaxOneBit(refPosIterator->registerAssignment));
+                                printf(" %s", getRegName(refPosIterator->assignedReg()));
                             }
-                            if (currentRefPosition->isLocalDefUse)
+                            if (refPosIterator->isLocalDefUse)
                             {
                                 printf(" LocalDefUse");
                             }
-                            if (currentRefPosition->lastUse)
+                            if (refPosIterator->lastUse)
                             {
                                 printf(" *");
                             }
@@ -7503,14 +7497,14 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                                 printf("\n        Kill: ");
                                 killPrinted = true;
                             }
-                            printf(getRegName(currentRefPosition->assignedReg()));
+                            printf(getRegName(refPosIterator->assignedReg()));
                             printf(" ");
                             break;
                         case RefTypeFixedReg:
-                            lastFixedRegRefPos = currentRefPosition;
+                            lastFixedRegRefPos = &refPosIterator;
                             break;
                         default:
-                            printf("Unexpected RefPosition type at #%d\n", currentRefPosition->rpNum);
+                            printf("Unexpected RefPosition type at #%d\n", refPosIterator->rpNum);
                             break;
                     }
                 }
