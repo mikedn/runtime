@@ -1193,7 +1193,7 @@ private:
     }
 
     regMaskTP getMatchingConstants(regMaskTP mask, Interval* currentInterval, RefPosition* refPosition);
-    bool isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition);
+    bool isMatchingConstant(GenTree* node, GenTree* regNode);
 
     regMaskTP    fixedRegs;
     LsraLocation nextFixedRef[REG_COUNT];

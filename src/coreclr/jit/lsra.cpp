@@ -9558,33 +9558,33 @@ regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* interval, R
         candidates &= ~candidateBit;
         RegRecord* physRegRecord = getRegisterRecord(genRegNumFromMask(candidateBit));
 
-        if (isMatchingConstant(physRegRecord, refPosition))
+        if ((physRegRecord->assignedInterval == nullptr) || !physRegRecord->assignedInterval->isConstant ||
+            (refPosition->refType != RefTypeDef))
         {
-            result |= candidateBit;
+            continue;
         }
+
+        Interval* rpInterval = refPosition->getInterval();
+
+        if (!rpInterval->isConstant || !isRegConstant(physRegRecord->regNum, rpInterval->registerType))
+        {
+            continue;
+        }
+
+        if (!isMatchingConstant(refPosition->treeNode, physRegRecord->assignedInterval->firstRefPosition->treeNode))
+        {
+            continue;
+        }
+
+        result |= candidateBit;
     }
 
     return result;
 }
 
-bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition)
+bool LinearScan::isMatchingConstant(GenTree* node, GenTree* regNode)
 {
-    if ((physRegRecord->assignedInterval == nullptr) || !physRegRecord->assignedInterval->isConstant ||
-        (refPosition->refType != RefTypeDef))
-    {
-        return false;
-    }
-
-    Interval* interval = refPosition->getInterval();
-
-    if (!interval->isConstant || !isRegConstant(physRegRecord->regNum, interval->registerType))
-    {
-        return false;
-    }
-
-    GenTree* node = refPosition->treeNode;
     noway_assert(node != nullptr);
-    GenTree* regNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
     noway_assert(regNode != nullptr);
 
     if (node->GetOper() != regNode->GetOper())
@@ -9614,7 +9614,7 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
                     return true;
                 }
             }
-            break;
+            return false;
         }
         case GT_CNS_DBL:
             // For floating point constants, the values must be identical, not simply compare equal.
@@ -9629,10 +9629,8 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
 #endif
 
         default:
-            break;
+            return false;
     }
-
-    return false;
 }
 
 // ----------------------------------------------------------
