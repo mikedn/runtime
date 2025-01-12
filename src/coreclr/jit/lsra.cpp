@@ -739,26 +739,11 @@ void LinearScan::dumpVarRefPositions(const char* title) const
 
 #endif // DEBUG
 
-#ifdef DEBUG
-using HeuristicFn = bool (RegisterSelection::*)();
-
-enum class RegisterSelectors
-{
-#define REG_SEL_DEF(name, score, ...) name,
-#include "lsra_score.h"
-    Count
-};
-#endif
-
 class RegisterSelection
 {
     LinearScan* const linearScan;
-#ifdef DEBUG
-    jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[static_cast<size_t>(RegisterSelectors::Count)];
-    RegisterScore selectionScore;
-#endif
-    Interval*    currentInterval;
-    RefPosition* refPosition;
+    Interval*         currentInterval;
+    RefPosition*      refPosition;
 
     RegisterType regType;
     LsraLocation currentLocation;
@@ -795,6 +780,19 @@ class RegisterSelection
     RegisterScore score;
     bool          found;
     bool          skipAllocation;
+
+#ifdef DEBUG
+    using HeuristicFn = bool (RegisterSelection::*)();
+    enum class RegisterSelectors
+    {
+#define REG_SEL_DEF(name, score, ...) name,
+#include "lsra_score.h"
+        Count
+    };
+
+    jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[static_cast<size_t>(RegisterSelectors::Count)];
+    RegisterScore selectionScore;
+#endif
 
 public:
     RegisterSelection(LinearScan* linearScan);
