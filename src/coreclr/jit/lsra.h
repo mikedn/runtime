@@ -205,6 +205,8 @@ public:
 #endif
 };
 
+class RegisterSelection;
+
 // OPTION 1: The algorithm as described in "Optimized Interval Splitting in a
 // Linear Scan Register Allocator".  It is driven by iterating over the Interval
 // lists.  In this case, we need multiple IntervalLists, and Intervals will be
@@ -221,6 +223,7 @@ class LinearScan
     friend class RefPosition;
     friend class Interval;
     friend class Lowering;
+    friend class RegisterSelection;
 
     Compiler* compiler;
 #ifdef DEBUG
@@ -818,138 +821,6 @@ private:
     void spillInterval(Interval* interval, RefPosition* fromRefPosition DEBUGARG(RefPosition* toRefPosition));
 
     void spillGCRefs(RefPosition* killRefPosition);
-
-#ifdef DEBUG
-    class RegisterSelection;
-    using HeuristicFn = bool (RegisterSelection::*)();
-
-    enum class RegisterSelectors
-    {
-#define REG_SEL_DEF(name, score, ...) name,
-#include "lsra_score.h"
-        Count
-    };
-#endif
-
-    class RegisterSelection
-    {
-        LinearScan* const linearScan;
-#ifdef DEBUG
-        jitstd::pair<HeuristicFn, RegisterScore> selectionOrder[static_cast<size_t>(RegisterSelectors::Count)];
-        RegisterScore selectionScore;
-#endif
-        Interval*    currentInterval;
-        RefPosition* refPosition;
-
-        RegisterType regType;
-        LsraLocation currentLocation;
-        RefPosition* nextRefPos;
-
-        regMaskTP candidates;
-        regMaskTP preferences;
-
-        Interval* relatedInterval;
-        regMaskTP relatedPreferences;
-
-        LsraLocation rangeEndLocation;
-        LsraLocation relatedLastLocation;
-        bool         preferCalleeSave;
-        RefPosition* rangeEndRefPosition;
-        RefPosition* lastRefPosition;
-        regMaskTP    callerCalleePrefs = RBM_NONE;
-        LsraLocation lastLocation;
-        RegRecord*   prevRegRec;
-
-        regMaskTP prevRegBit = RBM_NONE;
-
-        regMaskTP freeCandidates;
-        regMaskTP matchingConstants;
-        regMaskTP unassignedSet;
-        regMaskTP foundRegBit;
-
-        regMaskTP coversSet;
-        regMaskTP preferenceSet;
-        regMaskTP coversRelatedSet;
-        regMaskTP coversFullSet;
-        bool      coversSetsCalculated;
-
-        RegisterScore score;
-        bool          found;
-        bool          skipAllocation;
-
-    public:
-        RegisterSelection(LinearScan* linearScan);
-
-        // Perform register selection and update currentInterval or refPosition
-        regMaskTP select(Interval* currentInterval, RefPosition* refPosition);
-
-        // If the register is from unassigned set such that it was not already
-        // assigned to the current interval
-        bool foundUnassignedReg() const
-        {
-            assert(found && isSingleRegister(foundRegBit));
-            bool isUnassignedReg = (foundRegBit & unassignedSet) != RBM_NONE;
-            return isUnassignedReg && !isAlreadyAssigned();
-        }
-
-        // Did register selector decide to spill this interval
-        bool isSpilling() const
-        {
-            return (foundRegBit & freeCandidates) == RBM_NONE;
-        }
-
-        // Is the value one of the constant that is already in a register
-        bool isMatchingConstant() const
-        {
-            assert(found && isSingleRegister(foundRegBit));
-            return (matchingConstants & foundRegBit) != RBM_NONE;
-        }
-
-#ifdef DEBUG
-        bool isConstAvailable() const
-        {
-            return (score & CONST_AVAILABLE) != 0;
-        }
-
-        RegisterScore GetSelectionScore() const
-        {
-            return selectionScore;
-        }
-#endif
-
-    private:
-        // If the selected register is already assigned to the current internal
-        bool isAlreadyAssigned() const
-        {
-            assert(found && isSingleRegister(candidates));
-            return (prevRegBit & preferences) == foundRegBit;
-        }
-
-        regMaskTP getFreeCandidates(regMaskTP candidates, var_types regType) const
-        {
-            regMaskTP available = linearScan->m_AvailableRegs;
-            regMaskTP result    = candidates & available;
-
-#ifdef TARGET_ARM
-            // For TYP_DOUBLE on ARM, we can only use register for which the odd half is also available.
-            if (regType == TYP_DOUBLE)
-            {
-                result &= (available >> 1);
-            }
-#endif
-
-            return result;
-        }
-
-        bool applySelection(RegisterScore selectionScore, regMaskTP selectionCandidates);
-        bool applySingleRegSelection(RegisterScore selectionScore, regMaskTP selectionCandidate);
-        void calculateCoversSets();
-        void resolveConflictingDefAndUse();
-        void reset(Interval* interval, RefPosition* refPosition);
-
-#define REG_SEL_DEF(name, ...) bool try_##name();
-#include "lsra_score.h"
-    };
 
     // When we split edges, we create new blocks, and instead of expanding the VarToRegMaps, we
     // rely on the property that the "in" map is the same as the "from" block of the edge, and the
