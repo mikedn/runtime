@@ -94,12 +94,12 @@ LinearScan::LinearScan(Compiler* compiler)
     , lsraStressMask(JitConfig.JitStressRegs())
 #endif
     , intervals(compiler->getAllocator(CMK_LSRA_Interval))
+    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
+    , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
     , physRegs{
 #define REGDEF(name, num, mask, ...) {REG_##name},
 #include "register.h"
-    }
-    , enregisterLocalVars(compiler->lvaTrackedCount != 0)
-    , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
+      }
 {
     physRegs[REG_STK].regNum = REG_NA;
 
@@ -265,6 +265,7 @@ void LinearScan::updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPo
         nextLocation = nextRefPosition->nodeLocation;
         fixedRegs |= genRegMask(regRecord->regNum);
     }
+
     nextFixedRef[regRecord->regNum] = nextLocation;
 }
 
@@ -6848,7 +6849,7 @@ void LinearScan::dumpLsraStatsSummary(FILE* file)
 #endif // TRACK_LSRA_STATS
 
 #ifdef DEBUG
-void dumpRegMask(regMaskTP regs)
+static void dumpRegMask(regMaskTP regs)
 {
     if (regs == RBM_ALLINT)
     {
