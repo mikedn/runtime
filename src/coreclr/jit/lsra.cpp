@@ -745,41 +745,35 @@ class RegisterSelection
     Interval*         currentInterval;
     RefPosition*      refPosition;
 
+    RefPosition* lastRefPosition;
+    RegRecord*   prevRegRec;
     RegisterType regType;
     LsraLocation currentLocation;
     RefPosition* nextRefPos;
-
-    regMaskTP candidates;
-    regMaskTP preferences;
-
-    Interval* relatedInterval;
-    regMaskTP relatedPreferences;
-
+    regMaskTP    candidates;
+    regMaskTP    preferences;
+    Interval*    relatedInterval;
+    regMaskTP    relatedPreferences;
     LsraLocation rangeEndLocation;
     LsraLocation relatedLastLocation;
     bool         preferCalleeSave;
-    RefPosition* rangeEndRefPosition;
-    RefPosition* lastRefPosition;
-    regMaskTP    callerCalleePrefs = RBM_NONE;
-    LsraLocation lastLocation;
-    RegRecord*   prevRegRec;
 
-    regMaskTP prevRegBit = RBM_NONE;
-
-    regMaskTP freeCandidates;
-    regMaskTP matchingConstants;
-    regMaskTP unassignedSet;
-    regMaskTP foundRegBit;
-
-    regMaskTP coversSet;
-    regMaskTP preferenceSet;
-    regMaskTP coversRelatedSet;
-    regMaskTP coversFullSet;
-    bool      coversSetsCalculated;
-
-    RegisterScore score;
+    RefPosition*  rangeEndRefPosition;
+    LsraLocation  lastLocation;
+    regMaskTP     callerCalleePrefs;
+    regMaskTP     prevRegBit;
+    regMaskTP     foundRegBit;
+    regMaskTP     freeCandidates;
+    regMaskTP     matchingConstants;
+    regMaskTP     unassignedSet;
+    regMaskTP     coversSet;
+    regMaskTP     preferenceSet;
+    regMaskTP     coversRelatedSet;
+    regMaskTP     coversFullSet;
+    bool          coversSetsCalculated;
     bool          found;
     bool          skipAllocation;
+    RegisterScore score;
 
 #ifdef DEBUG
     using HeuristicFn = bool (RegisterSelection::*)();
@@ -8822,49 +8816,47 @@ RegisterSelection::RegisterSelection(LinearScan* linearScan) : linearScan(linear
 #endif // DEBUG
 }
 
-// ----------------------------------------------------------
-//  reset: Resets the values of all the fields used for register selection.
-//
 void RegisterSelection::reset(Interval* interval, RefPosition* refPos)
 {
-    INDEBUG(selectionScore = NONE);
-
+    // TODO-MIKE-Cleanup: All this should be moved to the constructor,
+    // but doing so causes a significant pin regression (10-30 million instructions),
+    // likely because in the current version reset() gets inlined into select(),
+    // which allows the compiler to do more optimizations based on these initial data
+    // member values.
     currentInterval = interval;
     refPosition     = refPos;
-    score           = NONE;
 
     regType         = currentInterval->registerType;
     currentLocation = refPosition->nodeLocation;
     nextRefPos      = refPosition->nextRefPosition;
     candidates      = refPosition->registerAssignment;
     preferences     = currentInterval->registerPreferences;
-
-    // This is not actually a preference, it's merely to track the lclVar that this
-    // "specialPutArg" is using.
-    relatedInterval    = currentInterval->isSpecialPutArg ? nullptr : currentInterval->relatedInterval;
-    relatedPreferences = (relatedInterval == nullptr) ? RBM_NONE : relatedInterval->getCurrentPreferences();
-
+    // This is not actually a preference, it's merely to track the lclVar that this "specialPutArg" is using.
+    relatedInterval     = currentInterval->isSpecialPutArg ? nullptr : currentInterval->relatedInterval;
+    relatedPreferences  = relatedInterval == nullptr ? RBM_NONE : relatedInterval->getCurrentPreferences();
     rangeEndLocation    = refPosition->getRangeEndLocation();
     relatedLastLocation = rangeEndLocation;
     preferCalleeSave    = currentInterval->preferCalleeSave;
-    rangeEndRefPosition = nullptr;
     lastRefPosition     = currentInterval->lastRefPosition;
-    lastLocation        = MinLocation;
     prevRegRec          = currentInterval->assignedReg;
 
-    freeCandidates    = RBM_NONE;
-    matchingConstants = RBM_NONE;
-    unassignedSet     = RBM_NONE;
-
-    coversSet        = RBM_NONE;
-    preferenceSet    = RBM_NONE;
-    coversRelatedSet = RBM_NONE;
-    coversFullSet    = RBM_NONE;
-
+    rangeEndRefPosition  = nullptr;
+    lastLocation         = MinLocation;
+    callerCalleePrefs    = RBM_NONE;
+    prevRegBit           = RBM_NONE;
     foundRegBit          = RBM_NONE;
+    freeCandidates       = RBM_NONE;
+    matchingConstants    = RBM_NONE;
+    unassignedSet        = RBM_NONE;
+    coversSet            = RBM_NONE;
+    preferenceSet        = RBM_NONE;
+    coversRelatedSet     = RBM_NONE;
+    coversFullSet        = RBM_NONE;
+    coversSetsCalculated = false;
     found                = false;
     skipAllocation       = false;
-    coversSetsCalculated = false;
+    score                = NONE;
+    INDEBUG(selectionScore = NONE);
 }
 
 // ----------------------------------------------------------
