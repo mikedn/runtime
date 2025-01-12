@@ -9547,7 +9547,8 @@ void RegisterSelection::resolveConflictingDefAndUse()
 
 regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* interval, RefPosition* refPosition)
 {
-    assert(interval->isConstant && RefTypeIsDef(refPosition->refType));
+    assert(interval->isConstant && (refPosition->refType == RefTypeDef));
+    assert(refPosition->getInterval() == interval);
 
     regMaskTP candidates = mask & m_RegistersWithConstants;
     regMaskTP result     = RBM_NONE;
@@ -9556,22 +9557,23 @@ regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* interval, R
     {
         regMaskTP candidateBit = genFindLowestBit(candidates);
         candidates &= ~candidateBit;
-        RegRecord* physRegRecord = getRegisterRecord(genRegNumFromMask(candidateBit));
+        RegRecord* regRecord = getRegisterRecord(genRegNumFromMask(candidateBit));
 
-        if ((physRegRecord->assignedInterval == nullptr) || !physRegRecord->assignedInterval->isConstant ||
-            (refPosition->refType != RefTypeDef))
+        // TODO-MIKE-Review: This stuff is kind of dubious. For one thing, the reg assigned interval
+        // should already be constant, because we're only looking at "RegistersWithConstants". And on
+        // ARM this whole thing is looking at float registers even when it needs a double constant
+        // and needs the isRegConstant to get it right. But then isRegConstant is redundant for any
+        // other type, again due to only looking at "RegistersWithConstants" registers.
+        // Question is, can we trust "RegistersWithConstants"?
+
+        if ((regRecord->assignedInterval == nullptr) ||
+            !regRecord->assignedInterval->isConstant ARM_ONLY(
+                || !isRegConstant(regRecord->regNum, interval->registerType)))
         {
             continue;
         }
 
-        Interval* rpInterval = refPosition->getInterval();
-
-        if (!rpInterval->isConstant || !isRegConstant(physRegRecord->regNum, rpInterval->registerType))
-        {
-            continue;
-        }
-
-        if (!isMatchingConstant(refPosition->treeNode, physRegRecord->assignedInterval->firstRefPosition->treeNode))
+        if (!isMatchingConstant(refPosition->treeNode, regRecord->assignedInterval->firstRefPosition->treeNode))
         {
             continue;
         }
@@ -9907,7 +9909,7 @@ regMaskTP RegisterSelection::select(Interval* currentInterval, RefPosition* refP
     }
     else
     {
-        if (currentInterval->isConstant && RefTypeIsDef(refPosition->refType))
+        if (currentInterval->isConstant && (refPosition->refType == RefTypeDef))
         {
             matchingConstants = linearScan->getMatchingConstants(candidates, currentInterval, refPosition);
         }
