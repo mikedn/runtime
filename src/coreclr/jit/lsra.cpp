@@ -295,7 +295,7 @@ void LinearScan::updateNextIntervalRef(regNumber reg, Interval* interval)
 #endif
 }
 
-void LinearScan::clearSpillCost(RegRecord* reg, var_types regType)
+void LinearScan::clearSpillCost(RegRecord* reg, var_types regType) const
 {
     reg->spillCost = 0;
 
@@ -307,11 +307,11 @@ void LinearScan::clearSpillCost(RegRecord* reg, var_types regType)
 #endif
 }
 
-void LinearScan::updateSpillCost(RegRecord* reg, Interval* interval)
+void LinearScan::updateSpillCost(RegRecord* reg, Interval* interval) const
 {
     // An interval can have no recentRefPosition if this is the initial assignment
     // of a parameter to its home register.
-    float cost     = (interval->recentRefPosition != nullptr) ? getWeight(interval->recentRefPosition) : 0;
+    float cost     = interval->recentRefPosition != nullptr ? getWeight(interval->recentRefPosition) : 0;
     reg->spillCost = cost;
 
 #ifdef TARGET_ARM
@@ -607,7 +607,7 @@ VarToRegMap LinearScan::getInVarToRegMap(unsigned bbNum) const
     return inVarToRegMaps[bbNum];
 }
 
-VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum)
+VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum) const
 {
     assert(enregisterLocalVars);
     assert(bbNum <= compiler->fgBBNumMax);
@@ -662,7 +662,7 @@ RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex
 
 #ifdef DEBUG
 
-void LinearScan::dumpVarToRegMap(VarToRegMap map)
+void LinearScan::dumpVarToRegMap(VarToRegMap map) const
 {
     bool anyPrinted = false;
     for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
@@ -680,13 +680,13 @@ void LinearScan::dumpVarToRegMap(VarToRegMap map)
     printf("\n");
 }
 
-void LinearScan::dumpInVarToRegMap(BasicBlock* block)
+void LinearScan::dumpInVarToRegMap(BasicBlock* block) const
 {
     printf("Var=Reg beg of " FMT_BB ": ", block->bbNum);
     dumpVarToRegMap(getInVarToRegMap(block->bbNum));
 }
 
-void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
+void LinearScan::dumpOutVarToRegMap(BasicBlock* block) const
 {
     printf("Var=Reg end of " FMT_BB ": ", block->bbNum);
     dumpVarToRegMap(getOutVarToRegMap(block->bbNum));
@@ -6583,13 +6583,7 @@ void LinearScan::updateLsraStat(LsraStat stat, unsigned bbNum)
     ++(blockInfo[bbNum].stats[(unsigned)stat]);
 }
 
-// -----------------------------------------------------------
-// dumpLsraStats - dumps Lsra stats to given file.
-//
-// Arguments:
-//    file    -  file to which stats are to be written.
-//
-void LinearScan::dumpLsraStats(FILE* file)
+void LinearScan::dumpLsraStats(FILE* file) const
 {
     unsigned             sumStats[LsraStat::COUNT] = {0};
     BasicBlock::weight_t wtdStats[LsraStat::COUNT] = {0};
@@ -6726,13 +6720,7 @@ void LinearScan::dumpLsraStats(FILE* file)
     printf("\n");
 }
 
-// -----------------------------------------------------------
-// dumpLsraStatsCsvFormat - dumps Lsra stats to given file in csv format.
-//
-// Arguments:
-//    file    -  file to which stats are to be written.
-//
-void LinearScan::dumpLsraStatsCsv(FILE* file)
+void LinearScan::dumpLsraStatsCsv(FILE* file) const
 {
     unsigned sumStats[LsraStat::COUNT] = {0};
 
@@ -6776,13 +6764,7 @@ void LinearScan::dumpLsraStatsCsv(FILE* file)
     fprintf(file, ",%.2f\n", compiler->codeGen->GetPerfScore());
 }
 
-// -----------------------------------------------------------
-// dumpLsraStatsSummary - dumps Lsra stats summary to given file
-//
-// Arguments:
-//    file    -  file to which stats are to be written.
-//
-void LinearScan::dumpLsraStatsSummary(FILE* file)
+void LinearScan::dumpLsraStatsSummary(FILE* file) const
 {
     unsigned             sumStats[LsraStat::STAT_FREE] = {0};
     BasicBlock::weight_t wtdStats[LsraStat::STAT_FREE] = {0.0};
@@ -7236,7 +7218,7 @@ void LinearScan::lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const
     }
 }
 
-void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode)
+void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode) const
 {
     if (ComputeOperandDstCount(operand) != 0)
     {

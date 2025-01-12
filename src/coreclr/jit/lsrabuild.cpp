@@ -3072,6 +3072,22 @@ void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
 }
 #endif // TARGET_XARCH || FEATURE_HW_INTRINSICS
 
+var_types LinearScan::getDefType(GenTree* tree) const
+{
+    var_types type = tree->GetType();
+
+    if (type == TYP_STRUCT)
+    {
+        GenTreeLclVar* lclVar = tree->AsLclVar();
+
+        type = lclVar->GetLcl()->GetRegisterType(lclVar);
+    }
+
+    assert((type != TYP_UNDEF) && (type != TYP_STRUCT));
+
+    return type;
+}
+
 RefPosition* LinearScan::BuildDef(GenTree* node, regMaskTP regCandidates)
 {
     assert(!node->isContained());

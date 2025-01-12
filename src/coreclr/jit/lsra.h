@@ -260,8 +260,8 @@ public:
     VarToRegMap GetBlockLiveInRegMap(BasicBlock* bb) const;
 
 #if TRACK_LSRA_STATS
-    void dumpLsraStatsCsv(FILE* file);
-    void dumpLsraStatsSummary(FILE* file);
+    void dumpLsraStatsCsv(FILE* file) const;
+    void dumpLsraStatsSummary(FILE* file) const;
 #endif
 
 private:
@@ -729,21 +729,7 @@ private:
     void freeRegisters(regMaskTP regsToFree);
 
     // Get the type that this tree defines.
-    var_types getDefType(GenTree* tree) const
-    {
-        var_types type = tree->GetType();
-
-        if (type == TYP_STRUCT)
-        {
-            GenTreeLclVar* lclVar = tree->AsLclVar();
-
-            type = lclVar->GetLcl()->GetRegisterType(lclVar);
-        }
-
-        assert((type != TYP_UNDEF) && (type != TYP_STRUCT));
-
-        return type;
-    }
+    var_types getDefType(GenTree* tree) const;
 
     // Managing internal registers during the BuildNode process.
     RefPosition* defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask);
@@ -872,16 +858,16 @@ private:
     void initVarRegMaps();
     void setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg);
     VarToRegMap getInVarToRegMap(unsigned bbNum) const;
-    VarToRegMap getOutVarToRegMap(unsigned bbNum);
+    VarToRegMap getOutVarToRegMap(unsigned bbNum) const;
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, RegNum reg);
     RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex);
 
     RegNum getTempRegForResolution(BasicBlock* fromBlock, BasicBlock* toBlock, var_types type);
 
 #ifdef DEBUG
-    void dumpVarToRegMap(VarToRegMap map);
-    void dumpInVarToRegMap(BasicBlock* block);
-    void dumpOutVarToRegMap(BasicBlock* block);
+    void dumpVarToRegMap(VarToRegMap map) const;
+    void dumpInVarToRegMap(BasicBlock* block) const;
+    void dumpOutVarToRegMap(BasicBlock* block) const;
 
     // There are three points at which a tuple-style dump is produced, and each
     // differs slightly:
@@ -903,8 +889,8 @@ private:
 
     void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
     void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode) const;
-    const char* getScoreName(RegisterScore score);
-    void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode);
+    static const char* getScoreName(RegisterScore score);
+    void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode) const;
     void TupleStyleDump(LsraTupleDumpMode mode);
 
     LsraLocation maxNodeLocation = 0;
@@ -1014,6 +1000,9 @@ private:
                                  RegisterScore registerScore = NONE);
 
     void validateIntervals();
+
+    // This is used for dumping
+    RefPosition* activeRefPosition = nullptr;
 #endif // DEBUG
 
 #if TRACK_LSRA_STATS
@@ -1021,7 +1010,7 @@ private:
     LsraStat firstRegSelStat = STAT_FREE;
 
     void updateLsraStat(LsraStat stat, unsigned currentBBNum);
-    void dumpLsraStats(FILE* file);
+    void dumpLsraStats(FILE* file) const;
     static const char* getStatName(unsigned stat);
     static LsraStat getLsraStatFromScore(RegisterScore registerScore);
 #define INTRACK_STATS(x) x
@@ -1029,15 +1018,10 @@ private:
 #define INTRACK_STATS(x)
 #endif
 
-    CompAllocator getAllocator(Compiler* comp)
+    CompAllocator getAllocator(Compiler* comp) const
     {
         return comp->getAllocator(CMK_LSRA);
     }
-
-#ifdef DEBUG
-    // This is used for dumping
-    RefPosition* activeRefPosition = nullptr;
-#endif
 
     IntervalList intervals;
 
@@ -1206,8 +1190,8 @@ private:
     void clearNextIntervalRef(RegNum reg, var_types regType);
     void updateNextIntervalRef(RegNum reg, Interval* interval);
 
-    void clearSpillCost(RegRecord* reg, var_types regType);
-    void updateSpillCost(RegRecord* reg, Interval* interval);
+    void clearSpillCost(RegRecord* reg, var_types regType) const;
+    void updateSpillCost(RegRecord* reg, Interval* interval) const;
 
     regMaskTP m_RegistersWithConstants;
 
