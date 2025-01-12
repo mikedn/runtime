@@ -268,47 +268,15 @@ void LinearScan::updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPo
     nextFixedRef[regRecord->regNum] = nextLocation;
 }
 
-regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* currentInterval, RefPosition* refPosition)
-{
-    assert(currentInterval->isConstant && RefTypeIsDef(refPosition->refType));
-    regMaskTP candidates = (mask & m_RegistersWithConstants);
-    regMaskTP result     = RBM_NONE;
-    while (candidates != RBM_NONE)
-    {
-        regMaskTP candidateBit = genFindLowestBit(candidates);
-        candidates &= ~candidateBit;
-        regNumber  regNum        = genRegNumFromMask(candidateBit);
-        RegRecord* physRegRecord = getRegisterRecord(regNum);
-        if (isMatchingConstant(physRegRecord, refPosition))
-        {
-            result |= candidateBit;
-        }
-    }
-    return result;
-}
-
 void LinearScan::clearNextIntervalRef(regNumber reg, var_types regType)
 {
     nextIntervalRef[reg] = MaxLocation;
-#ifdef TARGET_ARM
-    if (regType == TYP_DOUBLE)
-    {
-        assert(genIsValidDoubleReg(reg));
-        regNumber otherReg        = REG_NEXT(reg);
-        nextIntervalRef[otherReg] = MaxLocation;
-    }
-#endif
-}
 
-void LinearScan::clearSpillCost(regNumber reg, var_types regType)
-{
-    spillCost[reg] = 0;
 #ifdef TARGET_ARM
     if (regType == TYP_DOUBLE)
     {
         assert(genIsValidDoubleReg(reg));
-        regNumber otherReg  = REG_NEXT(reg);
-        spillCost[otherReg] = 0;
+        nextIntervalRef[REG_NEXT(reg)] = MaxLocation;
     }
 #endif
 }
@@ -317,11 +285,39 @@ void LinearScan::updateNextIntervalRef(regNumber reg, Interval* interval)
 {
     LsraLocation nextRefLocation = interval->getNextRefLocation();
     nextIntervalRef[reg]         = nextRefLocation;
+
 #ifdef TARGET_ARM
     if (interval->registerType == TYP_DOUBLE)
     {
-        regNumber otherReg        = REG_NEXT(reg);
-        nextIntervalRef[otherReg] = nextRefLocation;
+        nextIntervalRef[REG_NEXT(reg)] = nextRefLocation;
+    }
+#endif
+}
+
+void LinearScan::clearSpillCost(regNumber reg, var_types regType)
+{
+    spillCost[reg] = 0;
+
+#ifdef TARGET_ARM
+    if (regType == TYP_DOUBLE)
+    {
+        assert(genIsValidDoubleReg(reg));
+        spillCost[REG_NEXT(reg)] = 0;
+    }
+#endif
+}
+
+void LinearScan::updateSpillCost(regNumber reg, Interval* interval)
+{
+    // An interval can have no recentRefPosition if this is the initial assignment
+    // of a parameter to its home register.
+    float cost     = (interval->recentRefPosition != nullptr) ? getWeight(interval->recentRefPosition) : 0;
+    spillCost[reg] = cost;
+
+#ifdef TARGET_ARM
+    if (interval->registerType == TYP_DOUBLE)
+    {
+        spillCost[REG_NEXT(reg)] = cost;
     }
 #endif
 }
@@ -370,19 +366,10 @@ BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
     return blockInfo[refPos->bbNum].weight;
 }
 
-void LinearScan::updateSpillCost(regNumber reg, Interval* interval)
+RegRecord* LinearScan::getRegisterRecord(regNumber regNum)
 {
-    // An interval can have no recentRefPosition if this is the initial assignment
-    // of a parameter to its home register.
-    float cost     = (interval->recentRefPosition != nullptr) ? getWeight(interval->recentRefPosition) : 0;
-    spillCost[reg] = cost;
-#ifdef TARGET_ARM
-    if (interval->registerType == TYP_DOUBLE)
-    {
-        regNumber otherReg  = REG_NEXT(reg);
-        spillCost[otherReg] = cost;
-    }
-#endif
+    assert(regNum < _countof(physRegs));
+    return &physRegs[regNum];
 }
 
 bool LinearScan::isFree(RegRecord* regRecord)
@@ -392,12 +379,6 @@ bool LinearScan::isFree(RegRecord* regRecord)
            // with ARM's DOUBLE regs, but then reg records are never DOUBLE, they're either INT or
            // FLOAT. So we may as well delete registerType and pass UNDEF or something like that.
            !isRegBusy(regRecord->regNum, regRecord->registerType());
-}
-
-RegRecord* LinearScan::getRegisterRecord(regNumber regNum)
-{
-    assert(regNum < _countof(physRegs));
-    return &physRegs[regNum];
 }
 
 #ifdef DEBUG
@@ -549,39 +530,6 @@ LsraLocation Referenceable::getNextRefLocation() const
     return nextRefPosition == nullptr ? MaxLocation : nextRefPosition->nodeLocation;
 }
 
-#ifdef DEBUG
-void LinearScan::dumpVarToRegMap(VarToRegMap map)
-{
-    bool anyPrinted = false;
-    for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
-    {
-        if (map[varIndex] != REG_STK)
-        {
-            printf("V%02u=%s ", compiler->lvaGetDescByTrackedIndex(varIndex)->GetLclNum(), getRegName(map[varIndex]));
-            anyPrinted = true;
-        }
-    }
-    if (!anyPrinted)
-    {
-        printf("none");
-    }
-    printf("\n");
-}
-
-void LinearScan::dumpInVarToRegMap(BasicBlock* block)
-{
-    printf("Var=Reg beg of " FMT_BB ": ", block->bbNum);
-    dumpVarToRegMap(getInVarToRegMap(block->bbNum));
-}
-
-void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
-{
-    printf("Var=Reg end of " FMT_BB ": ", block->bbNum);
-    dumpVarToRegMap(getOutVarToRegMap(block->bbNum));
-}
-
-#endif // DEBUG
-
 // TODO-Throughput: This mapping can surely be more efficiently done
 void LinearScan::initVarRegMaps()
 {
@@ -731,6 +679,36 @@ RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex
 
 #ifdef DEBUG
 
+void LinearScan::dumpVarToRegMap(VarToRegMap map)
+{
+    bool anyPrinted = false;
+    for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
+    {
+        if (map[varIndex] != REG_STK)
+        {
+            printf("V%02u=%s ", compiler->lvaGetDescByTrackedIndex(varIndex)->GetLclNum(), getRegName(map[varIndex]));
+            anyPrinted = true;
+        }
+    }
+    if (!anyPrinted)
+    {
+        printf("none");
+    }
+    printf("\n");
+}
+
+void LinearScan::dumpInVarToRegMap(BasicBlock* block)
+{
+    printf("Var=Reg beg of " FMT_BB ": ", block->bbNum);
+    dumpVarToRegMap(getInVarToRegMap(block->bbNum));
+}
+
+void LinearScan::dumpOutVarToRegMap(BasicBlock* block)
+{
+    printf("Var=Reg end of " FMT_BB ": ", block->bbNum);
+    dumpVarToRegMap(getOutVarToRegMap(block->bbNum));
+}
+
 void LinearScan::dumpVarRefPositions(const char* title) const
 {
     if (enregisterLocalVars)
@@ -760,85 +738,6 @@ void LinearScan::dumpVarRefPositions(const char* title) const
 }
 
 #endif // DEBUG
-
-//------------------------------------------------------------------------
-// isMatchingConstant: Check to see whether a given register contains the constant referenced
-//                     by the given RefPosition
-//
-// Arguments:
-//    physRegRecord:   The RegRecord for the register we're interested in.
-//    refPosition:     The RefPosition for a constant interval.
-//
-// Return Value:
-//    True iff the register was defined by an identical constant node as the current interval.
-//
-bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition)
-{
-    if ((physRegRecord->assignedInterval == nullptr) || !physRegRecord->assignedInterval->isConstant ||
-        (refPosition->refType != RefTypeDef))
-    {
-        return false;
-    }
-
-    Interval* interval = refPosition->getInterval();
-
-    if (!interval->isConstant || !isRegConstant(physRegRecord->regNum, interval->registerType))
-    {
-        return false;
-    }
-
-    GenTree* node = refPosition->treeNode;
-    noway_assert(node != nullptr);
-    GenTree* regNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
-    noway_assert(regNode != nullptr);
-
-    if (node->GetOper() != regNode->GetOper())
-    {
-        return false;
-    }
-
-    switch (regNode->GetOper())
-    {
-        case GT_CNS_INT:
-        {
-            ssize_t v1 = node->AsIntCon()->GetValue();
-            ssize_t v2 = regNode->AsIntCon()->GetValue();
-
-            if ((v1 == v2) && (varTypeGCKind(node->GetType()) == varTypeGCKind(regNode->GetType()) || v1 == 0))
-            {
-#ifdef TARGET_64BIT
-                // If the constant is negative, only reuse registers of the same type.
-                // This is because, on a 64-bit system, we do not sign-extend constants in registers to
-                // 64-bits unless they are actually longs, as this requires a longer instruction.
-                // This doesn't apply to a 32-bit system, on which long values occupy multiple registers.
-                // (We could sign-extend, but we would have to always sign-extend, because if we reuse more
-                // than once, we won't have access to the instruction that originally defines the constant).
-                if ((node->GetType() == regNode->GetType()) || (v1 >= 0))
-#endif
-                {
-                    return true;
-                }
-            }
-            break;
-        }
-        case GT_CNS_DBL:
-            // For floating point constants, the values must be identical, not simply compare equal.
-            // So we compare the bits.
-            return (node->GetType() == regNode->GetType()) &&
-                   (node->AsDblCon()->GetBits() == regNode->AsDblCon()->GetBits());
-
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-        case GT_HWINTRINSIC:
-            // XARCH only for now, doesn't seem to be useful on ARM64 due to XZR.
-            return node->IsHWIntrinsicZero() && regNode->IsHWIntrinsicZero();
-#endif
-
-        default:
-            break;
-    }
-
-    return false;
-}
 
 //------------------------------------------------------------------------
 // allocateReg: Find a register that satisfies the requirements for refPosition,
@@ -9522,6 +9421,96 @@ void LinearScan::RegisterSelection::resolveConflictingDefAndUse()
     }
 
     INDEBUG(linearScan->dumpLsraAllocationEvent(LSRA_EVENT_DEFUSE_CASE6, currentInterval));
+}
+
+regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* interval, RefPosition* refPosition)
+{
+    assert(interval->isConstant && RefTypeIsDef(refPosition->refType));
+
+    regMaskTP candidates = mask & m_RegistersWithConstants;
+    regMaskTP result     = RBM_NONE;
+
+    while (candidates != RBM_NONE)
+    {
+        regMaskTP candidateBit = genFindLowestBit(candidates);
+        candidates &= ~candidateBit;
+        RegRecord* physRegRecord = getRegisterRecord(genRegNumFromMask(candidateBit));
+
+        if (isMatchingConstant(physRegRecord, refPosition))
+        {
+            result |= candidateBit;
+        }
+    }
+
+    return result;
+}
+
+bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition)
+{
+    if ((physRegRecord->assignedInterval == nullptr) || !physRegRecord->assignedInterval->isConstant ||
+        (refPosition->refType != RefTypeDef))
+    {
+        return false;
+    }
+
+    Interval* interval = refPosition->getInterval();
+
+    if (!interval->isConstant || !isRegConstant(physRegRecord->regNum, interval->registerType))
+    {
+        return false;
+    }
+
+    GenTree* node = refPosition->treeNode;
+    noway_assert(node != nullptr);
+    GenTree* regNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
+    noway_assert(regNode != nullptr);
+
+    if (node->GetOper() != regNode->GetOper())
+    {
+        return false;
+    }
+
+    switch (regNode->GetOper())
+    {
+        case GT_CNS_INT:
+        {
+            ssize_t v1 = node->AsIntCon()->GetValue();
+            ssize_t v2 = regNode->AsIntCon()->GetValue();
+
+            if ((v1 == v2) && (varTypeGCKind(node->GetType()) == varTypeGCKind(regNode->GetType()) || v1 == 0))
+            {
+#ifdef TARGET_64BIT
+                // If the constant is negative, only reuse registers of the same type.
+                // This is because, on a 64-bit system, we do not sign-extend constants in registers to
+                // 64-bits unless they are actually longs, as this requires a longer instruction.
+                // This doesn't apply to a 32-bit system, on which long values occupy multiple registers.
+                // (We could sign-extend, but we would have to always sign-extend, because if we reuse more
+                // than once, we won't have access to the instruction that originally defines the constant).
+                if ((node->GetType() == regNode->GetType()) || (v1 >= 0))
+#endif
+                {
+                    return true;
+                }
+            }
+            break;
+        }
+        case GT_CNS_DBL:
+            // For floating point constants, the values must be identical, not simply compare equal.
+            // So we compare the bits.
+            return (node->GetType() == regNode->GetType()) &&
+                   (node->AsDblCon()->GetBits() == regNode->AsDblCon()->GetBits());
+
+#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
+        case GT_HWINTRINSIC:
+            // XARCH only for now, doesn't seem to be useful on ARM64 due to XZR.
+            return node->IsHWIntrinsicZero() && regNode->IsHWIntrinsicZero();
+#endif
+
+        default:
+            break;
+    }
+
+    return false;
 }
 
 // ----------------------------------------------------------

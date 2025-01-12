@@ -795,7 +795,6 @@ private:
     regNumber allocateReg(Interval* current, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
     regNumber assignCopyReg(RefPosition* refPosition);
 
-    bool isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition);
     bool isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* physRegRecord);
     void checkAndAssignInterval(RegRecord* regRec, Interval* interval);
     void assignPhysReg(RegRecord* regRec, Interval* interval);
@@ -1305,21 +1304,25 @@ private:
     void updateSpillCost(regNumber reg, Interval* interval);
 
     regMaskTP m_RegistersWithConstants;
+
     void clearConstantReg(regNumber reg, var_types regType)
     {
         m_RegistersWithConstants &= ~getRegMask(reg, regType);
     }
+
     void setConstantReg(regNumber reg, var_types regType)
     {
         m_RegistersWithConstants |= getRegMask(reg, regType);
     }
-    bool isRegConstant(regNumber reg, var_types regType)
+
+    bool isRegConstant(regNumber reg, var_types regType) const
     {
-        reg               = getRegForType(reg, regType);
-        regMaskTP regMask = getRegMask(reg, regType);
+        regMaskTP regMask = getRegMask(getRegForType(reg, regType), regType);
         return (m_RegistersWithConstants & regMask) == regMask;
     }
+
     regMaskTP getMatchingConstants(regMaskTP mask, Interval* currentInterval, RefPosition* refPosition);
+    bool isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPosition);
 
     regMaskTP    fixedRegs;
     LsraLocation nextFixedRef[REG_COUNT];
