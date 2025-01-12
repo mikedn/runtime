@@ -531,45 +531,30 @@ LsraLocation Referenceable::getNextRefLocation() const
 // TODO-Throughput: This mapping can surely be more efficiently done
 void LinearScan::initVarRegMaps()
 {
-    if (!enregisterLocalVars)
-    {
-        return;
-    }
+    assert(enregisterLocalVars && (compiler->lvaTrackedCount != 0));
 
-    const unsigned regMapCount = compiler->lvaTrackedCount;
+    const unsigned lclCount = compiler->lvaTrackedCount;
     // Not sure why blocks aren't numbered from zero, but they don't appear to be.
     // So, if we want to index by bbNum we have to know the maximum value.
-    const unsigned bbCount = compiler->fgBBNumMax + 1;
+    const unsigned blockCount = compiler->fgBBNumMax + 1;
 
-    inVarToRegMaps  = new (compiler, CMK_LSRA) RegNumSmall*[bbCount];
-    outVarToRegMaps = new (compiler, CMK_LSRA) RegNumSmall*[bbCount];
+    inVarToRegMaps            = new (compiler, CMK_LSRA) RegNumSmall*[blockCount];
+    outVarToRegMaps           = new (compiler, CMK_LSRA) RegNumSmall*[blockCount];
+    sharedCriticalVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[lclCount];
 
-    if (regMapCount > 0)
+    for (unsigned i = 0; i < blockCount; i++)
     {
-        sharedCriticalVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
+        RegNumSmall* inVarToRegMap  = new (compiler, CMK_LSRA) RegNumSmall[lclCount];
+        RegNumSmall* outVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[lclCount];
 
-        for (unsigned i = 0; i < bbCount; i++)
+        for (unsigned j = 0; j < lclCount; j++)
         {
-            RegNumSmall* inVarToRegMap  = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
-            RegNumSmall* outVarToRegMap = new (compiler, CMK_LSRA) RegNumSmall[regMapCount];
-
-            for (unsigned j = 0; j < regMapCount; j++)
-            {
-                inVarToRegMap[j]  = REG_STK;
-                outVarToRegMap[j] = REG_STK;
-            }
-
-            inVarToRegMaps[i]  = inVarToRegMap;
-            outVarToRegMaps[i] = outVarToRegMap;
+            inVarToRegMap[j]  = REG_STK;
+            outVarToRegMap[j] = REG_STK;
         }
-    }
-    else
-    {
-        for (unsigned i = 0; i < bbCount; i++)
-        {
-            inVarToRegMaps[i]  = nullptr;
-            outVarToRegMaps[i] = nullptr;
-        }
+
+        inVarToRegMaps[i]  = inVarToRegMap;
+        outVarToRegMaps[i] = outVarToRegMap;
     }
 }
 
@@ -2577,8 +2562,6 @@ void LinearScan::allocateRegisters()
     JITDUMP("*************** In LinearScan::allocateRegisters()\n");
     DBEXEC(verbose, lsraDumpIntervals("before allocateRegisters"));
 
-    initVarRegMaps();
-
     // at start, nothing is active except for register args
     for (Interval& interval : intervals)
     {
@@ -2587,15 +2570,17 @@ void LinearScan::allocateRegisters()
                             (interval.firstRefPosition != nullptr);
     }
 
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (enregisterLocalVars)
     {
+        initVarRegMaps();
+
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
         {
             getIntervalForLocalVar(e.Current())->isPartiallySpilled = false;
         }
-    }
 #endif
+    }
 
     resetRegState();
 
@@ -5623,9 +5608,8 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
     }
 #endif
 
-    VarToRegMap sameVarToRegMap = sharedCriticalVarToRegMap;
-    regMaskTP   sameWriteRegs   = RBM_NONE;
-    regMaskTP   diffReadRegs    = RBM_NONE;
+    regMaskTP sameWriteRegs = RBM_NONE;
+    regMaskTP diffReadRegs  = RBM_NONE;
 
     // For each var that may require resolution, classify them as:
     // - in the same register at the end of this block and at each target (no resolution needed)
@@ -5730,7 +5714,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
         else if (sameToReg != fromReg)
         {
             VarSetOps::AddElemD(compiler, sameResolutionSet, outResolutionSetVarIndex);
-            setVarReg(sameVarToRegMap, outResolutionSetVarIndex, sameToReg);
+            setVarReg(sharedCriticalVarToRegMap, outResolutionSetVarIndex, sameToReg);
             if (sameToReg != REG_STK)
             {
                 sameWriteRegs |= genRegMask(sameToReg, getIntervalForLocalVar(outResolutionSetVarIndex)->registerType);
