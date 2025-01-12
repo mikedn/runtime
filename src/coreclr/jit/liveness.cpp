@@ -582,13 +582,13 @@ public:
         {
             // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
 
-            for (LclVarDsc* varDsc : m_compiler->Params())
+            for (LclVarDsc* lcl : m_compiler->Params())
             {
-                noway_assert(!varDsc->IsPromoted());
+                noway_assert(!lcl->IsPromoted());
 
-                if (varDsc->HasLiveness())
+                if (lcl->HasLiveness())
                 {
-                    VarSetOps::AddElemD(m_compiler, m_liveOut, varDsc->GetLivenessBitIndex());
+                    VarSetOps::AddElemD(m_compiler, m_liveOut, lcl->GetLivenessBitIndex());
                 }
             }
         }

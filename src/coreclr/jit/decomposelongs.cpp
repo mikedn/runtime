@@ -222,24 +222,24 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
 
 GenTree* DecomposeLongs::DecomposeLclLoad(LIR::Use& use)
 {
-    GenTree*   tree     = use.Def();
-    LclVarDsc* varDsc   = tree->AsLclLoad()->GetLcl();
-    GenTree*   loResult = tree;
+    GenTreeLclLoad* load     = use.Def()->AsLclLoad();
+    LclVarDsc*      lcl      = load->GetLcl();
+    GenTree*        loResult = load;
     loResult->SetType(TYP_INT);
 
-    GenTree* hiResult = m_compiler->gtNewLclLoad(varDsc, TYP_INT);
+    GenTree* hiResult = m_compiler->gtNewLclLoad(lcl, TYP_INT);
     Range().InsertAfter(loResult, hiResult);
 
-    if (varDsc->IsPromoted())
+    if (lcl->IsPromoted())
     {
-        assert(varDsc->GetPromotedFieldCount() == 2);
+        assert(lcl->GetPromotedFieldCount() == 2);
 
-        loResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(0)));
-        hiResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(varDsc->GetPromotedFieldLclNum(1)));
+        loResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
+        hiResult->AsLclLoad()->SetLcl(m_compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(1)));
     }
     else
     {
-        m_compiler->lvaSetDoNotEnregister(varDsc DEBUGARG(Compiler::DNER_LocalField));
+        m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
 
         loResult->SetOper(GT_LCL_LOAD_FLD);
         loResult->AsLclLoadFld()->SetLclOffs(0);
@@ -584,8 +584,8 @@ GenTree* DecomposeLongs::DecomposeBswap(LIR::Use& use)
 {
     assert(use.Def()->OperIs(GT_BSWAP));
 
-    GenTreeUnOp* node = use.Def()->AsUnOp();
-    GenTreeOp* value = node->GetOp(0)->AsOp();
+    GenTreeUnOp* node  = use.Def()->AsUnOp();
+    GenTreeOp*   value = node->GetOp(0)->AsOp();
     assert(value->OperIs(GT_LONG));
     GenTree* loValue = value->GetOp(0);
     GenTree* hiValue = value->GetOp(1);

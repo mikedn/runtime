@@ -50,7 +50,7 @@
       been computed.
       - In most cases, this register must satisfy the constraints specified for the RefPosition.
       - In some cases, this is difficult:
-        - If a lclVar node currently lives in some register, it may not be desirable to move it
+        - If a local node currently lives in some register, it may not be desirable to move it
           (i.e. its current location may be desirable for future uses, e.g. if it's a callee save register,
           but needs to be in a specific arg register for a call).
         - In other cases there may be conflicts on the restrictions placed by the defining node and the node which
@@ -68,7 +68,7 @@
         In the new backend perhaps this should change (see also the note below under CodeGen).
     - A node's register is marked SPILLED if the node is a local that must be reloaded prior to use.
       - The register (GetRegNum()) on the node indicates the register to which it must be reloaded.
-      - For lclVar nodes, since the uses and defs are distinct tree nodes, it is always possible to annotate the node
+      - For local nodes, since the uses and defs are distinct nodes, it is always possible to annotate the node
         with the register to which the variable must be reloaded.
       - For other nodes, since they represent both the def and use, if the value must be reloaded to a different
         register, LSRA must insert a GT_RELOAD node in order to specify the register to which it should be reloaded.
@@ -714,13 +714,13 @@ void LinearScan::dumpVarRefPositions(const char* title) const
     {
         printf("\nVAR REFPOSITIONS %s\n", title);
 
-        for (LclVarDsc* varDsc : compiler->Locals())
+        for (LclVarDsc* lcl : compiler->Locals())
         {
-            printf("--- V%02u", varDsc->GetLclNum());
+            printf("--- V%02u", lcl->GetLclNum());
 
-            if (varDsc->IsRegCandidate())
+            if (lcl->IsRegCandidate())
             {
-                Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
+                Interval* interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
                 printf("  (Interval %d)\n", interval->intervalIndex);
                 for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
                 {
@@ -1309,7 +1309,7 @@ void LinearScan::assignPhysReg(RegRecord* regRec, Interval* interval)
 //    set of splitOrSpilledVars.
 //
 // Assumptions:
-//    "interval" must be a lclVar interval, as tree temps are never split.
+//    "interval" must be a local interval, as tree temps are never split.
 //    This is asserted in the call to getVarIndex().
 //
 void LinearScan::setIntervalAsSplit(Interval* interval)
@@ -1807,7 +1807,7 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
             // TODO-MIKE-Review: Check if the problem described here still happens, assignments are gone.
             // The importer will assign a GC type to the rhs of an assignment if the lhs type is a GC type,
             // even if the rhs is not. See the CEE_STLOC* case in impImportBlockCode(). As a result,
-            // we can have a LCL_LOAD node with a GC type, when the lclVar itself is an integer type.
+            // we can have a LCL_LOAD node with a GC type, when the local itself is an integer type.
             // The emitter will mark this register as holding a GC type. Therefore we must spill this value.
             // This was exposed on Arm32 with EH write-thru.
             if ((assignedInterval->recentRefPosition != nullptr) &&
@@ -2071,9 +2071,9 @@ void LinearScan::unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap in
 //
 // Notes:
 //    During the allocation pass (allocationPassComplete = false), we use the outVarToRegMap
-//    of the selected predecessor to determine the lclVar locations for the inVarToRegMap.
+//    of the selected predecessor to determine the local locations for the inVarToRegMap.
 //    During the resolution (write-back when allocationPassComplete = true) pass, we only
-//    modify the inVarToRegMap in cases where a lclVar was spilled after the block had been
+//    modify the inVarToRegMap in cases where a local was spilled after the block had been
 //    completed.
 void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 {
@@ -2155,7 +2155,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         // Special handling for variables live in/out of exception handlers.
         if (interval->isWriteThru)
         {
-            // There are 3 cases where we will leave writethru lclVars on the stack:
+            // There are 3 cases where we will leave writethru locals on the stack:
             // 1) There is no predecessor.
             // 2) It is conservatively or artificially live - that is, it has no next use,
             //    so there is no place for codegen to record that the register is no longer occupied.
@@ -2410,7 +2410,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 // Notes:
 //    This must be called both during the allocation and resolution (write-back) phases.
 //    This is because we need to have the outVarToRegMap locations in order to set the locations
-//    at successor blocks during allocation time, but if lclVars are spilled after a block has been
+//    at successor blocks during allocation time, but if locals  are spilled after a block has been
 //    completed, we need to record the REG_STK location for those variables at resolution time.
 
 void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
@@ -2584,31 +2584,23 @@ void LinearScan::allocateRegisters()
     // at start, nothing is active except for register args
     for (Interval& interval : intervals)
     {
-        Interval* currentInterval          = &interval;
-        currentInterval->recentRefPosition = nullptr;
-        currentInterval->isActive          = false;
-        if (currentInterval->isLocalVar)
-        {
-            LclVarDsc* varDsc = currentInterval->getLocalVar(compiler);
-
-            if (varDsc->IsRegParam() && (currentInterval->firstRefPosition != nullptr))
-            {
-                currentInterval->isActive = true;
-            }
-        }
+        interval.recentRefPosition = nullptr;
+        interval.isActive          = interval.isLocalVar && interval.getLocalVar(compiler)->IsRegParam() &&
+                            (interval.firstRefPosition != nullptr);
     }
 
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (enregisterLocalVars)
     {
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         for (VarSetOps::Enumerator e(compiler, largeVectorVars); e.MoveNext();)
         {
             getIntervalForLocalVar(e.Current())->isPartiallySpilled = false;
         }
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     }
+#endif
 
     resetRegState();
+
     for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
     {
         RegRecord* physRegRecord         = getRegisterRecord(reg);
@@ -2617,12 +2609,12 @@ void LinearScan::allocateRegisters()
 
         // Is this an incoming arg register? (Note that we don't, currently, consider reassigning
         // an incoming arg register as having spill cost.)
-        Interval* interval = physRegRecord->assignedInterval;
-        if (interval != nullptr)
+
+        if (Interval* interval = physRegRecord->assignedInterval)
         {
 #ifdef TARGET_ARM
             if ((interval->registerType != TYP_DOUBLE) || genIsValidDoubleReg(reg))
-#endif // TARGET_ARM
+#endif
             {
                 updateNextIntervalRef(reg, interval);
                 updateSpillCost(reg, interval);
@@ -2654,18 +2646,18 @@ void LinearScan::allocateRegisters()
     }
 #endif // DEBUG
 
-    BasicBlock* currentBlock  = nullptr;
-    unsigned    blockSeqIndex = 0;
-    unsigned    blockSeqCount = bbSeqCount;
-
+    BasicBlock*  currentBlock            = nullptr;
+    unsigned     blockSeqIndex           = 0;
+    unsigned     blockSeqCount           = bbSeqCount;
     LsraLocation prevLocation            = MinLocation;
     regMaskTP    regsToFree              = RBM_NONE;
     regMaskTP    delayRegsToFree         = RBM_NONE;
     regMaskTP    regsToMakeInactive      = RBM_NONE;
     regMaskTP    delayRegsToMakeInactive = RBM_NONE;
     regMaskTP    copyRegsToFree          = RBM_NONE;
-    regsInUseThisLocation                = RBM_NONE;
-    regsInUseNextLocation                = RBM_NONE;
+
+    regsInUseThisLocation = RBM_NONE;
+    regsInUseNextLocation = RBM_NONE;
 
     // This is the most recent RefPosition for which a register was allocated
     // - currently only used for DEBUG but maintained in non-debug, for clarity of code
@@ -2805,7 +2797,7 @@ void LinearScan::allocateRegisters()
                             if (assignedInterval->isActive)
                             {
                                 // If this is not the register most recently allocated, it must be from a copyReg,
-                                // or it was placed there by the inVarToRegMap. In either case it must be a lclVar.
+                                // or it was placed there by the inVarToRegMap. In either case it must be a local.
 
                                 if (!isAssignedToInterval(assignedInterval, physRegRecord))
                                 {
@@ -2882,7 +2874,7 @@ void LinearScan::allocateRegisters()
         // For the purposes of register resolution, we handle the DummyDefs before
         // the block boundary - so the RefTypeBB is after all the DummyDefs.
         // However, for the purposes of allocation, we want to handle the block
-        // boundary first, so that we can free any registers occupied by lclVars
+        // boundary first, so that we can free any registers occupied by locals
         // that aren't live in the next block and make them available for the
         // DummyDefs.
 
@@ -3025,15 +3017,16 @@ void LinearScan::allocateRegisters()
                 INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_ZERO_REF, currentInterval));
                 currentRefPosition->lastUse = true;
             }
-            LclVarDsc* varDsc = currentInterval->getLocalVar(compiler);
-            assert(varDsc != nullptr);
+
             assert(!blockInfo[compiler->fgFirstBB->bbNum].hasEHBoundaryIn || currentInterval->isWriteThru);
+
             if (blockInfo[compiler->fgFirstBB->bbNum].hasEHBoundaryIn ||
                 blockInfo[compiler->fgFirstBB->bbNum].hasEHPred)
             {
                 allocate = false;
             }
-            else if (refType == RefTypeParamDef && (varDsc->lvRefCntWtd() <= BB_UNITY_WEIGHT) &&
+            else if ((refType == RefTypeParamDef) &&
+                     (currentInterval->getLocalVar(compiler)->GetRefWeight() <= BB_UNITY_WEIGHT) &&
                      (!currentRefPosition->lastUse || (currentInterval->physReg == REG_STK)))
             {
                 // If this is a low ref-count parameter, and either it is used (def is not the last use) or it's
@@ -3048,6 +3041,7 @@ void LinearScan::allocateRegisters()
                 // it to a different register file.
                 allocate = false;
             }
+
             if (!allocate)
             {
                 INDEBUG(dumpLsraAllocationEvent(LSRA_EVENT_NO_ENTRY_REG_ALLOCATED, currentInterval));
@@ -3065,27 +3059,29 @@ void LinearScan::allocateRegisters()
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         else if (currentInterval->isUpperVector)
         {
-            // This is a save or restore of the upper half of a large vector lclVar.
-            Interval* lclVarInterval = currentInterval->relatedInterval;
-            assert(lclVarInterval->isLocalVar);
+            // This is a save or restore of the upper half of a large vector local.
+            Interval* lclInterval = currentInterval->relatedInterval;
+            assert(lclInterval->isLocalVar);
+
             if (refType == RefTypeUpperVectorSave)
             {
-                if ((lclVarInterval->physReg == REG_NA) ||
-                    (lclVarInterval->isPartiallySpilled && (currentInterval->physReg == REG_STK)))
+                if ((lclInterval->physReg == REG_NA) ||
+                    (lclInterval->isPartiallySpilled && (currentInterval->physReg == REG_STK)))
                 {
                     allocate = false;
                 }
                 else
                 {
-                    lclVarInterval->isPartiallySpilled = true;
+                    lclInterval->isPartiallySpilled = true;
                 }
             }
             else if (refType == RefTypeUpperVectorRestore)
             {
                 assert(currentInterval->isUpperVector);
-                if (lclVarInterval->isPartiallySpilled)
+
+                if (lclInterval->isPartiallySpilled)
                 {
-                    lclVarInterval->isPartiallySpilled = false;
+                    lclInterval->isPartiallySpilled = false;
                 }
                 else
                 {
@@ -3137,7 +3133,7 @@ void LinearScan::allocateRegisters()
                 RegRecord* physRegRecord = srcInterval->assignedReg;
 
                 // For a putarg_reg to be special, its next use location has to be the same
-                // as fixed reg's next kill location. Otherwise, if source lcl var's next use
+                // as fixed reg's next kill location. Otherwise, if source local's next use
                 // is after the kill of fixed reg but before putarg_reg's next use, fixed reg's
                 // kill would lead to spill of source but not the putarg_reg if it were treated
                 // as special.
@@ -3147,15 +3143,15 @@ void LinearScan::allocateRegisters()
                 {
                     assert(physRegRecord->regNum == srcInterval->physReg);
 
-                    // Special putarg_reg acts as a pass-thru since both source lcl var
+                    // Special putarg_reg acts as a pass-thru since both source local
                     // and putarg_reg have the same register allocated.  Physical reg
-                    // record of reg continue to point to source lcl var's interval
+                    // record of reg continue to point to source locals's interval
                     // instead of to putarg_reg's interval.  So if a spill of reg
-                    // allocated to source lcl var happens, to reallocate to another
+                    // allocated to source local happens, to reallocate to another
                     // tree node, before its use at call node it will lead to spill of
-                    // lcl var instead of putarg_reg since physical reg record is pointing
-                    // to lcl var's interval. As a result, arg reg would get trashed leading
-                    // to bad codegen. The assumption here is that source lcl var of a
+                    // local instead of putarg_reg since physical reg record is pointing
+                    // to locals's interval. As a result, arg reg would get trashed leading
+                    // to bad codegen. The assumption here is that source local of a
                     // special putarg_reg doesn't get spilled and re-allocated prior to
                     // its use at the call node.  This is ensured by marking physical reg
                     // record as busy until next kill.
@@ -3384,7 +3380,7 @@ void LinearScan::allocateRegisters()
                     // If this is a tree temp (non-localVar) interval, we will need an explicit move.
                     // Note: In theory a moveReg should cause the Interval to now have the new reg as its
                     // assigned register. However, that's not currently how this works.
-                    // If we ever actually move lclVar intervals instead of copying, this will need to change.
+                    // If we ever actually move local intervals instead of copying, this will need to change.
                     if (!currentInterval->isLocalVar)
                     {
                         currentRefPosition->moveReg = true;
@@ -3826,7 +3822,7 @@ void LinearScan::writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum re
         assert(lclNode->IsMultiReg());
 
         LclVarDsc* promotedLcl = lclNode->GetLcl();
-        // TODO-MIKE-Review: This should assert that lcl is really a field of the promoted local.
+        // TODO-MIKE-Review: This should assert that local is really a field of the promoted local.
         lclNode->SetRegNum(lcl->GetLclNum() - promotedLcl->GetPromotedFieldLclNum(0), reg);
     }
 }
@@ -3844,7 +3840,7 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
         assert(lclNode->IsMultiReg());
 
         LclVarDsc* promotedLcl = lclNode->GetLcl();
-        // TODO-MIKE-Review: This should assert that lcl is really a field of the promoted local.
+        // TODO-MIKE-Review: This should assert that local is really a field of the promoted local.
         lclNode->ClearRegNum(lcl->GetLclNum() - promotedLcl->GetPromotedFieldLclNum(0));
     }
 }
@@ -3855,13 +3851,13 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 //      Update the graph for a local reference.
 //      Also, track the register (if any) that is currently occupied.
 // Arguments:
-//      node: The lclVar that's being resolved
+//      node: The local load/store node that's being resolved
 //      currentRefPosition: the RefPosition associated with the node
 //
 // Details:
 // This method is called for each local reference, during the resolveRegisters
 // phase of LSRA.  It is responsible for keeping the following in sync:
-//   - varDsc->GetRegNum() (and GetOtherReg()) contain the unique register location.
+//   - lcl->GetRegNum() (and GetOtherReg()) contain the unique register location.
 //     If it is not in the same register through its lifetime, it is set to REG_STK.
 //   - interval->physReg is set to the assigned register
 //     (i.e. at the code location which is currently being handled by resolveRegisters())
@@ -3871,17 +3867,17 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 //       register throughout the method
 //   - RegRecord->assignedInterval points to the interval which currently occupies
 //     the register
-//   - For each lclVar node:
+//   - For each local node:
 //     - GetRegNum()/gtRegPair is set to the currently allocated register(s).
 //     - SPILLED is set on a use if it must be reloaded prior to use.
 //     - SPILL is set if it must be spilled after use.
 //
 // A copyReg is an ugly case where the variable must be in a specific (fixed) register,
 // but it currently resides elsewhere.  The register allocator must track the use of the
-// fixed register, but it marks the lclVar node with the register it currently lives in
+// fixed register, but it marks the local node with the register it currently lives in
 // and the code generator does the necessary move.
 //
-// Before beginning, the varDsc for each parameter must be set to its initial location.
+// Before beginning, the local for each parameter must be set to its initial location.
 //
 // NICE: Consider tracking whether an Interval is always in the same location (register/stack)
 // in which case it will require no resolution.
@@ -3894,7 +3890,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
 
     // Is this a tracked local? Or just a register allocated for loading a non-tracked one?
     Interval*  interval         = currentRefPosition->getInterval();
-    LclVarDsc* varDsc           = interval->getLocalVar(compiler);
+    LclVarDsc* lcl              = interval->getLocalVar(compiler);
     interval->recentRefPosition = currentRefPosition;
 
     // NOTE: we set the LastUse flag here unless we are extending lifetimes, in which case we write
@@ -3911,9 +3907,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         {
             // This can happen if the incoming location for the block was changed from a register to the stack
             // during resolution. In this case we're better off making it contained.
-            assert(inVarToRegMaps[curBBNum][varDsc->lvVarIndex] == REG_STK);
+            assert(inVarToRegMaps[curBBNum][lcl->GetLivenessBitIndex()] == REG_STK);
             currentRefPosition->registerAssignment = RBM_NONE;
-            clearLocalReg(node->AsLclVar(), varDsc);
+            clearLocalReg(node, lcl);
         }
     }
 
@@ -3922,7 +3918,8 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         assert(currentRefPosition->RegOptional());
         assert(interval->isSpilled);
 
-        varDsc->SetRegNum(REG_STK);
+        lcl->SetRegNum(REG_STK);
+
         if (interval->assignedReg != nullptr && interval->assignedReg->assignedInterval == interval)
         {
             updateAssignedInterval(interval->assignedReg, nullptr, interval->registerType);
@@ -3968,7 +3965,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         // Was this spilled after our predecessor was scheduled?
         if (interval->physReg == REG_NA)
         {
-            assert(inVarToRegMaps[curBBNum][varDsc->lvVarIndex] == REG_STK);
+            assert(inVarToRegMaps[curBBNum][lcl->GetLivenessBitIndex()] == REG_STK);
             currentRefPosition->reload = true;
         }
     }
@@ -3984,7 +3981,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
     {
         assert(currentRefPosition->refType != RefTypeDef);
         assert(interval->isSpilled);
-        varDsc->SetRegNum(REG_STK);
+
+        lcl->SetRegNum(REG_STK);
+
         if (!spillAfter)
         {
             interval->physReg = assignedReg;
@@ -4002,16 +4001,16 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
                     // We don't support RegOptional for multi-reg locals.
                     assert(!node->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
 
-                    // This is a use of lclVar that is flagged as reg-optional
+                    // This is a use of a local that is flagged as reg-optional
                     // by lower/codegen and marked for both reload and spillAfter.
                     // In this case we can avoid unnecessary reload and spill
-                    // by setting reg on lclVar to REG_STK and reg on tree node
+                    // by setting reg on local to REG_STK and reg on tree node
                     // to REG_NA.  Codegen will generate the code by considering
                     // it as a contained memory operand.
                     //
-                    // Note that varDsc->GetRegNum() is already to REG_STK above.
+                    // Note that lcl->GetRegNum() is already to REG_STK above.
                     interval->physReg = REG_NA;
-                    clearLocalReg(node, varDsc);
+                    clearLocalReg(node, lcl);
                     node->SetRegSpilled(0, false);
                     node->SetContained();
                 }
@@ -4031,9 +4030,9 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         // In the case of a pure def, don't bother spilling - just assign it to the
         // stack.  However, we need to remember that it was spilled.
         assert(interval->isSpilled);
-        varDsc->SetRegNum(REG_STK);
+        lcl->SetRegNum(REG_STK);
         interval->physReg = REG_NA;
-        clearLocalReg(node->AsLclVar(), varDsc);
+        clearLocalReg(node, lcl);
     }
     else // Not reload and Not pure-def that's spillAfter
     {
@@ -4051,7 +4050,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             // But for copyReg, the homeReg remains unchanged.
 
             assert(node != nullptr);
-            writeLocalReg(node->AsLclVar(), varDsc, interval->physReg);
+            writeLocalReg(node, lcl, interval->physReg);
 
             if (currentRefPosition->copyReg)
             {
@@ -4075,18 +4074,15 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
 
             if (!interval->isSpilled && !interval->isSplit)
             {
-                if (varDsc->GetRegNum() != REG_STK)
+                if (lcl->GetRegNum() == REG_STK)
                 {
-                    // If the register assignments don't match, then this interval is split.
-                    if (varDsc->GetRegNum() != assignedReg)
-                    {
-                        setIntervalAsSplit(interval);
-                        varDsc->SetRegNum(REG_STK);
-                    }
+                    lcl->SetRegNum(assignedReg);
                 }
-                else
+                // If the register assignments don't match, then this interval is split.
+                else if (lcl->GetRegNum() != assignedReg)
                 {
-                    varDsc->SetRegNum(assignedReg);
+                    setIntervalAsSplit(interval);
+                    lcl->SetRegNum(REG_STK);
                 }
             }
         }
@@ -4096,10 +4092,12 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             {
                 node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             }
+
             assert(interval->isSpilled);
             interval->physReg = REG_NA;
-            varDsc->SetRegNum(REG_STK);
+            lcl->SetRegNum(REG_STK);
         }
+
         if (writeThru && (node != nullptr))
         {
             // This is a def of a write-thru EH var (only defs are marked 'writeThru').
@@ -4123,18 +4121,19 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             //
             // TODO: This approach would still create the resolution moves but during codegen, will check for
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
-            // better way to avoid resolution moves, perhaps by updating the varDsc->SetRegNum(REG_STK) in this
+            // better way to avoid resolution moves, perhaps by updating the lcl->SetRegNum(REG_STK) in this
             // method?
             node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
-            varDsc->lvSpillAtSingleDef = true;
+            lcl->lvSpillAtSingleDef = true;
         }
     }
 
     // Update the physRegRecord for the register, so that we know what vars are in
     // regs at the block boundaries
     RegRecord* physRegRecord = getRegisterRecord(homeReg);
+
     if (spillAfter || currentRefPosition->lastUse)
     {
         interval->isActive    = false;
@@ -4152,15 +4151,15 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
     }
 }
 
-void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* tree)
+void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* node)
 {
     if (IntRegMask mask = currentRefPosition->registerAssignment)
     {
-        tree->SetRegNum(currentRefPosition->getMultiRegIdx(), genRegNumFromMask(mask));
+        node->SetRegNum(currentRefPosition->getMultiRegIdx(), genRegNumFromMask(mask));
     }
     else
     {
-        assert(!tree->HasReg(currentRefPosition->getMultiRegIdx()));
+        assert(!node->HasReg(currentRefPosition->getMultiRegIdx()));
     }
 }
 
@@ -4270,11 +4269,10 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
             assert(compiler->compEnregStructLocals());
             // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
             assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-            const GenTreeLclVarCommon* lcl    = tree->AsLclVarCommon();
-            const LclVarDsc*           varDsc = lcl->GetLcl();
+            const GenTreeLclVarCommon* load = tree->AsLclVarCommon();
             // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
             // Note that for multiReg node we keep each regType in the tree and don't need this.
-            regType = varDsc->GetRegisterType(lcl);
+            regType = load->GetLcl()->GetRegisterType(load);
             assert(regType != TYP_UNDEF);
         }
 
@@ -4309,7 +4307,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
 //    tree              - This is the node before which we will insert the Save.
 //                        It will be a call or some node that turns into a call.
 //    refPosition       - The RefTypeUpperVectorSave RefPosition.
-//    upperInterval     - The Interval for the upper half of the large vector lclVar.
+//    upperInterval     - The Interval for the upper half of the large vector local.
 //    block             - the BasicBlock containing the call.
 //
 void LinearScan::insertUpperVectorSave(GenTree*     tree,
@@ -4319,16 +4317,16 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 {
     JITDUMP("Inserting UpperVectorSave for RP #%d before %u.%s:\n", refPosition->rpNum, tree->GetID(),
             GenTree::OpName(tree->GetOper()));
-    Interval* lclVarInterval = upperVectorInterval->relatedInterval;
-    assert(lclVarInterval->isLocalVar);
+    Interval* lclInterval = upperVectorInterval->relatedInterval;
+    assert(lclInterval->isLocalVar);
     assert(refPosition->getInterval() == upperVectorInterval);
-    regNumber lclVarReg = lclVarInterval->physReg;
-    if (lclVarReg == REG_NA)
+    regNumber lclReg = lclInterval->physReg;
+    if (lclReg == REG_NA)
     {
         return;
     }
 
-    LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
+    LclVarDsc* lcl = lclInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
     // On Arm64, we must always have a register to save the upper half,
@@ -4347,7 +4345,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     // Insert the save before the call.
 
     GenTree* saveLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
-    saveLcl->SetRegNum(lclVarReg);
+    saveLcl->SetRegNum(lclReg);
     saveLcl->ClearRegSpillSet();
     SetLsraAdded(saveLcl);
 
@@ -4383,9 +4381,9 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
 //
 // Arguments:
 //    tree                - This is the node for which we will insert the Restore.
-//                          If non-null, it will be a use of the large vector lclVar.
+//                          If non-null, it will be a use of the large vector local.
 //                          If null, the Restore will be added to the end of the block.
-//    upperVectorInterval - The Interval for the upper vector for the lclVar.
+//    upperVectorInterval - The Interval for the upper vector for the local.
 //    block               - the BasicBlock into which we will be inserting the code.
 //
 // Notes:
@@ -4398,18 +4396,18 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
                                           BasicBlock*  block)
 {
     JITDUMP("Adding UpperVectorRestore for RP #%d ", refPosition->rpNum);
-    Interval* lclVarInterval = upperVectorInterval->relatedInterval;
-    assert(lclVarInterval->isLocalVar);
-    regNumber lclVarReg = lclVarInterval->physReg;
+    Interval* lclInterval = upperVectorInterval->relatedInterval;
+    assert(lclInterval->isLocalVar);
+    regNumber lclReg = lclInterval->physReg;
 
-    // We should not call this method if the lclVar is not in a register (we should have simply marked the entire
-    // lclVar as spilled).
-    assert(lclVarReg != REG_NA);
-    LclVarDsc* lcl = lclVarInterval->getLocalVar(compiler);
+    // We should not call this method if the local is not in a register
+    // (we should have  simply marked the entire local as spilled).
+    assert(lclReg != REG_NA);
+    LclVarDsc* lcl = lclInterval->getLocalVar(compiler);
     assert(Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()));
 
     GenTree* restoreLcl = compiler->gtNewLclLoad(lcl, lcl->GetType());
-    restoreLcl->SetRegNum(lclVarReg);
+    restoreLcl->SetRegNum(lclReg);
     restoreLcl->ClearRegSpillSet();
     SetLsraAdded(restoreLcl);
 
@@ -4422,7 +4420,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
     if (restoreReg == REG_NA)
     {
         // We need a stack location for this.
-        assert(lclVarInterval->isSpilled);
+        assert(lclInterval->isSpilled);
 #ifdef TARGET_AMD64
         assert(refPosition->assignedReg() == REG_NA);
         simdNode->gtFlags |= GTF_NOREG_AT_USE;
@@ -4536,8 +4534,8 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
         else
         {
             // The UpperVector RefPositions spill to the localVar's home location.
-            Interval* lclVarInterval = interval->relatedInterval;
-            assert(lclVarInterval->isSpilled || (!refPosition->spillAfter && !refPosition->reload));
+            Interval* lclInterval = interval->relatedInterval;
+            assert(lclInterval->isSpilled || (!refPosition->spillAfter && !refPosition->reload));
         }
         return;
     }
@@ -4616,7 +4614,7 @@ void LinearScan::resolveRegisters()
     // At each branch, we identify the location of each liveOut interval, and check
     // against the RefPositions at the target.
 
-    // Clear register assignments - these will be reestablished as lclVar defs (including RefTypeParamDefs)
+    // Clear register assignments - these will be reestablished as local defs (including RefTypeParamDefs)
     // are encountered.
     if (enregisterLocalVars)
     {
@@ -4633,7 +4631,7 @@ void LinearScan::resolveRegisters()
             physRegRecord->recentRefPosition = nullptr;
         }
 
-        // Clear "recentRefPosition" for lclVar intervals
+        // Clear "recentRefPosition" for local intervals
         for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
         {
             if (localVarIntervals[varIndex] != nullptr)
@@ -4785,7 +4783,7 @@ void LinearScan::resolveRegisters()
                 noway_assert(node != nullptr);
                 // If the associated interval is an UpperVector, this must be a RefPosition for a LargeVectorType
                 // LocalVar.
-                // Otherwise, this  is a non-lclVar interval that has been spilled, and we don't need to do anything.
+                // Otherwise, this  is a non-local interval that has been spilled, and we don't need to do anything.
                 Interval* interval = refPosIterator->getInterval();
                 if (interval->isUpperVector)
                 {
@@ -4804,7 +4802,7 @@ void LinearScan::resolveRegisters()
                 }
                 else
                 {
-                    // This is a non-lclVar interval that must have been spilled.
+                    // This is a non-local interval that must have been spilled.
                     assert(!refPosIterator->getInterval()->isLocalVar);
                     assert(refPosIterator->getInterval()->firstRefPosition->spillAfter);
                 }
@@ -4848,12 +4846,11 @@ void LinearScan::resolveRegisters()
 
                 if (interval->isLocalVar && !interval->isStructField)
                 {
-                    LclVarDsc* varDsc = interval->getLocalVar(compiler);
                     // This must be a dead definition. We need to mark the local
                     // so that it's not considered a candidate for lvRegister, as
                     // this dead def will have to go to the stack.
                     assert(refPosIterator->refType == RefTypeDef);
-                    varDsc->SetRegNum(REG_STK);
+                    interval->getLocalVar(compiler)->SetRegNum(REG_STK);
                 }
 
                 continue;
@@ -5001,19 +4998,19 @@ void LinearScan::resolveRegisters()
         resolveEdges();
 
         // Verify register assignments on variables
-        for (LclVarDsc* varDsc : compiler->LivenessLocals())
+        for (LclVarDsc* lcl : compiler->LivenessLocals())
         {
-            if (!varDsc->IsRegCandidate())
+            if (!lcl->IsRegCandidate())
             {
-                assert(varDsc->GetRegNum() == REG_STK);
+                assert(lcl->GetRegNum() == REG_STK);
                 continue;
             }
 
-            Interval* interval = getIntervalForLocalVar(varDsc->lvVarIndex);
+            Interval* interval = getIntervalForLocalVar(lcl->lvVarIndex);
 
             // Determine initial position for parameters
 
-            if (varDsc->IsParam())
+            if (lcl->IsParam())
             {
                 regMaskTP initialRegMask = interval->firstRefPosition->registerAssignment;
                 regNumber initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
@@ -5021,7 +5018,7 @@ void LinearScan::resolveRegisters()
                                            : genRegNumFromMask(initialRegMask);
 
 #ifdef TARGET_ARM
-                if (varTypeIsMultiReg(varDsc->GetType()))
+                if (varTypeIsMultiReg(lcl->GetType()))
                 {
                     // TODO-ARM-NYI: Map the hi/lo intervals back to lvRegNum and GetOtherReg() (these should NYI
                     // before this)
@@ -5030,27 +5027,26 @@ void LinearScan::resolveRegisters()
                 else
 #endif // TARGET_ARM
                 {
-                    varDsc->SetParamInitialReg(initialReg);
-                    JITDUMP("  Set V%02u parameter initial register to %s\n", varDsc->GetLclNum(),
-                            getRegName(initialReg));
+                    lcl->SetParamInitialReg(initialReg);
+                    JITDUMP("  Set V%02u parameter initial register to %s\n", lcl->GetLclNum(), getRegName(initialReg));
                 }
 
                 // Stack args that are part of dependently-promoted structs should never be register candidates (see
                 // LinearScan::isRegCandidate).
-                assert(varDsc->IsRegParam() || !varDsc->IsDependentPromotedField(compiler));
+                assert(lcl->IsRegParam() || !lcl->IsDependentPromotedField(compiler));
             }
 
             // If lvRegNum is REG_STK, that means that either no register
             // was assigned, or (more likely) that the same register was not
             // used for all references.  In that case, codegen gets the register
             // from the tree node.
-            if (varDsc->GetRegNum() == REG_STK || interval->isSpilled || interval->isSplit)
+            if (lcl->GetRegNum() == REG_STK || interval->isSpilled || interval->isSplit)
             {
                 // For codegen purposes, we'll set lvRegNum to whatever register
                 // it's currently in as we go.
                 // However, we never mark an interval as lvRegister if it has either been spilled
                 // or split.
-                varDsc->lvRegister = false;
+                lcl->lvRegister = false;
 
                 // Skip any dead defs or exposed uses
                 // (first use exposed will only occur when there is no explicit initialization)
@@ -5062,19 +5058,19 @@ void LinearScan::resolveRegisters()
                 if (firstRefPosition == nullptr)
                 {
                     // Dead interval
-                    varDsc->lvLRACandidate = false;
-                    if (varDsc->lvRefCnt() == 0)
+                    lcl->lvLRACandidate = false;
+                    if (lcl->lvRefCnt() == 0)
                     {
-                        varDsc->lvOnFrame = false;
+                        lcl->lvOnFrame = false;
                     }
                     else
                     {
-                        // We may encounter cases where a lclVar actually has no references, but
-                        // a non-zero refCnt.  For safety (in case this is some "hidden" lclVar that we're
+                        // We may encounter cases where a local actually has no references, but a
+                        // non-zero ref count. For safety (in case this is some "hidden" local that we're
                         // not correctly recognizing), we'll mark those as needing a stack location.
                         // TODO-Cleanup: Make this an assert if/when we correct the refCnt
                         // updating.
-                        varDsc->lvOnFrame = true;
+                        lcl->lvOnFrame = true;
                     }
                 }
                 else
@@ -5082,28 +5078,28 @@ void LinearScan::resolveRegisters()
                     // If the interval was not spilled, it doesn't need a stack location.
                     if (!interval->isSpilled)
                     {
-                        varDsc->lvOnFrame = false;
+                        lcl->lvOnFrame = false;
                     }
                     if (firstRefPosition->registerAssignment == RBM_NONE || firstRefPosition->spillAfter)
                     {
                         // Either this RefPosition is spilled, or regOptional or it is not a "real" def or use
                         assert(firstRefPosition->spillAfter || firstRefPosition->RegOptional() ||
                                (firstRefPosition->refType != RefTypeDef && firstRefPosition->refType != RefTypeUse));
-                        varDsc->SetRegNum(REG_STK);
+                        lcl->SetRegNum(REG_STK);
                     }
                     else
                     {
-                        varDsc->SetRegNum(firstRefPosition->assignedReg());
+                        lcl->SetRegNum(firstRefPosition->assignedReg());
                     }
                 }
             }
             else
             {
-                varDsc->lvRegister = true;
-                varDsc->lvOnFrame  = false;
+                lcl->lvRegister = true;
+                lcl->lvOnFrame  = false;
 
 #ifdef DEBUG
-                regMaskTP registerAssignment = genRegMask(varDsc->GetRegNum());
+                regMaskTP registerAssignment = genRegMask(lcl->GetRegNum());
                 assert(!interval->isSpilled && !interval->isSplit);
                 RefPosition* refPosition = interval->firstRefPosition;
                 assert(refPosition != nullptr);
@@ -5148,7 +5144,7 @@ void LinearScan::resolveRegisters()
 
 //
 //------------------------------------------------------------------------
-// insertMove: Insert a move of a lclVar with the given lclNum into the given block.
+// insertMove: Insert a move of a local with the given lclNum into the given block.
 //
 // Arguments:
 //    block          - the BasicBlock into which the move will be inserted.
@@ -5168,29 +5164,29 @@ void LinearScan::resolveRegisters()
 void LinearScan::insertMove(
     BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum fromReg, RegNum toReg)
 {
-    LclVarDsc* varDsc = interval->getLocalVar(compiler);
-    // the lclVar must be a register candidate
-    assert(varDsc->IsRegCandidate());
+    LclVarDsc* lcl = interval->getLocalVar(compiler);
+    // the local must be a register candidate
+    assert(lcl->IsRegCandidate());
     // One or both MUST be a register
     assert(fromReg != REG_STK || toReg != REG_STK);
     // They must not be the same register.
     assert(fromReg != toReg);
 
     // This var can't be marked lvRegister now
-    varDsc->SetRegNum(REG_STK);
+    lcl->SetRegNum(REG_STK);
 
-    GenTree* src = compiler->gtNewLclLoad(varDsc, varDsc->GetType());
+    GenTree* src = compiler->gtNewLclLoad(lcl, lcl->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
 
     // There are three cases we need to handle:
-    // - We are loading a lclVar from the stack.
-    // - We are storing a lclVar to the stack.
-    // - We are copying a lclVar between registers.
+    // - We are loading a local from the stack.
+    // - We are storing a local to the stack.
+    // - We are copying a local between registers.
     //
     // In the first and second cases, the local node's register will be marked with SPILLED and SPILL, respectively.
     // It is up to the code generator to ensure that any necessary normalization is done when loading or storing the
-    // lclVar's value.
+    // local's value.
     //
     // In the third case, we generate COPY(LCL_LOAD) and type each node with the normalized type of the local.
     // This is safe because a local is always normalized once it is in a register.
@@ -5208,11 +5204,11 @@ void LinearScan::insertMove(
     }
     else
     {
-        var_types movType = varDsc->GetRegisterType();
+        var_types movType = lcl->GetRegisterType();
 
         src->SetType(movType);
         dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, movType, src);
-        // This is the new home of the lclVar - indicate that by clearing the GTF_VAR_DEATH flag.
+        // This is the new home of the local - indicate that by clearing the GTF_VAR_DEATH flag.
         // Note that if src is itself a lastUse, this will have no effect.
         dst->gtFlags &= ~GTF_VAR_DEATH;
         src->SetRegNum(fromReg);
@@ -5685,8 +5681,8 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
         {
             // If there's a path on which this var isn't live, it may use the original value in sameToReg.
             // In this case, sameToReg will be in the liveOutRegs of this block.
-            // Similarly, if sameToReg is in sameWriteRegs, it has already been used (i.e. for a lclVar that's
-            // live only at another target), and we can't copy another lclVar into that reg in this block.
+            // Similarly, if sameToReg is in sameWriteRegs, it has already been used (i.e. for a local that's
+            // live only at another target), and we can't copy another local into that reg in this block.
             regMaskTP sameToRegMask =
                 genRegMask(sameToReg, getIntervalForLocalVar(outResolutionSetVarIndex)->registerType);
             if (maybeSameLivePaths &&
@@ -5843,8 +5839,8 @@ void LinearScan::resolveEdges()
 {
     JITDUMP("RESOLVING EDGES\n");
 
-    // The resolutionCandidateVars set was initialized with all the lclVars that are live-in to
-    // any block. We now intersect that set with any lclVars that ever spilled or split.
+    // The resolutionCandidateVars set was initialized with all the locals that are live-in to
+    // any block. We now intersect that set with any locals that ever spilled or split.
     // If there are no candidates for resolution, simply return.
 
     VarSetOps::IntersectionD(compiler, resolutionCandidateVars, splitOrSpilledVars);
@@ -6045,7 +6041,7 @@ void LinearScan::resolveEdges()
 //    fromBlock     - the block from which the edge originates
 //    toBlock       - the block at which the edge terminates
 //    resolveType   - the type of resolution to be performed
-//    liveSet       - the set of tracked lclVar indices which may require resolution
+//    liveSet       - the set of tracked local indices which may require resolution
 //
 // Return Value:
 //    None.
@@ -7194,7 +7190,7 @@ void LinearScan::lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const
             // A node can define a register, but not produce a value for a parent to consume,
             // i.e. in the "localDefUse" case.
             // There used to be an assert here that we wouldn't spill such a node.
-            // However, we can have unused lclVars that wind up being the node at which
+            // However, we can have unused locals that wind up being the node at which
             // it is spilled. This probably indicates a bug, but we don't really want to
             // assert during a dump.
             spillChar = spillChar == 'S' ? '$' : '*';
@@ -7305,29 +7301,25 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         for (; refPosIterator != refPositions.end() && refPosIterator->refType != RefTypeBB; ++refPosIterator)
         {
             Interval*  interval = refPosIterator->getInterval();
-            LclVarDsc* varDsc   = interval->getLocalVar(compiler);
-            printf(" V%02d", varDsc->GetLclNum());
+            LclVarDsc* lcl      = interval->getLocalVar(compiler);
+            printf(" V%02u", lcl->GetLclNum());
+
             if (mode == LSRA_DUMP_POST)
             {
-                regNumber reg;
-                if (refPosIterator->registerAssignment == RBM_NONE)
-                {
-                    reg = REG_STK;
-                }
-                else
-                {
-                    reg = refPosIterator->assignedReg();
-                }
-                printf("(");
-                regNumber assignedReg = varDsc->GetRegNum();
-                regNumber argReg      = varDsc->IsRegParam() ? varDsc->GetParamReg() : REG_STK;
+                regNumber reg =
+                    refPosIterator->registerAssignment == RBM_NONE ? REG_STK : refPosIterator->assignedReg();
+                regNumber assignedReg = lcl->GetRegNum();
+                regNumber argReg      = lcl->IsRegParam() ? lcl->GetParamReg() : REG_STK;
 
-                assert(reg == assignedReg || !varDsc->lvRegister);
+                assert(reg == assignedReg || !lcl->lvRegister);
+
+                printf("(");
+
                 if (reg != argReg)
                 {
-                    printf(getRegName(argReg));
-                    printf("=>");
+                    printf("%s=>", getRegName(argReg));
                 }
+
                 printf("%s)", getRegName(reg));
             }
         }
@@ -7770,7 +7762,7 @@ void LinearScan::dumpLsraAllocationEvent(
 //    In order to make the table as dense as possible (for ease of reading the dumps),
 //    we determine the minimum regColumnWidth width required to represent:
 //      regs, by name (e.g. eax or xmm0) - this is fixed at 4 characters.
-//      intervals, as Vnn for lclVar intervals, or as I<num> for other intervals.
+//      intervals, as Vnn for local intervals, or as I<num> for other intervals.
 //    The table is indented by the amount needed for dumpRefPositionShort, which is
 //    captured in shortRefPositionDumpWidth.
 //
@@ -8568,13 +8560,13 @@ void LinearScan::verifyFinalAllocation()
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
                     else if (interval->isUpperVector && !currentRefPosition->RegOptional())
                     {
-                        // These only require a register if they are not RegOptional, and their lclVar
+                        // These only require a register if they are not RegOptional, and their local
                         // interval is living in a register and not already partially spilled.
                         if ((currentRefPosition->refType == RefTypeUpperVectorSave) ||
                             (currentRefPosition->refType == RefTypeUpperVectorRestore))
                         {
-                            Interval* lclVarInterval = interval->relatedInterval;
-                            assert((lclVarInterval->physReg == REG_NA) || lclVarInterval->isPartiallySpilled);
+                            Interval* lclInterval = interval->relatedInterval;
+                            assert((lclInterval->physReg == REG_NA) || lclInterval->isPartiallySpilled);
                         }
                     }
 #endif
@@ -8594,7 +8586,7 @@ void LinearScan::verifyFinalAllocation()
     {
         if (currentBlock->bbNum > bbNumMaxBeforeResolution)
         {
-            // If we haven't enregistered an lclVars, we have no resolution blocks.
+            // If we haven't enregistered any locals, we have no resolution blocks.
             assert(enregisterLocalVars);
 
             if (verbose)
@@ -8823,7 +8815,7 @@ void RegisterSelection::reset(Interval* interval, RefPosition* refPos)
     nextRefPos      = refPosition->nextRefPosition;
     candidates      = refPosition->registerAssignment;
     preferences     = currentInterval->registerPreferences;
-    // This is not actually a preference, it's merely to track the lclVar that this "specialPutArg" is using.
+    // This is not actually a preference, it's merely to track the local that this "specialPutArg" is using.
     relatedInterval     = currentInterval->isSpecialPutArg ? nullptr : currentInterval->relatedInterval;
     relatedPreferences  = relatedInterval == nullptr ? RBM_NONE : relatedInterval->getCurrentPreferences();
     rangeEndLocation    = refPosition->getRangeEndLocation();

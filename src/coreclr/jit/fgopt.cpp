@@ -5466,7 +5466,8 @@ bool Compiler::fgUpdateFlowGraph(Lowering* lowering, bool doTailDuplication)
                         if (test->OperIs(GT_JTRUE))
                         {
                             GenTree* cond = gtReverseCond(test->AsUnOp()->GetOp(0));
-                            assert(cond == test->AsUnOp()->GetOp(0)); // Ensure `gtReverseCond` did not create a new node.
+                            // Ensure `gtReverseCond` did not create a new node.
+                            assert(cond == test->AsUnOp()->GetOp(0));
                             test->AsUnOp()->SetOp(0, cond);
                         }
                         else

@@ -2629,18 +2629,18 @@ void Compiler::generatePatchpointInfo()
     // but would need to adjust all consumers, too.
     for (unsigned lclNum = 0; lclNum < info.compLocalsCount; lclNum++)
     {
-        LclVarDsc* const varDsc = lvaGetDesc(lclNum);
+        LclVarDsc* const lcl = lvaGetDesc(lclNum);
 
         // We expect all these to have stack homes, and be FP relative
-        assert(varDsc->lvOnFrame);
-        assert(varDsc->lvFramePointerBased);
+        assert(lcl->lvOnFrame);
+        assert(lcl->lvFramePointerBased);
 
         // Record FramePtr relative offset (no localloc yet)
-        patchpointInfo->SetOffset(lclNum, varDsc->GetStackOffset());
+        patchpointInfo->SetOffset(lclNum, lcl->GetStackOffset());
 
         // Note if IL stream contained an address-of that potentially leads to exposure.
         // This bit of IL may be skipped by OSR partial importation.
-        if (varDsc->lvHasLdAddrOp)
+        if (lcl->lvHasLdAddrOp)
         {
             patchpointInfo->SetIsExposed(lclNum);
         }
@@ -2667,9 +2667,7 @@ void Compiler::generatePatchpointInfo()
 
     if (compGSReorderStackLayout)
     {
-        assert(lvaGSSecurityCookie != BAD_VAR_NUM);
-        LclVarDsc* const varDsc = lvaGetDesc(lvaGSSecurityCookie);
-        patchpointInfo->SetSecurityCookieOffset(varDsc->GetStackOffset());
+        patchpointInfo->SetSecurityCookieOffset(lvaGetDesc(lvaGSSecurityCookie)->GetStackOffset());
         JITDUMP("--OSR-- security cookie V%02u offset is FP %d\n", lvaGSSecurityCookie,
                 patchpointInfo->SecurityCookieOffset());
     }
@@ -4740,9 +4738,9 @@ void dVar(unsigned lclNum)
     cVar(JitTls::GetCompiler(), lclNum);
 }
 
-void dVarDsc(LclVarDsc* varDsc)
+void dVarDsc(LclVarDsc* lcl)
 {
-    cVarDsc(JitTls::GetCompiler(), varDsc);
+    cVarDsc(JitTls::GetCompiler(), lcl);
 }
 
 void dVars()

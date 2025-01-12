@@ -300,9 +300,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             {
                 if (fieldNode->OperIs(GT_LCL_LOAD))
                 {
-                    LclVarDsc* varDsc = fieldNode->AsLclLoad()->GetLcl();
-
-                    if (!varDsc->lvDoNotEnregister)
+                    if (!fieldNode->AsLclLoad()->GetLcl()->lvDoNotEnregister)
                     {
                         fieldNode->SetRegOptional();
                     }

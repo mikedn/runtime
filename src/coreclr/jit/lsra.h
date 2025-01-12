@@ -262,7 +262,7 @@ private:
 
     void buildIntervals();
     void identifyCandidates();
-    bool isRegCandidate(LclVarDsc* varDsc);
+    bool isRegCandidate(LclVarDsc* lcl);
     void identifyCandidatesExceptionDataflow();
 
 #ifdef DEBUG
@@ -785,11 +785,9 @@ private:
         return localVarIntervals[varIndex];
     }
 
-    Interval* getIntervalForLocalVarNode(GenTreeLclVar* tree)
+    Interval* getIntervalForLocalVarNode(GenTreeLclVar* lclRef) const
     {
-        LclVarDsc* varDsc = tree->GetLcl();
-        assert(varDsc->lvTracked);
-        return getIntervalForLocalVar(varDsc->lvVarIndex);
+        return getIntervalForLocalVar(lclRef->GetLcl()->GetLivenessBitIndex());
     }
 
     RegRecord* getRegisterRecord(RegNum regNum);

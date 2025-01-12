@@ -2251,8 +2251,8 @@ void CodeGen::GenJmp(GenTree* jmp)
 
             GetEmitter()->Ins_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
 
-            // Update argReg life and GC Info to indicate varDsc stack slot is dead and argReg is going live.
-            // Note that we cannot modify varDsc->GetRegNum() here because another basic block may not be
+            // Update argReg life and GC Info to indicate local stack slot is dead and argReg is going live.
+            // Note that we cannot modify lcl->GetRegNum() here because another basic block may not be
             // expecting it. Therefore manually update life of argReg.  Note that GT_JMP marks the end of
             // the basic block and after which reg life and gc info will be recomputed for the new block
             // in genCodeForBBList().

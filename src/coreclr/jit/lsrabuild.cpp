@@ -664,9 +664,9 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
             for (VarSetOps::Enumerator e(compiler, currentLiveVars); e.MoveNext();)
             {
                 const unsigned varIndex = e.Current();
-                LclVarDsc*     varDsc   = compiler->lvaGetDescByTrackedIndex(varIndex);
+                LclVarDsc*     lcl      = compiler->lvaGetDescByTrackedIndex(varIndex);
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
+                if (Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
                 {
                     if (!VarSetOps::IsMember(compiler, largeVectorCalleeSaveCandidateVars, varIndex))
                     {
@@ -675,7 +675,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
                 }
                 else
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                    if (varTypeIsFloating(varDsc->GetType()) &&
+                    if (varTypeIsFloating(lcl->GetType()) &&
                         !VarSetOps::IsMember(compiler, fpCalleeSaveCandidateVars, varIndex))
                 {
                     continue;
@@ -705,7 +705,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
                         // If there are no callee-saved registers, the call could kill all the registers.
                         // This is a valid state, so in that case assert should not trigger. The RA will spill in order
                         // to free a register later.
-                        assert(compiler->opts.compDbgEnC || (calleeSaveRegs(varDsc->GetType()) == RBM_NONE));
+                        assert(compiler->opts.compDbgEnC || (calleeSaveRegs(lcl->GetType()) == RBM_NONE));
                     }
                 }
             }
@@ -740,10 +740,10 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
         return false;
     }
 
-    LclVarDsc* varDsc = store->GetLcl();
-    assert(varDsc->IsPromoted());
+    LclVarDsc* lcl = store->GetLcl();
+    assert(lcl->IsPromoted());
 
-    bool isMultiReg = varDsc->IsIndependentPromoted();
+    bool isMultiReg = lcl->IsIndependentPromoted();
 
     if (!isMultiReg)
     {
@@ -751,7 +751,7 @@ bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
     }
 
 #ifdef DEBUG
-    for (LclVarDsc* fieldLcl : compiler->PromotedFields(varDsc))
+    for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
     {
         assert(fieldLcl->IsRegCandidate() == isMultiReg);
     }
@@ -1257,20 +1257,21 @@ void LinearScan::insertZeroInitRefPositions()
     {
         for (VarSetOps::Enumerator e(compiler, finallyVars); e.MoveNext();)
         {
-            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
+            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(e.Current());
 
-            if (!varDsc->IsParam() && varDsc->IsRegCandidate())
+            if (!lcl->IsParam() && lcl->IsRegCandidate())
             {
-                JITDUMP("V%02u is a finally var:", varDsc->GetLclNum());
+                JITDUMP("V%02u is a finally var:", lcl->GetLclNum());
                 Interval* interval = getIntervalForLocalVar(e.Current());
-                if (compiler->info.compInitMem || varTypeIsGC(varDsc->GetType()))
+
+                if (compiler->info.compInitMem || varTypeIsGC(lcl->GetType()))
                 {
                     if (interval->recentRefPosition == nullptr)
                     {
                         JITDUMP(" creating ZeroInit\n");
                         RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeZeroInit);
                         pos->setRegOptional(true);
-                        varDsc->lvMustInit = true;
+                        lcl->lvMustInit = true;
                     }
                     else
                     {
@@ -1506,12 +1507,13 @@ void LinearScan::buildIntervals()
                         for (VarSetOps::Enumerator e(compiler, newLiveIn); e.MoveNext();)
                         {
                             // Add a dummyDef for any candidate vars that are in the "newLiveIn" set.
-                            LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
-                            assert(varDsc->IsRegCandidate());
+                            assert(compiler->lvaGetDescByTrackedIndex(e.Current())->IsRegCandidate());
+
                             Interval*    interval = getIntervalForLocalVar(e.Current());
                             RefPosition* pos      = newRefPosition(interval, currentLoc, RefTypeDummyDef);
                             pos->setRegOptional(true);
                         }
+
                         JITDUMP("Finished creating dummy definitions\n\n");
                     }
                 }
@@ -1704,10 +1706,10 @@ void LinearScan::buildIntervals()
         {
             for (VarSetOps::Enumerator e(compiler, exceptVars); e.MoveNext();)
             {
-                LclVarDsc* varDsc   = compiler->lvaGetDescByTrackedIndex(e.Current());
+                LclVarDsc* lcl      = compiler->lvaGetDescByTrackedIndex(e.Current());
                 Interval*  interval = getIntervalForLocalVar(e.Current());
                 assert(interval->isWriteThru);
-                BasicBlock::weight_t weight = varDsc->lvRefCntWtd();
+                BasicBlock::weight_t weight = lcl->lvRefCntWtd();
 
                 // We'd like to only allocate registers for EH vars that have enough uses
                 // to compensate for the additional registers being live (and for the possibility
@@ -1738,7 +1740,7 @@ void LinearScan::buildIntervals()
                     // Note that for writeThru intervals we don't update the preferences to be only callee-save.
                     unsigned calleeSaveCount =
                         (varTypeUsesFloatReg(interval->registerType)) ? CNT_CALLEE_SAVED_FLOAT : CNT_CALLEE_ENREG;
-                    if ((weight <= (BB_UNITY_WEIGHT * 7)) || varDsc->lvVarIndex >= calleeSaveCount)
+                    if ((weight <= (BB_UNITY_WEIGHT * 7)) || lcl->lvVarIndex >= calleeSaveCount)
                     {
                         // If this is relatively low weight, don't prefer callee-save at all.
                         interval->preferCalleeSave = false;
@@ -2300,52 +2302,52 @@ void LinearScan::identifyCandidates()
 
     INTRACK_STATS(regCandidateVarCount = 0);
 
-    for (LclVarDsc* varDsc : compiler->Locals())
+    for (LclVarDsc* lcl : compiler->Locals())
     {
-        assert(!varDsc->IsRegCandidate());
-        assert(!varDsc->lvRegister);
-        assert(!varDsc->lvOnFrame);
+        assert(!lcl->IsRegCandidate());
+        assert(!lcl->lvRegister);
+        assert(!lcl->lvOnFrame);
 
-        varDsc->SetRegNum(REG_STK);
-        varDsc->lvOnFrame = true;
+        lcl->SetRegNum(REG_STK);
+        lcl->lvOnFrame = true;
 
         if (!enregisterLocalVars)
         {
             continue;
         }
 
-        bool regCandidate = isRegCandidate(varDsc);
+        bool regCandidate = isRegCandidate(lcl);
 
 #if DOUBLE_ALIGN
         if (checkDoubleAlign)
         {
-            if (varDsc->IsParam() && !varDsc->IsRegParam())
+            if (lcl->IsParam() && !lcl->IsRegParam())
             {
-                refCntStkParam += varDsc->GetRefCount();
+                refCntStkParam += lcl->GetRefCount();
             }
             else if (!regCandidate)
             {
-                refCntStk += varDsc->GetRefCount();
+                refCntStk += lcl->GetRefCount();
 
-                if (varDsc->TypeIs(TYP_DOUBLE) || ((varTypeIsStruct(varDsc->GetType()) && varDsc->lvStructDoubleAlign &&
-                                                    !varDsc->IsIndependentPromoted())))
+                if (lcl->TypeIs(TYP_DOUBLE) ||
+                    ((varTypeIsStruct(lcl->GetType()) && lcl->lvStructDoubleAlign && !lcl->IsIndependentPromoted())))
                 {
-                    refCntWtdStkDbl += varDsc->GetRefWeight();
+                    refCntWtdStkDbl += lcl->GetRefWeight();
                 }
             }
             else
             {
-                refCntReg += varDsc->GetRefCount();
-                refCntWtdReg += varDsc->GetRefWeight();
+                refCntReg += lcl->GetRefCount();
+                refCntWtdReg += lcl->GetRefWeight();
             }
         }
 #endif // DOUBLE_ALIGN
 
         if (!regCandidate)
         {
-            if (varDsc->HasLiveness())
+            if (lcl->HasLiveness())
             {
-                localVarIntervals[varDsc->GetLivenessBitIndex()] = nullptr;
+                localVarIntervals[lcl->GetLivenessBitIndex()] = nullptr;
             }
 
             // The current implementation of multi-reg structs that are referenced collectively
@@ -2357,9 +2359,9 @@ void LinearScan::identifyCandidates()
             // isn't tracked and thus not a reg candidate. This happens with promoted LONG on
             // 32 bit too, there are cases where only one half (usually the low one) is used.
             // And this is done way too late, in general we want to DNER as early as possible.
-            if (varDsc->IsPromotedField())
+            if (lcl->IsPromotedField())
             {
-                LclVarDsc* promotedLcl = compiler->lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+                LclVarDsc* promotedLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
                 if (promotedLcl->lvIsMultiRegRet && !promotedLcl->lvDoNotEnregister)
                 {
@@ -2392,9 +2394,9 @@ void LinearScan::identifyCandidates()
             continue;
         }
 
-        varDsc->lvLRACandidate = true;
+        lcl->lvLRACandidate = true;
 
-        var_types type = varDsc->GetActualRegisterType();
+        var_types type = lcl->GetActualRegisterType();
 
         if (varTypeUsesFloatReg(type))
         {
@@ -2403,22 +2405,22 @@ void LinearScan::identifyCandidates()
 
         Interval* newInt   = newInterval(type);
         newInt->isLocalVar = true;
-        newInt->varIndex   = varDsc->GetLivenessBitIndex();
+        newInt->varIndex   = lcl->GetLivenessBitIndex();
         assert(newInt->varIndex < compiler->lvaTrackedCount);
         localVarIntervals[newInt->varIndex] = newInt;
         VarSetOps::AddElemD(compiler, registerCandidateVars, newInt->varIndex);
 
         // we will set this later when we have determined liveness
-        varDsc->lvMustInit = false;
+        lcl->lvMustInit = false;
 
-        if (varDsc->IsPromotedField())
+        if (lcl->IsPromotedField())
         {
             newInt->isStructField = true;
         }
 
-        if (varDsc->lvLiveInOutOfHndlr)
+        if (lcl->lvLiveInOutOfHndlr)
         {
-            newInt->isWriteThru = varDsc->lvSingleDefRegCandidate;
+            newInt->isWriteThru = lcl->lvSingleDefRegCandidate;
             setIntervalAsSpilled(newInt);
         }
 
@@ -2433,15 +2435,15 @@ void LinearScan::identifyCandidates()
         // Additionally, when we are generating code for a target with partial SIMD callee-save
         // (AVX on non-UNIX amd64 and 16-byte vectors on arm64), we keep a separate set of the
         // LargeVectorType vars.
-        if (Compiler::varTypeNeedsPartialCalleeSave(varDsc->GetRegisterType()))
+        if (Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
         {
             largeVectorVarCount++;
-            VarSetOps::AddElemD(compiler, largeVectorVars, varDsc->GetLivenessBitIndex());
-            BasicBlock::weight_t refCntWtd = varDsc->GetRefWeight();
+            VarSetOps::AddElemD(compiler, largeVectorVars, lcl->GetLivenessBitIndex());
+            BasicBlock::weight_t refCntWtd = lcl->GetRefWeight();
 
             if (refCntWtd >= thresholdLargeVectorRefCntWtd)
             {
-                VarSetOps::AddElemD(compiler, largeVectorCalleeSaveCandidateVars, varDsc->GetLivenessBitIndex());
+                VarSetOps::AddElemD(compiler, largeVectorCalleeSaveCandidateVars, lcl->GetLivenessBitIndex());
             }
         }
         else
@@ -2449,9 +2451,9 @@ void LinearScan::identifyCandidates()
             if (varTypeUsesFloatReg(type))
         {
             floatVarCount++;
-            BasicBlock::weight_t refCntWtd = varDsc->GetRefWeight();
+            BasicBlock::weight_t refCntWtd = lcl->GetRefWeight();
 
-            if (varDsc->IsRegParam())
+            if (lcl->IsRegParam())
             {
                 // Don't count the initial reference for register params.  In those cases,
                 // using a callee-save causes an extra copy.
@@ -2459,11 +2461,11 @@ void LinearScan::identifyCandidates()
             }
             if (refCntWtd >= thresholdFPRefCntWtd)
             {
-                VarSetOps::AddElemD(compiler, fpCalleeSaveCandidateVars, varDsc->GetLivenessBitIndex());
+                VarSetOps::AddElemD(compiler, fpCalleeSaveCandidateVars, lcl->GetLivenessBitIndex());
             }
             else if (refCntWtd >= maybeFPRefCntWtd)
             {
-                VarSetOps::AddElemD(compiler, fpMaybeCandidateVars, varDsc->GetLivenessBitIndex());
+                VarSetOps::AddElemD(compiler, fpMaybeCandidateVars, lcl->GetLivenessBitIndex());
             }
         }
 
@@ -2597,44 +2599,43 @@ void LinearScan::identifyCandidatesExceptionDataflow()
     // and as 'explicitly initialized' (must-init) for GC-ref types.
     for (VarSetOps::Enumerator e(compiler, exceptVars); e.MoveNext();)
     {
-        LclVarDsc* varDsc = compiler->lvaGetDescByTrackedIndex(e.Current());
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(e.Current());
 
-        assert(varDsc->lvLiveInOutOfHndlr);
+        assert(lcl->lvLiveInOutOfHndlr);
 
-        if (varTypeIsGC(varDsc->GetType()) && !varDsc->IsParam() &&
-            VarSetOps::IsMember(compiler, finallyVars, e.Current()))
+        if (varTypeIsGC(lcl->GetType()) && !lcl->IsParam() && VarSetOps::IsMember(compiler, finallyVars, e.Current()))
         {
-            assert(varDsc->lvMustInit);
+            assert(lcl->lvMustInit);
         }
     }
 #endif
 }
 
-bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
+bool LinearScan::isRegCandidate(LclVarDsc* lcl)
 {
     assert(enregisterLocalVars && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
-    if (!varDsc->HasLiveness() || varDsc->lvDoNotEnregister)
+    if (!lcl->HasLiveness() || lcl->lvDoNotEnregister)
     {
         return false;
     }
 
-    assert(!varDsc->IsPromoted() && !varDsc->IsPinning() && !varDsc->IsDependentPromotedField(compiler));
+    assert(!lcl->IsPromoted() && !lcl->IsPinning() && !lcl->IsDependentPromotedField(compiler));
 
     // Tracked locals normally have non-zero ref count but we don't mark
     // locals again after dead code removal so we may end up with tracked
     // but unreferenced locals.
-    if (varDsc->GetRefCount() == 0)
+    if (lcl->GetRefCount() == 0)
     {
-        assert(varDsc->GetRefWeight() == 0);
+        assert(lcl->GetRefWeight() == 0);
 
         return false;
     }
 
-    switch (varActualType(varDsc->GetType()))
+    switch (varActualType(lcl->GetType()))
     {
         case TYP_STRUCT:
-            assert(compiler->compEnregStructLocals() && !varDsc->HasGCPtr());
+            assert(compiler->compEnregStructLocals() && !lcl->HasGCPtr());
             FALLTHROUGH;
         case TYP_FLOAT:
         case TYP_DOUBLE:
@@ -2650,7 +2651,7 @@ bool LinearScan::isRegCandidate(LclVarDsc* varDsc)
         case TYP_SIMD16:
         case TYP_SIMD32:
 #endif
-            assert(varDsc->GetRegisterType() != TYP_UNDEF);
+            assert(lcl->GetRegisterType() != TYP_UNDEF);
             break;
 
         default:

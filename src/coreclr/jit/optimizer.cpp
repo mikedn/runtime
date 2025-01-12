@@ -5337,14 +5337,14 @@ void Compiler::optAddCopies()
 
     BlockSet domSet = BlockSetOps::UninitVal();
 
-    for (LclVarDsc* varDsc : Locals())
+    for (LclVarDsc* lcl : Locals())
     {
-        var_types typ = varDsc->GetType();
+        var_types typ = lcl->GetType();
 
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
 
-        if (varDsc->lvIsTemp || !varDsc->lvSingleDef || (typ == TYP_STRUCT) || varTypeIsSmall(typ))
+        if (lcl->lvIsTemp || !lcl->lvSingleDef || (typ == TYP_STRUCT) || varTypeIsSmall(typ))
         {
             continue;
         }
@@ -5354,7 +5354,7 @@ void Compiler::optAddCopies()
         // Note that this effectively disables this optimization for all local variables
         // as C# sets InitLocals all the time starting in Whidbey.
 
-        if (!varDsc->IsParam() && info.compInitMem)
+        if (!lcl->IsParam() && info.compInitMem)
         {
             continue;
         }
@@ -5372,28 +5372,28 @@ void Compiler::optAddCopies()
         bool isFloatParam = false;
 
 #ifdef TARGET_X86
-        isFloatParam = varDsc->IsParam() && varTypeIsFloating(typ);
+        isFloatParam = lcl->IsParam() && varTypeIsFloating(typ);
 #endif
 
-        if (!isFloatParam && !varDsc->lvHasEHRefs)
+        if (!isFloatParam && !lcl->lvHasEHRefs)
         {
             continue;
         }
 
         // We don't want to add a copy for a variable that is part of a struct
-        if (varDsc->IsPromotedField())
+        if (lcl->IsPromotedField())
         {
             continue;
         }
 
-        if (BlockSetOps::MayBeUninit(varDsc->lvUseBlocks))
+        if (BlockSetOps::MayBeUninit(lcl->lvUseBlocks))
         {
             // No references
             continue;
         }
 
         // We require that the weighted ref count be significant.
-        if (varDsc->lvRefCntWtd() <= (BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2))
+        if (lcl->lvRefCntWtd() <= (BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2))
         {
             continue;
         }
@@ -5407,13 +5407,12 @@ void Compiler::optAddCopies()
         BlockSet paramImportantUseDom(BlockSetOps::MakeFull(this));
 
         // This will be threshold for determining heavier-than-average uses
-        BasicBlock::weight_t paramAvgWtdRefDiv2 =
-            (varDsc->lvRefCntWtd() + varDsc->lvRefCnt() / 2) / (varDsc->lvRefCnt() * 2);
+        BasicBlock::weight_t paramAvgWtdRefDiv2 = (lcl->lvRefCntWtd() + lcl->lvRefCnt() / 2) / (lcl->lvRefCnt() * 2);
 
         bool paramFoundImportantUse = false;
 
-        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", varDsc->IsParam() ? "param" : "local",
-                varDsc->GetLclNum(), refCntWtd2str(paramAvgWtdRefDiv2));
+        JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", lcl->IsParam() ? "param" : "local",
+                lcl->GetLclNum(), refCntWtd2str(paramAvgWtdRefDiv2));
 
         //
         // We must have a ref in a block that is dominated only by the entry block
@@ -5421,7 +5420,7 @@ void Compiler::optAddCopies()
 
         bool isDominatedByFirstBB = false;
 
-        for (BlockSetOps::Enumerator e(this, varDsc->lvUseBlocks); e.MoveNext();)
+        for (BlockSetOps::Enumerator e(this, lcl->lvUseBlocks); e.MoveNext();)
         {
             const unsigned bbNum = e.Current();
 
@@ -5433,7 +5432,7 @@ void Compiler::optAddCopies()
             }
             noway_assert(block && (block->bbNum == bbNum));
 
-            bool importantUseInBlock = varDsc->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
+            bool importantUseInBlock = lcl->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
             bool isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
 
             BasicBlock* domBlock = block;
@@ -5523,7 +5522,7 @@ void Compiler::optAddCopies()
         }
 
         // We should have found at least one heavier-than-averageDiv2 block.
-        if (varDsc->IsParam())
+        if (lcl->IsParam())
         {
             if (!paramFoundImportantUse)
             {
@@ -5535,7 +5534,7 @@ void Compiler::optAddCopies()
         // we require that we have a floating point parameter
         // or an EH live variable that is always reached from the first BB
         // and we have at least one block available in paramImportantUseDom
-        bool doCopy = (isFloatParam || (isDominatedByFirstBB && varDsc->lvHasEHRefs)) &&
+        bool doCopy = (isFloatParam || (isDominatedByFirstBB && lcl->lvHasEHRefs)) &&
                       !BlockSetOps::IsEmpty(this, paramImportantUseDom);
 
         // Under stress mode we expand the number of candidates
@@ -5545,7 +5544,7 @@ void Compiler::optAddCopies()
         if (compStressCompile(STRESS_GENERIC_VARN, 30))
         {
             // Ensure that we preserve the invariants required by the subsequent code.
-            if (varDsc->IsParam() || isDominatedByFirstBB)
+            if (lcl->IsParam() || isDominatedByFirstBB)
             {
                 doCopy = true;
             }
@@ -5558,9 +5557,9 @@ void Compiler::optAddCopies()
 
         LclVarDsc* copyLcl = lvaAllocTemp(false DEBUGARG("optAddCopies"));
 
-        if (varTypeIsSIMD(varDsc->GetType()))
+        if (varTypeIsSIMD(lcl->GetType()))
         {
-            lvaSetStruct(copyLcl, varDsc->GetLayout(), /* checkUnsafeBuffer */ false);
+            lvaSetStruct(copyLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
             assert(copyLcl->GetType() == typ);
         }
         else
@@ -5568,17 +5567,16 @@ void Compiler::optAddCopies()
             copyLcl->SetType(typ);
         }
 
-        JITDUMP("Finding the best place to insert the store V%02i = V%02i\n", copyLcl->GetLclNum(),
-                varDsc->GetLclNum());
+        JITDUMP("Finding the best place to insert the store V%02i = V%02i\n", copyLcl->GetLclNum(), lcl->GetLclNum());
 
         Statement* stmt;
 
-        if (varDsc->IsParam())
+        if (lcl->IsParam())
         {
-            noway_assert((varDsc->lvDefStmt == nullptr) || varDsc->IsPromotedField());
+            noway_assert((lcl->lvDefStmt == nullptr) || lcl->IsPromotedField());
 
             // Create a new copy store tree
-            GenTreeLclStore* copyAsgn = gtNewLclStore(copyLcl, typ, gtNewLclLoad(varDsc, typ));
+            GenTreeLclStore* copyAsgn = gtNewLclStore(copyLcl, typ, gtNewLclLoad(lcl, typ));
 
             // Find the best block to insert the new store
             // We will choose the lowest weighted block, and within
@@ -5692,7 +5690,7 @@ void Compiler::optAddCopies()
             {
                 printf("        Insert copy at the %s of " FMT_BB "\n",
                        (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                        BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
+                        BlockSetOps::IsMember(this, lcl->lvUseBlocks, bestBlock->bbNum))
                            ? "start"
                            : "end",
                        bestBlock->bbNum);
@@ -5700,7 +5698,7 @@ void Compiler::optAddCopies()
 #endif
 
             if (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                BlockSetOps::IsMember(this, varDsc->lvUseBlocks, bestBlock->bbNum))
+                BlockSetOps::IsMember(this, lcl->lvUseBlocks, bestBlock->bbNum))
             {
                 stmt = fgNewStmtAtBeg(bestBlock, copyAsgn);
             }
@@ -5711,16 +5709,16 @@ void Compiler::optAddCopies()
         }
         else
         {
-            noway_assert(varDsc->lvDefStmt != nullptr);
+            noway_assert(lcl->lvDefStmt != nullptr);
 
-            // Locate the store to varDsc in the lvDefStmt
-            stmt = varDsc->lvDefStmt;
+            // Locate the store to local in the lvDefStmt
+            stmt = lcl->lvDefStmt;
 
             GenTreeOp* tree = nullptr;
 
             for (GenTree* node = stmt->GetRootNode(); node != nullptr; node = node->gtPrev)
             {
-                if (!node->OperIs(GT_LCL_STORE) || (node->AsLclStore()->GetLcl() != varDsc))
+                if (!node->OperIs(GT_LCL_STORE) || (node->AsLclStore()->GetLcl() != lcl))
                 {
                     continue;
                 }
@@ -5732,7 +5730,7 @@ void Compiler::optAddCopies()
             noway_assert(tree != nullptr);
 
             GenTree* newAsg  = gtNewLclStore(copyLcl, typ, tree->GetOp(0));
-            GenTree* copyAsg = gtNewLclStore(varDsc, typ, gtNewLclLoad(copyLcl, typ));
+            GenTree* copyAsg = gtNewLclStore(lcl, typ, gtNewLclLoad(copyLcl, typ));
 
             tree->ChangeOper(GT_COMMA);
             tree->SetOp(0, newAsg);
@@ -5742,7 +5740,7 @@ void Compiler::optAddCopies()
             tree->gtFlags &= ~GTF_REVERSE_OPS;
         }
 
-        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", varDsc->GetLclNum());
+        JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lcl->GetLclNum());
     }
 }
 

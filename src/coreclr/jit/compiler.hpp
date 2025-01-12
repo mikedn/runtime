@@ -1363,13 +1363,13 @@ inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
 //      - compInitMem is set and the variable has a long lifetime or has gc fields.
 //     In these cases we will insert zero-initialization in the prolog if necessary.
 
-bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, bool bbIsReturn)
+bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool bbInALoop, bool bbIsReturn)
 {
-    if (varDsc->IsDependentPromotedField(this))
+    if (lcl->IsDependentPromotedField(this))
     {
         // Fields of dependently promoted structs may only be initialized in the prolog
         // when the whole struct is initialized in the prolog.
-        varDsc = lvaGetDesc(varDsc->GetPromotedFieldParentLclNum());
+        lcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
     }
 
     if (bbInALoop && !bbIsReturn)
@@ -1377,19 +1377,19 @@ bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, boo
         return true;
     }
 
-    if (lvaIsNeverZeroInitializedInProlog(varDsc))
+    if (lvaIsNeverZeroInitializedInProlog(lcl))
     {
         return true;
     }
 
-    if (varTypeIsGC(varDsc->GetType()))
+    if (varTypeIsGC(lcl->GetType()))
     {
         return false;
     }
 
-    if (varDsc->TypeIs(TYP_STRUCT) && varDsc->HasGCPtr())
+    if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
     {
-        ClassLayout* layout = varDsc->GetLayout();
+        ClassLayout* layout = lcl->GetLayout();
         if (layout->GetSlotCount() == layout->GetGCPtrCount())
         {
             return false;
@@ -1398,7 +1398,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, boo
         // Below conditions guarantee block initialization, which will initialize
         // all struct fields. If the logic for block initialization in CodeGen::CheckUseBlockInit()
         // changes, these conditions need to be updated.
-        unsigned intSlots = roundUp(varDsc->GetFrameSize(), REGSIZE_BYTES) / 4;
+        unsigned intSlots = roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
 
 #ifndef TARGET_64BIT
         if (intSlots > 4)
@@ -1414,7 +1414,7 @@ bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* varDsc, bool bbInALoop, boo
         }
     }
 
-    return !info.compInitMem || (varDsc->lvIsTemp && !varDsc->HasGCPtr());
+    return !info.compInitMem || (lcl->lvIsTemp && !lcl->HasGCPtr());
 }
 
 // Note that compiler's allocator is an arena allocator that returns memory that is

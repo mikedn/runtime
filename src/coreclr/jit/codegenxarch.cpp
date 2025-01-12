@@ -7078,26 +7078,26 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // profiler requirement so it can examine arguments which could be obj refs.
     if (!compiler->info.compIsVarArgs)
     {
-        for (LclVarDsc* varDsc : compiler->Params())
+        for (LclVarDsc* lcl : compiler->Params())
         {
-            noway_assert(varDsc->IsParam());
+            noway_assert(lcl->IsParam());
 
-            if (!varDsc->IsRegParam())
+            if (!lcl->IsRegParam())
             {
                 continue;
             }
 
-            var_types type = varActualType(varDsc->GetType());
-            regNumber reg  = varDsc->GetParamReg();
+            var_types type = varActualType(lcl->GetType());
+            regNumber reg  = lcl->GetParamReg();
 
             if (varTypeIsStruct(type))
             {
                 assert(isValidIntArgReg(reg));
 
-                type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
+                type = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
             }
 
-            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, GetStackAddrMode(varDsc, 0));
+            GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
         }
     }
 
@@ -7138,26 +7138,26 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // Vararg methods:
     //   - we need to reload only known (i.e. fixed) reg args.
     //   - if floating point type, also reload it into corresponding integer reg
-    for (LclVarDsc* varDsc : compiler->Params())
+    for (LclVarDsc* lcl : compiler->Params())
     {
-        noway_assert(varDsc->IsParam());
+        noway_assert(lcl->IsParam());
 
-        if (!varDsc->IsRegParam())
+        if (!lcl->IsRegParam())
         {
             continue;
         }
 
-        var_types type = varActualType(varDsc->GetType());
-        regNumber reg  = varDsc->GetParamReg();
+        var_types type = varActualType(lcl->GetType());
+        regNumber reg  = lcl->GetParamReg();
 
         if (varTypeIsStruct(type))
         {
             assert(isValidIntArgReg(reg));
 
-            type = varDsc->GetLayout()->GetSize() <= 4 ? TYP_INT : varDsc->GetLayout()->GetGCPtrType(0);
+            type = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
         }
 
-        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(varDsc, 0));
+        GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
 
         if (compiler->info.compIsVarArgs && varTypeIsFloating(type))
         {
@@ -7274,11 +7274,11 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         // cannot use caller's SP offset since it is an estimate.  For now we require the
         // method to have at least a single arg so that we can use it to obtain caller's
         // SP.
-        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
-        NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
+        LclVarDsc* lcl = compiler->lvaGetDesc(0u);
+        NYI_IF((lcl == nullptr) || !lcl->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, GetStackAddrMode(varDsc, 0));
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, GetStackAddrMode(lcl, 0));
     }
 
     // We can use any callee trash register (other than RAX, RCX, RDX) for call target.
@@ -7308,8 +7308,8 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     }
     else
     {
-        LclVarDsc* varDsc = compiler->lvaGetDesc(0u);
-        NYI_IF((varDsc == nullptr) || !varDsc->IsParam(), "Profiler ELT callback for a method without any params");
+        LclVarDsc* lcl = compiler->lvaGetDesc(0u);
+        NYI_IF((lcl == nullptr) || !lcl->IsParam(), "Profiler ELT callback for a method without any params");
 
         // lea rdx, [FramePointer + Arg0's offset]
         GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, REG_ARG_1, GetStackAddrMode(0u, 0));
@@ -8016,15 +8016,15 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
     GetEmitter()->emitIns_R_ARX(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, 1, offset);
 
-    LclVarDsc* varDsc = compiler->lvaVarargsBaseOfStkLcl;
+    LclVarDsc* lcl = compiler->lvaVarargsBaseOfStkLcl;
 
-    if (varDsc->lvIsInReg())
+    if (lcl->lvIsInReg())
     {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, varDsc->GetRegNum(), REG_EAX, /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, lcl->GetRegNum(), REG_EAX, /* canSkip */ true);
     }
     else
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(varDsc, 0));
+        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(lcl, 0));
     }
 }
 #endif // TARGET_X86

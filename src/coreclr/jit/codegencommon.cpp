@@ -3109,40 +3109,40 @@ void CodeGen::PrologInitOsrLocals()
         const int      originalFrameSize = patchpointInfo->FpToSpDelta();
         const unsigned patchpointInfoLen = patchpointInfo->NumberOfLocals();
 
-        for (LclVarDsc* const varDsc : compiler->Locals())
+        for (LclVarDsc* const lcl : compiler->Locals())
         {
-            if (!compiler->lvaIsOSRLocal(varDsc))
+            if (!compiler->lvaIsOSRLocal(lcl))
             {
                 continue;
             }
 
-            if (!varDsc->lvIsInReg())
+            if (!lcl->lvIsInReg())
             {
-                JITDUMP("---OSR--- V%02u in memory\n", varDsc->GetLclNum());
+                JITDUMP("---OSR--- V%02u in memory\n", lcl->GetLclNum());
                 continue;
             }
 
-            if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, varDsc->lvVarIndex))
+            if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->lvVarIndex))
             {
-                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", varDsc->GetLclNum());
+                JITDUMP("---OSR--- V%02u (reg) not live at entry\n", lcl->GetLclNum());
                 continue;
             }
 
             int      fieldOffset = 0;
-            unsigned lclNum      = varDsc->GetLclNum();
+            unsigned lclNum      = lcl->GetLclNum();
 
-            if (varDsc->IsPromotedField())
+            if (lcl->IsPromotedField())
             {
-                lclNum = varDsc->GetPromotedFieldParentLclNum();
+                lclNum = lcl->GetPromotedFieldParentLclNum();
                 assert(lclNum < patchpointInfoLen);
 
-                fieldOffset = varDsc->GetPromotedFieldOffset();
-                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", varDsc->GetLclNum(), lclNum,
+                fieldOffset = lcl->GetPromotedFieldOffset();
+                JITDUMP("---OSR--- V%02u is promoted field of V%02u at offset %d\n", lcl->GetLclNum(), lclNum,
                         fieldOffset);
             }
 
             // Note we are always reading from the original frame here
-            const var_types lclTyp  = varActualType(varDsc->GetType());
+            const var_types lclTyp  = varActualType(lcl->GetType());
             const emitAttr  size    = emitTypeSize(lclTyp);
             const int       stkOffs = patchpointInfo->Offset(lclNum) + fieldOffset;
 
@@ -3212,10 +3212,10 @@ void CodeGen::PrologInitOsrLocals()
             }
 
             JITDUMP("---OSR--- V%02u (reg) old rbp offset %d old frame %d this frame sp-fp %d new offset %d (%02xH)\n",
-                    varDsc->GetLclNum(), stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
+                    lcl->GetLclNum(), stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
 #ifdef TARGET_XARCH
-            GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, varDsc->GetRegNum(), genFramePointerReg(), offset);
+            GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, lcl->GetRegNum(), genFramePointerReg(), offset);
 #else
             // TODO-MIKE-Review: Looks like ARM64 doesn't support OSR.
             NYI("OSR local init");
@@ -3255,7 +3255,7 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
     unsigned contextArg = reportArg ? compiler->info.compTypeCtxtArg : compiler->info.GetThisParamLclNum();
 
     noway_assert(contextArg != BAD_VAR_NUM);
-    LclVarDsc* varDsc = compiler->lvaGetDesc(contextArg);
+    LclVarDsc* lcl = compiler->lvaGetDesc(contextArg);
 
     // We are still in the prolog and compiler->info.compTypeCtxtArg has not been
     // moved to its final home location. So we need to use it from the
@@ -3265,13 +3265,13 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
 
     bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-    isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && varDsc->IsPreSpilledRegParam(preSpillParamRegs);
+    isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
 #endif
 
     // Load from the argument register only if it is not prespilled.
-    if (varDsc->IsRegParam() && !isPrespilledForProfiling)
+    if (lcl->IsRegParam() && !isPrespilledForProfiling)
     {
-        reg = varDsc->GetParamReg();
+        reg = lcl->GetParamReg();
     }
     else
     {
@@ -3281,13 +3281,13 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
             // It cannot be `this` since that's passed in a register so it has to be TypeCtxtArg
             // which is always the last parameter (and we know that the frame pointer is also
             // pushed, in addition to the return address).
-            noway_assert(varDsc->GetStackOffset() == 2 * REGSIZE_BYTES);
+            noway_assert(lcl->GetStackOffset() == 2 * REGSIZE_BYTES);
         }
 
         reg             = initReg;
         *pInitRegZeroed = false;
 
-        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, reg, genFramePointerReg(), varDsc->GetStackOffset());
+        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, reg, genFramePointerReg(), lcl->GetStackOffset());
 #elif defined(TARGET_ARM)
         if (isFramePointerUsed())
         {
@@ -3295,14 +3295,14 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
             // to pre-spilling done for profiler we need to load from the stack,
             // the offset should be in the pre-spill param area, right above FP
             // and LR.
-            noway_assert((2 * REGSIZE_BYTES <= varDsc->GetStackOffset()) &&
-                         (size_t(varDsc->GetStackOffset()) < GetPreSpillSize() + 2 * REGSIZE_BYTES));
+            noway_assert((2 * REGSIZE_BYTES <= lcl->GetStackOffset()) &&
+                         (size_t(lcl->GetStackOffset()) < GetPreSpillSize() + 2 * REGSIZE_BYTES));
         }
 
         reg             = initReg;
         *pInitRegZeroed = false;
 
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, reg, genFramePointerReg(), varDsc->GetStackOffset());
+        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, reg, genFramePointerReg(), lcl->GetStackOffset());
 #else
         // On other targets we have enough param regs that the type
         // context param is always passed in a register.

@@ -2772,13 +2772,13 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         // Independent promoted locals require special handling. This includes promoted SIMD locals,
         // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
 
-        LclVarDsc* varDsc = arg->AsLclLoad()->GetLcl();
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
 
-        if (varDsc->IsPromoted())
+        if (lcl->IsPromoted())
         {
             if (argSize == 0)
             {
-                argSize = varDsc->GetLayout()->GetSize();
+                argSize = lcl->GetLayout()->GetSize();
             }
 
             GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclLoad(), argRegType, argSize);

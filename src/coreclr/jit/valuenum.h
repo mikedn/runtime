@@ -836,7 +836,7 @@ public:
             return nullptr;
         }
 
-        Chunk* chunk = m_chunks.Get(GetChunkNum(vn));
+        Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
         unsigned index = ChunkOffset(vn);
         assert(index < chunk->m_count);
 
