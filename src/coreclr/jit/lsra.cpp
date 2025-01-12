@@ -166,7 +166,7 @@ LinearScan::LinearScan(Compiler* compiler)
         {
             lsraStressMask = 0;
         }
-        if ((lsraStressMask != 0) && (dump == true))
+        if ((lsraStressMask != 0) && dump)
         {
             printf("JitStressRegs = %x for method %d: %s, hash = 0x%x.\n",
                 lsraStressMask, Compiler::jitTotalMethodCompiled, compiler->info.compFullName, compiler->info.compMethodHash());
@@ -506,6 +506,7 @@ bool LinearScan::conflictingFixedRegReference(regNumber regNum, RefPosition* ref
 
     LsraLocation refLocation = refPosition->nodeLocation;
     RegRecord*   regRecord   = getRegisterRecord(regNum);
+
     if (isRegInUse(regNum, refPosition->getInterval()->registerType) &&
         (regRecord->assignedInterval != refPosition->getInterval()))
     {
@@ -513,11 +514,8 @@ bool LinearScan::conflictingFixedRegReference(regNumber regNum, RefPosition* ref
     }
 
     LsraLocation nextPhysRefLocation = nextFixedRef[regNum];
-    if (nextPhysRefLocation == refLocation || (refPosition->delayRegFree && nextPhysRefLocation == (refLocation + 1)))
-    {
-        return true;
-    }
-    return false;
+    return (nextPhysRefLocation == refLocation) ||
+           (refPosition->delayRegFree && nextPhysRefLocation == (refLocation + 1));
 }
 
 RefPosition* Referenceable::getNextRefPosition() const
@@ -885,13 +883,13 @@ private:
 //    - At the boundary between the previous block and this one
 //
 // To select a ref position for spilling.
-// - If refPosition->RegOptional() == false
+// - If !refPosition->RegOptional()
 //        The RefPosition chosen for spilling will be the lowest weight
 //        of all and if there is is more than one ref position with the
 //        same lowest weight, among them choses the one with farthest
 //        distance to its next reference.
 //
-// - If refPosition->RegOptional() == true
+// - If refPosition->RegOptional()
 //        The ref position chosen for spilling will not only be lowest weight
 //        of all but also has a weight lower than 'refPosition'.  If there is
 //        no such ref position, no register will be allocated.
@@ -1040,15 +1038,8 @@ bool LinearScan::canSpillDoubleReg(RegRecord* physRegRecord, LsraLocation refLoc
     assert(genIsValidDoubleReg(physRegRecord->regNum));
     RegRecord* physRegRecord2 = getSecondHalfRegRec(physRegRecord);
 
-    if ((physRegRecord->assignedInterval != nullptr) && !canSpillReg(physRegRecord, refLocation))
-    {
-        return false;
-    }
-    if ((physRegRecord2->assignedInterval != nullptr) && !canSpillReg(physRegRecord2, refLocation))
-    {
-        return false;
-    }
-    return true;
+    return ((physRegRecord->assignedInterval == nullptr) || canSpillReg(physRegRecord, refLocation)) &&
+           ((physRegRecord2->assignedInterval == nullptr) || canSpillReg(physRegRecord2, refLocation));
 }
 
 //------------------------------------------------------------------------
@@ -1258,7 +1249,7 @@ void LinearScan::checkAndAssignInterval(RegRecord* regRec, Interval* interval)
         // RefPosition for the Interval that was NOT a copyReg.
         if (assignedInterval->assignedReg == regRec)
         {
-            assert(assignedInterval->isActive == false);
+            assert(!assignedInterval->isActive);
             assignedInterval->physReg = REG_NA;
         }
         unassignPhysReg(regRec->regNum);
@@ -1275,7 +1266,7 @@ void LinearScan::checkAndAssignInterval(RegRecord* regRec, Interval* interval)
         {
             if (assignedInterval->assignedReg == otherRegRecord)
             {
-                assert(assignedInterval->isActive == false);
+                assert(!assignedInterval->isActive);
                 assignedInterval->physReg = REG_NA;
             }
             unassignPhysReg(otherRegRecord->regNum);
@@ -1508,7 +1499,7 @@ void LinearScan::checkAndClearInterval(RegRecord* regRec, RefPosition* spillRefP
         //
         if (assignedInterval->physReg == thisRegNum)
         {
-            assert(assignedInterval->isActive == false);
+            assert(!assignedInterval->isActive);
         }
     }
     else
@@ -1806,7 +1797,7 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
         regNumber  nextReg          = genRegNumFromMask(nextRegBit);
         RegRecord* regRecord        = getRegisterRecord(nextReg);
         Interval*  assignedInterval = regRecord->assignedInterval;
-        if (assignedInterval == nullptr || (assignedInterval->isActive == false))
+        if (assignedInterval == nullptr || !assignedInterval->isActive)
         {
             continue;
         }
@@ -3120,7 +3111,7 @@ void LinearScan::allocateRegisters()
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 #endif // FEATURE_SIMD
 
-        if (allocate == false)
+        if (!allocate)
         {
             if (assignedRegister != REG_NA)
             {
@@ -3272,7 +3263,7 @@ void LinearScan::allocateRegisters()
                     keepAssignment = false;
                 }
 
-                if (keepAssignment == false)
+                if (!keepAssignment)
                 {
                     RegRecord* physRegRecord               = getRegisterRecord(currentInterval->physReg);
                     currentRefPosition->registerAssignment = allRegs(currentInterval->registerType);
@@ -4329,7 +4320,7 @@ void LinearScan::insertUpperVectorSave(GenTree*     tree,
     JITDUMP("Inserting UpperVectorSave for RP #%d before %u.%s:\n", refPosition->rpNum, tree->GetID(),
             GenTree::OpName(tree->GetOper()));
     Interval* lclVarInterval = upperVectorInterval->relatedInterval;
-    assert(lclVarInterval->isLocalVar == true);
+    assert(lclVarInterval->isLocalVar);
     assert(refPosition->getInterval() == upperVectorInterval);
     regNumber lclVarReg = lclVarInterval->physReg;
     if (lclVarReg == REG_NA)
@@ -4408,7 +4399,7 @@ void LinearScan::insertUpperVectorRestore(GenTree*     tree,
 {
     JITDUMP("Adding UpperVectorRestore for RP #%d ", refPosition->rpNum);
     Interval* lclVarInterval = upperVectorInterval->relatedInterval;
-    assert(lclVarInterval->isLocalVar == true);
+    assert(lclVarInterval->isLocalVar);
     regNumber lclVarReg = lclVarInterval->physReg;
 
     // We should not call this method if the lclVar is not in a register (we should have simply marked the entire
@@ -7331,7 +7322,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                 regNumber assignedReg = varDsc->GetRegNum();
                 regNumber argReg      = varDsc->IsRegParam() ? varDsc->GetParamReg() : REG_STK;
 
-                assert(reg == assignedReg || varDsc->lvRegister == false);
+                assert(reg == assignedReg || !varDsc->lvRegister);
                 if (reg != argReg)
                 {
                     printf(getRegName(argReg));
@@ -8907,28 +8898,14 @@ bool RegisterSelection::applySingleRegSelection(RegisterScore selectionScore, re
 
 bool RegisterSelection::try_FREE()
 {
-    if (freeCandidates == RBM_NONE)
-    {
-        return false;
-    }
-
-    return applySelection(FREE, freeCandidates);
+    return (freeCandidates != RBM_NONE) && applySelection(FREE, freeCandidates);
 }
 
 bool RegisterSelection::try_CONST_AVAILABLE()
 {
-    if (freeCandidates == RBM_NONE)
-    {
-        return false;
-    }
-
-    if (currentInterval->isConstant && RefTypeIsDef(refPosition->refType))
-    {
-        // Note: we always need to define the 'matchingConstants' set.
-        return applySelection(CONST_AVAILABLE, matchingConstants);
-    }
-
-    return false;
+    // Note: we always need to define the 'matchingConstants' set.
+    return (freeCandidates != RBM_NONE) && currentInterval->isConstant && RefTypeIsDef(refPosition->refType) &&
+           applySelection(CONST_AVAILABLE, matchingConstants);
 }
 
 bool RegisterSelection::try_THIS_ASSIGNED()
