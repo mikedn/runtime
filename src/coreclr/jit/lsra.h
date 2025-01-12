@@ -175,6 +175,7 @@ public:
 
     RegNum   regNum;
     unsigned regOrder;
+    float    spillCost;
 
     RegRecord(RegNum reg) : regNum(reg)
     {
@@ -187,6 +188,15 @@ public:
     {
         return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
     }
+
+#ifdef TARGET_ARM
+    RegRecord* GetDoublePairReg()
+    {
+        assert(genIsValidDoubleReg(regNum));
+        // We assume that all RegRecord objects are stored in an array.
+        return this + 1;
+    }
+#endif
 
 #ifdef DEBUG
     void dump() const;
@@ -1196,8 +1206,8 @@ private:
     void clearNextIntervalRef(RegNum reg, var_types regType);
     void updateNextIntervalRef(RegNum reg, Interval* interval);
 
-    void clearSpillCost(RegNum reg, var_types regType);
-    void updateSpillCost(RegNum reg, Interval* interval);
+    void clearSpillCost(RegRecord* reg, var_types regType);
+    void updateSpillCost(RegRecord* reg, Interval* interval);
 
     regMaskTP m_RegistersWithConstants;
 
@@ -1423,7 +1433,6 @@ private:
     RegRecord    physRegs[REG_COUNT];
     LsraLocation nextFixedRef[REG_COUNT];
     LsraLocation nextIntervalRef[REG_COUNT];
-    float        spillCost[REG_COUNT];
 
     // max simultaneous spill locations used of every type
     unsigned maxSpill[TYP_COUNT]{};
