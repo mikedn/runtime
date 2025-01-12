@@ -520,7 +520,7 @@ protected:
     void GenKeepAlive(GenTreeUnOp* node);
     void GenLabel(GenTree* label);
     void GenPInvokeProlog();
-    void GenAddSubBitwise(GenTreeOp* treeNode);
+    void GenAddSubBitwise(GenTreeOp* node);
 #ifdef TARGET_ARMARCH
     void GenOverflowCheck(GenTree* node);
 #endif
@@ -535,7 +535,7 @@ protected:
 #endif
 
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-    void GenDivMod(GenTreeOp* treeNode);
+    void GenDivMod(GenTreeOp* node);
 #endif
 
     void GenMul(GenTreeOp* mul);
@@ -552,16 +552,16 @@ protected:
     void GenBitCast(GenTreeUnOp* bitcast);
     void inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg);
 
-    void GenCkfinite(GenTree* treeNode);
-    void GenCompare(GenTreeOp* tree);
+    void GenCkfinite(GenTree* node);
+    void GenCompare(GenTreeOp* node);
     void GenIntrinsic(GenTreeIntrinsic* node);
     void GenPutArgReg(GenTreeUnOp* putArg);
-    void GenPutArgStk(GenTreePutArgStk* treeNode);
+    void GenPutArgStk(GenTreePutArgStk* node);
 #if FEATURE_FASTTAILCALL
     unsigned GetFirstStackParamLclNum() const;
 #endif
 #if FEATURE_ARG_SPLIT
-    void GenPutArgSplit(GenTreePutArgSplit* treeNode);
+    void GenPutArgSplit(GenTreePutArgSplit* node);
 #endif
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -788,8 +788,8 @@ protected:
 #endif
     void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
     void GenSwitchTable(GenTreeOp* node);
-    void GenArrIndex(GenTreeArrIndex* treeNode);
-    void GenArrOffs(GenTreeArrOffs* treeNode);
+    void GenArrIndex(GenTreeArrIndex* node);
+    void GenArrOffs(GenTreeArrOffs* node);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void GenCall(GenTreeCall* call);
     void GenJmp(GenTree* jmp);

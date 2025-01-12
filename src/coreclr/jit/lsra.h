@@ -736,7 +736,7 @@ private:
 
     void writeLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl, RegNum reg);
     void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
-    void resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition);
+    void resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition);
 
     void insertMove(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum inReg, RegNum outReg);
 
@@ -1893,8 +1893,8 @@ public:
     unsigned rpNum = 0;
 #endif // DEBUG
 
-    RefPosition(unsigned bbNum, LsraLocation nodeLocation, GenTree* treeNode, RefType refType)
-        : treeNode(treeNode)
+    RefPosition(unsigned bbNum, LsraLocation nodeLocation, GenTree* node, RefType refType)
+        : treeNode(node)
         , bbNum(bbNum)
         , nodeLocation(nodeLocation)
         , refType(refType)

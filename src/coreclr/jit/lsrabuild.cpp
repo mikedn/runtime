@@ -155,7 +155,7 @@ void LinearScan::checkConflictingDefUse(RefPosition* useRP)
 
     RefPosition* defRP = theInterval->firstRefPosition;
 
-    // All defs must have a valid treeNode, but we check it below to be conservative.
+    // All defs must have a valid node, but we check it below to be conservative.
     assert(defRP->treeNode != nullptr);
     regMaskTP prevAssignment = defRP->registerAssignment;
     regMaskTP newAssignment  = (prevAssignment & useRP->registerAssignment);

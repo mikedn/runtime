@@ -779,38 +779,42 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
     {
         return false;
     }
+
     Interval* interval = refPosition->getInterval();
+
     if (!interval->isConstant || !isRegConstant(physRegRecord->regNum, interval->registerType))
     {
         return false;
     }
-    noway_assert(refPosition->treeNode != nullptr);
-    GenTree* otherTreeNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
-    noway_assert(otherTreeNode != nullptr);
 
-    if (refPosition->treeNode->GetOper() != otherTreeNode->GetOper())
+    GenTree* node = refPosition->treeNode;
+    noway_assert(node != nullptr);
+    GenTree* regNode = physRegRecord->assignedInterval->firstRefPosition->treeNode;
+    noway_assert(regNode != nullptr);
+
+    if (node->GetOper() != regNode->GetOper())
     {
         return false;
     }
 
-    switch (otherTreeNode->GetOper())
+    switch (regNode->GetOper())
     {
         case GT_CNS_INT:
         {
-            ssize_t v1 = refPosition->treeNode->AsIntCon()->GetValue();
-            ssize_t v2 = otherTreeNode->AsIntCon()->GetValue();
-            if ((v1 == v2) &&
-                (varTypeGCKind(refPosition->treeNode->GetType()) == varTypeGCKind(otherTreeNode->GetType()) || v1 == 0))
+            ssize_t v1 = node->AsIntCon()->GetValue();
+            ssize_t v2 = regNode->AsIntCon()->GetValue();
+
+            if ((v1 == v2) && (varTypeGCKind(node->GetType()) == varTypeGCKind(regNode->GetType()) || v1 == 0))
             {
 #ifdef TARGET_64BIT
                 // If the constant is negative, only reuse registers of the same type.
-                // This is because, on a 64-bit system, we do not sign-extend immediates in registers to
+                // This is because, on a 64-bit system, we do not sign-extend constants in registers to
                 // 64-bits unless they are actually longs, as this requires a longer instruction.
                 // This doesn't apply to a 32-bit system, on which long values occupy multiple registers.
                 // (We could sign-extend, but we would have to always sign-extend, because if we reuse more
                 // than once, we won't have access to the instruction that originally defines the constant).
-                if ((refPosition->treeNode->GetType() == otherTreeNode->GetType()) || (v1 >= 0))
-#endif // TARGET_64BIT
+                if ((node->GetType() == regNode->GetType()) || (v1 >= 0))
+#endif
                 {
                     return true;
                 }
@@ -818,15 +822,15 @@ bool LinearScan::isMatchingConstant(RegRecord* physRegRecord, RefPosition* refPo
             break;
         }
         case GT_CNS_DBL:
-            // For floating point constants, the values must be identical, not simply compare
-            // equal.  So we compare the bits.
-            return (refPosition->treeNode->GetType() == otherTreeNode->GetType()) &&
-                   (refPosition->treeNode->AsDblCon()->GetBits() == otherTreeNode->AsDblCon()->GetBits());
+            // For floating point constants, the values must be identical, not simply compare equal.
+            // So we compare the bits.
+            return (node->GetType() == regNode->GetType()) &&
+                   (node->AsDblCon()->GetBits() == regNode->AsDblCon()->GetBits());
 
 #if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
         case GT_HWINTRINSIC:
             // XARCH only for now, doesn't seem to be useful on ARM64 due to XZR.
-            return refPosition->treeNode->IsHWIntrinsicZero() && otherTreeNode->IsHWIntrinsicZero();
+            return node->IsHWIntrinsicZero() && regNode->IsHWIntrinsicZero();
 #endif
 
         default:
@@ -1664,9 +1668,9 @@ void LinearScan::unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPositio
 #endif // 0
 #ifdef DEBUG
         // With JitStressRegs == 0x80 (LSRA_EXTEND_LIFETIMES), we may have a RefPosition
-        // that is not marked lastUse even though the treeNode is a lastUse.  In that case
-        // we must not mark it for spill because the register will have been immediately freed
-        // after use.  While we could conceivably add special handling for this case in codegen,
+        // that is not marked lastUse even though the node is a lastUse. In that case we
+        // must not mark it for spill because the register will have been immediately freed
+        // after use. While we could conceivably add special handling for this case in codegen,
         // it would be messy and undesirably cause the "bleeding" of LSRA stress modes outside
         // of LSRA.
         if (extendLifetimes() && assignedInterval->isLocalVar && RefTypeIsUse(spillRefPosition->refType) &&
@@ -3836,8 +3840,8 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 //      Update the graph for a local reference.
 //      Also, track the register (if any) that is currently occupied.
 // Arguments:
-//      treeNode: The lclVar that's being resolved
-//      currentRefPosition: the RefPosition associated with the treeNode
+//      node: The lclVar that's being resolved
+//      currentRefPosition: the RefPosition associated with the node
 //
 // Details:
 // This method is called for each local reference, during the resolveRegisters
@@ -3867,26 +3871,24 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 // NICE: Consider tracking whether an Interval is always in the same location (register/stack)
 // in which case it will require no resolution.
 //
-void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, RefPosition* currentRefPosition)
+void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition)
 {
-    assert((block == nullptr) == (treeNode == nullptr));
+    assert((block == nullptr) == (node == nullptr));
+    assert((node == nullptr) || node->OperIs(GT_LCL_LOAD, GT_LCL_STORE));
     assert(enregisterLocalVars);
 
-    // Is this a tracked local?  Or just a register allocated for loading
-    // a non-tracked one?
-    Interval* interval = currentRefPosition->getInterval();
-    assert(interval->isLocalVar);
-
-    interval->recentRefPosition = currentRefPosition;
+    // Is this a tracked local? Or just a register allocated for loading a non-tracked one?
+    Interval*  interval         = currentRefPosition->getInterval();
     LclVarDsc* varDsc           = interval->getLocalVar(compiler);
+    interval->recentRefPosition = currentRefPosition;
 
     // NOTE: we set the LastUse flag here unless we are extending lifetimes, in which case we write
     // this bit in checkLastUses. This is a bit of a hack, but is necessary because codegen requires
     // accurate last use info that is not reflected in the lastUse bit on ref positions when we are extending
     // lifetimes. See also the comments in checkLastUses.
-    if ((treeNode != nullptr) && !extendLifetimes())
+    if ((node != nullptr) && !extendLifetimes())
     {
-        treeNode->SetLastUse(currentRefPosition->getMultiRegIdx(), currentRefPosition->lastUse);
+        node->SetLastUse(currentRefPosition->getMultiRegIdx(), currentRefPosition->lastUse);
 
         if ((currentRefPosition->registerAssignment != RBM_NONE) && (interval->physReg == REG_NA) &&
             currentRefPosition->RegOptional() && currentRefPosition->lastUse &&
@@ -3896,7 +3898,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // during resolution. In this case we're better off making it contained.
             assert(inVarToRegMaps[curBBNum][varDsc->lvVarIndex] == REG_STK);
             currentRefPosition->registerAssignment = RBM_NONE;
-            clearLocalReg(treeNode->AsLclVar(), varDsc);
+            clearLocalReg(node->AsLclVar(), varDsc);
         }
     }
 
@@ -3918,8 +3920,8 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         // if all uses are from spill, but that adds complexity.
         if (currentRefPosition->refType == RefTypeUse)
         {
-            assert(!treeNode->IsMultiReg());
-            treeNode->SetContained();
+            assert(!node->IsMultiReg());
+            node->SetContained();
         }
 
         return;
@@ -3973,18 +3975,17 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             interval->physReg = assignedReg;
         }
 
-        // If there is no treeNode, this must be a RefTypeExpUse, in
-        // which case we did the reload already
-        if (treeNode != nullptr)
+        // If there is no node , this must be a RefTypeExpUse, in which case we did the reload already
+        if (node != nullptr)
         {
-            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
             if (spillAfter)
             {
                 if (currentRefPosition->RegOptional())
                 {
-                    // We don't support RegOptional for multi-reg localvars.
-                    assert(!treeNode->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
+                    // We don't support RegOptional for multi-reg locals.
+                    assert(!node->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
 
                     // This is a use of lclVar that is flagged as reg-optional
                     // by lower/codegen and marked for both reload and spillAfter.
@@ -3995,13 +3996,13 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
                     //
                     // Note that varDsc->GetRegNum() is already to REG_STK above.
                     interval->physReg = REG_NA;
-                    clearLocalReg(treeNode, varDsc);
-                    treeNode->SetRegSpilled(0, false);
-                    treeNode->SetContained();
+                    clearLocalReg(node, varDsc);
+                    node->SetRegSpilled(0, false);
+                    node->SetContained();
                 }
                 else
                 {
-                    treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+                    node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
                 }
             }
         }
@@ -4010,14 +4011,14 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             assert(currentRefPosition->refType == RefTypeExpUse);
         }
     }
-    else if (spillAfter && !RefTypeIsUse(currentRefPosition->refType) && (treeNode != nullptr))
+    else if (spillAfter && !RefTypeIsUse(currentRefPosition->refType) && (node != nullptr))
     {
         // In the case of a pure def, don't bother spilling - just assign it to the
         // stack.  However, we need to remember that it was spilled.
         assert(interval->isSpilled);
         varDsc->SetRegNum(REG_STK);
         interval->physReg = REG_NA;
-        clearLocalReg(treeNode->AsLclVar(), varDsc);
+        clearLocalReg(node->AsLclVar(), varDsc);
     }
     else // Not reload and Not pure-def that's spillAfter
     {
@@ -4030,12 +4031,12 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             //  - In the second case, we were forced to use a different register because of
             //    interference (or JitStressRegs).
             //    In this case, we generate a GT_COPY.
-            // In either case, we annotate the treeNode with the register in which the value
+            // In either case, we annotate the node with the register in which the value
             // currently lives.  For moveReg, the homeReg is the new register (as assigned above).
             // But for copyReg, the homeReg remains unchanged.
 
-            assert(treeNode != nullptr);
-            writeLocalReg(treeNode->AsLclVar(), varDsc, interval->physReg);
+            assert(node != nullptr);
+            writeLocalReg(node->AsLclVar(), varDsc, interval->physReg);
 
             if (currentRefPosition->copyReg)
             {
@@ -4050,7 +4051,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             if (!currentRefPosition->isFixedRegRef || currentRefPosition->moveReg)
             {
                 // This is the second case, where we need to generate a copy
-                insertCopyOrReload(block, treeNode, currentRefPosition->getMultiRegIdx(), currentRefPosition);
+                insertCopyOrReload(block, node, currentRefPosition->getMultiRegIdx(), currentRefPosition);
             }
         }
         else
@@ -4076,18 +4077,18 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
         }
         if (spillAfter)
         {
-            if (treeNode != nullptr)
+            if (node != nullptr)
             {
-                treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+                node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             }
             assert(interval->isSpilled);
             interval->physReg = REG_NA;
             varDsc->SetRegNum(REG_STK);
         }
-        if (writeThru && (treeNode != nullptr))
+        if (writeThru && (node != nullptr))
         {
             // This is a def of a write-thru EH var (only defs are marked 'writeThru').
-            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
             // We also mark writeThru defs that are not last-use with SPILLED to indicate that they are
             // conceptually spilled and immediately "reloaded", i.e. the register remains live.
             // Note that we can have a "last use" write that has no exposed uses in the standard
@@ -4095,11 +4096,11 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // to retain these defs, and to ensure that they write.
             if (!currentRefPosition->lastUse)
             {
-                treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+                node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
             }
         }
 
-        if (currentRefPosition->singleDefSpill && (treeNode != nullptr))
+        if (currentRefPosition->singleDefSpill && (node != nullptr))
         {
             // This is the first (and only) def of a single-def var (only defs are marked 'singleDefSpill').
             // Mark it as SPILL, so it is spilled immediately to the stack at definition and
@@ -4109,8 +4110,8 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* treeNode, Ref
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
             // better way to avoid resolution moves, perhaps by updating the varDsc->SetRegNum(REG_STK) in this
             // method?
-            treeNode->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-            treeNode->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
 
             varDsc->lvSpillAtSingleDef = true;
         }
@@ -4532,13 +4533,11 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
         Interval* interval = refPosition->getInterval();
         if (!interval->isLocalVar)
         {
-            GenTree* treeNode = refPosition->treeNode;
-            if (treeNode == nullptr)
+            if (refPosition->treeNode == nullptr)
             {
                 assert(RefTypeIsUse(refType));
-                treeNode = interval->firstRefPosition->treeNode;
+                assert(interval->firstRefPosition->treeNode != nullptr);
             }
-            assert(treeNode != nullptr);
 
             // The tmp allocation logic 'normalizes' types to a small number of
             // types that need distinct stack locations from each other.
@@ -4762,13 +4761,13 @@ void LinearScan::resolveRegisters()
 
             updateMaxSpill(&refPosIterator);
 
-            GenTree* treeNode = refPosIterator->treeNode;
+            GenTree* node = refPosIterator->treeNode;
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
             if (refPosIterator->refType == RefTypeUpperVectorSave)
             {
-                // The treeNode is a call or something that might become one.
-                noway_assert(treeNode != nullptr);
+                // The node is a call or something that might become one.
+                noway_assert(node != nullptr);
                 // If the associated interval is an UpperVector, this must be a RefPosition for a LargeVectorType
                 // LocalVar.
                 // Otherwise, this  is a non-lclVar interval that has been spilled, and we don't need to do anything.
@@ -4780,11 +4779,11 @@ void LinearScan::resolveRegisters()
                     {
                         // If the localVar is in a register, it must be in a register that is not trashed by
                         // the current node (otherwise it would have already been spilled).
-                        assert((genRegMask(localVarInterval->physReg) & getKillSetForNode(treeNode)) == RBM_NONE);
+                        assert((genRegMask(localVarInterval->physReg) & getKillSetForNode(node)) == RBM_NONE);
                         // If we have allocated a register to spill it to, we will use that; otherwise, we will spill it
                         // to the stack.  We can use as a temp register any non-arg caller-save register.
                         refPosIterator->referent->recentRefPosition = &refPosIterator;
-                        insertUpperVectorSave(treeNode, &refPosIterator, refPosIterator->getInterval(), block);
+                        insertUpperVectorSave(node, &refPosIterator, refPosIterator->getInterval(), block);
                         localVarInterval->isPartiallySpilled = true;
                     }
                 }
@@ -4812,7 +4811,7 @@ void LinearScan::resolveRegisters()
                            (localVarInterval->assignedReg->regNum == localVarInterval->physReg) &&
                            (localVarInterval->assignedReg->assignedInterval == localVarInterval));
 
-                    insertUpperVectorRestore(treeNode, &refPosIterator, interval, block);
+                    insertUpperVectorRestore(node, &refPosIterator, interval, block);
                 }
 
                 localVarInterval->isPartiallySpilled = false;
@@ -4820,8 +4819,8 @@ void LinearScan::resolveRegisters()
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
             // Most uses won't actually need to be recorded (they're on the def).
-            // In those cases, treeNode will be nullptr.
-            if (treeNode == nullptr)
+            // In those cases, node will be null.
+            if (node == nullptr)
             {
                 // This is either a use, a dead def, or a field of a struct
                 Interval* interval = refPosIterator->getInterval();
@@ -4849,16 +4848,16 @@ void LinearScan::resolveRegisters()
 
             if (refPosIterator->getInterval()->isInternal)
             {
-                treeNode->AddTempRegs(refPosIterator->registerAssignment);
+                node->AddTempRegs(refPosIterator->registerAssignment);
 
                 continue;
             }
 
-            writeRegisters(&refPosIterator, treeNode);
+            writeRegisters(&refPosIterator, node);
 
-            if (treeNode->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && refPosIterator->getInterval()->isLocalVar)
+            if (node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && refPosIterator->getInterval()->isLocalVar)
             {
-                resolveLocalRef(block, treeNode->AsLclVar(), &refPosIterator);
+                resolveLocalRef(block, node->AsLclVar(), &refPosIterator);
 
                 continue;
             }
@@ -4870,17 +4869,17 @@ void LinearScan::resolveRegisters()
             if (refPosIterator->spillAfter ||
                 (refPosIterator->nextRefPosition != nullptr && refPosIterator->nextRefPosition->moveReg))
             {
-                noway_assert(treeNode != nullptr);
+                noway_assert(node != nullptr);
 
                 if (refPosIterator->spillAfter)
                 {
-                    treeNode->SetRegSpill(refPosIterator->getMultiRegIdx(), true);
+                    node->SetRegSpill(refPosIterator->getMultiRegIdx(), true);
 
                     // If this is a constant interval that is reusing a pre-existing value, we actually need
                     // to generate the value at this point in order to spill it.
-                    if (treeNode->IsReuseRegVal())
+                    if (node->IsReuseRegVal())
                     {
-                        treeNode->ResetReuseRegVal();
+                        node->ResetReuseRegVal();
                     }
                 }
 
@@ -4912,7 +4911,7 @@ void LinearScan::resolveRegisters()
                     {
                         if (nextRefPosition->assignedReg() != REG_NA)
                         {
-                            insertCopyOrReload(block, treeNode, refPosIterator->getMultiRegIdx(), nextRefPosition);
+                            insertCopyOrReload(block, node, refPosIterator->getMultiRegIdx(), nextRefPosition);
                         }
                         else
                         {
@@ -4925,7 +4924,7 @@ void LinearScan::resolveRegisters()
                                 nextRefPosition->refType == RefTypeUse)
                             {
                                 assert(nextRefPosition->treeNode == nullptr);
-                                treeNode->gtFlags |= GTF_NOREG_AT_USE;
+                                node->gtFlags |= GTF_NOREG_AT_USE;
                             }
                         }
                     }
@@ -6895,79 +6894,75 @@ const char* LinearScan::getScoreName(RegisterScore score)
 
 void RefPosition::dump(LinearScan* linearScan)
 {
-    printf("<RefPosition #%-3u @%-3u", rpNum, nodeLocation);
+    printf("<RefPosition #%-3u @%-3u %s ", rpNum, nodeLocation, getRefTypeName(refType));
 
-    printf(" %s ", getRefTypeName(refType));
-
-    if (this->IsPhysRegRef())
+    if (IsPhysRegRef())
     {
-        this->getReg()->tinyDump();
+        getReg()->tinyDump();
     }
     else if (getInterval())
     {
-        this->getInterval()->tinyDump();
+        getInterval()->tinyDump();
     }
-    if (this->treeNode)
+
+    if (treeNode != nullptr)
     {
         printf("%s", treeNode->OpName(treeNode->GetOper()));
-        if (this->treeNode->IsMultiRegNode())
+        if (treeNode->IsMultiRegNode())
         {
-            printf("[%d]", this->multiRegIdx);
+            printf("[%u]", multiRegIdx);
         }
     }
-    printf(" " FMT_BB " ", this->bbNum);
 
-    printf("regmask=");
+    printf(" " FMT_BB " regmask=", bbNum);
     dumpRegMask(registerAssignment);
-
     printf(" minReg=%d", minRegCandidateCount);
 
-    if (this->lastUse)
+    if (lastUse)
     {
         printf(" last");
     }
-    if (this->reload)
+    if (reload)
     {
         printf(" reload");
     }
-    if (this->spillAfter)
+    if (spillAfter)
     {
         printf(" spillAfter");
     }
-    if (this->singleDefSpill)
+    if (singleDefSpill)
     {
         printf(" singleDefSpill");
     }
-    if (this->writeThru)
+    if (writeThru)
     {
         printf(" writeThru");
     }
-    if (this->moveReg)
+    if (moveReg)
     {
         printf(" move");
     }
-    if (this->copyReg)
+    if (copyReg)
     {
         printf(" copy");
     }
-    if (this->isFixedRegRef)
+    if (isFixedRegRef)
     {
         printf(" fixed");
     }
-    if (this->isLocalDefUse)
+    if (isLocalDefUse)
     {
         printf(" local");
     }
-    if (this->delayRegFree)
+    if (delayRegFree)
     {
         printf(" delay");
     }
-    if (this->outOfOrder)
+    if (outOfOrder)
     {
         printf(" outOfOrder");
     }
-
-    if (this->RegOptional())
+    if (RegOptional())
     {
         printf(" regOptional");
     }
