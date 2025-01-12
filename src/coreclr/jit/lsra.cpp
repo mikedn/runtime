@@ -326,7 +326,7 @@ void LinearScan::updateNextIntervalRef(regNumber reg, Interval* interval)
 #endif
 }
 
-BasicBlock::weight_t LinearScan::getWeight(RefPosition* refPos)
+BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
 {
     if (GenTree* node = refPos->treeNode)
     {
@@ -731,7 +731,7 @@ RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex
 
 #ifdef DEBUG
 
-void LinearScan::dumpVarRefPositions(const char* title)
+void LinearScan::dumpVarRefPositions(const char* title) const
 {
     if (enregisterLocalVars)
     {
@@ -2430,12 +2430,13 @@ void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
 }
 
 #ifdef DEBUG
-void LinearScan::dumpRefPositions(const char* str)
+void LinearScan::dumpRefPositions(const char* str) const
 {
     printf("------------\n");
     printf("REFPOSITIONS %s: \n", str);
     printf("------------\n");
-    for (RefPosition& refPos : refPositions)
+
+    for (const RefPosition& refPos : refPositions)
     {
         refPos.dump(this);
     }
@@ -6892,7 +6893,7 @@ const char* LinearScan::getScoreName(RegisterScore score)
     }
 }
 
-void RefPosition::dump(LinearScan* linearScan)
+void RefPosition::dump(const LinearScan* linearScan) const
 {
     printf("<RefPosition #%-3u @%-3u %s ", rpNum, nodeLocation, getRefTypeName(refType));
 
@@ -6971,12 +6972,12 @@ void RefPosition::dump(LinearScan* linearScan)
     printf(">\n");
 }
 
-void RegRecord::dump()
+void RegRecord::dump() const
 {
     tinyDump();
 }
 
-void Interval::dump()
+void Interval::dump() const
 {
     printf("Interval %2u:", intervalIndex);
 
@@ -7061,7 +7062,7 @@ void Interval::dump()
 }
 
 // print out very concise representation
-void Interval::tinyDump()
+void Interval::tinyDump() const
 {
     printf("<Ivl:%u", intervalIndex);
     if (isLocalVar)
@@ -7081,7 +7082,7 @@ void Interval::tinyDump()
 }
 
 // print out extremely concise representation
-void Interval::microDump()
+void Interval::microDump() const
 {
     if (isLocalVar)
     {
@@ -7101,12 +7102,12 @@ void Interval::microDump()
     printf("<%c%u>", intervalTypeChar, intervalIndex);
 }
 
-void RegRecord::tinyDump()
+void RegRecord::tinyDump() const
 {
     printf("<Reg:%-3s> ", getRegName(regNum));
 }
 
-void LinearScan::dumpDefList()
+void LinearScan::dumpDefList() const
 {
     if (!verbose)
     {
@@ -7123,10 +7124,10 @@ void LinearScan::dumpDefList()
     JITDUMP(" }\n");
 }
 
-void LinearScan::lsraDumpIntervals(const char* msg)
+void LinearScan::lsraDumpIntervals(const char* msg) const
 {
     printf("\nLinear scan intervals %s:\n", msg);
-    for (Interval& interval : intervals)
+    for (const Interval& interval : intervals)
     {
         // only dump something if it has references
         // if (interval->firstRefPosition)

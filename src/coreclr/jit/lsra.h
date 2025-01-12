@@ -200,8 +200,8 @@ public:
     }
 
 #ifdef DEBUG
-    void dump();
-    void tinyDump();
+    void dump() const;
+    void tinyDump() const;
 #endif
 };
 
@@ -555,10 +555,10 @@ private:
     }
 
     // Dump support
-    void dumpDefList();
-    void lsraDumpIntervals(const char* msg);
-    void dumpRefPositions(const char* msg);
-    void dumpVarRefPositions(const char* msg);
+    void dumpDefList() const;
+    void lsraDumpIntervals(const char* msg) const;
+    void dumpRefPositions(const char* msg) const;
+    void dumpVarRefPositions(const char* msg) const;
 
     // Checking code
     static bool IsLsraAdded(GenTree* node)
@@ -787,7 +787,7 @@ private:
     void associateRefPosWithInterval(RefPosition* rp);
     void LinkRefPosition(RefPosition* rp);
 
-    BasicBlock::weight_t getWeight(RefPosition* refPos);
+    BasicBlock::weight_t getWeight(const RefPosition* refPos) const;
 
 #ifdef DEBUG
     const char* getScoreName(RegisterScore score);
@@ -1779,9 +1779,9 @@ public:
     }
 
 #ifdef DEBUG
-    void dump();
-    void tinyDump();
-    void microDump();
+    void dump() const;
+    void tinyDump() const;
+    void microDump() const;
 #endif
 };
 
@@ -2048,7 +2048,7 @@ public:
     }
 
 #ifdef DEBUG
-    void dump(LinearScan* linearScan);
+    void dump(const LinearScan* linearScan) const;
 #endif
 };
 
