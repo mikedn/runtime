@@ -1372,11 +1372,10 @@ void LinearScan::buildIntervals()
             if (argDsc->IsRegParam())
             {
                 // Set this interval as currently assigned to that register
-                regNumber inArgReg = argDsc->GetParamReg();
-                assert(inArgReg < REG_COUNT);
-                mask = genRegMask(inArgReg);
-                assignPhysReg(GetRegRecord(inArgReg), interval);
-                INDEBUG(registersToDump |= getRegMask(inArgReg, interval->registerType));
+                RegNum paramReg = argDsc->GetParamReg();
+                assignPhysReg(GetRegRecord(paramReg), interval);
+                INDEBUG(registersToDump |= getRegMask(paramReg, interval->registerType));
+                mask = genRegMask(paramReg);
             }
 
             RefPosition* pos = newRefPosition(interval, MinLocation, RefTypeParamDef, nullptr, mask);
