@@ -1792,7 +1792,10 @@ void LinearScan::buildIntervals()
         dumpRefPositions("BEFORE VALIDATING INTERVALS");
     }
 
-    validateIntervals();
+    if (enregisterLocalVars)
+    {
+        ValidateLocalIntervals();
+    }
 
     DBEXEC(verbose, TupleStyleDump(LSRA_DUMP_REFPOS));
 #endif // DEBUG
@@ -2981,61 +2984,60 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
 }
 
 #ifdef DEBUG
-void LinearScan::validateIntervals()
+void LinearScan::ValidateLocalIntervals()
 {
-    if (enregisterLocalVars)
+    assert(enregisterLocalVars);
+
+    for (unsigned i = 0; i < compiler->lvaTrackedCount; i++)
     {
-        for (unsigned i = 0; i < compiler->lvaTrackedCount; i++)
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(i);
+
+        if (!lcl->IsRegCandidate())
         {
-            LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(i);
-            if (!lcl->IsRegCandidate())
+            continue;
+        }
+
+        Interval* interval = getIntervalForLocalVar(i);
+        assert(interval->getLocalVar(compiler) == lcl);
+        bool     defined      = false;
+        unsigned lastUseBBNum = 0;
+        JITDUMP("-----------------\n");
+
+        for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
+        {
+            if (verbose)
             {
-                continue;
+                ref->dump(this);
             }
-            Interval* interval = getIntervalForLocalVar(i);
-            assert(interval->getLocalVar(compiler) == lcl);
-            bool     defined      = false;
-            unsigned lastUseBBNum = 0;
-            JITDUMP("-----------------\n");
-            for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
+
+            if (!defined && RefTypeIsUse(ref->refType) && (lastUseBBNum == ref->bbNum) && !ref->lastUse)
             {
-                if (verbose)
+                if (compiler->info.compMethodName != nullptr)
                 {
-                    ref->dump(this);
+                    JITDUMP("%s: ", compiler->info.compMethodName);
                 }
 
-                RefType refType = ref->refType;
+                JITDUMP("LocalVar V%02u: undefined use at %u\n", lcl->GetLclNum(), ref->nodeLocation);
+                assert(false);
+            }
 
-                if (!defined && RefTypeIsUse(refType) && (lastUseBBNum == ref->bbNum))
-                {
-                    if (!ref->lastUse)
-                    {
-                        if (compiler->info.compMethodName != nullptr)
-                        {
-                            JITDUMP("%s: ", compiler->info.compMethodName);
-                        }
-                        JITDUMP("LocalVar V%02u: undefined use at %u\n", lcl->GetLclNum(), ref->nodeLocation);
-                        assert(false);
-                    }
-                }
+            // For single-def intervals, the only the first refposition should be a RefTypeDef
+            if (interval->isSingleDef && RefTypeIsDef(ref->refType))
+            {
+                assert(ref == interval->firstRefPosition);
+            }
 
-                // For single-def intervals, the only the first refposition should be a RefTypeDef
-                if (interval->isSingleDef && RefTypeIsDef(refType))
-                {
-                    assert(ref == interval->firstRefPosition);
-                }
+            // Note that there can be multiple last uses if they are on disjoint paths,
+            // so we can't really check the lastUse flag
+            if (ref->lastUse)
+            {
+                defined      = false;
+                lastUseBBNum = ref->bbNum;
+            }
 
-                // Note that there can be multiple last uses if they are on disjoint paths,
-                // so we can't really check the lastUse flag
-                if (ref->lastUse)
-                {
-                    defined      = false;
-                    lastUseBBNum = ref->bbNum;
-                }
-                if (RefTypeIsDef(refType))
-                {
-                    defined = true;
-                }
+            if (RefTypeIsDef(ref->refType))
+            {
+                defined = true;
             }
         }
     }

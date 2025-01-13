@@ -985,7 +985,7 @@ private:
                                  BasicBlock*   currentBlock  = nullptr,
                                  RegisterScore registerScore = NONE);
 
-    void validateIntervals();
+    void ValidateLocalIntervals();
 
     // This is used for dumping
     RefPosition* activeRefPosition = nullptr;
