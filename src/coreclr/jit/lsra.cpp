@@ -568,12 +568,12 @@ void Interval::mergeRegisterPreferences(regMaskTP preferences)
 
     if (preferCalleeSave)
     {
-        regMaskTP calleeSaveMask = (calleeSaveRegs(this->registerType) & (newPreferences));
-        if (calleeSaveMask != RBM_NONE)
+        if (regMaskTP calleeSaveMask = calleeSaveRegs(registerType) & newPreferences)
         {
             newPreferences = calleeSaveMask;
         }
     }
+
     registerPreferences = newPreferences;
 }
 
@@ -955,7 +955,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
                                   RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore))
 {
     RegisterSelection regSelector(this);
-    regMaskTP         foundRegBit = regSelector.select(currentInterval, refPosition);
+    regMaskTP const   foundRegBit = regSelector.select(currentInterval, refPosition);
     INDEBUG(*registerScore = regSelector.GetSelectionScore());
 
     if (foundRegBit == RBM_NONE)
@@ -963,20 +963,19 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
         return REG_NA;
     }
 
-    regNumber  foundReg               = genRegNumFromMask(foundRegBit);
-    RegRecord* availablePhysRegRecord = GetRegRecord(foundReg);
-    Interval*  assignedInterval       = availablePhysRegRecord->assignedInterval;
+    RegNum const     foundReg         = genRegNumFromMask(foundRegBit);
+    RegRecord* const foundRegRecord   = GetRegRecord(foundReg);
+    Interval*        assignedInterval = foundRegRecord->assignedInterval;
 
-    if ((assignedInterval != currentInterval) &&
-        isAssigned(availablePhysRegRecord ARM_ARG(currentInterval->registerType)))
+    if ((assignedInterval != currentInterval) && isAssigned(foundRegRecord ARM_ARG(currentInterval->registerType)))
     {
         if (regSelector.isSpilling())
         {
 #ifdef TARGET_ARM
             if (currentInterval->registerType == TYP_DOUBLE)
             {
-                assert(genIsValidDoubleReg(availablePhysRegRecord->regNum));
-                unassignDoublePhysReg(availablePhysRegRecord);
+                assert(genIsValidDoubleReg(foundRegRecord->regNum));
+                unassignDoublePhysReg(foundRegRecord);
             }
             else if (assignedInterval->registerType == TYP_DOUBLE)
             {
@@ -987,7 +986,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             else
 #endif
             {
-                unassignPhysReg(availablePhysRegRecord, assignedInterval->recentRefPosition);
+                unassignPhysReg(foundRegRecord, assignedInterval->recentRefPosition);
             }
         }
         else
@@ -1000,7 +999,8 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             // assignedInterval->physReg.
             bool wasAssigned = regSelector.foundUnassignedReg() && (assignedInterval != nullptr) &&
                                (assignedInterval->physReg == foundReg);
-            unassignPhysReg(availablePhysRegRecord ARM_ARG(currentInterval->registerType));
+
+            unassignPhysReg(foundRegRecord ARM_ARG(currentInterval->registerType));
 
             if (regSelector.isMatchingConstant())
             {
@@ -1009,7 +1009,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             }
             else if (wasAssigned)
             {
-                updatePreviousInterval(availablePhysRegRecord, assignedInterval, assignedInterval->registerType);
+                updatePreviousInterval(foundRegRecord, assignedInterval, assignedInterval->registerType);
             }
             else
             {
@@ -1018,7 +1018,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
         }
     }
 
-    assignPhysReg(availablePhysRegRecord, currentInterval);
+    assignPhysReg(foundRegRecord, currentInterval);
     refPosition->registerAssignment = foundRegBit;
     return foundReg;
 }
@@ -7065,7 +7065,7 @@ void Interval::dump() const
     }
 
     printf(" RefPositions {");
-    for (RefPosition* refPosition = this->firstRefPosition; refPosition != nullptr;
+    for (RefPosition* refPosition = firstRefPosition; refPosition != nullptr;
          refPosition              = refPosition->nextRefPosition)
     {
         printf("#%u@%u", refPosition->rpNum, refPosition->nodeLocation);
@@ -7075,12 +7075,7 @@ void Interval::dump() const
         }
     }
     printf("}");
-
-    // this is not used (yet?)
-    // printf(" SpillOffset %d", this->spillOffset);
-
     printf(" physReg:%s", getRegName(physReg));
-
     printf(" Preferences=");
     dumpRegMask(this->registerPreferences);
 
