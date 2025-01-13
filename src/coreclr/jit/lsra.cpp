@@ -8190,10 +8190,7 @@ bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
 //    If verbose is set, this will also dump a table of the final allocations.
 void LinearScan::verifyFinalAllocation()
 {
-    if (verbose)
-    {
-        printf("\nFinal allocation\n");
-    }
+    JITDUMP("\nFinal allocation\n");
 
     // Clear register assignments.
     for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))

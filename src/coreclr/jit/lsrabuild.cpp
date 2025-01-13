@@ -2052,8 +2052,8 @@ bool LinearScan::compareBlocksForSequencing(BasicBlock* block1, BasicBlock* bloc
 {
     if (useBlockWeights)
     {
-        BasicBlock::weight_t weight1 = block1->getBBWeight(compiler);
-        BasicBlock::weight_t weight2 = block2->getBBWeight(compiler);
+        BasicBlock::weight_t weight1 = block1->bbWeight;
+        BasicBlock::weight_t weight2 = block2->bbWeight;
 
         if (weight1 > weight2)
         {
