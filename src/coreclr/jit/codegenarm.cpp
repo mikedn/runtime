@@ -1870,7 +1870,7 @@ void CodeGen::genPushFltRegs(regMaskTP regMask)
     assert(lowReg == REG_F16); // Currently we expect to start at F16 in the unwind codes
 
     // Our calling convention requires that we only use vpush for TYP_DOUBLE registers
-    noway_assert(floatRegCanHoldType(lowReg, TYP_DOUBLE));
+    noway_assert(genIsValidDoubleReg(lowReg));
     noway_assert((slots % 2) == 0);
 
     GetEmitter()->emitIns_R_I(INS_vpush, EA_8BYTE, lowReg, slots / 2);
@@ -1888,7 +1888,7 @@ void CodeGen::genPopFltRegs(regMaskTP regMask)
     assert((tmpMask & (tmpMask - 1)) == 0);
 
     // Our calling convention requires that we only use vpop for TYP_DOUBLE registers
-    noway_assert(floatRegCanHoldType(lowReg, TYP_DOUBLE));
+    noway_assert(genIsValidDoubleReg(lowReg));
     noway_assert((slots % 2) == 0);
 
     GetEmitter()->emitIns_R_I(INS_vpop, EA_8BYTE, lowReg, slots / 2);

@@ -2939,7 +2939,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
 #ifdef TARGET_ARM
         if (lcl->TypeIs(TYP_DOUBLE))
         {
-            initDblRegs |= genRegMaskFloat(lcl->GetRegNum());
+            initDblRegs |= genRegMaskDouble(lcl->GetRegNum());
         }
         else
 #endif
@@ -3606,12 +3606,12 @@ void CodeGen::genFinalizeFrame()
 
     if (pushedFloatRegs != RBM_NONE)
     {
-        regMaskTP contiguousFloatRegs = genRegMaskFloat(REG_F16, TYP_DOUBLE);
+        regMaskTP contiguousFloatRegs = genRegMaskDouble(REG_F16);
 
         while (pushedFloatRegs > contiguousFloatRegs)
         {
             contiguousFloatRegs <<= 2;
-            contiguousFloatRegs |= genRegMaskFloat(REG_F16, TYP_DOUBLE);
+            contiguousFloatRegs |= genRegMaskDouble(REG_F16);
         }
 
         if (pushedFloatRegs != contiguousFloatRegs)

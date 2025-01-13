@@ -91,7 +91,6 @@ static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUN
 // The pseudorandom nop insertion is not necessary for current scenarios
 // #define PSEUDORANDOM_NOP_INSERTION
 
-// clang-format off
 #if defined(TARGET_X86)
 #include "targetx86.h"
 #elif defined(TARGET_AMD64)
@@ -101,12 +100,12 @@ static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUN
 #elif defined(TARGET_ARM64)
 #include "targetarm64.h"
 #else
-  #error Unsupported or unset target architecture
+#error Unsupported or unset target architecture
 #endif
 
 static_assert_no_msg(REG_FIRST == 0);
 static_assert_no_msg(REG_INT_FIRST < REG_INT_LAST);
-static_assert_no_msg(REG_FP_FIRST  < REG_FP_LAST);
+static_assert_no_msg(REG_FP_FIRST < REG_FP_LAST);
 
 // Opportunistic tail call feature converts non-tail prefixed calls into
 // tail calls where possible. It requires fast tail calling mechanism for
@@ -114,12 +113,7 @@ static_assert_no_msg(REG_FP_FIRST  < REG_FP_LAST);
 // calls into tail calls.
 static_assert_no_msg((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
 
-/*****************************************************************************/
-
-#define BITS_PER_BYTE              8
-#define RBM_ALL(type) (varTypeUsesFloatReg(type) ? RBM_ALLFLOAT : RBM_ALLINT)
-
-// clang-format on
+#define BITS_PER_BYTE 8
 
 class Target
 {
@@ -129,76 +123,61 @@ public:
 };
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-const char* getRegName(unsigned reg); // this is for gcencode.cpp and disasm.cpp that don't use
-                                      // the regNumber type
-const char* getRegName(regNumber reg);
-#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
+const char* getRegName(RegNum reg);
+// This is for gcencode.cpp and disasm.cpp that don't use the RegNum type
+const char* getRegName(unsigned reg);
+#endif
 
 #ifdef DEBUG
 enum emitAttr : unsigned;
-const char* RegName(regNumber reg, enum emitAttr attr);
+const char* RegName(RegNum reg, enum emitAttr attr);
 void dspRegMask(regMaskTP regMask, size_t minSiz = 0);
 void DumpRegSet(regMaskTP regs);
 void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to);
 #endif
 
+inline bool isByteReg(RegNum reg)
+{
 #ifdef TARGET_X86
-inline bool isByteReg(regNumber reg)
-{
-    return (reg <= REG_EBX);
-}
+    return reg <= REG_EBX;
 #else
-inline bool isByteReg(regNumber reg)
-{
     return true;
+#endif
 }
+
+inline regMaskTP genRegMask(RegNum reg);
+#ifdef TARGET_ARM
+inline regMaskTP genRegMaskDouble(RegNum reg);
 #endif
 
-inline regMaskTP genRegMask(regNumber reg);
-inline regMaskTP genRegMaskFloat(regNumber reg, var_types type = TYP_DOUBLE);
-
-/*****************************************************************************
- * Return true if the register number is valid
- */
-inline bool genIsValidReg(regNumber reg)
+// Return true if the register number is valid
+inline bool genIsValidReg(RegNum reg)
 {
-    /* It's safest to perform an unsigned comparison in case reg is negative */
-    return ((unsigned)reg < (unsigned)REG_COUNT);
+    return (REG_FIRST <= reg) && (reg < REG_COUNT);
 }
 
-/*****************************************************************************
- * Return true if the register is a valid integer register
- */
-inline bool genIsValidIntReg(regNumber reg)
+// Return true if the register is a valid integer register
+inline bool genIsValidIntReg(RegNum reg)
 {
-    return reg >= REG_INT_FIRST && reg <= REG_INT_LAST;
+    return (REG_INT_FIRST <= reg) && (reg <= REG_INT_LAST);
 }
 
-/*****************************************************************************
- * Return true if the register is a valid floating point register
- */
-inline bool genIsValidFloatReg(regNumber reg)
+// Return true if the register is a valid floating point register
+inline bool genIsValidFloatReg(RegNum reg)
 {
-    return reg >= REG_FP_FIRST && reg <= REG_FP_LAST;
+    return (REG_FP_FIRST <= reg) && (reg <= REG_FP_LAST);
 }
 
 #ifdef TARGET_ARM
-
-/*****************************************************************************
- * Return true if the register is a valid floating point double register
- */
-inline bool genIsValidDoubleReg(regNumber reg)
+// Return true if the register is a valid floating point double register
+inline bool genIsValidDoubleReg(RegNum reg)
 {
-    return genIsValidFloatReg(reg) && (((reg - REG_FP_FIRST) & 0x1) == 0);
+    return genIsValidFloatReg(reg) && (((reg - REG_F0) & 0x1) == 0);
 }
+#endif
 
-#endif // TARGET_ARM
-
-//-------------------------------------------------------------------------------------------
-// fullIntArgRegMask:
-//     Returns the full mask of all possible integer registers
-//     Note this includes the fixed return buffer register on Arm64
-//
+// Returns the full mask of all possible integer registers
+// Note this includes the fixed return buffer register on Arm64
 inline regMaskTP fullIntArgRegMask()
 {
 #ifdef TARGET_ARM64
@@ -210,66 +189,29 @@ inline regMaskTP fullIntArgRegMask()
 
 // Returns true if the register is a valid integer argument register
 // Note this method also returns true on Arm64 when 'reg' is the RetBuff register
-inline bool isValidIntArgReg(regNumber reg)
+inline bool isValidIntArgReg(RegNum reg)
 {
     return (genRegMask(reg) & fullIntArgRegMask()) != 0;
 }
 
 // Returns true if the register is a valid floating-point argument register
-inline bool isValidFloatArgReg(regNumber reg)
+inline bool isValidFloatArgReg(RegNum reg)
 {
-    return (reg >= FIRST_FP_ARGREG) && (reg <= LAST_FP_ARGREG);
+    return (FIRST_FP_ARGREG <= reg) && (reg <= LAST_FP_ARGREG);
 }
-
-/*****************************************************************************
- *
- *  Can the register hold the argument type?
- */
-
-#ifdef TARGET_ARM
-inline bool floatRegCanHoldType(regNumber reg, var_types type)
-{
-    assert(genIsValidFloatReg(reg));
-    if (type == TYP_DOUBLE)
-    {
-        return ((reg - REG_F0) % 2) == 0;
-    }
-    else
-    {
-        // Can be TYP_STRUCT for HFA. It's not clear that's correct; what about
-        // HFA of double? We wouldn't be asserting the right alignment, and
-        // callers like genRegMaskFloat() wouldn't be generating the right mask.
-
-        assert((type == TYP_FLOAT) || (type == TYP_STRUCT));
-        return true;
-    }
-}
-#else
-// AMD64: xmm registers can hold any float type
-// x86: FP stack can hold any float type
-// ARM64: Floating-point/SIMD registers can hold any type.
-inline bool floatRegCanHoldType(regNumber reg, var_types type)
-{
-    return true;
-}
-#endif
-
-/*****************************************************************************
- *
- *  Map a register number to a register mask.
- */
 
 extern const regMaskTP regMasks[REG_COUNT];
 
-inline regMaskTP genRegMask(regNumber reg)
+// Map a register number to a register mask.
+inline regMaskTP genRegMask(RegNum reg)
 {
-    assert((unsigned)reg < ArrLen(regMasks));
+    assert(reg < _countof(regMasks));
 #ifdef TARGET_AMD64
     // shift is faster than a L1 hit on modern x86
     // (L1 latency on sandy bridge is 4 cycles for [base] and 5 for [base + index*c] )
     // the reason this is AMD-only is because the x86 BE will try to get reg masks for REG_STK
     // and the result needs to be zero.
-    regMaskTP result = 1 << reg;
+    regMaskTP result = IntRegMask(1) << reg;
     assert(result == regMasks[reg]);
     return result;
 #else
@@ -277,70 +219,25 @@ inline regMaskTP genRegMask(regNumber reg)
 #endif
 }
 
-/*****************************************************************************
- *
- *  Map a register number to a floating-point register mask.
- */
-
-inline regMaskTP genRegMaskFloat(regNumber reg, var_types type /* = TYP_DOUBLE */)
+#ifdef TARGET_ARM
+// Map a register number to a floating-point register mask.
+inline regMaskTP genRegMaskDouble(RegNum reg)
 {
-#if defined(TARGET_AMD64) || defined(TARGET_ARM64) || defined(TARGET_X86)
-    assert(genIsValidFloatReg(reg));
-    assert((unsigned)reg < ArrLen(regMasks));
-    return regMasks[reg];
-#elif defined(TARGET_ARM)
-    assert(floatRegCanHoldType(reg, type));
-    assert(reg >= REG_F0 && reg <= REG_F31);
+    assert(genIsValidDoubleReg(reg));
+    return regMasks[reg] | regMasks[reg + 1];
+}
+#endif
 
+inline regMaskTP genRegMask(RegNum reg, var_types type)
+{
+#ifdef TARGET_ARM
     if (type == TYP_DOUBLE)
     {
-        return regMasks[reg] | regMasks[reg + 1];
+        return genRegMaskDouble(reg);
     }
-    else
-    {
-        return regMasks[reg];
-    }
-#else
-#error Unsupported or unset target architecture
 #endif
-}
 
-//------------------------------------------------------------------------
-// genRegMask: Given a register, and its type, generate the appropriate regMask
-//
-// Arguments:
-//    regNum   - the register of interest
-//    type     - the type of regNum (i.e. the type it is being used as)
-//
-// Return Value:
-//    This will usually return the same value as genRegMask(regNum), but
-//    on architectures where multiple registers are used for certain types
-//    (e.g. TYP_DOUBLE on ARM), it will return a regMask that includes
-//    all the registers.
-//    Registers that are used in pairs, but separately named (e.g. TYP_LONG
-//    on ARM) will return just the regMask for the given register.
-//
-// Assumptions:
-//    For registers that are used in pairs, the caller will be handling
-//    each member of the pair separately.
-//
-inline regMaskTP genRegMask(regNumber regNum, var_types type)
-{
-#ifndef TARGET_ARM
-    return genRegMask(regNum);
-#else
-    regMaskTP regMask = RBM_NONE;
-
-    if (varTypeUsesFloatReg(type))
-    {
-        regMask = genRegMaskFloat(regNum, type);
-    }
-    else
-    {
-        regMask = genRegMask(regNum);
-    }
-    return regMask;
-#endif
+    return genRegMask(reg);
 }
 
 // If the WINDOWS_AMD64_ABI is defined make sure that TARGET_AMD64 is also defined.

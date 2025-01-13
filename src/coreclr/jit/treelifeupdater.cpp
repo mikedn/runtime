@@ -42,10 +42,12 @@ static regMaskTP GetLclRegs(const LclVarDsc* lcl)
 {
     assert(lcl->lvIsInReg());
 
-    if (varTypeUsesFloatReg(lcl->GetType()))
+#ifdef TARGET_ARM
+    if (lcl->TypeIs(TYP_DOUBLE))
     {
-        return genRegMaskFloat(lcl->GetRegNum(), lcl->GetType());
+        return genRegMaskDouble(lcl->GetRegNum());
     }
+#endif
 
     return genRegMask(lcl->GetRegNum());
 }
