@@ -126,12 +126,12 @@ enum RefType : uint8_t
 
 inline bool RefTypeIsUse(RefType refType)
 {
-    return ((refType & RefTypeUse) == RefTypeUse);
+    return (refType & RefTypeUse) == RefTypeUse;
 }
 
 inline bool RefTypeIsDef(RefType refType)
 {
-    return ((refType & RefTypeDef) == RefTypeDef);
+    return (refType & RefTypeDef) == RefTypeDef;
 }
 
 class Referenceable
@@ -799,20 +799,12 @@ private:
     bool isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* physRegRecord);
     void checkAndAssignInterval(RegRecord* regRec, Interval* interval);
     void assignPhysReg(RegRecord* regRec, Interval* interval);
-    void assignPhysReg(RegNum reg, Interval* interval)
-    {
-        assignPhysReg(getRegisterRecord(reg), interval);
-    }
 
     bool isAssigned(RegRecord* regRec ARM_ARG(RegisterType newRegType));
     void checkAndClearInterval(RegRecord* regRec, RefPosition* spillRefPosition);
     void unassignPhysReg(RegRecord* regRec ARM_ARG(RegisterType newRegType));
     void unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPosition);
     void unassignPhysRegNoSpill(RegRecord* reg);
-    void unassignPhysReg(RegNum reg)
-    {
-        unassignPhysReg(getRegisterRecord(reg), nullptr);
-    }
 
     void setIntervalAsSpilled(Interval* interval);
     void setIntervalAsSplit(Interval* interval);

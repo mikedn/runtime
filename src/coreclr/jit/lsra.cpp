@@ -1240,7 +1240,8 @@ void LinearScan::checkAndAssignInterval(RegRecord* regRec, Interval* interval)
             assert(!assignedInterval->isActive);
             assignedInterval->physReg = REG_NA;
         }
-        unassignPhysReg(regRec->regNum);
+
+        unassignPhysReg(regRec, nullptr);
     }
 #ifdef TARGET_ARM
     // If 'interval' and 'assignedInterval' were both TYP_DOUBLE, then we have unassigned 'assignedInterval'
@@ -1257,7 +1258,7 @@ void LinearScan::checkAndAssignInterval(RegRecord* regRec, Interval* interval)
                 assert(!assignedInterval->isActive);
                 assignedInterval->physReg = REG_NA;
             }
-            unassignPhysReg(otherRegRecord->regNum);
+            unassignPhysReg(otherRegRecord, nullptr);
         }
     }
 #endif

@@ -1375,7 +1375,7 @@ void LinearScan::buildIntervals()
                 regNumber inArgReg = argDsc->GetParamReg();
                 assert(inArgReg < REG_COUNT);
                 mask = genRegMask(inArgReg);
-                assignPhysReg(inArgReg, interval);
+                assignPhysReg(getRegisterRecord(inArgReg), interval);
                 INDEBUG(registersToDump |= getRegMask(inArgReg, interval->registerType));
             }
 
