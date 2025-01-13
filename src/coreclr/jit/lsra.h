@@ -117,19 +117,11 @@ enum RegisterScore
 
 // This is sort of a bit mask
 // The low order 2 bits will be 1 for defs, and 2 for uses
-enum RefType : unsigned char
+enum RefType : uint8_t
 {
 #define DEF_REFTYPE(memberName, memberValue, shortName) memberName = memberValue,
 #include "lsra_reftypes.h"
 #undef DEF_REFTYPE
-};
-
-// position in a block (for resolution)
-enum BlockStartOrEnd
-{
-    BlockPositionStart = 0,
-    BlockPositionEnd   = 1,
-    PositionCount      = 2
 };
 
 inline bool RefTypeIsUse(RefType refType)
@@ -206,7 +198,7 @@ public:
 
 class RegisterSelection;
 
-using VarToRegMap                = regNumberSmall*;
+using VarToRegMap                = RegNumSmall*;
 using IntervalList               = jitstd::list<Interval>;
 using RefPositionList            = jitstd::list<RefPosition>;
 using RefPositionIterator        = jitstd::list<RefPosition>::iterator;
@@ -227,7 +219,6 @@ class LinearScan
 {
     friend class RefPosition;
     friend class Interval;
-    friend class Lowering;
     friend class RegisterSelection;
 
     Compiler* const compiler;
@@ -326,12 +317,6 @@ private:
 #ifdef DEBUG
     static const char* resolveTypeName[ResolveTypeCount];
 #endif
-
-    enum WhereToInsert
-    {
-        InsertAtTop,
-        InsertAtBottom
-    };
 
 #ifdef TARGET_ARM
     void addResolutionForDouble(BasicBlock*     block,
@@ -858,6 +843,7 @@ private:
     void initVarRegMaps();
     void setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg);
     VarToRegMap getInVarToRegMap(BasicBlock* block) const;
+    VarToRegMap getInVarToRegMap(unsigned bbNum) const;
     VarToRegMap getOutVarToRegMap(BasicBlock* block) const;
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, RegNum reg);
     RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex);

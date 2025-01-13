@@ -4,7 +4,6 @@
 #pragma once
 
 #include "compiler.h"
-#include "lsra.h"
 #include "sideeffects.h"
 
 class Lowering

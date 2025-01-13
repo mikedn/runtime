@@ -586,13 +586,19 @@ LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned bbNum) const
 
 VarToRegMap LinearScan::getInVarToRegMap(BasicBlock* block) const
 {
+    return getInVarToRegMap(block->bbNum);
+}
+
+VarToRegMap LinearScan::getInVarToRegMap(unsigned bbNum) const
+{
     assert(enregisterLocalVars);
+    assert(bbNum <= compiler->fgBBNumMax);
 
     // For the blocks inserted to split critical edges, the inVarToRegMap is
     // equal to the outVarToRegMap at the "from" block.
-    if (block->bbNum > bbNumMaxBeforeResolution)
+    if (bbNum > bbNumMaxBeforeResolution)
     {
-        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(block->bbNum);
+        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(bbNum);
 
         if (splitEdgeInfo.fromBBNum == 0)
         {
@@ -603,7 +609,7 @@ VarToRegMap LinearScan::getInVarToRegMap(BasicBlock* block) const
         return outVarToRegMaps[splitEdgeInfo.fromBBNum];
     }
 
-    return inVarToRegMaps[block->bbNum];
+    return inVarToRegMaps[bbNum];
 }
 
 VarToRegMap LinearScan::getOutVarToRegMap(BasicBlock* block) const
@@ -3603,9 +3609,9 @@ void LinearScan::allocateRegisters()
                     // incoming reg for 'this' as REG_STK.
                     if (RefTypeIsUse(ref->refType) && (ref->bbNum != prevBBNum))
                     {
-                        VarToRegMap inVarToRegMap = getInVarToRegMap(ref->bbNum);
-                        setVarReg(inVarToRegMap, thisParamLcl->GetLivenessBitIndex(), REG_STK);
+                        setVarReg(getInVarToRegMap(ref->bbNum), thisParamLcl->GetLivenessBitIndex(), REG_STK);
                     }
+
                     if (ref->RegOptional())
                     {
                         ref->registerAssignment = RBM_NONE;
