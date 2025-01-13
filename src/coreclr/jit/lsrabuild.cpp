@@ -225,7 +225,7 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
 {
     assert((refType == RefTypeFixedReg) || (refType == RefTypeKill));
 
-    RegRecord* regRecord = getRegisterRecord(reg);
+    RegRecord* regRecord = GetRegRecord(reg);
 
     RefPosition* newRP = newRefPositionRaw(location, nullptr, refType);
     newRP->setReg(regRecord);
@@ -1375,7 +1375,7 @@ void LinearScan::buildIntervals()
                 regNumber inArgReg = argDsc->GetParamReg();
                 assert(inArgReg < REG_COUNT);
                 mask = genRegMask(inArgReg);
-                assignPhysReg(getRegisterRecord(inArgReg), interval);
+                assignPhysReg(GetRegRecord(inArgReg), interval);
                 INDEBUG(registersToDump |= getRegMask(inArgReg, interval->registerType));
             }
 

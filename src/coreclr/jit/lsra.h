@@ -771,7 +771,12 @@ private:
         return getIntervalForLocalVar(lclRef->GetLcl()->GetLivenessBitIndex());
     }
 
-    RegRecord* getRegisterRecord(RegNum regNum);
+    RegRecord* GetRegRecord(RegNum regNum)
+    {
+        // TODO-MIKE-Review: Do we really need a RegRecord for STK?!?
+        assert((REG_FIRST <= regNum) && (regNum <= REG_STK) && (regNum < _countof(physRegs)));
+        return &physRegs[regNum];
+    }
 
     RefPosition* newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType);
     RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType);
