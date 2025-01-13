@@ -3249,12 +3249,7 @@ void Compiler::fgComputeCalledCount(BasicBlock::weight_t returnWeight)
         fgFirstBB->setBBProfileWeight(fgCalledCount);
     }
 
-#if DEBUG
-    if (verbose)
-    {
-        printf("We are using the Profile Weights and fgCalledCount is " FMT_WT "\n", fgCalledCount);
-    }
-#endif
+    JITDUMP("We are using the Profile Weights and fgCalledCount is " FMT_WT "\n", fgCalledCount);
 }
 
 //-------------------------------------------------------------

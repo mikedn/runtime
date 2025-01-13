@@ -586,11 +586,11 @@ struct BasicBlock : private LIR::Range
 
     weight_t bbWeight; // The dynamic execution weight of this block
 
-    // getCalledCount -- get the value used to normalize weights for this method
+    // Get the value used to normalize weights for this method
     static weight_t getCalledCount(Compiler* comp);
 
-    // getBBWeight -- get the normalized weight of this block
-    weight_t getBBWeight(Compiler* comp);
+    // Get the normalized weight of this block
+    weight_t getBBWeight(Compiler* comp) const;
 
     // hasProfileWeight -- Returns true if this block's weight came from profile data
     bool hasProfileWeight() const

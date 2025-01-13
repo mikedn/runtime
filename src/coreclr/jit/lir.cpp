@@ -194,47 +194,8 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
     }
 }
 
-//------------------------------------------------------------------------
-// LIR::Use::ReplaceWithLclLoad: Assigns the def for this use to a local
-//                              var and points the use to a use of that
-//                              local var. If no local number is provided,
-//                              creates a new local var.
-//
-// For example, given the following IR:
-//
-//    t15 =    lclVar    int    arg1
-//    t16 =    lclVar    int    arg1
-//
-//          /--*  t15 int
-//          +--*  t16 int
-//    t17 = *  ==        int
-//
-//          /--*  t17 int
-//          *  jmpTrue   void
-//
-// If we wanted to replace the use of t17 with a use of a new local var
-// that holds the value represented by t17, we might do the following
-// (where `opEq` is a `Use` value that represents the use of t17):
-//
-//    opEq.ReplaceUseWithLclVar(compiler, block->getBBWeight(compiler));
-//
-// This would produce the following LIR:
-//
-//    t15 =    lclVar    int    arg1
-//    t16 =    lclVar    int    arg1
-//
-//          /--*  t15 int
-//          +--*  t16 int
-//    t17 = *  ==        int
-//
-//          /--*  t17 int
-//          *  st.lclVar int    tmp0
-//
-//    t18 =    lclVar    int    tmp0
-//
-//          /--*  t18 int
-//          *  jmpTrue   void
-//
+// Assigns the def for this use to a local and points the use to a use
+// of that local. If no local number is provided, creates a new local.
 LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenTreeLclStore** newStore)
 {
     assert(IsInitialized());

@@ -3842,35 +3842,22 @@ public:
                                                          // This is derived from the profile data or is
                                                          // BB_UNITY_WEIGHT when we don't have profile data
 
-    //-------------------------------------------------------------------------
-
     PhaseStatus fgImport();
-
     PhaseStatus fgTransformIndirectCalls();
-
     PhaseStatus fgTransformPatchpoints();
-
     PhaseStatus fgInline();
-
     PhaseStatus fgRemoveEmptyTry();
-
     PhaseStatus fgRemoveEmptyFinally();
-
     PhaseStatus fgMergeFinallyChains();
-
     PhaseStatus fgCloneFinally();
 
     void fgCleanupContinuation(BasicBlock* continuation);
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
+#ifdef TARGET_ARM
     PhaseStatus fgUpdateFinallyTargetFlags();
-
-    void fgClearAllFinallyTargetBits();
-
-    void fgAddFinallyTargetFlags();
-
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+    void        fgClearAllFinallyTargetBits();
+    void        fgAddFinallyTargetFlags();
+#endif
 
     PhaseStatus fgTailMergeThrows();
     void fgTailMergeThrowsFallThroughHelper(BasicBlock* predBlock,

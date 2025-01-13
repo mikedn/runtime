@@ -1134,13 +1134,8 @@ void Compiler::fgCreateLoopPreHeader(unsigned lnum)
     // Also include 'head' in the preHead bbReach set
     BlockSetOps::AddElemD(this, preHead->bbReach, head->bbNum);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nCreated PreHeader (" FMT_BB ") for loop " FMT_LP " (" FMT_BB " - " FMT_BB "), with weight = %s\n",
-               preHead->bbNum, lnum, top->bbNum, pLoopDsc->lpBottom->bbNum, refCntWtd2str(preHead->getBBWeight(this)));
-    }
-#endif
+    JITDUMP("\nCreated PreHeader (" FMT_BB ") for loop " FMT_LP " (" FMT_BB " - " FMT_BB "), with weight = %s\n",
+            preHead->bbNum, lnum, top->bbNum, pLoopDsc->lpBottom->bbNum, refCntWtd2str(preHead->getBBWeight(this)));
 
     // The preheader block is part of the containing loop (if any).
     preHead->SetLoopNum(pLoopDsc->lpParent);

@@ -1892,13 +1892,11 @@ BlockSet LinearScan::setBlockSequence()
         BlockSetOps::AddElemD(compiler, visited, block->bbNum);
         nextBlock = nullptr;
 
+        // We treat CallFinallyAlwaysPairTail blocks as having EH flow,
+        // since we can't insert resolution moves into those blocks.
+        bool const isCallFinallyAlwaysPairTail = block->IsCallFinallyAlwaysPairTail();
+
         LsraBlockInfo& info = blockInfo[block->bbNum];
-
-        // Initialize the blockInfo.
-
-        // We treat BBCallAlwaysPairTail blocks as having EH flow, since we can't
-        // insert resolution moves into those blocks.
-        bool isCallFinallyAlwaysPairTail = block->IsCallFinallyAlwaysPairTail();
 
         info.predBlock          = nullptr;
         info.weight             = block->getBBWeight(compiler);
@@ -1908,7 +1906,7 @@ BlockSet LinearScan::setBlockSequence()
         info.hasCriticalInEdge  = false;
         info.hasCriticalOutEdge = false;
 
-        bool hasUniquePred = (block->GetUniquePred(compiler) != nullptr);
+        bool hasUniquePred = block->GetUniquePred(compiler) != nullptr;
 
         for (BasicBlock* const predBlock : block->PredBlocks())
         {
@@ -1925,10 +1923,10 @@ BlockSet LinearScan::setBlockSequence()
                 }
             }
 
-            if (!block->isBBCallAlwaysPairTail() &&
-                (predBlock->hasEHBoundaryOut() || predBlock->isBBCallAlwaysPairTail()))
+            if (!isCallFinallyAlwaysPairTail &&
+                (predBlock->hasEHBoundaryOut() || predBlock->IsCallFinallyAlwaysPairTail()))
             {
-                assert(!block->isBBCallAlwaysPairTail());
+                assert(!isCallFinallyAlwaysPairTail);
 
                 if (hasUniquePred)
                 {
@@ -2036,10 +2034,9 @@ BlockSet LinearScan::setBlockSequence()
 
     for (BasicBlock* block : jitstd::span<BasicBlock*>(blockSequence, bbSeqCount))
     {
-        JITDUMP(FMT_BB "(%6s) %s%s%s\n", block->bbNum, refCntWtd2str(block->getBBWeight(compiler)),
-                blockInfo[block->bbNum].hasEHBoundaryIn ? " EH-in" : "",
-                blockInfo[block->bbNum].hasEHBoundaryOut ? " EH-out" : "",
-                blockInfo[block->bbNum].hasEHPred ? " has EH pred" : "");
+        const LsraBlockInfo& info = blockInfo[block->bbNum];
+        JITDUMP(FMT_BB "(%6s) %s%s%s\n", block->bbNum, refCntWtd2str(info.weight), info.hasEHBoundaryIn ? " EH-in" : "",
+                info.hasEHBoundaryOut ? " EH-out" : "", info.hasEHPred ? " has EH pred" : "");
     }
 
     JITDUMP("\n");

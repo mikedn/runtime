@@ -2374,12 +2374,8 @@ NO_MORE_LOOPS:
 #endif // DEBUG
 }
 
-//-----------------------------------------------------------------------------
-//
 // All the inner loops that whose block weight meets a threshold are marked
 // as needing alignment.
-//
-
 void Compiler::optIdentifyLoopsForAlignment()
 {
 #if FEATURE_LOOP_ALIGN
@@ -2392,16 +2388,18 @@ void Compiler::optIdentifyLoopsForAlignment()
             // An innerloop candidate that might need alignment
             if (optLoopTable[loopInd].lpChild == BasicBlock::NOT_IN_LOOP)
             {
-                if (first->getBBWeight(this) >= (opts.compJitAlignLoopMinBlockWeight * BB_UNITY_WEIGHT))
+                BasicBlock::weight_t weight = first->getBBWeight(this);
+
+                if (weight >= (opts.compJitAlignLoopMinBlockWeight * BB_UNITY_WEIGHT))
                 {
                     first->bbFlags |= BBF_LOOP_ALIGN;
                     JITDUMP(FMT_LP " that starts at " FMT_BB " needs alignment, weight=" FMT_WT ".\n", loopInd,
-                            first->bbNum, first->getBBWeight(this));
+                            first->bbNum, weight);
                 }
                 else
                 {
                     JITDUMP("Skip alignment for " FMT_LP " that starts at " FMT_BB " weight=" FMT_WT ".\n", loopInd,
-                            first->bbNum, first->getBBWeight(this));
+                            first->bbNum, weight);
                 }
             }
         }
@@ -2714,8 +2712,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
                 JITDUMP("in optCanonicalizeLoop: block " FMT_BB " will also contribute to the weight of " FMT_BB "\n",
                         newT->bbNum, topPredBlock->bbNum);
 
-                BasicBlock::weight_t newWeight = newT->getBBWeight(this) + topPredBlock->getBBWeight(this);
-                newT->setBBProfileWeight(newWeight);
+                newT->setBBProfileWeight(newT->getBBWeight(this) + topPredBlock->getBBWeight(this));
             }
         }
     }
@@ -5370,7 +5367,6 @@ void Compiler::optAddCopies()
         // alignment then why the crap it's also checking for FLOAT?!?
 
         bool isFloatParam = false;
-
 #ifdef TARGET_X86
         isFloatParam = lcl->IsParam() && varTypeIsFloating(typ);
 #endif
@@ -5407,16 +5403,15 @@ void Compiler::optAddCopies()
         BlockSet paramImportantUseDom(BlockSetOps::MakeFull(this));
 
         // This will be threshold for determining heavier-than-average uses
-        BasicBlock::weight_t paramAvgWtdRefDiv2 = (lcl->lvRefCntWtd() + lcl->lvRefCnt() / 2) / (lcl->lvRefCnt() * 2);
+        BasicBlock::weight_t paramAvgWtdRefDiv2 =
+            (lcl->GetRefWeight() + lcl->GetRefCount() / 2) / (lcl->GetRefCount() * 2);
 
         bool paramFoundImportantUse = false;
 
         JITDUMP("Trying to add a copy for %s V%02u, avg_wtd = %s\n", lcl->IsParam() ? "param" : "local",
                 lcl->GetLclNum(), refCntWtd2str(paramAvgWtdRefDiv2));
 
-        //
         // We must have a ref in a block that is dominated only by the entry block
-        //
 
         bool isDominatedByFirstBB = false;
 
@@ -5424,18 +5419,18 @@ void Compiler::optAddCopies()
         {
             const unsigned bbNum = e.Current();
 
-            /* Find the block 'bbNum' */
+            // Find the block 'bbNum'
             BasicBlock* block = fgFirstBB;
-            while (block && (block->bbNum != bbNum))
+            while ((block != nullptr) && (block->bbNum != bbNum))
             {
                 block = block->bbNext;
             }
-            noway_assert(block && (block->bbNum == bbNum));
+            noway_assert((block != nullptr) && (block->bbNum == bbNum));
 
-            bool importantUseInBlock = lcl->IsParam() && (block->getBBWeight(this) > paramAvgWtdRefDiv2);
-            bool isPreHeaderBlock    = ((block->bbFlags & BBF_LOOP_PREHEADER) != 0);
-
-            BasicBlock* domBlock = block;
+            BasicBlock::weight_t blockWeight         = block->getBBWeight(this);
+            bool                 importantUseInBlock = lcl->IsParam() && (blockWeight > paramAvgWtdRefDiv2);
+            bool                 isPreHeaderBlock    = (block->bbFlags & BBF_LOOP_PREHEADER) != 0;
+            BasicBlock*          domBlock            = block;
 
             if ((domBlock->bbIDom == nullptr) && isPreHeaderBlock)
             {
@@ -5503,8 +5498,7 @@ void Compiler::optAddCopies()
 #ifdef DEBUG
             if (verbose)
             {
-                printf("        Referenced in " FMT_BB ", bbWeight is %s", bbNum,
-                       refCntWtd2str(block->getBBWeight(this)));
+                printf("        Referenced in " FMT_BB ", bbWeight is %s", bbNum, refCntWtd2str(blockWeight));
 
                 if (isDominatedByFirstBB)
                 {
@@ -5522,12 +5516,9 @@ void Compiler::optAddCopies()
         }
 
         // We should have found at least one heavier-than-averageDiv2 block.
-        if (lcl->IsParam())
+        if (lcl->IsParam() && !paramFoundImportantUse)
         {
-            if (!paramFoundImportantUse)
-            {
-                continue;
-            }
+            continue;
         }
 
         // For us to add a new copy:
@@ -5537,10 +5528,8 @@ void Compiler::optAddCopies()
         bool doCopy = (isFloatParam || (isDominatedByFirstBB && lcl->lvHasEHRefs)) &&
                       !BlockSetOps::IsEmpty(this, paramImportantUseDom);
 
-        // Under stress mode we expand the number of candidates
-        // to include parameters of any type
-        // or any variable that is always reached from the first BB
-        //
+        // Under stress mode we expand the number of candidates to include parameters
+        // of any type or any variable that is always reached from the first BB
         if (compStressCompile(STRESS_GENERIC_VARN, 30))
         {
             // Ensure that we preserve the invariants required by the subsequent code.
@@ -5567,7 +5556,7 @@ void Compiler::optAddCopies()
             copyLcl->SetType(typ);
         }
 
-        JITDUMP("Finding the best place to insert the store V%02i = V%02i\n", copyLcl->GetLclNum(), lcl->GetLclNum());
+        JITDUMP("Finding the best place to insert the store V%02u = V%02u\n", copyLcl->GetLclNum(), lcl->GetLclNum());
 
         Statement* stmt;
 
@@ -5579,123 +5568,80 @@ void Compiler::optAddCopies()
             GenTreeLclStore* copyAsgn = gtNewLclStore(copyLcl, typ, gtNewLclLoad(lcl, typ));
 
             // Find the best block to insert the new store
-            // We will choose the lowest weighted block, and within
-            // those block, the highest numbered block which
-            // dominates all the uses of the local variable
+            // We will choose the lowest weighted block, and within those block, the highest
+            // numbered block which dominates all the uses of the local variable
 
             // Our default is to use the first block
             BasicBlock*          bestBlock  = fgFirstBB;
             BasicBlock::weight_t bestWeight = bestBlock->getBBWeight(this);
             BasicBlock*          block      = bestBlock;
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("        Starting at " FMT_BB ", bbWeight is %s", block->bbNum,
-                       refCntWtd2str(block->getBBWeight(this)));
+            JITDUMP("Starting at " FMT_BB ", bbWeight is %s, bestWeight is %s\n", block->bbNum,
+                    refCntWtd2str(bestWeight), refCntWtd2str(bestWeight));
 
-                printf(", bestWeight is %s\n", refCntWtd2str(bestWeight));
-            }
-#endif
-
-            /* We have already calculated paramImportantUseDom above. */
+            // We have already calculated paramImportantUseDom above.
             for (BlockSetOps::Enumerator e(this, paramImportantUseDom); e.MoveNext();)
             {
                 const unsigned bbNum = e.Current();
 
-                /* Advance block to point to 'bbNum' */
-                /* This assumes that the iterator returns block number is increasing lexical order. */
-                while (block && (block->bbNum != bbNum))
+                // Advance block to point to 'bbNum'
+                // This assumes that the iterator returns block number is increasing lexical order.
+                while ((block != nullptr) && (block->bbNum != bbNum))
                 {
                     block = block->bbNext;
                 }
-                noway_assert(block && (block->bbNum == bbNum));
+                noway_assert((block != nullptr) && (block->bbNum == bbNum));
+                BasicBlock::weight_t blockWeight = block->getBBWeight(this);
 
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("        Considering " FMT_BB ", bbWeight is %s", block->bbNum,
-                           refCntWtd2str(block->getBBWeight(this)));
-
-                    printf(", bestWeight is %s\n", refCntWtd2str(bestWeight));
-                }
-#endif
+                JITDUMP("Considering " FMT_BB ", bbWeight is %s, bestWeight is %s\n", block->bbNum,
+                        refCntWtd2str(blockWeight), refCntWtd2str(bestWeight));
 
                 // Does this block have a smaller bbWeight value?
-                if (block->getBBWeight(this) > bestWeight)
+                if (blockWeight > bestWeight)
                 {
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("bbWeight too high\n");
-                    }
-#endif
+                    JITDUMP("bbWeight too high\n");
                     continue;
                 }
 
-                // Don't use blocks that are exception handlers because
-                // inserting a new first statement will interface with
-                // the CATCHARG
+                // Don't use blocks that are exception handlers because inserting
+                // a new first statement will interface with the CATCHARG
 
                 if (handlerGetsXcptnObj(block->bbCatchTyp))
                 {
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Catch block\n");
-                    }
-#endif
+                    JITDUMP("Catch block\n");
                     continue;
                 }
 
                 // Don't use the BBJ_ALWAYS block marked with BBF_KEEP_BBJ_ALWAYS. These
                 // are used by EH code. The JIT can not generate code for such a block.
 
-                if (block->bbFlags & BBF_KEEP_BBJ_ALWAYS)
+                if ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0)
                 {
-#if defined(FEATURE_EH_FUNCLETS)
-                    // With funclets, this is only used for BBJ_CALLFINALLY/BBJ_ALWAYS pairs. For x86, it is also used
-                    // as the "final step" block for leaving finallys.
+#ifdef FEATURE_EH_FUNCLETS
+                    // With funclets, this is only used for BBJ_CALLFINALLY/BBJ_ALWAYS pairs.
+                    // For x86, it is also used as the "final step" block for leaving finallys.
                     assert(block->isBBCallAlwaysPairTail());
-#endif // FEATURE_EH_FUNCLETS
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Internal EH BBJ_ALWAYS block\n");
-                    }
 #endif
+                    JITDUMP("Internal EH BBJ_ALWAYS block\n");
                     continue;
                 }
 
                 // This block will be the new candidate for the insert point for the new store
-                CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("new bestBlock\n");
-                }
-#endif
+                JITDUMP("new bestBlock\n");
 
                 bestBlock  = block;
-                bestWeight = block->getBBWeight(this);
+                bestWeight = blockWeight;
             }
 
             // If there is a use of the variable in this block then we insert the store at
             // the beginning otherwise we insert the statement at the end
-            CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("        Insert copy at the %s of " FMT_BB "\n",
-                       (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
-                        BlockSetOps::IsMember(this, lcl->lvUseBlocks, bestBlock->bbNum))
-                           ? "start"
-                           : "end",
-                       bestBlock->bbNum);
-            }
-#endif
+            JITDUMP("Insert copy at the %s of " FMT_BB "\n",
+                    (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
+                     BlockSetOps::IsMember(this, lcl->lvUseBlocks, bestBlock->bbNum))
+                        ? "start"
+                        : "end",
+                    bestBlock->bbNum);
 
             if (BlockSetOps::IsEmpty(this, paramImportantUseDom) ||
                 BlockSetOps::IsMember(this, lcl->lvUseBlocks, bestBlock->bbNum))

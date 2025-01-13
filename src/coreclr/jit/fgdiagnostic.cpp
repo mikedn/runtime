@@ -848,7 +848,7 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
             // "Raw" Profile weight
             if (block->hasProfileWeight())
             {
-                fprintf(fgxFile, "\\n\\n%7.2f", ((double)block->getBBWeight(this)) / BB_UNITY_WEIGHT);
+                fprintf(fgxFile, "\\n\\n%7.2f", block->getBBWeight(this) / BB_UNITY_WEIGHT);
             }
 
             // end of block label
@@ -1761,23 +1761,17 @@ void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 *
     {
         BasicBlock::weight_t weight = block->getBBWeight(this);
 
-        if (weight > 99999) // Is it going to be more than 6 characters?
-        {
-            if (weight <= 99999 * BB_UNITY_WEIGHT)
-            {
-                // print weight in this format ddddd.
-                printf("%5u.", (unsigned)FloatingPointUtils::round(weight / BB_UNITY_WEIGHT));
-            }
-            else // print weight in terms of k (i.e. 156k )
-            {
-                // print weight in this format dddddk
-                BasicBlock::weight_t weightK = weight / 1000;
-                printf("%5uk", (unsigned)FloatingPointUtils::round(weightK / BB_UNITY_WEIGHT));
-            }
-        }
-        else // print weight in this format ddd.dd
+        if (weight <= 99999)
         {
             printf("%6s", refCntWtd2str(weight));
+        }
+        else if (weight <= 99999 * BB_UNITY_WEIGHT)
+        {
+            printf("%5u.", static_cast<unsigned>(FloatingPointUtils::round(weight / BB_UNITY_WEIGHT)));
+        }
+        else
+        {
+            printf("%5uk", static_cast<unsigned>(FloatingPointUtils::round(weight / 1000 / BB_UNITY_WEIGHT)));
         }
     }
 
