@@ -6635,14 +6635,6 @@ LsraStat LinearScan::getLsraStatFromScore(RegisterScore registerScore)
     }
 }
 
-// ----------------------------------------------------------
-// updateLsraStat: Increment LSRA stat counter.
-//
-// Arguments:
-//    stat      -   LSRA stat enum
-//    bbNum     -   Basic block to which LSRA stat needs to be
-//                  associated with.
-//
 void LinearScan::updateLsraStat(LsraStat stat, unsigned bbNum)
 {
     if (bbNum > bbNumMaxBeforeResolution)
@@ -6652,13 +6644,13 @@ void LinearScan::updateLsraStat(LsraStat stat, unsigned bbNum)
         return;
     }
 
-    ++(blockInfo[bbNum].stats[(unsigned)stat]);
+    blockStats[bbNum].stats[stat]++;
 }
 
 void LinearScan::dumpLsraStats(FILE* file) const
 {
-    unsigned             sumStats[LsraStat::COUNT] = {0};
-    BasicBlock::weight_t wtdStats[LsraStat::COUNT] = {0};
+    unsigned             sumStats[LsraStat::COUNT]{};
+    BasicBlock::weight_t wtdStats[LsraStat::COUNT]{};
 
     fprintf(file, "----------\n");
     fprintf(file, "LSRA Stats");
@@ -6703,7 +6695,7 @@ void LinearScan::dumpLsraStats(FILE* file) const
     // Iterate for block 0
     for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
     {
-        unsigned lsraStat = blockInfo[0].stats[statIndex];
+        unsigned lsraStat = blockStats[0].stats[statIndex];
 
         if (lsraStat != 0)
         {
@@ -6740,7 +6732,7 @@ void LinearScan::dumpLsraStats(FILE* file) const
         anyNonZeroStat   = false;
         for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
         {
-            unsigned lsraStat = blockInfo[block->bbNum].stats[statIndex];
+            unsigned lsraStat = blockStats[block->bbNum].stats[statIndex];
 
             if (lsraStat != 0)
             {
@@ -6768,7 +6760,7 @@ void LinearScan::dumpLsraStats(FILE* file) const
     }
 
     fprintf(file, "..........\n");
-    for (int regSelectI = 0; regSelectI < LsraStat::COUNT; regSelectI++)
+    for (unsigned regSelectI = 0; regSelectI < LsraStat::COUNT; regSelectI++)
     {
         if (regSelectI == firstRegSelStat)
         {
@@ -6794,7 +6786,7 @@ void LinearScan::dumpLsraStats(FILE* file) const
 
 void LinearScan::dumpLsraStatsCsv(FILE* file) const
 {
-    unsigned sumStats[LsraStat::COUNT] = {0};
+    unsigned sumStats[LsraStat::COUNT]{};
 
     // Write the header if the file is empty
     if (ftell(file) == 0)
@@ -6811,7 +6803,7 @@ void LinearScan::dumpLsraStatsCsv(FILE* file) const
     // bbNum == 0
     for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
     {
-        sumStats[statIndex] += blockInfo[0].stats[statIndex];
+        sumStats[statIndex] += blockStats[0].stats[statIndex];
     }
 
     // blocks
@@ -6824,7 +6816,7 @@ void LinearScan::dumpLsraStatsCsv(FILE* file) const
 
         for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
         {
-            sumStats[statIndex] += blockInfo[block->bbNum].stats[statIndex];
+            sumStats[statIndex] += blockStats[block->bbNum].stats[statIndex];
         }
     }
 
@@ -6838,13 +6830,13 @@ void LinearScan::dumpLsraStatsCsv(FILE* file) const
 
 void LinearScan::dumpLsraStatsSummary(FILE* file) const
 {
-    unsigned             sumStats[LsraStat::STAT_FREE] = {0};
-    BasicBlock::weight_t wtdStats[LsraStat::STAT_FREE] = {0.0};
+    unsigned             sumStats[LsraStat::STAT_FREE]{};
+    BasicBlock::weight_t wtdStats[LsraStat::STAT_FREE]{};
 
     // Iterate for block 0
     for (int statIndex = 0; statIndex < LsraStat::STAT_FREE; statIndex++)
     {
-        unsigned lsraStat = blockInfo[0].stats[statIndex];
+        unsigned lsraStat = blockStats[0].stats[statIndex];
         sumStats[statIndex] += lsraStat;
         wtdStats[statIndex] += (lsraStat * blockInfo[0].weight);
     }
@@ -6859,7 +6851,7 @@ void LinearScan::dumpLsraStatsSummary(FILE* file) const
 
         for (int statIndex = 0; statIndex < LsraStat::STAT_FREE; statIndex++)
         {
-            unsigned lsraStat = blockInfo[block->bbNum].stats[statIndex];
+            unsigned lsraStat = blockStats[block->bbNum].stats[statIndex];
             sumStats[statIndex] += lsraStat;
             wtdStats[statIndex] += (lsraStat * block->bbWeight);
         }

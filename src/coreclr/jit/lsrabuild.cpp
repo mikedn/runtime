@@ -1874,16 +1874,13 @@ BlockSet LinearScan::setBlockSequence()
     blockSequence            = new (compiler, CMK_LSRA) BasicBlock*[compiler->fgBBcount];
     bbNumMaxBeforeResolution = compiler->fgBBNumMax;
     blockInfo                = new (compiler, CMK_LSRA) LsraBlockInfo[bbNumMaxBeforeResolution + 1];
+#if TRACK_LSRA_STATS
+    blockStats = new (compiler, CMK_LSRA) LsraBlockStats[bbNumMaxBeforeResolution + 1]();
+#endif
 
     // We use a bbNum of 0 for entry RefPositions.
     // The other information in blockInfo[0] will never be used.
     blockInfo[0].weight = BB_UNITY_WEIGHT;
-#if TRACK_LSRA_STATS
-    for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
-    {
-        blockInfo[0].stats[statIndex] = 0;
-    }
-#endif // TRACK_LSRA_STATS
 
     JITDUMP("Start LSRA Block Sequence: \n");
     bool verifiedAllBBs = false;
@@ -1910,13 +1907,6 @@ BlockSet LinearScan::setBlockSequence()
         info.hasEHPred          = false;
         info.hasCriticalInEdge  = false;
         info.hasCriticalOutEdge = false;
-
-#if TRACK_LSRA_STATS
-        for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
-        {
-            info.stats[statIndex] = 0;
-        }
-#endif
 
         bool hasUniquePred = (block->GetUniquePred(compiler) != nullptr);
 

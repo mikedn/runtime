@@ -79,7 +79,7 @@ private:
 };
 
 #if TRACK_LSRA_STATS
-enum LsraStat
+enum LsraStat : unsigned
 {
 #define LSRA_STAT_DEF(enum_name, enum_str) enum_name,
 #include "lsra_stats.h"
@@ -87,6 +87,11 @@ enum LsraStat
 #define REG_SEL_DEF(name, ...) STAT_##name,
 #include "lsra_score.h"
     COUNT
+};
+
+struct LsraBlockStats
+{
+    unsigned stats[LsraStat::COUNT];
 };
 #endif // TRACK_LSRA_STATS
 
@@ -101,11 +106,6 @@ struct LsraBlockInfo
     bool                 hasEHBoundaryIn : 1;
     bool                 hasEHBoundaryOut : 1;
     bool                 hasEHPred : 1;
-
-#if TRACK_LSRA_STATS
-    // Per block maintained LSRA statistics.
-    unsigned stats[LsraStat::COUNT];
-#endif
 };
 
 enum RegisterScore
@@ -984,8 +984,9 @@ private:
 #endif // DEBUG
 
 #if TRACK_LSRA_STATS
-    unsigned regCandidateVarCount;
-    LsraStat firstRegSelStat = STAT_FREE;
+    unsigned        regCandidateVarCount;
+    LsraStat        firstRegSelStat = STAT_FREE;
+    LsraBlockStats* blockStats      = nullptr;
 
     void updateLsraStat(LsraStat stat, unsigned currentBBNum);
     void dumpLsraStats(FILE* file) const;
