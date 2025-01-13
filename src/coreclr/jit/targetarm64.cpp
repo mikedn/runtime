@@ -21,9 +21,9 @@ const regMaskTP fltArgMasks[]{RBM_V0, RBM_V1, RBM_V2, RBM_V3, RBM_V4, RBM_V5, RB
 const char* getRegName(regNumber reg)
 {
     static const char* const names[]{
-#define REGDEF(name, rnum, mask, xname, wname) xname,
+#define REGDEF(name, xname, wname) xname,
 #include "registerarm64.h"
-        "NA", "???"};
+        "STK", "NA", "???"};
     static_assert_no_msg(REG_NA == _countof(names) - 2);
 
     return names[Min<size_t>(reg, _countof(names) - 1)];
@@ -40,13 +40,15 @@ static bool isVectorRegister(regNumber reg)
 const char* RegName(regNumber reg, emitAttr size)
 {
     static const char* const xRegNames[]{
-#define REGDEF(name, rnum, mask, xname, wname) xname,
+#define REGDEF(name, xname, wname) xname,
 #include "registerarm64.h"
+        "STK"
     };
 
     static const char* const wRegNames[]{
-#define REGDEF(name, rnum, mask, xname, wname) wname,
+#define REGDEF(name, xname, wname) wname,
 #include "registerarm64.h"
+        "STK"
     };
 
     static const char* const qRegNames[]{"q0",  "q1",  "q2",  "q3",  "q4",  "q5",  "q6",  "q7",  "q8",  "q9",  "q10",

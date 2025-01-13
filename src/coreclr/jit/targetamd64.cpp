@@ -30,9 +30,9 @@ const regMaskTP fltArgMasks[]{RBM_XMM0, RBM_XMM1, RBM_XMM2, RBM_XMM3};
 const char* getRegName(RegNum reg)
 {
     static const char* const names[]{
-#define REGDEF(name, rnum, mask, sname) sname,
+#define REGDEF(name, sname) sname,
 #include "register.h"
-        "NA", "???"};
+        "STK", "NA", "???"};
     static_assert_no_msg(REG_NA == _countof(names) - 2);
 
     return names[Min<size_t>(reg, _countof(names) - 1)];

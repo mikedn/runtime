@@ -121,8 +121,9 @@ const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp 
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 const regMaskTP regMasks[]{
-#define REGDEF(name, rnum, mask, ...) mask,
+#define REGDEF(name, ...) RBM_##name,
 #include "register.h"
+    RBM_NONE // REG_STK
 };
 
 #ifdef DEBUG

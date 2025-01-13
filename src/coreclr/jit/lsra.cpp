@@ -97,12 +97,11 @@ LinearScan::LinearScan(Compiler* compiler)
     , enregisterLocalVars(compiler->lvaTrackedCount != 0)
     , refPositions(compiler->getAllocator(CMK_LSRA_RefPosition))
     , physRegs{
-#define REGDEF(name, num, mask, ...) {REG_##name},
+#define REGDEF(name, ...) {REG_##name},
 #include "register.h"
+          {REG_NA} // REG_STK
       }
 {
-    physRegs[REG_STK].regNum = REG_NA;
-
     static const RegNumSmall lsraRegOrder[]{REG_VAR_ORDER};
     static const RegNumSmall lsraRegOrderFlt[]{REG_VAR_ORDER_FLT};
 

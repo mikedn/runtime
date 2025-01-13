@@ -38,7 +38,6 @@ using IntRegMask = uint32_t;
 #error Unsupported target architecture
 #endif
 
-// Each register list in register.h must declare REG_STK as the last value.
 // In the following enum declaration, the following REG_XXX are created beyond
 // the "real" registers:
 //    ACTUAL_REG_COUNT - The number of physical registers.
@@ -50,20 +49,31 @@ using IntRegMask = uint32_t;
 
 enum RegNum : IntRegNum
 {
-#define REGDEF(name, num, mask, ...) REG_##name = num,
+#define REGDEF(name, ...) REG_##name,
+#include "register.h"
+    REG_STK,
+    REG_COUNT,
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
 #include "register.h"
-    REG_COUNT,
     REG_NA           = REG_COUNT,
     REG_FIRST        = 0,
     REG_LAST         = REG_STK - 1,
     ACTUAL_REG_COUNT = REG_STK // everything but REG_STK (only real regs)
 };
 
+constexpr IntRegMask GetRegSetBit(RegNum reg)
+{
+    // ARM64 has the special SP reg, which is only used by the instruction encoder and
+    // it's never allocated by register allocator and not included in any register sets
+    // (which are limited to 64 bits).
+    return (reg >= sizeof(IntRegMask) * 8) ? 0 : (IntRegMask(1) << reg);
+}
+
 enum RegMask : IntRegMask
 {
     RBM_NONE = 0,
-#define REGDEF(name, num, mask, ...) RBM_##name = mask,
+#define REGDEF(name, ...) RBM_##name = GetRegSetBit(REG_##name),
+#include "register.h"
 #define REGALIAS(alias, name) RBM_##alias = RBM_##name,
 #include "register.h"
     RBM_ALL = ~RBM_NONE
@@ -76,16 +86,10 @@ using regMaskTP      = IntRegMask;
 
 static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);
 
-/*****************************************************************************/
-
 #define LEA_AVAILABLE 1
-
-/*****************************************************************************/
 
 // The pseudorandom nop insertion is not necessary for current scenarios
 // #define PSEUDORANDOM_NOP_INSERTION
-
-/*****************************************************************************/
 
 // clang-format off
 #if defined(TARGET_X86)

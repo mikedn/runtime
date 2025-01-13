@@ -25,9 +25,9 @@ const regNumber initPInvokeFrameArgRegs[]{REG_PINVOKE_FRAME};
 const char* getRegName(regNumber reg)
 {
     static const char* const names[]{
-#define REGDEF(name, rnum, mask, sname) sname,
+#define REGDEF(name, sname) sname,
 #include "registerarm.h"
-        "NA", "???"};
+        "STK", "NA", "???"};
     static_assert_no_msg(REG_NA == _countof(names) - 2);
 
     return names[Min<size_t>(reg, _countof(names) - 1)];
