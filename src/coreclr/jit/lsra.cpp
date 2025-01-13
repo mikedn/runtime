@@ -219,7 +219,7 @@ void LinearScan::Run()
 
 VarToRegMap LinearScan::GetBlockLiveInRegMap(BasicBlock* bb) const
 {
-    return enregisterLocalVars ? getInVarToRegMap(bb->bbNum) : nullptr;
+    return enregisterLocalVars ? getInVarToRegMap(bb) : nullptr;
 }
 
 regMaskTP LinearScan::allRegs(RegisterType rt) const
@@ -584,16 +584,15 @@ LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned bbNum) const
     return splitEdgeInfo;
 }
 
-VarToRegMap LinearScan::getInVarToRegMap(unsigned bbNum) const
+VarToRegMap LinearScan::getInVarToRegMap(BasicBlock* block) const
 {
     assert(enregisterLocalVars);
-    assert(bbNum <= compiler->fgBBNumMax);
 
     // For the blocks inserted to split critical edges, the inVarToRegMap is
     // equal to the outVarToRegMap at the "from" block.
-    if (bbNum > bbNumMaxBeforeResolution)
+    if (block->bbNum > bbNumMaxBeforeResolution)
     {
-        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(bbNum);
+        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(block->bbNum);
 
         if (splitEdgeInfo.fromBBNum == 0)
         {
@@ -604,26 +603,25 @@ VarToRegMap LinearScan::getInVarToRegMap(unsigned bbNum) const
         return outVarToRegMaps[splitEdgeInfo.fromBBNum];
     }
 
-    return inVarToRegMaps[bbNum];
+    return inVarToRegMaps[block->bbNum];
 }
 
-VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum) const
+VarToRegMap LinearScan::getOutVarToRegMap(BasicBlock* block) const
 {
     assert(enregisterLocalVars);
-    assert(bbNum <= compiler->fgBBNumMax);
 
-    if (bbNum == 0)
+    if (block == nullptr)
     {
         return nullptr;
     }
 
     // For the blocks inserted to split critical edges, the outVarToRegMap is
     // equal to the inVarToRegMap at the target.
-    if (bbNum > bbNumMaxBeforeResolution)
+    if (block->bbNum > bbNumMaxBeforeResolution)
     {
         // If this is an empty block, its in and out maps are both the same.
         // We identify this case by setting fromBBNum or toBBNum to 0, and using only the other.
-        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(bbNum);
+        SplitEdgeInfo splitEdgeInfo = getSplitEdgeInfo(block->bbNum);
 
         if (splitEdgeInfo.toBBNum == 0)
         {
@@ -634,7 +632,7 @@ VarToRegMap LinearScan::getOutVarToRegMap(unsigned bbNum) const
         return inVarToRegMaps[splitEdgeInfo.toBBNum];
     }
 
-    return outVarToRegMaps[bbNum];
+    return outVarToRegMaps[block->bbNum];
 }
 
 void LinearScan::setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg)
@@ -683,13 +681,13 @@ void LinearScan::dumpVarToRegMap(VarToRegMap map) const
 void LinearScan::dumpInVarToRegMap(BasicBlock* block) const
 {
     printf("Var=Reg beg of " FMT_BB ": ", block->bbNum);
-    dumpVarToRegMap(getInVarToRegMap(block->bbNum));
+    dumpVarToRegMap(getInVarToRegMap(block));
 }
 
 void LinearScan::dumpOutVarToRegMap(BasicBlock* block) const
 {
     printf("Var=Reg end of " FMT_BB ": ", block->bbNum);
-    dumpVarToRegMap(getOutVarToRegMap(block->bbNum));
+    dumpVarToRegMap(getOutVarToRegMap(block));
 }
 
 void LinearScan::dumpVarRefPositions(const char* title) const
@@ -2083,12 +2081,12 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         return;
     }
 
-    unsigned    predBBNum       = blockInfo[currentBlock->bbNum].predBBNum;
-    VarToRegMap predVarToRegMap = getOutVarToRegMap(predBBNum);
-    VarToRegMap inVarToRegMap   = getInVarToRegMap(currentBlock->bbNum);
+    BasicBlock* predBB          = blockInfo[currentBlock->bbNum].predBlock;
+    VarToRegMap predVarToRegMap = getOutVarToRegMap(predBB);
+    VarToRegMap inVarToRegMap   = getInVarToRegMap(currentBlock);
 
     // If this block enters an exception region, all incoming vars are on the stack.
-    if (predBBNum == 0)
+    if (predBB == nullptr)
     {
 #if DEBUG
         if (blockInfo[currentBlock->bbNum].hasEHBoundaryIn || !allocationPassComplete)
@@ -2144,7 +2142,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
             //    so there is no place for codegen to record that the register is no longer occupied.
             // 3) This block has a predecessor with an outgoing EH edge. We won't be able to add "join"
             //    resolution to load the EH var into a register along that edge, so it must be on stack.
-            if ((predBBNum == 0) || (nextRefPosition == nullptr) || (RefTypeIsDef(nextRefPosition->refType)) ||
+            if ((predBB == nullptr) || (nextRefPosition == nullptr) || (RefTypeIsDef(nextRefPosition->refType)) ||
                 blockInfo[currentBlock->bbNum].hasEHPred)
             {
                 leaveOnStack = true;
@@ -2400,7 +2398,7 @@ void LinearScan::processBlockEndLocations(BasicBlock* currentBlock)
 {
     assert(currentBlock != nullptr && currentBlock->bbNum == curBBNum);
 
-    VarToRegMap outVarToRegMap = getOutVarToRegMap(curBBNum);
+    VarToRegMap outVarToRegMap = getOutVarToRegMap(currentBlock);
     VARSET_TP   liveOutVars    = INDEBUG(getLsraExtendLifeTimes() ? registerCandidateVars :) currentBlock->bbLiveOut;
 
     for (VarSetOps::Enumerator e(compiler, liveOutVars); e.MoveNext();)
@@ -5312,8 +5310,8 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
 {
     // TODO-Throughput: This would be much more efficient if we add RegToVarMaps instead of VarToRegMaps
     // and they would be more space-efficient as well.
-    VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock->bbNum);
-    VarToRegMap toVarToRegMap   = getInVarToRegMap(toBlock->bbNum);
+    VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock);
+    VarToRegMap toVarToRegMap   = getInVarToRegMap(toBlock);
     // We have to consider all float registers for TYP_DOUBLE
     regMaskTP freeRegs = ARM_ONLY(type == TYP_DOUBLE ? allFloatRegs() :) allRegs(type);
 
@@ -5515,7 +5513,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
     assert(!VarSetOps::IsEmpty(compiler, outResolutionSet));
 
     // Get the outVarToRegMap for this block
-    VarToRegMap outVarToRegMap = getOutVarToRegMap(block->bbNum);
+    VarToRegMap outVarToRegMap = getOutVarToRegMap(block);
     unsigned    succCount      = block->NumSucc(compiler);
     assert(succCount > 1);
 
@@ -5645,7 +5643,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
                 liveOnlyAtSplitEdge = ((succBlock->bbPreds->flNext == nullptr) && (succBlock != compiler->fgFirstBB));
             }
 
-            regNumber toReg = getVarReg(getInVarToRegMap(succBlock->bbNum), outResolutionSetVarIndex);
+            regNumber toReg = getVarReg(getInVarToRegMap(succBlock), outResolutionSetVarIndex);
             if (sameToReg == REG_NA)
             {
                 sameToReg = toReg;
@@ -5756,7 +5754,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
 
             // Now collect the resolution set for just this edge, if any.
             // Check only the vars in diffResolutionSet that are live-in to this successor.
-            VarToRegMap succInVarToRegMap = getInVarToRegMap(succBlock->bbNum);
+            VarToRegMap succInVarToRegMap = getInVarToRegMap(succBlock);
 
             VarSetOps::Intersection(compiler, edgeResolutionSet, diffResolutionSet, succBlock->bbLiveIn);
 
@@ -5984,10 +5982,10 @@ void LinearScan::resolveEdges()
         {
             continue;
         }
-        VarToRegMap toVarToRegMap = getInVarToRegMap(block->bbNum);
+        VarToRegMap toVarToRegMap = getInVarToRegMap(block);
         for (BasicBlock* const predBlock : block->PredBlocks())
         {
-            VarToRegMap fromVarToRegMap = getOutVarToRegMap(predBlock->bbNum);
+            VarToRegMap fromVarToRegMap = getOutVarToRegMap(predBlock);
 
             for (VarSetOps::Enumerator e(compiler, block->bbLiveIn); e.MoveNext();)
             {
@@ -6043,16 +6041,9 @@ void LinearScan::resolveEdges()
 
 void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet)
 {
-    VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock->bbNum);
-    VarToRegMap toVarToRegMap;
-    if (resolveType == ResolveSharedCritical)
-    {
-        toVarToRegMap = sharedCriticalVarToRegMap;
-    }
-    else
-    {
-        toVarToRegMap = getInVarToRegMap(toBlock->bbNum);
-    }
+    VarToRegMap fromVarToRegMap = getOutVarToRegMap(fromBlock);
+    VarToRegMap toVarToRegMap =
+        resolveType == ResolveSharedCritical ? sharedCriticalVarToRegMap : getInVarToRegMap(toBlock);
 
     // The block to which we add the resolution moves depends on the resolveType
     BasicBlock* block;
@@ -7345,7 +7336,8 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         if (enregisterLocalVars && mode == LSRA_DUMP_POST && block != compiler->fgFirstBB &&
             block->bbNum <= bbNumMaxBeforeResolution)
         {
-            printf("Predecessor for variable locations: " FMT_BB "\n", blockInfo[block->bbNum].predBBNum);
+            printf("Predecessor for variable locations: " FMT_BB "\n",
+                   blockInfo[block->bbNum].predBlock == nullptr ? 0 : blockInfo[block->bbNum].predBlock->bbNum);
             dumpInVarToRegMap(block);
         }
         if (block->bbNum > bbNumMaxBeforeResolution)
@@ -7998,8 +7990,9 @@ void LinearScan::dumpNewBlock(BasicBlock* currentBlock, LsraLocation location)
     }
     else
     {
-        printf(bbRefPosFormat, currentBlock->bbNum,
-               currentBlock == compiler->fgFirstBB ? 0 : blockInfo[currentBlock->bbNum].predBBNum);
+        printf(bbRefPosFormat, currentBlock->bbNum, blockInfo[currentBlock->bbNum].predBlock == nullptr
+                                                        ? 0
+                                                        : blockInfo[currentBlock->bbNum].predBlock->bbNum);
     }
 }
 
@@ -8572,7 +8565,7 @@ void LinearScan::verifyFinalAllocation()
             }
 
             // Set the incoming register assignments
-            VarToRegMap inVarToRegMap = getInVarToRegMap(currentBlock->bbNum);
+            VarToRegMap inVarToRegMap = getInVarToRegMap(currentBlock);
 
             for (VarSetOps::Enumerator e(compiler, currentBlock->bbLiveIn); e.MoveNext();)
             {
@@ -8605,7 +8598,7 @@ void LinearScan::verifyFinalAllocation()
 
             // Verify the outgoing register assignments
             {
-                VarToRegMap outVarToRegMap = getOutVarToRegMap(currentBlock->bbNum);
+                VarToRegMap outVarToRegMap = getOutVarToRegMap(currentBlock);
 
                 for (VarSetOps::Enumerator e(compiler, currentBlock->bbLiveOut); e.MoveNext();)
                 {

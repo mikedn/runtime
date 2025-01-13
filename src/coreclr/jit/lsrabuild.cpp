@@ -1451,7 +1451,7 @@ void LinearScan::buildIntervals()
                     "\n",
                     predBlock->bbNum, block->bbNum);
             assert(predBlock->bbNum <= bbNumMaxBeforeResolution);
-            blockInfo[block->bbNum].predBBNum = predBlock->bbNum;
+            blockInfo[block->bbNum].predBlock = predBlock;
         }
 
         if (enregisterLocalVars)
@@ -1900,9 +1900,7 @@ BlockSet LinearScan::setBlockSequence()
         // insert resolution moves into those blocks.
         bool isCallFinallyAlwaysPairTail = block->IsCallFinallyAlwaysPairTail();
 
-        // predBBNum will be set later.
-        // 0 is never used as a bbNum, but is used in blockInfo to designate an exception entry block.
-        info.predBBNum          = 0;
+        info.predBlock          = nullptr;
         info.weight             = block->getBBWeight(compiler);
         info.hasEHBoundaryIn    = isCallFinallyAlwaysPairTail || block->hasEHBoundaryIn();
         info.hasEHBoundaryOut   = isCallFinallyAlwaysPairTail || block->hasEHBoundaryOut();
@@ -2941,15 +2939,13 @@ BasicBlock* LinearScan::findPredBlockForLiveIn(BasicBlock* block,
                         {
                             return nullptr;
                         }
-                        else
+
+                        for (BasicBlock* const otherPred : otherBlock->PredBlocks())
                         {
-                            for (BasicBlock* const otherPred : otherBlock->PredBlocks())
+                            if (otherPred == blockInfo[otherBlock->bbNum].predBlock)
                             {
-                                if (otherPred->bbNum == blockInfo[otherBlock->bbNum].predBBNum)
-                                {
-                                    predBlock = otherPred;
-                                    break;
-                                }
+                                predBlock = otherPred;
+                                break;
                             }
                         }
                     }

@@ -92,9 +92,9 @@ enum LsraStat
 
 struct LsraBlockInfo
 {
-    // bbNum of the predecessor to use for the register location of live-in variables.
-    // 0 for fgFirstBB.
-    unsigned             predBBNum;
+    // The block to use as predecessor to use for the register location of live-in variables.
+    // null for fgFirstBB.
+    BasicBlock*          predBlock;
     BasicBlock::weight_t weight;
     bool                 hasCriticalInEdge : 1;
     bool                 hasCriticalOutEdge : 1;
@@ -857,8 +857,8 @@ private:
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;
     void initVarRegMaps();
     void setInVarRegForBB(unsigned bbNum, unsigned trackedVarIndex, RegNum reg);
-    VarToRegMap getInVarToRegMap(unsigned bbNum) const;
-    VarToRegMap getOutVarToRegMap(unsigned bbNum) const;
+    VarToRegMap getInVarToRegMap(BasicBlock* block) const;
+    VarToRegMap getOutVarToRegMap(BasicBlock* block) const;
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, RegNum reg);
     RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex);
 
