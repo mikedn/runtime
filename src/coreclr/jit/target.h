@@ -40,11 +40,10 @@ using IntRegMask = uint32_t;
 
 // In the following enum declaration, the following REG_XXX are created beyond
 // the "real" registers:
-//    ACTUAL_REG_COUNT - The number of physical registers.
-//    REG_STK          - Used to indicate something evaluated onto the stack.
-//    REG_COUNT        - The number of physical register + REG_STK. This is the count of values that may
-//                       be assigned during register allocation.
-//    REG_NA           - Used to indicate that a register is either not yet assigned or not required.
+//    REG_STK   - Used to indicate something evaluated onto the stack.
+//    REG_COUNT - The number of physical register + REG_STK. This is the count of values that may
+//                be assigned during register allocation.
+//    REG_NA    - Used to indicate that a register is either not yet assigned or not required.
 //
 
 enum RegNum : IntRegNum
@@ -55,10 +54,9 @@ enum RegNum : IntRegNum
     REG_COUNT,
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
 #include "register.h"
-    REG_NA           = REG_COUNT,
-    REG_FIRST        = 0,
-    REG_LAST         = REG_STK - 1,
-    ACTUAL_REG_COUNT = REG_STK // everything but REG_STK (only real regs)
+    REG_NA    = REG_COUNT,
+    REG_FIRST = 0,
+    REG_LAST  = REG_STK - 1
 };
 
 constexpr IntRegMask GetRegSetBit(RegNum reg)
@@ -84,7 +82,7 @@ using regNumberSmall = uint8_t;
 using RegNumSmall    = uint8_t;
 using regMaskTP      = IntRegMask;
 
-static_assert_no_msg(static_cast<regNumber>(static_cast<regNumberSmall>(REG_COUNT)) == REG_COUNT);
+static_assert_no_msg(static_cast<RegNum>(static_cast<RegNumSmall>(REG_COUNT)) == REG_COUNT);
 
 #define LEA_AVAILABLE 1
 
@@ -112,8 +110,6 @@ static_assert_no_msg(REG_FP_FIRST < REG_FP_LAST);
 // performance. Otherwise, we are better off not converting non-tail prefixed
 // calls into tail calls.
 static_assert_no_msg((FEATURE_TAILCALL_OPT == 0) || (FEATURE_FASTTAILCALL == 1));
-
-#define BITS_PER_BYTE 8
 
 class Target
 {

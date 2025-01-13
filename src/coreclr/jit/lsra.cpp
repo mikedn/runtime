@@ -6213,10 +6213,10 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     //   location[rax] == REG_NA
     // This indicates that the var originally in rax is now in its target register.
 
-    regNumberSmall location[REG_COUNT];
-    static_assert_no_msg(sizeof(char) == sizeof(regNumberSmall)); // for memset to work
+    RegNumSmall location[REG_COUNT];
+    static_assert_no_msg(sizeof(char) == sizeof(RegNumSmall)); // for memset to work
     memset(location, REG_NA, REG_COUNT);
-    regNumberSmall source[REG_COUNT];
+    RegNumSmall source[REG_COUNT];
     memset(source, REG_NA, REG_COUNT);
 
     // What interval is this register associated with?
@@ -6364,9 +6364,9 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             regNumber targetReg = genRegNumFromMask(targetRegMask);
             assert(location[targetReg] != targetReg);
             assert(targetReg < REG_COUNT);
-            regNumber sourceReg = (regNumber)source[targetReg];
+            RegNum sourceReg = static_cast<RegNum>(source[targetReg]);
             assert(sourceReg < REG_COUNT);
-            regNumber fromReg = (regNumber)location[sourceReg];
+            RegNum fromReg = static_cast<RegNum>(location[sourceReg]);
             // stack to reg movs should be done last as part of "targetRegsFromStack"
             assert(fromReg < REG_STK);
             Interval* interval = sourceIntervals[sourceReg];

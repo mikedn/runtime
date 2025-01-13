@@ -387,7 +387,7 @@ struct instrDescSmall
 #ifdef TARGET_AMD64
     static_assert_no_msg(INS_COUNT <= 1024);
     static_assert_no_msg(IF_COUNT <= 128);
-    static_assert_no_msg(ACTUAL_REG_COUNT <= 64); // 32 currently but APX has 64
+    static_assert_no_msg(REG_LAST < 64); // 32 currently but APX has 64
     static constexpr unsigned RegBits      = 6;
     static constexpr unsigned SmallImmBits = 16;
 
@@ -413,7 +413,7 @@ private:
 #ifdef TARGET_X86
     static_assert_no_msg(INS_COUNT <= 1024);
     static_assert_no_msg(IF_COUNT <= 128);
-    static_assert_no_msg(ACTUAL_REG_COUNT == 16);
+    static_assert_no_msg(REG_LAST == 15);
     static constexpr unsigned RegBits      = 4;
     static constexpr unsigned SmallImmBits = 16;
 
@@ -440,8 +440,8 @@ private:
 #ifdef TARGET_ARM64
     static_assert_no_msg(INS_COUNT <= 512);
     static_assert_no_msg(IF_COUNT <= 128);
-    // REG_SP is included the in actual reg count but we don't need that here.
-    static_assert_no_msg(ACTUAL_REG_COUNT - 1 <= 64);
+    // REG_SP is included but we don't need that here.
+    static_assert_no_msg(REG_LAST - 1 < 64);
     static constexpr unsigned RegBits      = 6;
     static constexpr unsigned SmallImmBits = 16;
 
@@ -466,7 +466,7 @@ private:
 #ifdef TARGET_ARM
     static_assert_no_msg(INS_COUNT <= 256);
     static_assert_no_msg(IF_COUNT <= 128);
-    static_assert_no_msg(ACTUAL_REG_COUNT <= 64);
+    static_assert_no_msg(REG_LAST < 64);
     static constexpr unsigned RegBits      = 6;
     static constexpr unsigned SmallImmBits = 16;
 

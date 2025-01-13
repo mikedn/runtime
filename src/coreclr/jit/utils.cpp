@@ -293,28 +293,18 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
 
 void DumpRegSet(regMaskTP regs)
 {
-    regNumber reg;
-    bool      sp = false;
-
+    bool sp = false;
     printf(" {");
 
-    for (reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         if ((regs & genRegMask(reg)) == 0)
         {
             continue;
         }
 
-        if (sp)
-        {
-            printf(" ");
-        }
-        else
-        {
-            sp = true;
-        }
-
-        printf("%s", getRegName(reg));
+        printf("%s%s", sp ? " " : "", getRegName(reg));
+        sp = true;
     }
 
     printf("}");
@@ -324,7 +314,7 @@ void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
 {
     printf("%s{ ", name);
 
-    for (regNumber reg = REG_FIRST; reg < ACTUAL_REG_COUNT; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         regMaskTP mask    = genRegMask(reg);
         bool      fromBit = (from & mask) != 0;
