@@ -20,9 +20,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 #include "sideeffects.h"
 #include "lower.h"
-#include "lsra.h"
 #include "codegen.h"
-
 #ifdef FEATURE_HW_INTRINSICS
 #include "hwintrinsic.h"
 #endif

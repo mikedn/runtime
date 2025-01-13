@@ -1581,79 +1581,8 @@ public:
         return (assignedReg == nullptr) ? registerPreferences : genRegMask(assignedReg->regNum);
     }
 
-    void mergeRegisterPreferences(regMaskTP preferences)
-    {
-        // We require registerPreferences to have been initialized.
-        assert(registerPreferences != RBM_NONE);
-        // It is invalid to update with empty preferences
-        assert(preferences != RBM_NONE);
-
-        regMaskTP commonPreferences = (registerPreferences & preferences);
-        if (commonPreferences != RBM_NONE)
-        {
-            registerPreferences = commonPreferences;
-            return;
-        }
-
-        // There are no preferences in common.
-        // Preferences need to reflect both cases where a var must occupy a specific register,
-        // as well as cases where a var is live when a register is killed.
-        // In the former case, we would like to record all such registers, however we don't
-        // really want to use any registers that will interfere.
-        // To approximate this, we never "or" together multi-reg sets, which are generally kill sets.
-
-        if (!genMaxOneBit(preferences))
-        {
-            // The new preference value is a multi-reg set, so it's probably a kill.
-            // Keep the new value.
-            registerPreferences = preferences;
-            return;
-        }
-
-        if (!genMaxOneBit(registerPreferences))
-        {
-            // The old preference value is a multi-reg set.
-            // Keep the existing preference set, as it probably reflects one or more kills.
-            // It may have been a union of multiple individual registers, but we can't
-            // distinguish that case without extra cost.
-            return;
-        }
-
-        // If we reach here, we have two disjoint single-reg sets.
-        // Keep only the callee-save preferences, if not empty.
-        // Otherwise, take the union of the preferences.
-
-        regMaskTP newPreferences = registerPreferences | preferences;
-
-        if (preferCalleeSave)
-        {
-            regMaskTP calleeSaveMask = (calleeSaveRegs(this->registerType) & (newPreferences));
-            if (calleeSaveMask != RBM_NONE)
-            {
-                newPreferences = calleeSaveMask;
-            }
-        }
-        registerPreferences = newPreferences;
-    }
-
-    // Update the registerPreferences on the interval.
-    // If there are conflicting requirements on this interval, set the preferences to
-    // the union of them.  That way maybe we'll get at least one of them.
-    // An exception is made in the case where one of the existing or new
-    // preferences are all callee-save, in which case we "prefer" the callee-save
-
-    void updateRegisterPreferences(regMaskTP preferences)
-    {
-        // If this interval is preferenced, that interval may have already been assigned a
-        // register, and we want to include that in the preferences.
-        if ((relatedInterval != nullptr) && !relatedInterval->isActive)
-        {
-            mergeRegisterPreferences(relatedInterval->getCurrentPreferences());
-        }
-
-        // Now merge the new preferences.
-        mergeRegisterPreferences(preferences);
-    }
+    void mergeRegisterPreferences(regMaskTP preferences);
+    void updateRegisterPreferences(regMaskTP preferences);
 
     bool IsUpperVector() const
     {
