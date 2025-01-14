@@ -5084,72 +5084,56 @@ void LinearScan::resolveRegisters()
                 continue;
             }
 
-            Interval* interval = getIntervalForLocalVar(lcl->lvVarIndex);
+            assert(!varTypeIsMultiReg(lcl->GetType()));
+
+            Interval* interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
 
             // Determine initial position for parameters
 
             if (lcl->IsParam())
             {
                 regMaskTP initialRegMask = interval->firstRefPosition->registerAssignment;
-                regNumber initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
-                                           ? REG_STK
-                                           : genRegNumFromMask(initialRegMask);
+                RegNum    initialReg     = (initialRegMask == RBM_NONE || interval->firstRefPosition->spillAfter)
+                                        ? REG_STK
+                                        : genRegNumFromMask(initialRegMask);
 
-#ifdef TARGET_ARM
-                if (varTypeIsMultiReg(lcl->GetType()))
-                {
-                    // TODO-ARM-NYI: Map the hi/lo intervals back to lvRegNum and GetOtherReg() (these should NYI
-                    // before this)
-                    assert(!"Multi-reg types not yet supported");
-                }
-                else
-#endif // TARGET_ARM
-                {
-                    lcl->SetParamInitialReg(initialReg);
-                    JITDUMP("  Set V%02u parameter initial register to %s\n", lcl->GetLclNum(), getRegName(initialReg));
-                }
+                lcl->SetParamInitialReg(initialReg);
+                JITDUMP("  Set V%02u parameter initial register to %s\n", lcl->GetLclNum(), getRegName(initialReg));
 
-                // Stack args that are part of dependently-promoted structs should never be register candidates (see
-                // LinearScan::isRegCandidate).
+                // Stack args that are part of dependently-promoted structs should
+                // never be register candidates (see LinearScan::isRegCandidate).
                 assert(lcl->IsRegParam() || !lcl->IsDependentPromotedField(compiler));
             }
 
-            // If lvRegNum is REG_STK, that means that either no register
-            // was assigned, or (more likely) that the same register was not
-            // used for all references.  In that case, codegen gets the register
-            // from the tree node.
-            if (lcl->GetRegNum() == REG_STK || interval->isSpilled || interval->isSplit)
+            // If lvRegNum is REG_STK, that means that either no register was assigned,
+            // or (more likely) that the same register was not used for all references.
+            // In that case, codegen gets the register from the node.
+            if ((lcl->GetRegNum() == REG_STK) || interval->isSpilled || interval->isSplit)
             {
-                // For codegen purposes, we'll set lvRegNum to whatever register
-                // it's currently in as we go.
-                // However, we never mark an interval as lvRegister if it has either been spilled
-                // or split.
+                // For codegen purposes, we'll set lvRegNum to whatever register it's currently
+                // in as we go. However, we never mark an interval as lvRegister if it has either
+                // been spilled or split.
                 lcl->lvRegister = false;
 
                 // Skip any dead defs or exposed uses
                 // (first use exposed will only occur when there is no explicit initialization)
                 RefPosition* firstRefPosition = interval->firstRefPosition;
+
                 while ((firstRefPosition != nullptr) && (firstRefPosition->refType == RefTypeExpUse))
                 {
                     firstRefPosition = firstRefPosition->nextRefPosition;
                 }
+
                 if (firstRefPosition == nullptr)
                 {
                     // Dead interval
+
                     lcl->lvLRACandidate = false;
-                    if (lcl->lvRefCnt() == 0)
-                    {
-                        lcl->lvOnFrame = false;
-                    }
-                    else
-                    {
-                        // We may encounter cases where a local actually has no references, but a
-                        // non-zero ref count. For safety (in case this is some "hidden" local that we're
-                        // not correctly recognizing), we'll mark those as needing a stack location.
-                        // TODO-Cleanup: Make this an assert if/when we correct the refCnt
-                        // updating.
-                        lcl->lvOnFrame = true;
-                    }
+                    // We may encounter cases where a local actually has no references, but a
+                    // non-zero ref count. For safety (in case this is some "hidden" local that we're
+                    // not correctly recognizing), we'll mark those as needing a stack location.
+                    // TODO-Cleanup: Make this an assert if/when we correct the ref count updating.
+                    lcl->lvOnFrame = lcl->GetRefCount() > 0;
                 }
                 else
                 {
@@ -5158,11 +5142,13 @@ void LinearScan::resolveRegisters()
                     {
                         lcl->lvOnFrame = false;
                     }
+
                     if (firstRefPosition->registerAssignment == RBM_NONE || firstRefPosition->spillAfter)
                     {
                         // Either this RefPosition is spilled, or regOptional or it is not a "real" def or use
                         assert(firstRefPosition->spillAfter || firstRefPosition->RegOptional() ||
                                (firstRefPosition->refType != RefTypeDef && firstRefPosition->refType != RefTypeUse));
+
                         lcl->SetRegNum(REG_STK);
                     }
                     else
@@ -5177,21 +5163,20 @@ void LinearScan::resolveRegisters()
                 lcl->lvOnFrame  = false;
 
 #ifdef DEBUG
-                regMaskTP registerAssignment = genRegMask(lcl->GetRegNum());
                 assert(!interval->isSpilled && !interval->isSplit);
-                RefPosition* refPosition = interval->firstRefPosition;
-                assert(refPosition != nullptr);
+                assert(interval->firstRefPosition != nullptr);
 
-                while (refPosition != nullptr)
+                for (RefPosition* refPosition = interval->firstRefPosition; refPosition != nullptr;
+                     refPosition              = refPosition->nextRefPosition)
                 {
                     // All RefPositions must match, except for dead definitions,
                     // copyReg/moveReg and RefTypeExpUse positions
-                    if (refPosition->registerAssignment != RBM_NONE && !refPosition->copyReg && !refPosition->moveReg &&
-                        refPosition->refType != RefTypeExpUse)
+
+                    if ((refPosition->registerAssignment != RBM_NONE) && !refPosition->copyReg &&
+                        !refPosition->moveReg && (refPosition->refType != RefTypeExpUse))
                     {
-                        assert(refPosition->registerAssignment == registerAssignment);
+                        assert(refPosition->registerAssignment == genRegMask(lcl->GetRegNum()));
                     }
-                    refPosition = refPosition->nextRefPosition;
                 }
 #endif // DEBUG
             }
