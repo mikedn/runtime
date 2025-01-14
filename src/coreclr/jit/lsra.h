@@ -723,11 +723,12 @@ private:
     void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition);
 
-    void InsertRegCopy(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum toReg, RegNum fromReg);
-
+    void InsertRegCopy(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg, RegNum fromReg);
+    void InsertRegLoad(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg);
+    void InsertRegStore(BasicBlock* block, GenTree* before, Interval* interval, RegNum fromReg);
 #ifdef TARGET_XARCH
     void InsertRegSwap(
-        BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
+        BasicBlock* block, GenTree* before, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
 #endif
 
     Interval* newInterval(var_types regType);

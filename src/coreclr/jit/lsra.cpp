@@ -5205,104 +5205,138 @@ void LinearScan::resolveRegisters()
     // compiler->BashUnusedStructLocals();
 }
 
-// Insert a move of a local with the given lclNum into the given block.
-// If insertionPoint is non-NULL, insert before that instruction;
-// otherwise, insert "near" the end (prior to the branch, if any).
-// If fromReg or toReg is REG_STK, then move from/to memory, respectively.
-//
-// For joins, we insert at the bottom (indicated by an insertionPoint
-// of nullptr), while for splits we insert at the top.
-// This is because for joins 'block' is a pred of the join, while for splits it is a succ.
-// For critical edges, this function may be called twice - once to move from
-// the source (fromReg), if any, to the stack, in which case toReg will be
-// REG_STK, and we insert at the bottom (leave insertionPoint as nullptr).
-// The next time, we want to move from the stack to the destination (toReg),
-// in which case fromReg will be REG_STK, and we insert at the top.
-
-void LinearScan::InsertRegCopy(
-    BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum toReg, RegNum fromReg)
+void LinearScan::InsertRegCopy(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg, RegNum fromReg)
 {
     assert(!block->IsCallFinallyAlwaysPairTail());
     assert(fromReg != toReg);
+    // We should have already marked this as spilled or split.
+    assert(interval->isSpilled || interval->isSplit);
 
     LclVarDsc* lcl = interval->getLocalVar(compiler);
     assert(lcl->IsRegCandidate());
 
     LIR::Range& blockRange = LIR::AsRange(block);
 
-    if (insertionPoint == blockRange.FirstNode())
+    if (before == blockRange.FirstNode())
     {
         // We can't add resolution at the top of a block that has an EHBoundaryIn,
         // except in the case of the "EH Dummy" resolution to the stack (or the
         // block is empty and then we can't figure out if this is really top and
         // it doesn't matter anyway).
-        assert((block->bbNum > bbNumMaxBeforeResolution) || (toReg == REG_STK) ||
-               !blockInfo[block->bbNum].hasEHBoundaryIn || blockRange.IsEmpty());
+        assert((block->bbNum > bbNumMaxBeforeResolution) || !blockInfo[block->bbNum].hasEHBoundaryIn ||
+               blockRange.IsEmpty());
     }
     else
     {
         // We can't add resolution to a register at the bottom of a block that has an EHBoundaryOut,
         // except in the case of the "EH Dummy" resolution from the stack.
-        assert((block->bbNum > bbNumMaxBeforeResolution) || (fromReg == REG_STK) ||
-               !blockInfo[block->bbNum].hasEHBoundaryOut);
+        assert((block->bbNum > bbNumMaxBeforeResolution) || !blockInfo[block->bbNum].hasEHBoundaryOut);
     }
 
     JITDUMP("   " FMT_BB " %s: copy V%02u from %s to %s", block->bbNum,
-            insertionPoint == blockRange.FirstNode() ? "top" : "bottom", lcl->GetLclNum(), getRegName(fromReg),
+            before == blockRange.FirstNode() ? "top" : "bottom", lcl->GetLclNum(), getRegName(fromReg),
             getRegName(toReg));
+
+    // TODO-MIKE-Review: Is this needed?!?
+    lcl->SetRegNum(REG_STK);
+
+    var_types type = lcl->GetRegisterType();
+
+    GenTree* src = compiler->gtNewLclLoad(lcl, type);
+    src->ClearRegSpillSet();
+    src->SetRegNum(fromReg);
+    SetLsraAdded(src);
+
+    GenTree* dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, type, src);
+    // This is the new home of the local - indicate that by clearing the GTF_VAR_DEATH flag.
+    // Note that if src is itself a lastUse, this will have no effect.
+    dst->gtFlags &= ~GTF_VAR_DEATH;
+    dst->SetUnusedValue();
+    dst->SetRegNum(toReg);
+    dst->ClearRegSpillSet();
+    SetLsraAdded(dst);
+
+    blockRange.InsertBefore(before, src, dst);
+
+    INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
+}
+
+void LinearScan::InsertRegLoad(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg)
+{
+    assert(!block->IsCallFinallyAlwaysPairTail());
+    assert(interval->isSpilled);
+
+    LclVarDsc* lcl = interval->getLocalVar(compiler);
+    assert(lcl->IsRegCandidate());
+
+    LIR::Range& blockRange = LIR::AsRange(block);
+
+    if (before == blockRange.FirstNode())
+    {
+        // We can't add resolution at the top of a block that has an EHBoundaryIn,
+        // except in the case of the "EH Dummy" resolution to the stack (or the
+        // block is empty and then we can't figure out if this is really top and
+        // it doesn't matter anyway).
+        assert((block->bbNum > bbNumMaxBeforeResolution) || !blockInfo[block->bbNum].hasEHBoundaryIn ||
+               blockRange.IsEmpty());
+    }
+
+    JITDUMP("   " FMT_BB " %s: load V%02u to %s", block->bbNum, before == blockRange.FirstNode() ? "top" : "bottom",
+            lcl->GetLclNum(), getRegName(toReg));
 
     // TODO-MIKE-Review: Is this needed?!?
     lcl->SetRegNum(REG_STK);
 
     GenTree* src = compiler->gtNewLclLoad(lcl, lcl->GetType());
     src->ClearRegSpillSet();
+    src->SetRegSpilled(0, true);
+    src->SetRegNum(toReg);
+    src->SetUnusedValue();
     SetLsraAdded(src);
-    blockRange.InsertBefore(insertionPoint, src);
 
-    GenTree* dst = src;
+    blockRange.InsertBefore(before, src);
 
-    if (fromReg == REG_STK)
+    INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
+}
+
+void LinearScan::InsertRegStore(BasicBlock* block, GenTree* before, Interval* interval, RegNum fromReg)
+{
+    assert(!block->IsCallFinallyAlwaysPairTail());
+    assert(interval->isSpilled);
+
+    LclVarDsc* lcl = interval->getLocalVar(compiler);
+    assert(lcl->IsRegCandidate());
+
+    LIR::Range& blockRange = LIR::AsRange(block);
+
+    if (before != blockRange.FirstNode())
     {
-        assert(interval->isSpilled);
-
-        src->SetRegSpilled(0, true);
-        src->SetRegNum(toReg);
-    }
-    else if (toReg == REG_STK)
-    {
-        assert(interval->isSpilled);
-
-        src->SetRegSpill(0, true);
-        src->SetRegNum(fromReg);
-    }
-    else
-    {
-        // We should have already marked this as spilled or split.
-        assert(interval->isSpilled || interval->isSplit);
-
-        var_types type = lcl->GetRegisterType();
-
-        src->SetType(type);
-        src->SetRegNum(fromReg);
-
-        dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, type, src);
-        // This is the new home of the local - indicate that by clearing the GTF_VAR_DEATH flag.
-        // Note that if src is itself a lastUse, this will have no effect.
-        dst->gtFlags &= ~GTF_VAR_DEATH;
-        dst->SetRegNum(toReg);
-        dst->ClearRegSpillSet();
-        SetLsraAdded(dst);
-        blockRange.InsertAfter(src, dst);
+        // We can't add resolution to a register at the bottom of a block that has an EHBoundaryOut,
+        // except in the case of the "EH Dummy" resolution from the stack.
+        assert((block->bbNum > bbNumMaxBeforeResolution) || !blockInfo[block->bbNum].hasEHBoundaryOut);
     }
 
-    dst->SetUnusedValue();
+    JITDUMP("   " FMT_BB " %s: store V%02u from %s", block->bbNum, before == blockRange.FirstNode() ? "top" : "bottom",
+            lcl->GetLclNum(), getRegName(fromReg));
+
+    // TODO-MIKE-Review: Is this needed?!?
+    lcl->SetRegNum(REG_STK);
+
+    GenTree* src = compiler->gtNewLclLoad(lcl, lcl->GetType());
+    src->ClearRegSpillSet();
+    src->SetRegSpill(0, true);
+    src->SetRegNum(fromReg);
+    src->SetUnusedValue();
+    SetLsraAdded(src);
+
+    blockRange.InsertBefore(before, src);
 
     INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
 }
 
 #ifdef TARGET_XARCH
 void LinearScan::InsertRegSwap(
-    BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2)
+    BasicBlock* block, GenTree* before, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2)
 {
     assert(genIsValidIntReg(reg1) && genIsValidIntReg(reg2) && (reg1 != reg2));
 
@@ -5314,8 +5348,8 @@ void LinearScan::InsertRegSwap(
     LIR::Range& blockRange = LIR::AsRange(block);
 
     JITDUMP("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum,
-            insertionPoint == blockRange.FirstNode() ? "top" : "bottom", lcl1->GetLclNum(), getRegName(reg1),
-            lcl2->GetLclNum(), getRegName(reg2));
+            before == blockRange.FirstNode() ? "top" : "bottom", lcl1->GetLclNum(), getRegName(reg1), lcl2->GetLclNum(),
+            getRegName(reg2));
 
     GenTree* use1 = compiler->gtNewLclLoad(lcl1, lcl1->GetType());
     use1->SetRegNum(reg1);
@@ -5332,7 +5366,7 @@ void LinearScan::InsertRegSwap(
     swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
-    blockRange.InsertBefore(insertionPoint, use1, use2, swap);
+    blockRange.InsertBefore(before, use1, use2, swap);
 }
 #endif // TARGET_XARCH
 
@@ -5342,7 +5376,7 @@ static const char* resolveTypeName[]{"Split", "Join", "Critical", "SharedCritica
 
 #ifdef TARGET_ARM
 void LinearScan::InsertDoubleRegCopy(BasicBlock*  block,
-                                     GenTree*     insertionPoint,
+                                     GenTree*     before,
                                      Interval**   intervals,
                                      RegNumSmall* location,
                                      RegNum       toReg,
@@ -5369,7 +5403,7 @@ void LinearScan::InsertDoubleRegCopy(BasicBlock*  block,
             assert(genIsValidFloatReg(toReg));
         }
 
-        InsertRegCopy(block, insertionPoint, interval, toReg, fromReg);
+        InsertRegCopy(block, before, interval, toReg, fromReg);
         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
         location[fromReg] = static_cast<RegNumSmall>(toReg);
     }
@@ -5379,7 +5413,7 @@ void LinearScan::InsertDoubleRegCopy(BasicBlock*  block,
         assert(interval2->registerType == TYP_FLOAT);
         RegNum toReg2 = REG_NEXT(toReg);
 
-        InsertRegCopy(block, insertionPoint, interval2, toReg2, fromReg2);
+        InsertRegCopy(block, before, interval2, toReg2, fromReg2);
         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
         location[fromReg2] = static_cast<RegNumSmall>(toReg2);
     }
@@ -5734,15 +5768,17 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
                 if ((compiler->compHndBBtabCount > 0) && VarSetOps::IsSubset(compiler, edgeResolutionSet, exceptVars))
                 {
                     GenTree* insertionPoint = LIR::AsRange(succBlock).FirstNode();
+
                     for (VarSetOps::Enumerator e(compiler, edgeResolutionSet); e.MoveNext();)
                     {
-                        regNumber toReg = getVarReg(succInVarToRegMap, e.Current());
+                        RegNum toReg = getVarReg(succInVarToRegMap, e.Current());
                         setVarReg(succInVarToRegMap, e.Current(), REG_STK);
+
                         if (toReg != REG_STK)
                         {
                             Interval* interval = getIntervalForLocalVar(e.Current());
                             assert(interval->isWriteThru);
-                            InsertRegCopy(succBlock, insertionPoint, interval, toReg, REG_STK);
+                            InsertRegLoad(succBlock, insertionPoint, interval, toReg);
                             JITDUMP(" (EHvar)\n");
                         }
                     }
@@ -6105,10 +6141,11 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             if (Interval* interval = HasLclInterval(e.Current()))
             {
                 assert(interval->isWriteThru);
-                regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
+                RegNum fromReg = getVarReg(fromVarToRegMap, e.Current());
+
                 if (fromReg != REG_STK)
                 {
-                    InsertRegCopy(block, insertionPoint, interval, REG_STK, fromReg);
+                    InsertRegStore(block, insertionPoint, interval, fromReg);
                     JITDUMP(" (EH DUMMY)\n");
                     setVarReg(fromVarToRegMap, e.Current(), REG_STK);
                 }
@@ -6194,10 +6231,8 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
         }
         else if (toReg == REG_STK)
         {
-            // Do the reg to stack moves now
-            InsertRegCopy(block, insertionPoint, interval, REG_STK, fromReg);
-            JITDUMP(" (%s)\n",
-                    (interval->isWriteThru && (toReg == REG_STK)) ? "EH DUMMY" : resolveTypeName[resolveType]);
+            InsertRegStore(block, insertionPoint, interval, fromReg);
+            JITDUMP(" (%s)\n", interval->isWriteThru ? "EH DUMMY" : resolveTypeName[resolveType]);
         }
         else
         {
@@ -6411,7 +6446,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
                         // First, spill "otherInterval" from targetReg to the stack.
                         Interval* otherInterval = sourceIntervals[source[otherTargetReg]];
                         setIntervalAsSpilled(otherInterval);
-                        InsertRegCopy(block, insertionPoint, otherInterval, REG_STK, targetReg);
+                        InsertRegStore(block, insertionPoint, otherInterval, targetReg);
                         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
                         location[source[otherTargetReg]] = REG_STK;
 
@@ -6488,7 +6523,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
         Interval* interval = stackToRegIntervals[targetReg];
         assert(interval != nullptr);
 
-        InsertRegCopy(block, insertionPoint, interval, targetReg, REG_STK);
+        InsertRegLoad(block, insertionPoint, interval, targetReg);
         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
     }
 }
