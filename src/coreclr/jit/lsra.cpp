@@ -5230,35 +5230,26 @@ void LinearScan::InsertRegCopy(
 
     LIR::Range& blockRange = LIR::AsRange(block);
 
-    if (insertionPoint == nullptr)
+    if (insertionPoint == blockRange.FirstNode())
+    {
+        // We can't add resolution at the top of a block that has an EHBoundaryIn,
+        // except in the case of the "EH Dummy" resolution to the stack (or the
+        // block is empty and then we can't figure out if this is really top and
+        // it doesn't matter anyway).
+        assert((block->bbNum > bbNumMaxBeforeResolution) || (toReg == REG_STK) ||
+               !blockInfo[block->bbNum].hasEHBoundaryIn || blockRange.IsEmpty());
+    }
+    else
     {
         // We can't add resolution to a register at the bottom of a block that has an EHBoundaryOut,
         // except in the case of the "EH Dummy" resolution from the stack.
         assert((block->bbNum > bbNumMaxBeforeResolution) || (fromReg == REG_STK) ||
                !blockInfo[block->bbNum].hasEHBoundaryOut);
-
-        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
-        {
-            insertionPoint = blockRange.LastNode();
-            assert(insertionPoint->OperIsConditionalJump() || insertionPoint->OperIs(GT_SWITCH_TABLE));
-        }
-        else
-        {
-            GenTree* lastNode = blockRange.LastNode();
-            assert((lastNode == nullptr) ||
-                   (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
-        }
-    }
-    else
-    {
-        // We can't add resolution at the top of a block that has an EHBoundaryIn,
-        // except in the case of the "EH Dummy" resolution to the stack.
-        assert((block->bbNum > bbNumMaxBeforeResolution) || (toReg == REG_STK) ||
-               !blockInfo[block->bbNum].hasEHBoundaryIn);
     }
 
-    JITDUMP("   " FMT_BB " %s: copy V%02u from %s to %s", block->bbNum, insertionPoint == nullptr ? "bottom" : "top",
-            lcl->GetLclNum(), getRegName(fromReg), getRegName(toReg));
+    JITDUMP("   " FMT_BB " %s: copy V%02u from %s to %s", block->bbNum,
+            insertionPoint == blockRange.FirstNode() ? "top" : "bottom", lcl->GetLclNum(), getRegName(fromReg),
+            getRegName(toReg));
 
     // TODO-MIKE-Review: Is this needed?!?
     lcl->SetRegNum(REG_STK);
@@ -5320,26 +5311,11 @@ void LinearScan::InsertRegSwap(
     assert(lcl1->IsRegCandidate());
     assert(lcl2->IsRegCandidate());
 
-    JITDUMP("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum,
-            insertionPoint == nullptr ? "bottom" : "top", lcl1->GetLclNum(), getRegName(reg1), lcl2->GetLclNum(),
-            getRegName(reg2));
-
     LIR::Range& blockRange = LIR::AsRange(block);
 
-    if (insertionPoint == nullptr)
-    {
-        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
-        {
-            insertionPoint = blockRange.LastNode();
-            assert(insertionPoint->OperIsConditionalJump() || insertionPoint->OperIs(GT_SWITCH_TABLE));
-        }
-        else
-        {
-            GenTree* lastNode = blockRange.LastNode();
-            assert((lastNode == nullptr) ||
-                   (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
-        }
-    }
+    JITDUMP("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum,
+            insertionPoint == blockRange.FirstNode() ? "top" : "bottom", lcl1->GetLclNum(), getRegName(reg1),
+            lcl2->GetLclNum(), getRegName(reg2));
 
     GenTree* use1 = compiler->gtNewLclLoad(lcl1, lcl1->GetType());
     use1->SetRegNum(reg1);
@@ -6100,43 +6076,23 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
         }
     }
 
-    regMaskTP targetRegsToDo      = RBM_NONE;
-    regMaskTP targetRegsReady     = RBM_NONE;
-    regMaskTP targetRegsFromStack = RBM_NONE;
-
-    // The following arrays capture the location of the registers as they are moved:
-    // - location[reg] gives the current location of the var that was originally in 'reg'.
-    //   (Note that a var may be moved more than once.)
-    // - source[reg] gives the original location of the var that needs to be moved to 'reg'.
-    // For example, if a var is in rax and needs to be moved to rsi, then we would start with:
-    //   location[rax] == rax
-    //   source[rsi] == rax     -- this doesn't change
-    // Then, if for some reason we need to move it temporary to rbx, we would have:
-    //   location[rax] == rbx
-    // Once we have completed the move, we will have:
-    //   location[rax] == REG_NA
-    // This indicates that the var originally in rax is now in its target register.
-
-    RegNumSmall location[REG_COUNT];
-    static_assert_no_msg(sizeof(char) == sizeof(RegNumSmall)); // for memset to work
-    memset(location, REG_NA, REG_COUNT);
-    RegNumSmall source[REG_COUNT];
-    memset(source, REG_NA, REG_COUNT);
-
-    // What interval is this register associated with?
-    // (associated with incoming reg)
-    Interval* sourceIntervals[REG_COUNT];
-    memset(&sourceIntervals, 0, sizeof(sourceIntervals));
-
-    // Intervals for vars that need to be loaded from the stack
-    Interval* stackToRegIntervals[REG_COUNT];
-    memset(&stackToRegIntervals, 0, sizeof(stackToRegIntervals));
-
     // Get the starting insertion point for the "to" resolution
     GenTree* insertionPoint = nullptr;
-    if (resolveType == ResolveSplit || resolveType == ResolveCritical)
+
+    if ((resolveType == ResolveSplit) || (resolveType == ResolveCritical))
     {
         insertionPoint = LIR::AsRange(block).FirstNode();
+    }
+    else if (block->KindIs(BBJ_COND, BBJ_SWITCH))
+    {
+        insertionPoint = LIR::AsRange(block).LastNode();
+        assert(insertionPoint->OperIsConditionalJump() || insertionPoint->OperIs(GT_SWITCH_TABLE));
+    }
+    else
+    {
+        GenTree* lastNode = LIR::AsRange(block).LastNode();
+        assert((lastNode == nullptr) ||
+               (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
     }
 
     // If this is an edge between EH regions, we may have "extra" live-out EH vars.
@@ -6168,6 +6124,33 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     //     record the interval associated with the target reg
     // TODO-Throughput: We should be looping over the liveIn and liveOut registers, since
     // that will scale better than the live variables
+
+    // The following arrays capture the location of the registers as they are moved:
+    // - location[reg] gives the current location of the var that was originally in 'reg'.
+    //   (Note that a var may be moved more than once.)
+    // - source[reg] gives the original location of the var that needs to be moved to 'reg'.
+    // For example, if a var is in rax and needs to be moved to rsi, then we would start with:
+    //   location[rax] == rax
+    //   source[rsi] == rax     -- this doesn't change
+    // Then, if for some reason we need to move it temporary to rbx, we would have:
+    //   location[rax] == rbx
+    // Once we have completed the move, we will have:
+    //   location[rax] == REG_NA
+    // This indicates that the var originally in rax is now in its target register.
+
+    RegNumSmall location[REG_COUNT];
+    static_assert_no_msg(sizeof(char) == sizeof(RegNumSmall)); // for memset to work
+    memset(location, REG_NA, sizeof(location));
+    RegNumSmall source[REG_COUNT];
+    memset(source, REG_NA, sizeof(source));
+    Interval* sourceIntervals[REG_COUNT];
+    memset(sourceIntervals, 0, sizeof(sourceIntervals));
+    Interval* stackToRegIntervals[REG_COUNT];
+    memset(stackToRegIntervals, 0, sizeof(stackToRegIntervals));
+
+    regMaskTP targetRegsToDo      = RBM_NONE;
+    regMaskTP targetRegsReady     = RBM_NONE;
+    regMaskTP targetRegsFromStack = RBM_NONE;
 
     for (VarSetOps::Enumerator e(compiler, liveSet); e.MoveNext();)
     {
@@ -6228,8 +6211,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     // REGISTER to REGISTER MOVES
 
     // First, find all the ones that are ready to move now
-    regMaskTP targetCandidates = targetRegsToDo;
-    while (targetCandidates != RBM_NONE)
+    for (regMaskTP targetCandidates = targetRegsToDo; targetCandidates != RBM_NONE;)
     {
         regMaskTP targetRegMask = genFindLowestBit(targetCandidates);
         targetCandidates &= ~targetRegMask;
