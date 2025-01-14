@@ -735,20 +735,17 @@ RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex
 
 void LinearScan::dumpVarToRegMap(VarToRegMap map) const
 {
-    bool anyPrinted = false;
-    for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
+    int len = 0;
+
+    for (unsigned i = 0; i < compiler->lvaTrackedCount; i++)
     {
-        if (map[varIndex] != REG_STK)
+        if (map[i] != REG_STK)
         {
-            printf("V%02u=%s ", compiler->lvaGetDescByTrackedIndex(varIndex)->GetLclNum(), getRegName(map[varIndex]));
-            anyPrinted = true;
+            len += printf("V%02u=%s ", compiler->lvaGetDescByTrackedIndex(i)->GetLclNum(), getRegName(map[i]));
         }
     }
-    if (!anyPrinted)
-    {
-        printf("none");
-    }
-    printf("\n");
+
+    printf("%s\n", len == 0 ? "none" : "");
 }
 
 void LinearScan::dumpInVarToRegMap(BasicBlock* block) const
@@ -765,30 +762,34 @@ void LinearScan::dumpOutVarToRegMap(BasicBlock* block) const
 
 void LinearScan::dumpVarRefPositions(const char* title) const
 {
-    if (enregisterLocalVars)
+    if (!enregisterLocalVars)
     {
-        printf("\nVAR REFPOSITIONS %s\n", title);
+        return;
+    }
 
-        for (LclVarDsc* lcl : compiler->Locals())
+    printf("\nVAR REFPOSITIONS %s\n", title);
+
+    for (LclVarDsc* lcl : compiler->Locals())
+    {
+        printf("--- V%02u", lcl->GetLclNum());
+
+        if (lcl->IsRegCandidate())
         {
-            printf("--- V%02u", lcl->GetLclNum());
+            Interval* interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
+            printf("  (Interval %u)\n", interval->intervalIndex);
 
-            if (lcl->IsRegCandidate())
+            for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
             {
-                Interval* interval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
-                printf("  (Interval %d)\n", interval->intervalIndex);
-                for (RefPosition* ref = interval->firstRefPosition; ref != nullptr; ref = ref->nextRefPosition)
-                {
-                    ref->dump(this);
-                }
-            }
-            else
-            {
-                printf("\n");
+                ref->dump(this);
             }
         }
-        printf("\n");
+        else
+        {
+            printf("\n");
+        }
     }
+
+    printf("\n");
 }
 
 #endif // DEBUG
@@ -2695,8 +2696,7 @@ void LinearScan::allocateRegisters()
         dumpRefPositions("BEFORE ALLOCATION");
         dumpVarRefPositions("BEFORE ALLOCATION");
 
-        printf("\n\nAllocating Registers\n"
-               "--------------------\n");
+        printf("\n\nAllocating Registers\n--------------------\n");
         // Start with a small set of commonly used registers, so that we don't keep having to print a new title.
         // Include all the arg regs, as they may already have values assigned to them.
         registersToDump = LsraLimitSmallIntSet | LsraLimitSmallFPSet | RBM_ARG_REGS;
@@ -4234,6 +4234,10 @@ void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* node)
     }
 }
 
+#ifdef DEBUG
+static void SetLsraAdded(GenTree* node);
+#endif
+
 //------------------------------------------------------------------------
 // insertCopyOrReload: Insert a copy in the case where a tree node value must be moved
 //   to a different register at the point of use (GT_COPY), or it is reloaded to a different register
@@ -5040,13 +5044,15 @@ void LinearScan::resolveRegisters()
             for (BasicBlock* const block : compiler->Blocks())
             {
                 printf("\n" FMT_BB, block->bbNum);
+
                 if (block->hasEHBoundaryIn())
                 {
-                    JITDUMP("  EH flow in");
+                    printf("  EH flow in");
                 }
+
                 if (block->hasEHBoundaryOut())
                 {
-                    JITDUMP("  EH flow out");
+                    printf("  EH flow out");
                 }
 
                 printf("\nuse def in out\n");
@@ -5200,7 +5206,7 @@ void LinearScan::resolveRegisters()
     }
 
     verifyFinalAllocation();
-#endif // DEBUG
+#endif
 
     recordMaxSpill();
 
@@ -5446,7 +5452,7 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
 }
 
 #ifdef DEBUG
-const char* LinearScan::resolveTypeName[]{"Split", "Join", "Critical", "SharedCritical"};
+static const char* resolveTypeName[]{"Split", "Join", "Critical", "SharedCritical"};
 #endif
 
 #ifdef TARGET_ARM
@@ -6062,27 +6068,37 @@ void LinearScan::resolveEdges()
         }
     }
 
+    INDEBUG(VerifyEdgeResolution());
+    JITDUMP("\n");
+}
+
 #ifdef DEBUG
-    // Make sure the varToRegMaps match up on all edges.
+void LinearScan::VerifyEdgeResolution()
+{
     bool foundMismatch = false;
+
     for (BasicBlock* const block : compiler->Blocks())
     {
-        if (block->isEmpty() && block->bbNum > bbNumMaxBeforeResolution)
+        if (block->isEmpty() && (block->bbNum > bbNumMaxBeforeResolution))
         {
             continue;
         }
+
         VarToRegMap toVarToRegMap = getInVarToRegMap(block);
+
         for (BasicBlock* const predBlock : block->PredBlocks())
         {
             VarToRegMap fromVarToRegMap = getOutVarToRegMap(predBlock);
 
             for (VarSetOps::Enumerator e(compiler, block->bbLiveIn); e.MoveNext();)
             {
-                regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
-                regNumber toReg   = getVarReg(toVarToRegMap, e.Current());
+                RegNum fromReg = getVarReg(fromVarToRegMap, e.Current());
+                RegNum toReg   = getVarReg(toVarToRegMap, e.Current());
+
                 if (fromReg != toReg)
                 {
                     Interval* interval = getIntervalForLocalVar(e.Current());
+
                     // The fromReg and toReg may not match for a write-thru interval where the toReg is
                     // REG_STK, since the stack value is always valid for that case (so no move is needed).
                     if (!interval->isWriteThru || (toReg != REG_STK))
@@ -6092,6 +6108,7 @@ void LinearScan::resolveEdges()
                             foundMismatch = true;
                             printf("Found mismatched var locations after resolution!\n");
                         }
+
                         printf(" V%02u: " FMT_BB " to " FMT_BB ": %s to %s\n",
                                compiler->lvaGetDescByTrackedIndex(e.Current())->GetLclNum(), predBlock->bbNum,
                                block->bbNum, getRegName(fromReg), getRegName(toReg));
@@ -6100,10 +6117,10 @@ void LinearScan::resolveEdges()
             }
         }
     }
+
     assert(!foundMismatch);
-#endif
-    JITDUMP("\n");
 }
+#endif // DEBUG
 
 //------------------------------------------------------------------------
 // resolveEdge: Perform the specified type of resolution between two blocks.
@@ -6612,7 +6629,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
 
 #if TRACK_LSRA_STATS
 
-const char* LinearScan::getStatName(unsigned stat)
+static const char* getStatName(unsigned stat)
 {
     LsraStat lsraStat = static_cast<LsraStat>(stat);
     assert(lsraStat != LsraStat::COUNT);
@@ -6630,7 +6647,7 @@ const char* LinearScan::getStatName(unsigned stat)
     return lsraStatNames[lsraStat];
 }
 
-LsraStat LinearScan::getLsraStatFromScore(RegisterScore registerScore)
+static LsraStat getLsraStatFromScore(RegisterScore registerScore)
 {
     switch (registerScore)
     {
@@ -6803,7 +6820,7 @@ void LinearScan::dumpLsraStatsCsv(FILE* file) const
         fprintf(file, "\"Method Name\"");
         for (int statIndex = 0; statIndex < LsraStat::COUNT; statIndex++)
         {
-            fprintf(file, ",\"%s\"", LinearScan::getStatName(statIndex));
+            fprintf(file, ",\"%s\"", getStatName(statIndex));
         }
         fprintf(file, ",\"PerfScore\"\n");
     }
@@ -6871,9 +6888,11 @@ void LinearScan::dumpLsraStatsSummary(FILE* file) const
                 wtdStats[regSelectI]);
     }
 }
+
 #endif // TRACK_LSRA_STATS
 
 #ifdef DEBUG
+
 static void dumpRegMask(regMaskTP regs)
 {
     if (regs == RBM_ALLINT)
@@ -6928,7 +6947,7 @@ static const char* getRefTypeShortName(RefType refType)
     }
 }
 
-const char* LinearScan::getScoreName(RegisterScore score)
+static const char* getScoreName(RegisterScore score)
 {
     switch (score)
     {
@@ -7104,7 +7123,6 @@ void Interval::dump() const
     printf("\n");
 }
 
-// print out very concise representation
 void Interval::tinyDump() const
 {
     printf("<Ivl:%u", intervalIndex);
@@ -7124,7 +7142,6 @@ void Interval::tinyDump() const
     printf("> ");
 }
 
-// print out extremely concise representation
 void Interval::microDump() const
 {
     if (isLocalVar)
@@ -7780,18 +7797,9 @@ void LinearScan::dumpLsraAllocationEvent(
     }
 }
 
-//------------------------------------------------------------------------
-// dumpRegRecordHeader: Dump the header for a column-based dump of the register state.
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    None.
-//
+// Dump the header for a column-based dump of the register state.
 // Assumptions:
 //    Reg names fit in 4 characters (minimum width of the columns)
-//
 // Notes:
 //    In order to make the table as dense as possible (for ease of reading the dumps),
 //    we determine the minimum regColumnWidth width required to represent:
@@ -7799,7 +7807,6 @@ void LinearScan::dumpLsraAllocationEvent(
 //      intervals, as Vnn for local intervals, or as I<num> for other intervals.
 //    The table is indented by the amount needed for dumpRefPositionShort, which is
 //    captured in shortRefPositionDumpWidth.
-//
 void LinearScan::dumpRegRecordHeader()
 {
     printf("The following table has one or more rows for each RefPosition that is handled during allocation.\n"
@@ -7940,6 +7947,7 @@ void LinearScan::dumpRegRecordTitleLines()
     }
     printf("%s\n", rightBox);
 }
+
 void LinearScan::dumpRegRecordTitle()
 {
     dumpRegRecordTitleLines();
@@ -8029,12 +8037,7 @@ void LinearScan::dumpEmptyRefPosition()
     printf(emptyRefPositionFormat, "");
 }
 
-//------------------------------------------------------------------------
-// dumpNewBlock: Dump a line for a new block in a column-based dump of the register state.
-//
-// Arguments:
-//    currentBlock - the new block to be dumped
-//
+// Dump a line for a new block in a column-based dump of the register state.
 void LinearScan::dumpNewBlock(BasicBlock* currentBlock, LsraLocation location)
 {
     if (!verbose)
@@ -8073,7 +8076,6 @@ void LinearScan::dumpNewBlock(BasicBlock* currentBlock, LsraLocation location)
 }
 
 // Note that the size of this dump is computed in dumpRegRecordHeader().
-//
 void LinearScan::dumpRefPositionShort(RefPosition* refPosition, BasicBlock* currentBlock)
 {
     static RefPosition* lastPrintedRefPosition = nullptr;
@@ -8119,15 +8121,18 @@ void LinearScan::dumpRefPositionShort(RefPosition* refPosition, BasicBlock* curr
     }
 }
 
-//------------------------------------------------------------------------
-// LinearScan::IsResolutionMove:
-//     Returns true if the given node is a move inserted by LSRA
-//     resolution.
-//
-// Arguments:
-//     node - the node to check.
-//
-bool LinearScan::IsResolutionMove(GenTree* node)
+static bool IsLsraAdded(GenTree* node)
+{
+    return (node->gtDebugFlags & GTF_DEBUG_NODE_LSRA_ADDED) != 0;
+}
+
+static void SetLsraAdded(GenTree* node)
+{
+    node->gtDebugFlags |= GTF_DEBUG_NODE_LSRA_ADDED;
+}
+
+// Returns true if the given node is a move inserted by LSRA resolution.
+static bool IsResolutionMove(GenTree* node)
 {
     if (!IsLsraAdded(node))
     {
@@ -8148,16 +8153,8 @@ bool LinearScan::IsResolutionMove(GenTree* node)
     }
 }
 
-//------------------------------------------------------------------------
-// LinearScan::IsResolutionNode:
-//     Returns true if the given node is either a move inserted by LSRA
-//     resolution or an operand to such a move.
-//
-// Arguments:
-//     containingRange - the range that contains the node to check.
-//     node - the node to check.
-//
-bool LinearScan::IsResolutionNode(LIR::Range& containingRange, GenTree* node)
+// Returns true if the given node is either a move inserted by LSRA resolution or an operand to such a move.
+static bool IsResolutionNode(LIR::Range& containingRange, GenTree* node)
 {
     for (;;)
     {
@@ -8428,18 +8425,12 @@ void LinearScan::verifyFinalAllocation()
                 {
                     interval->isActive = true;
 
-                    if (verbose)
-                    {
-                        if (interval->isConstant && (currentRefPosition->treeNode != nullptr) &&
-                            currentRefPosition->treeNode->IsReuseRegVal())
-                        {
-                            dumpLsraAllocationEvent(LSRA_EVENT_REUSE_REG, nullptr, regRecord->regNum, currentBlock);
-                        }
-                        else
-                        {
-                            dumpLsraAllocationEvent(LSRA_EVENT_ALLOC_REG, nullptr, regRecord->regNum, currentBlock);
-                        }
-                    }
+                    DBEXEC(verbose,
+                           dumpLsraAllocationEvent(interval->isConstant && (currentRefPosition->treeNode != nullptr) &&
+                                                           currentRefPosition->treeNode->IsReuseRegVal()
+                                                       ? LSRA_EVENT_REUSE_REG
+                                                       : LSRA_EVENT_ALLOC_REG,
+                                                   nullptr, regRecord->regNum, currentBlock));
                 }
                 else if (currentRefPosition->copyReg)
                 {
@@ -8518,7 +8509,7 @@ void LinearScan::verifyFinalAllocation()
             case RefTypeKillGCRefs:
                 // No action to take.
                 // However, we will assert that, at resolution time, no registers contain GC refs.
-                DBEXEC(verbose, printf("           "));
+                JITDUMP("           ");
 
                 for (regMaskTP candidateRegs = currentRefPosition->registerAssignment; candidateRegs != RBM_NONE;)
                 {
@@ -8533,7 +8524,7 @@ void LinearScan::verifyFinalAllocation()
             case RefTypeDummyDef:
                 // Do nothing; these will be handled by the RefTypeBB.
                 DBEXEC(verbose, dumpRefPositionShort(currentRefPosition, currentBlock));
-                DBEXEC(verbose, printf("              "));
+                JITDUMP("              ");
                 break;
 
             case RefTypeInvalid:
@@ -8544,6 +8535,7 @@ void LinearScan::verifyFinalAllocation()
         if (currentRefPosition->refType != RefTypeBB)
         {
             DBEXEC(verbose, dumpRegRecords());
+
             if (interval != nullptr)
             {
                 if (currentRefPosition->copyReg)
@@ -8682,18 +8674,11 @@ void LinearScan::verifyFinalAllocation()
         }
     }
 
-    DBEXEC(verbose, printf("\n"));
+    JITDUMP("\n");
 }
 
-//------------------------------------------------------------------------
-// verifyResolutionMove: Verify a resolution statement.  Called by verifyFinalAllocation()
-//
-// Arguments:
-//    resolutionMove    - A GenTree* that must be a resolution move.
-//    currentLocation   - The LsraLocation of the most recent RefPosition that has been verified.
-//
-// Notes:
-//    If verbose is set, this will also dump the moves into the table of final allocations.
+// Verify a resolution statement. Called by verifyFinalAllocation()
+// If verbose is set, this will also dump the moves into the table of final allocations.
 void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation currentLocation)
 {
     GenTree* dst = resolutionMove;
@@ -9912,8 +9897,7 @@ regMaskTP RegisterSelection::select(Interval* currentInterval, RefPosition* refP
         if (found)
         {
             selectionScore = selector.second;
-            INTRACK_STATS(
-                linearScan->updateLsraStat(linearScan->getLsraStatFromScore(selector.second), refPosition->bbNum));
+            INTRACK_STATS(linearScan->updateLsraStat(getLsraStatFromScore(selector.second), refPosition->bbNum));
         }
     }
 #else // !DEBUG

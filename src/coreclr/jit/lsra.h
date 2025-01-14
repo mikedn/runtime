@@ -314,10 +314,6 @@ private:
         ResolveTypeCount
     };
 
-#ifdef DEBUG
-    static const char* resolveTypeName[ResolveTypeCount];
-#endif
-
 #ifdef TARGET_ARM
     void addResolutionForDouble(BasicBlock*     block,
                                 GenTree*        insertionPoint,
@@ -571,21 +567,9 @@ private:
     void dumpRefPositions(const char* msg) const;
     void dumpVarRefPositions(const char* msg) const;
 
-    static bool IsLsraAdded(GenTree* node)
-    {
-        return (node->gtDebugFlags & GTF_DEBUG_NODE_LSRA_ADDED) != 0;
-    }
-
-    static void SetLsraAdded(GenTree* node)
-    {
-        node->gtDebugFlags |= GTF_DEBUG_NODE_LSRA_ADDED;
-    }
-
-    static bool IsResolutionMove(GenTree* node);
-    static bool IsResolutionNode(LIR::Range& containingRange, GenTree* node);
-
     void verifyFinalAllocation();
     void verifyResolutionMove(GenTree* resolutionNode, LsraLocation currentLocation);
+    void VerifyEdgeResolution();
 #else  // !DEBUG
     static bool doSelectNearest()
     {
@@ -872,7 +856,6 @@ private:
 
     void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
     void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode) const;
-    static const char* getScoreName(RegisterScore score);
     void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode) const;
     void TupleStyleDump(LsraTupleDumpMode mode);
 
@@ -995,8 +978,6 @@ private:
 
     void updateLsraStat(LsraStat stat, unsigned currentBBNum);
     void dumpLsraStats(FILE* file) const;
-    static const char* getStatName(unsigned stat);
-    static LsraStat getLsraStatFromScore(RegisterScore registerScore);
 #define INTRACK_STATS(x) x
 #else
 #define INTRACK_STATS(x)
