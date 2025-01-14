@@ -5205,170 +5205,210 @@ void LinearScan::resolveRegisters()
     // compiler->BashUnusedStructLocals();
 }
 
+// Insert a move of a local with the given lclNum into the given block.
+// If insertionPoint is non-NULL, insert before that instruction;
+// otherwise, insert "near" the end (prior to the branch, if any).
+// If fromReg or toReg is REG_STK, then move from/to memory, respectively.
 //
-//------------------------------------------------------------------------
-// insertMove: Insert a move of a local with the given lclNum into the given block.
-//
-// Arguments:
-//    block          - the BasicBlock into which the move will be inserted.
-//    insertionPoint - the instruction before which to insert the move
-//    lclNum         - the lclNum of the var to be moved
-//    fromReg        - the register from which the var is moving
-//    toReg          - the register to which the var is moving
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    If insertionPoint is non-NULL, insert before that instruction;
-//    otherwise, insert "near" the end (prior to the branch, if any).
-//    If fromReg or toReg is REG_STK, then move from/to memory, respectively.
+// For joins, we insert at the bottom (indicated by an insertionPoint
+// of nullptr), while for splits we insert at the top.
+// This is because for joins 'block' is a pred of the join, while for splits it is a succ.
+// For critical edges, this function may be called twice - once to move from
+// the source (fromReg), if any, to the stack, in which case toReg will be
+// REG_STK, and we insert at the bottom (leave insertionPoint as nullptr).
+// The next time, we want to move from the stack to the destination (toReg),
+// in which case fromReg will be REG_STK, and we insert at the top.
 
-void LinearScan::insertMove(
-    BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum fromReg, RegNum toReg)
+void LinearScan::InsertRegCopy(
+    BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum toReg, RegNum fromReg)
 {
-    LclVarDsc* lcl = interval->getLocalVar(compiler);
-    // the local must be a register candidate
-    assert(lcl->IsRegCandidate());
-    // One or both MUST be a register
-    assert(fromReg != REG_STK || toReg != REG_STK);
-    // They must not be the same register.
+    assert(!block->IsCallFinallyAlwaysPairTail());
     assert(fromReg != toReg);
 
-    // This var can't be marked lvRegister now
+    LclVarDsc* lcl = interval->getLocalVar(compiler);
+    assert(lcl->IsRegCandidate());
+
+    LIR::Range& blockRange = LIR::AsRange(block);
+
+    if (insertionPoint == nullptr)
+    {
+        // We can't add resolution to a register at the bottom of a block that has an EHBoundaryOut,
+        // except in the case of the "EH Dummy" resolution from the stack.
+        assert((block->bbNum > bbNumMaxBeforeResolution) || (fromReg == REG_STK) ||
+               !blockInfo[block->bbNum].hasEHBoundaryOut);
+
+        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
+        {
+            insertionPoint = blockRange.LastNode();
+            assert(insertionPoint->OperIsConditionalJump() || insertionPoint->OperIs(GT_SWITCH_TABLE));
+        }
+        else
+        {
+            GenTree* lastNode = blockRange.LastNode();
+            assert((lastNode == nullptr) ||
+                   (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
+        }
+    }
+    else
+    {
+        // We can't add resolution at the top of a block that has an EHBoundaryIn,
+        // except in the case of the "EH Dummy" resolution to the stack.
+        assert((block->bbNum > bbNumMaxBeforeResolution) || (toReg == REG_STK) ||
+               !blockInfo[block->bbNum].hasEHBoundaryIn);
+    }
+
+    JITDUMP("   " FMT_BB " %s: copy V%02u from %s to %s", block->bbNum, insertionPoint == nullptr ? "bottom" : "top",
+            lcl->GetLclNum(), getRegName(fromReg), getRegName(toReg));
+
+    // TODO-MIKE-Review: Is this needed?!?
     lcl->SetRegNum(REG_STK);
 
     GenTree* src = compiler->gtNewLclLoad(lcl, lcl->GetType());
     src->ClearRegSpillSet();
     SetLsraAdded(src);
-
-    // There are three cases we need to handle:
-    // - We are loading a local from the stack.
-    // - We are storing a local to the stack.
-    // - We are copying a local between registers.
-    //
-    // In the first and second cases, the local node's register will be marked with SPILLED and SPILL, respectively.
-    // It is up to the code generator to ensure that any necessary normalization is done when loading or storing the
-    // local's value.
-    //
-    // In the third case, we generate COPY(LCL_LOAD) and type each node with the normalized type of the local.
-    // This is safe because a local is always normalized once it is in a register.
+    blockRange.InsertBefore(insertionPoint, src);
 
     GenTree* dst = src;
+
     if (fromReg == REG_STK)
     {
+        assert(interval->isSpilled);
+
         src->SetRegSpilled(0, true);
         src->SetRegNum(toReg);
     }
     else if (toReg == REG_STK)
     {
+        assert(interval->isSpilled);
+
         src->SetRegSpill(0, true);
         src->SetRegNum(fromReg);
     }
     else
     {
-        var_types movType = lcl->GetRegisterType();
+        // We should have already marked this as spilled or split.
+        assert(interval->isSpilled || interval->isSplit);
 
-        src->SetType(movType);
-        dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, movType, src);
+        var_types type = lcl->GetRegisterType();
+
+        src->SetType(type);
+        src->SetRegNum(fromReg);
+
+        dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, type, src);
         // This is the new home of the local - indicate that by clearing the GTF_VAR_DEATH flag.
         // Note that if src is itself a lastUse, this will have no effect.
         dst->gtFlags &= ~GTF_VAR_DEATH;
-        src->SetRegNum(fromReg);
         dst->SetRegNum(toReg);
         dst->ClearRegSpillSet();
         SetLsraAdded(dst);
-    }
-    dst->SetUnusedValue();
-
-    LIR::Range& blockRange = LIR::AsRange(block);
-
-    if (insertionPoint != nullptr)
-    {
-        blockRange.InsertBefore(insertionPoint, src);
-    }
-    else
-    {
-        // Put the copy at the bottom
-        GenTree* lastNode = blockRange.LastNode();
-        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
-        {
-            noway_assert(!blockRange.IsEmpty());
-
-            GenTree* branch = lastNode;
-            assert(branch->OperIsConditionalJump() || branch->OperIs(GT_SWITCH_TABLE, GT_SWITCH));
-            blockRange.InsertBefore(branch, src);
-        }
-        else
-        {
-            // These block kinds don't have a branch at the end.
-            assert((lastNode == nullptr) || (!lastNode->OperIsConditionalJump() &&
-                                             !lastNode->OperIs(GT_SWITCH_TABLE, GT_SWITCH, GT_RETURN, GT_RETFILT)));
-            blockRange.InsertAfter(lastNode, src);
-        }
-    }
-
-    if (dst != src)
-    {
         blockRange.InsertAfter(src, dst);
     }
+
+    dst->SetUnusedValue();
+
+    INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
 }
 
 #ifdef TARGET_XARCH
-void LinearScan::insertSwap(
+void LinearScan::InsertRegSwap(
     BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2)
 {
-    LclVarDsc* varDsc1 = interval1->getLocalVar(compiler);
-    LclVarDsc* varDsc2 = interval2->getLocalVar(compiler);
+    assert(genIsValidIntReg(reg1) && genIsValidIntReg(reg2) && (reg1 != reg2));
+
+    LclVarDsc* lcl1 = interval1->getLocalVar(compiler);
+    LclVarDsc* lcl2 = interval2->getLocalVar(compiler);
+    assert(lcl1->IsRegCandidate());
+    assert(lcl2->IsRegCandidate());
 
     JITDUMP("   " FMT_BB " %s: swap V%02u in %s with V%02u in %s\n", block->bbNum,
-            insertionPoint == nullptr ? "bottom" : "top", varDsc1->GetLclNum(), getRegName(reg1), varDsc2->GetLclNum(),
+            insertionPoint == nullptr ? "bottom" : "top", lcl1->GetLclNum(), getRegName(reg1), lcl2->GetLclNum(),
             getRegName(reg2));
 
-    assert(reg1 != REG_STK && reg1 != REG_NA && reg2 != REG_STK && reg2 != REG_NA);
+    LIR::Range& blockRange = LIR::AsRange(block);
 
-    GenTree* lcl1 = compiler->gtNewLclLoad(varDsc1, varDsc1->GetType());
-    lcl1->SetRegNum(reg1);
-    lcl1->ClearRegSpillSet();
-    SetLsraAdded(lcl1);
+    if (insertionPoint == nullptr)
+    {
+        if (block->KindIs(BBJ_COND, BBJ_SWITCH))
+        {
+            insertionPoint = blockRange.LastNode();
+            assert(insertionPoint->OperIsConditionalJump() || insertionPoint->OperIs(GT_SWITCH_TABLE));
+        }
+        else
+        {
+            GenTree* lastNode = blockRange.LastNode();
+            assert((lastNode == nullptr) ||
+                   (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
+        }
+    }
 
-    GenTree* lcl2 = compiler->gtNewLclLoad(varDsc2, varDsc2->GetType());
-    lcl2->SetRegNum(reg2);
-    lcl2->ClearRegSpillSet();
-    SetLsraAdded(lcl2);
+    GenTree* use1 = compiler->gtNewLclLoad(lcl1, lcl1->GetType());
+    use1->SetRegNum(reg1);
+    use1->ClearRegSpillSet();
+    SetLsraAdded(use1);
 
-    GenTree* swap = compiler->gtNewOperNode(GT_SWAP, TYP_VOID, lcl1, lcl2);
+    GenTree* use2 = compiler->gtNewLclLoad(lcl2, lcl2->GetType());
+    use2->SetRegNum(reg2);
+    use2->ClearRegSpillSet();
+    SetLsraAdded(use2);
+
+    GenTree* swap = compiler->gtNewOperNode(GT_SWAP, TYP_VOID, use1, use2);
     swap->ClearRegNum();
     swap->ClearRegSpillSet();
     SetLsraAdded(swap);
 
-    LIR::Range& blockRange = LIR::AsRange(block);
+    blockRange.InsertBefore(insertionPoint, use1, use2, swap);
+}
+#endif // TARGET_XARCH
 
-    if (insertionPoint != nullptr)
+#ifdef DEBUG
+static const char* resolveTypeName[]{"Split", "Join", "Critical", "SharedCritical"};
+#endif
+
+#ifdef TARGET_ARM
+void LinearScan::InsertDoubleRegCopy(BasicBlock*  block,
+                                     GenTree*     insertionPoint,
+                                     Interval**   intervals,
+                                     RegNumSmall* location,
+                                     RegNum       toReg,
+                                     RegNum fromReg DEBUG_ARG(ResolveType resolveType))
+{
+    assert(genIsValidDoubleReg(toReg));
+    assert(genIsValidDoubleReg(fromReg));
+
+    RegNum    fromReg2  = REG_NEXT(fromReg);
+    Interval* interval  = intervals[fromReg];
+    Interval* interval2 = intervals[fromReg2];
+
+    assert((interval != nullptr) || (interval2 != nullptr));
+
+    if (interval != nullptr)
     {
-        blockRange.InsertBefore(insertionPoint, lcl1, lcl2, swap);
-    }
-    else
-    {
-        // Put the copy at the bottom
-        // If there's a branch, make an embedded statement that executes just prior to the branch
-        if (block->bbJumpKind == BBJ_COND || block->bbJumpKind == BBJ_SWITCH)
+        if (interval->registerType == TYP_DOUBLE)
         {
-            noway_assert(!blockRange.IsEmpty());
-
-            GenTree* branch = blockRange.LastNode();
-            assert(branch->OperIsConditionalJump() || branch->OperIs(GT_SWITCH_TABLE, GT_SWITCH));
-
-            blockRange.InsertBefore(branch, lcl1, lcl2, swap);
+            assert(interval2 == nullptr);
+            assert(genIsValidDoubleReg(toReg));
         }
         else
         {
-            assert(block->bbJumpKind == BBJ_NONE || block->bbJumpKind == BBJ_ALWAYS);
-            blockRange.InsertAfter(blockRange.LastNode(), lcl1, lcl2, swap);
+            assert(genIsValidFloatReg(toReg));
         }
+
+        InsertRegCopy(block, insertionPoint, interval, toReg, fromReg);
+        JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
+        location[fromReg] = static_cast<RegNumSmall>(toReg);
+    }
+
+    if (interval2 != nullptr)
+    {
+        assert(interval2->registerType == TYP_FLOAT);
+        RegNum toReg2 = REG_NEXT(toReg);
+
+        InsertRegCopy(block, insertionPoint, interval2, toReg2, fromReg2);
+        JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
+        location[fromReg2] = static_cast<RegNumSmall>(toReg2);
     }
 }
-#endif // TARGET_XARCH
+#endif // TARGET_ARM
 
 //------------------------------------------------------------------------
 // getTempRegForResolution: Get a free register to use for resolution code.
@@ -5434,144 +5474,6 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
     }
 
     return genRegNumFromMask(genFindLowestBit(freeRegs));
-}
-
-#ifdef DEBUG
-static const char* resolveTypeName[]{"Split", "Join", "Critical", "SharedCritical"};
-#endif
-
-#ifdef TARGET_ARM
-//------------------------------------------------------------------------
-// addResolutionForDouble: Add resolution move(s) for TYP_DOUBLE interval
-//                         and update location.
-//
-// Arguments:
-//    block           - the BasicBlock into which the move will be inserted.
-//    insertionPoint  - the instruction before which to insert the move
-//    sourceIntervals - maintains sourceIntervals[reg] which each 'reg' is associated with
-//    location        - maintains location[reg] which is the location of the var that was originally in 'reg'.
-//    toReg           - the register to which the var is moving
-//    fromReg         - the register from which the var is moving
-//    resolveType     - the type of resolution to be performed
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    It inserts at least one move and updates incoming parameter 'location'.
-//
-void LinearScan::addResolutionForDouble(BasicBlock*     block,
-                                        GenTree*        insertionPoint,
-                                        Interval**      sourceIntervals,
-                                        regNumberSmall* location,
-                                        regNumber       toReg,
-                                        regNumber       fromReg,
-                                        ResolveType     resolveType)
-{
-    regNumber secondHalfTargetReg = REG_NEXT(fromReg);
-    Interval* intervalToBeMoved1  = sourceIntervals[fromReg];
-    Interval* intervalToBeMoved2  = sourceIntervals[secondHalfTargetReg];
-
-    assert(!(intervalToBeMoved1 == nullptr && intervalToBeMoved2 == nullptr));
-
-    if (intervalToBeMoved1 != nullptr)
-    {
-        if (intervalToBeMoved1->registerType == TYP_DOUBLE)
-        {
-            // TYP_DOUBLE interval occupies a double register, i.e. two float registers.
-            assert(intervalToBeMoved2 == nullptr);
-            assert(genIsValidDoubleReg(toReg));
-        }
-        else
-        {
-            // TYP_FLOAT interval occupies 1st half of double register, i.e. 1st float register
-            assert(genIsValidFloatReg(toReg));
-        }
-        addResolution(block, insertionPoint, intervalToBeMoved1, toReg, fromReg);
-        JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
-        location[fromReg] = (regNumberSmall)toReg;
-    }
-
-    if (intervalToBeMoved2 != nullptr)
-    {
-        // TYP_FLOAT interval occupies 2nd half of double register.
-        assert(intervalToBeMoved2->registerType == TYP_FLOAT);
-        regNumber secondHalfTempReg = REG_NEXT(toReg);
-
-        addResolution(block, insertionPoint, intervalToBeMoved2, secondHalfTempReg, secondHalfTargetReg);
-        JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
-        location[secondHalfTargetReg] = (regNumberSmall)secondHalfTempReg;
-    }
-
-    return;
-}
-#endif // TARGET_ARM
-
-//------------------------------------------------------------------------
-// addResolution: Add a resolution move of the given interval
-//
-// Arguments:
-//    block          - the BasicBlock into which the move will be inserted.
-//    insertionPoint - the instruction before which to insert the move
-//    interval       - the interval of the var to be moved
-//    toReg          - the register to which the var is moving
-//    fromReg        - the register from which the var is moving
-//
-// Return Value:
-//    None.
-//
-// Notes:
-//    For joins, we insert at the bottom (indicated by an insertionPoint
-//    of nullptr), while for splits we insert at the top.
-//    This is because for joins 'block' is a pred of the join, while for splits it is a succ.
-//    For critical edges, this function may be called twice - once to move from
-//    the source (fromReg), if any, to the stack, in which case toReg will be
-//    REG_STK, and we insert at the bottom (leave insertionPoint as nullptr).
-//    The next time, we want to move from the stack to the destination (toReg),
-//    in which case fromReg will be REG_STK, and we insert at the top.
-
-void LinearScan::addResolution(
-    BasicBlock* block, GenTree* insertionPoint, Interval* interval, regNumber toReg, regNumber fromReg)
-{
-#ifdef DEBUG
-    const char* insertionPointString;
-    if (insertionPoint == nullptr)
-    {
-        // We can't add resolution to a register at the bottom of a block that has an EHBoundaryOut,
-        // except in the case of the "EH Dummy" resolution from the stack.
-        assert((block->bbNum > bbNumMaxBeforeResolution) || (fromReg == REG_STK) ||
-               !blockInfo[block->bbNum].hasEHBoundaryOut);
-        insertionPointString = "bottom";
-    }
-    else
-    {
-        // We can't add resolution at the top of a block that has an EHBoundaryIn,
-        // except in the case of the "EH Dummy" resolution to the stack.
-        assert((block->bbNum > bbNumMaxBeforeResolution) || (toReg == REG_STK) ||
-               !blockInfo[block->bbNum].hasEHBoundaryIn);
-        insertionPointString = "top";
-    }
-
-    // We should never add resolution move inside BBCallAlwaysPairTail.
-    noway_assert(!block->isBBCallAlwaysPairTail());
-
-    JITDUMP("   " FMT_BB " %s: move V%02u from %s to %s", block->bbNum, insertionPointString,
-            interval->getLocalVar(compiler)->GetLclNum(), getRegName(fromReg), getRegName(toReg));
-#endif // DEBUG
-
-    insertMove(block, insertionPoint, interval, fromReg, toReg);
-
-    if (fromReg == REG_STK || toReg == REG_STK)
-    {
-        assert(interval->isSpilled);
-    }
-    else
-    {
-        // We should have already marked this as spilled or split.
-        assert((interval->isSpilled) || (interval->isSplit));
-    }
-
-    INTRACK_STATS(updateLsraStat(STAT_RESOLUTION_MOV, block->bbNum));
 }
 
 //------------------------------------------------------------------------
@@ -5864,7 +5766,7 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
                         {
                             Interval* interval = getIntervalForLocalVar(e.Current());
                             assert(interval->isWriteThru);
-                            addResolution(succBlock, insertionPoint, interval, toReg, REG_STK);
+                            InsertRegCopy(succBlock, insertionPoint, interval, toReg, REG_STK);
                             JITDUMP(" (EHvar)\n");
                         }
                     }
@@ -6250,7 +6152,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
                 regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
                 if (fromReg != REG_STK)
                 {
-                    addResolution(block, insertionPoint, interval, REG_STK, fromReg);
+                    InsertRegCopy(block, insertionPoint, interval, REG_STK, fromReg);
                     JITDUMP(" (EH DUMMY)\n");
                     setVarReg(fromVarToRegMap, e.Current(), REG_STK);
                 }
@@ -6310,7 +6212,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
         else if (toReg == REG_STK)
         {
             // Do the reg to stack moves now
-            addResolution(block, insertionPoint, interval, REG_STK, fromReg);
+            InsertRegCopy(block, insertionPoint, interval, REG_STK, fromReg);
             JITDUMP(" (%s)\n",
                     (interval->isWriteThru && (toReg == REG_STK)) ? "EH DUMMY" : resolveTypeName[resolveType]);
         }
@@ -6373,7 +6275,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             assert(fromReg < REG_STK);
             Interval* interval = sourceIntervals[sourceReg];
             assert(interval != nullptr);
-            addResolution(block, insertionPoint, interval, targetReg, fromReg);
+            InsertRegCopy(block, insertionPoint, interval, targetReg, fromReg);
             JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
             sourceIntervals[sourceReg] = nullptr;
             location[sourceReg]        = REG_NA;
@@ -6509,9 +6411,8 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
 #ifdef TARGET_XARCH
                     if (useSwap)
                     {
-                        // Generate a "swap" of fromReg and targetReg
-                        insertSwap(block, insertionPoint, sourceIntervals[source[otherTargetReg]], targetReg,
-                                   sourceIntervals[sourceReg], fromReg);
+                        InsertRegSwap(block, insertionPoint, sourceIntervals[source[otherTargetReg]], targetReg,
+                                      sourceIntervals[sourceReg], fromReg);
                         location[sourceReg]              = REG_NA;
                         location[source[otherTargetReg]] = (regNumberSmall)fromReg;
 
@@ -6528,7 +6429,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
                         // First, spill "otherInterval" from targetReg to the stack.
                         Interval* otherInterval = sourceIntervals[source[otherTargetReg]];
                         setIntervalAsSpilled(otherInterval);
-                        addResolution(block, insertionPoint, otherInterval, REG_STK, targetReg);
+                        InsertRegCopy(block, insertionPoint, otherInterval, REG_STK, targetReg);
                         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
                         location[source[otherTargetReg]] = REG_STK;
 
@@ -6538,7 +6439,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
                         targetRegsToDo &= ~otherTargetRegMask;
 
                         // Now, move the interval that is going to targetReg.
-                        addResolution(block, insertionPoint, sourceIntervals[sourceReg], targetReg, fromReg);
+                        InsertRegCopy(block, insertionPoint, sourceIntervals[sourceReg], targetReg, fromReg);
                         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
                         location[sourceReg] = REG_NA;
 
@@ -6572,21 +6473,19 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
                 {
                     // TODO-MIKE-Review: Does this handling for DOUBLE on ARM?
                     m_allocateRegs |= genRegMask(tempReg);
+
 #ifdef TARGET_ARM
                     if (sourceIntervals[fromReg]->registerType == TYP_DOUBLE)
                     {
-                        assert(genIsValidDoubleReg(targetReg));
-                        assert(genIsValidDoubleReg(tempReg));
-
-                        addResolutionForDouble(block, insertionPoint, sourceIntervals, location, tempReg, targetReg,
-                                               resolveType);
+                        InsertDoubleRegCopy(block, insertionPoint, sourceIntervals, location, tempReg,
+                                            targetReg DEBUG_ARG(resolveType));
                     }
                     else
 #endif // TARGET_ARM
                     {
                         assert(sourceIntervals[targetReg] != nullptr);
 
-                        addResolution(block, insertionPoint, sourceIntervals[targetReg], tempReg, targetReg);
+                        InsertRegCopy(block, insertionPoint, sourceIntervals[targetReg], tempReg, targetReg);
                         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
                         location[targetReg] = (regNumberSmall)tempReg;
                     }
@@ -6607,7 +6506,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
         Interval* interval = stackToRegIntervals[targetReg];
         assert(interval != nullptr);
 
-        addResolution(block, insertionPoint, interval, targetReg, REG_STK);
+        InsertRegCopy(block, insertionPoint, interval, targetReg, REG_STK);
         JITDUMP(" (%s)\n", resolveTypeName[resolveType]);
     }
 }

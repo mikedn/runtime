@@ -149,7 +149,7 @@ inline regMaskTP genRegMaskDouble(RegNum reg);
 // Return true if the register number is valid
 inline bool genIsValidReg(RegNum reg)
 {
-    return (REG_FIRST <= reg) && (reg < REG_COUNT);
+    return (REG_FIRST <= reg) && (reg <= REG_LAST);
 }
 
 // Return true if the register is a valid integer register

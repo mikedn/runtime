@@ -315,20 +315,15 @@ private:
     };
 
 #ifdef TARGET_ARM
-    void addResolutionForDouble(BasicBlock*     block,
-                                GenTree*        insertionPoint,
-                                Interval**      sourceIntervals,
-                                regNumberSmall* location,
-                                RegNum          toReg,
-                                RegNum          fromReg,
-                                ResolveType     resolveType);
+    void InsertDoubleRegCopy(BasicBlock*  block,
+                             GenTree*     insertionPoint,
+                             Interval**   intervals,
+                             RegNumSmall* location,
+                             RegNum       toReg,
+                             RegNum fromReg DEBUG_ARG(ResolveType resolveType));
 #endif
-    void addResolution(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum outReg, RegNum inReg);
-
     void handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outResolutionSet);
-
     void resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, ResolveType resolveType, VARSET_TP liveSet);
-
     void resolveEdges();
 
     // Keep track of how many temp locations we'll need for spill
@@ -728,10 +723,10 @@ private:
     void clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl);
     void resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosition* currentRefPosition);
 
-    void insertMove(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum inReg, RegNum outReg);
+    void InsertRegCopy(BasicBlock* block, GenTree* insertionPoint, Interval* interval, RegNum toReg, RegNum fromReg);
 
 #ifdef TARGET_XARCH
-    void insertSwap(
+    void InsertRegSwap(
         BasicBlock* block, GenTree* insertionPoint, Interval* interval1, RegNum reg1, Interval* interval2, RegNum reg2);
 #endif
 
