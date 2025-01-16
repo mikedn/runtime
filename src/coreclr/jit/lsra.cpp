@@ -1745,7 +1745,7 @@ void LinearScan::unassignPhysReg(RegRecord* const regRec, RefPosition* spillRefP
         // of LSRA.
         if (extendLifetimes() && assignedInterval->isLocalVar && RefTypeIsUse(spillRefPosition->refType) &&
             spillRefPosition->treeNode != nullptr &&
-            spillRefPosition->treeNode->AsLclVar()->IsLastUse(spillRefPosition->multiRegIdx))
+            spillRefPosition->treeNode->AsLclVar()->IsLastUse(spillRefPosition->GetRegIndex()))
         {
             dumpLsraAllocationEvent(LSRA_EVENT_SPILL_EXTENDED_LIFETIME, assignedInterval);
             assignedInterval->isActive = false;
@@ -3970,7 +3970,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
     // lifetimes. See also the comments in checkLastUses.
     if ((node != nullptr) && !extendLifetimes())
     {
-        node->SetLastUse(currentRefPosition->getMultiRegIdx(), currentRefPosition->lastUse);
+        node->SetLastUse(currentRefPosition->GetRegIndex(), currentRefPosition->lastUse);
 
         if ((currentRefPosition->registerAssignment != RBM_NONE) && (interval->physReg == REG_NA) &&
             currentRefPosition->RegOptional() && currentRefPosition->lastUse &&
@@ -4063,14 +4063,14 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         // If there is no node , this must be a RefTypeExpUse, in which case we did the reload already
         if (node != nullptr)
         {
-            node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpilled(currentRefPosition->GetRegIndex(), true);
 
             if (spillAfter)
             {
                 if (currentRefPosition->RegOptional())
                 {
                     // We don't support RegOptional for multi-reg locals.
-                    assert(!node->IsMultiReg() && (currentRefPosition->getMultiRegIdx() == 0));
+                    assert(!node->IsMultiReg() && (currentRefPosition->GetRegIndex() == 0));
 
                     // This is a use of a local that is flagged as reg-optional
                     // by lower/codegen and marked for both reload and spillAfter.
@@ -4087,7 +4087,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
                 }
                 else
                 {
-                    node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+                    node->SetRegSpill(currentRefPosition->GetRegIndex(), true);
                 }
             }
         }
@@ -4136,7 +4136,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             if (!currentRefPosition->isFixedRegRef || currentRefPosition->moveReg)
             {
                 // This is the second case, where we need to generate a copy
-                insertCopyOrReload(block, node, currentRefPosition->getMultiRegIdx(), currentRefPosition);
+                insertCopyOrReload(block, node, currentRefPosition->GetRegIndex(), currentRefPosition);
             }
         }
         else
@@ -4161,7 +4161,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         {
             if (node != nullptr)
             {
-                node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+                node->SetRegSpill(currentRefPosition->GetRegIndex(), true);
             }
 
             assert(interval->isSpilled);
@@ -4172,7 +4172,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
         if (writeThru && (node != nullptr))
         {
             // This is a def of a write-thru EH var (only defs are marked 'writeThru').
-            node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpill(currentRefPosition->GetRegIndex(), true);
             // We also mark writeThru defs that are not last-use with SPILLED to indicate that they are
             // conceptually spilled and immediately "reloaded", i.e. the register remains live.
             // Note that we can have a "last use" write that has no exposed uses in the standard
@@ -4180,7 +4180,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             // to retain these defs, and to ensure that they write.
             if (!currentRefPosition->lastUse)
             {
-                node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+                node->SetRegSpilled(currentRefPosition->GetRegIndex(), true);
             }
         }
 
@@ -4194,8 +4194,8 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
             // better way to avoid resolution moves, perhaps by updating the lcl->SetRegNum(REG_STK) in this
             // method?
-            node->SetRegSpill(currentRefPosition->getMultiRegIdx(), true);
-            node->SetRegSpilled(currentRefPosition->getMultiRegIdx(), true);
+            node->SetRegSpill(currentRefPosition->GetRegIndex(), true);
+            node->SetRegSpilled(currentRefPosition->GetRegIndex(), true);
 
             lcl->lvSpillAtSingleDef = true;
         }
@@ -4226,11 +4226,11 @@ void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* node)
 {
     if (IntRegMask mask = currentRefPosition->registerAssignment)
     {
-        node->SetRegNum(currentRefPosition->getMultiRegIdx(), genRegNumFromMask(mask));
+        node->SetRegNum(currentRefPosition->GetRegIndex(), genRegNumFromMask(mask));
     }
     else
     {
-        assert(!node->HasReg(currentRefPosition->getMultiRegIdx()));
+        assert(!node->HasReg(currentRefPosition->GetRegIndex()));
     }
 }
 
@@ -4238,50 +4238,11 @@ void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* node)
 static void SetLsraAdded(GenTree* node);
 #endif
 
-//------------------------------------------------------------------------
-// insertCopyOrReload: Insert a copy in the case where a tree node value must be moved
-//   to a different register at the point of use (GT_COPY), or it is reloaded to a different register
-//   than the one it was spilled from (GT_RELOAD).
+// Insert a copy in the case where a tree node value must be moved to a different register
+// at the point of use (GT_COPY), or it is reloaded to a different register than the one it
+// was spilled from (GT_RELOAD).
 //
-// Arguments:
-//    block             - basic block in which GT_COPY/GT_RELOAD is inserted.
-//    tree              - This is the node to copy or reload.
-//                        Insert copy or reload node between this node and its parent.
-//    multiRegIdx       - register position of tree node for which copy or reload is needed.
-//    refPosition       - The RefPosition at which copy or reload will take place.
-//
-// Notes:
-//    The GT_COPY or GT_RELOAD will be inserted in the proper spot in execution order where the reload is to occur.
-//
-// For example, for this tree (numbers are execution order, lower is earlier and higher is later):
-//
-//                                   +---------+----------+
-//                                   |       GT_ADD (3)   |
-//                                   +---------+----------+
-//                                             |
-//                                           /   '\'
-//                                         /       '\'
-//                                       /           '\'
-//                   +-------------------+           +----------------------+
-//                   |         x (1)     | "tree"    |         y (2)        |
-//                   +-------------------+           +----------------------+
-//
-// generate this tree:
-//
-//                                   +---------+----------+
-//                                   |       GT_ADD (4)   |
-//                                   +---------+----------+
-//                                             |
-//                                           /   '\'
-//                                         /       '\'
-//                                       /           '\'
-//                   +-------------------+           +----------------------+
-//                   |  GT_RELOAD (3)    |           |         y (2)        |
-//                   +-------------------+           +----------------------+
-//                             |
-//                   +-------------------+
-//                   |         x (1)     | "tree"
-//                   +-------------------+
+// The GT_COPY or GT_RELOAD will be inserted in the proper spot in execution order where the reload is to occur.
 //
 // Note in particular that the GT_RELOAD node gets inserted in execution order immediately before the parent of "tree",
 // which seems a bit weird since normally a node's parent (in this case, the parent of "x", GT_RELOAD in the "after"
@@ -4295,7 +4256,7 @@ static void SetLsraAdded(GenTree* node);
 // and the unspilling code automatically reuses the same register, and does the reload when it notices that flag
 // when considering a node's operands.
 //
-void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned multiRegIdx, RefPosition* refPosition)
+void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned regIndex, RefPosition* refPosition)
 {
     LIR::Range& blockRange = LIR::AsRange(block);
 
@@ -4303,9 +4264,9 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
     bool     foundUse = blockRange.TryGetUse(tree, &treeUse);
     assert(foundUse);
 
-    GenTree* parent = treeUse.User();
-
+    GenTree*   parent = treeUse.User();
     genTreeOps oper;
+
     if (refPosition->reload)
     {
         oper = GT_RELOAD;
@@ -4332,8 +4293,8 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         noway_assert(parent->GetOper() == oper);
         noway_assert(tree->IsMultiRegNode());
         GenTreeCopyOrReload* copyOrReload = parent->AsCopyOrReload();
-        noway_assert(copyOrReload->GetRegNum(multiRegIdx) == REG_NA);
-        copyOrReload->SetRegNum(multiRegIdx, refPosition->assignedReg());
+        noway_assert(copyOrReload->GetRegNum(regIndex) == REG_NA);
+        copyOrReload->SetRegNum(regIndex, refPosition->assignedReg());
     }
     else
     {
@@ -4354,7 +4315,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         assert(refPosition->registerAssignment != RBM_NONE);
 
         GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
-        newNode->SetRegNum(multiRegIdx, refPosition->assignedReg());
+        newNode->SetRegNum(regIndex, refPosition->assignedReg());
         newNode->ClearRegSpillSet();
         SetLsraAdded(newNode);
 
@@ -4362,7 +4323,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned m
         {
             // This is a TEMPORARY copy
             assert(isCandidateLclVar(tree) || tree->IsMultiRegLclStore());
-            newNode->SetLastUse(multiRegIdx, true);
+            newNode->SetLastUse(regIndex, true);
         }
 
         // Insert the copy/reload after the spilled node and replace the use of the original node with a use
@@ -4961,7 +4922,7 @@ void LinearScan::resolveRegisters()
 
                 if (refPosIterator->spillAfter)
                 {
-                    node->SetRegSpill(refPosIterator->getMultiRegIdx(), true);
+                    node->SetRegSpill(refPosIterator->GetRegIndex(), true);
 
                     // If this is a constant interval that is reusing a pre-existing value, we actually need
                     // to generate the value at this point in order to spill it.
@@ -4999,7 +4960,7 @@ void LinearScan::resolveRegisters()
                     {
                         if (nextRefPosition->assignedReg() != REG_NA)
                         {
-                            insertCopyOrReload(block, node, refPosIterator->getMultiRegIdx(), nextRefPosition);
+                            insertCopyOrReload(block, node, refPosIterator->GetRegIndex(), nextRefPosition);
                         }
                         else
                         {
@@ -6879,7 +6840,7 @@ void RefPosition::dump(const LinearScan* linearScan) const
         printf("%s", treeNode->OpName(treeNode->GetOper()));
         if (treeNode->IsMultiRegNode())
         {
-            printf("[%u]", multiRegIdx);
+            printf("[%u]", regIndex);
         }
     }
 
@@ -7525,7 +7486,7 @@ void LinearScan::dumpLsraAllocationEvent(
                 printf(indentFormat, "    NULL interval");
                 dumpRegRecords();
             }
-            else if (interval->firstRefPosition->multiRegIdx != 0)
+            else if (interval->firstRefPosition->GetRegIndex() != 0)
             {
                 printf(indentFormat, "    (multiReg)");
                 dumpRegRecords();

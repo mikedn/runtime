@@ -286,7 +286,7 @@ private:
     // Insert a copy in the case where a tree node value must be moved to a different
     // register at the point of use, or it is reloaded to a different register
     // than the one it was spilled from
-    void insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned multiRegIdx, RefPosition* refPosition);
+    void insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned regIndex, RefPosition* refPosition);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void makeUpperVectorInterval(unsigned varIndex);
@@ -1298,7 +1298,7 @@ private:
 
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
     RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
-    RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, int multiRegIdx = 0);
+    RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, unsigned regIndex = 0);
     void setDelayFree(RefPosition* use);
     void BuildKills(GenTree* tree, regMaskTP killMask);
 #ifdef TARGET_XARCH
@@ -1389,12 +1389,7 @@ class Interval : public Referenceable
 public:
     Interval(RegisterType registerType, regMaskTP registerPreferences)
         : registerPreferences(registerPreferences)
-        , relatedInterval(nullptr)
-        , assignedReg(nullptr)
-        , varIndex(0)
-        , physReg(REG_COUNT)
         , registerType(registerType)
-        , isActive(false)
         , isLocalVar(false)
         , isSplit(false)
         , isSpilled(false)
@@ -1406,14 +1401,11 @@ public:
         , isSpecialPutArg(false)
         , preferCalleeSave(false)
         , isConstant(false)
+        , isWriteThru(false)
+        , isSingleDef(false)
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         , isUpperVector(false)
         , isPartiallySpilled(false)
-#endif
-        , isWriteThru(false)
-        , isSingleDef(false)
-#ifdef DEBUG
-        , intervalIndex(0)
 #endif
     {
     }
@@ -1421,28 +1413,28 @@ public:
     Interval(const Interval&) = delete;
     Interval& operator=(const Interval&) = delete;
 
-    // Fixed registers for which this Interval has a preference
-    regMaskTP registerPreferences;
-
     // The relatedInterval is:
     //  - for any other interval, it is the interval to which this interval
     //    is currently preferenced (e.g. because they are related by a copy)
-    Interval* relatedInterval;
+    Interval* relatedInterval = nullptr;
 
     // The assignedReg is the RecRecord for the register to which this interval
     // has been assigned at some point - if the interval is active, this is the
     // register it currently occupies.
-    RegRecord* assignedReg;
+    RegRecord* assignedReg = nullptr;
 
-    unsigned varIndex; // index into the lvaTracked array
+    // Fixed registers for which this Interval has a preference
+    regMaskTP registerPreferences;
+
+    unsigned varIndex = 0; // index into the lvaTracked array
 
     // The register to which it is currently assigned.
-    RegNum physReg;
+    RegNum physReg = REG_NA;
 
     const RegisterType registerType;
 
     // Is this Interval currently in a register and live?
-    bool isActive;
+    bool isActive = false;
 
     bool isLocalVar : 1;
     // Indicates whether this interval has been assigned to different registers
@@ -1478,6 +1470,12 @@ public:
     // able to reuse a constant that's already in a register.
     bool isConstant : 1;
 
+    // True if this interval is associated with a lclVar that is written to memory at each definition.
+    bool isWriteThru : 1;
+
+    // True if this interval has a single definition.
+    bool isSingleDef : 1;
+
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     // True if this is a special interval for saving the upper half of a large vector.
     bool isUpperVector : 1;
@@ -1485,14 +1483,8 @@ public:
     bool isPartiallySpilled : 1;
 #endif
 
-    // True if this interval is associated with a lclVar that is written to memory at each definition.
-    bool isWriteThru : 1;
-
-    // True if this interval has a single definition.
-    bool isSingleDef : 1;
-
 #ifdef DEBUG
-    unsigned intervalIndex;
+    unsigned intervalIndex = 0;
 #endif
 
     LclVarDsc* getLocalVar(Compiler* comp) const
@@ -1508,14 +1500,6 @@ public:
         return varIndex;
     }
 
-    bool isAssignedTo(RegNum regNum)
-    {
-        // This uses regMasks to handle the case where a double actually occupies two registers
-        // TODO-Throughput: This could/should be done more cheaply.
-        return (physReg != REG_NA) && ((genRegMask(physReg, registerType) & genRegMask(regNum)) != RBM_NONE);
-    }
-
-    // Assign the related interval.
     void assignRelatedInterval(Interval* newRelatedInterval)
     {
 #ifdef DEBUG
@@ -1533,35 +1517,16 @@ public:
     }
 
     // Assign the related interval, but only if it isn't already assigned.
-    bool assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval)
-    {
-        if (relatedInterval == nullptr)
-        {
-            assignRelatedInterval(newRelatedInterval);
-            return true;
-        }
-
-#ifdef DEBUG
-        if (JitTls::GetCompiler()->verbose)
-        {
-            printf("Interval ");
-            microDump();
-            printf(" already has a related interval\n");
-        }
-#endif
-
-        return false;
-    }
+    bool assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval);
 
     // Get the current preferences for this Interval.
     // Note that when we have an assigned register we don't necessarily update the
     // registerPreferences to that register, as there may be multiple, possibly disjoint,
     // definitions. This method will return the current assigned register if any, or
     // the 'registerPreferences' otherwise.
-    //
     regMaskTP getCurrentPreferences() const
     {
-        return (assignedReg == nullptr) ? registerPreferences : genRegMask(assignedReg->regNum);
+        return assignedReg == nullptr ? registerPreferences : genRegMask(assignedReg->regNum);
     }
 
     void mergeRegisterPreferences(regMaskTP preferences);
@@ -1611,16 +1576,12 @@ public:
 
     RefType refType;
 
-    // NOTE: C++ only packs bitfields if the base type is the same. So make all the base
-    // NOTE: types of the logically "bool" types that follow 'unsigned char', so they match
-    // NOTE: RefType that precedes this, and multiRegIdx can also match.
-
     // Used by RefTypeDef/Use positions of a multi-reg call node.
     // Indicates the position of the register that this ref position refers to.
     // The max bits needed is based on max value of MAX_RET_REG_COUNT value
     // across all targets and that happens 4 on on Arm.  Hence index value
     // would be 0..MAX_RET_REG_COUNT-1.
-    uint8_t multiRegIdx : 2;
+    uint8_t regIndex : 2;
 
     // Indicates whether this ref position is to be allocated a reg only if profitable. Currently these are the
     // ref positions that lower/codegen has indicated as reg optional and is considered a contained memory operand if
@@ -1696,7 +1657,7 @@ public:
         , bbNum(bbNum)
         , nodeLocation(nodeLocation)
         , refType(refType)
-        , multiRegIdx(0)
+        , regIndex(0)
         , regOptional(false)
         , lastUse(false)
         , reload(false)
@@ -1792,15 +1753,15 @@ public:
         return regOptional && !copyReg && !moveReg;
     }
 
-    void setMultiRegIdx(unsigned idx)
+    void SetRegIndex(unsigned index)
     {
-        multiRegIdx = idx;
-        assert(multiRegIdx == idx);
+        regIndex = index;
+        assert(regIndex == index);
     }
 
-    unsigned getMultiRegIdx() const
+    unsigned GetRegIndex() const
     {
-        return multiRegIdx;
+        return regIndex;
     }
 
     LsraLocation getRefEndLocation() const

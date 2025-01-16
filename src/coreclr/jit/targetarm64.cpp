@@ -32,12 +32,12 @@ const char* getRegName(regNumber reg)
 
 #ifdef DEBUG
 
-static bool isVectorRegister(regNumber reg)
+static bool isVectorRegister(RegNum reg)
 {
-    return (reg >= REG_FP_FIRST && reg <= REG_FP_LAST);
+    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
 }
 
-const char* RegName(regNumber reg, emitAttr size)
+const char* RegName(RegNum reg, emitAttr size)
 {
     static const char* const xRegNames[]{
 #define REGDEF(name, xname, wname) xname,

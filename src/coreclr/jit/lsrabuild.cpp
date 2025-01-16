@@ -29,7 +29,7 @@ RefPosition* RefInfoList::Remove(GenTree* node, unsigned regIndex)
 
     for (RefInfoListNode* def = head; def != nullptr; def = def->next)
     {
-        if ((def->node == node) && (def->ref->getMultiRegIdx() == regIndex))
+        if ((def->node == node) && (def->ref->GetRegIndex() == regIndex))
         {
             RefPosition* ref = def->ref;
             Unlink(def, prevDef);
@@ -316,7 +316,7 @@ RefPosition* LinearScan::newRefPosition(
 #endif
 
     newRP->registerAssignment = mask;
-    newRP->setMultiRegIdx(regIndex);
+    newRP->SetRegIndex(regIndex);
 
     associateRefPosWithInterval(newRP);
 
@@ -2727,7 +2727,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
                     // Checked or Debug builds, for which this method will be executed.
                     if (tree != nullptr)
                     {
-                        tree->SetLastUse(currentRefPosition->multiRegIdx, true);
+                        tree->SetLastUse(currentRefPosition->GetRegIndex(), true);
                     }
                 }
                 else if (!currentRefPosition->lastUse)
@@ -2745,7 +2745,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
             else if (extendLifetimes() && tree != nullptr)
             {
                 // NOTE: see the comment above re: the extendLifetimes hack.
-                tree->SetLastUse(currentRefPosition->multiRegIdx, false);
+                tree->SetLastUse(currentRefPosition->GetRegIndex(), false);
             }
 
             if (currentRefPosition->refType == RefTypeDef || currentRefPosition->refType == RefTypeDummyDef)
@@ -3054,6 +3054,27 @@ void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
         }
     }
 }
+
+bool Interval::assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval)
+{
+    if (relatedInterval == nullptr)
+    {
+        assignRelatedInterval(newRelatedInterval);
+        return true;
+    }
+
+#ifdef DEBUG
+    if (JitTls::GetCompiler()->verbose)
+    {
+        printf("Interval ");
+        microDump();
+        printf(" already has a related interval\n");
+    }
+#endif
+
+    return false;
+}
+
 #endif // TARGET_XARCH || FEATURE_HW_INTRINSICS
 
 var_types LinearScan::getDefType(GenTree* tree) const
@@ -3186,7 +3207,7 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 }
 
-RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int regIndex)
+RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, unsigned regIndex)
 {
     assert(!operand->isContained());
 
@@ -3221,7 +3242,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, int re
     else
     {
         RefPosition* ref = defList.Remove(operand, regIndex);
-        assert(ref->multiRegIdx == regIndex);
+        assert(ref->GetRegIndex() == regIndex);
         interval = ref->getInterval();
         operand  = nullptr;
     }

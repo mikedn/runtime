@@ -35,7 +35,7 @@ const char* getRegName(regNumber reg)
 #endif
 
 #ifdef DEBUG
-const char* RegName(regNumber reg, emitAttr attr)
+const char* RegName(RegNum reg, emitAttr attr)
 {
     return getRegName(reg);
 }
