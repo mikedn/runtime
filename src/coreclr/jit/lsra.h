@@ -150,6 +150,8 @@ public:
     // during traversal).
     RefPosition* getNextRefPosition() const;
     LsraLocation getNextRefLocation() const;
+
+    void LinkRefPosition(RefPosition* ref);
 };
 
 class RegRecord : public Referenceable
@@ -181,12 +183,27 @@ public:
         return IsFloatReg(regNum) ? FloatRegisterType : IntRegisterType;
     }
 
+    bool IsAssigned(ARM_ONLY(RegisterType newRegType)) const;
+
 #ifdef TARGET_ARM
-    RegRecord* GetDoublePairReg()
+    RegRecord* GetDoublePairNextReg() const
     {
         assert(genIsValidDoubleReg(regNum));
         // We assume that all RegRecord objects are stored in an array.
-        return this + 1;
+        return const_cast<RegRecord*>(this + 1);
+    }
+
+    RegRecord* GetDoublePairPrevReg() const
+    {
+        assert(genIsValidFloatReg(regNum) && genIsValidDoubleReg(REG_PREV(regNum)));
+        assert(this[-1].regNum == REG_PREV(regNum));
+        // We assume that all RegRecord objects are stored in an array.
+        return const_cast<RegRecord*>(this - 1);
+    }
+
+    RegRecord* GetDoublePairOtherReg() const
+    {
+        return genIsValidDoubleReg(regNum) ? GetDoublePairNextReg() : GetDoublePairPrevReg();
     }
 #endif
 
@@ -394,7 +411,7 @@ private:
         return static_cast<LsraStressLimitRegs>(lsraStressMask & LSRA_LIMIT_MASK);
     }
 
-    regMaskTP getConstrainedRegMask(regMaskTP regMaskActual, regMaskTP regMaskConstrain, unsigned minRegCount);
+    static regMaskTP getConstrainedRegMask(regMaskTP regMaskActual, regMaskTP regMaskConstrain, unsigned minRegCount);
     regMaskTP stressLimitRegs(RefPosition* refPosition, regMaskTP mask);
 
     // This controls the heuristics used to select registers
@@ -616,18 +633,15 @@ private:
 
 #ifdef TARGET_ARM
     bool isSecondHalfReg(RegRecord* regRec, Interval* interval);
-    RegRecord* getSecondHalfRegRec(RegRecord* regRec);
-    RegRecord* findAnotherHalfRegRec(RegRecord* regRec);
-    RegNum findAnotherHalfRegNum(RegNum regNum);
-    bool canSpillDoubleReg(RegRecord* physRegRecord, LsraLocation refLocation);
+    bool canSpillDoubleReg(RegRecord* physRegRecord, LsraLocation refLocation) const;
     void unassignDoublePhysReg(RegRecord* doubleRegRecord);
 #endif
     void updateAssignedInterval(RegRecord* reg, Interval* interval, RegisterType regType);
     void updatePreviousInterval(RegRecord* reg, Interval* interval, RegisterType regType);
     bool canRestorePreviousInterval(RegRecord* regRec, Interval* assignedInterval);
     bool isAssignedToInterval(Interval* interval, RegRecord* regRec);
-    bool isRefPositionActive(RefPosition* refPosition, LsraLocation refLocation);
-    bool canSpillReg(RegRecord* physRegRecord, LsraLocation refLocation);
+    bool isRefPositionActive(RefPosition* refPosition, LsraLocation refLocation) const;
+    bool canSpillReg(RegRecord* physRegRecord, LsraLocation refLocation) const;
     float getSpillWeight(RegRecord* physRegRecord);
 
     // insert refpositions representing prolog zero-inits which will be added later
@@ -758,6 +772,13 @@ private:
         return &physRegs[regNum];
     }
 
+    const RegRecord* GetRegRecord(RegNum regNum) const
+    {
+        // TODO-MIKE-Review: Do we really need a RegRecord for STK?!?
+        assert((REG_FIRST <= regNum) && (regNum <= REG_STK) && (regNum < _countof(physRegs)));
+        return &physRegs[regNum];
+    }
+
     RefPosition* newRefPositionRaw(LsraLocation location, GenTree* node, RefType refType);
     RefPosition* newRegRefPosition(RegNum reg, LsraLocation location, RefType refType);
     RefPosition* newBlockRefPosition(LsraLocation location);
@@ -774,21 +795,20 @@ private:
     void checkConflictingDefUse(RefPosition* rp);
 
     void associateRefPosWithInterval(RefPosition* rp);
-    void LinkRefPosition(RefPosition* rp);
 
     BasicBlock::weight_t getWeight(const RefPosition* refPos) const;
 
     RegNum allocateReg(Interval* current, RefPosition* refPosition DEBUG_ARG(RegisterScore* registerScore));
     RegNum assignCopyReg(RefPosition* refPosition);
 
-    bool isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* physRegRecord);
+    bool isSpillCandidate(Interval* current, RefPosition* refPosition, RegRecord* reg) const;
     void checkAndAssignInterval(RegRecord* regRec, Interval* interval);
     void assignPhysReg(RegRecord* regRec, Interval* interval);
 
-    bool isAssigned(RegRecord* regRec ARM_ARG(RegisterType newRegType));
-    void checkAndClearInterval(RegRecord* regRec, RefPosition* spillRefPosition);
-    void unassignPhysReg(RegRecord* regRec ARM_ARG(RegisterType newRegType));
-    void unassignPhysReg(RegRecord* regRec, RefPosition* spillRefPosition);
+    void checkAndClearInterval(RegRecord* reg, RefPosition* spillRefPosition);
+    void unassignPhysReg(RegRecord* reg ARM_ARG(RegisterType newRegType));
+    void unassignPhysReg(RegRecord* reg, RefPosition* spillRefPosition);
+    void unassignPhysRegRecentRef(RegRecord* reg);
     void unassignPhysRegNoSpill(RegRecord* reg);
 
     void setIntervalAsSpilled(Interval* interval);
@@ -1228,8 +1248,7 @@ private:
 
     bool isRegInUse(RegNum reg, var_types regType) const
     {
-        regMaskTP regMask = getRegMask(reg, regType);
-        return (regsInUseThisLocation & regMask) != RBM_NONE;
+        return (regsInUseThisLocation & getRegMask(reg, regType)) != RBM_NONE;
     }
 
     void resetRegState()
@@ -1238,7 +1257,7 @@ private:
         regsBusyUntilKill = RBM_NONE;
     }
 
-    bool conflictingFixedRegReference(RegNum regNum, RefPosition* refPosition);
+    bool conflictingFixedRegReference(RegNum regNum, RefPosition* refPosition) const;
 
     // This method should not be used and is here to retain old behavior.
     // It should be replaced by isRegAvailable().
@@ -1676,6 +1695,8 @@ public:
 
     RefPosition(const RefPosition&) = delete;
     RefPosition& operator=(const RefPosition&) = delete;
+
+    void LinkRefPosition();
 
     Interval* getInterval() const
     {

@@ -201,24 +201,27 @@ void LinearScan::associateRefPosWithInterval(RefPosition* rp)
         rp->lastUse = true;
     }
 
-    LinkRefPosition(rp);
+    rp->LinkRefPosition();
 }
 
-void LinearScan::LinkRefPosition(RefPosition* rp)
+void RefPosition::LinkRefPosition()
 {
-    Referenceable* referent = rp->referent;
+    referent->LinkRefPosition(this);
+}
 
-    if (RefPosition* prev = referent->recentRefPosition)
+void Referenceable::LinkRefPosition(RefPosition* ref)
+{
+    if (RefPosition* prev = recentRefPosition)
     {
-        prev->nextRefPosition = rp;
+        prev->nextRefPosition = ref;
     }
     else
     {
-        referent->firstRefPosition = rp;
+        firstRefPosition = ref;
     }
 
-    referent->recentRefPosition = rp;
-    referent->lastRefPosition   = rp;
+    recentRefPosition = ref;
+    lastRefPosition   = ref;
 }
 
 RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, RefType refType)
@@ -235,7 +238,7 @@ RefPosition* LinearScan::newRegRefPosition(RegNum reg, LsraLocation location, Re
     assert((regRecord->lastRefPosition == nullptr) || (regRecord->lastRefPosition->nodeLocation < location) ||
            (regRecord->lastRefPosition->refType != refType));
 
-    LinkRefPosition(newRP);
+    newRP->LinkRefPosition();
 
     DBEXEC(verbose, newRP->dump(this));
 
