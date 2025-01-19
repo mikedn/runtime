@@ -113,17 +113,39 @@ const char* varTypeName(var_types type)
     return type < _countof(varTypeNames) ? varTypeNames[type] : "TYP_???";
 }
 
+regMaskTP genRegMask(RegNum reg)
+{
+    const regMaskTP regMasks[REG_NA + 1]{
+#define REGDEF(name, ...) RBM_##name,
+#include "register.h"
+#ifdef TARGET_ARM64
+        RBM_NONE, // SP
+#endif
+        RBM_NONE, // STK
+        RBM_NONE, // NA
+    };
+
+    assert(reg < _countof(regMasks));
+
+#ifdef TARGET_AMD64
+    // shift is faster than a L1 hit on modern x86
+    // (L1 latency on sandy bridge is 4 cycles for [base] and 5 for [base + index*c] )
+    // the reason this is AMD-only is because the x86 BE will try to get reg masks for REG_STK
+    // and the result needs to be zero.
+    regMaskTP result = IntRegMask(1) << reg;
+    assert(result == regMasks[reg]);
+    return result;
+#else
+    return regMasks[reg];
+#endif
+}
+
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
 {
     return getRegName(static_cast<regNumber>(reg));
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-
-const regMaskTP regMasks[REG_COUNT]{
-#define REGDEF(name, ...) RBM_##name,
-#include "register.h"
-};
 
 #ifdef DEBUG
 
@@ -133,11 +155,11 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
 
     printf("{");
 
-    bool      inRegRange = false;
-    regNumber regPrev    = REG_NA;
-    regNumber regHead    = REG_NA; // When we start a range, remember the first register of the range, so we don't use
-                                   // range notation if the range contains just a single register.
-    for (regNumber regNum = REG_INT_FIRST; regNum <= REG_INT_LAST; regNum = REG_NEXT(regNum))
+    bool   inRegRange = false;
+    RegNum regPrev    = REG_NA;
+    RegNum regHead    = REG_NA; // When we start a range, remember the first register of the range, so we don't use
+                                // range notation if the range contains just a single register.
+    for (RegNum regNum = REG_INT_FIRST; regNum <= REG_INT_LAST; regNum = REG_NEXT(regNum))
     {
         regMaskTP regBit = genRegMask(regNum);
 
@@ -295,7 +317,7 @@ void DumpRegSet(regMaskTP regs)
     bool sp = false;
     printf(" {");
 
-    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
     {
         if ((regs & genRegMask(reg)) == 0)
         {
@@ -313,7 +335,7 @@ void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
 {
     printf("%s{ ", name);
 
-    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
     {
         regMaskTP mask    = genRegMask(reg);
         bool      fromBit = (from & mask) != 0;

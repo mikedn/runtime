@@ -21,9 +21,9 @@ const regMaskTP fltArgMasks[]{RBM_V0, RBM_V1, RBM_V2, RBM_V3, RBM_V4, RBM_V5, RB
 const char* getRegName(regNumber reg)
 {
     static const char* const names[]{
-#define REGDEF(name, xname, wname) xname,
+#define REGDEF(name, xname, ...) xname,
 #include "registerarm64.h"
-        "STK", "NA", "???"};
+        "sp", "STK", "NA", "???"};
     static_assert_no_msg(REG_NA == _countof(names) - 2);
 
     return names[Min<size_t>(reg, _countof(names) - 1)];
@@ -39,59 +39,56 @@ static bool isVectorRegister(RegNum reg)
 
 const char* RegName(RegNum reg, emitAttr size)
 {
-    static const char* const xRegNames[]{
-#define REGDEF(name, xname, wname) xname,
-#include "registerarm64.h"
-        "STK"
-    };
-
-    static const char* const wRegNames[]{
-#define REGDEF(name, xname, wname) wname,
-#include "registerarm64.h"
-        "STK"
-    };
-
-    static const char* const qRegNames[]{"q0",  "q1",  "q2",  "q3",  "q4",  "q5",  "q6",  "q7",  "q8",  "q9",  "q10",
-                                         "q11", "q12", "q13", "q14", "q15", "q16", "q17", "q18", "q19", "q20", "q21",
-                                         "q22", "q23", "q24", "q25", "q26", "q27", "q28", "q29", "q30", "q31"};
-    static const char* const hRegNames[]{"h0",  "h1",  "h2",  "h3",  "h4",  "h5",  "h6",  "h7",  "h8",  "h9",  "h10",
-                                         "h11", "h12", "h13", "h14", "h15", "h16", "h17", "h18", "h19", "h20", "h21",
-                                         "h22", "h23", "h24", "h25", "h26", "h27", "h28", "h29", "h30", "h31"};
-    static const char* const bRegNames[]{"b0",  "b1",  "b2",  "b3",  "b4",  "b5",  "b6",  "b7",  "b8",  "b9",  "b10",
-                                         "b11", "b12", "b13", "b14", "b15", "b16", "b17", "b18", "b19", "b20", "b21",
-                                         "b22", "b23", "b24", "b25", "b26", "b27", "b28", "b29", "b30", "b31"};
-
-    assert(reg < REG_COUNT);
-
-    const char* rn = nullptr;
-
-    if (size == EA_8BYTE)
+    if (isVectorRegister(reg))
     {
-        rn = xRegNames[reg];
-    }
-    else if (size == EA_4BYTE)
-    {
-        rn = wRegNames[reg];
-    }
-    else if (isVectorRegister(reg))
-    {
+        static const char* const qRegNames[]{"q0",  "q1",  "q2",  "q3",  "q4",  "q5",  "q6",  "q7",
+                                             "q8",  "q9",  "q10", "q11", "q12", "q13", "q14", "q15",
+                                             "q16", "q17", "q18", "q19", "q20", "q21", "q22", "q23",
+                                             "q24", "q25", "q26", "q27", "q28", "q29", "q30", "q31"};
+        static const char* const hRegNames[]{"h0",  "h1",  "h2",  "h3",  "h4",  "h5",  "h6",  "h7",
+                                             "h8",  "h9",  "h10", "h11", "h12", "h13", "h14", "h15",
+                                             "h16", "h17", "h18", "h19", "h20", "h21", "h22", "h23",
+                                             "h24", "h25", "h26", "h27", "h28", "h29", "h30", "h31"};
+        static const char* const bRegNames[]{"b0",  "b1",  "b2",  "b3",  "b4",  "b5",  "b6",  "b7",
+                                             "b8",  "b9",  "b10", "b11", "b12", "b13", "b14", "b15",
+                                             "b16", "b17", "b18", "b19", "b20", "b21", "b22", "b23",
+                                             "b24", "b25", "b26", "b27", "b28", "b29", "b30", "b31"};
+
         if (size == EA_16BYTE)
         {
-            rn = qRegNames[reg - REG_V0];
+            return qRegNames[reg - REG_V0];
         }
         else if (size == EA_2BYTE)
         {
-            rn = hRegNames[reg - REG_V0];
+            return hRegNames[reg - REG_V0];
         }
         else if (size == EA_1BYTE)
         {
-            rn = bRegNames[reg - REG_V0];
+            return bRegNames[reg - REG_V0];
         }
     }
 
-    assert(rn != nullptr);
+    if (size == EA_8BYTE)
+    {
+        static const char* const xRegNames[]{
+#define REGDEF(name, xname, wname) xname,
+#include "registerarm64.h"
+            "sp", "STK", "NA", "???"};
 
-    return rn;
+        return xRegNames[Min<size_t>(reg, _countof(xRegNames) - 1)];
+    }
+
+    if (size == EA_4BYTE)
+    {
+        static const char* const wRegNames[]{
+#define REGDEF(name, xname, wname) wname,
+#include "registerarm64.h"
+            "wsp", "STK", "NA", "???"};
+
+        return wRegNames[Min<size_t>(reg, _countof(wRegNames) - 1)];
+    }
+
+    return "???";
 }
 
 #endif // DEBUG

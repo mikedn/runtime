@@ -81,8 +81,6 @@ REGDEF(V29, "d29", "s29")
 REGDEF(V30, "d30", "s30")
 REGDEF(V31, "d31", "s31")
 
-REGDEF(SP, "sp", "wsp?")
-
 #undef RMASK
 #undef VMASK
 #undef VBASE

@@ -26,8 +26,8 @@
 using IntRegNum  = uint32_t;
 using IntRegMask = uint64_t;
 #elif defined(TARGET_ARM64)
-using IntRegNum  = uint32_t;
-using IntRegMask = uint64_t;
+using IntRegNum    = uint32_t;
+using IntRegMask   = uint64_t;
 #elif defined(TARGET_AMD64)
 using IntRegNum  = uint32_t;
 using IntRegMask = uint32_t;
@@ -40,24 +40,38 @@ using IntRegMask = uint32_t;
 
 // In the following enum declaration, the following REG_XXX are created beyond
 // the "real" registers:
-//    REG_STK   - Used to indicate something evaluated onto the stack.
-//    REG_COUNT - The number of physical register + REG_STK. This is the count of values that may
-//                be assigned during register allocation.
-//    REG_NA    - Used to indicate that a register is either not yet assigned or not required.
+//    REG_SP  - (ARM64 only) Used only by CodeGen & Emitter
+//    REG_STK - Used to indicate something evaluated onto the stack.
+//    REG_NA  - Used to indicate that a register is either not yet assigned or not required.
 //
 
 enum RegNum : IntRegNum
 {
 #define REGDEF(name, ...) REG_##name,
 #include "register.h"
+#ifdef TARGET_ARM64
+    REG_SP,
+#endif
     REG_STK,
-    REG_COUNT,
+    REG_NA,
+    REG_FIRST = 0,
+    REG_LAST  = REG_STK - 1,
+#ifdef TARGET_ARM64
+    REG_MASK_LAST  = REG_LAST - 1,
+    REG_MASK_COUNT = REG_NA - 2,
+#else
+    REG_MASK_LAST  = REG_LAST,
+    REG_MASK_COUNT = REG_NA - 1,
+#endif
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
 #include "register.h"
-    REG_NA    = REG_COUNT,
-    REG_FIRST = 0,
-    REG_LAST  = REG_STK - 1
 };
+
+using regNumber      = RegNum;
+using regNumberSmall = uint8_t;
+using RegNumSmall    = uint8_t;
+
+static_assert_no_msg(static_cast<RegNum>(static_cast<RegNumSmall>(REG_NA)) == REG_NA);
 
 constexpr IntRegMask GetRegSetBit(RegNum reg)
 {
@@ -77,12 +91,7 @@ enum RegMask : IntRegMask
     RBM_ALL = ~RBM_NONE
 };
 
-using regNumber      = RegNum;
-using regNumberSmall = uint8_t;
-using RegNumSmall    = uint8_t;
-using regMaskTP      = IntRegMask;
-
-static_assert_no_msg(static_cast<RegNum>(static_cast<RegNumSmall>(REG_COUNT)) == REG_COUNT);
+using regMaskTP = IntRegMask;
 
 #define LEA_AVAILABLE 1
 
@@ -141,16 +150,10 @@ inline bool isByteReg(RegNum reg)
 #endif
 }
 
-inline regMaskTP genRegMask(RegNum reg);
+regMaskTP genRegMask(RegNum reg);
 #ifdef TARGET_ARM
-inline regMaskTP genRegMaskDouble(RegNum reg);
+regMaskTP genRegMaskDouble(RegNum reg);
 #endif
-
-// Return true if the register number is valid
-inline bool genIsValidReg(RegNum reg)
-{
-    return (REG_FIRST <= reg) && (reg <= REG_LAST);
-}
 
 // Return true if the register is a valid integer register
 inline bool genIsValidIntReg(RegNum reg)
@@ -196,31 +199,15 @@ inline bool isValidFloatArgReg(RegNum reg)
     return (FIRST_FP_ARGREG <= reg) && (reg <= LAST_FP_ARGREG);
 }
 
-extern const regMaskTP regMasks[REG_COUNT];
-
 // Map a register number to a register mask.
-inline regMaskTP genRegMask(RegNum reg)
-{
-    assert(reg < _countof(regMasks));
-#ifdef TARGET_AMD64
-    // shift is faster than a L1 hit on modern x86
-    // (L1 latency on sandy bridge is 4 cycles for [base] and 5 for [base + index*c] )
-    // the reason this is AMD-only is because the x86 BE will try to get reg masks for REG_STK
-    // and the result needs to be zero.
-    regMaskTP result = IntRegMask(1) << reg;
-    assert(result == regMasks[reg]);
-    return result;
-#else
-    return regMasks[reg];
-#endif
-}
+regMaskTP genRegMask(RegNum reg);
 
 #ifdef TARGET_ARM
 // Map a register number to a floating-point register mask.
 inline regMaskTP genRegMaskDouble(RegNum reg)
 {
     assert(genIsValidDoubleReg(reg));
-    return regMasks[reg] | regMasks[reg + 1];
+    return GetRegSetBit(reg) | GetRegSetBit(REG_NEXT(reg));
 }
 #endif
 

@@ -155,14 +155,14 @@ void CodeGen::unwindPushPopMaskCFI(regMaskTP regMask, bool isFloat)
 {
     regMaskTP regBit = isFloat ? genRegMask(REG_FP_FIRST) : 1;
 
-    for (RegNum regNum = isFloat ? REG_FP_FIRST : REG_FIRST; regNum <= REG_LAST;)
+    for (RegNum regNum = isFloat ? REG_FP_FIRST : REG_FIRST; regNum <= REG_MASK_LAST;)
     {
         if (regBit > regMask)
         {
             break;
         }
 
-        if (regBit & regMask)
+        if ((regBit & regMask) != RBM_NONE)
         {
             unwindPushPopCFI(regNum);
         }

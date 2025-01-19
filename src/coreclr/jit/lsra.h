@@ -173,6 +173,7 @@ public:
 
     RegRecord(RegNum reg) : regNum(reg)
     {
+        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST)ARM64_ONLY(|| (reg == REG_SP)));
     }
 
     RegRecord(const RegRecord&) = delete;
@@ -767,8 +768,7 @@ private:
 
     RegRecord* GetRegRecord(RegNum regNum)
     {
-        // TODO-MIKE-Review: Do we really need a RegRecord for STK?!?
-        assert((REG_FIRST <= regNum) && (regNum <= REG_STK) && (regNum < _countof(physRegs)));
+        assert((REG_FIRST <= regNum) && (regNum <= REG_MASK_LAST) && (regNum < _countof(physRegs)));
         return &physRegs[regNum];
     }
 
@@ -1198,33 +1198,21 @@ private:
     regMaskTP fixedRegs;
     void updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPosition);
 
-    LsraLocation getNextFixedRef(RegNum regNum, var_types regType) const
+    LsraLocation GetNextFixedRef(RegNum reg) const
     {
-        LsraLocation loc = nextFixedRef[regNum];
-
-#ifdef TARGET_ARM
-        if (regType == TYP_DOUBLE)
-        {
-            loc = Min(loc, nextFixedRef[regNum + 1]);
-        }
-#endif
-
-        return loc;
+        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+        return nextFixedRef[reg];
     }
 
-    LsraLocation getNextIntervalRef(RegNum regNum, var_types regType) const
+    LsraLocation GetNextFixedRef(RegNum reg, var_types regType) const;
+
+    LsraLocation GetNextIntervalRef(RegNum reg) const
     {
-        LsraLocation loc = nextIntervalRef[regNum];
-
-#ifdef TARGET_ARM
-        if (regType == TYP_DOUBLE)
-        {
-            loc = Min(loc, nextIntervalRef[regNum + 1]);
-        }
-#endif
-
-        return loc;
+        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+        return nextIntervalRef[reg];
     }
+
+    LsraLocation GetNextIntervalRef(RegNum reg, var_types regType) const;
 
     regMaskTP regsBusyUntilKill;
     regMaskTP regsInUseThisLocation;
@@ -1394,9 +1382,9 @@ private:
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
 
-    RegRecord    physRegs[REG_COUNT];
-    LsraLocation nextFixedRef[REG_COUNT];
-    LsraLocation nextIntervalRef[REG_COUNT];
+    RegRecord physRegs[REG_MASK_COUNT];
+    LsraLocation nextFixedRef[REG_MASK_COUNT];
+    LsraLocation nextIntervalRef[REG_MASK_COUNT];
 
     // max simultaneous spill locations used of every type
     unsigned maxSpill[TYP_COUNT]{};
