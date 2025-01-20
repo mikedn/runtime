@@ -1970,22 +1970,12 @@ void LinearScan::unassignIntervalBlockStart(RegRecord* regRecord, VarToRegMap in
     }
 }
 
-//------------------------------------------------------------------------
-// processBlockStartLocations: Update var locations on entry to 'currentBlock' and clear constant
-//                             registers.
-//
-// Arguments:
-//    currentBlock   - the BasicBlock we are about to allocate registers for
-//
-// Return Value:
-//    None
-//
-// Notes:
-//    During the allocation pass (allocationPassComplete = false), we use the outVarToRegMap
-//    of the selected predecessor to determine the local locations for the inVarToRegMap.
-//    During the resolution (write-back when allocationPassComplete = true) pass, we only
-//    modify the inVarToRegMap in cases where a local was spilled after the block had been
-//    completed.
+// Update var locations on entry to 'currentBlock' and clear constant registers.
+// During the allocation pass (allocationPassComplete = false), we use the outVarToRegMap
+// of the selected predecessor to determine the local locations for the inVarToRegMap.
+// During the resolution (write-back when allocationPassComplete = true) pass, we only
+// modify the inVarToRegMap in cases where a local was spilled after the block had been
+// completed.
 void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
 {
     // If we have no register candidates we should only call this method during allocation.
@@ -3589,14 +3579,12 @@ void LinearScan::allocateRegisters()
     if (getLsraExtendLifeTimes())
     {
         // If we have extended lifetimes, we need to make sure all the registers are freed.
-        for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+        for (RegRecord& reg : physRegs)
         {
-            RegRecord* regRecord = GetRegRecord(reg);
-
-            if (Interval* interval = regRecord->assignedInterval)
+            if (Interval* interval = reg.assignedInterval)
             {
                 interval->isActive = false;
-                unassignPhysReg(regRecord, nullptr);
+                unassignPhysReg(&reg, nullptr);
             }
         }
     }
@@ -3639,21 +3627,9 @@ void LinearScan::allocateRegisters()
     allocationPassComplete = true;
 }
 
-//-----------------------------------------------------------------------------
-// updateAssignedInterval: Update assigned interval of register.
-//
-// Arguments:
-//    reg      -    register to be updated
-//    interval -    interval to be assigned
-//    regType  -    register type
-//
-// Return Value:
-//    None
-//
-// Note:
-//    For ARM32, two float registers consisting a double register are updated
-//    together when "regType" is TYP_DOUBLE.
-//
+// Update assigned interval of register.
+// For ARM32, two float registers consisting a double register are updated
+// together when "regType" is DOUBLE.
 void LinearScan::updateAssignedInterval(RegRecord* reg, Interval* interval, RegisterType regType)
 {
 #ifdef TARGET_ARM
@@ -4511,18 +4487,16 @@ void LinearScan::resolveRegisters()
     // are encountered.
     if (enregisterLocalVars)
     {
-        for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+        for (RegRecord& regRecord : physRegs)
         {
-            RegRecord* regRecord = GetRegRecord(reg);
-
-            if (Interval* assignedInterval = regRecord->assignedInterval)
+            if (Interval* assignedInterval = regRecord.assignedInterval)
             {
                 assignedInterval->assignedReg = nullptr;
                 assignedInterval->physReg     = REG_NA;
             }
 
-            regRecord->assignedInterval  = nullptr;
-            regRecord->recentRefPosition = nullptr;
+            regRecord.assignedInterval  = nullptr;
+            regRecord.recentRefPosition = nullptr;
         }
 
         // Clear "recentRefPosition" for local intervals
@@ -7902,9 +7876,9 @@ void LinearScan::verifyFinalAllocation()
 {
     JITDUMP("\nFinal allocation\n");
 
-    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+    for (RegRecord& reg : physRegs)
     {
-        GetRegRecord(reg)->assignedInterval = nullptr;
+        reg.assignedInterval = nullptr;
     }
 
     for (Interval& interval : intervals)
@@ -8010,9 +7984,9 @@ void LinearScan::verifyFinalAllocation()
                         }
                     }
 
-                    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+                    for (RegRecord& reg : physRegs)
                     {
-                        GetRegRecord(reg)->assignedInterval = nullptr;
+                        reg.assignedInterval = nullptr;
                     }
 
                     // Now, record the locations at the beginning of this block.
@@ -8341,9 +8315,9 @@ void LinearScan::verifyFinalAllocation()
                 dumpRegRecords();
             }
 
-            for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
+            for (RegRecord& reg : physRegs)
             {
-                GetRegRecord(reg)->assignedInterval = nullptr;
+                reg.assignedInterval = nullptr;
             }
 
             // Set the incoming register assignments
