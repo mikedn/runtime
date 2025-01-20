@@ -26,8 +26,8 @@
 using IntRegNum  = uint32_t;
 using IntRegMask = uint64_t;
 #elif defined(TARGET_ARM64)
-using IntRegNum    = uint32_t;
-using IntRegMask   = uint64_t;
+using IntRegNum  = uint32_t;
+using IntRegMask = uint64_t;
 #elif defined(TARGET_AMD64)
 using IntRegNum  = uint32_t;
 using IntRegMask = uint32_t;
@@ -55,14 +55,12 @@ enum RegNum : IntRegNum
     REG_STK,
     REG_NA,
     REG_FIRST = 0,
-    REG_LAST  = REG_STK - 1,
 #ifdef TARGET_ARM64
-    REG_MASK_LAST  = REG_LAST - 1,
-    REG_MASK_COUNT = REG_NA - 2,
+    REG_LAST = REG_STK - 2,
 #else
-    REG_MASK_LAST  = REG_LAST,
-    REG_MASK_COUNT = REG_NA - 1,
+    REG_LAST     = REG_STK - 1,
 #endif
+    REG_COUNT = REG_LAST + 1,
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
 #include "register.h"
 };

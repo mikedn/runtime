@@ -173,7 +173,7 @@ public:
 
     RegRecord(RegNum reg) : regNum(reg)
     {
-        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST)ARM64_ONLY(|| (reg == REG_SP)));
+        assert((REG_FIRST <= reg) && (reg <= REG_LAST));
     }
 
     RegRecord(const RegRecord&) = delete;
@@ -768,7 +768,7 @@ private:
 
     RegRecord* GetRegRecord(RegNum regNum)
     {
-        assert((REG_FIRST <= regNum) && (regNum <= REG_MASK_LAST) && (regNum < _countof(physRegs)));
+        assert((REG_FIRST <= regNum) && (regNum <= REG_LAST) && (regNum < _countof(physRegs)));
         return &physRegs[regNum];
     }
 
@@ -1200,7 +1200,7 @@ private:
 
     LsraLocation GetNextFixedRef(RegNum reg) const
     {
-        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+        assert((REG_FIRST <= reg) && (reg <= REG_LAST));
         return nextFixedRef[reg];
     }
 
@@ -1208,7 +1208,7 @@ private:
 
     LsraLocation GetNextIntervalRef(RegNum reg) const
     {
-        assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+        assert((REG_FIRST <= reg) && (reg <= REG_LAST));
         return nextIntervalRef[reg];
     }
 
@@ -1382,9 +1382,9 @@ private:
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
 
-    RegRecord physRegs[REG_MASK_COUNT];
-    LsraLocation nextFixedRef[REG_MASK_COUNT];
-    LsraLocation nextIntervalRef[REG_MASK_COUNT];
+    RegRecord physRegs[REG_COUNT];
+    LsraLocation nextFixedRef[REG_COUNT];
+    LsraLocation nextIntervalRef[REG_COUNT];
 
     // max simultaneous spill locations used of every type
     unsigned maxSpill[TYP_COUNT]{};

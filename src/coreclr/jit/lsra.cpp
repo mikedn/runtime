@@ -269,7 +269,7 @@ void LinearScan::updateNextFixedRef(RegRecord* regRecord, RefPosition* nextRefPo
 
 void LinearScan::clearNextIntervalRef(RegNum reg, var_types regType)
 {
-    assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+    assert((REG_FIRST <= reg) && (reg <= REG_LAST));
 
     nextIntervalRef[reg] = MaxLocation;
 
@@ -298,7 +298,7 @@ LsraLocation LinearScan::GetNextFixedRef(RegNum reg, var_types regType) const
 
 void LinearScan::updateNextIntervalRef(RegNum reg, Interval* interval)
 {
-    assert((REG_FIRST <= reg) && (reg <= REG_MASK_LAST));
+    assert((REG_FIRST <= reg) && (reg <= REG_LAST));
 
     LsraLocation nextRefLocation = interval->getNextRefLocation();
     nextIntervalRef[reg]         = nextRefLocation;
@@ -1997,7 +1997,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         // Just clear any constant registers and return.
         resetAvailableRegs();
 
-        for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+        for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
         {
             RegRecord* regRecord        = GetRegRecord(reg);
             Interval*  assignedInterval = regRecord->assignedInterval;
@@ -2251,7 +2251,7 @@ void LinearScan::processBlockStartLocations(BasicBlock* currentBlock)
         setRegsInUse(liveRegs);
     }
 
-    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         RegRecord* regRecord = GetRegRecord(reg);
 
@@ -2520,7 +2520,7 @@ void LinearScan::allocateRegisters()
 
     resetRegState();
 
-    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         RegRecord* regRecord         = GetRegRecord(reg);
         regRecord->recentRefPosition = nullptr;
@@ -2678,7 +2678,7 @@ void LinearScan::allocateRegisters()
 #ifdef DEBUG
                 // Validate the current state just after we've freed the registers. This ensures that any pending
                 // freed registers will have had their state updated to reflect the intervals they were holding.
-                for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+                for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
                 {
                     regMaskTP regMask = genRegMask(reg);
 
@@ -3589,7 +3589,7 @@ void LinearScan::allocateRegisters()
     if (getLsraExtendLifeTimes())
     {
         // If we have extended lifetimes, we need to make sure all the registers are freed.
-        for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+        for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
         {
             RegRecord* regRecord = GetRegRecord(reg);
 
@@ -4511,7 +4511,7 @@ void LinearScan::resolveRegisters()
     // are encountered.
     if (enregisterLocalVars)
     {
-        for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+        for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
         {
             RegRecord* regRecord = GetRegRecord(reg);
 
@@ -5995,14 +5995,14 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     //   location[rax] == REG_NA
     // This indicates that the var originally in rax is now in its target register.
 
-    RegNumSmall location[REG_MASK_COUNT];
+    RegNumSmall location[REG_COUNT];
     static_assert_no_msg(sizeof(char) == sizeof(RegNumSmall)); // for memset to work
     memset(location, REG_NA, sizeof(location));
-    RegNumSmall source[REG_MASK_COUNT];
+    RegNumSmall source[REG_COUNT];
     memset(source, REG_NA, sizeof(source));
-    Interval* intervals[REG_MASK_COUNT];
+    Interval* intervals[REG_COUNT];
     memset(intervals, 0, sizeof(intervals));
-    Interval* stackToRegIntervals[REG_MASK_COUNT];
+    Interval* stackToRegIntervals[REG_COUNT];
     memset(stackToRegIntervals, 0, sizeof(stackToRegIntervals));
 
     regMaskTP targetRegsToDo      = RBM_NONE;
@@ -6053,7 +6053,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             continue;
         }
 
-        assert((REG_FIRST <= toReg) && (toReg <= REG_MASK_LAST));
+        assert((REG_FIRST <= toReg) && (toReg <= REG_LAST));
 
         if (fromReg == REG_STK)
         {
@@ -6063,7 +6063,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             continue;
         }
 
-        assert((REG_FIRST <= fromReg) && (fromReg <= REG_MASK_LAST));
+        assert((REG_FIRST <= fromReg) && (fromReg <= REG_LAST));
 
         location[fromReg]  = static_cast<RegNumSmall>(fromReg);
         source[toReg]      = static_cast<RegNumSmall>(fromReg);
@@ -6113,11 +6113,11 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
             RegNum targetReg = genRegNumFromMask(targetRegBit);
 
             assert(location[targetReg] != targetReg);
-            assert(targetReg < REG_MASK_COUNT);
+            assert(targetReg < REG_COUNT);
             RegNum sourceReg = static_cast<RegNum>(source[targetReg]);
-            assert(sourceReg < REG_MASK_COUNT);
+            assert(sourceReg < REG_COUNT);
             RegNum fromReg = static_cast<RegNum>(location[sourceReg]);
-            assert(fromReg < REG_MASK_COUNT);
+            assert(fromReg < REG_COUNT);
             Interval* interval = intervals[sourceReg];
             assert(interval != nullptr);
 
@@ -7902,7 +7902,7 @@ void LinearScan::verifyFinalAllocation()
 {
     JITDUMP("\nFinal allocation\n");
 
-    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         GetRegRecord(reg)->assignedInterval = nullptr;
     }
@@ -8010,7 +8010,7 @@ void LinearScan::verifyFinalAllocation()
                         }
                     }
 
-                    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+                    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
                     {
                         GetRegRecord(reg)->assignedInterval = nullptr;
                     }
@@ -8040,7 +8040,7 @@ void LinearScan::verifyFinalAllocation()
 
                             RegNum regNum = getVarReg(inVarToRegMap, varIndex);
 
-                            if (regNum <= REG_MASK_LAST)
+                            if (regNum <= REG_LAST)
                             {
                                 interval->physReg  = regNum;
                                 interval->isActive = true;
@@ -8341,7 +8341,7 @@ void LinearScan::verifyFinalAllocation()
                 dumpRegRecords();
             }
 
-            for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+            for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
             {
                 GetRegRecord(reg)->assignedInterval = nullptr;
             }
@@ -8362,7 +8362,7 @@ void LinearScan::verifyFinalAllocation()
                 Interval* interval = getIntervalForLocalVar(varIndex);
                 RegNum    regNum   = getVarReg(inVarToRegMap, varIndex);
 
-                if (regNum <= REG_MASK_LAST)
+                if (regNum <= REG_LAST)
                 {
                     interval->physReg  = regNum;
                     interval->isActive = true;

@@ -2397,9 +2397,9 @@ struct GenTreePhysReg : public GenTree
 {
     // PhysReg needs a field beyond GetRegNum() because GetRegNum() indicates
     // the destination (and can be changed) whereas reg indicates the source
-    regNumber gtSrcReg;
+    RegNum gtSrcReg;
 
-    GenTreePhysReg(regNumber reg, var_types type = TYP_I_IMPL) : GenTree(GT_PHYSREG, type), gtSrcReg(reg)
+    GenTreePhysReg(RegNum reg, var_types type = TYP_I_IMPL) : GenTree(GT_PHYSREG, type), gtSrcReg(reg)
     {
     }
 

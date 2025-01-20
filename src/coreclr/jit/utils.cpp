@@ -317,7 +317,7 @@ void DumpRegSet(regMaskTP regs)
     bool sp = false;
     printf(" {");
 
-    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         if ((regs & genRegMask(reg)) == 0)
         {
@@ -335,11 +335,11 @@ void DumpRegSetDiff(const char* name, regMaskTP from, regMaskTP to)
 {
     printf("%s{ ", name);
 
-    for (RegNum reg = REG_FIRST; reg <= REG_MASK_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
         regMaskTP mask    = genRegMask(reg);
-        bool      fromBit = (from & mask) != 0;
-        bool      toBit   = (to & mask) != 0;
+        bool      fromBit = (from & mask) != RBM_NONE;
+        bool      toBit   = (to & mask) != RBM_NONE;
 
         if (!fromBit && !toBit)
         {

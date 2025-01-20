@@ -5291,9 +5291,9 @@ void Compiler::lvaDumpRegLocation(LclVarDsc* lcl)
 // It's the home location, even though the variable doesn't always live in its home location.
 void Compiler::lvaDumpFrameLocation(LclVarDsc* lcl)
 {
-    bool      fpBased;
-    int       offset  = lvaLclFrameAddress(lcl, &fpBased);
-    regNumber baseReg = fpBased ? REG_FPBASE : REG_SPBASE;
+    bool   fpBased;
+    int    offset  = lvaLclFrameAddress(lcl, &fpBased);
+    RegNum baseReg = fpBased ? REG_FPBASE : REG_SPBASE;
 
 #ifdef TARGET_ARM64
     printf("[%s,#%d]  ", getRegName(baseReg), offset);

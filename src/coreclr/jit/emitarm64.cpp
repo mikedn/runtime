@@ -14,7 +14,7 @@ static bool IsVectorRightShiftIns(instruction ins);
 // The return value replaces REG_SP with REG_ZR, SP is encoded using ZR (R31)
 static RegNum encodingSPtoZR(RegNum reg)
 {
-    return (reg == REG_SP) ? REG_ZR : reg;
+    return reg == REG_SP ? REG_ZR : reg;
 }
 
 // Returns true if 'value' is a legal signed immediate 26 bit encoding (such as for B or BL).
@@ -70,7 +70,7 @@ static bool isStackRegister(RegNum reg)
 // The return value replaces REG_ZR with REG_SP, ZR (R31) encodes the SP register.
 static RegNum encodingZRtoSP(RegNum reg)
 {
-    return (reg == REG_ZR) ? REG_SP : reg;
+    return reg == REG_ZR ? REG_SP : reg;
 }
 
 // Returns true if 'value' is a legal unsigned immediate 8 bit encoding (such as for fMOV).
