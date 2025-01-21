@@ -62,6 +62,7 @@ enum RegNum : IntRegNum
     REG_COUNT = REG_LAST + 1,
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
 #include "register.h"
+    REG_INT_COUNT = REG_INT_LAST - REG_INT_FIRST + 1,
 };
 
 using regNumber      = RegNum;
@@ -69,6 +70,9 @@ using regNumberSmall = uint8_t;
 using RegNumSmall    = uint8_t;
 
 static_assert_no_msg(static_cast<RegNum>(static_cast<RegNumSmall>(REG_NA)) == REG_NA);
+
+#define REG_NEXT(reg) static_cast<RegNum>((reg) + 1)
+#define REG_PREV(reg) static_cast<RegNum>((reg)-1)
 
 constexpr IntRegMask GetRegSetBit(RegNum reg)
 {

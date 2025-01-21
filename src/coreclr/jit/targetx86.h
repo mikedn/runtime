@@ -58,16 +58,6 @@
   #define ETW_EBP_FRAMED           1       // if 1 we cannot use EBP as a scratch register and must create EBP based
                                            // frames for most methods
 
-  // The following defines are useful for iterating a regNumber
-  #define REG_INT_FIRST            REG_EAX
-  #define REG_INT_LAST             REG_EDI
-  #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)
-  #define REG_NEXT(reg)           ((regNumber)((unsigned)(reg) + 1))
-  #define REG_PREV(reg)           ((regNumber)((unsigned)(reg) - 1))
-
-  #define REG_FP_FIRST             REG_XMM0
-  #define REG_FP_LAST              REG_XMM7
-
   // TODO-MIKE-Review: Why the heck are these defined on x86?
   #define FIRST_FP_ARGREG          REG_XMM0
   #define LAST_FP_ARGREG           REG_XMM3
@@ -137,13 +127,6 @@
   #define RBM_LNGARG_LO             RBM_EAX
   #define REG_LNGARG_HI             REG_EDX
   #define RBM_LNGARG_HI             RBM_EDX
-  // register to hold shift amount
-  #define REG_SHIFT                REG_ECX
-  #define RBM_SHIFT                RBM_ECX
-
-  // register to hold shift amount when shifting 64-bit values
-  #define REG_SHIFT_LNG            REG_ECX
-  #define RBM_SHIFT_LNG            RBM_ECX
 
   // This is a general scratch register that does not conflict with the argument registers
   #define REG_SCRATCH              REG_EAX
@@ -189,13 +172,6 @@
   #define RBM_PINVOKE_TCB          RBM_ESI
   #define REG_PINVOKE_SCRATCH      REG_EAX      // EAX is trashed by CORINFO_HELP_INIT_PINVOKE_FRAME helper
   #define RBM_PINVOKE_SCRATCH      RBM_EAX
-
-  // The following defines are useful for iterating a regNumber
-  #define REG_INT_FIRST            REG_EAX
-  #define REG_INT_LAST             REG_EDI
-  #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)
-  #define REG_NEXT(reg)           ((regNumber)((unsigned)(reg) + 1))
-  #define REG_PREV(reg)           ((regNumber)((unsigned)(reg) - 1))
 
   // Which register are int and long values returned in ?
   #define REG_INTRET               REG_EAX

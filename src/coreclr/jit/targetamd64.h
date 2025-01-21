@@ -62,8 +62,6 @@
 #endif // !UNIX_AMD64_ABI
 
   #define RBM_ALLFLOAT            (RBM_XMM0 | RBM_XMM1 | RBM_XMM2 | RBM_XMM3 | RBM_XMM4 | RBM_XMM5 | RBM_XMM6 | RBM_XMM7 | RBM_XMM8 | RBM_XMM9 | RBM_XMM10 | RBM_XMM11 | RBM_XMM12 | RBM_XMM13 | RBM_XMM14 | RBM_XMM15)
-  #define REG_FP_FIRST             REG_XMM0
-  #define REG_FP_LAST              REG_XMM15
   #define FIRST_FP_ARGREG          REG_XMM0
 
 #ifdef    UNIX_AMD64_ABI
@@ -172,10 +170,6 @@
   #define CALLEE_SAVED_REG_MAXSZ   (CNT_CALLEE_SAVED*REGSIZE_BYTES)
   #define CALLEE_SAVED_FLOAT_MAXSZ (CNT_CALLEE_SAVED_FLOAT*16)
 
-  // register to hold shift amount
-  #define REG_SHIFT                REG_ECX
-  #define RBM_SHIFT                RBM_ECX
-
   // This is a general scratch register that does not conflict with the argument registers
   #define REG_SCRATCH              REG_EAX
 
@@ -225,13 +219,6 @@
   #define REG_PINVOKE_SCRATCH      REG_EAX
   #define RBM_PINVOKE_SCRATCH      RBM_EAX
 
-  // The following defines are useful for iterating a regNumber
-  #define REG_INT_FIRST            REG_EAX
-  #define REG_INT_LAST             REG_R15
-  #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)
-  #define REG_NEXT(reg)           ((regNumber)((unsigned)(reg) + 1))
-  #define REG_PREV(reg)           ((regNumber)((unsigned)(reg) - 1))
-
   // Which register are int and long values returned in ?
   #define REG_INTRET               REG_EAX
   #define RBM_INTRET               RBM_EAX
@@ -239,8 +226,7 @@
 #ifdef UNIX_AMD64_ABI
     #define REG_INTRET_1           REG_RDX
     #define RBM_INTRET_1           RBM_RDX
-#endif // UNIX_AMD64_ABI
-
+#endif 
 
   #define REG_FLOATRET             REG_XMM0
   #define RBM_FLOATRET             RBM_XMM0

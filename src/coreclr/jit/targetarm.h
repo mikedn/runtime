@@ -37,8 +37,6 @@
   #define FEATURE_EH_CALLFINALLY_THUNKS 0  // Generate call-to-finally code in "thunks" in the enclosing EH region, protected by "cloned finally" clauses.
   #define ETW_EBP_FRAMED           1       // if 1 we cannot use REG_FP as a scratch register and must setup the frame pointer for most methods
 
-  #define REG_FP_FIRST             REG_F0
-  #define REG_FP_LAST              REG_F31
   #define FIRST_FP_ARGREG          REG_F0
   #define LAST_FP_ARGREG           REG_F15
 
@@ -97,14 +95,6 @@
   // Temporary registers used for the GS cookie check.
   #define REG_GSCOOKIE_TMP_0       REG_R12
   #define REG_GSCOOKIE_TMP_1       REG_LR
-
-  // register to hold shift amount; no special register is required on the ARM
-  #define REG_SHIFT                REG_NA
-  #define RBM_SHIFT                RBM_ALLINT
-
-  // register to hold shift amount when shifting 64-bit values (this uses a helper call)
-  #define REG_SHIFT_LNG            REG_R2            // REG_ARG_2
-  #define RBM_SHIFT_LNG            RBM_R2            // RBM_ARG_2
 
   // This is a general scratch register that does not conflict with the argument registers
   #define REG_SCRATCH              REG_LR
@@ -190,13 +180,6 @@
   #define RBM_PINVOKE_TCB          RBM_R5
   #define REG_PINVOKE_SCRATCH      REG_R6
   #define RBM_PINVOKE_SCRATCH      RBM_R6
-
-  // The following defines are useful for iterating a regNumber
-  #define REG_INT_FIRST            REG_R0
-  #define REG_INT_LAST             REG_LR
-  #define REG_INT_COUNT            (REG_INT_LAST - REG_INT_FIRST + 1)
-  #define REG_NEXT(reg)           ((regNumber)((unsigned)(reg) + 1))
-  #define REG_PREV(reg)           ((regNumber)((unsigned)(reg) - 1))
 
   // The following registers are used in emitting Enter/Leave/Tailcall profiler callbacks
   #define REG_PROFILER_ENTER_ARG           REG_R0
