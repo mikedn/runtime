@@ -239,7 +239,9 @@ class LinearScan
     friend class Interval;
     friend class RegisterSelection;
 
-    Compiler* const compiler;
+    Compiler* const      compiler;
+    PhasedVar<regMaskTP> availableRegs{RBM_ALLINT | RBM_ALLFLOAT};
+
 #ifdef DEBUG
     const bool verbose;
 #endif
@@ -347,9 +349,6 @@ private:
     // Keep track of how many temp locations we'll need for spill
     void updateMaxSpill(RefPosition* refPosition);
     void recordMaxSpill();
-
-    bool needFloatTmpForFPCall  = false;
-    bool needDoubleTmpForFPCall = false;
 
 #ifdef DEBUG
     //------------------------------------------------------------------------
@@ -1037,6 +1036,10 @@ private:
 
     // Indicates whether the allocation pass has been completed.
     bool allocationPassComplete = false;
+    // True if the method contains any critical edges.
+    bool hasCriticalEdges = false;
+    // True if there are any register candidate lclVars available for allocation.
+    const bool enregisterLocalVars;
 
     // The bbNum of the block being currently allocated or resolved.
     unsigned curBBNum;
@@ -1048,11 +1051,6 @@ private:
     unsigned bbSeqCount = 0;
     // The Location of the start of the current block.
     LsraLocation curBBStartLocation;
-    // True if the method contains any critical edges.
-    bool hasCriticalEdges = false;
-
-    // True if there are any register candidate lclVars available for allocation.
-    const bool enregisterLocalVars;
 
     // Ordered list of RefPositions
     RefPositionList refPositions;
@@ -1064,8 +1062,6 @@ private:
 
     // A temporary VarToRegMap used during the resolution of critical edges.
     VarToRegMap sharedCriticalVarToRegMap = nullptr;
-
-    PhasedVar<regMaskTP> availableRegs{RBM_ALLINT | RBM_ALLFLOAT};
 
     // The set of all register candidates. Note that this may be a subset of tracked vars.
     VARSET_TP registerCandidateVars;
@@ -1124,13 +1120,15 @@ private:
     {
         reg               = getRegForType(reg, regType);
         regMaskTP regMask = genRegMask(reg);
+
 #ifdef TARGET_ARM
         if (regType == TYP_DOUBLE)
         {
             assert(genIsValidDoubleReg(reg));
             regMask |= (regMask << 1);
         }
-#endif // TARGET_ARM
+#endif
+
         return regMask;
     }
 
@@ -1256,6 +1254,18 @@ private:
     // Build methods
     //-----------------------------------------------------------------------
 
+    // The following keep track of information about internal (temporary register) intervals
+    // during the building of a single node.
+    RefPosition* internalDefs[4];
+    int          internalCount            = 0;
+    bool         setInternalRegsDelayFree = false;
+
+    // When a RefTypeUse is marked as 'delayRegFree', we also want to mark the RefTypeDef
+    // in the next Location as 'hasInterferingUses'. This is accomplished by setting this
+    // 'pendingDelayFree' to true as they are created, and clearing it as a new node is
+    // handled in 'BuildNode'.
+    bool pendingDelayFree = false;
+
     // When Def RefPositions are built for a node, their RefInfoListNode
     // (GenTree* to RefPosition* mapping) is placed in the defList.
     // As the consuming node is handled, it removes the RefInfoListNode from the
@@ -1269,17 +1279,10 @@ private:
     RefPosition* tgtPrefUse  = nullptr;
     RefPosition* tgtPrefUse2 = nullptr;
 
-    // The following keep track of information about internal (temporary register) intervals
-    // during the building of a single node.
-    RefPosition* internalDefs[4];
-    int          internalCount            = 0;
-    bool         setInternalRegsDelayFree = false;
-
-    // When a RefTypeUse is marked as 'delayRegFree', we also want to mark the RefTypeDef
-    // in the next Location as 'hasInterferingUses'. This is accomplished by setting this
-    // 'pendingDelayFree' to true as they are created, and clearing it as a new node is
-    // handled in 'BuildNode'.
-    bool pendingDelayFree = false;
+#ifdef TARGET_X86
+    bool needFloatTmpForFPCall  = false;
+    bool needDoubleTmpForFPCall = false;
+#endif
 
 #ifdef DEBUG
     unsigned nodeUseCount;
@@ -1382,7 +1385,7 @@ private:
     void SetContainsAVXFlags(unsigned sizeOfSIMDVector = 0);
 #endif
 
-    RegRecord physRegs[REG_COUNT];
+    RegRecord    physRegs[REG_COUNT];
     LsraLocation nextFixedRef[REG_COUNT];
     LsraLocation nextIntervalRef[REG_COUNT];
 
