@@ -161,3 +161,11 @@ public:
 };
 
 using BlockSet = BlockSetOps::Set;
+
+#ifdef DEBUG
+class BitSetSupport
+{
+public:
+    static void TestSuite(CompAllocator env);
+};
+#endif // DEBUG

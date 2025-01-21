@@ -689,7 +689,7 @@ void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* hea
     else
     {
         printf("  --- One epilog, unwind codes at %u\n", epilogCount);
-        assert(epilogCount < ArrLen(epilogStartAt));
+        assert(epilogCount < _countof(epilogStartAt));
         epilogStartAt[epilogCount] = true; // the one and only epilog starts its unwind codes at this offset
     }
 

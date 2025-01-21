@@ -16,17 +16,164 @@
 #define BitScanForwardPtr BitScanForward
 #endif
 
-template <typename T, int size>
-unsigned ArrLen(T (&)[size])
-{
-    return size;
-}
-
 // return true if arg is a power of 2
 template <typename T>
 inline bool isPow2(T i)
 {
     return (i > 0) && (((i - 1) & i) == 0);
+}
+
+template <typename T>
+inline T genFindLowestBit(T value)
+{
+    return value & (0 - value);
+}
+
+// Return the highest bit that is set (that is, a mask that includes just the highest bit).
+// TODO-ARM64-Throughput: we should convert these to use the _BitScanReverse() / _BitScanReverse64()
+// compiler intrinsics, but our CRT header file intrin.h doesn't define these for ARM64 yet.
+inline uint32_t genFindHighestBit(uint32_t mask)
+{
+    assert(mask != 0);
+
+    uint32_t bit = 1U << ((sizeof(uint32_t) * 8) - 1);
+
+    while ((bit & mask) == 0)
+    {
+        bit >>= 1;
+    }
+
+    return bit;
+}
+
+inline uint64_t genFindHighestBit(uint64_t mask)
+{
+    assert(mask != 0);
+
+    uint64_t bit = 1ULL << ((sizeof(uint64_t) * 8) - 1);
+
+    while ((bit & mask) == 0)
+    {
+        bit >>= 1;
+    }
+
+    return bit;
+}
+
+#if 0
+// TODO-ARM64-Cleanup: These should probably be the implementation, when intrin.h is updated for ARM64
+inline uint32_t genFindHighestBit(uint32_t mask)
+{
+    assert(mask != 0);
+
+    uint32_t index;
+    _BitScanReverse(&index, mask);
+    return 1U << index;
+}
+
+inline uint64_t genFindHighestBit(uint64_t mask)
+{
+    assert(mask != 0);
+
+    uint64_t index;
+    _BitScanReverse64(&index, mask);
+    return 1ULL << index;
+}
+#endif // 0
+
+// Return true if the given 64-bit value has exactly zero or one bits set.
+template <typename T>
+inline bool genMaxOneBit(T value)
+{
+    return (value & (value - 1)) == 0;
+}
+
+// Return true if the given 32-bit value has exactly zero or one bits set.
+inline bool genMaxOneBit(unsigned value)
+{
+    return (value & (value - 1)) == 0;
+}
+
+// Return true if the given 64-bit value has exactly one bit set.
+template <typename T>
+inline bool genExactlyOneBit(T value)
+{
+    return (value != 0) && genMaxOneBit(value);
+}
+
+// Return true if the given 32-bit value has exactly zero or one bits set.
+inline bool genExactlyOneBit(uint32_t value)
+{
+    return (value != 0) && genMaxOneBit(value);
+}
+
+template <typename T>
+inline unsigned genCountBits(T bits)
+{
+    unsigned cnt = 0;
+
+    while (bits)
+    {
+        cnt++;
+        bits -= genFindLowestBit(bits);
+    }
+
+    return cnt;
+}
+
+template <>
+inline unsigned genCountBits<uint64_t>(uint64_t c)
+{
+    c = c - ((c >> 1) & 0x5555555555555555ull);
+    c = (c & 0x3333333333333333ull) + ((c >> 2) & 0x3333333333333333ull);
+    c = ((c + (c >> 4)) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull;
+    return static_cast<unsigned>(c >> 56);
+}
+
+template <>
+inline unsigned genCountBits<uint32_t>(uint32_t c)
+{
+    c = c - ((c >> 1) & 0x55555555u);
+    c = (c & 0x33333333u) + ((c >> 2) & 0x33333333u);
+    c = ((c + (c >> 4)) & 0xF0F0F0Fu) * 0x1010101u;
+    return static_cast<unsigned>(c >> 24);
+}
+
+// Given a value that has exactly one bit set, return the position of that
+// bit, in other words return the logarithm in base 2 of the given value.
+inline unsigned genLog2(uint32_t value)
+{
+    return BitPosition(value);
+}
+
+// Given an unsigned 64-bit value, returns the lower 32-bits in unsigned format
+inline uint32_t ulo32(uint64_t value)
+{
+    return static_cast<uint32_t>(value);
+}
+
+// Given an unsigned 64-bit value, returns the upper 32-bits in unsigned format
+inline uint32_t uhi32(uint64_t value)
+{
+    return static_cast<uint32_t>(value >> 32);
+}
+
+// Given a value that has exactly one bit set, return the position of that
+// bit, in other words return the logarithm in base 2 of the given value.
+inline unsigned genLog2(uint64_t value)
+{
+    uint32_t lo32 = ulo32(value);
+    uint32_t hi32 = uhi32(value);
+
+    if (lo32 != 0)
+    {
+        assert(hi32 == 0);
+        return genLog2(lo32);
+    }
+    else
+    {
+        return genLog2(hi32) + 32;
+    }
 }
 
 inline size_t roundUp(size_t size, size_t mult = sizeof(size_t))
@@ -41,6 +188,20 @@ inline unsigned roundUp(unsigned size, unsigned mult)
     return static_cast<unsigned>(roundUp(static_cast<size_t>(size), static_cast<size_t>(mult)));
 }
 #endif
+
+// Returns true if value is between [start..end).
+// The comparison is inclusive of start, exclusive of end.
+inline bool jitIsBetween(unsigned value, unsigned start, unsigned end)
+{
+    return start <= value && value < end;
+}
+
+// Returns true if value is between [start..end].
+// The comparison is inclusive of both start and end.
+inline bool jitIsBetweenInclusive(unsigned value, unsigned start, unsigned end)
+{
+    return start <= value && value <= end;
+}
 
 // Adapter for iterators to a type that is compatible with C++11
 // range-based for loops.

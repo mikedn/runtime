@@ -4989,6 +4989,15 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     return thisPtr;
 }
 
+static bool getInlinePInvokeEnabled()
+{
+#ifdef DEBUG
+    return JitConfig.JitPInvokeEnabled() && !JitConfig.StressCOMCall();
+#else
+    return true;
+#endif
+}
+
 //------------------------------------------------------------------------
 // impCanPInvokeInline: check whether PInvoke inlining should enabled in current method.
 //
@@ -17017,11 +17026,6 @@ FieldSeqNode* Importer::GetRefanyValueField()
 FieldSeqNode* Importer::GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle)
 {
     return comp->GetByReferenceValueField(byRefFieldHandle);
-}
-
-bool Importer::jitIsBetween(unsigned value, unsigned start, unsigned end)
-{
-    return Compiler::jitIsBetween(value, start, end);
 }
 
 #ifdef DEBUG

@@ -273,7 +273,7 @@ size_t DisAssembler::disCchAddrMember(
             {
                 DIS::INSTRUCTION instr;
                 DIS::OPERAND     ops[DISARM64::coperandMax];
-                bool             ok = pdis->FDecode(&instr, ops, ArrLen(ops));
+                bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
                 if (ok)
                 {
                     bool isAddress = false;
@@ -995,7 +995,7 @@ size_t DisAssembler::CbDisassemble(DIS*        pdis,
             {
                 DIS::INSTRUCTION instr;
                 DIS::OPERAND     ops[DISARM64::coperandMax];
-                bool             ok = pdis->FDecode(&instr, ops, ArrLen(ops));
+                bool             ok = pdis->FDecode(&instr, ops, _countof(ops));
                 if (ok)
                 {
                     switch ((DISARM64::OPA)instr.opa)

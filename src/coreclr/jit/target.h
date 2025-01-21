@@ -44,7 +44,6 @@ using IntRegMask = uint32_t;
 //    REG_STK - Used to indicate something evaluated onto the stack.
 //    REG_NA  - Used to indicate that a register is either not yet assigned or not required.
 //
-
 enum RegNum : IntRegNum
 {
 #define REGDEF(name, ...) REG_##name,
@@ -221,12 +220,20 @@ inline regMaskTP genRegMask(RegNum reg, var_types type)
     return genRegMask(reg);
 }
 
-// If the WINDOWS_AMD64_ABI is defined make sure that TARGET_AMD64 is also defined.
-#if defined(WINDOWS_AMD64_ABI)
-#if !defined(TARGET_AMD64)
-#error When WINDOWS_AMD64_ABI is defined you must define TARGET_AMD64 defined as well.
-#endif
-#endif
+// Return the lowest bit that is set in the given register mask.
+inline regMaskTP genFindLowestReg(regMaskTP value)
+{
+    return static_cast<regMaskTP>(genFindLowestBit(value));
+}
+
+// Maps a single register mask to a register number.
+inline regNumber genRegNumFromMask(regMaskTP mask)
+{
+    assert(mask != 0); // Must have one bit set, so can't have a mask of zero
+    RegNum regNum = static_cast<RegNum>(genLog2(mask));
+    assert(genRegMask(regNum) == mask);
+    return regNum;
+}
 
 #ifdef WINDOWS_AMD64_ABI
 // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
@@ -266,6 +273,74 @@ inline regNumber MapVarargsParamIntRegToFloatReg(regNumber intReg)
     }
 }
 #endif // WINDOWS_AMD64_ABI
+
+// Map a register argument number ("RegArgNum") to a register number ("RegNum").
+// A RegArgNum is in this range:
+//      [0, MAX_REG_ARG)        -- for integer registers
+//      [0, MAX_FLOAT_REG_ARG)  -- for floating point registers
+// Note that RegArgNum's are overlapping for integer and floating-point registers,
+// while RegNum's are not (for ARM anyway, though for x86, it might be different).
+// If we have a fixed return buffer register and are given it's index
+// we return the fixed return buffer register
+inline RegNum genMapIntRegArgNumToRegNum(unsigned argNum)
+{
+#ifdef TARGET_ARM64
+    if (argNum == RET_BUFF_ARGNUM)
+    {
+        return REG_ARG_RET_BUFF;
+    }
+#endif
+
+    assert(argNum < _countof(intArgRegs));
+
+    return intArgRegs[argNum];
+}
+
+inline RegNum genMapFloatRegArgNumToRegNum(unsigned argNum)
+{
+#ifndef TARGET_X86
+    assert(argNum < _countof(fltArgRegs));
+
+    return fltArgRegs[argNum];
+#else
+    assert(!"no x86 float arg regs\n");
+    return REG_NA;
+#endif
+}
+
+__forceinline RegNum genMapRegArgNumToRegNum(unsigned argNum, var_types type)
+{
+    if (varTypeUsesFloatArgReg(type))
+    {
+        return genMapFloatRegArgNumToRegNum(argNum);
+    }
+    else
+    {
+        return genMapIntRegArgNumToRegNum(argNum);
+    }
+}
+
+// Map a register argument number ("RegArgNum") to a register mask of the associated register.
+// Note that for floating-pointer registers, only the low register for a register pair
+// (for a double on ARM) is returned.
+inline regMaskTP genMapIntRegArgNumToRegMask(unsigned argNum)
+{
+    assert(argNum < _countof(intArgMasks));
+
+    return intArgMasks[argNum];
+}
+
+inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
+{
+#ifndef TARGET_X86
+    assert(argNum < _countof(fltArgMasks));
+
+    return fltArgMasks[argNum];
+#else
+    assert(!"no x86 float arg regs\n");
+    return RBM_NONE;
+#endif
+}
 
 // Some sanity checks on some of the register masks
 // Stack pointer is never part of RBM_ALLINT

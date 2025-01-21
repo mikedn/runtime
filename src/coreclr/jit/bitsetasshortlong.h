@@ -8,8 +8,6 @@
 
 #pragma once
 
-#include "bitset.h"
-
 template <typename Traits>
 class BitSetOps
 {
@@ -135,7 +133,7 @@ public:
     {
         if (Traits::IsShort(env))
         {
-            return BitSetSupport::CountBitsInIntegral(Word(s));
+            return genCountBits(Word(s));
         }
         else
         {
@@ -622,7 +620,7 @@ private:
         unsigned count = 0;
         for (unsigned i = 0; i < len; i++)
         {
-            count += BitSetSupport::CountBitsInIntegral(s[i]);
+            count += genCountBits(s[i]);
         }
         return count;
     }

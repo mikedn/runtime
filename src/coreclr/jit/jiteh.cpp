@@ -45,7 +45,7 @@ bool EHblkDsc::InTryRegionILRange(BasicBlock* pBlk)
     // should only be used before any BBF_INTERNAL blocks have been added.
     assert(!(pBlk->bbFlags & BBF_INTERNAL));
 
-    return Compiler::jitIsBetween(pBlk->bbCodeOffs, ebdTryBegOffs(), ebdTryEndOffs());
+    return jitIsBetween(pBlk->bbCodeOffs, ebdTryBegOffs(), ebdTryEndOffs());
 }
 
 bool EHblkDsc::InFilterRegionILRange(BasicBlock* pBlk)
@@ -54,7 +54,7 @@ bool EHblkDsc::InFilterRegionILRange(BasicBlock* pBlk)
     // should only be used before any BBF_INTERNAL blocks have been added.
     assert(!(pBlk->bbFlags & BBF_INTERNAL));
 
-    return HasFilter() && Compiler::jitIsBetween(pBlk->bbCodeOffs, ebdFilterBegOffs(), ebdFilterEndOffs());
+    return HasFilter() && jitIsBetween(pBlk->bbCodeOffs, ebdFilterBegOffs(), ebdFilterEndOffs());
 }
 
 bool EHblkDsc::InHndRegionILRange(BasicBlock* pBlk)
@@ -63,7 +63,7 @@ bool EHblkDsc::InHndRegionILRange(BasicBlock* pBlk)
     // should only be used before any BBF_INTERNAL blocks have been added.
     assert(!(pBlk->bbFlags & BBF_INTERNAL));
 
-    return Compiler::jitIsBetween(pBlk->bbCodeOffs, ebdHndBegOffs(), ebdHndEndOffs());
+    return jitIsBetween(pBlk->bbCodeOffs, ebdHndBegOffs(), ebdHndEndOffs());
 }
 
 // HasCatchHandler: returns 'true' for either try/catch, or try/filter/filter-handler.

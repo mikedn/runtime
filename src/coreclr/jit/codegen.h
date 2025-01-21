@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef CODEGEN_H
-#define CODEGEN_H
+#pragma once
 
 #include "codegeninterface.h"
 #include "compiler.h"
@@ -1196,5 +1195,3 @@ public:
     void eeAllocUnwindInfo(FuncKind kind, bool isHotCode, CodeRange range, uint32_t unwindSize, void* unwindBlock);
 #endif
 };
-
-#endif // CODEGEN_H

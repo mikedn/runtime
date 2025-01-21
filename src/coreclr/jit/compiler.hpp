@@ -1,271 +1,36 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                    Inline functions                                       XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+#pragma once
 
-#ifndef _COMPILER_HPP_
-#define _COMPILER_HPP_
-
-#include "compilerbitsettraits.hpp"
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX  Miscellaneous utility functions. Some of these are defined in Utils.cpp  XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-/*****************************************************************************/
-
-inline bool getInlinePInvokeEnabled()
-{
-#ifdef DEBUG
-    return JitConfig.JitPInvokeEnabled() && !JitConfig.StressCOMCall();
-#else
-    return true;
-#endif
-}
-
-/*****************************************************************************/
-/*****************************************************************************
- *
- *  Return the highest bit that is set (that is, a mask that includes just the highest bit).
- *  TODO-ARM64-Throughput: we should convert these to use the _BitScanReverse() / _BitScanReverse64()
- *  compiler intrinsics, but our CRT header file intrin.h doesn't define these for ARM64 yet.
- */
-
-inline unsigned int genFindHighestBit(unsigned int mask)
-{
-    assert(mask != 0);
-    unsigned int bit = 1U << ((sizeof(unsigned int) * 8) - 1); // start looking at the top
-    while ((bit & mask) == 0)
-    {
-        bit >>= 1;
-    }
-    return bit;
-}
-
-inline unsigned __int64 genFindHighestBit(unsigned __int64 mask)
-{
-    assert(mask != 0);
-    unsigned __int64 bit = 1ULL << ((sizeof(unsigned __int64) * 8) - 1); // start looking at the top
-    while ((bit & mask) == 0)
-    {
-        bit >>= 1;
-    }
-    return bit;
-}
-
-#if 0
-// TODO-ARM64-Cleanup: These should probably be the implementation, when intrin.h is updated for ARM64
-inline
-unsigned int genFindHighestBit(unsigned int mask)
-{
-    assert(mask != 0);
-    unsigned int index;
-    _BitScanReverse(&index, mask);
-    return 1L << index;
-}
-
-inline
-unsigned __int64 genFindHighestBit(unsigned __int64 mask)
-{
-    assert(mask != 0);
-    unsigned int index;
-    _BitScanReverse64(&index, mask);
-    return 1LL << index;
-}
-#endif // 0
-
-/*****************************************************************************
-*
-*  Return true if the given 64-bit value has exactly zero or one bits set.
-*/
-
-template <typename T>
-inline bool genMaxOneBit(T value)
-{
-    return (value & (value - 1)) == 0;
-}
-
-/*****************************************************************************
-*
-*  Return true if the given 32-bit value has exactly zero or one bits set.
-*/
-
-inline bool genMaxOneBit(unsigned value)
-{
-    return (value & (value - 1)) == 0;
-}
-
-/*****************************************************************************
-*
-*  Return true if the given 64-bit value has exactly one bit set.
-*/
-
-template <typename T>
-inline bool genExactlyOneBit(T value)
-{
-    return ((value != 0) && genMaxOneBit(value));
-}
-
-/*****************************************************************************
-*
-*  Return true if the given 32-bit value has exactly zero or one bits set.
-*/
-
-inline bool genExactlyOneBit(unsigned value)
-{
-    return ((value != 0) && genMaxOneBit(value));
-}
-
-/*****************************************************************************
- *
- *  Given a value that has exactly one bit set, return the position of that
- *  bit, in other words return the logarithm in base 2 of the given value.
- */
-inline unsigned genLog2(unsigned value)
-{
-    return BitPosition(value);
-}
-
-// Given an unsigned 64-bit value, returns the lower 32-bits in unsigned format
-//
-inline unsigned ulo32(unsigned __int64 value)
-{
-    return static_cast<unsigned>(value);
-}
-
-// Given an unsigned 64-bit value, returns the upper 32-bits in unsigned format
-//
-inline unsigned uhi32(unsigned __int64 value)
-{
-    return static_cast<unsigned>(value >> 32);
-}
-
-/*****************************************************************************
- *
- *  Given a value that has exactly one bit set, return the position of that
- *  bit, in other words return the logarithm in base 2 of the given value.
- */
-
-inline unsigned genLog2(unsigned __int64 value)
-{
-    unsigned lo32 = ulo32(value);
-    unsigned hi32 = uhi32(value);
-
-    if (lo32 != 0)
-    {
-        assert(hi32 == 0);
-        return genLog2(lo32);
-    }
-    else
-    {
-        return genLog2(hi32) + 32;
-    }
-}
-
-/*****************************************************************************
- *
- *  Return the lowest bit that is set in the given register mask.
- */
-
-inline regMaskTP genFindLowestReg(regMaskTP value)
-{
-    return (regMaskTP)genFindLowestBit(value);
-}
-
-/*****************************************************************************
- *
- *  Given 3 masks value, end, start, returns the bits of value between start
- *  and end (exclusive).
- *
- *  value[bitNum(end) - 1, bitNum(start) + 1]
- */
-
-inline unsigned __int64 BitsBetween(unsigned __int64 value, unsigned __int64 end, unsigned __int64 start)
-{
-    assert(start != 0);
-    assert(start < end);
-    assert((start & (start - 1)) == 0);
-    assert((end & (end - 1)) == 0);
-
-    return value & ~((start - 1) | start) & // Ones to the left of set bit in the start mask.
-           (end - 1);                       // Ones to the right of set bit in the end mask.
-}
-
-/*****************************************************************************
- * Returns true if value is between [start..end).
- * The comparison is inclusive of start, exclusive of end.
- */
-
-/* static */
-inline bool Compiler::jitIsBetween(unsigned value, unsigned start, unsigned end)
-{
-    return start <= value && value < end;
-}
-
-/*****************************************************************************
- * Returns true if value is between [start..end].
- * The comparison is inclusive of both start and end.
- */
-
-/* static */
-inline bool Compiler::jitIsBetweenInclusive(unsigned value, unsigned start, unsigned end)
-{
-    return start <= value && value <= end;
-}
-
-/******************************************************************************************
- * Return the EH descriptor for the given region index.
- */
+// Return the EH descriptor for the given region index.
 inline EHblkDsc* Compiler::ehGetDsc(unsigned regionIndex)
 {
     assert(regionIndex < compHndBBtabCount);
     return &compHndBBtab[regionIndex];
 }
 
-/******************************************************************************************
- * Return the EH descriptor index of the enclosing try, for the given region index.
- */
+// Return the EH descriptor index of the enclosing try, for the given region index.
 inline unsigned Compiler::ehGetEnclosingTryIndex(unsigned regionIndex)
 {
     return ehGetDsc(regionIndex)->ebdEnclosingTryIndex;
 }
 
-/******************************************************************************************
- * Return the EH descriptor index of the enclosing handler, for the given region index.
- */
+// Return the EH descriptor index of the enclosing handler, for the given region index.
 inline unsigned Compiler::ehGetEnclosingHndIndex(unsigned regionIndex)
 {
     return ehGetDsc(regionIndex)->ebdEnclosingHndIndex;
 }
 
-/******************************************************************************************
- * Return the EH index given a region descriptor.
- */
+// Return the EH index given a region descriptor.
 inline unsigned Compiler::ehGetIndex(EHblkDsc* ehDsc)
 {
     assert(compHndBBtab <= ehDsc && ehDsc < compHndBBtab + compHndBBtabCount);
     return (unsigned)(ehDsc - compHndBBtab);
 }
 
-/******************************************************************************************
- * Return the EH descriptor for the most nested 'try' region this BasicBlock is a member of
- * (or nullptr if this block is not in a 'try' region).
- */
+// Return the EH descriptor for the most nested 'try' region this BasicBlock is a member of
+// (or nullptr if this block is not in a 'try' region).
 inline EHblkDsc* Compiler::ehGetBlockTryDsc(BasicBlock* block)
 {
     if (!block->hasTryIndex())
@@ -276,10 +41,8 @@ inline EHblkDsc* Compiler::ehGetBlockTryDsc(BasicBlock* block)
     return ehGetDsc(block->getTryIndex());
 }
 
-/******************************************************************************************
- * Return the EH descriptor for the most nested filter or handler region this BasicBlock is a member of
- * (or nullptr if this block is not in a filter or handler region).
- */
+// Return the EH descriptor for the most nested filter or handler region this BasicBlock is a member of
+// (or nullptr if this block is not in a filter or handler region).
 inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block)
 {
     if (!block->hasHndIndex())
@@ -288,33 +51,6 @@ inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block)
     }
 
     return ehGetDsc(block->getHndIndex());
-}
-
-//------------------------------------------------------------------------------
-// genRegNumFromMask : Maps a single register mask to a register number.
-//
-// Arguments:
-//    mask - the register mask
-//
-// Return Value:
-//    The number of the register contained in the mask.
-//
-// Assumptions:
-//    The mask contains one and only one register.
-
-inline regNumber genRegNumFromMask(regMaskTP mask)
-{
-    assert(mask != 0); // Must have one bit set, so can't have a mask of zero
-
-    /* Convert the mask to a register number */
-
-    regNumber regNum = (regNumber)genLog2(mask);
-
-    /* Make sure we got it right */
-
-    assert(genRegMask(regNum) == mask);
-
-    return regNum;
 }
 
 //  Helpers to pull little-endian values out of a byte stream.
@@ -1022,103 +758,6 @@ inline void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
     }
 }
 
-/*****************************************************************************
-  Is the offset too big?
-*/
-inline bool Compiler::fgIsBigOffset(size_t offset)
-{
-    return (offset > compMaxUncheckedOffsetForNullObject);
-}
-
-#ifdef DEBUG
-/*****************************************************************************
- *  Should we enable JitStress mode?
- *   0:   No stress
- *   !=2: Vary stress. Performance will be slightly/moderately degraded
- *   2:   Check-all stress. Performance will be REALLY horrible
- */
-
-inline int getJitStressLevel()
-{
-    return JitConfig.JitStress();
-}
-
-#endif // DEBUG
-
-/*****************************************************************************/
-/* Map a register argument number ("RegArgNum") to a register number ("RegNum").
- * A RegArgNum is in this range:
- *      [0, MAX_REG_ARG)        -- for integer registers
- *      [0, MAX_FLOAT_REG_ARG)  -- for floating point registers
- * Note that RegArgNum's are overlapping for integer and floating-point registers,
- * while RegNum's are not (for ARM anyway, though for x86, it might be different).
- * If we have a fixed return buffer register and are given it's index
- * we return the fixed return buffer register
- */
-
-inline regNumber genMapIntRegArgNumToRegNum(unsigned argNum)
-{
-#ifdef TARGET_ARM64
-    if (argNum == RET_BUFF_ARGNUM)
-    {
-        return REG_ARG_RET_BUFF;
-    }
-#endif
-
-    assert(argNum < ArrLen(intArgRegs));
-
-    return intArgRegs[argNum];
-}
-
-inline regNumber genMapFloatRegArgNumToRegNum(unsigned argNum)
-{
-#ifndef TARGET_X86
-    assert(argNum < ArrLen(fltArgRegs));
-
-    return fltArgRegs[argNum];
-#else
-    assert(!"no x86 float arg regs\n");
-    return REG_NA;
-#endif
-}
-
-__forceinline regNumber genMapRegArgNumToRegNum(unsigned argNum, var_types type)
-{
-    if (varTypeUsesFloatArgReg(type))
-    {
-        return genMapFloatRegArgNumToRegNum(argNum);
-    }
-    else
-    {
-        return genMapIntRegArgNumToRegNum(argNum);
-    }
-}
-
-/*****************************************************************************/
-/* Map a register argument number ("RegArgNum") to a register mask of the associated register.
- * Note that for floating-pointer registers, only the low register for a register pair
- * (for a double on ARM) is returned.
- */
-
-inline regMaskTP genMapIntRegArgNumToRegMask(unsigned argNum)
-{
-    assert(argNum < ArrLen(intArgMasks));
-
-    return intArgMasks[argNum];
-}
-
-inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
-{
-#ifndef TARGET_X86
-    assert(argNum < ArrLen(fltArgMasks));
-
-    return fltArgMasks[argNum];
-#else
-    assert(!"no x86 float arg regs\n");
-    return RBM_NONE;
-#endif
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -1477,7 +1116,3 @@ inline void LclVarDsc::SetRefWeight(BasicBlock::weight_t weight)
 
     m_refWeight = jitstd::bit_cast<uint32_t>(weight);
 }
-
-/*****************************************************************************/
-#endif //_COMPILER_HPP_
-/*****************************************************************************/

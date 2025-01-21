@@ -1874,7 +1874,7 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
     // 0:   No stress (Except when explicitly set in complus_JitStressModeNames)
     // !=2: Vary stress. Performance will be slightly/moderately degraded
     // 2:   Check-all stress. Performance will be REALLY horrible
-    const int stressLevel = getJitStressLevel();
+    const int stressLevel = JitConfig.JitStress();
 
     assert(weight <= MAX_STRESS_WEIGHT);
 
@@ -2328,7 +2328,7 @@ const char* Compiler::compGetStressMessage() const
     const char* stressMessage = "";
 
     // Is stress enabled via mode name or level?
-    if ((JitConfig.JitStressModeNames() != nullptr) || (getJitStressLevel() > 0))
+    if ((JitConfig.JitStressModeNames() != nullptr) || (JitConfig.JitStress() > 0))
     {
         // Is the method being jitted excluded from stress via range?
         if (bRangeAllowStress)
@@ -3020,7 +3020,7 @@ void Compiler::compCompileFinish()
                                           // or arguments. We always track arguments at the start of
                                           // the prolog which requires memory
         (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
-        (getJitStressLevel() == 0) &&                        // We need extra memory for stress
+        (JitConfig.JitStress() == 0) &&                      // We need extra memory for stress
         !opts.optRepeat &&                                   // We need extra memory to repeat opts
         !compArenaAllocator->bypassHostAllocator() && // ArenaAllocator::getDefaultPageSize() is artificially low for
                                                       // DirectAlloc

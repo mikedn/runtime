@@ -1699,7 +1699,7 @@ CLRRandom* InlineStrategy::GetRandom(int optionalSeed)
 
         if (m_Compiler->compRandomInlineStress())
         {
-            externalSeed = getJitStressLevel();
+            externalSeed = JitConfig.JitStress();
             // We can set COMPlus_JitStressModeNames without setting COMPlus_JitStress,
             // but we need external seed to be non-zero.
             if (externalSeed == 0)

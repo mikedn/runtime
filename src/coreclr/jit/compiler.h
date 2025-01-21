@@ -1,25 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Compiler                                        XX
-XX                                                                           XX
-XX  Represents the method data we are currently JIT-compiling.               XX
-XX  An instance of this class is created for every method we JIT.            XX
-XX  This contains all the info needed for the method. So allocating a        XX
-XX  a new instance per method makes it thread-safe.                          XX
-XX  It should be used to do all the memory management for the compiler run.  XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-#ifndef _COMPILER_H_
-#define _COMPILER_H_
-/*****************************************************************************/
+#pragma once
 
 #include "jit.h"
 #include "opcode.h"
@@ -69,19 +51,7 @@ INDEBUG(class IndentStack;)
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
 
-/*****************************************************************************/
-
-/* This is included here and not earlier as it needs the definition of "CSE"
- * which is defined in the section above */
-
-/*****************************************************************************/
-
-unsigned genLog2(unsigned value);
-unsigned genLog2(unsigned __int64 value);
-
 unsigned ReinterpretHexAsDecimal(unsigned in);
-
-/*****************************************************************************/
 
 const unsigned FLG_CCTOR = (CORINFO_FLG_CONSTRUCTOR | CORINFO_FLG_STATIC);
 
@@ -1588,8 +1558,6 @@ struct Importer
     FieldSeqNode*  GetRefanyValueField();
     FieldSeqNode* GetByReferenceValueField(CORINFO_FIELD_HANDLE byRefFieldHandle);
 
-    static bool jitIsBetween(unsigned value, unsigned start, unsigned end);
-
     void        fgInitBBLookup();
     BasicBlock* fgLookupBB(unsigned offs);
 
@@ -2592,9 +2560,6 @@ public:
     unsigned ehMaxHndNestingCount = 0;
 
 #endif // !FEATURE_EH_FUNCLETS
-
-    static bool jitIsBetween(unsigned value, unsigned start, unsigned end);
-    static bool jitIsBetweenInclusive(unsigned value, unsigned start, unsigned end);
 
     bool bbInCatchHandlerILRange(BasicBlock* blk);
     bool bbInFilterILRange(BasicBlock* blk);
@@ -4663,7 +4628,10 @@ private:
 
     TypeProducerKind gtGetTypeProducerKind(GenTree* tree);
 
-    bool fgIsBigOffset(size_t offset);
+    inline bool fgIsBigOffset(size_t offset) const
+    {
+        return offset > compMaxUncheckedOffsetForNullObject;
+    }
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -7581,6 +7549,5 @@ private:
     void AddNode(GenTree* node);
 };
 
+#include "compilerbitsettraits.hpp"
 #include "compiler.hpp"
-
-#endif //_COMPILER_H_

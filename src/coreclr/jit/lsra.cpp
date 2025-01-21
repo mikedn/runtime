@@ -6337,7 +6337,7 @@ static const char* getStatName(unsigned stat)
 #include "lsra_score.h"
     };
 
-    assert(stat < ArrLen(lsraStatNames));
+    assert(stat < _countof(lsraStatNames));
     return lsraStatNames[lsraStat];
 }
 
