@@ -4024,7 +4024,7 @@ public:
         return m_regType[i];
     }
 
-    regNumber GetRegNum(unsigned i) const;
+    RegNum GetRegNum(unsigned i) const;
 };
 
 class TailCallSiteInfo
@@ -4935,13 +4935,13 @@ public:
     }
 #endif
 
-    regNumber GetRegNum(unsigned i = 0) const
+    RegNum GetRegNum(unsigned i = 0) const
     {
         assert(i < m_regCount);
 #if defined(TARGET_ARM) && defined(FEATURE_HFA)
         if (m_regType == TYP_DOUBLE)
         {
-            return static_cast<regNumber>(m_regNum + i * 2);
+            return static_cast<RegNum>(m_regNum + i * 2);
         }
 #endif
 #ifdef WINDOWS_X86_ABI
@@ -4951,19 +4951,19 @@ public:
         }
 #endif
 #ifdef UNIX_AMD64_ABI
-        return static_cast<regNumber>(m_regNums[i]);
+        return static_cast<RegNum>(m_regNums[i]);
 #else
-        return static_cast<regNumber>(m_regNum + i);
+        return static_cast<RegNum>(m_regNum + i);
 #endif
     }
 
-    void SetRegNum(unsigned i, regNumber regNum)
+    void SetRegNum(unsigned i, RegNum regNum)
     {
 #ifdef UNIX_AMD64_ABI
         assert(i < m_regCount);
-        m_regNums[i] = static_cast<regNumberSmall>(regNum);
+        m_regNums[i] = static_cast<RegNumSmall>(regNum);
 #else
-        m_regNum = static_cast<regNumberSmall>(regNum);
+        m_regNum = static_cast<RegNumSmall>(regNum);
 #endif
     }
 

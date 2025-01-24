@@ -723,8 +723,8 @@ void Compiler::lvaInitUserParam(ParamAllocInfo& paramInfo, CORINFO_ARG_LIST_HAND
 
 void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
 {
-    regNumber reg0 = REG_NA;
-    regNumber reg1 = REG_NA;
+    RegNum reg0 = REG_NA;
+    RegNum reg1 = REG_NA;
 
     if (!varTypeIsStruct(lcl->GetType()))
     {
@@ -1122,7 +1122,7 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
                     printf(", ");
                 }
 
-                regNumber reg = lcl->GetParamReg(i);
+                RegNum reg = lcl->GetParamReg(i);
 
                 if (regType == TYP_DOUBLE)
                 {
@@ -1958,7 +1958,7 @@ bool Compiler::lvaIsOriginalThisParam(unsigned lclNum) const
 // the 'this' pointer to find out what 'T' is in order to tell if we
 // should catch the exception or not.
 //
-bool Compiler::lvaKeepAliveAndReportThis()
+bool Compiler::lvaKeepAliveAndReportThis() const
 {
     if (info.compIsStatic || !lvaGetDesc(0u)->TypeIs(TYP_REF))
     {
@@ -1972,90 +1972,90 @@ bool Compiler::lvaKeepAliveAndReportThis()
     }
 #endif
 
-    if (info.ThisParamIsGenericsContext())
+    if (!info.ThisParamIsGenericsContext())
     {
+        return false;
+    }
+
 #ifdef JIT32_GCENCODER
-        // TODO: Check if any of the exception clauses are typed using a generic type.
-        // Else, we do not need to report this.
-        if (info.compXcptnsCount > 0)
-        {
-            return true;
-        }
+    // TODO: Check if any of the exception clauses are typed using a generic type.
+    // Else, we do not need to report this.
+    if (info.compXcptnsCount > 0)
+    {
+        return true;
+    }
 
-        if (opts.compDbgCode)
-        {
-            return true;
-        }
+    if (opts.compDbgCode)
+    {
+        return true;
+    }
 #else
-        // If the generics context is the this pointer we need to report it if either
-        // the VM requires us to keep the generics context alive or it is used in a look-up.
-        // We keep it alive in the lookup scenario, even when the VM didn't ask us to,
-        // because collectible types need the generics context when GC-ing.
+    // If the generics context is the this pointer we need to report it if either
+    // the VM requires us to keep the generics context alive or it is used in a look-up.
+    // We keep it alive in the lookup scenario, even when the VM didn't ask us to,
+    // because collectible types need the generics context when GC-ing.
 
-        if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
-        {
-            JITDUMP("Reporting this as generic context: %s\n", "must keep");
-            return true;
-        }
+    if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
+    {
+        JITDUMP("Reporting this as generic context: %s\n", "must keep");
+        return true;
+    }
 #endif
 
-        if (lvaGenericsContextInUse)
-        {
-            JITDUMP("Reporting this as generic context: %s\n", "referenced");
-            return true;
-        }
+    if (lvaGenericsContextInUse)
+    {
+        JITDUMP("Reporting this as generic context: %s\n", "referenced");
+        return true;
     }
 
     return false;
 }
 
-bool Compiler::lvaReportParamTypeArg()
+bool Compiler::lvaReportParamTypeArg() const
 {
-    if (info.compMethodInfo->options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC | CORINFO_GENERICS_CTXT_FROM_METHODTABLE))
+    CorInfoOptions options = info.compMethodInfo->options;
+
+    if ((options & (CORINFO_GENERICS_CTXT_FROM_METHODDESC | CORINFO_GENERICS_CTXT_FROM_METHODTABLE)) == 0)
     {
-        assert(info.compTypeCtxtArg != BAD_VAR_NUM);
-
-        // If the VM requires us to keep the generics context alive and report it (for example, if any catch
-        // clause catches a type that uses a generic parameter of this method) this flag will be set.
-        if ((info.compMethodInfo->options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
-        {
-            return true;
-        }
-
-        // Otherwise, if an exact type parameter is needed in the body, report the generics context.
-        // We do this because collectible types needs the generics context when gc-ing.
-        if (lvaGenericsContextInUse)
-        {
-            return true;
-        }
+        return false;
     }
 
-    // Otherwise, we don't need to report it -- the generics context parameter is unused.
-    return false;
+    assert(info.compTypeCtxtArg != BAD_VAR_NUM);
+
+    // If the VM requires us to keep the generics context alive and report it (for example, if any catch
+    // clause catches a type that uses a generic parameter of this method) this flag will be set.
+    if ((options & CORINFO_GENERICS_CTXT_KEEP_ALIVE) != 0)
+    {
+        return true;
+    }
+
+    // Otherwise, if an exact type parameter is needed in the body, report the generics context.
+    // We do this because collectible types needs the generics context when gc-ing.
+    return lvaGenericsContextInUse;
 }
 
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for small code.
 struct LclVarDsc_SmallCode_Less
 {
-    bool operator()(const LclVarDsc* dsc1, const LclVarDsc* dsc2)
+    bool operator()(const LclVarDsc* lcl1, const LclVarDsc* lcl2) const
     {
         // We should not be sorting untracked variables
-        assert(dsc1->lvTracked);
-        assert(dsc2->lvTracked);
+        assert(lcl1->lvTracked);
+        assert(lcl2->lvTracked);
         // We should not be sorting after registers have been allocated
-        assert(!dsc1->lvRegister);
-        assert(!dsc2->lvRegister);
+        assert(!lcl1->lvRegister);
+        assert(!lcl2->lvRegister);
 
-        unsigned refCount1 = dsc1->GetRefCount();
-        unsigned refCount2 = dsc2->GetRefCount();
+        unsigned refCount1 = lcl1->GetRefCount();
+        unsigned refCount2 = lcl2->GetRefCount();
 
 #ifndef TARGET_ARM
         // ARM-TODO: this was disabled for ARM under !FEATURE_FP_REGALLOC; it was probably a left-over from
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = varTypeUsesFloatReg(dsc1->GetType());
-        const bool isFloat2 = varTypeUsesFloatReg(dsc2->GetType());
+        const bool isFloat1 = varTypeUsesFloatReg(lcl1->GetType());
+        const bool isFloat2 = varTypeUsesFloatReg(lcl2->GetType());
 
         if (isFloat1 != isFloat2)
         {
@@ -2076,8 +2076,8 @@ struct LclVarDsc_SmallCode_Less
             return refCount1 > refCount2;
         }
 
-        const BasicBlock::weight_t weight1 = dsc1->GetRefWeight();
-        const BasicBlock::weight_t weight2 = dsc2->GetRefWeight();
+        const BasicBlock::weight_t weight1 = lcl1->GetRefWeight();
+        const BasicBlock::weight_t weight2 = lcl2->GetRefWeight();
 
         // If the weighted ref counts are different then use their difference.
         if (weight1 != weight2)
@@ -2094,12 +2094,12 @@ struct LclVarDsc_SmallCode_Less
 
         if (refCount1 != 0)
         {
-            if (dsc1->IsRegParam())
+            if (lcl1->IsRegParam())
             {
                 refCount1 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
 
-            if (varTypeIsGC(dsc1->GetType()))
+            if (varTypeIsGC(lcl1->GetType()))
             {
                 refCount1 += BB_UNITY_WEIGHT_UNSIGNED / 2;
             }
@@ -2107,12 +2107,12 @@ struct LclVarDsc_SmallCode_Less
 
         if (refCount2 != 0)
         {
-            if (dsc2->IsRegParam())
+            if (lcl2->IsRegParam())
             {
                 refCount2 += 2 * BB_UNITY_WEIGHT_UNSIGNED;
             }
 
-            if (varTypeIsGC(dsc2->GetType()))
+            if (varTypeIsGC(lcl2->GetType()))
             {
                 refCount2 += BB_UNITY_WEIGHT_UNSIGNED / 2;
             }
@@ -2124,32 +2124,32 @@ struct LclVarDsc_SmallCode_Less
         }
 
         // To achieve a stable sort we use the LclNum.
-        return dsc1->GetLclNum() < dsc2->GetLclNum();
+        return lcl1->GetLclNum() < lcl2->GetLclNum();
     }
 };
 
 // LclVarDsc "less" comparer used to compare the weight of two locals, when optimizing for blended code.
 struct LclVarDsc_BlendedCode_Less
 {
-    bool operator()(const LclVarDsc* dsc1, const LclVarDsc* dsc2)
+    bool operator()(const LclVarDsc* lcl1, const LclVarDsc* lcl2) const
     {
         // We should not be sorting untracked variables
-        assert(dsc1->lvTracked);
-        assert(dsc2->lvTracked);
+        assert(lcl1->lvTracked);
+        assert(lcl2->lvTracked);
         // We should not be sorting after registers have been allocated
-        assert(!dsc1->lvRegister);
-        assert(!dsc2->lvRegister);
+        assert(!lcl1->lvRegister);
+        assert(!lcl2->lvRegister);
 
-        BasicBlock::weight_t weight1 = dsc1->GetRefWeight();
-        BasicBlock::weight_t weight2 = dsc2->GetRefWeight();
+        BasicBlock::weight_t weight1 = lcl1->GetRefWeight();
+        BasicBlock::weight_t weight2 = lcl2->GetRefWeight();
 
 #ifndef TARGET_ARM
         // ARM-TODO: this was disabled for ARM under !FEATURE_FP_REGALLOC; it was probably a left-over from
         // legacy backend. It should be enabled and verified.
 
         // Force integer candidates to sort above float candidates.
-        const bool isFloat1 = varTypeUsesFloatReg(dsc1->GetType());
-        const bool isFloat2 = varTypeUsesFloatReg(dsc2->GetType());
+        const bool isFloat1 = varTypeUsesFloatReg(lcl1->GetType());
+        const bool isFloat2 = varTypeUsesFloatReg(lcl2->GetType());
 
         if (isFloat1 != isFloat2)
         {
@@ -2165,12 +2165,12 @@ struct LclVarDsc_BlendedCode_Less
         }
 #endif
 
-        if ((weight1 != 0) && dsc1->IsRegParam())
+        if ((weight1 != 0) && lcl1->IsRegParam())
         {
             weight1 += 2 * BB_UNITY_WEIGHT;
         }
 
-        if ((weight2 != 0) && dsc2->IsRegParam())
+        if ((weight2 != 0) && lcl2->IsRegParam())
         {
             weight2 += 2 * BB_UNITY_WEIGHT;
         }
@@ -2180,8 +2180,8 @@ struct LclVarDsc_BlendedCode_Less
             return weight1 > weight2;
         }
 
-        const unsigned refCount1 = dsc1->GetRefCount();
-        const unsigned refCount2 = dsc2->GetRefCount();
+        const unsigned refCount1 = lcl1->GetRefCount();
+        const unsigned refCount2 = lcl2->GetRefCount();
 
         // If the weighted ref counts are different then try the unweighted ref counts.
         if (refCount1 != refCount2)
@@ -2190,13 +2190,13 @@ struct LclVarDsc_BlendedCode_Less
         }
 
         // If one is a GC type and the other is not the GC type wins.
-        if (varTypeIsGC(dsc1->GetType()) != varTypeIsGC(dsc2->GetType()))
+        if (varTypeIsGC(lcl1->GetType()) != varTypeIsGC(lcl2->GetType()))
         {
-            return varTypeIsGC(dsc1->GetType());
+            return varTypeIsGC(lcl1->GetType());
         }
 
         // To achieve a stable sort we use the LclNum.
-        return dsc1->GetLclNum() < dsc2->GetLclNum();
+        return lcl1->GetLclNum() < lcl2->GetLclNum();
     }
 };
 
@@ -5273,23 +5273,20 @@ void Compiler::lvaDumpRegLocation(LclVarDsc* lcl)
     }
     else
 #endif
+    {
+        printf("%3s        ", getRegName(reg)
 #ifdef TARGET_XARCH
-        if (varTypeUsesFloatReg(lcl->GetType()))
-    {
-        // TODO-MIKE-Cleanup: Remove this workaround. Old getRegName returned bogus names
-        // for XMM registers - mm0-mm15 - fixing it resulted in disassembly diffs.
-        printf("%3s        ", getRegName(reg) + 1);
-    }
-    else
+                                  // TODO-MIKE-Cleanup: Remove this workaround. Old getRegName returned bogus names
+                                  // for XMM registers - mm0-mm15 - fixing it resulted in disassembly diffs.
+                                  + varTypeUsesFloatReg(lcl->GetType())
 #endif
-    {
-        printf("%3s        ", getRegName(reg));
+                   );
     }
 }
 
 // Dump the frame location assigned to a local.
 // It's the home location, even though the variable doesn't always live in its home location.
-void Compiler::lvaDumpFrameLocation(LclVarDsc* lcl)
+void Compiler::lvaDumpFrameLocation(LclVarDsc* lcl) const
 {
     bool   fpBased;
     int    offset  = lvaLclFrameAddress(lcl, &fpBased);

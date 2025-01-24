@@ -297,7 +297,7 @@ void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     change->regs         = static_cast<RegSet>(regs);
 }
 
-void GCInfo::AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs)
+void GCInfo::AddLiveReg(GCtype type, RegNum reg, unsigned codeOffs)
 {
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
     assert(type != GCT_NONE);
@@ -365,7 +365,7 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
         while (change != RBM_NONE)
         {
             regMaskTP regMask = genFindLowestReg(change);
-            regNumber reg     = genRegNumFromMask(regMask);
+            RegNum    reg     = genRegNumFromMask(regMask);
 
             if ((life & regMask) != RBM_NONE)
             {
@@ -398,7 +398,7 @@ void GCInfo::SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
 }
 
-void GCInfo::RemoveLiveReg(regNumber reg, unsigned codeOffs)
+void GCInfo::RemoveLiveReg(RegNum reg, unsigned codeOffs)
 {
     assert((liveRefRegs & liveByrefRegs) == RBM_NONE);
 

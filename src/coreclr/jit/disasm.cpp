@@ -795,8 +795,8 @@ size_t __stdcall DisAssembler::disCchReg(const DIS* pdis, DIS::REGA reg, __in_ec
 
 size_t DisAssembler::disCchRegMember(const DIS* pdis, DIS::REGA reg, __in_ecount(cchMax) wchar_t* wz, size_t cchMax)
 {
-    // TODO-Review: DIS::REGA does not directly map to our regNumber! E.g., look at DISARM64::REGA --
-    // the Wt registers come first (and do map to our regNumber), but the Xt registers follow.
+    // TODO-Review: DIS::REGA does not directly map to our RegNum! E.g., look at DISARM64::REGA --
+    // the Wt registers come first (and do map to our RegNum), but the Xt registers follow.
     // Until this is fixed, don't use this function!
     disHasName = false;
     return 0;

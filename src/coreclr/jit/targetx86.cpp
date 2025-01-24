@@ -11,11 +11,11 @@ const char* Target::CpuName()
     return "x86";
 }
 
-const regNumber intArgRegs[]{REG_ECX, REG_EDX};
+const RegNum    intArgRegs[]{REG_ECX, REG_EDX};
 const regMaskTP intArgMasks[]{RBM_ECX, RBM_EDX};
 
-const regNumber longShiftHelperArgRegs[]{REG_EAX, REG_EDX, REG_ECX};
-const regNumber initPInvokeFrameArgRegs[]{REG_PINVOKE_FRAME};
+const RegNum longShiftHelperArgRegs[]{REG_EAX, REG_EDX, REG_ECX};
+const RegNum initPInvokeFrameArgRegs[]{REG_PINVOKE_FRAME};
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 

@@ -1133,7 +1133,7 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex)
 {
     var_types type   = varActualType(arg->GetType());
-    regNumber argReg = argInfo->GetRegNum(regIndex);
+    RegNum    argReg = argInfo->GetRegNum(regIndex);
 
 #ifdef TARGET_ARM
     // LONG args are passed via FIELD_LIST.

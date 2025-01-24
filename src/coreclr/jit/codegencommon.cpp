@@ -1715,13 +1715,13 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                 noway_assert((liveParamRegs & regMask) != RBM_NONE);
             }
 
-            paramRegs[paramRegIndex + i].writeThru = lcl->lvIsInReg() && lcl->lvLiveInOutOfHndlr;
-            paramRegs[paramRegIndex + i].stackArg  = !lcl->lvIsInReg();
+            paramRegs[paramRegIndex + i].writeThru = lcl->IsInReg() && lcl->lvLiveInOutOfHndlr;
+            paramRegs[paramRegIndex + i].stackArg  = !lcl->IsInReg();
 
             // If it goes on the stack or in a register that doesn't hold
             // an argument anymore -> CANNOT form a circular dependency.
 
-            if (!lcl->lvIsInReg() || ((regMask & liveParamRegs) == RBM_NONE))
+            if (!lcl->IsInReg() || ((regMask & liveParamRegs) == RBM_NONE))
             {
                 liveParamRegs &= ~regMask;
 
@@ -1789,7 +1789,7 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
             LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
             // Cannot possibly have stack arguments.
-            noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].stackArg);
+            noway_assert(lcl->IsInReg() && !paramRegs[paramRegIndex].stackArg);
 
             const var_types lclRegType = lcl->GetRegisterType();
             var_types       regType    = paramRegs[paramRegIndex].type;
@@ -1939,7 +1939,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
 #endif
 
         noway_assert(!paramRegs[paramRegIndex].circular);
-        noway_assert(!lcl->lvIsInReg() || lcl->lvLiveInOutOfHndlr ||
+        noway_assert(!lcl->IsInReg() || lcl->lvLiveInOutOfHndlr ||
                      (lcl->TypeIs(TYP_LONG) && (paramRegs[paramRegIndex].regIndex == 1)));
 
         var_types storeType = TYP_UNDEF;
@@ -2312,7 +2312,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
             LclVarDsc* lcl = paramRegs[paramRegIndex].lcl;
 
-            noway_assert(lcl->lvIsInReg() && !paramRegs[paramRegIndex].circular);
+            noway_assert(lcl->IsInReg() && !paramRegs[paramRegIndex].circular);
 #ifdef TARGET_X86
             // On x86 we don't enregister args that are not pointer sized.
             noway_assert(varTypeSize(lcl->GetActualRegisterType()) == REGSIZE_BYTES);
@@ -2597,7 +2597,7 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
             continue;
         }
 
-        if (!lcl->lvIsInReg())
+        if (!lcl->IsInReg())
         {
             continue;
         }
@@ -2685,7 +2685,7 @@ void CodeGen::MarkStackLocals()
         }
 
         // It must be in a register, on frame, or have zero references.
-        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame || (lcl->GetRefCount() == 0));
+        noway_assert(lcl->IsInReg() || lcl->lvOnFrame || (lcl->GetRefCount() == 0));
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
@@ -2719,7 +2719,7 @@ void CodeGen::CheckUseBlockInit()
 
     for (LclVarDsc* lcl : compiler->Locals())
     {
-        if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
+        if (!lcl->IsInReg() && !lcl->lvOnFrame)
         {
             noway_assert(lcl->GetRefCount() == 0);
             continue;
@@ -2770,7 +2770,7 @@ void CodeGen::CheckUseBlockInit()
         if (isTracked && (lcl->lvMustInit ||
                           VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex())))
         {
-            if (!lcl->lvOnFrame || (lcl->lvIsInReg() && !lcl->lvLiveInOutOfHndlr))
+            if (!lcl->lvOnFrame || (lcl->IsInReg() && !lcl->lvLiveInOutOfHndlr))
             {
                 // We only need to init the register the local is in.
                 lcl->lvMustInit = true;
@@ -2883,7 +2883,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
             continue;
         }
 
-        if (!lcl->lvIsInReg() && !lcl->lvOnFrame)
+        if (!lcl->IsInReg() && !lcl->lvOnFrame)
         {
             noway_assert(lcl->GetRefCount() == 0);
             continue;
@@ -2902,7 +2902,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
             continue;
         }
 
-        bool isInReg    = lcl->lvIsInReg();
+        bool isInReg    = lcl->IsInReg();
         bool isInMemory = !isInReg || lcl->lvLiveInOutOfHndlr;
 
         if (isInMemory)
@@ -2916,13 +2916,13 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
             continue;
         }
 
-        // Note that lvIsInReg will only be accurate for variables that are actually live-in to
+        // Note that IsInReg will only be accurate for variables that are actually live-in to
         // the first block. This will include all possibly-uninitialized locals, whose liveness
         // will naturally propagate up to the entry block. However, we also set lvMustInit for
         // locals that are live-in to a finally block, and those may not be live-in to the first
         // block. For those, we don't want to initialize the register, as it will not actually be
         // occupying it on entry.
-        // TODO-MIKE-Review: So why would lvIsInReg be true for such variables?
+        // TODO-MIKE-Review: So why would IsInReg be true for such variables?
 
         if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
@@ -3030,7 +3030,7 @@ void CodeGen::PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZero
 
         // TODO-Review: I'm not sure that we're correctly handling the mustInit case for
         // partially-enregistered vars in the case where we don't use a block init.
-        noway_assert(lcl->lvIsInReg() || lcl->lvOnFrame);
+        noway_assert(lcl->IsInReg() || lcl->lvOnFrame);
 
         // lvMustInit can only be set for GC types or TYP_STRUCT types
         // or when compInitMem is true
@@ -3116,7 +3116,7 @@ void CodeGen::PrologInitOsrLocals()
                 continue;
             }
 
-            if (!lcl->lvIsInReg())
+            if (!lcl->IsInReg())
             {
                 JITDUMP("---OSR--- V%02u in memory\n", lcl->GetLclNum());
                 continue;

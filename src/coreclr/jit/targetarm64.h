@@ -253,7 +253,7 @@
   #define REG_ARG_6                REG_R6
   #define REG_ARG_7                REG_R7
 
-  extern const regNumber intArgRegs [MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
 
   #define RBM_ARG_0                RBM_R0
@@ -286,7 +286,7 @@
   #define RBM_ARG_REGS            (RBM_ARG_0|RBM_ARG_1|RBM_ARG_2|RBM_ARG_3|RBM_ARG_4|RBM_ARG_5|RBM_ARG_6|RBM_ARG_7)
   #define RBM_FLTARG_REGS         (RBM_FLTARG_0|RBM_FLTARG_1|RBM_FLTARG_2|RBM_FLTARG_3|RBM_FLTARG_4|RBM_FLTARG_5|RBM_FLTARG_6|RBM_FLTARG_7)
 
-  extern const regNumber fltArgRegs [MAX_FLOAT_REG_ARG];
+  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   // The number of bytes from the end the last probed page that must also be probed, to allow for some
@@ -305,17 +305,17 @@
 
 // clang-format on
 
-constexpr bool IsGeneralRegister(regNumber reg)
+constexpr bool IsGeneralRegister(RegNum reg)
 {
-    return (reg >= REG_INT_FIRST) && (reg <= REG_LR);
+    return (REG_INT_FIRST <= reg) && (reg <= REG_LR);
 }
 
-constexpr bool IsVectorRegister(regNumber reg)
+constexpr bool IsVectorRegister(RegNum reg)
 {
-    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+    return (REG_FP_FIRST <= reg) && (reg <= REG_FP_LAST);
 }
 
-constexpr bool IsFloatReg(regNumber reg)
+constexpr bool IsFloatReg(RegNum reg)
 {
     return IsVectorRegister(reg);
 }

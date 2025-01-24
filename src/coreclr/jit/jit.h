@@ -104,8 +104,6 @@ inline IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
 
 using ssize_t = ptrdiff_t;
 
-#include "vartype.h"
-
 #if defined(LATE_DISASM) && (LATE_DISASM == 0)
 #undef LATE_DISASM
 #endif
@@ -249,6 +247,7 @@ private:
 
 #include "error.h"
 #include "alloc.h"
+#include "vartype.h"
 #include "target.h"
 
 class Compiler;

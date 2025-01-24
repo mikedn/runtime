@@ -1333,6 +1333,9 @@ regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
 {
     LclVarDsc* lcl = node->GetLcl();
     assert(lcl->IsRegCandidate());
+    RegNum srcReg = lcl->GetRegNum();
+    RegNum dstReg = node->GetRegNum();
+    assert(dstReg != REG_NA);
 
     // Handle the case where we have a local that needs to be copied before use (i.e. because it
     // interferes with one of the other sources (or the target, if it's a "delayed use" register)).
@@ -1344,11 +1347,11 @@ regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
     // location, which matches the GetRegNum() on the node).
     // (Note that it doesn't matter if we call this before or after UnspillRegIfNeeded
     // because if it's on the stack it will always get reloaded into node->GetRegNum()).
-    if (lcl->GetRegNum() != REG_STK)
+    if (srcReg != REG_STK)
     {
         var_types dstType = lcl->GetRegisterType(node);
-        GetEmitter()->emitIns_Mov(ins_Copy(lcl->GetRegNum(), dstType), emitActualTypeSize(dstType), node->GetRegNum(),
-                                  lcl->GetRegNum(), /* canSkip */ true);
+        GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg,
+                                  /* canSkip */ true);
     }
 
     if (node->IsAnyRegSpilled())
@@ -1357,22 +1360,11 @@ regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
     }
 
     liveness.UpdateLife(this, node);
-
-    assert(node->GetRegNum() != REG_NA);
-
-    if (lcl->GetRegNum() == REG_STK)
-    {
-        // We have loaded this into a register only temporarily
-        liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
-    }
-    else if (node->IsLastUse(0))
-    {
-        liveness.RemoveGCRegs(genRegMask(lcl->GetRegNum()));
-    }
+    liveness.RemoveGCRegs(genRegMask(srcReg == REG_STK ? dstReg : srcReg));
 
     INDEBUG(VerifyUseOrder(node));
 
-    return node->GetRegNum();
+    return dstReg;
 }
 
 // This will copy the register produced by this node's source, to the register

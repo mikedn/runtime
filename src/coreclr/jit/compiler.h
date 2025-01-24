@@ -305,7 +305,7 @@ public:
 #ifdef TARGET_ARM
     bool IsPreSpilledRegParam(regMaskTP preSpillMask) const
     {
-        return lvIsRegArg && (preSpillMask & genRegMask(GetParamReg()));
+        return lvIsRegArg && ((preSpillMask & genRegMask(GetParamReg())) != RBM_NONE);
     }
 #endif
 
@@ -571,9 +571,9 @@ public:
         return lvLRACandidate;
     }
 
-    bool lvIsInReg() const
+    bool IsInReg() const
     {
-        return lvLRACandidate && (GetRegNum() != REG_STK);
+        return lvLRACandidate && (m_reg != REG_STK);
     }
 
     bool HasLiveness() const
@@ -2803,7 +2803,7 @@ public:
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTreeIntCon* gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq);
 
-    GenTreePhysReg* gtNewPhysRegNode(regNumber reg, var_types type);
+    GenTreePhysReg* gtNewPhysRegNode(RegNum reg, var_types type);
 
     GenTree* gtNewJmpTableNode();
 
@@ -3350,9 +3350,9 @@ public:
     void lvSetMinOptsDoNotEnreg();
 
     // Synchronized instance method of a reference type, or CORINFO_GENERICS_CTXT_FROM_THIS?
-    bool lvaKeepAliveAndReportThis();
+    bool lvaKeepAliveAndReportThis() const;
     // Exceptions and CORINFO_GENERICS_CTXT_FROM_PARAMTYPEARG?
-    bool lvaReportParamTypeArg();
+    bool lvaReportParamTypeArg() const;
 
     unsigned lvaGetParamAllocSize(LclVarDsc* lcl);
     static unsigned lvaGetParamAlignment(var_types type, bool isFloatHfa);
@@ -3378,8 +3378,8 @@ public:
                          );
 
 #ifdef DEBUG
-    void lvaDumpRegLocation(LclVarDsc* lcl);
-    void lvaDumpFrameLocation(LclVarDsc* lcl);
+    static void lvaDumpRegLocation(LclVarDsc* lcl);
+    void lvaDumpFrameLocation(LclVarDsc* lcl) const;
     void lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth = 6);
     void lvaTableDump();
 #endif
@@ -5105,27 +5105,6 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
-
-public:
-#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-#if defined(TARGET_AMD64)
-    static bool varTypeNeedsPartialCalleeSave(var_types type)
-    {
-        assert(type != TYP_STRUCT);
-        return (type == TYP_SIMD32);
-    }
-#elif defined(TARGET_ARM64)
-    static bool varTypeNeedsPartialCalleeSave(var_types type)
-    {
-        assert(type != TYP_STRUCT);
-        // ARM64 ABI FP Callee save registers only require Callee to save lower 8 Bytes
-        // For SIMD types longer than 8 bytes Caller is responsible for saving and restoring Upper bytes.
-        return ((type == TYP_SIMD16) || (type == TYP_SIMD12));
-    }
-#else // !defined(TARGET_AMD64) && !defined(TARGET_ARM64)
-#error("Unknown target architecture for FEATURE_SIMD")
-#endif // !defined(TARGET_AMD64) && !defined(TARGET_ARM64)
-#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 protected:
     bool rpMustCreateEBPFrame();

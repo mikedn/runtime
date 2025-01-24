@@ -42,12 +42,12 @@ public:
         return AreRegsAvailable(type, count);
     }
 
-    regNumber AllocReg(var_types type)
+    RegNum AllocReg(var_types type)
     {
         return genMapRegArgNumToRegNum(AllocRegIndex(type), type);
     }
 
-    regNumber AllocRegs(var_types type, unsigned count)
+    RegNum AllocRegs(var_types type, unsigned count)
     {
         return genMapRegArgNumToRegNum(AllocRegIndex(type, count), type);
     }

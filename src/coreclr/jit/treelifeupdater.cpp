@@ -40,16 +40,9 @@ void CodeGenLivenessUpdater::End(CodeGen* codeGen)
 
 static regMaskTP GetLclRegs(const LclVarDsc* lcl)
 {
-    assert(lcl->lvIsInReg());
+    assert(lcl->IsInReg());
 
-#ifdef TARGET_ARM
-    if (lcl->TypeIs(TYP_DOUBLE))
-    {
-        return genRegMaskDouble(lcl->GetRegNum());
-    }
-#endif
-
-    return genRegMask(lcl->GetRegNum());
+    return genRegMask(lcl->GetRegNum() ARM_ARG(lcl->GetType()));
 }
 
 void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* varRegMap)
@@ -79,8 +72,8 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
                 continue;
             }
 
-            regNumber oldRegNum = lcl->GetRegNum();
-            regNumber newRegNum = static_cast<regNumber>(varRegMap[en.Current()]);
+            RegNum oldRegNum = lcl->GetRegNum();
+            RegNum newRegNum = static_cast<RegNum>(varRegMap[en.Current()]);
 
             if (oldRegNum != newRegNum)
             {
@@ -134,7 +127,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
         {
             LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(en.Current());
 
-            if (lcl->lvIsInReg())
+            if (lcl->IsInReg())
             {
                 regMaskTP lclRegs = GetLclRegs(lcl);
 
@@ -152,7 +145,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
 
             if (lcl->HasGCSlotLiveness())
             {
-                if (lcl->lvIsInReg() && !lcl->IsAlwaysAliveInMemory())
+                if (lcl->IsInReg() && !lcl->IsAlwaysAliveInMemory())
                 {
                     VarSetOps::RemoveElemD(compiler, liveGCLcl, en.Current());
                 }
@@ -221,7 +214,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* l
             lcl->SetRegNum(lclNode->GetRegNum());
         }
 
-        bool isInReg = lcl->lvIsInReg() && (lclNode->GetRegNum() != REG_NA);
+        bool isInReg = lcl->IsInReg() && (lclNode->GetRegNum() != REG_NA);
 
         if (isInReg)
         {
@@ -317,7 +310,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStor
     {
         LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
-        bool isInReg      = fieldLcl->lvIsInReg();
+        bool isInReg      = fieldLcl->IsInReg();
         bool isFieldDying = store->IsLastUse(i);
 
         if (isInReg)
@@ -581,7 +574,7 @@ void CodeGenLivenessUpdater::RemoveGCRegs(regMaskTP regs DEBUGARG(bool forceOutp
     liveGCByRefRegs = newByRefRegs;
 }
 
-void CodeGenLivenessUpdater::SetGCRegType(regNumber reg, var_types type)
+void CodeGenLivenessUpdater::SetGCRegType(RegNum reg, var_types type)
 {
     regMaskTP regs = genRegMask(reg);
 
@@ -599,7 +592,7 @@ void CodeGenLivenessUpdater::SetGCRegType(regNumber reg, var_types type)
     }
 }
 
-void CodeGenLivenessUpdater::TransferGCRegType(regNumber dst, regNumber src)
+void CodeGenLivenessUpdater::TransferGCRegType(RegNum dst, RegNum src)
 {
     regMaskTP srcMask = genRegMask(src);
     regMaskTP dstMask = genRegMask(dst);

@@ -669,7 +669,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
                 const unsigned varIndex = e.Current();
                 LclVarDsc*     lcl      = compiler->lvaGetDescByTrackedIndex(varIndex);
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-                if (Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
+                if (varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
                 {
                     if (!VarSetOps::IsMember(compiler, largeVectorCalleeSaveCandidateVars, varIndex))
                     {
@@ -840,7 +840,7 @@ void LinearScan::buildInternalRegisterUses()
 void LinearScan::makeUpperVectorInterval(unsigned varIndex)
 {
     Interval* lclVarInterval = getIntervalForLocalVar(varIndex);
-    assert(Compiler::varTypeNeedsPartialCalleeSave(lclVarInterval->registerType));
+    assert(varTypeNeedsPartialCalleeSave(lclVarInterval->registerType));
     Interval* newInt        = newInterval(LargeVectorSaveType);
     newInt->relatedInterval = lclVarInterval;
     newInt->isUpperVector   = true;
@@ -918,7 +918,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
             assert((regType != TYP_STRUCT) && (regType != TYP_UNDEF));
         }
 
-        if (Compiler::varTypeNeedsPartialCalleeSave(regType))
+        if (varTypeNeedsPartialCalleeSave(regType))
         {
             // In the rare case where such an interval is live across nested calls, we don't need to insert another.
             if (def->ref->getInterval()->recentRefPosition->refType != RefTypeUpperVectorSave)
@@ -2225,16 +2225,15 @@ void LinearScan::identifyCandidates()
     // additional set of LargeVectorType vars, and there is a separate threshold defined for those.
     // It is assumed that if we encounter these, that we should consider this a "high use" scenario,
     // so we don't maintain two sets of these vars.
-    // This is defined as thresholdLargeVectorRefCntWtd, as we are likely to use the same mechanism
+    // This is defined as thresholdLargeVectorRefWeight, as we are likely to use the same mechanism
     // for vectors on Arm64, though the actual value may differ.
 
-    unsigned int         floatVarCount        = 0;
-    BasicBlock::weight_t thresholdFPRefCntWtd = 4 * BB_UNITY_WEIGHT;
-    BasicBlock::weight_t maybeFPRefCntWtd     = 2 * BB_UNITY_WEIGHT;
-    VARSET_TP            fpMaybeCandidateVars(VarSetOps::UninitVal());
+    unsigned                   floatLclCount        = 0;
+    BasicBlock::weight_t const thresholdFPRefWeight = 4 * BB_UNITY_WEIGHT;
+    BasicBlock::weight_t const maybeFPRefWeight     = 2 * BB_UNITY_WEIGHT;
+    VARSET_TP                  fpMaybeCandidateVars = VarSetOps::UninitVal();
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    unsigned int         largeVectorVarCount           = 0;
-    BasicBlock::weight_t thresholdLargeVectorRefCntWtd = 4 * BB_UNITY_WEIGHT;
+    BasicBlock::weight_t const thresholdLargeVectorRefWeight = 4 * BB_UNITY_WEIGHT;
 #endif
 
     if (enregisterLocalVars)
@@ -2417,7 +2416,7 @@ void LinearScan::identifyCandidates()
         INTRACK_STATS(regCandidateVarCount++);
 
         // We maintain two sets of FP vars - those that meet the first threshold of weighted ref Count,
-        // and those that meet the second (see the definitions of thresholdFPRefCntWtd and maybeFPRefCntWtd
+        // and those that meet the second (see the definitions of thresholdFPRefWeight and maybeFPRefWeight
         // above).
         CLANG_FORMAT_COMMENT_ANCHOR;
 
@@ -2425,13 +2424,11 @@ void LinearScan::identifyCandidates()
         // Additionally, when we are generating code for a target with partial SIMD callee-save
         // (AVX on non-UNIX amd64 and 16-byte vectors on arm64), we keep a separate set of the
         // LargeVectorType vars.
-        if (Compiler::varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
+        if (varTypeNeedsPartialCalleeSave(lcl->GetRegisterType()))
         {
-            largeVectorVarCount++;
             VarSetOps::AddElemD(compiler, largeVectorVars, lcl->GetLivenessBitIndex());
-            BasicBlock::weight_t refCntWtd = lcl->GetRefWeight();
 
-            if (refCntWtd >= thresholdLargeVectorRefCntWtd)
+            if (lcl->GetRefWeight() >= thresholdLargeVectorRefWeight)
             {
                 VarSetOps::AddElemD(compiler, largeVectorCalleeSaveCandidateVars, lcl->GetLivenessBitIndex());
             }
@@ -2440,20 +2437,21 @@ void LinearScan::identifyCandidates()
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
             if (varTypeUsesFloatReg(type))
         {
-            floatVarCount++;
-            BasicBlock::weight_t refCntWtd = lcl->GetRefWeight();
+            floatLclCount++;
+            BasicBlock::weight_t refWeight = lcl->GetRefWeight();
 
             if (lcl->IsRegParam())
             {
                 // Don't count the initial reference for register params.  In those cases,
                 // using a callee-save causes an extra copy.
-                refCntWtd -= BB_UNITY_WEIGHT;
+                refWeight -= BB_UNITY_WEIGHT;
             }
-            if (refCntWtd >= thresholdFPRefCntWtd)
+
+            if (refWeight >= thresholdFPRefWeight)
             {
                 VarSetOps::AddElemD(compiler, fpCalleeSaveCandidateVars, lcl->GetLivenessBitIndex());
             }
-            else if (refCntWtd >= maybeFPRefCntWtd)
+            else if (refWeight >= maybeFPRefWeight)
             {
                 VarSetOps::AddElemD(compiler, fpMaybeCandidateVars, lcl->GetLivenessBitIndex());
             }
@@ -2514,11 +2512,11 @@ void LinearScan::identifyCandidates()
     }
 #endif
 
-    JITDUMP("floatVarCount = %d; hasLoops = %d, singleExit = %d\n", floatVarCount, compiler->fgHasLoops,
+    JITDUMP("floatVarCount = %d; hasLoops = %d, singleExit = %d\n", floatLclCount, compiler->fgHasLoops,
             (compiler->fgReturnBlocks == nullptr || compiler->fgReturnBlocks->next == nullptr));
 
     // Determine whether to use the 2nd, more aggressive, threshold for fp callee saves.
-    if (floatVarCount > 6 && compiler->fgHasLoops &&
+    if ((floatLclCount > 6) && compiler->fgHasLoops &&
         (compiler->fgReturnBlocks == nullptr || compiler->fgReturnBlocks->next == nullptr))
     {
         assert(enregisterLocalVars);
@@ -2527,6 +2525,7 @@ void LinearScan::identifyCandidates()
         if (verbose)
         {
             printf("Adding additional fp callee save candidates: \n");
+
             if (!VarSetOps::IsEmpty(compiler, fpMaybeCandidateVars))
             {
                 dumpConvertedVarSet(compiler, fpMaybeCandidateVars);
@@ -3367,7 +3366,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, Ref
     }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    if (Compiler::varTypeNeedsPartialCalleeSave(varDefInterval->registerType))
+    if (varTypeNeedsPartialCalleeSave(varDefInterval->registerType))
     {
         varDefInterval->isPartiallySpilled = false;
     }
@@ -3780,7 +3779,7 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 {
     assert(putArg->OperIs(GT_PUTARG_REG));
 
-    regNumber argReg = putArg->GetRegNum();
+    RegNum argReg = putArg->GetRegNum();
     assert(argReg != REG_NA);
 
     GenTree* src = putArg->GetOp(0);

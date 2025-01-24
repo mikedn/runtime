@@ -141,8 +141,8 @@ struct DbgInfoVarLoc
 #endif
 
 private:
-    void InitRegLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
-    void InitStackLocation(const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed);
+    void InitRegLocation(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed);
+    void InitStackLocation(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed);
 };
 
 bool operator==(const DbgInfoVarLoc& x, const DbgInfoVarLoc& y);
@@ -276,8 +276,8 @@ public:
     }
 
     void RemoveGCRegs(regMaskTP regMask DEBUGARG(bool forceOutput = false));
-    void SetGCRegType(regNumber reg, var_types type);
-    void TransferGCRegType(regNumber dst, regNumber src);
+    void SetGCRegType(RegNum reg, var_types type);
+    void TransferGCRegType(RegNum dst, RegNum src);
 
     void SetGCRegs(var_types type, regMaskTP regs)
     {

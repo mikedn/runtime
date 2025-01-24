@@ -210,10 +210,10 @@
   #define REG_ARG_0                REG_ECX
   #define REG_ARG_1                REG_EDX
 
-  extern const regNumber intArgRegs [MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
-  extern const regNumber longShiftHelperArgRegs[3];
-  extern const regNumber initPInvokeFrameArgRegs[1];
+  extern const RegNum longShiftHelperArgRegs[3];
+  extern const RegNum initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_ECX
   #define RBM_ARG_1                RBM_EDX
@@ -251,12 +251,12 @@
   #define RBM_NON_BYTE_REGS       (RBM_ESI|RBM_EDI)
 // clang-format on
 
-constexpr bool IsGeneralRegister(regNumber reg)
+constexpr bool IsGeneralRegister(RegNum reg)
 {
-    return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
+    return (REG_INT_FIRST <= reg) && (reg <= REG_INT_LAST);
 }
 
-constexpr bool IsFloatReg(regNumber reg)
+constexpr bool IsFloatReg(RegNum reg)
 {
-    return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
+    return (REG_FP_FIRST <= reg) && (reg <= REG_FP_LAST);
 }

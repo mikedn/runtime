@@ -65,26 +65,9 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 
 void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 {
-    regNumber regGSCheck;
+    RegNum regGSCheck;
 
-    if (!tailCallEpilog)
-    {
-        // We can use any callee trash register that is not a return register
-        // or contain 'this' pointer (keep alive this), since we are generating
-        // GS cookie check after a GT_RETURN node.
-
-        if (compiler->lvaKeepAliveAndReportThis() &&
-            compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg() &&
-            (compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum() == REG_ARG_0))
-        {
-            regGSCheck = REG_ARG_1;
-        }
-        else
-        {
-            regGSCheck = REG_ARG_0;
-        }
-    }
-    else
+    if (tailCallEpilog)
     {
 #ifdef TARGET_X86
         // It doesn't matter which register we pick, since we're going to save and restore it
@@ -97,6 +80,18 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
         // parameter.  Therefore, in case of jmp calls it is safe to use R11.
         regGSCheck = REG_R11;
 #endif
+    }
+    // We can use any callee trash register that is not a return register
+    // or contain 'this' pointer (keep alive this), since we are generating
+    // GS cookie check after a GT_RETURN node.
+    else if (compiler->lvaKeepAliveAndReportThis() &&
+             (compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum() == REG_ARG_0))
+    {
+        regGSCheck = REG_ARG_1;
+    }
+    else
+    {
+        regGSCheck = REG_ARG_0;
     }
 
     StackAddrMode s = GetStackAddrMode(compiler->lvaGSSecurityCookie, 0);
@@ -763,8 +758,10 @@ void CodeGen::GenUModLong(GenTreeOp* node)
     UseReg(dividendHi);
     UseReg(divisor);
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, dividendLo->GetRegNum(), /*canSkip*/ true);
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EDX, dividendHi->GetRegNum(), /*canSkip*/ true);
+    Emitter& emit = *GetEmitter();
+
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, dividendLo->GetRegNum(), /*canSkip*/ true);
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDX, dividendHi->GetRegNum(), /*canSkip*/ true);
 
     // At this point, EAX:EDX contains the 64bit dividend and op2->GetRegNum()
     // contains the 32bit divisor. We want to generate the following code:
@@ -783,31 +780,31 @@ void CodeGen::GenUModLong(GenTreeOp* node)
     //
     // This works because (a * 2^32 + b) % c = ((a % c) * 2^32 + b) % c.
 
-    insGroup* const noOverflow = GetEmitter()->CreateTempLabel();
+    insGroup* const noOverflow = emit.CreateTempLabel();
 
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
-    GetEmitter()->emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
-    GetEmitter()->emitIns_J(INS_jb, noOverflow);
+    emit.emitIns_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
+    emit.emitIns_J(INS_jb, noOverflow);
 
     //   mov temp, eax
     //   mov eax, edx
     //   xor edx, edx
     //   div divisor->GetRegNum()
     //   mov eax, temp
-    const regNumber tempReg = node->GetSingleTempReg();
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tempReg, REG_EAX, /* canSkip */ false);
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, REG_EDX, /* canSkip */ false);
-    GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
-    GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, tempReg, /* canSkip */ false);
+    const RegNum tempReg = node->GetSingleTempReg();
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, tempReg, REG_EAX, /* canSkip */ false);
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, REG_EDX, /* canSkip */ false);
+    emit.emitIns_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
+    emit.emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, tempReg, /* canSkip */ false);
 
     // noOverflow:
     //   div divisor->GetRegNum()
-    GetEmitter()->DefineTempLabel(noOverflow);
-    GetEmitter()->emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
+    emit.DefineTempLabel(noOverflow);
+    emit.emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, node->GetRegNum(), REG_RDX, /* canSkip */ true);
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, node->GetRegNum(), REG_RDX, /* canSkip */ true);
 
     DefReg(node);
 }
@@ -3979,29 +3976,26 @@ void CodeGen::GenRegSwap(GenTreeOp* tree)
     // However, the gc-ness may change.
     assert(IsRegCandidateLclLoad(tree->GetOp(0)) && IsRegCandidateLclLoad(tree->GetOp(1)));
 
-    GenTreeLclLoad* lcl1    = tree->GetOp(0)->AsLclLoad();
-    LclVarDsc*      varDsc1 = lcl1->GetLcl();
-    var_types       type1   = varDsc1->GetType();
-    GenTreeLclLoad* lcl2    = tree->GetOp(1)->AsLclLoad();
-    LclVarDsc*      varDsc2 = lcl2->GetLcl();
-    var_types       type2   = varDsc2->GetType();
+    GenTreeLclLoad* use1  = tree->GetOp(0)->AsLclLoad();
+    LclVarDsc*      lcl1  = use1->GetLcl();
+    var_types       type1 = lcl1->GetType();
+    GenTreeLclLoad* use2  = tree->GetOp(1)->AsLclLoad();
+    LclVarDsc*      lcl2  = use2->GetLcl();
+    var_types       type2 = lcl2->GetType();
 
     // We must have both int or both fp regs
     assert(!varTypeUsesFloatReg(type1) || varTypeUsesFloatReg(type2));
-
     // FP swap is not yet implemented (and should have NYI'd in LSRA)
     assert(!varTypeUsesFloatReg(type1));
 
-    regNumber oldOp1Reg     = lcl1->GetRegNum();
-    regMaskTP oldOp1RegMask = genRegMask(oldOp1Reg);
-    regNumber oldOp2Reg     = lcl2->GetRegNum();
-    regMaskTP oldOp2RegMask = genRegMask(oldOp2Reg);
+    RegNum reg1 = use1->GetRegNum();
+    RegNum reg2 = use2->GetRegNum();
 
-    varDsc1->SetRegNum(oldOp2Reg);
-    varDsc2->SetRegNum(oldOp1Reg);
+    lcl1->SetRegNum(reg2);
+    lcl2->SetRegNum(reg1);
 
-    // Do the xchg
     emitAttr size = EA_PTRSIZE;
+
     if (varTypeGCKind(type1) != varTypeGCKind(type2))
     {
         // If the type specified to the emitter is a GC type, it will swap the GC-ness of the registers.
@@ -4011,14 +4005,15 @@ void CodeGen::GenRegSwap(GenTreeOp* tree)
         size = EA_GCREF;
     }
 
-    GetEmitter()->emitIns_R_R(INS_xchg, size, oldOp1Reg, oldOp2Reg);
+    GetEmitter()->emitIns_R_R(INS_xchg, size, reg1, reg2);
 
     // Manually remove these regs for the gc sets (mostly to avoid confusing duplicative dump output)
-    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~(oldOp1RegMask | oldOp2RegMask));
-    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & ~(oldOp1RegMask | oldOp2RegMask));
+    regMaskTP otherRegs = ~(genRegMask(reg1) | genRegMask(reg2));
+    liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & otherRegs);
+    liveness.SetGCRegs(TYP_REF, liveness.GetGCRegs(TYP_REF) & otherRegs);
 
-    liveness.SetGCRegType(oldOp2Reg, type1);
-    liveness.SetGCRegType(oldOp1Reg, type2);
+    liveness.SetGCRegType(reg2, type1);
+    liveness.SetGCRegType(reg1, type2);
 }
 
 // Generate write barrier store using the optimized helper functions.
@@ -4708,7 +4703,7 @@ void CodeGen::GenJmp(GenTree* jmp)
     {
         regNumber reg = intArgRegs[i];
 
-        if ((varargsIntRegMask & genRegMask(reg)) != 0)
+        if ((varargsIntRegMask & genRegMask(reg)) != RBM_NONE)
         {
             GetEmitter()->emitIns_R_S(INS_mov, EA_8BYTE, reg, GetStackAddrMode(0u, i * REGSIZE_BYTES));
             GetEmitter()->emitIns_Mov(INS_movd, EA_8BYTE, MapVarargsParamIntRegToFloatReg(reg), reg, /*canSkip*/ false);
@@ -5919,10 +5914,10 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             // Does it need to be in a byte register?
             // If so, we'll use intTmpReg, which must have been allocated as a byte register.
             // If it's already in a register, but not a byteable one, then move it.
-            if (varTypeIsByte(fieldType) && ((argReg == REG_NA) || ((genRegMask(argReg) & RBM_BYTE_REGS) == 0)))
+            if (varTypeIsByte(fieldType) && ((argReg == REG_NA) || ((genRegMask(argReg) & RBM_BYTE_REGS) == RBM_NONE)))
             {
                 assert(intTmpReg != REG_NA);
-                noway_assert((genRegMask(intTmpReg) & RBM_BYTE_REGS) != 0);
+                noway_assert((genRegMask(intTmpReg) & RBM_BYTE_REGS) != RBM_NONE);
 
                 if (argReg != REG_NA)
                 {
@@ -7167,7 +7162,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     }
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zeroed before using.
-    if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
+    if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != RBM_NONE)
     {
         *pInitRegZeroed = false;
     }
@@ -7204,7 +7199,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
-    if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != 0)
+    if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != RBM_NONE)
     {
         *pInitRegZeroed = false;
     }
@@ -7232,10 +7227,10 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     // If thisPtr needs to be kept alive and reported, it cannot be one of the callee trash
     // registers that profiler callback kills.
-    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->lvIsInReg())
+    if (compiler->lvaKeepAliveAndReportThis() && compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->IsInReg())
     {
         regMaskTP thisPtrMask = genRegMask(compiler->lvaGetDesc(compiler->info.GetThisParamLclNum())->GetRegNum());
-        noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == 0);
+        noway_assert((RBM_PROFILER_LEAVE_TRASH & thisPtrMask) == RBM_NONE);
     }
 
     // At this point return shift is computed and stored in RAX or XMM0.
@@ -7561,7 +7556,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
     {
         regMaskTP regBit = genRegMask(reg);
 
-        if ((regBit & rsPushRegs) != 0)
+        if ((regBit & rsPushRegs) != RBM_NONE)
         {
             GetEmitter()->emitIns_R(INS_push, EA_GCREF, reg);
             unwindPush(reg);
@@ -7581,7 +7576,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
     {
         regMaskTP regMask = genRegMask(reg);
 
-        if ((popRegs & regMask) != 0)
+        if ((popRegs & regMask) != RBM_NONE)
         {
             popRegs &= ~regMask;
             popCount++;
@@ -7624,7 +7619,7 @@ void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
     {
         regMaskTP regBit = genRegMask(reg);
 
-        if ((regBit & regMask) != 0)
+        if ((regBit & regMask) != RBM_NONE)
         {
             GetEmitter()->emitIns_AR_R(INS_movaps, EA_16BYTE, reg, REG_RSP, offset);
             unwindSaveReg(reg, offset);
@@ -7680,7 +7675,7 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
     {
         regMaskTP regBit = genRegMask(reg);
 
-        if ((regBit & regMask) != 0)
+        if ((regBit & regMask) != RBM_NONE)
         {
             GetEmitter()->emitIns_R_AR(INS_movaps, EA_16BYTE, reg, regBase, offset);
             regMask &= ~regBit;
@@ -8018,7 +8013,7 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
 
     LclVarDsc* lcl = compiler->lvaVarargsBaseOfStkLcl;
 
-    if (lcl->lvIsInReg())
+    if (lcl->IsInReg())
     {
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, lcl->GetRegNum(), REG_EAX, /* canSkip */ true);
     }

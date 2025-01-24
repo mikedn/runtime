@@ -1597,8 +1597,8 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 {
     assert(call->IsHelperCall());
 
-    const regNumber* argRegs;
-    unsigned         argRegsCount;
+    const RegNum* argRegs;
+    unsigned      argRegsCount;
 
     switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
     {

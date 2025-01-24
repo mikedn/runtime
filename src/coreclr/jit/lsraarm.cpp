@@ -349,7 +349,7 @@ void LinearScan::BuildNode(GenTree* tree)
                 BuildUse(tree->AsUnOp()->GetOp(0));
             }
 
-            regNumber argReg  = tree->GetRegNum(0);
+            RegNum    argReg  = tree->GetRegNum(0);
             regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
 
             if (tree->TypeIs(TYP_LONG))

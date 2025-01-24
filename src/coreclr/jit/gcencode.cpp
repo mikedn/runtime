@@ -2638,8 +2638,8 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
             while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
             {
-                unsigned  tmpMask;
-                regNumber regNum;
+                unsigned tmpMask;
+                RegNum   regNum;
 
                 /* Get hold of the next register bit */
 
@@ -2691,8 +2691,8 @@ unsigned GCEncoder::AddFullyInterruptibleSlots(uint8_t* dest, const int mask)
 
             while (regMask) // EAX,ECX,EDX,EBX,---,EBP,ESI,EDI
             {
-                unsigned  tmpMask;
-                regNumber regNum;
+                unsigned tmpMask;
+                RegNum   regNum;
 
                 /* Get hold of the next register bit */
 
@@ -3515,7 +3515,7 @@ class RegSlotIdKey
     unsigned key;
 
 public:
-    RegSlotIdKey(regNumber regNum, GcSlotFlags flags)
+    RegSlotIdKey(RegNum regNum, GcSlotFlags flags)
         : key(static_cast<unsigned>(regNum) | (static_cast<unsigned>(flags) << 16))
     {
     }
@@ -3602,16 +3602,13 @@ class GCEncoder : private GcInfoEncoder
 
     struct RegSlotLog
     {
-        regNumber   regNum;
+        RegNum      regNum;
         GcSlotFlags flags : 8;
         GcSlotState state : 8;
         unsigned    codeOffs;
 
         RegSlotLog(const GcSlotDesc& desc, GcSlotState state, UINT32 codeOffs)
-            : regNum(static_cast<regNumber>(desc.Slot.RegisterNumber))
-            , flags(desc.Flags)
-            , state(state)
-            , codeOffs(codeOffs)
+            : regNum(static_cast<RegNum>(desc.Slot.RegisterNumber)), flags(desc.Flags), state(state), codeOffs(codeOffs)
         {
             assert(desc.IsRegister());
         }
@@ -3955,7 +3952,7 @@ private:
             return x.state < y.state;
         });
 
-        regNumber prevRegNum = REG_NA;
+        RegNum prevRegNum = REG_NA;
 
         for (size_t i = 0; i < regSlotLog.size(); i++)
         {
@@ -4491,7 +4488,7 @@ void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, Reg
         regMask = genFindLowestBit(regs);
         assert(regMask != RBM_NONE);
 
-        regNumber reg = genRegNumFromMask(static_cast<regMaskTP>(regMask));
+        RegNum reg = genRegNumFromMask(static_cast<regMaskTP>(regMask));
 
         assert(reg != REG_SPBASE);
 

@@ -28,22 +28,21 @@ static RegNum MapToAmbientSP(RegNum reg, bool isFramePointerUsed)
 
 DbgInfoVarLoc::DbgInfoVarLoc(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
-    if (lcl->lvIsInReg())
+    if (lcl->IsInReg())
     {
-        InitRegLocation(lcl, lcl->GetActualRegisterType(), baseReg, offset, isFramePointerUsed);
+        InitRegLocation(lcl, baseReg, offset, isFramePointerUsed);
     }
     else
     {
-        InitStackLocation(lcl, varActualType(lcl->GetType()), baseReg, offset, isFramePointerUsed);
+        InitStackLocation(lcl, baseReg, offset, isFramePointerUsed);
     }
 }
 
-void DbgInfoVarLoc::InitStackLocation(
-    const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
+void DbgInfoVarLoc::InitStackLocation(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
     assert(offset != BAD_STK_OFFS);
 
-    switch (type)
+    switch (varActualType(lcl->GetType()))
     {
         case TYP_LONG:
         case TYP_DOUBLE:
@@ -86,15 +85,16 @@ void DbgInfoVarLoc::SetStackLocation(RegNum baseReg, int offset)
     vlStk.vlsOffset  = offset;
 }
 
-void DbgInfoVarLoc::InitRegLocation(
-    const LclVarDsc* lcl, var_types type, RegNum baseReg, int offset, bool isFramePointerUsed)
+void DbgInfoVarLoc::InitRegLocation(const LclVarDsc* lcl, RegNum baseReg, int offset, bool isFramePointerUsed)
 {
-    switch (type)
+    RegNum reg = lcl->GetRegNum();
+
+    switch (lcl->GetActualRegisterType())
     {
         case TYP_LONG:
 #ifndef TARGET_64BIT // TODO-MIKE-Review: This code is either dead or completely messed up.
             vlType                        = VLT_REG_STK;
-            vlRegStk.vlrsReg              = lcl->GetRegNum();
+            vlRegStk.vlrsReg              = reg;
             vlRegStk.vlrsStk.vlrssBaseReg = MapToAmbientSP(baseReg, isFramePointerUsed);
             vlRegStk.vlrsStk.vlrssOffset  = offset + 4;
             break;
@@ -103,7 +103,7 @@ void DbgInfoVarLoc::InitRegLocation(
         case TYP_REF:
         case TYP_BYREF:
             vlType       = VLT_REG;
-            vlReg.vlrReg = lcl->GetRegNum();
+            vlReg.vlrReg = reg;
             break;
 
         case TYP_FLOAT:
@@ -119,13 +119,13 @@ void DbgInfoVarLoc::InitRegLocation(
             // even if the variable is not actually on the x87 FP stack. It doesn't really matter
             // as the debugger returns CORDBG_E_IL_VAR_NOT_AVAILABLE for VLT_FPSTK anyway.
             vlType         = VLT_FPSTK;
-            vlFPstk.vlfReg = lcl->GetRegNum();
+            vlFPstk.vlfReg = reg;
 #else
-            // TODO-MIKE-Review: It looks like for VLT_REG_FP the debugger expects the 0 based index
-            // of the vector register in vlrReg (e.g. lcl->GetRegNum() - REG_XMM0).
+            // TODO-MIKE-Review: It looks like for VLT_REG_FP the debugger expects
+            // the 0 based index of the vector register in vlrReg (e.g. reg - REG_XMM0).
             // Also note that on ARM the debugger always returns E_NOTIMPL.
             vlType       = VLT_REG_FP;
-            vlReg.vlrReg = lcl->GetRegNum();
+            vlReg.vlrReg = reg;
 #endif
             break;
 

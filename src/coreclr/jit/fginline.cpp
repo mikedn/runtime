@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 //------------------------------------------------------------------------
 // fgInline - expand inline candidates
 //
@@ -1153,13 +1149,13 @@ void Compiler::inlUpdateRetSpillTempClass(InlineInfo* inlineInfo)
     // better info when importing the inlinee, and the return
     // spill temp is single def.
 
-    if (LclVarDsc* returnSpillVarDsc = inlineInfo->retSpillTempLcl)
+    if (LclVarDsc* returnSpillLcl = inlineInfo->retSpillTempLcl)
     {
-        if (returnSpillVarDsc->lvSingleDef)
+        if (returnSpillLcl->lvSingleDef)
         {
             if (CORINFO_CLASS_HANDLE retExprClassHnd = inlineInfo->retExprClassHnd)
             {
-                lvaUpdateClass(returnSpillVarDsc, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
+                lvaUpdateClass(returnSpillLcl, retExprClassHnd, inlineInfo->retExprClassHndIsExact);
             }
         }
     }

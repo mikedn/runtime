@@ -141,9 +141,9 @@ regMaskTP genRegMask(RegNum reg)
 }
 
 #if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
-const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the regNumber type
+const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp that dont use the RegNum type
 {
-    return getRegName(static_cast<regNumber>(reg));
+    return getRegName(static_cast<RegNum>(reg));
 }
 #endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
@@ -261,14 +261,16 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
         // We've already printed something.
         sep = " ";
     }
+
     inRegRange = false;
     regPrev    = REG_NA;
     regHead    = REG_NA;
-    for (regNumber regNum = REG_FP_FIRST; regNum <= REG_FP_LAST; regNum = REG_NEXT(regNum))
+
+    for (RegNum regNum = REG_FP_FIRST; regNum <= REG_FP_LAST; regNum = REG_NEXT(regNum))
     {
         regMaskTP regBit = genRegMask(regNum);
 
-        if (regMask & regBit)
+        if ((regMask & regBit) != RBM_NONE)
         {
             if (!inRegRange || (regNum == REG_FP_LAST))
             {
@@ -278,6 +280,7 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
                 sep     = "-";
                 regHead = regNum;
             }
+
             inRegRange = true;
         }
         else
@@ -292,6 +295,7 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
                 }
                 sep = " ";
             }
+
             inRegRange = false;
         }
 
@@ -319,7 +323,7 @@ void DumpRegSet(regMaskTP regs)
 
     for (RegNum reg = REG_FIRST; reg <= REG_LAST; reg = REG_NEXT(reg))
     {
-        if ((regs & genRegMask(reg)) == 0)
+        if ((regs & genRegMask(reg)) == RBM_NONE)
         {
             continue;
         }

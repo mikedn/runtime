@@ -262,9 +262,9 @@
   #define REG_ARG_4                REG_R8
   #define REG_ARG_5                REG_R9
 
-  extern const regNumber intArgRegs [MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
-  extern const regNumber fltArgRegs [MAX_FLOAT_REG_ARG];
+  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   #define RBM_ARG_0                RBM_RDI
@@ -285,9 +285,9 @@
   #define REG_ARG_2                REG_R8
   #define REG_ARG_3                REG_R9
 
-  extern const regNumber intArgRegs [MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
-  extern const regNumber fltArgRegs [MAX_FLOAT_REG_ARG];
+  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   #define RBM_ARG_0                RBM_ECX
@@ -361,12 +361,12 @@
 
 // clang-format on
 
-constexpr bool IsGeneralRegister(regNumber reg)
+constexpr bool IsGeneralRegister(RegNum reg)
 {
     return (reg >= REG_INT_FIRST) && (reg <= REG_INT_LAST);
 }
 
-constexpr bool IsFloatReg(regNumber reg)
+constexpr bool IsFloatReg(RegNum reg)
 {
     return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
 }

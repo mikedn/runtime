@@ -847,8 +847,8 @@ bool LinearScan::HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode)
         return false;
     }
 
-    regNumber floatReg = argNode->GetRegNum();
-    regNumber intReg   = MapVarargsParamFloatRegToIntReg(floatReg);
+    RegNum floatReg = argNode->GetRegNum();
+    RegNum intReg   = MapVarargsParamFloatRegToIntReg(floatReg);
 
     BuildInternalIntDef(call, genRegMask(intReg));
 

@@ -140,9 +140,9 @@ public:
         } argsStack;
     };
 
-    regNumber syncThisReg             = REG_NA;
+    RegNum syncThisReg             = REG_NA;
 #ifndef FEATURE_EH_FUNCLETS
-    int       syncThisStackSlotOffset = INT_MIN;
+    int    syncThisStackSlotOffset = INT_MIN;
 #endif
 #endif // JIT32_GCENCODER
     int                 minTrackedStackSlotOffset = 0;
@@ -195,7 +195,7 @@ public:
 #ifdef JIT32_GCENCODER
     void Begin(unsigned maxStackDepth);
 #else
-    void      Begin();
+    void   Begin();
 #endif
     void End(unsigned codeOffs);
 
@@ -258,7 +258,7 @@ public:
         return type == GCT_GCREF ? liveRefRegs : liveByrefRegs;
     }
 
-    GCtype GetRegType(regNumber reg) const
+    GCtype GetRegType(RegNum reg) const
     {
         regMaskTP mask = genRegMask(reg);
 
@@ -276,7 +276,7 @@ public:
     }
 
 #ifdef JIT32_GCENCODER
-    regNumber GetSyncThisReg() const
+    RegNum GetSyncThisReg() const
     {
         return syncThisReg;
     }
@@ -287,9 +287,9 @@ public:
     void SetLiveLclStackSlots(VARSET_TP newLiveLcls, unsigned codeOffs);
     void KillTrackedSpillTemps(unsigned codeOffs);
 
-    void AddLiveReg(GCtype type, regNumber reg, unsigned codeOffs);
+    void AddLiveReg(GCtype type, RegNum reg, unsigned codeOffs);
     void SetLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs);
-    void RemoveLiveReg(regNumber reg, unsigned codeOffs);
+    void RemoveLiveReg(RegNum reg, unsigned codeOffs);
     void RemoveAllLiveRegs(unsigned codeOffs);
 
 #ifdef JIT32_GCENCODER

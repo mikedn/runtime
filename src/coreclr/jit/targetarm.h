@@ -237,9 +237,9 @@
   #define REG_ARG_2                REG_R2
   #define REG_ARG_3                REG_R3
 
-  extern const regNumber intArgRegs [MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_REG_ARG];
   extern const regMaskTP intArgMasks[MAX_REG_ARG];
-  extern const regNumber initPInvokeFrameArgRegs[1];
+  extern const RegNum initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_R0
   #define RBM_ARG_1                RBM_R1
@@ -250,7 +250,7 @@
   #define RBM_FLTARG_REGS         (RBM_F0|RBM_F1|RBM_F2|RBM_F3|RBM_F4|RBM_F5|RBM_F6|RBM_F7|RBM_F8|RBM_F9|RBM_F10|RBM_F11|RBM_F12|RBM_F13|RBM_F14|RBM_F15)
   #define RBM_DBL_REGS            RBM_ALLDOUBLE
 
-  extern const regNumber fltArgRegs [MAX_FLOAT_REG_ARG];
+  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   // The first thing in an ARM32 prolog pushes LR to the stack, so this can be 0.
@@ -263,7 +263,7 @@
   #define RBM_STACK_PROBE_HELPER_TRASH       (RBM_R5 | RBM_LR)
 // clang-format on
 
-constexpr bool IsGeneralRegister(regNumber reg)
+constexpr bool IsGeneralRegister(RegNum reg)
 {
     return reg <= REG_R15;
 }
@@ -273,7 +273,7 @@ constexpr bool IsLowRegister(RegNum reg)
     return reg <= REG_R7;
 }
 
-constexpr bool IsFloatReg(regNumber reg)
+constexpr bool IsFloatReg(RegNum reg)
 {
-    return reg >= REG_F0 && reg <= REG_F31;
+    return (REG_F0 <= reg) && (reg <= REG_F31);
 }

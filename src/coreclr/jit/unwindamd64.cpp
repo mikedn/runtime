@@ -135,14 +135,14 @@ void CodeGen::unwindPushWindows(RegNum reg)
     uint32_t         codeOffset = unwindGetCurrentOffset();
     Win64UnwindInfo& info       = funCurrentFunc().win;
 
-    if (((RBM_CALLEE_SAVED & genRegMask(reg)) != RBM_NONE)
+    if (((genRegMask(reg) & RBM_CALLEE_SAVED) != RBM_NONE)
 #if ETW_EBP_FRAMED
         // In case of ETW_EBP_FRAMED defined the REG_FPBASE (RBP)
         // is excluded from the callee-save register list.
         // Make sure the register gets PUSH unwind info in this case,
         // since it is pushed as a frame register.
         || (reg == REG_FPBASE)
-#endif // ETW_EBP_FRAMED
+#endif
             )
     {
         info.AddCode(codeOffset, UWOP_PUSH_NONVOL, static_cast<uint8_t>(reg));

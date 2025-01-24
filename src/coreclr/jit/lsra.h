@@ -313,12 +313,12 @@ private:
     Interval* getUpperVectorInterval(unsigned varIndex);
 
     // Save the upper half of a vector that lives in a callee-save register at the point of a call.
-    void insertUpperVectorSave(GenTree*     tree,
-                               RefPosition* refPosition,
-                               Interval*    upperVectorInterval,
-                               BasicBlock*  block);
+    void InsertUpperVectorSpill(GenTree*     tree,
+                                RefPosition* refPosition,
+                                Interval*    upperVectorInterval,
+                                BasicBlock*  block);
     // Restore the upper half of a vector that's been partially spilled prior to a use in 'tree'.
-    void insertUpperVectorRestore(GenTree*     tree,
+    void InsertUpperVectorUnspill(GenTree*     tree,
                                   RefPosition* refPosition,
                                   Interval*    upperVectorInterval,
                                   BasicBlock*  block);
@@ -907,7 +907,7 @@ private:
 
     bool shouldDumpReg(RegNum regNum) const
     {
-        return (registersToDump & genRegMask(regNum)) != 0;
+        return (registersToDump & genRegMask(regNum)) != RBM_NONE;
     }
 
     void dumpRegRecordHeader();

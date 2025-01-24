@@ -127,7 +127,7 @@ void CodeGen::unwindPushPopCFI(RegNum reg)
 #endif
         ;
 
-    if (relOffsetMask & genRegMask(reg))
+    if ((relOffsetMask & genRegMask(reg)) != RBM_NONE)
     {
 #ifndef TARGET_ARM
         cfi.AddCode(codeOffset, CFI_ADJUST_CFA_OFFSET, DWARF_REG_ILLEGAL, REGSIZE_BYTES);

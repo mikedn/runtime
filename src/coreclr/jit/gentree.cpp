@@ -3686,8 +3686,7 @@ GenTreeIntCon* Compiler::gtNewIntConFieldOffset(target_size_t fieldOffset, Field
                                                 fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 }
 
-// return a new node representing the value in a physical register
-GenTreePhysReg* Compiler::gtNewPhysRegNode(regNumber reg, var_types type)
+GenTreePhysReg* Compiler::gtNewPhysRegNode(RegNum reg, var_types type)
 {
     assert(genIsValidIntReg(reg) || (reg == REG_SPBASE));
     return new (this, GT_PHYSREG) GenTreePhysReg(reg, type);
@@ -12227,7 +12226,7 @@ void ReturnTypeDesc::InitializeLong()
 #endif
 }
 
-regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
+RegNum ReturnTypeDesc::GetRegNum(unsigned i) const
 {
     assert(i < m_regCount);
 
@@ -12251,7 +12250,7 @@ regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
         return varTypeUsesFloatReg(m_regType[0]) ? REG_RAX : REG_RDX;
     }
 #elif defined(TARGET_ARM)
-    regNumber firstReg = REG_R0;
+    RegNum firstReg = REG_R0;
 
     if (varTypeUsesFloatReg(m_regType[0]))
     {
@@ -12264,11 +12263,11 @@ regNumber ReturnTypeDesc::GetRegNum(unsigned i) const
         }
     }
 
-    return static_cast<regNumber>(firstReg + i);
+    return static_cast<RegNum>(firstReg + i);
 #elif defined(TARGET_ARM64)
-    regNumber firstReg = varTypeUsesFloatReg(m_regType[0]) ? REG_V0 : REG_R0;
+    RegNum firstReg = varTypeUsesFloatReg(m_regType[0]) ? REG_V0 : REG_R0;
 
-    return static_cast<regNumber>(firstReg + i);
+    return static_cast<RegNum>(firstReg + i);
 #else
     return REG_NA;
 #endif
@@ -12285,7 +12284,7 @@ RegNum GenTree::GetSingleTempReg(regMaskTP mask)
 {
     regMaskTP availableSet = m_tempRegs & mask;
     assert(genCountBits(availableSet) == 1);
-    regNumber tempReg = genRegNumFromMask(availableSet);
+    RegNum tempReg = genRegNumFromMask(availableSet);
     INDEBUG(m_tempRegs &= ~availableSet;) // Remove the register from the set, so it can't be used again.
     return tempReg;
 }
@@ -12304,7 +12303,7 @@ RegNum GenTree::ExtractTempReg(regMaskTP mask)
 
 bool GenTree::HasTempReg(RegNum reg) const
 {
-    return (m_tempRegs & genRegMask(reg)) != 0;
+    return (m_tempRegs & genRegMask(reg)) != RBM_NONE;
 }
 
 //------------------------------------------------------------------------

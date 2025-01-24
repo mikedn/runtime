@@ -191,7 +191,7 @@ inline regMaskTP fullIntArgRegMask()
 // Note this method also returns true on Arm64 when 'reg' is the RetBuff register
 inline bool isValidIntArgReg(RegNum reg)
 {
-    return (genRegMask(reg) & fullIntArgRegMask()) != 0;
+    return (genRegMask(reg) & fullIntArgRegMask()) != RBM_NONE;
 }
 
 // Returns true if the register is a valid floating-point argument register
@@ -214,14 +214,7 @@ inline regMaskTP genRegMaskDouble(RegNum reg)
 
 inline regMaskTP genRegMask(RegNum reg, var_types type)
 {
-#ifdef TARGET_ARM
-    if (type == TYP_DOUBLE)
-    {
-        return genRegMaskDouble(reg);
-    }
-#endif
-
-    return genRegMask(reg);
+    return ARM_ONLY(type == TYP_DOUBLE ? genRegMaskDouble(reg) :) genRegMask(reg);
 }
 
 // Return the lowest bit that is set in the given register mask.
@@ -231,7 +224,7 @@ inline regMaskTP genFindLowestReg(regMaskTP value)
 }
 
 // Maps a single register mask to a register number.
-inline regNumber genRegNumFromMask(regMaskTP mask)
+inline RegNum genRegNumFromMask(regMaskTP mask)
 {
     assert(mask != 0); // Must have one bit set, so can't have a mask of zero
     RegNum regNum = static_cast<RegNum>(genLog2(mask));
@@ -243,7 +236,7 @@ inline regNumber genRegNumFromMask(regMaskTP mask)
 // For varargs calls on win-x64 we need to pass floating point register arguments in 2 registers:
 // the XMM reg that's normally used to pass a floating point arg and the GPR that's normally used
 // to pass an integer argument at the same position.
-inline regNumber MapVarargsParamFloatRegToIntReg(regNumber floatReg)
+inline RegNum MapVarargsParamFloatRegToIntReg(RegNum floatReg)
 {
     switch (floatReg)
     {
@@ -260,7 +253,7 @@ inline regNumber MapVarargsParamFloatRegToIntReg(regNumber floatReg)
     }
 }
 
-inline regNumber MapVarargsParamIntRegToFloatReg(regNumber intReg)
+inline RegNum MapVarargsParamIntRegToFloatReg(RegNum intReg)
 {
     switch (intReg)
     {
@@ -345,6 +338,26 @@ inline regMaskTP genMapFloatRegArgNumToRegMask(unsigned argNum)
     return RBM_NONE;
 #endif
 }
+
+#if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
+#if defined(TARGET_AMD64)
+inline bool varTypeNeedsPartialCalleeSave(var_types type)
+{
+    assert(type != TYP_STRUCT);
+    return (type == TYP_SIMD32);
+}
+#elif defined(TARGET_ARM64)
+inline bool varTypeNeedsPartialCalleeSave(var_types type)
+{
+    assert(type != TYP_STRUCT);
+    // ARM64 ABI FP Callee save registers only require callee to save lower 8 bytes.
+    // For vector types longer than 8 bytes caller is responsible for saving and restoring upper bytes.
+    return (type == TYP_SIMD16) || (type == TYP_SIMD12);
+}
+#else
+#error Unsupported or unset target architecture
+#endif
+#endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
 
 // Some sanity checks on some of the register masks
 // Stack pointer is never part of RBM_ALLINT
