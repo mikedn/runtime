@@ -26,7 +26,7 @@ void CodeGen::InitLclBlockLiveInRegs()
 
         if (lcl->IsRegCandidate())
         {
-            regNumber regNum = static_cast<regNumber>(varRegMap[en.Current()]);
+            RegNum regNum = static_cast<RegNum>(varRegMap[en.Current()]);
             lcl->SetRegNum(regNum);
             JITDUMP("  V%02u (%s)", lcl->GetLclNum(), getRegName(regNum));
         }
@@ -1631,7 +1631,7 @@ void CodeGen::UnspillRegIfNeeded(GenTree* node, unsigned regIndex)
         return;
     }
 
-    regNumber reg = node->GetRegNum(regIndex);
+    RegNum reg = node->GetRegNum(regIndex);
 
     if (reg == REG_NA)
     {

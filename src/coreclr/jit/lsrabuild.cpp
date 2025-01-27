@@ -1352,30 +1352,30 @@ void LinearScan::buildIntervals()
 
     for (unsigned varIndex = 0; varIndex < compiler->lvaTrackedCount; varIndex++)
     {
-        LclVarDsc* argDsc = compiler->lvaGetDescByTrackedIndex(varIndex);
+        LclVarDsc* lcl = compiler->lvaGetDescByTrackedIndex(varIndex);
 
-        assert(argDsc->HasLiveness() && !argDsc->IsPromoted());
+        assert(lcl->HasLiveness() && !lcl->IsPromoted());
 
-        if (!argDsc->IsParam() || (argDsc->GetRefCount() == 0))
+        if (!lcl->IsParam() || (lcl->GetRefCount() == 0))
         {
             continue;
         }
 
-        if (argDsc->IsRegParam())
+        if (lcl->IsRegParam())
         {
-            AddLiveParamRegs(argDsc);
+            AddLiveParamRegs(lcl);
         }
 
-        if (argDsc->IsRegCandidate())
+        if (lcl->IsRegCandidate())
         {
             Interval*       interval = getIntervalForLocalVar(varIndex);
-            const var_types regType  = argDsc->GetRegisterType();
+            const var_types regType  = lcl->GetRegisterType();
             regMaskTP       mask     = allRegs(regType);
 
-            if (argDsc->IsRegParam())
+            if (lcl->IsRegParam())
             {
                 // Set this interval as currently assigned to that register
-                RegNum paramReg = argDsc->GetParamReg();
+                RegNum paramReg = lcl->GetParamReg();
                 assignPhysReg(GetRegRecord(paramReg), interval);
                 INDEBUG(registersToDump |= getRegMask(paramReg, interval->registerType));
                 mask = genRegMask(paramReg);
@@ -1742,7 +1742,7 @@ void LinearScan::buildIntervals()
                     // Note that for writeThru intervals we don't update the preferences to be only callee-save.
                     unsigned calleeSaveCount =
                         (varTypeUsesFloatReg(interval->registerType)) ? CNT_CALLEE_SAVED_FLOAT : CNT_CALLEE_ENREG;
-                    if ((weight <= (BB_UNITY_WEIGHT * 7)) || lcl->lvVarIndex >= calleeSaveCount)
+                    if ((weight <= (BB_UNITY_WEIGHT * 7)) || (lcl->GetLivenessBitIndex() >= calleeSaveCount))
                     {
                         // If this is relatively low weight, don't prefer callee-save at all.
                         interval->preferCalleeSave = false;
@@ -2305,7 +2305,7 @@ void LinearScan::identifyCandidates()
             continue;
         }
 
-        bool regCandidate = isRegCandidate(lcl);
+        bool regCandidate = IsRegCandidate(lcl);
 
 #if DOUBLE_ALIGN
         if (checkDoubleAlign)
@@ -2600,7 +2600,7 @@ void LinearScan::identifyCandidatesExceptionDataflow()
 #endif
 }
 
-bool LinearScan::isRegCandidate(LclVarDsc* lcl)
+bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 {
     assert(enregisterLocalVars && compiler->opts.OptimizationEnabled() && !compiler->opts.MinOpts());
 
@@ -3319,9 +3319,7 @@ void LinearScan::setDelayFree(RefPosition* use)
 
 void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
-    assert(lcl->lvTracked);
-
-    Interval* varDefInterval = getIntervalForLocalVar(lcl->lvVarIndex);
+    Interval* varDefInterval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
 
     // TODO-MIKE-Review: Use of GTF_VAR_DEATH on multireg nodes is dubious...
     if ((store->gtFlags & GTF_VAR_DEATH) == 0)

@@ -2633,6 +2633,7 @@ void CodeGen::MarkStackLocals()
         }
 #endif
 
+#ifdef TARGET_X86
         // X86 varargs methods must not contain direct references to parameters
         // other than 'this', the arglist parameter (which is not a GC pointer)
         // and the struct return buffer parameter, if present. We cannot report
@@ -2647,10 +2648,11 @@ void CodeGen::MarkStackLocals()
 
             continue;
         }
+#endif
 
         if (lcl->IsDependentPromotedField(compiler))
         {
-            noway_assert(!lcl->lvRegister);
+            assert(!lcl->IsRegCandidate());
 
             lcl->lvOnFrame = true;
 
@@ -2665,7 +2667,7 @@ void CodeGen::MarkStackLocals()
             // referenced" should be used instead.
 
             assert(!compiler->opts.compDbgCode);
-            assert(!lcl->lvRegister);
+            assert(!lcl->IsRegCandidate());
 #if FEATURE_FIXED_OUT_ARGS
             // lvaOutgoingArgSpaceVar is implicitly referenced.
             assert(lcl->GetLclNum() != compiler->lvaOutgoingArgSpaceVar);
@@ -3680,8 +3682,9 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
     excludeRegs |= reservedRegs;
 #endif
 
-    // TODO-MIKE-Cleanup: This is bogus, the P/Invoke frame helper call
-    // is in the first block, not in prolog.
+    // TODO-MIKE-Cleanup: This is bogus, the P/Invoke frame helper call is
+    // in the first block, not in prolog. Removing this causes some diffs
+    // but no CQ improvements (e.g. prolog just uses ebx instead of esi).
     if (compiler->compMethodRequiresPInvokeFrame())
     {
         excludeRegs |= RBM_PINVOKE_FRAME;

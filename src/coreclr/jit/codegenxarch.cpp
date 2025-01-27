@@ -8003,11 +8003,11 @@ void CodeGen::PrologInitVarargsStackParamsBaseOffset()
     GetEmitter()->emitIns_R_S(INS_mov, EA_4BYTE, REG_EAX, GetStackAddrMode(varargsHandleLclNum, 0));
     GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, REG_EAX, REG_EAX, 0);
 
-    LclVarDsc* lastArg = compiler->lvaGetDesc(varargsHandleLclNum);
-    noway_assert(!lastArg->lvRegister);
-    int32_t offset = lastArg->GetStackOffset();
+    LclVarDsc* handleLcl = compiler->lvaGetDesc(varargsHandleLclNum);
+    noway_assert(!handleLcl->lvRegister);
+    int32_t offset = handleLcl->GetStackOffset();
     assert(offset != BAD_STK_OFFS);
-    noway_assert(lastArg->lvFramePointerBased);
+    noway_assert(handleLcl->lvFramePointerBased);
 
     GetEmitter()->emitIns_R_ARX(INS_lea, EA_4BYTE, REG_EAX, genFramePointerReg(), REG_EAX, 1, offset);
 

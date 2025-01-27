@@ -283,7 +283,7 @@ private:
 
     void buildIntervals();
     void identifyCandidates();
-    bool isRegCandidate(LclVarDsc* lcl);
+    bool IsRegCandidate(LclVarDsc* lcl);
     void identifyCandidatesExceptionDataflow();
 
 #ifdef DEBUG

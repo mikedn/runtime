@@ -42,12 +42,10 @@
   Postconditions:
 
     Tree nodes (GenTree):
-    - GenTree::GetRegNum() (and gtRegPair for ARM) is annotated with the register
-      assignment for a node. If the node does not require a register, it is
-      annotated as such (GetRegNum() = REG_NA). For a variable definition or interior
-      tree node (an "implicit" definition), this is the register to put the result.
-      For an expression use, this is the place to find the value that has previously
-      been computed.
+    - Each node is annotated with the register assignment. If the node does not require a register,
+      it is annotated as such (REG_NA). For a variable definition or interior node (an "implicit"
+      definition), this is the register to put the result.
+      For an expression use, this is the place to find the value that has previously been computed.
       - In most cases, this register must satisfy the constraints specified for the RefPosition.
       - In some cases, this is difficult:
         - If a local node currently lives in some register, it may not be desirable to move it
@@ -59,7 +57,7 @@
         then LSRA is free to annotate the node with a different register.  The code generator must issue the appropriate
         move.
       - However, if such a node is constrained to a set of registers, and its current location does not satisfy that
-        requirement, LSRA must insert a GT_COPY node between the node and its parent.  The GetRegNum() on the GT_COPY
+        requirement, LSRA must insert a GT_COPY node between the node and its parent. The GetRegNum on the GT_COPY
         node must satisfy the register requirement of the parent.
     - GenTree has a set of registers used for internal temps.
     - A node's register is marked SPILL if the register must be spilled by the code generator after it has been
@@ -67,21 +65,11 @@
       - LSRA currently does not set SPILLED on such registers, because it caused problems in the old code generator.
         In the new backend perhaps this should change (see also the note below under CodeGen).
     - A node's register is marked SPILLED if the node is a local that must be reloaded prior to use.
-      - The register (GetRegNum()) on the node indicates the register to which it must be reloaded.
+      - The node register indicates the register to which it must be reloaded.
       - For local nodes, since the uses and defs are distinct nodes, it is always possible to annotate the node
         with the register to which the variable must be reloaded.
       - For other nodes, since they represent both the def and use, if the value must be reloaded to a different
         register, LSRA must insert a GT_RELOAD node in order to specify the register to which it should be reloaded.
-
-    Local variable table (LclVarDsc):
-    - LclVarDsc::lvRegister is set to true if a local variable has the
-      same register assignment for its entire lifetime.
-    - LclVarDsc::lvRegNum / GetOtherReg(): these are initialized to their
-      first value at the end of LSRA (it looks like GetOtherReg() isn't?
-      This is probably a bug (ARM)). Codegen will set them to their current value
-      as it processes the trees, since a variable can (now) be assigned different
-      registers over its lifetimes.
-
 */
 
 #include "jitpch.h"
@@ -3761,7 +3749,7 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 // Details:
 // This method is called for each local reference, during the resolveRegisters
 // phase of LSRA.  It is responsible for keeping the following in sync:
-//   - lcl->GetRegNum() (and GetOtherReg()) contain the unique register location.
+//   - LclVarDsc::GetRegNum contains the allocated register.
 //     If it is not in the same register through its lifetime, it is set to REG_STK.
 //   - interval->physReg is set to the assigned register
 //     (i.e. at the code location which is currently being handled by resolveRegisters())
@@ -3772,7 +3760,7 @@ void LinearScan::clearLocalReg(GenTreeLclVar* lclNode, LclVarDsc* lcl)
 //   - RegRecord->assignedInterval points to the interval which currently occupies
 //     the register
 //   - For each local node:
-//     - GetRegNum()/gtRegPair is set to the currently allocated register(s).
+//     - GenTree::GetRegNum is set to the currently allocated register(s).
 //     - SPILLED is set on a use if it must be reloaded prior to use.
 //     - SPILL is set if it must be spilled after use.
 //
@@ -3912,7 +3900,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
                     // to REG_NA.  Codegen will generate the code by considering
                     // it as a contained memory operand.
                     //
-                    // Note that lcl->GetRegNum() is already to REG_STK above.
+                    // Note that local's reg is already to REG_STK above.
                     interval->physReg = REG_NA;
                     clearLocalReg(node, lcl);
                     node->SetRegSpilled(0, false);
@@ -4025,7 +4013,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
             //
             // TODO: This approach would still create the resolution moves but during codegen, will check for
             // `lvSpillAtSingleDef` to decide whether to generate spill or not. In future, see if there is some
-            // better way to avoid resolution moves, perhaps by updating the lcl->SetRegNum(REG_STK) in this
+            // better way to avoid resolution moves, perhaps by updating the lcl's reg to REG_STK in this
             // method?
             node->SetRegSpill(currentRefPosition->GetRegIndex(), true);
             node->SetRegSpilled(currentRefPosition->GetRegIndex(), true);
@@ -4451,9 +4439,8 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
 //
 void LinearScan::resolveRegisters()
 {
-    // Iterate over the tree and the RefPositions in lockstep
-    //  - annotate the tree with register assignments by setting GetRegNum() or gtRegPair (for longs)
-    //    on the tree node
+    // Iterate over the nodes and the RefPositions in lockstep
+    //  - annotate the node with the allocated register
     //  - track globally-live var locations
     //  - add resolution points at split/merge/critical points as needed
 
@@ -4887,15 +4874,12 @@ void LinearScan::resolveRegisters()
                 assert(lcl->IsRegParam() || !lcl->IsDependentPromotedField(compiler));
             }
 
-            // If lvRegNum is REG_STK, that means that either no register was assigned,
-            // or (more likely) that the same register was not used for all references.
-            // In that case, codegen gets the register from the node.
             if ((lcl->GetRegNum() == REG_STK) || interval->isSpilled || interval->isSplit)
             {
                 // For codegen purposes, we'll set lvRegNum to whatever register it's currently
                 // in as we go. However, we never mark an interval as lvRegister if it has either
                 // been spilled or split.
-                lcl->lvRegister = false;
+                assert(!lcl->lvRegister);
 
                 // Skip any dead defs or exposed uses
                 // (first use exposed will only occur when there is no explicit initialization)
@@ -5234,18 +5218,21 @@ regNumber LinearScan::getTempRegForResolution(BasicBlock* fromBlock, BasicBlock*
     }
 
     freeRegs = stressLimitRegs(nullptr, freeRegs);
-#endif // DEBUG
+#endif
 
     // We are only interested in the variables that are live-in to the "to" block.
     for (VarSetOps::Enumerator e(compiler, toBlock->bbLiveIn); e.MoveNext() && (freeRegs != RBM_NONE);)
     {
-        regNumber fromReg = getVarReg(fromVarToRegMap, e.Current());
-        regNumber toReg   = getVarReg(toVarToRegMap, e.Current());
+        RegNum fromReg = getVarReg(fromVarToRegMap, e.Current());
+        RegNum toReg   = getVarReg(toVarToRegMap, e.Current());
+
         assert(fromReg != REG_NA && toReg != REG_NA);
+
         if (fromReg != REG_STK)
         {
             freeRegs &= ~genRegMask(fromReg, getIntervalForLocalVar(e.Current())->registerType);
         }
+
         if (toReg != REG_STK)
         {
             freeRegs &= ~genRegMask(toReg, getIntervalForLocalVar(e.Current())->registerType);
@@ -5299,11 +5286,11 @@ void LinearScan::handleOutgoingCriticalEdges(BasicBlock* block, VARSET_TP outRes
 
     for (VarSetOps::Enumerator e(compiler, block->bbLiveOut); e.MoveNext();)
     {
-        regNumber fromReg = getVarReg(outVarToRegMap, e.Current());
+        RegNum fromReg = getVarReg(outVarToRegMap, e.Current());
+
         if (fromReg != REG_STK)
         {
-            regMaskTP fromRegMask = genRegMask(fromReg, getIntervalForLocalVar(e.Current())->registerType);
-            liveOutRegs |= fromRegMask;
+            liveOutRegs |= genRegMask(fromReg, getIntervalForLocalVar(e.Current())->registerType);
         }
     }
 
@@ -6961,7 +6948,7 @@ void LinearScan::lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const
     {
         if (mode == LSRA_DUMP_REFPOS)
         {
-            printf(" V%02u(L%d) ", lcl->GetLclNum(), getIntervalForLocalVar(lcl->GetLivenessBitIndex())->intervalIndex);
+            printf(" V%02u(L%u) ", lcl->GetLclNum(), getIntervalForLocalVar(lcl->GetLivenessBitIndex())->intervalIndex);
         }
         else
         {
@@ -7040,12 +7027,11 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 
             if (mode == LSRA_DUMP_POST)
             {
-                regNumber reg =
-                    refPosIterator->registerAssignment == RBM_NONE ? REG_STK : refPosIterator->assignedReg();
-                regNumber assignedReg = lcl->GetRegNum();
-                regNumber argReg      = lcl->IsRegParam() ? lcl->GetParamReg() : REG_STK;
+                RegNum reg = refPosIterator->registerAssignment == RBM_NONE ? REG_STK : refPosIterator->assignedReg();
+                RegNum assignedReg = lcl->GetRegNum();
+                RegNum argReg      = lcl->IsRegParam() ? lcl->GetParamReg() : REG_STK;
 
-                assert(reg == assignedReg || !lcl->lvRegister);
+                assert((reg == assignedReg) || !lcl->lvRegister);
 
                 printf("(");
 
@@ -8431,9 +8417,10 @@ void LinearScan::verifyResolutionMove(GenTree* resolutionMove, LsraLocation curr
     }
 #endif // TARGET_XARCH
 
-    regNumber      dstRegNum = dst->GetRegNum();
-    regNumber      srcRegNum;
+    RegNum         dstRegNum = dst->GetRegNum();
+    RegNum         srcRegNum;
     GenTreeLclVar* lcl;
+
     if (dst->OperIs(GT_COPY))
     {
         lcl       = dst->AsUnOp()->GetOp(0)->AsLclVar();

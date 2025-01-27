@@ -2042,9 +2042,6 @@ struct LclVarDsc_SmallCode_Less
         // We should not be sorting untracked variables
         assert(lcl1->lvTracked);
         assert(lcl2->lvTracked);
-        // We should not be sorting after registers have been allocated
-        assert(!lcl1->lvRegister);
-        assert(!lcl2->lvRegister);
 
         unsigned refCount1 = lcl1->GetRefCount();
         unsigned refCount2 = lcl2->GetRefCount();
@@ -2136,9 +2133,6 @@ struct LclVarDsc_BlendedCode_Less
         // We should not be sorting untracked variables
         assert(lcl1->lvTracked);
         assert(lcl2->lvTracked);
-        // We should not be sorting after registers have been allocated
-        assert(!lcl1->lvRegister);
-        assert(!lcl2->lvRegister);
 
         BasicBlock::weight_t weight1 = lcl1->GetRefWeight();
         BasicBlock::weight_t weight2 = lcl2->GetRefWeight();
