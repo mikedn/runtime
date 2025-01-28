@@ -120,8 +120,9 @@ GenTree* Compiler::fgMorphGCBitcast(GenTreeUnOp* bitcast)
     src->SetType(srcType);
     src = gtNewLclLoad(lcl, TYP_I_IMPL);
     src = gtNewCommaNode(store, src);
+    INDEBUG(src->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
-    return fgMorphTree(src);
+    return src;
 }
 
 GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* trunc)
@@ -9144,18 +9145,6 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_BITCAST:
-            if (varTypeIsGC(op1->GetType()))
-            {
-                return fgMorphGCBitcast(tree->AsUnOp());
-            }
-
-            if (op1->GetType() == tree->GetType())
-            {
-                return fgMorphTree(op1);
-            }
-            break;
-
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
@@ -9687,13 +9676,13 @@ DONE_MORPHING_CHILDREN:
 
     if (oldTree != tree)
     {
-        /* if gtFoldExpr returned op1 or op2 then we are done */
+        // if gtFoldExpr returned op1 or op2 then we are done
         if ((tree == op1) || (tree == op2))
         {
             return tree;
         }
 
-        /* If we created a comma-throw tree then we need to morph op1 */
+        // If we created a comma-throw tree then we need to morph op1
         if (fgIsCommaThrow(tree DEBUGARG(false)))
         {
             tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
@@ -9754,6 +9743,18 @@ DONE_MORPHING_CHILDREN:
                 assert(varTypeIsSmall(op2->GetType()));
                 op2 = op2->AsUnOp()->GetOp(0);
                 tree->AsIndir()->SetValue(op2);
+            }
+            break;
+
+        case GT_BITCAST:
+            if (op1->GetType() == tree->GetType())
+            {
+                return op1;
+            }
+
+            if (varTypeIsGC(op1->GetType()))
+            {
+                return fgMorphGCBitcast(tree->AsUnOp());
             }
             break;
 

@@ -9261,6 +9261,14 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 
         switch (opType)
         {
+            case TYP_REF:
+            case TYP_BYREF:
+                if (tree->OperIs(GT_BITCAST) && tree->TypeIs(TYP_I_IMPL))
+                {
+                    op1->SetType(TYP_I_IMPL);
+                    return op1;
+                }
+                break;
             case TYP_INT:
             {
 #ifndef TARGET_64BIT
