@@ -336,13 +336,13 @@ RefPosition* LinearScan::newRefPosition(
     return newRP;
 }
 
-void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc)
+void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation location)
 {
     for (RegNum reg = REG_FIRST; mask; reg = REG_NEXT(reg), mask >>= 1)
     {
-        if (mask & 1)
+        if ((mask & 1) != RBM_NONE)
         {
-            RefPosition* pos = newRegRefPosition(reg, currentLoc, RefTypeKill);
+            RefPosition* pos = newRegRefPosition(reg, location, RefTypeKill);
             pos->lastUse     = true;
         }
     }
@@ -352,30 +352,26 @@ void LinearScan::newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc)
 // If the IND_STORE will generate a write barrier, determine the specific kill
 // set required by the case-specific, platform-specific write barrier. If no
 // write barrier is required, the kill set will be RBM_NONE.
-regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* tree)
+regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* store)
 {
-    regMaskTP killMask = RBM_NONE;
+    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store);
 
-    GenTree* data = tree->GetValue();
-
-    GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(tree);
-    if (writeBarrierForm != GCInfo::WBF_NoBarrier)
+    if (writeBarrierForm == GCInfo::WBF_NoBarrier)
     {
-        if (GCInfo::UseOptimizedWriteBarriers())
-        {
-            // We can't determine the exact helper to be used at this point, because it depends on
-            // the allocated register for the `data` operand. However, all the (x86) optimized
-            // helpers have the same kill set: EDX. And note that currently, only x86 can return
-            // `true` for UseOptimizedWriteBarriers().
-            killMask = RBM_CALLEE_TRASH_NOGC;
-        }
-        else
-        {
-            // Figure out which helper we're going to use, and then get the kill set for that helper.
-            killMask = compiler->compHelperCallKillSet(GCInfo::GetWriteBarrierHelperCall(writeBarrierForm));
-        }
+        return RBM_NONE;
     }
-    return killMask;
+
+    if (GCInfo::UseOptimizedWriteBarriers())
+    {
+        // We can't determine the exact helper to be used at this point, because it depends on
+        // the allocated register for the `data` operand. However, all the (x86) optimized
+        // helpers have the same kill set: EDX. And note that currently, only x86 can return
+        // `true` for UseOptimizedWriteBarriers().
+        return RBM_CALLEE_TRASH_NOGC;
+    }
+
+    // Figure out which helper we're going to use, and then get the kill set for that helper.
+    return compiler->compHelperCallKillSet(GCInfo::GetWriteBarrierHelperCall(writeBarrierForm));
 }
 
 #ifdef TARGET_XARCH
@@ -383,12 +379,7 @@ regMaskTP LinearScan::getKillSetForShiftRotate(GenTreeOp* node)
 {
     assert(node->OperIsShiftOrRotate());
 
-    if (!node->GetOp(1)->isContained())
-    {
-        return RBM_RCX;
-    }
-
-    return RBM_NONE;
+    return node->GetOp(1)->isContained() ? RBM_NONE : RBM_RCX;
 }
 
 regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
@@ -509,7 +500,7 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
             // maskmovdqu uses edi as the implicit address register.
             // Although it is set as the srcCandidate on the address, if there is also a fixed
             // assignment for the definition of the address, resolveConflictingDefAndUse() may
-            // change the register assignment on the def or use of a tree temp (SDSU) when there
+            // change the register assignment on the def or use of a node temp (SDSU) when there
             // is a conflict, and the FixedRef on edi won't be sufficient to ensure that another
             // Interval will not be allocated there.
             // Issue #17674 tracks this.
@@ -538,9 +529,9 @@ regMaskTP LinearScan::getKillSetForProfilerHook()
 }
 
 #ifdef DEBUG
-regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
+regMaskTP LinearScan::getKillSetForNode(GenTree* node)
 {
-    switch (tree->GetOper())
+    switch (node->GetOper())
     {
 #ifdef TARGET_XARCH
         case GT_LSH:
@@ -552,7 +543,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_LSH_HI:
         case GT_RSH_LO:
 #endif
-            return getKillSetForShiftRotate(tree->AsOp());
+            return getKillSetForShiftRotate(node->AsOp());
         case GT_MUL:
         case GT_SMULH:
         case GT_UMULH:
@@ -562,37 +553,37 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
         case GT_SMULL:
         case GT_UMULL:
 #endif
-            return getKillSetForMul(tree->AsOp());
+            return getKillSetForMul(node->AsOp());
         case GT_MOD:
         case GT_DIV:
         case GT_UMOD:
         case GT_UDIV:
-            return getKillSetForModDiv(tree->AsOp());
+            return getKillSetForModDiv(node->AsOp());
 #endif // TARGET_XARCH
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
-            if (tree->TypeIs(TYP_STRUCT) && !tree->AsLclVarCommon()->GetOp(0)->IsCall())
+            if (node->TypeIs(TYP_STRUCT) && !node->AsLclVarCommon()->GetOp(0)->IsCall())
             {
-                ClassLayout* layout = tree->OperIs(GT_LCL_STORE) ? tree->AsLclStore()->GetLcl()->GetLayout()
-                                                                 : tree->AsLclStoreFld()->GetLayout(compiler);
-                return getKillSetForStructStore(GetStructStoreKind(true, layout, tree->AsLclVarCommon()->GetOp(0)));
+                ClassLayout* layout = node->OperIs(GT_LCL_STORE) ? node->AsLclStore()->GetLcl()->GetLayout()
+                                                                 : node->AsLclStoreFld()->GetLayout(compiler);
+                return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclVarCommon()->GetOp(0)));
             }
 
             return RBM_NONE;
 
         case GT_IND_STORE_OBJ:
         case GT_IND_STORE_BLK:
-            return getKillSetForStructStore(tree->AsBlk()->GetKind());
+            return getKillSetForStructStore(node->AsBlk()->GetKind());
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            return getKillSetForStructStore(tree->AsDynBlk()->GetKind());
+            return getKillSetForStructStore(node->AsDynBlk()->GetKind());
         case GT_RETURNTRAP:
             return compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
         case GT_CALL:
-            return getKillSetForCall(tree->AsCall());
+            return getKillSetForCall(node->AsCall());
         case GT_IND_STORE:
-            return getKillSetForStoreInd(tree->AsIndStore());
+            return getKillSetForStoreInd(node->AsIndStore());
 
 #ifdef PROFILING_SUPPORTED
         // If this method requires profiler ELT hook then mark these nodes as killing
@@ -607,7 +598,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return getKillSetForHWIntrinsic(tree->AsHWIntrinsic());
+            return getKillSetForHWIntrinsic(node->AsHWIntrinsic());
 #endif
 
         default:
@@ -616,27 +607,17 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* tree)
 }
 #endif // DEBUG
 
-// Given some tree node add refpositions for all the registers this node kills
+// Given some node add refpositions for all the registers this node kills
 //
-// Arguments:
-//    tree       - the tree for which kill positions should be generated
-//    currentLoc - the location at which the kills should be added
-//    killMask   - The mask of registers killed by this node
+// The return value is needed because if we have any kills, we need to make sure that
+// all defs are located AFTER the kills.  On the other hand, if there aren't kills,
+// the multiple defs for a regPair are in different locations.
+// If we generate any kills, we will mark all currentLiveVars as being preferenced
+// to avoid the killed registers.  This is somewhat conservative.
 //
-// Return Value:
-//    true       - kills were inserted
-//    false      - no kills were inserted
-//
-// Notes:
-//    The return value is needed because if we have any kills, we need to make sure that
-//    all defs are located AFTER the kills.  On the other hand, if there aren't kills,
-//    the multiple defs for a regPair are in different locations.
-//    If we generate any kills, we will mark all currentLiveVars as being preferenced
-//    to avoid the killed registers.  This is somewhat conservative.
-//
-//    This method can add kills even if killMask is RBM_NONE, if this tree is one of the
-//    special cases that signals that we can't permit callee save registers to hold GC refs.
-bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLoc, regMaskTP killMask)
+// This method can add kills even if killMask is RBM_NONE, if this node is one of the
+// special cases that signals that we can't permit callee save registers to hold GC refs.
+bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location, regMaskTP killMask)
 {
     bool insertedKills = false;
 
@@ -652,7 +633,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         // which is too late.
         m_allocateRegs |= killMask;
 
-        newRegKillRefPositions(killMask, currentLoc);
+        newRegKillRefPositions(killMask, location);
 
         // TODO-CQ: It appears to be valuable for both fp and int registers to avoid killing the callee
         // save regs on infrequently executed paths.  However, it results in a large number of asmDiffs,
@@ -717,9 +698,9 @@ bool LinearScan::buildKillPositionsForNode(GenTree* tree, LsraLocation currentLo
         insertedKills = true;
     }
 
-    if (compiler->killGCRefs(tree))
+    if (compiler->killGCRefs(node))
     {
-        newKillGCRegsRefPosition(currentLoc, tree, allIntRegs() & ~RBM_ARG_REGS);
+        newKillGCRegsRefPosition(location, node, allIntRegs() & ~RBM_ARG_REGS);
         insertedKills = true;
     }
 
@@ -864,7 +845,7 @@ Interval* LinearScan::getUpperVectorInterval(unsigned varIndex)
     unreached();
 }
 
-void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation currentLoc, regMaskTP fpCalleeKillSet)
+void LinearScan::buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation location, regMaskTP fpCalleeKillSet)
 {
     if (enregisterLocalVars && !VarSetOps::IsEmpty(compiler, largeVectorVars))
     {
@@ -881,7 +862,7 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
             {
                 Interval*    upperVectorInterval = getUpperVectorInterval(e.Current());
                 RefPosition* pos =
-                    newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorSave, tree, RBM_FLT_CALLEE_SAVED);
+                    newRefPosition(upperVectorInterval, location, RefTypeUpperVectorSave, node, RBM_FLT_CALLEE_SAVED);
                 varInterval->isPartiallySpilled = true;
 #ifdef TARGET_XARCH
                 pos->regOptional = true;
@@ -923,19 +904,19 @@ void LinearScan::buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation cu
             // In the rare case where such an interval is live across nested calls, we don't need to insert another.
             if (def->ref->getInterval()->recentRefPosition->refType != RefTypeUpperVectorSave)
             {
-                newRefPosition(def->ref->getInterval(), currentLoc, RefTypeUpperVectorSave, tree, RBM_FLT_CALLEE_SAVED);
+                newRefPosition(def->ref->getInterval(), location, RefTypeUpperVectorSave, node, RBM_FLT_CALLEE_SAVED);
             }
         }
     }
 }
 
-void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation currentLoc, GenTree* node)
+void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation location, GenTree* node)
 {
     if (lclVarInterval->isPartiallySpilled)
     {
         unsigned     varIndex            = lclVarInterval->getVarIndex();
         Interval*    upperVectorInterval = getUpperVectorInterval(varIndex);
-        RefPosition* pos = newRefPosition(upperVectorInterval, currentLoc, RefTypeUpperVectorRestore, node);
+        RefPosition* pos = newRefPosition(upperVectorInterval, location, RefTypeUpperVectorRestore, node);
         lclVarInterval->isPartiallySpilled = false;
 #ifdef TARGET_XARCH
         pos->regOptional = true;
@@ -1022,7 +1003,7 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node) const
 }
 #endif // DEBUG
 
-void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc)
+void LinearScan::buildRefPositionsForNode(GenTree* tree)
 {
     assert(!tree->OperIs(GT_ARGPLACE));
 
@@ -1052,7 +1033,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
             }
         }
 #else
-        assert(!isCandidateLclVar(tree));
+        assert(!IsCandidateLclRef(tree));
 #endif
         JITDUMP("Contained\n");
 
@@ -1112,11 +1093,11 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree, LsraLocation currentLoc
 }
 
 #ifdef DEBUG
-void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPositionMark)
+void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPositionMark)
 {
     assert((getStressLimitRegs() != LSRA_LIMIT_NONE) || (getSelectionHeuristics() != LSRA_SELECT_DEFAULT));
 
-    // The number of registers required for a tree node is the sum of
+    // The number of registers required for a node is the sum of
     //   { RefTypeUses } + { RefTypeDef for the node itself } + specialPutArgCount
     // This is the minimum set of registers that needs to be ensured in the candidate set of ref positions created.
     //
@@ -1146,7 +1127,7 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
         }
     }
 
-    if (tree->OperIsPutArgSplit())
+    if (node->OperIsPutArgSplit())
     {
         // While we have attempted to account for any "specialPutArg" defs above, we're only looking at RefPositions
         // created for this node. We must be defining at least one register in the PutArgSplit, so conservatively
@@ -1157,6 +1138,7 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
     {
         RefPosition* rp                = &(*refPositionMark);
         unsigned     minRegCountForRef = minRegCount;
+
         if (RefTypeIsUse(rp->refType) && rp->delayRegFree)
         {
             // If delayRegFree, then Use will interfere with the destination of the consuming node.
@@ -1173,7 +1155,7 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
             // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
             // {eax,edx} are getting killed before the def of GT_DIV.  For this reason, minRegCount for
             // the use position of v02 also needs to take into account the kill set of its consuming node.
-            if (regMaskTP killMask = getKillSetForNode(tree))
+            if (regMaskTP killMask = getKillSetForNode(node))
             {
                 minRegCountForRef += genCountBits(killMask);
             }
@@ -1184,12 +1166,14 @@ void LinearScan::BuildStressConstraints(GenTree* tree, RefPositionIterator refPo
         }
 
         rp->minRegCandidateCount = minRegCountForRef;
+
         if (rp->IsActualRef() && doReverseCallerCallee())
         {
             Interval* interval       = rp->getInterval();
             regMaskTP oldAssignment  = rp->registerAssignment;
             regMaskTP calleeSaveMask = calleeSaveRegs(interval->registerType);
             rp->registerAssignment   = getConstrainedRegMask(oldAssignment, calleeSaveMask, minRegCountForRef);
+
             if ((rp->registerAssignment != oldAssignment) && (rp->refType == RefTypeUse) && !interval->isLocalVar)
             {
                 checkConflictingDefUse(rp);
@@ -1559,11 +1543,9 @@ void LinearScan::buildIntervals()
 
         for (GenTree* node : LIR::AsRange(block))
         {
-#ifdef DEBUG
-            node->gtSeqNum = currentLoc;
-#endif
+            INDEBUG(node->gtSeqNum = currentLoc);
 
-            buildRefPositionsForNode(node, currentLoc);
+            buildRefPositionsForNode(node);
 
 #ifdef DEBUG
             if (currentLoc > maxNodeLocation)
@@ -1572,7 +1554,7 @@ void LinearScan::buildIntervals()
             }
 #endif
 
-            // We increment the location of each tree node by 2 so that the node definition,
+            // We increment the location of each node by 2 so that the node definition,
             // if any, is at a new location and doesn't interfere with the uses.
             // For multi-reg local stores, the 'BuildStoreLclVarMultiReg' method will further
             // increment the location by 2 for each destination register beyond the first.
@@ -2662,12 +2644,12 @@ bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 //    This does a backward walk of the RefPositions, starting from the liveOut set.
 //    This method was previously used to set the last uses, which were computed by
 //    liveness, but were not create in some cases of multiple lclVar references in the
-//    same tree. However, now that last uses are computed as RefPositions are created,
+//    same node. However, now that last uses are computed as RefPositions are created,
 //    that is no longer necessary, and this method is simply retained as a check.
 //    The exception to the check-only behavior is when LSRA_EXTEND_LIFETIMES if set via
 //    COMPlus_JitStressRegs. In that case, this method is required, because even though
 //    the RefPositions will not be marked lastUse in that case, we still need to correclty
-//    mark the last uses on the tree nodes, which is done by this method.
+//    mark the last uses on the nodes, which is done by this method.
 //
 void LinearScan::checkLastUses(BasicBlock* block)
 {
@@ -2709,9 +2691,9 @@ void LinearScan::checkLastUses(BasicBlock* block)
 
             LsraLocation loc = currentRefPosition->nodeLocation;
 
-            // We should always have a tree node for a localVar, except for the "special" RefPositions.
-            GenTree* tree = currentRefPosition->treeNode;
-            assert(tree != nullptr || currentRefPosition->refType == RefTypeExpUse ||
+            // We should always have a node for a localVar, except for the "special" RefPositions.
+            GenTree* node = currentRefPosition->treeNode;
+            assert(node != nullptr || currentRefPosition->refType == RefTypeExpUse ||
                    currentRefPosition->refType == RefTypeDummyDef);
 
             if (!VarSetOps::IsMember(compiler, computedLive, varIndex) && (lcl != keepAliveThisLcl))
@@ -2727,9 +2709,9 @@ void LinearScan::checkLastUses(BasicBlock* block)
                     // use information. To avoid these asserts, set the LastUse bit here.
                     // Note also that extendLifetimes() is an LSRA stress mode, so it will only be true for
                     // Checked or Debug builds, for which this method will be executed.
-                    if (tree != nullptr)
+                    if (node != nullptr)
                     {
-                        tree->SetLastUse(currentRefPosition->GetRegIndex(), true);
+                        node->SetLastUse(currentRefPosition->GetRegIndex(), true);
                     }
                 }
                 else if (!currentRefPosition->lastUse)
@@ -2744,10 +2726,10 @@ void LinearScan::checkLastUses(BasicBlock* block)
                 JITDUMP("unexpected last use of V%02u @%u\n", lcl->GetLclNum(), loc);
                 foundDiff = true;
             }
-            else if (extendLifetimes() && tree != nullptr)
+            else if (extendLifetimes() && (node != nullptr))
             {
                 // NOTE: see the comment above re: the extendLifetimes hack.
-                tree->SetLastUse(currentRefPosition->GetRegIndex(), false);
+                node->SetLastUse(currentRefPosition->GetRegIndex(), false);
             }
 
             if (currentRefPosition->refType == RefTypeDef || currentRefPosition->refType == RefTypeDummyDef)
@@ -3079,13 +3061,13 @@ bool Interval::assignRelatedIntervalIfUnassigned(Interval* newRelatedInterval)
 
 #endif // TARGET_XARCH || FEATURE_HW_INTRINSICS
 
-var_types LinearScan::getDefType(GenTree* tree) const
+var_types LinearScan::getDefType(GenTree* node) const
 {
-    var_types type = tree->GetType();
+    var_types type = node->GetType();
 
     if (type == TYP_STRUCT)
     {
-        GenTreeLclVar* lclVar = tree->AsLclVar();
+        GenTreeLclVar* lclVar = node->AsLclVar();
 
         type = lclVar->GetLcl()->GetRegisterType(lclVar);
     }
@@ -3180,12 +3162,12 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
     return defRefPosition;
 }
 
-void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
+void LinearScan::BuildKills(GenTree* node, regMaskTP killMask)
 {
-    assert(killMask == getKillSetForNode(tree));
+    assert(killMask == getKillSetForNode(node));
 
     // Call this even when killMask is RBM_NONE, as we have to check for some special cases
-    buildKillPositionsForNode(tree, currentLoc + 1, killMask);
+    buildKillPositionsForNode(node, currentLoc + 1, killMask);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     if (killMask != RBM_NONE)
@@ -3195,7 +3177,7 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
         // We actually need to find any calls that kill the upper-half of the callee-save vector registers.
         // But we will use as a proxy any node that kills floating point registers.
         // (Note that some calls are masquerading as other nodes at this point so we can't just check for calls.)
-        // We call this unconditionally for such nodes, as we will create RefPositions for any large vector tree temps
+        // We call this unconditionally for such nodes, as we will create RefPositions for any large vector node temps
         // even if 'enregisterLocalVars' is false, or 'liveLargeVectors' is empty, though currently the allocation
         // phase will fully (rather than partially) spill those, so we don't need to build the UpperVectorRestore
         // RefPositions in that case.
@@ -3203,7 +3185,7 @@ void LinearScan::BuildKills(GenTree* tree, regMaskTP killMask)
         //
         if ((killMask & RBM_FLT_CALLEE_TRASH) != RBM_NONE)
         {
-            buildUpperVectorSaveRefPositions(tree, currentLoc + 1, killMask);
+            buildUpperVectorSaveRefPositions(node, currentLoc + 1, killMask);
         }
     }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -3403,7 +3385,7 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
         BuildUse(src, srcCandidates, i);
         BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
 
-        if (i < (regCount - 1))
+        if (i < regCount - 1)
         {
             currentLoc += 2;
         }
@@ -3884,28 +3866,15 @@ void LinearScan::BuildKeepAlive(GenTreeUnOp* node)
     }
 }
 
-//------------------------------------------------------------------------
-// internalFloatRegCandidates: Return the set of registers that are appropriate
-//                             for use as internal float registers.
+// Return the set of registers that are appropriate
+// for use as internal float registers.
 //
-// Return Value:
-//    The set of registers (as a regMaskTP).
-//
-// Notes:
-//    compFloatingPointUsed is only required to be set if it is possible that we
-//    will use floating point callee-save registers.
-//    It is unlikely, if an internal register is the only use of floating point,
-//    that it will select a callee-save register.  But to be safe, we restrict
-//    the set of candidates if compFloatingPointUsed is not already set.
-
+// compFloatingPointUsed is only required to be set if it is possible that we
+// will use floating point callee-save registers.
+// It is unlikely, if an internal register is the only use of floating point,
+// that it will select a callee-save register.  But to be safe, we restrict
+// the set of candidates if compFloatingPointUsed is not already set.
 regMaskTP LinearScan::internalFloatRegCandidates() const
 {
-    if (compiler->compFloatingPointUsed)
-    {
-        return allFloatRegs();
-    }
-    else
-    {
-        return RBM_FLT_CALLEE_TRASH;
-    }
+    return compiler->compFloatingPointUsed ? allFloatRegs() : RBM_FLT_CALLEE_TRASH;
 }

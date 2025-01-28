@@ -301,24 +301,24 @@ private:
     // This is the resolution phase, where cross-block mismatches are fixed up
     void resolveRegisters();
 
-    void writeRegisters(RefPosition* currentRefPosition, GenTree* tree);
+    void writeRegisters(RefPosition* currentRefPosition, GenTree* node);
 
-    // Insert a copy in the case where a tree node value must be moved to a different
+    // Insert a copy in the case where a node value must be moved to a different
     // register at the point of use, or it is reloaded to a different register
     // than the one it was spilled from
-    void insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned regIndex, RefPosition* refPosition);
+    void insertCopyOrReload(BasicBlock* block, GenTree* node, unsigned regIndex, RefPosition* refPosition);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void makeUpperVectorInterval(unsigned varIndex);
     Interval* getUpperVectorInterval(unsigned varIndex);
 
     // Save the upper half of a vector that lives in a callee-save register at the point of a call.
-    void InsertUpperVectorSpill(GenTree*     tree,
+    void InsertUpperVectorSpill(GenTree*     node,
                                 RefPosition* refPosition,
                                 Interval*    upperVectorInterval,
                                 BasicBlock*  block);
-    // Restore the upper half of a vector that's been partially spilled prior to a use in 'tree'.
-    void InsertUpperVectorUnspill(GenTree*     tree,
+    // Restore the upper half of a vector that's been partially spilled prior to a use in 'node'.
+    void InsertUpperVectorUnspill(GenTree*     node,
                                   RefPosition* refPosition,
                                   Interval*    upperVectorInterval,
                                   BasicBlock*  block);
@@ -647,28 +647,28 @@ private:
     // insert refpositions representing prolog zero-inits which will be added later
     void insertZeroInitRefPositions();
 
-    void newRegKillRefPositions(regMaskTP mask, LsraLocation currentLoc);
+    void newRegKillRefPositions(regMaskTP mask, LsraLocation location);
 
-    void buildRefPositionsForNode(GenTree* node, LsraLocation loc);
+    void buildRefPositionsForNode(GenTree* node);
 #ifdef DEBUG
     void BuildStressConstraints(GenTree* node, RefPositionIterator refPositionMark);
 #endif
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
-    void buildUpperVectorSaveRefPositions(GenTree* tree, LsraLocation currentLoc, regMaskTP fpCalleeKillSet);
-    void buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation currentLoc, GenTree* node);
+    void buildUpperVectorSaveRefPositions(GenTree* node, LsraLocation location, regMaskTP fpCalleeKillSet);
+    void buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, LsraLocation location, GenTree* node);
 #endif
 
     void AddLiveParamRegs(LclVarDsc* lcl);
 
-    bool isCandidateLclVar(GenTree* tree) const
+    bool IsCandidateLclRef(GenTree* node) const
     {
-        return tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && tree->AsLclVar()->GetLcl()->IsRegCandidate();
+        return node->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && node->AsLclVar()->GetLcl()->IsRegCandidate();
     }
 
-    bool IsRegCandidateLclLoad(GenTree* tree) const
+    bool IsRegCandidateLclLoad(GenTree* node) const
     {
-        return tree->OperIs(GT_LCL_LOAD) && tree->AsLclLoad()->GetLcl()->IsRegCandidate();
+        return node->OperIs(GT_LCL_LOAD) && node->AsLclLoad()->GetLcl()->IsRegCandidate();
     }
 
     // Helpers for getKillSetForNode().
@@ -690,11 +690,11 @@ private:
     // Return the registers killed by the given node.
     // This is used only for an assert, and for stress, so it is only defined under DEBUG.
     // Otherwise, the Build methods should obtain the killMask from the appropriate method above.
-    regMaskTP getKillSetForNode(GenTree* tree);
+    regMaskTP getKillSetForNode(GenTree* node);
 #endif
 
-    // Given some tree node add refpositions for all the registers this node kills
-    bool buildKillPositionsForNode(GenTree* tree, LsraLocation currentLoc, regMaskTP killMask);
+    // Given some node add refpositions for all the registers this node kills
+    bool buildKillPositionsForNode(GenTree* node, LsraLocation location, regMaskTP killMask);
 
     regMaskTP allRegs(RegisterType rt) const;
     regMaskTP allIntRegs() const;
@@ -706,8 +706,8 @@ private:
     void freeRegister(RegRecord* physRegRecord);
     void freeRegisters(regMaskTP regsToFree);
 
-    // Get the type that this tree defines.
-    var_types getDefType(GenTree* tree) const;
+    // Get the type that this node defines.
+    var_types getDefType(GenTree* node) const;
 
     // Managing internal registers during the BuildNode process.
     RefPosition* defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask);
@@ -854,7 +854,7 @@ private:
     // There are three points at which a tuple-style dump is produced, and each
     // differs slightly:
     //   - In LSRA_DUMP_PRE, it does a simple dump of each node, with indications of what
-    //     tree nodes are consumed.
+    //     nodes are consumed.
     //   - In LSRA_DUMP_REFPOS, which is after the intervals are built, but before
     //     register allocation, each node is dumped, along with all of the RefPositions,
     //     The Intervals are identified as Lnnn for lclVar intervals, Innn for for other
@@ -869,8 +869,8 @@ private:
         LSRA_DUMP_POST
     };
 
-    void lsraGetOperandString(GenTree* tree, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
-    void lsraDispNode(GenTree* tree, LsraTupleDumpMode mode) const;
+    void lsraGetOperandString(GenTree* node, LsraTupleDumpMode mode, char* buffer, unsigned bufferSize) const;
+    void lsraDispNode(GenTree* node, LsraTupleDumpMode mode) const;
     void DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMode mode) const;
     void TupleStyleDump(LsraTupleDumpMode mode);
 
@@ -1310,13 +1310,13 @@ private:
     RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
     RefPosition* BuildUse(GenTree* operand, regMaskTP candidates = RBM_NONE, unsigned regIndex = 0);
     void setDelayFree(RefPosition* use);
-    void BuildKills(GenTree* tree, regMaskTP killMask);
+    void BuildKills(GenTree* node, regMaskTP killMask);
 #ifdef TARGET_XARCH
     void BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates = RBM_NONE));
     void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     void BuildDelayFreeOperandUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
 #ifdef DEBUG
-    bool isRMWRegOper(GenTreeOp* tree);
+    bool isRMWRegOper(GenTreeOp* node);
 #endif
     void BuildRMWUses(GenTreeOp* node);
 #endif

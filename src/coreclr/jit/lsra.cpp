@@ -344,7 +344,7 @@ BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
 {
     if (GenTree* node = refPos->treeNode)
     {
-        if (isCandidateLclVar(node))
+        if (IsCandidateLclRef(node))
         {
             // Tracked locals: use weighted ref cnt as the weight of the ref position.
             LclVarDsc*           lcl    = node->AsLclVar()->GetLcl();
@@ -1058,25 +1058,14 @@ bool LinearScan::canSpillReg(RegRecord* reg, LsraLocation refLocation) const
     return false;
 }
 
-//------------------------------------------------------------------------
-// getSpillWeight: Get the weight associated with spilling the given register
-//
-// Arguments:
-//    physRegRecord - reg to spill
-//
-// Return Value:
-//    The weight associated with the location at which we will spill.
-//
+// Get the weight associated with spilling the given register
 // Note: This helper is designed to be used only from allocateReg() and getDoubleSpillWeight()
-//
 float LinearScan::getSpillWeight(RegRecord* physRegRecord)
 {
     assert(physRegRecord->assignedInterval != nullptr);
     RefPosition* recentAssignedRef = physRegRecord->assignedInterval->recentRefPosition;
     // We shouldn't call this method if there is no recentAssignedRef.
     assert(recentAssignedRef != nullptr);
-    // We shouldn't call this method if the register is active at this location.
-    assert(!isRefPositionActive(recentAssignedRef, currentLoc));
 
     return getWeight(recentAssignedRef);
 }
@@ -4143,7 +4132,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned r
         if (refPosition->copyReg)
         {
             // This is a TEMPORARY copy
-            assert(isCandidateLclVar(tree) || tree->IsMultiRegLclStore());
+            assert(IsCandidateLclRef(tree) || tree->IsMultiRegLclStore());
             newNode->SetLastUse(regIndex, true);
         }
 
@@ -6993,8 +6982,6 @@ void LinearScan::DumpOperandDefs(GenTree* operand, bool& first, LsraTupleDumpMod
 
 void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 {
-    LsraLocation currentLoc = 1; // 0 is the entry
-
     // currentRefPosition is not used for LSRA_DUMP_PRE
     // We keep separate iterators for defs, so that we can print them
     // on the lhs of the dump
@@ -7048,8 +7035,6 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 
     for (BasicBlock* block : jitstd::span<BasicBlock*>(blockSequence, bbSeqCount))
     {
-        currentLoc += 2;
-
         if (mode == LSRA_DUMP_REFPOS)
         {
             bool printedBlockHeader = false;
