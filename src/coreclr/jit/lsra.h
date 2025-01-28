@@ -1248,7 +1248,7 @@ private:
     // This method should not be used and is here to retain old behavior.
     // It should be replaced by isRegAvailable().
     // See comment in allocateReg();
-    bool isFree(RegRecord* regRecord);
+    bool isFree(RegRecord* regRecord) const;
 
     //-----------------------------------------------------------------------
     // Build methods
@@ -1574,7 +1574,7 @@ public:
     RefPosition* nextRefPosition = nullptr;
 
     // The remaining fields are common to both options
-    GenTree* treeNode;
+    GenTree* node;
     unsigned bbNum;
 
     LsraLocation nodeLocation;
@@ -1663,7 +1663,7 @@ public:
 #endif // DEBUG
 
     RefPosition(unsigned bbNum, LsraLocation nodeLocation, GenTree* node, RefType refType)
-        : treeNode(node)
+        : node(node)
         , bbNum(bbNum)
         , nodeLocation(nodeLocation)
         , refType(refType)

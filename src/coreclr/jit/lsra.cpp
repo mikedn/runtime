@@ -342,7 +342,7 @@ void LinearScan::updateSpillCost(RegRecord* reg, Interval* interval) const
 
 BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
 {
-    if (GenTree* node = refPos->treeNode)
+    if (GenTree* node = refPos->node)
     {
         if (IsCandidateLclRef(node))
         {
@@ -384,7 +384,7 @@ BasicBlock::weight_t LinearScan::getWeight(const RefPosition* refPos) const
     return blockInfo[refPos->bbNum].weight;
 }
 
-bool LinearScan::isFree(RegRecord* regRecord)
+bool LinearScan::isFree(RegRecord* regRecord) const
 {
     return (regRecord->assignedInterval == nullptr || !regRecord->assignedInterval->isActive) &&
            // TODO-MIKE-Cleanup: There are a lot of places that use RegRecord::registerType to deal
@@ -1020,7 +1020,7 @@ regNumber LinearScan::allocateReg(Interval*    currentInterval,
             if (regSelector.isMatchingConstant())
             {
                 assert(assignedInterval->isConstant);
-                refPosition->treeNode->SetReuseRegVal();
+                refPosition->node->SetReuseRegVal();
             }
             else if (wasAssigned)
             {
@@ -1676,8 +1676,8 @@ void LinearScan::unassignPhysReg(RegRecord* const regRec, RefPosition* spillRefP
         // it would be messy and undesirably cause the "bleeding" of LSRA stress modes outside
         // of LSRA.
         if (extendLifetimes() && assignedInterval->isLocalVar && RefTypeIsUse(spillRefPosition->refType) &&
-            spillRefPosition->treeNode != nullptr &&
-            spillRefPosition->treeNode->AsLclVar()->IsLastUse(spillRefPosition->GetRegIndex()))
+            (spillRefPosition->node != nullptr) &&
+            spillRefPosition->node->AsLclVar()->IsLastUse(spillRefPosition->GetRegIndex()))
         {
             dumpLsraAllocationEvent(LSRA_EVENT_SPILL_EXTENDED_LIFETIME, assignedInterval);
             assignedInterval->isActive = false;
@@ -1798,9 +1798,9 @@ void LinearScan::spillGCRefs(RefPosition* killRefPosition)
             // The emitter will mark this register as holding a GC type. Therefore we must spill this value.
             // This was exposed on Arm32 with EH write-thru.
             if ((assignedInterval->recentRefPosition != nullptr) &&
-                (assignedInterval->recentRefPosition->treeNode != nullptr))
+                (assignedInterval->recentRefPosition->node != nullptr))
             {
-                needsKill = varTypeIsGC(assignedInterval->recentRefPosition->treeNode->GetType());
+                needsKill = varTypeIsGC(assignedInterval->recentRefPosition->node->GetType());
             }
         }
         if (needsKill)
@@ -2920,7 +2920,7 @@ void LinearScan::allocateRegisters()
                 // will cause us to allocate stack space to spill it.
                 allocate = false;
             }
-            else if ((currentInterval->physReg == REG_STK) && nextRefPosition->treeNode->OperIs(GT_BITCAST))
+            else if ((currentInterval->physReg == REG_STK) && nextRefPosition->node->OperIs(GT_BITCAST))
             {
                 // In the case of ABI mismatches, avoid allocating a register only to have to immediately move
                 // it to a different register file.
@@ -3367,8 +3367,8 @@ void LinearScan::allocateRegisters()
             {
                 if (verbose)
                 {
-                    if (currentInterval->isConstant && (currentRefPosition->treeNode != nullptr) &&
-                        currentRefPosition->treeNode->IsReuseRegVal())
+                    if (currentInterval->isConstant && (currentRefPosition->node != nullptr) &&
+                        currentRefPosition->node->IsReuseRegVal())
                     {
                         dumpLsraAllocationEvent(LSRA_EVENT_REUSE_REG, currentInterval, assignedRegister, currentBlock,
                                                 registerScore);
@@ -4378,12 +4378,13 @@ void LinearScan::updateMaxSpill(RefPosition* refPosition)
         (refPosition->RegOptional() && refPosition->assignedReg() == REG_NA))
     {
         Interval* interval = refPosition->getInterval();
+
         if (!interval->isLocalVar)
         {
-            if (refPosition->treeNode == nullptr)
+            if (refPosition->node == nullptr)
             {
                 assert(RefTypeIsUse(refType));
-                assert(interval->firstRefPosition->treeNode != nullptr);
+                assert(interval->firstRefPosition->node != nullptr);
             }
 
             // The tmp allocation logic 'normalizes' types to a small number of
@@ -4606,7 +4607,7 @@ void LinearScan::resolveRegisters()
 
             updateMaxSpill(&refPosIterator);
 
-            GenTree* node = refPosIterator->treeNode;
+            GenTree* node = refPosIterator->node;
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
             if (refPosIterator->refType == RefTypeUpperVectorSave)
@@ -4769,7 +4770,7 @@ void LinearScan::resolveRegisters()
                             if (refPosIterator->spillAfter && refPosIterator->refType == RefTypeDef &&
                                 nextRefPosition->refType == RefTypeUse)
                             {
-                                assert(nextRefPosition->treeNode == nullptr);
+                                assert(nextRefPosition->node == nullptr);
                                 node->gtFlags |= GTF_NOREG_AT_USE;
                             }
                         }
@@ -6633,10 +6634,10 @@ void RefPosition::dump(const LinearScan* linearScan) const
         getInterval()->tinyDump();
     }
 
-    if (treeNode != nullptr)
+    if (node != nullptr)
     {
-        printf("%s", treeNode->OpName(treeNode->GetOper()));
-        if (treeNode->IsMultiRegNode())
+        printf("%s", node->OpName(node->GetOper()));
+        if (node->IsMultiRegNode())
         {
             printf("[%u]", regIndex);
         }
@@ -8094,8 +8095,8 @@ void LinearScan::verifyFinalAllocation()
                     interval->isActive = true;
 
                     DBEXEC(verbose,
-                           dumpLsraAllocationEvent(interval->isConstant && (currentRefPosition->treeNode != nullptr) &&
-                                                           currentRefPosition->treeNode->IsReuseRegVal()
+                           dumpLsraAllocationEvent(interval->isConstant && (currentRefPosition->node != nullptr) &&
+                                                           currentRefPosition->node->IsReuseRegVal()
                                                        ? LSRA_EVENT_REUSE_REG
                                                        : LSRA_EVENT_ALLOC_REG,
                                                    nullptr, regRecord->regNum, currentBlock));
@@ -9230,7 +9231,7 @@ regMaskTP LinearScan::getMatchingConstants(regMaskTP mask, Interval* interval, R
             continue;
         }
 
-        if (!isMatchingConstant(refPosition->treeNode, regRecord->assignedInterval->firstRefPosition->treeNode))
+        if (!isMatchingConstant(refPosition->node, regRecord->assignedInterval->firstRefPosition->node))
         {
             continue;
         }

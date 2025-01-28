@@ -156,7 +156,7 @@ void LinearScan::checkConflictingDefUse(RefPosition* useRP)
     RefPosition* defRP = theInterval->firstRefPosition;
 
     // All defs must have a valid node, but we check it below to be conservative.
-    assert(defRP->treeNode != nullptr);
+    assert(defRP->node != nullptr);
     regMaskTP prevAssignment = defRP->registerAssignment;
     regMaskTP newAssignment  = (prevAssignment & useRP->registerAssignment);
     if (newAssignment != RBM_NONE)
@@ -808,7 +808,7 @@ void LinearScan::buildInternalRegisterUses()
     {
         RefPosition* def  = internalDefs[i];
         regMaskTP    mask = def->registerAssignment;
-        RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->treeNode, mask);
+        RefPosition* use  = newRefPosition(def->getInterval(), currentLoc, RefTypeUse, def->node, mask);
 
         if (setInternalRegsDelayFree)
         {
@@ -2692,7 +2692,7 @@ void LinearScan::checkLastUses(BasicBlock* block)
             LsraLocation loc = currentRefPosition->nodeLocation;
 
             // We should always have a node for a localVar, except for the "special" RefPositions.
-            GenTree* node = currentRefPosition->treeNode;
+            GenTree* node = currentRefPosition->node;
             assert(node != nullptr || currentRefPosition->refType == RefTypeExpUse ||
                    currentRefPosition->refType == RefTypeDummyDef);
 
@@ -3021,7 +3021,7 @@ void LinearScan::ValidateLocalIntervals()
 // This is only desirable if the use is a last use, which it is if it is a non-local,
 // *or* if it is a lastUse.
 // Note that we don't yet have valid lastUse information in the RefPositions that we're building
-// (every RefPosition is set as a lastUse until we encounter a new use), so we have to rely on the treeNode.
+// (every RefPosition is set as a lastUse until we encounter a new use), so we have to rely on the node.
 // This may be called for multiple uses, in which case 'interval' will only get preferenced at most
 // to the first one (if it didn't already have a 'relatedInterval'.
 //
@@ -3030,8 +3030,8 @@ void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
     if (tgtPrefUse != nullptr)
     {
         Interval* useInterval = tgtPrefUse->getInterval();
-        if (!useInterval->isLocalVar || (tgtPrefUse->treeNode == nullptr) ||
-            ((tgtPrefUse->treeNode->gtFlags & GTF_VAR_DEATH) != 0))
+        if (!useInterval->isLocalVar || (tgtPrefUse->node == nullptr) ||
+            ((tgtPrefUse->node->gtFlags & GTF_VAR_DEATH) != 0))
         {
             // Set the use interval as related to the interval we're defining.
             useInterval->assignRelatedIntervalIfUnassigned(interval);
@@ -3318,7 +3318,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, Ref
             // Preference the source to the dest, unless this is a non-last-use localVar.
             // Note that the last-use info is not correct, but it is a better approximation than preferencing
             // the source to the dest, if the source's lifetime extends beyond the dest.
-            if (!srcInterval->isLocalVar || ((singleUseRef->treeNode->gtFlags & GTF_VAR_DEATH) != 0))
+            if (!srcInterval->isLocalVar || ((singleUseRef->node->gtFlags & GTF_VAR_DEATH) != 0))
             {
                 srcInterval->assignRelatedInterval(varDefInterval);
             }
