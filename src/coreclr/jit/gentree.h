@@ -387,11 +387,11 @@ enum GenTreeFlags : unsigned
 
     GTF_SPECIFIC_MASK         = 0xFFFF0000, // Mask of all the flags below
 
-    // LCL_VAR & co. specific flags
+    // LCL specific flags
                               
-    GTF_VAR_DEATH             = 0x04000000, // Last-use of a local (LCL_VAR|FLD or dead stores if they're not removed)
-    GTF_VAR_FIELD_DEATH0      = 0x04000000, // Last-use bits for up to 4 promoted fields
-    GTF_VAR_FIELD_DEATH_MASK  = 0x3C000000,
+    GTF_LCL_LAST_USE          = 0x04000000, // Last-use of a local (or dead stores)
+    GTF_LCL_LAST_USE_FIELD_0  = 0x04000000, // Last-use bits for up to 4 promoted fields
+    GTF_LCL_LAST_USE_MASK     = 0x3C000000,
     GTF_VAR_MULTIREG          = 0x02000000, // Struct or (on 32-bit platforms) LONG local store with a multireg source
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
@@ -7891,12 +7891,13 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 constexpr GenTreeFlags GetLastUseFlag(unsigned regIndex)
 {
     assert(regIndex < 4);
-    return static_cast<GenTreeFlags>(GTF_VAR_FIELD_DEATH0 << regIndex);
+    return static_cast<GenTreeFlags>(GTF_LCL_LAST_USE_FIELD_0 << regIndex);
 }
 
 inline bool GenTree::IsLastUse(unsigned regIndex) const
 {
-    assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_LOAD, GT_LCL_USE, GT_LCL_STORE, GT_LCL_DEF, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY,
+                  GT_RELOAD));
 
     return (gtFlags & GetLastUseFlag(regIndex)) != 0;
 }
@@ -7905,12 +7906,12 @@ inline bool GenTree::HasLastUse() const
 {
     assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
 
-    return (gtFlags & GTF_VAR_FIELD_DEATH_MASK) != 0;
+    return (gtFlags & GTF_LCL_LAST_USE_MASK) != 0;
 }
 
 inline void GenTree::SetLastUse(unsigned regIndex, bool lastUse)
 {
-    assert(OperIs(GT_LCL_LOAD, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
+    assert(OperIs(GT_LCL_LOAD, GT_LCL_USE, GT_LCL_STORE, GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD, GT_COPY, GT_RELOAD));
 
     if (lastUse)
     {

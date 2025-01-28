@@ -719,14 +719,7 @@ void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, 
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
-    if (VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()))
-    {
-        node->gtFlags |= GTF_VAR_DEATH;
-    }
-    else
-    {
-        node->gtFlags &= ~GTF_VAR_DEATH;
-    }
+    node->SetLastUse(0, VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()));
 }
 
 bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
@@ -750,7 +743,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
     }
     else
     {
-        node->gtFlags |= GTF_VAR_DEATH;
+        node->SetLastUse(0, true);
 
         if (!opts.MinOpts())
         {

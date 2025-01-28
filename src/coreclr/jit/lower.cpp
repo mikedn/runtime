@@ -2002,7 +2002,7 @@ void Lowering::LowerLclStore(GenTreeLclStore* store)
 #if FEATURE_MULTIREG_RET
     if (src->IsMultiRegNode())
     {
-        MakeMultiRegStoreLclVar(store, src);
+        MakeMultiRegLclStore(store, src);
     }
 #endif
 
@@ -4858,7 +4858,7 @@ void Lowering::LowerBlock(BasicBlock* block)
 
 #if FEATURE_MULTIREG_RET
 
-void Lowering::MakeMultiRegStoreLclVar(GenTreeLclStore* store, GenTree* value)
+void Lowering::MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value)
 {
     assert(value->IsMultiRegNode());
 

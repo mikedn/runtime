@@ -97,7 +97,7 @@ void SsaOptimizer::Reset()
 
                 if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
                 {
-                    node->gtFlags &= ~GTF_VAR_FIELD_DEATH_MASK;
+                    node->gtFlags &= ~GTF_LCL_LAST_USE_MASK;
                 }
             }
         }
@@ -1134,7 +1134,7 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* load, Statement*
     {
         GenTreeLclUse* use = new (m_compiler, GT_LCL_USE) GenTreeLclUse(def, block);
         use->SetCosts(0, 0);
-        use->gtFlags |= load->gtFlags & GTF_VAR_DEATH;
+        use->SetLastUse(0, load->IsLastUse(0));
 
         unsigned      fieldOffset = lclFld->GetLclOffs();
         FieldSeqNode* fieldSeq    = lclFld->GetFieldSeq();

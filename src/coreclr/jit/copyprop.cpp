@@ -200,9 +200,9 @@ public:
                         continue;
                     }
 
-                    if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+                    if (node->IsLastUse(0))
                     {
-                        // We push a "fake" def for VAR_DEATH, to prevent live range extension.
+                        // We push a "fake" def for last uses, to prevent live range extension.
                         // For STRUCT locals live range extension isn't an issue, as they're
                         // currently not enregistered nor is any stack packing done.
 

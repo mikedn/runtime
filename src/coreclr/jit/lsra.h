@@ -303,10 +303,10 @@ private:
 
     void writeRegisters(RefPosition* currentRefPosition, GenTree* node);
 
-    // Insert a copy in the case where a node value must be moved to a different
+    // Insert a copy in the case where a value node must be moved to a different
     // register at the point of use, or it is reloaded to a different register
     // than the one it was spilled from
-    void insertCopyOrReload(BasicBlock* block, GenTree* node, unsigned regIndex, RefPosition* refPosition);
+    void insertCopyOrReload(BasicBlock* block, GenTree* value, unsigned regIndex, RefPosition* refPosition);
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void makeUpperVectorInterval(unsigned varIndex);
@@ -1303,7 +1303,7 @@ private:
 #endif
     }
 
-    bool IsCandidateLclVarMultiReg(GenTreeLclStore* store);
+    bool IsRegCandidateLclStoreMultiReg(GenTreeLclStore* store);
     bool checkContainedOrCandidateLclVar(GenTreeLclLoad* load);
 
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
@@ -1349,8 +1349,8 @@ private:
     void BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLayout* layout);
     void BuildStoreDynBlk(GenTreeDynBlk* store);
-    void BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
-    void BuildStoreLclVarMultiReg(GenTreeLclStore* store);
+    void BuildLclStoreDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index);
+    void BuildLclStoreMultiReg(GenTreeLclStore* store);
     void BuildLclStore(GenTreeLclStore* store);
     void BuildLclStoreFld(GenTreeLclStoreFld* store);
     void BuildLclStoreCommon(GenTreeLclVarCommon* store);

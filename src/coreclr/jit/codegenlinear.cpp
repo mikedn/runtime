@@ -399,7 +399,8 @@ void CodeGen::genCodeForBBlist()
                 {
                     // TODO-MIKE-Cleanup: Unused calls should simply be retyped to VOID in lowering.
                     // Also, it looks like unused value nodes sometimes get COPY/RELOAD users, that
-                    // seems pointless.
+                    // seems pointless. Some copies are inserted by LSRA's edge resolution, though
+                    // it's not clear why they're COPY and not LCL_STORE.
 
                     if (node->IsMultiRegCall() || node->IsCopyOrReloadOfMultiRegCall())
                     {
@@ -1389,7 +1390,7 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     // If it is a last use, the local will be killed by UseReg, as usual, and DefReg will
     // appropriately set the GC liveness for the copied value.
     // If not, there are two cases we need to handle:
-    // - If this is a TEMPORARY copy (indicated by the GTF_VAR_DEATH flag) the variable
+    // - If this is a TEMPORARY copy (indicated by the last use flag) the variable
     //   will remain live in its original register.
     //   DefReg will appropriately set the GC liveness for the copied value,
     //   and UseReg will reset it.

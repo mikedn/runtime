@@ -3,8 +3,6 @@
 
 // clang-format off
 
-/*****************************************************************************/
-/*****************************************************************************/
 #ifndef LSRA_STAT_DEF
 #error  Must define LSRA_STAT_DEF macro before including this file
 #endif

@@ -4947,7 +4947,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
             case GT_LCL_STORE:
             case GT_LCL_LOAD_FLD:
             case GT_LCL_STORE_FLD:
-                if (tree->gtFlags & GTF_VAR_DEATH)
+                if (tree->gtFlags & GTF_LCL_LAST_USE_MASK)
                 {
                     chars += printf("[VAR_DEATH]");
                 }

@@ -390,12 +390,7 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
     assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULL, GT_UMULL));
 #endif
 
-    if (!node->OperIs(GT_MUL, GT_OVF_SMUL))
-    {
-        return RBM_RAX | RBM_RDX;
-    }
-
-    return RBM_NONE;
+    return node->OperIs(GT_MUL, GT_OVF_SMUL) ? RBM_NONE : (RBM_RAX | RBM_RDX);
 }
 
 regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
@@ -717,7 +712,7 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
 // as such, we've already completed Lowering, so during the build phase of
 // LSRA we have to reset the GTF_VAR_MULTIREG flag if necessary as we visit
 // each node.
-bool LinearScan::IsCandidateLclVarMultiReg(GenTreeLclStore* store)
+bool LinearScan::IsRegCandidateLclStoreMultiReg(GenTreeLclStore* store)
 {
     if (!store->IsMultiReg())
     {
@@ -1023,7 +1018,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
 #ifdef TARGET_XARCH
         // On XArch we can have contained candidate lclVars if they are part of a RMW
         // address computation. In this case we need to check whether it is a last use.
-        if (tree->OperIs(GT_LCL_LOAD) && ((tree->gtFlags & GTF_VAR_DEATH) != 0))
+        if (tree->OperIs(GT_LCL_LOAD) && tree->IsLastUse(0))
         {
             LclVarDsc* lcl = tree->AsLclLoad()->GetLcl();
 
@@ -1556,7 +1551,7 @@ void LinearScan::buildIntervals()
 
             // We increment the location of each node by 2 so that the node definition,
             // if any, is at a new location and doesn't interfere with the uses.
-            // For multi-reg local stores, the 'BuildStoreLclVarMultiReg' method will further
+            // For multi-reg local stores, the BuildLclStoreMultiReg method will further
             // increment the location by 2 for each destination register beyond the first.
             currentLoc += 2;
         }
@@ -2634,22 +2629,17 @@ bool LinearScan::IsRegCandidate(LclVarDsc* lcl)
 }
 
 #ifdef DEBUG
-//------------------------------------------------------------------------
-// checkLastUses: Check correctness of last use flags
+// Check correctness of last use flags
 //
-// Arguments:
-//    The block for which we are checking last uses.
-//
-// Notes:
-//    This does a backward walk of the RefPositions, starting from the liveOut set.
-//    This method was previously used to set the last uses, which were computed by
-//    liveness, but were not create in some cases of multiple lclVar references in the
-//    same node. However, now that last uses are computed as RefPositions are created,
-//    that is no longer necessary, and this method is simply retained as a check.
-//    The exception to the check-only behavior is when LSRA_EXTEND_LIFETIMES if set via
-//    COMPlus_JitStressRegs. In that case, this method is required, because even though
-//    the RefPositions will not be marked lastUse in that case, we still need to correclty
-//    mark the last uses on the nodes, which is done by this method.
+// This does a backward walk of the RefPositions, starting from the liveOut set.
+// This method was previously used to set the last uses, which were computed by
+// liveness, but were not create in some cases of multiple lclVar references in the
+// same node. However, now that last uses are computed as RefPositions are created,
+// that is no longer necessary, and this method is simply retained as a check.
+// The exception to the check-only behavior is when LSRA_EXTEND_LIFETIMES if set via
+// COMPlus_JitStressRegs. In that case, this method is required, because even though
+// the RefPositions will not be marked lastUse in that case, we still need to correctly
+// mark the last uses on the nodes, which is done by this method.
 //
 void LinearScan::checkLastUses(BasicBlock* block)
 {
@@ -3030,8 +3020,8 @@ void setTgtPref(Interval* interval, RefPosition* tgtPrefUse)
     if (tgtPrefUse != nullptr)
     {
         Interval* useInterval = tgtPrefUse->getInterval();
-        if (!useInterval->isLocalVar || (tgtPrefUse->node == nullptr) ||
-            ((tgtPrefUse->node->gtFlags & GTF_VAR_DEATH) != 0))
+
+        if (!useInterval->isLocalVar || (tgtPrefUse->node == nullptr) || tgtPrefUse->node->IsLastUse(0))
         {
             // Set the use interval as related to the interval we're defining.
             useInterval->assignRelatedIntervalIfUnassigned(interval);
@@ -3214,7 +3204,7 @@ RefPosition* LinearScan::BuildUse(GenTree* operand, regMaskTP candidates, unsign
         // 2) the cases where these out-of-order uses occur should not overlap a kill.
         // TODO-Throughput: clean this up once we have the execution order correct.  At that point
         // we can update currentLiveVars at the same place that we create the RefPosition.
-        if ((operand->gtFlags & GTF_VAR_DEATH) != 0)
+        if (operand->IsLastUse(0))
         {
             VarSetOps::RemoveElemD(compiler, currentLiveVars, interval->getVarIndex());
         }
@@ -3299,14 +3289,15 @@ void LinearScan::setDelayFree(RefPosition* use)
     pendingDelayFree  = true;
 }
 
-void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
+void LinearScan::BuildLclStoreDef(GenTreeLclStore* store, LclVarDsc* lcl, RefPosition* singleUseRef, unsigned index)
 {
     Interval* varDefInterval = getIntervalForLocalVar(lcl->GetLivenessBitIndex());
 
-    // TODO-MIKE-Review: Use of GTF_VAR_DEATH on multireg nodes is dubious...
-    if ((store->gtFlags & GTF_VAR_DEATH) == 0)
+    // TODO-MIKE-Review: How does this work on multi reg stores exactly,
+    // it's only checking the first reg?
+    if (!store->IsLastUse(0))
     {
-        VarSetOps::AddElemD(compiler, currentLiveVars, lcl->lvVarIndex);
+        VarSetOps::AddElemD(compiler, currentLiveVars, lcl->GetLivenessBitIndex());
     }
 
     if (singleUseRef != nullptr)
@@ -3318,7 +3309,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, Ref
             // Preference the source to the dest, unless this is a non-last-use localVar.
             // Note that the last-use info is not correct, but it is a better approximation than preferencing
             // the source to the dest, if the source's lifetime extends beyond the dest.
-            if (!srcInterval->isLocalVar || ((singleUseRef->node->gtFlags & GTF_VAR_DEATH) != 0))
+            if (!srcInterval->isLocalVar || singleUseRef->node->IsLastUse(0))
             {
                 srcInterval->assignRelatedInterval(varDefInterval);
             }
@@ -3353,7 +3344,7 @@ void LinearScan::BuildStoreLclVarDef(GenTreeLclStore* store, LclVarDsc* lcl, Ref
 #endif
 }
 
-void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
+void LinearScan::BuildLclStoreMultiReg(GenTreeLclStore* store)
 {
     assert(store->IsMultiReg());
 
@@ -3383,7 +3374,7 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
         }
 #endif
         BuildUse(src, srcCandidates, i);
-        BuildStoreLclVarDef(store, fieldLcl, nullptr, i);
+        BuildLclStoreDef(store, fieldLcl, nullptr, i);
 
         if (i < regCount - 1)
         {
@@ -3394,9 +3385,9 @@ void LinearScan::BuildStoreLclVarMultiReg(GenTreeLclStore* store)
 
 void LinearScan::BuildLclStore(GenTreeLclStore* store)
 {
-    if (IsCandidateLclVarMultiReg(store))
+    if (IsRegCandidateLclStoreMultiReg(store))
     {
-        BuildStoreLclVarMultiReg(store);
+        BuildLclStoreMultiReg(store);
 
         return;
     }
@@ -3557,7 +3548,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
 
     if (lcl->IsRegCandidate())
     {
-        BuildStoreLclVarDef(store->AsLclStore(), lcl, singleUseRef, 0);
+        BuildLclStoreDef(store->AsLclStore(), lcl, singleUseRef, 0);
     }
 }
 
@@ -3771,7 +3762,7 @@ void LinearScan::BuildPutArgReg(GenTreeUnOp* putArg)
 
     bool isSpecialPutArg = false;
 
-    if (supportsSpecialPutArg() && IsRegCandidateLclLoad(src) && ((src->gtFlags & GTF_VAR_DEATH) == 0))
+    if (supportsSpecialPutArg() && IsRegCandidateLclLoad(src) && !src->IsLastUse(0))
     {
         // This is the case for a "pass-through" copy of a lclVar.  In the case where it is a non-last-use,
         // we don't want the def of the copy to kill the lclVar register, if it is assigned the same register

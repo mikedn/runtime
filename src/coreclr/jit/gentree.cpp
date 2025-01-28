@@ -6966,7 +6966,7 @@ void Compiler::dmpSsaDefUse(GenTree* node)
         printf("%sDNER", prefix);
     }
 
-    if ((node->gtFlags & GTF_VAR_DEATH) != 0)
+    if (node->IsLastUse(0))
     {
         printf("%slast-use", prefix);
     }

@@ -241,7 +241,7 @@ private:
     bool CanWidenSimd12ToSimd16(const LclVarDsc* lcl);
 #endif
 #if FEATURE_MULTIREG_RET
-    void MakeMultiRegStoreLclVar(GenTreeLclStore* store, GenTree* value);
+    void MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value);
 #endif
     GenTree* LowerArrElem(GenTree* node);
     void LowerRotate(GenTree* tree);

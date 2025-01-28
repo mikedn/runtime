@@ -4066,81 +4066,76 @@ static void SetLsraAdded(GenTree* node);
 // and the unspilling code automatically reuses the same register, and does the reload when it notices that flag
 // when considering a node's operands.
 //
-void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* tree, unsigned regIndex, RefPosition* refPosition)
+void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* value, unsigned regIndex, RefPosition* refPosition)
 {
     LIR::Range& blockRange = LIR::AsRange(block);
 
-    LIR::Use treeUse;
-    bool     foundUse = blockRange.TryGetUse(tree, &treeUse);
+    LIR::Use use;
+    bool     foundUse = blockRange.TryGetUse(value, &use);
     assert(foundUse);
 
-    GenTree*   parent = treeUse.User();
-    genTreeOps oper;
+    genTreeOps oper = refPosition->reload ? GT_RELOAD : GT_COPY;
 
-    if (refPosition->reload)
+    if (oper == GT_COPY)
     {
-        oper = GT_RELOAD;
-    }
-    else
-    {
-        oper = GT_COPY;
-
         INTRACK_STATS(updateLsraStat(STAT_COPY_REG, block->bbNum));
     }
 
-    // If the parent is a reload/copy node, then tree must be a multi-reg node
+    GenTree* user = use.User();
+
+    // If the user is a reload/copy node, then value must be a multi-reg node
     // that has already had one of its registers spilled.
     // It is possible that one of its RefTypeDef positions got spilled and the next
     // use of it requires it to be in a different register.
     //
     // In this case set the i'th position reg of reload/copy node to the reg allocated
-    // for copy/reload refPosition.  Essentially a copy/reload node will have a reg
+    // for copy/reload refPosition. Essentially a copy/reload node will have a reg
     // for each multi-reg position of its child. If there is a valid reg in i'th
     // position of GT_COPY or GT_RELOAD node then the corresponding result of its
     // child needs to be copied or reloaded to that reg.
-    if (parent->IsCopyOrReload())
+    if (user->IsCopyOrReload())
     {
-        noway_assert(parent->GetOper() == oper);
-        noway_assert(tree->IsMultiRegNode());
-        GenTreeCopyOrReload* copyOrReload = parent->AsCopyOrReload();
+        noway_assert(user->GetOper() == oper);
+        noway_assert(value->IsMultiRegNode());
+        GenTreeCopyOrReload* copyOrReload = user->AsCopyOrReload();
         noway_assert(copyOrReload->GetRegNum(regIndex) == REG_NA);
         copyOrReload->SetRegNum(regIndex, refPosition->assignedReg());
+
+        return;
     }
-    else
+
+    var_types regType = value->GetType();
+
+    if ((regType == TYP_STRUCT) && !value->IsMultiRegNode())
     {
-        var_types regType = tree->GetType();
-
-        if ((regType == TYP_STRUCT) && !tree->IsMultiRegNode())
-        {
-            assert(compiler->compEnregStructLocals());
-            // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
-            assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-            const GenTreeLclVarCommon* load = tree->AsLclVarCommon();
-            // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
-            // Note that for multiReg node we keep each regType in the tree and don't need this.
-            regType = load->GetLcl()->GetRegisterType(load);
-            assert(regType != TYP_UNDEF);
-        }
-
-        assert(refPosition->registerAssignment != RBM_NONE);
-
-        GenTreeCopyOrReload* newNode = new (compiler, oper) GenTreeCopyOrReload(oper, regType, tree);
-        newNode->SetRegNum(regIndex, refPosition->assignedReg());
-        newNode->ClearRegSpillSet();
-        SetLsraAdded(newNode);
-
-        if (refPosition->copyReg)
-        {
-            // This is a TEMPORARY copy
-            assert(IsCandidateLclRef(tree) || tree->IsMultiRegLclStore());
-            newNode->SetLastUse(regIndex, true);
-        }
-
-        // Insert the copy/reload after the spilled node and replace the use of the original node with a use
-        // of the copy/reload.
-        blockRange.InsertAfter(tree, newNode);
-        treeUse.ReplaceWith(compiler, newNode);
+        assert(compiler->compEnregStructLocals());
+        // TODO-MIKE-Review: This probably doesn't need LCL_LOAD_FLD.
+        assert(value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+        const GenTreeLclVarCommon* load = value->AsLclVarCommon();
+        // We create struct copies with a primitive type so we don't bother copy node with parsing structHndl.
+        // Note that for multiReg node we keep each regType in the tree and don't need this.
+        regType = load->GetLcl()->GetRegisterType(load);
+        assert(regType != TYP_UNDEF);
     }
+
+    assert(refPosition->registerAssignment != RBM_NONE);
+
+    GenTreeCopyOrReload* copy = new (compiler, oper) GenTreeCopyOrReload(oper, regType, value);
+    copy->SetRegNum(regIndex, refPosition->assignedReg());
+    copy->ClearRegSpillSet();
+    SetLsraAdded(copy);
+
+    if (refPosition->copyReg)
+    {
+        // This is a TEMPORARY copy
+        assert(IsCandidateLclRef(value) || value->IsMultiRegLclStore());
+        copy->SetLastUse(regIndex, true);
+    }
+
+    // Insert the copy/reload after the spilled node and replace the use of
+    // the original node with a use of the copy/reload.
+    blockRange.InsertAfter(value, copy);
+    use.ReplaceWith(compiler, copy);
 }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -5004,9 +4999,6 @@ void LinearScan::InsertRegCopy(BasicBlock* block, GenTree* before, Interval* int
     SetLsraAdded(src);
 
     GenTree* dst = new (compiler, GT_COPY) GenTreeCopyOrReload(GT_COPY, type, src);
-    // This is the new home of the local - indicate that by clearing the GTF_VAR_DEATH flag.
-    // Note that if src is itself a lastUse, this will have no effect.
-    dst->gtFlags &= ~GTF_VAR_DEATH;
     dst->SetUnusedValue();
     dst->SetRegNum(toReg);
     dst->ClearRegSpillSet();
