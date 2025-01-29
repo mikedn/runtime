@@ -695,11 +695,11 @@ protected:
     void GenLclStoreFld(GenTreeLclStoreFld* store);
     void GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src);
 #ifndef TARGET_64BIT
-    void GenStoreLclVarLong(GenTreeLclStore* store);
+    void GenLclStoreLong(GenTreeLclStore* store);
 #endif
-    void GenStoreLclVarMultiReg(GenTreeLclStore* store);
-    void GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store);
-    void GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store);
+    void GenLclStoreMultiRegPromoted(GenTreeLclStore* store);
+    void GenLclStoreMultiRegVectorMem(GenTreeLclStore* store);
+    void GenLclStoreMultiRegVectorReg(GenTreeLclStore* store);
     void GenReturnTrap(GenTreeOp* tree);
     void GenSetCC(GenTreeCC* setcc);
 #ifdef TARGET_XARCH
@@ -943,12 +943,12 @@ public:
     };
 
 #ifdef FEATURE_SIMD
-    void genStoreSIMD12(GenTree* store, GenTree* value)
+    void GenVector3Store(GenTree* store, GenTree* value)
     {
-        genStoreSIMD12(GenAddrMode(store, this), value, store->HasAnyTempRegs() ? store->GetSingleTempReg() : REG_NA);
+        GenVector3Store(GenAddrMode(store, this), value, store->HasAnyTempRegs() ? store->GetSingleTempReg() : REG_NA);
     }
 
-    void genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);
+    void GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);
 #endif
 
     void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);

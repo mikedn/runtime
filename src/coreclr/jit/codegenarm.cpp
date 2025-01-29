@@ -905,13 +905,13 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (lcl->IsIndependentPromoted())
     {
-        GenStoreLclVarMultiReg(store);
+        GenLclStoreMultiRegPromoted(store);
         return;
     }
 
     if (store->TypeIs(TYP_LONG))
     {
-        GenStoreLclVarLong(store);
+        GenLclStoreLong(store);
         return;
     }
 

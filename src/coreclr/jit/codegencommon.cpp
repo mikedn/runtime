@@ -1,19 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX Code Generator Common:                                                    XX
-XX   Methods common to all architectures and register allocation strategies  XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-// TODO-Cleanup: There are additional methods in CodeGen*.cpp that are almost
-// identical, and which should probably be moved here.
-
 #include "jitpch.h"
 #include "codegen.h"
 #include "emit.h"
@@ -4964,7 +4951,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 #ifdef FEATURE_SIMD
         if (srcType == TYP_SIMD12)
         {
-            genStoreSIMD12(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
+            GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
             continue;
         }
 #endif
@@ -5193,13 +5180,13 @@ void CodeGen::genMultiRegStructReturn(GenTree* src)
 
 #ifndef TARGET_64BIT
 
-void CodeGen::GenStoreLclVarLong(GenTreeLclStore* store)
+void CodeGen::GenLclStoreLong(GenTreeLclStore* store)
 {
     assert(store->TypeIs(TYP_LONG));
     assert(store->GetLcl()->TypeIs(TYP_LONG) && !store->GetLcl()->IsIndependentPromoted());
 
-    GenTree*  src = store->GetValue();
-    regNumber srcRegs[2];
+    GenTree* src = store->GetValue();
+    RegNum   srcRegs[2];
 
     if (src->OperIs(GT_LONG))
     {
@@ -5223,7 +5210,7 @@ void CodeGen::GenStoreLclVarLong(GenTreeLclStore* store)
 
 #endif
 
-void CodeGen::GenStoreLclVarMultiReg(GenTreeLclStore* store)
+void CodeGen::GenLclStoreMultiRegPromoted(GenTreeLclStore* store)
 {
     assert(store->IsMultiReg());
     // Store spilling is achieved by not assigning a register to the node.
@@ -5560,10 +5547,7 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
     }
 }
 
-/*****************************************************************************
- * Determine the emitter code label for a block, for unwind purposes.
- */
-
+// Determine the emitter code label for a block, for unwind purposes.
 insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
 {
     noway_assert(block != nullptr);
@@ -5587,11 +5571,8 @@ insGroup* CodeGen::ehEmitLabel(BasicBlock* block)
     return label;
 }
 
-/*****************************************************************************
- * Determine the emitter code offset for a block. If the block is a finally
- * target, choose the offset of the NOP padding that precedes the block.
- */
-
+// Determine the emitter code offset for a block. If the block is a finally
+// target, choose the offset of the NOP padding that precedes the block.
 uint32_t CodeGen::ehCodeOffset(BasicBlock* block)
 {
     return ehEmitLabel(block)->GetCodeOffset();

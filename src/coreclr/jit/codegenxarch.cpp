@@ -3304,7 +3304,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 #ifdef FEATURE_SIMD
     else if (type == TYP_SIMD12)
     {
-        genStoreSIMD12(store, src);
+        GenVector3Store(store, src);
     }
 #endif
     else if (src->isContained() && src->OperIsRMWMemOp())
@@ -3332,14 +3332,14 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (lcl->IsIndependentPromoted())
     {
-        GenStoreLclVarMultiReg(store);
+        GenLclStoreMultiRegPromoted(store);
         return;
     }
 
 #ifndef TARGET_64BIT
     if (store->TypeIs(TYP_LONG))
     {
-        GenStoreLclVarLong(store);
+        GenLclStoreLong(store);
         return;
     }
 #endif
@@ -3362,11 +3362,11 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     {
         if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
         {
-            GenStoreLclVarMultiRegSIMDReg(store);
+            GenLclStoreMultiRegVectorReg(store);
         }
         else
         {
-            GenStoreLclVarMultiRegSIMDMem(store);
+            GenLclStoreMultiRegVectorMem(store);
         }
 
         return;
@@ -3394,7 +3394,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)
     {
-        genStoreSIMD12(store, src);
+        GenVector3Store(store, src);
         // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
         // And how exactly does this work anyway? It does not check if a register was allocated
         // to the local, it always stores to memory. Always storing to memory is probably correct
@@ -3407,7 +3407,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     }
 #endif
 
-    regNumber dstReg = store->GetRegNum();
+    RegNum dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
     {
@@ -3534,7 +3534,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
 
-void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
+void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
 {
     assert(varTypeIsSIMD(store->GetType()));
 
@@ -3592,7 +3592,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
+void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
 {
     assert(varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
@@ -3813,7 +3813,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(store, store->GetValue());
+        GenVector3Store(store, store->GetValue());
         return;
     }
 #endif
@@ -7392,7 +7392,7 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const Gen
     }
 }
 
-void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
+void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
     if (value->isContained())
     {

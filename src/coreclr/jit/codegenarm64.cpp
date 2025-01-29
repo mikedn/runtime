@@ -1867,7 +1867,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
     }
     else if (type == TYP_SIMD12)
     {
-        genStoreSIMD12(store, src);
+        GenVector3Store(store, src);
     }
     else
     {
@@ -1909,7 +1909,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (lcl->IsIndependentPromoted())
     {
-        GenStoreLclVarMultiReg(store);
+        GenLclStoreMultiRegPromoted(store);
         return;
     }
 
@@ -1930,11 +1930,11 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
         if (lcl->IsRegCandidate() && (store->GetRegNum() != REG_NA))
         {
-            GenStoreLclVarMultiRegSIMDReg(store);
+            GenLclStoreMultiRegVectorReg(store);
         }
         else
         {
-            GenStoreLclVarMultiRegSIMDMem(store);
+            GenLclStoreMultiRegVectorMem(store);
         }
 
         return;
@@ -1944,7 +1944,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (lclRegType == TYP_SIMD12)
     {
-        genStoreSIMD12(store, src);
+        GenVector3Store(store, src);
         // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }
@@ -1998,7 +1998,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
+void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
 {
     GenTree* src = store->GetValue();
     assert(src->IsMultiRegNode());
@@ -2023,7 +2023,7 @@ void CodeGen::GenStoreLclVarMultiRegSIMDReg(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenStoreLclVarMultiRegSIMDMem(GenTreeLclStore* store)
+void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
 {
     assert(varTypeIsSIMD(store->GetType()) && !store->IsMultiReg());
 
@@ -2801,7 +2801,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
     if (store->TypeIs(TYP_SIMD12))
     {
-        genStoreSIMD12(store, store->GetValue());
+        GenVector3Store(store, store->GetValue());
         return;
     }
 
@@ -3466,7 +3466,7 @@ void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
 }
 
-void CodeGen::genStoreSIMD12(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
+void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber tmpReg)
 {
     if (value->IsHWIntrinsicZero())
     {
