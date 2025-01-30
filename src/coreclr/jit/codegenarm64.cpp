@@ -1873,17 +1873,24 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
     {
         assert(IsValidSourceType(type, src->GetType()));
 
-        regNumber srcReg;
+        RegNum srcReg;
 
         if (src->isContained())
         {
-            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+            if (GenTreeRegUse* regUse = src->IsRegUse())
+            {
+                srcReg = regUse->GetSrcRegNum();
+            }
+            else
+            {
+                assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
-            srcReg = REG_ZR;
+                srcReg = REG_ZR;
+            }
         }
         else
         {
-            srcReg = genConsumeReg(src);
+            srcReg = UseReg(src);
         }
 
         StackAddrMode s = GetStackAddrMode(store);

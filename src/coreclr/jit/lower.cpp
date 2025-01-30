@@ -3082,43 +3082,32 @@ void Lowering::InsertPInvokeMethodProlog()
 #if !defined(TARGET_X86) && !defined(TARGET_ARM)
     // For x86, this step is done at the call site (due to stack pointer not being static in the function).
     // For arm32, CallSiteSP is set up by the call to CORINFO_HELP_INIT_PINVOKE_FRAME.
-
-    // --------------------------------------------------------
-    // InlinedCallFrame.m_pCallSiteSP = @RSP;
-
     GenTreeRegUse* sp      = comp->gtNewRegUseNode(REG_SPBASE);
     GenTree*       storeSP = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, sp);
-    comp->lvaSetDoNotEnregister(pInvokeFrameLcl DEBUGARG(Compiler::DNER_LocalField));
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
+    AMD64_ONLY(sp->SetContained());
     DISPTREERANGE(firstBlockRange, storeSP);
-
 #endif // !defined(TARGET_X86) && !defined(TARGET_ARM)
 
-#if !defined(TARGET_ARM)
+#ifndef TARGET_ARM
     // For arm32, CalleeSavedFP is set up by the call to CORINFO_HELP_INIT_PINVOKE_FRAME.
-
-    // --------------------------------------------------------
-    // InlinedCallFrame.m_pCalleeSavedEBP = @RBP;
-
     GenTreeRegUse* fp = comp->gtNewRegUseNode(REG_FPBASE);
     GenTree* storeFP  = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCalleeSavedFP, fp);
     firstBlockRange.InsertBefore(insertionPoint, fp, storeFP);
+    fp->SetContained();
     DISPTREERANGE(firstBlockRange, storeFP);
-#endif // !defined(TARGET_ARM)
-
-    // --------------------------------------------------------
-    // On 32-bit targets, CORINFO_HELP_INIT_PINVOKE_FRAME initializes the PInvoke frame and then pushes it onto
-    // the current thread's Frame stack. On 64-bit targets, it only initializes the PInvoke frame.
-    CLANG_FORMAT_COMMENT_ANCHOR;
+#endif
 
 #ifdef TARGET_64BIT
+    // On 32-bit targets, CORINFO_HELP_INIT_PINVOKE_FRAME initializes the PInvoke frame and then pushes it onto
+    // the current thread's Frame stack. On 64-bit targets, it only initializes the PInvoke frame.
     if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         // Push a frame - if we are NOT in an IL stub, this is done right before the call
         // The init routine sets InlinedCallFrame's m_pNext, so we just set the thead's top-of-stack
         InsertFrameLinkUpdate(firstBlockRange, insertionPoint, PushFrame);
     }
-#endif // TARGET_64BIT
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -3291,13 +3280,11 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     }
 
 #ifdef TARGET_X86
-    // ----------------------------------------------------------------------------------
-    // InlinedCallFrame.m_pCallSiteSP = SP
-
-    GenTreeRegUse* callSiteSP = comp->gtNewRegUseNode(REG_SPBASE);
-    GenTreeLclFld* storeCallSiteSP =
-        comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, callSiteSP);
+    GenTreeRegUse*      callSiteSP = comp->gtNewRegUseNode(REG_SPBASE);
+    GenTreeLclStoreFld* storeCallSiteSP =
+        comp->gtNewLclStoreFld(TYP_INT, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, callSiteSP);
     BlockRange().InsertBefore(insertBefore, callSiteSP, storeCallSiteSP);
+    callSiteSP->SetContained();
 #endif
 
     // ----------------------------------------------------------------------------------

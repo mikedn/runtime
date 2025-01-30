@@ -3252,6 +3252,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 {
     var_types type = store->GetType();
     GenTree*  src  = store->GetValue();
+    Emitter&  emit = *GetEmitter();
 
     if (type == TYP_STRUCT)
     {
@@ -3265,20 +3266,23 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
         GenVector3Store(store, src);
     }
 #endif
-    else if (src->isContained() && src->OperIsRMWMemOp())
-    {
-        GenStoreLclRMW(type, GetStackAddrMode(store), src);
-    }
-    else if (GenTreeIntCon* imm = src->IsContainedIntCon())
-    {
-        GetEmitter()->emitIns_S_I(ins_Store(type), emitTypeSize(type), GetStackAddrMode(store), imm->GetInt32Value());
-    }
-    else
+    else if (!src->isContained())
     {
         assert(IsValidSourceType(type, src->GetType()));
 
-        regNumber srcReg = UseReg(src);
-        GetEmitter()->emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, GetStackAddrMode(store));
+        emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), UseReg(src), GetStackAddrMode(store));
+    }
+    else if (GenTreeIntCon* imm = src->IsIntCon())
+    {
+        emit.emitIns_S_I(ins_Store(type), emitTypeSize(type), GetStackAddrMode(store), imm->GetInt32Value());
+    }
+    else if (src->OperIsRMWMemOp())
+    {
+        GenStoreLclRMW(type, GetStackAddrMode(store), src);
+    }
+    else
+    {
+        emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), src->AsRegUse()->GetSrcRegNum(), GetStackAddrMode(store));
     }
 
     liveness.UpdateLife(this, store);
