@@ -8,57 +8,167 @@
 #include "decomposelongs.h"
 #endif
 
-bool Lowering::ContainImmOperand(GenTree* instr, GenTree* operand) const
+void Lowering::Run()
 {
-    assert(!instr->OperIsLeaf());
-
-    if (!IsImmOperand(operand, instr))
+#ifdef PROFILING_SUPPORTED
+#ifdef UNIX_AMD64_ABI
+    if (comp->compIsProfilerHookNeeded())
     {
-        return false;
+        comp->codeGen->needToAlignFrame = true;
     }
+#endif
+#endif // PROFILING_SUPPORTED
 
-    operand->SetContained();
-    return true;
-}
-
-bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
-{
-    if (move->gtNext == before)
+    // TODO-MIKE-Cleanup: See if this can be done during the existing lowering traversal.
+    // It looks like we may end up inserting block in front of previously lowered blocks
+    // and miss lowering these new blocks. But then these blocks are trivial and don't
+    // really need any lowering (they contain only calls to helpers with no args).
+    for (BasicBlock* block : comp->Blocks())
     {
-        return true;
-    }
+        unsigned throwIndex = comp->bbThrowIndex(block);
 
-    m_scratchSideEffects.Clear();
-    m_scratchSideEffects.AddNode(comp, move);
-
-    for (GenTree* node = move->gtNext; node != before; node = node->gtNext)
-    {
-        if (m_scratchSideEffects.InterferesWith(comp, node, /* strict */ true))
+        for (GenTree* node : LIR::AsRange(block))
         {
-            return false;
+            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
+            {
+                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
+            }
         }
     }
 
-    return true;
-}
-
-GenTreeLclLoad* Lowering::ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl)
-{
-    GenTree* def = use.Def();
-
-    if (def->OperIs(GT_LCL_LOAD) && (tempLcl == nullptr))
+    // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
+    // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
+    // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.
+    if (comp->compMethodRequiresPInvokeFrame())
     {
-        return def->AsLclLoad();
+        InsertPInvokeMethodProlog();
     }
 
-    GenTreeLclStore* store;
-    use.ReplaceWithLclLoad(comp, tempLcl, &store);
-    GenTreeLclLoad* load = use.Def()->AsLclLoad();
+#ifndef TARGET_64BIT
+    DecomposeLongs decomp(comp);
+    if (comp->compLongUsed)
+    {
+        decomp.PromoteLongVars();
+    }
+#endif
 
-    LowerLclStore(store);
-    LowerLclLoad(load);
+    for (BasicBlock* const block : comp->Blocks())
+    {
+#ifndef TARGET_64BIT
+        if (comp->compLongUsed)
+        {
+            decomp.DecomposeBlock(block);
+        }
+#endif
 
-    return load;
+        LowerBlock(block);
+    }
+
+    if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
+        comp->compLocallocUsed
+#ifdef TARGET_X86
+        || comp->compTailCallUsed
+#endif
+#ifdef JIT32_GCENCODER
+        || comp->info.compPublishStubParam || comp->info.compIsVarArgs || comp->lvaReportParamTypeArg()
+#endif
+        || comp->opts.compDbgEnC)
+    {
+        comp->opts.SetFramePointerRequired();
+    }
+
+#if FEATURE_FIXED_OUT_ARGS
+    // Finish computing the outgoing args area size
+    //
+    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
+    // 1. there are calls to THROW_HEPLPER methods.
+    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
+    //    that even methods without any calls will have outgoing arg area space allocated.
+    //
+    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
+    // the outgoing arg space if the method makes any calls.
+    if (outgoingArgAreaSize < MIN_ARG_AREA_FOR_CALL)
+    {
+        if (comp->compUsesThrowHelper || comp->compIsProfilerHookNeeded())
+        {
+            outgoingArgAreaSize = MIN_ARG_AREA_FOR_CALL;
+            JITDUMP("Increasing outgoingArgAreaSize to %u for throw helper or profile hook", outgoingArgAreaSize);
+        }
+    }
+
+    // If a function has localloc, we will need to move the outgoing arg space when the
+    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
+    // leaving alignment-related holes when doing this move, make sure the outgoing
+    // argument space size is a multiple of the stack alignment by aligning up to the next
+    // stack alignment boundary.
+    if (comp->compLocallocUsed)
+    {
+        outgoingArgAreaSize = roundUp(outgoingArgAreaSize, STACK_ALIGN);
+        JITDUMP("Increasing outgoingArgAreaSize to %u for localloc", outgoingArgAreaSize);
+    }
+
+    assert(outgoingArgAreaSize % REGSIZE_BYTES == 0);
+
+    comp->codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgAreaSize);
+    comp->lvaGetDesc(comp->lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgAreaSize);
+#endif // FEATURE_FIXED_OUT_ARGS
+
+#ifdef DEBUG
+    JITDUMP("Lower has completed modifying nodes.\n");
+    if (comp->verbose)
+    {
+        comp->fgDispBasicBlocks(true);
+    }
+#endif
+
+    if (comp->opts.OptimizationDisabled())
+    {
+        INDEBUG(VerifyAllLocalsImplicitlyReferenced());
+    }
+    else
+    {
+        assert(comp->compEnregLocals());
+
+        DBEXEC(comp->verbose, comp->lvaTableDump());
+
+        comp->lvaComputeLclRefCounts();
+        comp->lvaMarkLivenessTrackedLocals();
+        comp->fgLocalVarLiveness();
+        comp->EndPhase(PHASE_LIR_LIVENESS);
+
+        // Liveness can delete code, which may create empty blocks.
+        comp->optLoopsMarked = false;
+
+        if (comp->fgUpdateFlowGraph(this))
+        {
+            JITDUMP("Flowgraph was modified, running liveness again\n");
+            comp->fgLocalVarLiveness();
+            comp->EndPhase(PHASE_LIR_LIVENESS);
+        }
+
+        // Recompute local var ref counts again after liveness to reflect
+        // impact of any dead code removal. Note this may leave us with
+        // tracked vars that have zero refs.
+        comp->lvaComputeLclRefCounts();
+    }
+
+    DBEXEC(comp->verbose, comp->lvaTableDump());
+}
+
+void Lowering::LowerBlock(BasicBlock* block)
+{
+    assert(block->isEmpty() || block->IsLIR());
+
+    m_block = block;
+
+    GenTree* node = BlockRange().FirstNode();
+
+    while (node != nullptr)
+    {
+        node = LowerNode(node);
+    }
+
+    assert(VerifyBlock(block));
 }
 
 GenTree* Lowering::LowerNode(GenTree* node)
@@ -378,70 +488,58 @@ GenTree* Lowering::LowerNode(GenTree* node)
     return node->gtNext;
 }
 
-/**  -- Switch Lowering --
- * The main idea of switch lowering is to keep transparency of the register requirements of this node
- * downstream in LSRA.  Given that the switch instruction is inherently a control statement which in the JIT
- * is represented as a simple tree node, at the time we actually generate code for it we end up
- * generating instructions that actually modify the flow of execution that imposes complicated
- * register requirement and lifetimes.
- *
- * So, for the purpose of LSRA, we want to have a more detailed specification of what a switch node actually
- * means and more importantly, which and when do we need a register for each instruction we want to issue
- * to correctly allocate them downstream.
- *
- * For this purpose, this procedure performs switch lowering in two different ways:
- *
- * a) Represent the switch statement as a zero-index jump table construct.  This means that for every destination
- *    of the switch, we will store this destination in an array of addresses and the code generator will issue
- *    a data section where this array will live and will emit code that based on the switch index, will indirect and
- *    jump to the destination specified in the jump table.
- *
- *    For this transformation we introduce a new GT node called GT_SWITCH_TABLE that is a specialization of the switch
- *    node for jump table based switches.
- *    The overall structure of a GT_SWITCH_TABLE is:
- *
- *    GT_SWITCH_TABLE
- *           |_________ localVar   (a temporary local that holds the switch index)
- *           |_________ jumpTable  (this is a special node that holds the address of the jump table array)
- *
- *     Now, the way we morph a GT_SWITCH node into this lowered switch table node form is the following:
- *
- *    Input:     GT_SWITCH (inside a basic block whose Branch Type is BBJ_SWITCH)
- *                    |_____ expr (an arbitrarily complex GT_NODE that represents the switch index)
- *
- *    This gets transformed into the following statements inside a BBJ_COND basic block (the target would be
- *    the default case of the switch in case the conditional is evaluated to true).
- *
- *     ----- original block, transformed
- *     LCL_STORE tempLocal (a new temporary local variable used to store the switch index)
- *        |_____ expr      (the index expression)
- *
- *     GT_JTRUE
- *        |_____ GT_COND
- *                 |_____ GT_GE
- *                           |___ Int_Constant  (This constant is the index of the default case
- *                                               that happens to be the highest index in the jump table).
- *                           |___ tempLocal     (The local variable were we stored the index expression).
- *
- *     ----- new basic block
- *     GT_SWITCH_TABLE
- *        |_____ tempLocal
- *        |_____ jumpTable (a new jump table node that now LSRA can allocate registers for explicitly
- *                          and LinearCodeGen will be responsible to generate downstream).
- *
- *     This way there are no implicit temporaries.
- *
- * b) For small-sized switches, we will actually morph them into a series of conditionals of the form
- *     if (case falls into the default){ goto jumpTable[size]; // last entry in the jump table is the default case }
- *     (For the default case conditional, we'll be constructing the exact same code as the jump table case one).
- *     else if (case == firstCase){ goto jumpTable[1]; }
- *     else if (case == secondCase) { goto jumptable[2]; } and so on.
- *
- *     This transformation is of course made in JIT-IR, not downstream to CodeGen level, so this way we no longer
- *     require internal temporaries to maintain the index we're evaluating plus we're using existing code from
- *     LinearCodeGen to implement this instead of implement all the control flow constructs using InstrDscs and
- *     InstrGroups downstream.
- */
+bool Lowering::ContainImmOperand(GenTree* instr, GenTree* operand) const
+{
+    assert(!instr->OperIsLeaf());
+
+    if (!IsImmOperand(operand, instr))
+    {
+        return false;
+    }
+
+    operand->SetContained();
+    return true;
+}
+
+bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
+{
+    if (move->gtNext == before)
+    {
+        return true;
+    }
+
+    m_scratchSideEffects.Clear();
+    m_scratchSideEffects.AddNode(comp, move);
+
+    for (GenTree* node = move->gtNext; node != before; node = node->gtNext)
+    {
+        if (m_scratchSideEffects.InterferesWith(comp, node, /* strict */ true))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+GenTreeLclLoad* Lowering::ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl)
+{
+    GenTree* def = use.Def();
+
+    if (def->OperIs(GT_LCL_LOAD) && (tempLcl == nullptr))
+    {
+        return def->AsLclLoad();
+    }
+
+    GenTreeLclStore* store;
+    use.ReplaceWithLclLoad(comp, tempLcl, &store);
+    GenTreeLclLoad* load = use.Def()->AsLclLoad();
+
+    LowerLclStore(store);
+    LowerLclLoad(load);
+
+    return load;
+}
 
 GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
 {
@@ -4476,155 +4574,8 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
     return nextToLower;
 }
 
-void Lowering::Run()
-{
-#ifdef PROFILING_SUPPORTED
-#ifdef UNIX_AMD64_ABI
-    if (comp->compIsProfilerHookNeeded())
-    {
-        comp->codeGen->needToAlignFrame = true;
-    }
-#endif
-#endif // PROFILING_SUPPORTED
-
-    // TODO-MIKE-Cleanup: See if this can be done during the existing lowering traversal.
-    // It looks like we may end up inserting block in front of previously lowered blocks
-    // and miss lowering these new blocks. But then these blocks are trivial and don't
-    // really need any lowering (they contain only calls to helpers with no args).
-    for (BasicBlock* block : comp->Blocks())
-    {
-        unsigned throwIndex = comp->bbThrowIndex(block);
-
-        for (GenTree* node : LIR::AsRange(block))
-        {
-            if (GenTreeBoundsChk* boundsChk = node->IsBoundsChk())
-            {
-                boundsChk->SetThrowBlock(comp->fgGetThrowHelperBlock(boundsChk->GetThrowKind(), block, throwIndex));
-            }
-        }
-    }
-
-    // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
-    // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
-    // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.
-    if (comp->compMethodRequiresPInvokeFrame())
-    {
-        InsertPInvokeMethodProlog();
-    }
-
-#ifndef TARGET_64BIT
-    DecomposeLongs decomp(comp);
-    if (comp->compLongUsed)
-    {
-        decomp.PromoteLongVars();
-    }
-#endif
-
-    for (BasicBlock* const block : comp->Blocks())
-    {
-#ifndef TARGET_64BIT
-        if (comp->compLongUsed)
-        {
-            decomp.DecomposeBlock(block);
-        }
-#endif
-
-        LowerBlock(block);
-    }
-
-    if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
-        comp->compLocallocUsed
-#ifdef TARGET_X86
-        || comp->compTailCallUsed
-#endif
-#ifdef JIT32_GCENCODER
-        || comp->info.compPublishStubParam || comp->info.compIsVarArgs || comp->lvaReportParamTypeArg()
-#endif
-        || comp->opts.compDbgEnC)
-    {
-        comp->opts.SetFramePointerRequired();
-    }
-
-#if FEATURE_FIXED_OUT_ARGS
-    // Finish computing the outgoing args area size
-    //
-    // Need to make sure the MIN_ARG_AREA_FOR_CALL space is added to the frame if:
-    // 1. there are calls to THROW_HEPLPER methods.
-    // 2. we are generating profiling Enter/Leave/TailCall hooks. This will ensure
-    //    that even methods without any calls will have outgoing arg area space allocated.
-    //
-    // An example for these two cases is Windows Amd64, where the ABI requires to have 4 slots for
-    // the outgoing arg space if the method makes any calls.
-    if (outgoingArgAreaSize < MIN_ARG_AREA_FOR_CALL)
-    {
-        if (comp->compUsesThrowHelper || comp->compIsProfilerHookNeeded())
-        {
-            outgoingArgAreaSize = MIN_ARG_AREA_FOR_CALL;
-            JITDUMP("Increasing outgoingArgAreaSize to %u for throw helper or profile hook", outgoingArgAreaSize);
-        }
-    }
-
-    // If a function has localloc, we will need to move the outgoing arg space when the
-    // localloc happens. When we do this, we need to maintain stack alignment. To avoid
-    // leaving alignment-related holes when doing this move, make sure the outgoing
-    // argument space size is a multiple of the stack alignment by aligning up to the next
-    // stack alignment boundary.
-    if (comp->compLocallocUsed)
-    {
-        outgoingArgAreaSize = roundUp(outgoingArgAreaSize, STACK_ALIGN);
-        JITDUMP("Increasing outgoingArgAreaSize to %u for localloc", outgoingArgAreaSize);
-    }
-
-    assert(outgoingArgAreaSize % REGSIZE_BYTES == 0);
-
-    comp->codeGen->outgoingArgSpaceSize.SetFinalValue(outgoingArgAreaSize);
-    comp->lvaGetDesc(comp->lvaOutgoingArgSpaceVar)->SetBlockType(outgoingArgAreaSize);
-#endif // FEATURE_FIXED_OUT_ARGS
-
 #ifdef DEBUG
-    JITDUMP("Lower has completed modifying nodes.\n");
-    if (comp->verbose)
-    {
-        comp->fgDispBasicBlocks(true);
-    }
-#endif
-
-    if (comp->opts.OptimizationDisabled())
-    {
-        INDEBUG(CheckAllLocalsImplicitlyReferenced());
-    }
-    else
-    {
-        assert(comp->compEnregLocals());
-
-        DBEXEC(comp->verbose, comp->lvaTableDump());
-
-        comp->lvaComputeLclRefCounts();
-        comp->lvaMarkLivenessTrackedLocals();
-        comp->fgLocalVarLiveness();
-        comp->EndPhase(PHASE_LIR_LIVENESS);
-
-        // Liveness can delete code, which may create empty blocks.
-        comp->optLoopsMarked = false;
-
-        if (comp->fgUpdateFlowGraph(this))
-        {
-            JITDUMP("Flowgraph was modified, running liveness again\n");
-            comp->fgLocalVarLiveness();
-            comp->EndPhase(PHASE_LIR_LIVENESS);
-        }
-
-        // Recompute local var ref counts again after liveness to reflect
-        // impact of any dead code removal. Note this may leave us with
-        // tracked vars that have zero refs.
-        comp->lvaComputeLclRefCounts();
-    }
-
-    DBEXEC(comp->verbose, comp->lvaTableDump());
-}
-
-#ifdef DEBUG
-void Lowering::CheckAllLocalsImplicitlyReferenced()
+void Lowering::VerifyAllLocalsImplicitlyReferenced()
 {
     assert(comp->opts.OptimizationDisabled());
     assert(!comp->compEnregLocals());
@@ -4649,7 +4600,7 @@ void Lowering::CheckAllLocalsImplicitlyReferenced()
     }
 }
 
-void Lowering::CheckCallArg(GenTree* arg)
+void Lowering::VerifyCallArg(GenTree* arg)
 {
     if (!arg->IsValue() && !arg->IsPutArgStk())
     {
@@ -4677,30 +4628,30 @@ void Lowering::CheckCallArg(GenTree* arg)
     }
 }
 
-void Lowering::CheckCall(GenTreeCall* call)
+void Lowering::VerifyCall(GenTreeCall* call)
 {
     if (call->gtCallThisArg != nullptr)
     {
-        CheckCallArg(call->gtCallThisArg->GetNode());
+        VerifyCallArg(call->gtCallThisArg->GetNode());
     }
 
     for (GenTreeCall::Use& use : call->Args())
     {
-        CheckCallArg(use.GetNode());
+        VerifyCallArg(use.GetNode());
     }
 
     for (GenTreeCall::Use& use : call->LateArgs())
     {
-        CheckCallArg(use.GetNode());
+        VerifyCallArg(use.GetNode());
     }
 }
 
-void Lowering::CheckNode(GenTree* node)
+void Lowering::VerifyNode(GenTree* node)
 {
     switch (node->GetOper())
     {
         case GT_CALL:
-            CheckCall(node->AsCall());
+            VerifyCall(node->AsCall());
             break;
 
 #ifdef FEATURE_SIMD
@@ -4742,41 +4693,19 @@ void Lowering::CheckNode(GenTree* node)
     }
 }
 
-bool Lowering::CheckBlock(BasicBlock* block)
+bool Lowering::VerifyBlock(BasicBlock* block)
 {
     assert(block->isEmpty() || block->IsLIR());
 
     for (GenTree* node : LIR::AsRange(block))
     {
-        CheckNode(node);
+        VerifyNode(node);
     }
 
     assert(LIR::AsRange(block).CheckLIR(comp, true));
     return true;
 }
 #endif // DEBUG
-
-void Lowering::LowerBlock(BasicBlock* block)
-{
-    assert(block->isEmpty() || block->IsLIR());
-
-    m_block = block;
-
-    // NOTE: some of the lowering methods insert calls before the node being
-    // lowered (See e.g. InsertPInvoke{Method,Call}{Prolog,Epilog}). In
-    // general, any code that is inserted before the current node should be
-    // "pre-lowered" as they won't be subject to further processing.
-    // Lowering::CheckBlock() runs some extra checks on call arguments in
-    // order to help catch unlowered nodes.
-
-    GenTree* node = BlockRange().FirstNode();
-    while (node != nullptr)
-    {
-        node = LowerNode(node);
-    }
-
-    assert(CheckBlock(block));
-}
 
 #if FEATURE_MULTIREG_RET
 

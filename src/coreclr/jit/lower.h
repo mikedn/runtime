@@ -39,6 +39,9 @@ public:
     }
 
 private:
+    void LowerBlock(BasicBlock* block);
+    GenTree* LowerNode(GenTree* node);
+
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void LowerLclHeap(GenTreeUnOp* node);
@@ -73,16 +76,6 @@ private:
     void ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op);
 #endif
 #endif
-
-#ifdef DEBUG
-    void CheckCallArg(GenTree* arg);
-    void CheckCall(GenTreeCall* call);
-    void CheckNode(GenTree* node);
-    bool CheckBlock(BasicBlock* block);
-#endif
-
-    void LowerBlock(BasicBlock* block);
-    GenTree* LowerNode(GenTree* node);
 
     void LowerCall(GenTreeCall* call);
 #ifndef TARGET_64BIT
@@ -318,14 +311,20 @@ public:
     static void TransformUnusedIndirection(GenTreeIndir* ind);
 
 private:
-    bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
-    bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
-    bool IsSafeToMoveForward(GenTree* move, GenTree* before);
-
-    inline LIR::Range& BlockRange() const
+    LIR::Range& BlockRange() const
     {
         return LIR::AsRange(m_block);
     }
 
-    INDEBUG(void CheckAllLocalsImplicitlyReferenced();)
+    bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
+    bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
+    bool IsSafeToMoveForward(GenTree* move, GenTree* before);
+
+#ifdef DEBUG
+    void VerifyAllLocalsImplicitlyReferenced();
+    void VerifyCallArg(GenTree* arg);
+    void VerifyCall(GenTreeCall* call);
+    void VerifyNode(GenTree* node);
+    bool VerifyBlock(BasicBlock* block);
+#endif
 };
