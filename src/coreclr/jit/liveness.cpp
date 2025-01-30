@@ -1056,7 +1056,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_CNS_DBL:
             case GT_CNS_STR:
             case GT_CONST_ADDR:
-            case GT_PHYSREG:
+            case GT_REG_USE:
                 // These are all side-effect-free leaf nodes.
                 if (node->IsUnusedValue())
                 {

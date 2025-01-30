@@ -4080,16 +4080,14 @@ GenTree* Importer::impArrayAccessIntrinsic(
                (elemType == TYP_DOUBLE && val->TypeIs(TYP_FLOAT)));
     }
 
-    GenTree* inds[GenTreeArrElem::MaxRank];
-    for (unsigned k = rank; k > 0; k--)
+    GenTree* ops[GenTreeArrElem::MaxNumOps];
+
+    for (unsigned i = 0; i <= rank; i++)
     {
-        inds[k - 1] = impPopStack().val;
+        ops[rank - i] = impPopStack().val;
     }
 
-    GenTree* arr = impPopStack().val;
-    assert(arr->TypeIs(TYP_REF));
-
-    GenTree* elemAddr = new (comp, GT_ARR_ELEM) GenTreeArrElem(TYP_BYREF, arr, rank, elemSize, elemType, inds);
+    GenTree* elemAddr = new (comp, GT_ARR_ELEM) GenTreeArrElem(elemType, elemSize, rank + 1, ops);
 
     if (name == NI_CORINFO_INTRINSIC_Array_Address)
     {
@@ -4114,6 +4112,8 @@ GenTree* Importer::impArrayAccessIntrinsic(
         elem->SetValue(val);
         elem->AddSideEffects(GTF_ASG | GTF_GLOB_REF | val->GetSideEffects());
     }
+
+    elem->gtFlags |= GTF_IND_NONFAULTING;
 
     return elem;
 }
@@ -16649,15 +16649,15 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 
     if (GenTreeArrElem* arrElem = tree->IsArrElem())
     {
-        for (unsigned i = 0; i < arrElem->gtArrRank; i++)
+        for (GenTreeArrElem::Use& use : arrElem->Uses())
         {
-            if (impHasLclRef(arrElem->gtArrInds[i], lcl))
+            if (impHasLclRef(use.GetNode(), lcl))
             {
                 return true;
             }
         }
 
-        return impHasLclRef(arrElem->gtArrObj, lcl);
+        return false;
     }
 
 #ifdef FEATURE_HW_INTRINSICS

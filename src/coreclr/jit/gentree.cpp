@@ -195,7 +195,7 @@ static_assert_no_msg(sizeof(GenTreeEndLFin)      <= TREE_NODE_SZ_SMALL);
 #endif
 static_assert_no_msg(sizeof(GenTreeJmp)          <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntConCommon) <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreePhysReg)      <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeRegUse)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIntCon)       <= TREE_NODE_SZ_SMALL);
 #ifndef TARGET_64BIT
 static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
@@ -917,50 +917,20 @@ AGAIN:
     {
         case GT_CALL:
             return GenTreeCall::Equals(op1->AsCall(), op2->AsCall());
-
         case GT_ARR_ELEM:
-
-            if (op1->AsArrElem()->gtArrRank != op2->AsArrElem()->gtArrRank)
-            {
-                return false;
-            }
-
-            // NOTE: gtArrElemSize may need to be handled
-
-            unsigned dim;
-            for (dim = 0; dim < op1->AsArrElem()->gtArrRank; dim++)
-            {
-                if (!Compare(op1->AsArrElem()->gtArrInds[dim], op2->AsArrElem()->gtArrInds[dim]))
-                {
-                    return false;
-                }
-            }
-
-            op1 = op1->AsArrElem()->gtArrObj;
-            op2 = op2->AsArrElem()->gtArrObj;
-            goto AGAIN;
-
+            return GenTreeArrElem::Equals(op1->AsArrElem(), op2->AsArrElem());
+        case GT_ARR_OFFSET:
+            return GenTreeArrOffs::Equals(op1->AsArrOffs(), op2->AsArrOffs());
         case GT_PHI:
             return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
-
         case GT_FIELD_LIST:
             return GenTreeFieldList::Equals(op1->AsFieldList(), op2->AsFieldList());
-
 #ifdef FEATURE_SIMD
         case GT_HWINTRINSIC:
             return GenTreeHWIntrinsic::Equals(op1->AsHWIntrinsic(), op2->AsHWIntrinsic());
 #endif
-
         case GT_INSTR:
             return GenTreeInstr::Equals(op1->AsInstr(), op2->AsInstr());
-
-        case GT_ARR_OFFSET:
-            if ((op1->AsArrOffs()->gtCurrDim != op2->AsArrOffs()->gtCurrDim) ||
-                (op1->AsArrOffs()->gtArrRank != op2->AsArrOffs()->gtArrRank))
-            {
-                return false;
-            }
-            FALLTHROUGH;
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -1192,15 +1162,12 @@ AGAIN:
     switch (tree->GetOper())
     {
         case GT_ARR_ELEM:
+            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->GetArray()));
 
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->gtArrObj));
-
-            unsigned dim;
-            for (dim = 0; dim < tree->AsArrElem()->gtArrRank; dim++)
+            for (unsigned dim = 0; dim < tree->AsArrElem()->GetRank(); dim++)
             {
-                hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->gtArrInds[dim]));
+                hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->GetIndex(dim)));
             }
-
             break;
 
         case GT_CALL:
@@ -2825,29 +2792,20 @@ void Compiler::gtSetCosts(GenTree* tree)
             }
 
             case GT_ARR_ELEM:
-            {
-                GenTreeArrElem* arrElem = tree->AsArrElem();
-                GenTree*        array   = arrElem->GetArray();
+                costEx = 0;
+                costSz = 0;
 
-                gtSetCosts(array);
-                costEx = array->GetCostEx();
-                costSz = array->GetCostSz();
-
-                unsigned rank = arrElem->GetRank();
-
-                for (unsigned dim = 0; dim < rank; dim++)
+                for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
                 {
-                    GenTree* index = arrElem->GetIndex(dim);
-
-                    gtSetCosts(index);
-                    costEx += index->GetCostEx();
-                    costSz += index->GetCostSz();
+                    GenTree* op = use.GetNode();
+                    gtSetCosts(op);
+                    costEx += op->GetCostEx();
+                    costSz += op->GetCostSz();
                 }
 
-                costEx += 2 + (rank * (IND_COST_EX + 1));
-                costSz += 2 + (rank * 2);
-            }
-            break;
+                costEx += 2 + tree->AsArrElem()->GetRank() * (IND_COST_EX + 1);
+                costSz += 2 + tree->AsArrElem()->GetRank() * 2;
+                break;
 
             case GT_PHI:
                 costEx = 0;
@@ -3261,16 +3219,14 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
 
         case GT_ARR_ELEM:
         {
-            GenTreeArrElem* arrElem = tree->AsArrElem();
+            unsigned level = 0;
 
-            unsigned level = gtSetOrder(arrElem->GetArray());
-
-            for (unsigned dim = 0; dim < arrElem->GetRank(); dim++)
+            for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
             {
-                level = Max(level, gtSetOrder(arrElem->GetIndex(dim)));
+                level = Max(level, gtSetOrder(use.GetNode()));
             }
 
-            return level + arrElem->GetRank();
+            return level + tree->AsArrElem()->GetRank();
         }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -3686,10 +3642,10 @@ GenTreeIntCon* Compiler::gtNewIntConFieldOffset(target_size_t fieldOffset, Field
                                                 fieldSeq == nullptr ? FieldSeqStore::NotAField() : fieldSeq);
 }
 
-GenTreePhysReg* Compiler::gtNewPhysRegNode(RegNum reg, var_types type)
+GenTreeRegUse* Compiler::gtNewRegUseNode(RegNum reg, var_types type)
 {
     assert(genIsValidIntReg(reg) || (reg == REG_SPBASE));
-    return new (this, GT_PHYSREG) GenTreePhysReg(reg, type);
+    return new (this, GT_REG_USE) GenTreeRegUse(reg, type);
 }
 
 GenTree* Compiler::gtNewJmpTableNode()
@@ -4765,13 +4721,14 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
         case GT_ARR_ELEM:
         {
             GenTreeArrElem* arrElem = tree->AsArrElem();
-            GenTree*        ops[1 + GenTreeArrElem::MaxRank];
-            for (unsigned i = 0; i < 1 + arrElem->GetRank(); i++)
+            GenTree*        ops[GenTreeArrElem::MaxNumOps];
+
+            for (unsigned i = 0, count = arrElem->GetNumOps(); i < count; i++)
             {
                 ops[i] = gtCloneExpr(arrElem->GetOp(i), addFlags, constLcl, constVal);
             }
-            copy = new (this, GT_ARR_ELEM) GenTreeArrElem(arrElem->GetType(), ops[0], arrElem->gtArrRank,
-                                                          arrElem->gtArrElemSize, arrElem->gtArrElemType, &ops[1]);
+
+            copy = new (this, GT_ARR_ELEM) GenTreeArrElem(arrElem, ops);
         }
         break;
 
@@ -5315,7 +5272,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_CLS_VAR_ADDR:
         case GT_CONST_ADDR:
         case GT_ARGPLACE:
-        case GT_PHYSREG:
+        case GT_REG_USE:
         case GT_EMITNOP:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
@@ -5437,9 +5394,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             return;
 
         case GT_ARR_ELEM:
-            m_edge = &m_node->AsArrElem()->gtArrObj;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceArrElem;
+            m_statePtr = m_node->AsArrElem()->Uses().begin();
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceArrElem;
+            AdvanceArrElem();
             return;
 
         case GT_ARR_OFFSET:
@@ -5500,21 +5457,20 @@ void GenTreeUseEdgeIterator::AdvanceTernaryOp()
 
 void GenTreeUseEdgeIterator::AdvanceArrElem()
 {
-    if (m_state < m_node->AsArrElem()->gtArrRank)
-    {
-        m_edge = &m_node->AsArrElem()->gtArrInds[m_state];
-        assert(*m_edge != nullptr);
-        m_state++;
-    }
-    else
+    assert(m_state == 0);
+
+    if (m_statePtr == m_node->AsArrElem()->Uses().end())
     {
         m_state = -1;
     }
+    else
+    {
+        GenTreeArrElem::Use* currentUse = static_cast<GenTreeArrElem::Use*>(m_statePtr);
+        m_edge                          = &currentUse->NodeRef();
+        m_statePtr                      = currentUse + 1;
+    }
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceFieldList: produces the next operand of a FieldList node and advances the state.
-//
 void GenTreeUseEdgeIterator::AdvanceFieldList()
 {
     assert(m_state == 0);
@@ -5532,9 +5488,6 @@ void GenTreeUseEdgeIterator::AdvanceFieldList()
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceHWIntrinsic: produces the next operand of a HWINTRINSIC node and advances the state.
-//
 void GenTreeUseEdgeIterator::AdvanceHWIntrinsic()
 {
     assert(m_state == 0);
@@ -5593,12 +5546,6 @@ void GenTreeUseEdgeIterator::AdvancePhi()
     }
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceBinOp: produces the next operand of a binary node and advances the state.
-//
-// This function must be instantiated s.t. `ReverseOperands` is `true` iff the node is marked with the
-// `GTF_REVERSE_OPS` flag.
-//
 template <bool ReverseOperands>
 void           GenTreeUseEdgeIterator::AdvanceBinOp()
 {
@@ -5609,10 +5556,6 @@ void           GenTreeUseEdgeIterator::AdvanceBinOp()
     m_advance = &GenTreeUseEdgeIterator::Terminate;
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::SetEntryStateForBinOp: produces the first operand of a binary node and chooses
-//                                                the appropriate advance function.
-//
 void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
 {
     assert(m_node->OperIsBinary());
@@ -5629,18 +5572,6 @@ void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
     }
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::AdvanceCall: produces the next operand of a call node and advances the state.
-//
-// This function is a bit tricky: in order to avoid doing unnecessary work, it is instantiated with the
-// state number the iterator will be in when it is called. For example, `AdvanceCall<CALL_INSTANCE>`
-// is the instantiation used when the iterator is at the `CALL_INSTANCE` state (i.e. the entry state).
-// This sort of templating allows each state to avoid processing earlier states without unnecessary
-// duplication of code.
-//
-// Note that this method expands the argument lists (`gtCallArgs` and `gtCallLateArgs`) into their
-// component operands.
-//
 template <int state>
 void          GenTreeUseEdgeIterator::AdvanceCall()
 {
@@ -5725,20 +5656,13 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
     }
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::Terminate: advances the iterator to the terminal state.
-//
 void GenTreeUseEdgeIterator::Terminate()
 {
     m_state = -1;
 }
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator::operator++: advances the iterator to the next operand.
-//
 GenTreeUseEdgeIterator& GenTreeUseEdgeIterator::operator++()
 {
-    // If we've reached the terminal state, do nothing.
     if (m_state != -1)
     {
         (this->*m_advance)();
@@ -5822,13 +5746,13 @@ void Compiler::gtDispNodeName(GenTree* tree)
 
         if (tree->OperIs(GT_ARR_OFFSET))
         {
-            currDim = tree->AsArrOffs()->gtCurrDim;
-            rank    = tree->AsArrOffs()->gtArrRank;
+            currDim = tree->AsArrOffs()->GetDimension();
+            rank    = tree->AsArrOffs()->GetRank();
         }
         else
         {
-            currDim = tree->AsArrIndex()->gtCurrDim;
-            rank    = tree->AsArrIndex()->gtArrRank;
+            currDim = tree->AsArrIndex()->GetDimension();
+            rank    = tree->AsArrIndex()->GetRank();
         }
 
         for (unsigned dim = 0; dim < rank; dim++)
@@ -6781,8 +6705,8 @@ void Compiler::gtDispLeaf(GenTree* tree)
             printf(" (call " FMT_TREEID ")", tree->AsRetExpr()->GetCall()->GetID());
             break;
 
-        case GT_PHYSREG:
-            printf(" %s", getRegName(tree->AsPhysReg()->gtSrcReg));
+        case GT_REG_USE:
+            printf(" %s", getRegName(tree->AsRegUse()->GetSrcRegNum()));
             break;
 
         case GT_IL_OFFSET:
@@ -7509,9 +7433,9 @@ void Compiler::gtDispTreeRec(
             {
                 GenTreeArrElem* arrElem = tree->AsArrElem();
 
-                for (unsigned i = 0; i < arrElem->GetNumOps(); i++)
+                for (unsigned i = 0, count = arrElem->GetNumOps(); i < count; i++)
                 {
-                    gtDispChild(arrElem->GetOp(i), i == arrElem->GetNumOps() - 1 ? IIArcBottom : IIArc);
+                    gtDispChild(arrElem->GetOp(i), i == count - 1 ? IIArcBottom : IIArc);
                 }
             }
             break;

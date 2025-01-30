@@ -140,7 +140,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
         case GT_CONST_ADDR:
-        case GT_PHYSREG:
+        case GT_REG_USE:
         case GT_LABEL:
             BuildDef(tree);
             FALLTHROUGH;
@@ -325,12 +325,12 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_ARR_INDEX:
-            assert(!tree->AsArrIndex()->ArrObj()->isContained());
-            assert(!tree->AsArrIndex()->IndexExpr()->isContained());
+            assert(!tree->AsArrIndex()->GetArray()->isContained());
+            assert(!tree->AsArrIndex()->GetIndex()->isContained());
             // The lifetime of the arrObj must be extended because it is
             // used multiple times while the result is being computed.
-            setDelayFree(BuildUse(tree->AsArrIndex()->ArrObj()));
-            BuildUse(tree->AsArrIndex()->IndexExpr());
+            setDelayFree(BuildUse(tree->AsArrIndex()->GetArray()));
+            BuildUse(tree->AsArrIndex()->GetIndex());
             BuildDef(tree);
             break;
 

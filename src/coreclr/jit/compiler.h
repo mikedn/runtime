@@ -2803,7 +2803,7 @@ public:
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
     GenTreeIntCon* gtNewIntConFieldOffset(target_size_t fieldOffset, FieldSeqNode* fieldSeq);
 
-    GenTreePhysReg* gtNewPhysRegNode(RegNum reg, var_types type);
+    GenTreeRegUse* gtNewRegUseNode(RegNum reg, var_types type = TYP_I_IMPL);
 
     GenTree* gtNewJmpTableNode();
 
@@ -6434,7 +6434,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CLS_VAR_ADDR:
         case GT_CONST_ADDR:
         case GT_ARGPLACE:
-        case GT_PHYSREG:
+        case GT_REG_USE:
         case GT_EMITNOP:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
@@ -6555,21 +6555,14 @@ void GenTree::VisitOperands(TVisitor visitor)
             return;
 
         case GT_ARR_ELEM:
-        {
-            GenTreeArrElem* const arrElem = this->AsArrElem();
-            if (visitor(arrElem->gtArrObj) == VisitResult::Abort)
+            for (GenTreeArrElem::Use& use : AsArrElem()->Uses())
             {
-                return;
-            }
-            for (unsigned i = 0; i < arrElem->gtArrRank; i++)
-            {
-                if (visitor(arrElem->gtArrInds[i]) == VisitResult::Abort)
+                if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
-                    return;
+                    break;
                 }
             }
             return;
-        }
 
         case GT_ARR_OFFSET:
         case GT_CMPXCHG:
@@ -6827,7 +6820,7 @@ public:
             case GT_CLS_VAR_ADDR:
             case GT_CONST_ADDR:
             case GT_ARGPLACE:
-            case GT_PHYSREG:
+            case GT_REG_USE:
             case GT_EMITNOP:
             case GT_PINVOKE_PROLOG:
             case GT_PINVOKE_EPILOG:
@@ -6983,26 +6976,15 @@ public:
                 break;
 
             case GT_ARR_ELEM:
-            {
-                GenTreeArrElem* const arrElem = node->AsArrElem();
-
-                result = WalkTree(&arrElem->gtArrObj, arrElem);
-                if (result == fgWalkResult::WALK_ABORT)
+                for (GenTreeArrElem::Use& use : node->AsArrElem()->Uses())
                 {
-                    return result;
-                }
-
-                const unsigned rank = arrElem->gtArrRank;
-                for (unsigned dim = 0; dim < rank; dim++)
-                {
-                    result = WalkTree(&arrElem->gtArrInds[dim], arrElem);
+                    result = WalkTree(&use.NodeRef(), node);
                     if (result == fgWalkResult::WALK_ABORT)
                     {
                         return result;
                     }
                 }
                 break;
-            }
 
             case GT_ARR_OFFSET:
             case GT_CMPXCHG:

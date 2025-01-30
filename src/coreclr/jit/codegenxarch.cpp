@@ -3126,112 +3126,70 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
 }
 
-void CodeGen::GenPhysReg(GenTreePhysReg* tree)
+void CodeGen::GenRegUse(GenTreeRegUse* node)
 {
-    var_types type   = tree->GetType();
-    RegNum    dstReg = tree->GetRegNum();
+    assert(node->TypeIs(TYP_I_IMPL));
 
-    GetEmitter()->emitIns_Mov(ins_Copy(tree->gtSrcReg, type), emitActualTypeSize(type), dstReg, tree->gtSrcReg,
-                              /* canSkip */ true);
-    liveness.TransferGCRegType(dstReg, tree->gtSrcReg);
+    RegNum srcReg = node->GetSrcRegNum();
+    RegNum dstReg = node->GetRegNum();
 
-    DefReg(tree);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, dstReg, srcReg, /* canSkip */ true);
+    liveness.RemoveGCRegs(genRegMask(dstReg));
+
+    DefReg(node);
 }
 
-void CodeGen::GenNullCheck(GenTreeNullCheck* tree)
+void CodeGen::GenNullCheck(GenTreeNullCheck* node)
 {
-    RegNum reg = UseReg(tree->GetAddr());
+    RegNum reg = UseReg(node->GetAddr());
     GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, reg, reg, 0);
 }
 
 void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
 {
-    GenTree* arrObj    = arrIndex->ArrObj();
-    GenTree* indexNode = arrIndex->IndexExpr();
+    unsigned  dim              = arrIndex->GetDimension();
+    unsigned  rank             = arrIndex->GetRank();
+    var_types elemType         = arrIndex->GetElemType();
+    unsigned  lowerBoundOffset = genOffsetOfMDArrayLowerBound(elemType, rank, dim);
+    unsigned  lengthOffset     = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
 
-    RegNum arrReg   = UseReg(arrObj);
-    RegNum indexReg = UseReg(indexNode);
-    RegNum tgtReg   = arrIndex->GetRegNum();
+    RegNum arrayReg = UseReg(arrIndex->GetArray());
+    RegNum indexReg = UseReg(arrIndex->GetIndex());
+    RegNum dstReg   = arrIndex->GetRegNum();
 
-    unsigned  dim      = arrIndex->gtCurrDim;
-    unsigned  rank     = arrIndex->gtArrRank;
-    var_types elemType = arrIndex->gtArrElemType;
-
-    noway_assert(tgtReg != REG_NA);
-
-    // Subtract the lower bound for this dimension.
+    Emitter& emit = *GetEmitter();
     // TODO-XArch-CQ: make this contained if it's an immediate that fits.
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tgtReg, indexReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R_AR(INS_sub, EA_4BYTE, tgtReg, arrReg, genOffsetOfMDArrayLowerBound(elemType, rank, dim));
-    GetEmitter()->emitIns_R_AR(INS_cmp, EA_4BYTE, tgtReg, arrReg, genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
+    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, indexReg, /* canSkip */ true);
+    emit.emitIns_R_AR(INS_sub, EA_4BYTE, dstReg, arrayReg, lowerBoundOffset);
+    emit.emitIns_R_AR(INS_cmp, EA_4BYTE, dstReg, arrayReg, lengthOffset);
     genJumpToThrowHlpBlk(EJ_ae, ThrowHelperKind::IndexOutOfRange);
 
-    genProduceReg(arrIndex);
+    DefReg(arrIndex);
 }
 
 void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
 {
-    GenTree* offsetNode = arrOffset->GetOffset();
-    GenTree* indexNode  = arrOffset->GetIndex();
-    GenTree* arrObj     = arrOffset->GetArray();
+    unsigned lengthOffset =
+        genOffsetOfMDArrayDimensionSize(arrOffset->GetElemType(), arrOffset->GetRank(), arrOffset->GetDimension());
 
-    regNumber tgtReg = arrOffset->GetRegNum();
-    assert(tgtReg != REG_NA);
+    RegNum offsetReg = UseReg(arrOffset->GetOffset());
+    RegNum indexReg  = UseReg(arrOffset->GetIndex());
+    RegNum arrayReg  = UseReg(arrOffset->GetArray());
+    RegNum tmpReg    = arrOffset->GetSingleTempReg();
+    RegNum dstReg    = arrOffset->GetRegNum();
 
-    unsigned  dim      = arrOffset->gtCurrDim;
-    unsigned  rank     = arrOffset->gtArrRank;
-    var_types elemType = arrOffset->gtArrElemType;
+    Emitter& emit = *GetEmitter();
+    emit.emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
+    emit.emitIns_R_R(INS_imul, EA_PTRSIZE, tmpReg, offsetReg);
 
-    // First, consume the operands in the correct order.
-    regNumber offsetReg = REG_NA;
-    regNumber tmpReg    = REG_NA;
-    if (!offsetNode->IsIntegralConst(0))
+    if (tmpReg == dstReg)
     {
-        offsetReg = UseReg(offsetNode);
-
-        // We will use a temp register for the offset*scale+effectiveIndex computation.
-        tmpReg = arrOffset->GetSingleTempReg();
+        emit.emitIns_R_R(INS_add, EA_PTRSIZE, tmpReg, indexReg);
     }
     else
     {
-        assert(offsetNode->isContained());
-    }
-
-    RegNum indexReg = UseReg(indexNode);
-    // Although arrReg may not be used in the constant-index case, if we have generated
-    // the shift into a register, we must consume it, otherwise we will fail to end the
-    // live range of the gc ptr.
-    // TODO-CQ: Currently arrObj will always have a register allocated to it.
-    // We could avoid allocating a register for it, which would be of shift if the arrObj
-    // is an on-stack lclVar.
-    RegNum arrReg = UseReg(arrObj);
-
-    if (offsetNode->IsIntegralConst(0))
-    {
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, tgtReg, indexReg, /* canSkip */ true);
-    }
-    else
-    {
-        assert(tmpReg != REG_NA);
-        assert(arrReg != REG_NA);
-
-        // Evaluate tgtReg = offsetReg*dim_size + indexReg.
-        // tmpReg is used to load dim_size and the result of the multiplication.
-        // Note that dim_size will never be negative.
-
-        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, arrReg,
-                                   genOffsetOfMDArrayDimensionSize(elemType, rank, dim));
-        GetEmitter()->emitIns_R_R(INS_imul, EA_PTRSIZE, tmpReg, offsetReg);
-
-        if (tmpReg == tgtReg)
-        {
-            GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, tmpReg, indexReg);
-        }
-        else
-        {
-            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, tgtReg, indexReg, /* canSkip */ true);
-            GetEmitter()->emitIns_R_R(INS_add, EA_PTRSIZE, tgtReg, tmpReg);
-        }
+        emit.emitIns_Mov(INS_mov, EA_PTRSIZE, dstReg, indexReg, /* canSkip */ true);
+        emit.emitIns_R_R(INS_add, EA_PTRSIZE, dstReg, tmpReg);
     }
 
     DefReg(arrOffset);
@@ -3239,7 +3197,7 @@ void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
 
 instruction CodeGen::ins_FloatCompare(var_types type)
 {
-    return (type == TYP_FLOAT) ? INS_ucomiss : INS_ucomisd;
+    return type == TYP_FLOAT ? INS_ucomiss : INS_ucomisd;
 }
 
 void CodeGen::GenLclLoad(GenTreeLclLoad* load)

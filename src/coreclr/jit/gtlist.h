@@ -277,7 +277,7 @@ GTNODE(SWITCH_TABLE     , GenTreeOp           , GTK_BINOP|GTK_NOVALUE)  // Jump 
 GTNODE(CLS_VAR_ADDR     , GenTreeClsVar       , GTK_LEAF)                        // static data member address
 GTNODE(CONST_ADDR       , GenTreeConstAddr    , GTK_LEAF)                        // constant data address (.rodata)
 GTNODE(ARGPLACE         , GenTree             , GTK_LEAF|GTK_NOVALUE|GTK_NOTLIR) // placeholder for a register arg
-GTNODE(PHYSREG          , GenTreePhysReg      , GTK_LEAF)                        // read from a physical register
+GTNODE(REG_USE          , GenTreeRegUse       , GTK_LEAF)                        // use of a register
 GTNODE(EMITNOP          , GenTree             , GTK_LEAF|GTK_NOVALUE)            // emitter-placed nop
 GTNODE(PINVOKE_PROLOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke prolog seq
 GTNODE(PINVOKE_EPILOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke epilog seq

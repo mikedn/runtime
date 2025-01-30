@@ -154,7 +154,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
         case GT_CONST_ADDR:
-        case GT_PHYSREG:
+        case GT_REG_USE:
         case GT_LABEL:
         case GT_SETCC:
             BuildDef(tree);
@@ -257,8 +257,8 @@ void LinearScan::BuildNode(GenTree* tree)
             setInternalRegsDelayFree = true;
             // The lifetime of the arrObj must be extended because it is
             // used multiple times while the result is being computed.
-            setDelayFree(BuildUse(tree->AsArrIndex()->ArrObj()));
-            BuildUse(tree->AsArrIndex()->IndexExpr());
+            setDelayFree(BuildUse(tree->AsArrIndex()->GetArray()));
+            BuildUse(tree->AsArrIndex()->GetIndex());
             BuildInternalUses();
             BuildDef(tree);
             break;

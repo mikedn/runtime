@@ -747,87 +747,57 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* node)
     genJumpToThrowHlpBlk(jmpKind, node->GetThrowKind(), node->GetThrowBlock());
 }
 
-void CodeGen::GenPhysReg(GenTreePhysReg* node)
+void CodeGen::GenRegUse(GenTreeRegUse* node)
 {
-    assert(node->OperIs(GT_PHYSREG));
+    assert(node->TypeIs(TYP_I_IMPL));
 
-    var_types dstType = node->GetType();
-    regNumber dstReg  = node->GetRegNum();
+    RegNum srcReg = node->GetSrcRegNum();
+    RegNum dstReg = node->GetRegNum();
 
-    GetEmitter()->emitIns_Mov(ins_Copy(node->gtSrcReg, dstType), emitActualTypeSize(dstType), dstReg, node->gtSrcReg,
-                              /* canSkip */ true);
-    liveness.TransferGCRegType(dstReg, node->gtSrcReg);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, dstReg, srcReg, /* canSkip */ true);
+    liveness.RemoveGCRegs(genRegMask(dstReg));
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
 {
-    emitter*  emit      = GetEmitter();
-    GenTree*  arrObj    = arrIndex->ArrObj();
-    GenTree*  indexNode = arrIndex->IndexExpr();
-    regNumber arrReg    = genConsumeReg(arrObj);
-    regNumber indexReg  = genConsumeReg(indexNode);
-    regNumber tgtReg    = arrIndex->GetRegNum();
-    noway_assert(tgtReg != REG_NA);
+    unsigned  dim              = arrIndex->GetDimension();
+    unsigned  rank             = arrIndex->GetRank();
+    var_types elemType         = arrIndex->GetElemType();
+    unsigned  lowerBoundOffset = genOffsetOfMDArrayLowerBound(elemType, rank, dim);
+    unsigned  lengthOffset     = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
 
-    // We will use a temp register to load the lower bound and dimension attr values.
+    RegNum arrayReg = UseReg(arrIndex->GetArray());
+    RegNum indexReg = UseReg(arrIndex->GetIndex());
+    RegNum dstReg   = arrIndex->GetRegNum();
+    RegNum tmpReg   = arrIndex->GetSingleTempReg();
+    assert(dstReg != tmpReg);
 
-    regNumber tmpReg = arrIndex->GetSingleTempReg();
-    assert(tgtReg != tmpReg);
-
-    unsigned  dim      = arrIndex->gtCurrDim;
-    unsigned  rank     = arrIndex->gtArrRank;
-    var_types elemType = arrIndex->gtArrElemType;
-    unsigned  offset;
-
-    offset = genOffsetOfMDArrayLowerBound(elemType, rank, dim);
-    emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
-    emit->emitIns_R_R_R(INS_sub, EA_4BYTE, tgtReg, indexReg, tmpReg);
-
-    offset = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
-    emit->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
-    emit->emitIns_R_R(INS_cmp, EA_4BYTE, tgtReg, tmpReg);
-
+    Emitter& emit = *GetEmitter();
+    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lowerBoundOffset);
+    emit.emitIns_R_R_R(INS_sub, EA_4BYTE, dstReg, indexReg, tmpReg);
+    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
+    emit.emitIns_R_R(INS_cmp, EA_4BYTE, dstReg, tmpReg);
     genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange);
 
-    genProduceReg(arrIndex);
+    DefReg(arrIndex);
 }
 
 void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
 {
-    GenTree* offsetNode = arrOffset->GetOffset();
-    GenTree* indexNode  = arrOffset->GetIndex();
-    RegNum   dstReg     = arrOffset->GetRegNum();
-    Emitter& emit       = *GetEmitter();
+    unsigned lengthOffset =
+        genOffsetOfMDArrayDimensionSize(arrOffset->GetElemType(), arrOffset->GetRank(), arrOffset->GetDimension());
 
-    noway_assert(dstReg != REG_NA);
+    RegNum offsetReg = UseReg(arrOffset->GetOffset());
+    RegNum indexReg  = UseReg(arrOffset->GetIndex());
+    RegNum arrayReg  = UseReg(arrOffset->GetArray());
+    RegNum tmpReg    = arrOffset->GetSingleTempReg();
+    RegNum dstReg    = arrOffset->GetRegNum();
 
-    if (offsetNode->IsIntegralConst(0))
-    {
-        RegNum indexReg = UseReg(indexNode);
-        emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, indexReg, /* canSkip */ true);
-    }
-    else
-    {
-        RegNum offsetReg = genConsumeReg(offsetNode);
-        RegNum indexReg  = genConsumeReg(indexNode);
-        RegNum arrReg    = genConsumeReg(arrOffset->GetArray());
-
-        noway_assert(offsetReg != REG_NA);
-        noway_assert(indexReg != REG_NA);
-        noway_assert(arrReg != REG_NA);
-
-        RegNum tmpReg = arrOffset->GetSingleTempReg();
-
-        unsigned  dim      = arrOffset->gtCurrDim;
-        unsigned  rank     = arrOffset->gtArrRank;
-        var_types elemType = arrOffset->gtArrElemType;
-        unsigned  offset   = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
-
-        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrReg, offset);
-        emit.emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, dstReg, tmpReg, offsetReg, indexReg);
-    }
+    Emitter& emit = *GetEmitter();
+    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
+    emit.emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, dstReg, tmpReg, offsetReg, indexReg);
 
     DefReg(arrOffset);
 }

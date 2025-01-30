@@ -41,7 +41,6 @@ public:
 private:
     void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
-    void ContainCheckArrOffset(GenTreeArrOffs* node);
     void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
@@ -243,7 +242,7 @@ private:
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value);
 #endif
-    GenTree* LowerArrElem(GenTree* node);
+    GenTree* LowerArrElem(GenTreeArrElem* node);
     void LowerRotate(GenTree* tree);
     void LowerShift(GenTreeOp* shift);
 #ifdef FEATURE_HW_INTRINSICS

@@ -183,9 +183,9 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
         {
             bool wasUnderIndir  = state->isUnderIndir;
             state->isUnderIndir = true;
-            for (unsigned i = 0; i < tree->AsArrElem()->GetNumOps(); i++)
+            for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
             {
-                comp->fgWalkTreePre(tree->AsArrElem()->GetUse(i), MarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
             }
             state->isUnderIndir = wasUnderIndir;
 

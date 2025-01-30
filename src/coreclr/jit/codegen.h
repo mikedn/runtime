@@ -700,14 +700,14 @@ protected:
     void GenLclStoreMultiRegPromoted(GenTreeLclStore* store);
     void GenLclStoreMultiRegVectorMem(GenTreeLclStore* store);
     void GenLclStoreMultiRegVectorReg(GenTreeLclStore* store);
-    void GenReturnTrap(GenTreeOp* tree);
+    void GenReturnTrap(GenTreeOp* node);
     void GenSetCC(GenTreeCC* setcc);
 #ifdef TARGET_XARCH
-    void GenRegSwap(GenTreeOp* tree);
+    void GenRegSwap(GenTreeOp* node);
 #endif
-    void GenPhysReg(GenTreePhysReg* tree);
+    void GenRegUse(GenTreeRegUse* node);
     void GenNullCheck(GenTreeNullCheck* check);
-    void GenCmpXchg(GenTreeCmpXchg* tree);
+    void GenCmpXchg(GenTreeCmpXchg* node);
     void GenMemoryBarrier(GenTree* barrier);
     void GenInstr(GenTreeInstr* instr);
 
@@ -957,16 +957,16 @@ public:
     bool isMoveIns(instruction ins);
 
 #ifdef TARGET_ARMARCH
-    instruction ins_Conv(var_types dstType);
+    static instruction ins_Conv(var_types dstType);
 #endif
-    instruction ins_Load(var_types srcType, bool aligned = false);
-    instruction ins_Store(var_types dstType, bool aligned = false);
-    instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
-    instruction ins_Copy(var_types type);
-    instruction ins_Copy(regNumber srcReg, var_types dstType);
+    static instruction ins_Load(var_types srcType, bool aligned = false);
+    static instruction ins_Store(var_types dstType, bool aligned = false);
+    static instruction ins_StoreFromSrc(regNumber srcReg, var_types dstType, bool aligned = false);
+    static instruction ins_Copy(var_types type);
+    static instruction ins_Copy(regNumber srcReg, var_types dstType);
 #ifdef TARGET_XARCH
-    instruction ins_Move_Extend(var_types type);
-    instruction ins_FloatCompare(var_types type);
+    static instruction ins_Move_Extend(var_types type);
+    static instruction ins_FloatCompare(var_types type);
 #endif
 
     void instGen_Set_Reg_To_Zero(emitAttr size, regNumber reg);

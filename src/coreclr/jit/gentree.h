@@ -2393,18 +2393,28 @@ struct GenTreeOp : public GenTreeUnOp
 #endif
 };
 
-struct GenTreePhysReg : public GenTree
+struct GenTreeRegUse : public GenTree
 {
-    // PhysReg needs a field beyond GetRegNum() because GetRegNum() indicates
-    // the destination (and can be changed) whereas reg indicates the source
-    RegNum gtSrcReg;
+private:
+    RegNum m_srcReg;
 
-    GenTreePhysReg(RegNum reg, var_types type = TYP_I_IMPL) : GenTree(GT_PHYSREG, type), gtSrcReg(reg)
+public:
+    GenTreeRegUse(RegNum reg, var_types type = TYP_I_IMPL) : GenTree(GT_REG_USE, type), m_srcReg(reg)
     {
     }
 
+    RegNum GetSrcRegNum() const
+    {
+        return m_srcReg;
+    }
+
+    void SetSrcRegNum(RegNum reg)
+    {
+        m_srcReg = reg;
+    }
+
 #if DEBUGGABLE_GENTREE
-    GenTreePhysReg() = default;
+    GenTreeRegUse() = default;
 #endif
 };
 
@@ -5352,6 +5362,7 @@ class GenTreeUse
 {
     friend struct GenTreeHWIntrinsic;
     friend struct GenTreeInstr;
+    friend struct GenTreeArrElem;
 
     GenTree* m_node;
 
@@ -5916,77 +5927,138 @@ struct GenTreeBoundsChk : public GenTreeOp
 struct GenTreeArrElem : public GenTree
 {
     static constexpr unsigned MaxRank     = 3;
+    static constexpr unsigned MaxNumOps   = MaxRank + 1;
     static constexpr unsigned MaxElemSize = UINT8_MAX;
 
-    GenTree*  gtArrObj;
-    GenTree*  gtArrInds[MaxRank];
-    uint8_t   gtArrRank;
-    uint8_t   gtArrElemSize;
-    var_types gtArrElemType;
+    using Use = GenTreeUse;
 
-    GenTreeArrElem(var_types type, GenTree* arr, unsigned rank, unsigned elemSize, var_types elemType, GenTree** inds)
-        : GenTree(GT_ARR_ELEM, type)
-        , gtArrObj(arr)
-        , gtArrRank(static_cast<uint8_t>(rank))
-        , gtArrElemSize(static_cast<uint8_t>(elemSize))
-        , gtArrElemType(elemType)
+    Use m_uses[MaxNumOps];
+
+private:
+    uint8_t   m_numOps;
+    uint8_t   m_elemSize;
+    var_types m_elemType;
+
+public:
+    GenTreeArrElem(var_types elemType, unsigned elemSize, unsigned numOps, GenTree** ops)
+        : GenTree(GT_ARR_ELEM, TYP_BYREF)
+        , m_numOps(static_cast<uint8_t>(numOps))
+        , m_elemSize(static_cast<uint8_t>(elemSize))
+        , m_elemType(elemType)
     {
-        assert(rank <= MaxRank);
+        assert(numOps <= MaxNumOps);
         assert(elemSize <= MaxElemSize);
 
-        gtFlags |= (arr->gtFlags & GTF_ALL_EFFECT);
-        for (unsigned i = 0; i < rank; i++)
+        for (unsigned i = 0; i < m_numOps; i++)
         {
-            gtArrInds[i] = inds[i];
-            gtFlags |= (inds[i]->gtFlags & GTF_ALL_EFFECT);
+            assert(i == 0 ? ops[i]->TypeIs(TYP_REF) : varTypeIsIntegral(ops[i]->GetType()));
+            m_uses[i].SetNode(ops[i]);
+            gtFlags |= ops[i]->GetSideEffects();
         }
+
         gtFlags |= GTF_EXCEPT;
+    }
+
+    GenTreeArrElem(const GenTreeArrElem* copyFrom, GenTree** ops)
+        : GenTree(GT_ARR_ELEM, TYP_BYREF)
+        , m_numOps(copyFrom->m_numOps)
+        , m_elemSize(copyFrom->m_elemSize)
+        , m_elemType(copyFrom->m_elemType)
+    {
+        for (unsigned i = 0; i < m_numOps; i++)
+        {
+            m_uses[i].SetNode(ops[i]);
+        }
     }
 
     unsigned GetRank() const
     {
-        return static_cast<unsigned>(gtArrRank);
+        return static_cast<unsigned>(m_numOps - 1);
+    }
+
+    unsigned GetElemSize() const
+    {
+        return m_elemSize;
+    }
+
+    var_types GetElemType() const
+    {
+        return m_elemType;
     }
 
     GenTree* GetArray() const
     {
-        return gtArrObj;
+        return GetOp(0);
     }
 
     void SetArray(GenTree* array)
     {
         assert(array->TypeIs(TYP_REF));
-        gtArrObj = array;
+        SetOp(0, array);
     }
 
     GenTree* GetIndex(unsigned i) const
     {
-        assert(i < gtArrRank);
-        return gtArrInds[i];
+        assert(i < GetRank());
+        return GetOp(i + 1);
     }
 
     void SetIndex(unsigned i, GenTree* index)
     {
-        assert(i < gtArrRank);
+        assert(i < GetRank());
         assert(varTypeIsIntegral(index->GetType()));
-        gtArrInds[i] = index;
+        SetOp(i + 1, index);
     }
 
     unsigned GetNumOps() const
     {
-        return 1 + gtArrRank;
+        return m_numOps;
     }
 
-    GenTree* GetOp(unsigned i) const
+    GenTree* GetOp(unsigned index) const
     {
-        assert(i <= gtArrRank);
-        return i == 0 ? gtArrObj : gtArrInds[i - 1];
+        return GetUse(index).GetNode();
     }
 
-    GenTree** GetUse(unsigned i)
+    void SetOp(unsigned index, GenTree* node)
     {
-        assert(i <= gtArrRank);
-        return i == 0 ? &gtArrObj : &gtArrInds[i - 1];
+        assert(node != nullptr);
+        GetUse(index).SetNode(node);
+    }
+
+    const Use& GetUse(unsigned index) const
+    {
+        assert(index < m_numOps);
+        return m_uses[index];
+    }
+
+    Use& GetUse(unsigned index)
+    {
+        assert(index < m_numOps);
+        return m_uses[index];
+    }
+
+    IteratorPair<Use*> Uses()
+    {
+        return MakeIteratorPair(m_uses, m_uses + GetNumOps());
+    }
+
+    static bool Equals(const GenTreeArrElem* x, const GenTreeArrElem* y)
+    {
+        if ((x->m_numOps != y->m_numOps) || (x->m_elemType != y->m_elemType) || (x->m_elemSize != y->m_elemSize))
+        {
+            return false;
+        }
+
+        for (unsigned i = 0, count = x->GetNumOps(); i < count; i++)
+        {
+            if (!Compare(x->GetOp(i), y->GetOp(i)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 #if DEBUGGABLE_GENTREE
@@ -5994,42 +6066,14 @@ struct GenTreeArrElem : public GenTree
 #endif
 };
 
-//--------------------------------------------
-//
-// GenTreeArrIndex (gtArrIndex): Expression to bounds-check the index for one dimension of a
-//    multi-dimensional or non-zero-based array., and compute the effective index
-//    (i.e. subtracting the lower bound).
-//
-// Notes:
-//    This node is similar in some ways to GenTreeBoundsChk, which ONLY performs the check.
-//    The reason that this node incorporates the check into the effective index computation is
-//    to avoid duplicating the codegen, as the effective index is required to compute the
-//    offset anyway.
-//    TODO-CQ: Enable optimization of the lower bound and length by replacing this:
-//                /--*  <arrObj>
-//                +--*  <index0>
-//             +--* ArrIndex[i, ]
-//    with something like:
-//                   /--*  <arrObj>
-//                /--*  ArrLowerBound[i, ]
-//                |  /--*  <arrObj>
-//                +--*  ArrLen[i, ]    (either generalize GT_ARR_LENGTH or add a new node)
-//                +--*  <index0>
-//             +--* ArrIndex[i, ]
-//    Which could, for example, be optimized to the following when known to be within bounds:
-//                /--*  TempForLowerBoundDim0
-//                +--*  <index0>
-//             +--* - (GT_SUB)
-//
 struct GenTreeArrIndex : public GenTreeOp
 {
     uint8_t   gtCurrDim;
     uint8_t   gtArrRank;
     var_types gtArrElemType;
 
-    GenTreeArrIndex(
-        var_types type, GenTree* arrObj, GenTree* indexExpr, unsigned currDim, unsigned arrRank, var_types elemType)
-        : GenTreeOp(GT_ARR_INDEX, type, arrObj, indexExpr)
+    GenTreeArrIndex(GenTree* arrObj, GenTree* indexExpr, unsigned currDim, unsigned arrRank, var_types elemType)
+        : GenTreeOp(GT_ARR_INDEX, TYP_I_IMPL, arrObj, indexExpr)
         , gtCurrDim(static_cast<uint8_t>(currDim))
         , gtArrRank(static_cast<uint8_t>(arrRank))
         , gtArrElemType(elemType)
@@ -6046,97 +6090,102 @@ struct GenTreeArrIndex : public GenTreeOp
         gtFlags |= GTF_EXCEPT;
     }
 
-    GenTree*& ArrObj()
+    unsigned GetRank() const
+    {
+        return gtArrRank;
+    }
+
+    unsigned GetDimension() const
+    {
+        return gtCurrDim;
+    }
+
+    var_types GetElemType() const
+    {
+        return gtArrElemType;
+    }
+
+    GenTree* GetArray() const
     {
         return gtOp1;
     }
 
-    GenTree*& IndexExpr()
+    GenTree* GetIndex() const
     {
         return gtOp2;
     }
 
     bool IsCommutative() = delete;
 
+    static bool Equals(const GenTreeArrIndex* x, const GenTreeArrIndex* y)
+    {
+        return (x->gtArrRank == y->gtArrRank) && (x->gtArrElemType == y->gtArrElemType) &&
+               (x->gtCurrDim == y->gtCurrDim) && Compare(x->gtOp1, y->gtOp1) && Compare(x->gtOp2, y->gtOp2);
+    }
+
 #if DEBUGGABLE_GENTREE
     GenTreeArrIndex() = default;
 #endif
 };
 
-//--------------------------------------------
-//
-// GenTreeArrOffset (gtArrOffset): Expression to compute the accumulated offset for the address
-//    of an element of a multi-dimensional or non-zero-based array.
-//
-// Notes:
-//    The result of this expression is (gtOffset * dimSize) + gtIndex
-//    where dimSize is the length/stride/size of the dimension, and is obtained from gtArrObj.
-//    This node is generated in conjunction with the GenTreeArrIndex node, which computes the
-//    effective index for a single dimension.  The sub-trees can be separately optimized, e.g.
-//    within a loop body where the expression for the 0th dimension may be invariant.
-//
-//    Here is an example of how the tree might look for a two-dimension array reference:
-//                /--*  const 0
-//                |  /--* <arrObj>
-//                |  +--* <index0>
-//                +--* ArrIndex[i, ]
-//                +--*  <arrObj>
-//             /--| arrOffs[i, ]
-//             |  +--*  <arrObj>
-//             |  +--*  <index1>
-//             +--* ArrIndex[*,j]
-//             +--*  <arrObj>
-//          /--| arrOffs[*,j]
-//    TODO-CQ: see comment on GenTreeArrIndex for how its representation may change.  When that
-//    is done, we will also want to replace the <arrObj> argument to arrOffs with the
-//    ArrLen as for GenTreeArrIndex.
-//
 struct GenTreeArrOffs : public GenTreeTernaryOp
 {
-    uint8_t   gtCurrDim;
-    uint8_t   gtArrRank;
-    var_types gtArrElemType;
+private:
+    uint8_t   m_dimension;
+    uint8_t   m_rank;
+    var_types m_elemType;
 
-    GenTreeArrOffs(var_types type,
-                   GenTree*  offset,
-                   GenTree*  index,
-                   GenTree*  arrObj,
-                   unsigned  currDim,
-                   unsigned  rank,
-                   var_types elemType)
-        : GenTreeTernaryOp(GT_ARR_OFFSET, type, offset, index, arrObj)
-        , gtCurrDim(static_cast<uint8_t>(currDim))
-        , gtArrRank(static_cast<uint8_t>(rank))
-        , gtArrElemType(elemType)
+public:
+    GenTreeArrOffs(GenTree* offset, GenTree* index, GenTree* array, unsigned dim, unsigned rank, var_types elemType)
+        : GenTreeTernaryOp(GT_ARR_OFFSET, TYP_I_IMPL, offset, index, array)
+        , m_dimension(static_cast<uint8_t>(dim))
+        , m_rank(static_cast<uint8_t>(rank))
+        , m_elemType(elemType)
     {
-        assert(index->gtFlags & GTF_EXCEPT);
-        gtFlags |= GTF_EXCEPT;
     }
 
     GenTreeArrOffs(GenTreeArrOffs* copyFrom)
         : GenTreeTernaryOp(copyFrom)
-        , gtCurrDim(copyFrom->gtCurrDim)
-        , gtArrRank(copyFrom->gtArrRank)
-        , gtArrElemType(copyFrom->gtArrElemType)
+        , m_dimension(copyFrom->m_dimension)
+        , m_rank(copyFrom->m_rank)
+        , m_elemType(copyFrom->m_elemType)
     {
     }
 
-    // The accumulated offset for lower dimensions
+    unsigned GetRank() const
+    {
+        return m_rank;
+    }
+
+    unsigned GetDimension() const
+    {
+        return m_dimension;
+    }
+
+    var_types GetElemType() const
+    {
+        return m_elemType;
+    }
+
     GenTree* GetOffset() const
     {
         return gtOp1;
     }
 
-    // The effective index for the current dimension
     GenTree* GetIndex() const
     {
         return gtOp2;
     }
 
-    // The array object reference
     GenTree* GetArray() const
     {
         return gtOp3;
+    }
+
+    static bool Equals(const GenTreeArrOffs* x, const GenTreeArrOffs* y)
+    {
+        return (x->m_rank == y->m_rank) && (x->m_elemType == y->m_elemType) && (x->m_dimension == y->m_dimension) &&
+               Compare(x->gtOp1, y->gtOp1) && Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
     }
 
 #if DEBUGGABLE_GENTREE

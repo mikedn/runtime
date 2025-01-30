@@ -1025,8 +1025,8 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_KEEPALIVE:
             GenKeepAlive(node->AsUnOp());
             break;
-        case GT_PHYSREG:
-            GenPhysReg(node->AsPhysReg());
+        case GT_REG_USE:
+            GenRegUse(node->AsRegUse());
             break;
         case GT_CATCH_ARG:
             GenCatchArg(node, block);
