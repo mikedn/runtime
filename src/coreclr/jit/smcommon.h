@@ -1,12 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-// Common headers used both in smgen.exe and the JIT.
-//
-
-#ifndef __sm_common_h__
-#define __sm_common_h__
+#pragma once
 
 #include "smopenum.h"
 
@@ -30,13 +25,13 @@ struct JumpTableCell
 struct SMState
 {
     bool        term;             // does this state terminate a code sequence?
-    BYTE        length;           // the length of currently matched opcodes
+    uint8_t     length;           // the length of currently matched opcodes
     SM_STATE_ID longestTermState; // the ID of the longest matched terminate state
 
     SM_STATE_ID prevState; // previous state
     SM_OPCODE   opc;       // opcode that leads from the previous state to current state
 
-    unsigned short jumpTableByteOffset;
+    uint16_t jumpTableByteOffset;
 };
 
 //
@@ -45,5 +40,3 @@ struct SMState
 
 #define MAX_CODE_SEQUENCE_LENGTH 7
 #define CODE_SEQUENCE_END ((SM_OPCODE)(SM_COUNT + 1))
-
-#endif /* __sm_common_h__ */

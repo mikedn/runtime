@@ -1,30 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          Exception Handling                               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "emit.h"
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          "EHblkDsc" functions                             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-
-BasicBlock* EHblkDsc::BBFilterLast()
+BasicBlock* EHblkDsc::BBFilterLast() const
 {
     noway_assert(HasFilter());
     noway_assert(ebdFilter != nullptr);
@@ -34,12 +14,12 @@ BasicBlock* EHblkDsc::BBFilterLast()
     return ebdHndBeg->bbPrev;
 }
 
-BasicBlock* EHblkDsc::ExFlowBlock()
+BasicBlock* EHblkDsc::ExFlowBlock() const
 {
     return HasFilter() ? ebdFilter : ebdHndBeg;
 }
 
-bool EHblkDsc::InTryRegionILRange(BasicBlock* pBlk)
+bool EHblkDsc::InTryRegionILRange(BasicBlock* pBlk) const
 {
     // BBF_INTERNAL blocks may not have a valid bbCodeOffs. This function
     // should only be used before any BBF_INTERNAL blocks have been added.
@@ -48,7 +28,7 @@ bool EHblkDsc::InTryRegionILRange(BasicBlock* pBlk)
     return jitIsBetween(pBlk->bbCodeOffs, ebdTryBegOffs(), ebdTryEndOffs());
 }
 
-bool EHblkDsc::InFilterRegionILRange(BasicBlock* pBlk)
+bool EHblkDsc::InFilterRegionILRange(BasicBlock* pBlk) const
 {
     // BBF_INTERNAL blocks may not have a valid bbCodeOffs. This function
     // should only be used before any BBF_INTERNAL blocks have been added.
@@ -57,7 +37,7 @@ bool EHblkDsc::InFilterRegionILRange(BasicBlock* pBlk)
     return HasFilter() && jitIsBetween(pBlk->bbCodeOffs, ebdFilterBegOffs(), ebdFilterEndOffs());
 }
 
-bool EHblkDsc::InHndRegionILRange(BasicBlock* pBlk)
+bool EHblkDsc::InHndRegionILRange(BasicBlock* pBlk) const
 {
     // BBF_INTERNAL blocks may not have a valid bbCodeOffs. This function
     // should only be used before any BBF_INTERNAL blocks have been added.
@@ -67,27 +47,27 @@ bool EHblkDsc::InHndRegionILRange(BasicBlock* pBlk)
 }
 
 // HasCatchHandler: returns 'true' for either try/catch, or try/filter/filter-handler.
-bool EHblkDsc::HasCatchHandler()
+bool EHblkDsc::HasCatchHandler() const
 {
     return (ebdHandlerType == EH_HANDLER_CATCH) || (ebdHandlerType == EH_HANDLER_FILTER);
 }
 
-bool EHblkDsc::HasFilter()
+bool EHblkDsc::HasFilter() const
 {
     return ebdHandlerType == EH_HANDLER_FILTER;
 }
 
-bool EHblkDsc::HasFinallyHandler()
+bool EHblkDsc::HasFinallyHandler() const
 {
     return ebdHandlerType == EH_HANDLER_FINALLY;
 }
 
-bool EHblkDsc::HasFaultHandler()
+bool EHblkDsc::HasFaultHandler() const
 {
     return (ebdHandlerType == EH_HANDLER_FAULT) || (ebdHandlerType == EH_HANDLER_FAULT_WAS_FINALLY);
 }
 
-bool EHblkDsc::HasFinallyOrFaultHandler()
+bool EHblkDsc::HasFinallyOrFaultHandler() const
 {
     return HasFinallyHandler() || HasFaultHandler();
 }
@@ -109,22 +89,22 @@ bool EHblkDsc::InBBRange(BasicBlock* pBlk, BasicBlock* pStart, BasicBlock* pEnd)
     return false;
 }
 
-bool EHblkDsc::InTryRegionBBRange(BasicBlock* pBlk)
+bool EHblkDsc::InTryRegionBBRange(BasicBlock* pBlk) const
 {
     return InBBRange(pBlk, ebdTryBeg, ebdTryLast->bbNext);
 }
 
-bool EHblkDsc::InFilterRegionBBRange(BasicBlock* pBlk)
+bool EHblkDsc::InFilterRegionBBRange(BasicBlock* pBlk) const
 {
     return HasFilter() && InBBRange(pBlk, ebdFilter, ebdHndBeg);
 }
 
-bool EHblkDsc::InHndRegionBBRange(BasicBlock* pBlk)
+bool EHblkDsc::InHndRegionBBRange(BasicBlock* pBlk) const
 {
     return InBBRange(pBlk, ebdHndBeg, ebdHndLast->bbNext);
 }
 
-unsigned EHblkDsc::ebdGetEnclosingRegionIndex(bool* inTryRegion)
+unsigned EHblkDsc::ebdGetEnclosingRegionIndex(bool* inTryRegion) const
 {
     if ((ebdEnclosingTryIndex == NO_ENCLOSING_INDEX) && (ebdEnclosingHndIndex == NO_ENCLOSING_INDEX))
     {
@@ -160,8 +140,6 @@ unsigned EHblkDsc::ebdGetEnclosingRegionIndex(bool* inTryRegion)
     }
 }
 
-/*****************************************************************************/
-
 // We used to assert that the IL offsets in the EH table matched the IL offset stored
 // on the blocks pointed to by the try/filter/handler block pointers. This is true at
 // import time, but can fail to be true later in compilation when we start doing
@@ -170,47 +148,43 @@ unsigned EHblkDsc::ebdGetEnclosingRegionIndex(bool* inTryRegion)
 // That being said, the IL offsets in the EH table should only be examined early,
 // during importing. After importing, use block info instead.
 
-IL_OFFSET EHblkDsc::ebdTryBegOffs()
+IL_OFFSET EHblkDsc::ebdTryBegOffs() const
 {
     return ebdTryBegOffset;
 }
 
-IL_OFFSET EHblkDsc::ebdTryEndOffs()
+IL_OFFSET EHblkDsc::ebdTryEndOffs() const
 {
     return ebdTryEndOffset;
 }
 
-IL_OFFSET EHblkDsc::ebdHndBegOffs()
+IL_OFFSET EHblkDsc::ebdHndBegOffs() const
 {
     return ebdHndBegOffset;
 }
 
-IL_OFFSET EHblkDsc::ebdHndEndOffs()
+IL_OFFSET EHblkDsc::ebdHndEndOffs() const
 {
     return ebdHndEndOffset;
 }
 
-IL_OFFSET EHblkDsc::ebdFilterBegOffs()
+IL_OFFSET EHblkDsc::ebdFilterBegOffs() const
 {
     assert(HasFilter());
     return ebdFilterBegOffset;
 }
 
-IL_OFFSET EHblkDsc::ebdFilterEndOffs()
+IL_OFFSET EHblkDsc::ebdFilterEndOffs() const
 {
     assert(HasFilter());
     return ebdHndBegOffs(); // end of filter is beginning of handler
 }
 
-/* static */
 bool EHblkDsc::ebdIsSameILTry(EHblkDsc* h1, EHblkDsc* h2)
 {
     return ((h1->ebdTryBegOffset == h2->ebdTryBegOffset) && (h1->ebdTryEndOffset == h2->ebdTryEndOffset));
 }
 
-/*****************************************************************************/
-
-/* static */
 bool EHblkDsc::ebdIsSameTry(EHblkDsc* h1, EHblkDsc* h2)
 {
     return ((h1->ebdTryBeg == h2->ebdTryBeg) && (h1->ebdTryLast == h2->ebdTryLast));
@@ -222,16 +196,14 @@ bool EHblkDsc::ebdIsSameTry(Compiler* comp, unsigned t2)
     return ebdIsSameTry(this, h2);
 }
 
-bool EHblkDsc::ebdIsSameTry(BasicBlock* ebdTryBeg, BasicBlock* ebdTryLast)
+bool EHblkDsc::ebdIsSameTry(BasicBlock* ebdTryBeg, BasicBlock* ebdTryLast) const
 {
-    return ((this->ebdTryBeg == ebdTryBeg) && (this->ebdTryLast == ebdTryLast));
+    return (this->ebdTryBeg == ebdTryBeg) && (this->ebdTryLast == ebdTryLast);
 }
 
-/*****************************************************************************/
 #ifdef DEBUG
-/*****************************************************************************/
 
-void EHblkDsc::DispEntry(unsigned XTnum)
+void EHblkDsc::DispEntry(unsigned XTnum) const
 {
     printf(" %2u  ::", XTnum);
 
@@ -257,29 +229,20 @@ void EHblkDsc::DispEntry(unsigned XTnum)
         printf("  %2u  ", ebdEnclosingHndIndex);
     }
 
-    //////////////
     ////////////// Protected (try) region
-    //////////////
 
     printf("- Try at " FMT_BB ".." FMT_BB, ebdTryBeg->bbNum, ebdTryLast->bbNum);
-
-    /* ( brace matching editor workaround to compensate for the following line */
     printf(" [%03X..%03X), ", ebdTryBegOffset, ebdTryEndOffset);
 
-    //////////////
     ////////////// Filter region
-    //////////////
 
     if (HasFilter())
     {
-        /* ( brace matching editor workaround to compensate for the following line */
         printf("Filter at " FMT_BB ".." FMT_BB " [%03X..%03X), ", ebdFilter->bbNum, BBFilterLast()->bbNum,
                ebdFilterBegOffset, ebdHndBegOffset);
     }
 
-    //////////////
     ////////////// Handler region
-    //////////////
 
     if (ebdHndBeg->bbCatchTyp == BBCT_FINALLY)
     {
@@ -295,25 +258,10 @@ void EHblkDsc::DispEntry(unsigned XTnum)
     }
 
     printf(" at " FMT_BB ".." FMT_BB, ebdHndBeg->bbNum, ebdHndLast->bbNum);
-
-    /* ( brace matching editor workaround to compensate for the following line */
-    printf(" [%03X..%03X)", ebdHndBegOffset, ebdHndEndOffset);
-
-    printf("\n");
+    printf(" [%03X..%03X)\n", ebdHndBegOffset, ebdHndEndOffset);
 }
 
-/*****************************************************************************/
 #endif // DEBUG
-/*****************************************************************************/
-
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          "Compiler" functions                             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 
 bool Compiler::bbInCatchHandlerILRange(BasicBlock* blk)
 {
@@ -341,7 +289,7 @@ bool Compiler::bbInFilterILRange(BasicBlock* blk)
 
 // Given a handler region, find the innermost try region that contains it.
 // NOTE: handlerIndex is 1-based (0 means no handler).
-unsigned short Compiler::bbFindInnermostTryRegionContainingHandlerRegion(unsigned handlerIndex)
+uint16_t Compiler::bbFindInnermostTryRegionContainingHandlerRegion(unsigned handlerIndex)
 {
     if (handlerIndex > 0)
     {
@@ -356,7 +304,7 @@ unsigned short Compiler::bbFindInnermostTryRegionContainingHandlerRegion(unsigne
             if (bbInTryRegions(XTnum, blk))
             {
                 noway_assert(XTnum < MAX_XCPTN_INDEX);
-                return (unsigned short)(XTnum + 1); // Return the tryIndex
+                return static_cast<uint16_t>(XTnum + 1); // Return the tryIndex
             }
         }
     }
@@ -366,7 +314,7 @@ unsigned short Compiler::bbFindInnermostTryRegionContainingHandlerRegion(unsigne
 
 // Given a try region, find the innermost handler region that contains it.
 // NOTE: tryIndex is 1-based (0 means no handler).
-unsigned short Compiler::bbFindInnermostHandlerRegionContainingTryRegion(unsigned tryIndex)
+uint16_t Compiler::bbFindInnermostHandlerRegionContainingTryRegion(unsigned tryIndex)
 {
     if (tryIndex > 0)
     {
@@ -381,7 +329,7 @@ unsigned short Compiler::bbFindInnermostHandlerRegionContainingTryRegion(unsigne
             if (bbInHandlerRegions(XTnum, blk))
             {
                 noway_assert(XTnum < MAX_XCPTN_INDEX);
-                return (unsigned short)(XTnum + 1); // Return the handlerIndex
+                return static_cast<uint16_t>(XTnum + 1); // Return the handlerIndex
             }
         }
     }
@@ -540,7 +488,7 @@ bool Compiler::bbInCatchHandlerRegions(BasicBlock* tryBlk, BasicBlock* hndBlk)
  * is the method itself).
  */
 
-unsigned short Compiler::bbFindInnermostCommonTryRegion(BasicBlock* bbOne, BasicBlock* bbTwo)
+uint16_t Compiler::bbFindInnermostCommonTryRegion(BasicBlock* bbOne, BasicBlock* bbTwo)
 {
     unsigned XTnum;
 
@@ -549,7 +497,7 @@ unsigned short Compiler::bbFindInnermostCommonTryRegion(BasicBlock* bbOne, Basic
         if (bbInTryRegions(XTnum, bbOne) && bbInTryRegions(XTnum, bbTwo))
         {
             noway_assert(XTnum < MAX_XCPTN_INDEX);
-            return (unsigned short)(XTnum + 1); // Return the tryIndex
+            return static_cast<uint16_t>(XTnum + 1); // Return the tryIndex
         }
     }
 
@@ -966,7 +914,7 @@ bool Compiler::ehCallFinallyInCorrectRegion(BasicBlock* blockCallFinally, unsign
  *  Are there (or will there be) any funclets in the function?
  */
 
-bool Compiler::ehAnyFunclets()
+bool Compiler::ehAnyFunclets() const
 {
     return compHndBBtabCount > 0; // if there is any EH, there will be funclets
 }
@@ -1488,7 +1436,7 @@ EHblkDsc* Compiler::fgAddEHTableEntry(unsigned XTnum)
         // We need to reallocate the table
 
         if (compHndBBtabAllocCount == MAX_XCPTN_INDEX)
-        { // We're already at the max size for indices to be unsigned short
+        {
             IMPL_LIMITATION("too many exception clauses");
         }
 
@@ -2850,7 +2798,6 @@ bool Compiler::fgNormalizeEHCase3()
     return modified;
 }
 
-/*****************************************************************************/
 #ifdef DEBUG
 
 void Compiler::dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause)
@@ -2899,8 +2846,6 @@ void Compiler::dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& claus
         printf("  ClassToken:    0x%x\n", clause.ClassToken);
     }
 }
-
-/*****************************************************************************/
 
 void Compiler::fgVerifyHandlerTab()
 {
@@ -3349,9 +3294,9 @@ void Compiler::fgVerifyHandlerTab()
 
     BasicBlock* block;
 
-    size_t          blockIndexBytes = (bbNumMax + 1) * sizeof(unsigned short);
-    unsigned short* blockTryIndex   = (unsigned short*)_alloca(blockIndexBytes);
-    unsigned short* blockHndIndex   = (unsigned short*)_alloca(blockIndexBytes);
+    size_t    blockIndexBytes = (bbNumMax + 1) * sizeof(uint16_t);
+    uint16_t* blockTryIndex   = static_cast<uint16_t*>(_alloca(blockIndexBytes));
+    uint16_t* blockHndIndex   = static_cast<uint16_t*>(_alloca(blockIndexBytes));
     memset(blockTryIndex, 0, blockIndexBytes);
     memset(blockHndIndex, 0, blockIndexBytes);
 
@@ -3363,7 +3308,7 @@ void Compiler::fgVerifyHandlerTab()
         {
             if (blockTryIndex[block->bbNum] == 0)
             {
-                blockTryIndex[block->bbNum] = (unsigned short)(XTnum + 1);
+                blockTryIndex[block->bbNum] = static_cast<uint16_t>(XTnum + 1);
             }
         }
 
@@ -3372,7 +3317,7 @@ void Compiler::fgVerifyHandlerTab()
         {
             if (blockHndIndex[block->bbNum] == 0)
             {
-                blockHndIndex[block->bbNum] = (unsigned short)(XTnum + 1);
+                blockHndIndex[block->bbNum] = static_cast<uint16_t>(XTnum + 1);
             }
         }
     }
@@ -3401,7 +3346,7 @@ void Compiler::fgVerifyHandlerTab()
                 {
                     if (blockTryIndex[block->bbNum] == 0)
                     {
-                        blockTryIndex[block->bbNum] = (unsigned short)(enclosingTryIndex + 1);
+                        blockTryIndex[block->bbNum] = static_cast<uint16_t>(enclosingTryIndex + 1);
                     }
                 }
             }
@@ -3464,7 +3409,6 @@ void Compiler::fgDispHandlerTab()
 }
 
 #endif // DEBUG
-/*****************************************************************************/
 
 /*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -1,15 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                               GenTree                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "hwintrinsic.h"
 #include "valuenum.h"
@@ -183,8 +174,8 @@ const uint8_t GenTree::s_gtTrueSizes[GT_COUNT + 1]{
 #endif // NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
 
 #if COUNT_AST_OPERS
-LONG GenTree::s_gtNodeCounts[GT_COUNT + 1] = {0};
-#endif // COUNT_AST_OPERS
+LONG GenTree::s_gtNodeCounts[GT_COUNT + 1];
+#endif
 
 // clang-format off
 static_assert_no_msg(sizeof(GenTree)             <= TREE_NODE_SZ_SMALL);
@@ -362,8 +353,6 @@ void GenTree::ReportOperBashing(FILE* f)
 }
 
 #endif // NODEBASH_STATS
-
-/*****************************************************************************/
 
 #if MEASURE_NODE_SIZE
 
@@ -945,17 +934,12 @@ AGAIN:
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *
- *  Helper used to compute hash values for trees.
- */
-
-inline unsigned genTreeHashAdd(unsigned old, unsigned add)
+static unsigned genTreeHashAdd(unsigned old, unsigned add)
 {
     return (old + old / 2) ^ add;
 }
 
-inline unsigned genTreeHashAdd(unsigned old, void* add)
+static unsigned genTreeHashAdd(unsigned old, void* add)
 {
     return genTreeHashAdd(old, (unsigned)(size_t)add);
 }
@@ -1804,10 +1788,6 @@ bool Compiler::gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indi
     return true;
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 // Estimates the execution cost and code size of the given tree.
 // Marks load/store address modes to prevent them from being CSEd.
 void Compiler::gtSetCosts(GenTree* tree)
@@ -3330,9 +3310,6 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
             return 1;
     }
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 unsigned Compiler::gtSetCallArgsOrder(const GenTreeCall::UseList& args)
 {
@@ -3490,9 +3467,8 @@ var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 }
 
 #if DEBUGGABLE_GENTREE
-// static
-GenTree::VtablePtr GenTree::s_vtablesForOpers[] = {nullptr};
-GenTree::VtablePtr GenTree::s_vtableForOp       = nullptr;
+GenTree::VtablePtr GenTree::s_vtablesForOpers[GT_COUNT];
+GenTree::VtablePtr GenTree::s_vtableForOp;
 
 GenTree::VtablePtr GenTree::GetVtableForOper(genTreeOps oper)
 {
@@ -9147,10 +9123,6 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     return cmpTree;
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 GenTree* Compiler::gtFoldExprConst(GenTree* tree)
 {
     assert(tree->OperIsUnary() || tree->OperIsBinary());
@@ -10288,9 +10260,6 @@ INTEGRAL_OVF:
     JITDUMPTREE(tree, "into:\n");
     return tree;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool ignoreCctors)
 {
@@ -10548,10 +10517,7 @@ void dispNodeList(GenTree* list, bool verbose)
 
 #endif // DEBUG
 
-/*****************************************************************************
- *
- *  Callback used by the tree walker to implement fgFindLink()
- */
+// Callback used by the tree walker to implement fgFindLink()
 static Compiler::fgWalkResult gtFindLinkCB(GenTree** pTree, Compiler::fgWalkData* cbData)
 {
     Compiler::FindLinkData* data = (Compiler::FindLinkData*)cbData->pCallbackData;
@@ -10567,7 +10533,7 @@ static Compiler::fgWalkResult gtFindLinkCB(GenTree** pTree, Compiler::fgWalkData
 
 Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
 {
-    FindLinkData data = {node, nullptr, nullptr};
+    FindLinkData data{node, nullptr, nullptr};
 
     fgWalkResult result = fgWalkTreePre(stmt->GetRootNodePointer(), gtFindLinkCB, &data);
 

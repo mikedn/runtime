@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#if defined(_MSC_VER)
-#pragma hdrstop
-#endif // defined(_MSC_VER)
-
 //------------------------------------------------------------------------
 // ArenaAllocator::bypassHostAllocator:
 //    Indicates whether or not the ArenaAllocator should bypass the JIT
@@ -16,15 +12,14 @@
 //    True if the JIT should bypass the JIT host; false otherwise.
 bool ArenaAllocator::bypassHostAllocator()
 {
-#if defined(DEBUG)
+#ifdef DEBUG
     // When JitDirectAlloc is set, all JIT allocations requests are forwarded
     // directly to the OS. This allows taking advantage of pageheap and other gflag
     // knobs for ensuring that we do not have buffer overruns in the JIT.
-
     return JitConfig.JitDirectAlloc() != 0;
-#else  // defined(DEBUG)
+#else
     return false;
-#endif // !defined(DEBUG)
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -238,7 +233,7 @@ CritSecObject                     ArenaAllocator::s_statsLock;
 ArenaAllocator::AggregateMemStats ArenaAllocator::s_aggStats;
 ArenaAllocator::MemStats          ArenaAllocator::s_maxStats;
 
-const char* ArenaAllocator::MemStats::s_CompMemKindNames[] = {
+const char* ArenaAllocator::MemStats::s_CompMemKindNames[]{
 #define CompMemKindMacro(kind) #kind,
 #include "compmemkind.h"
 };

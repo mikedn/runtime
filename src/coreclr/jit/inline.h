@@ -68,8 +68,7 @@
 // When prejitting, each method is scanned to see if it is a viable
 // inline candidate.
 
-#ifndef _INLINE_H_
-#define _INLINE_H_
+#pragma once
 
 #include "jit.h"
 #include "gentree.h"
@@ -1068,7 +1067,5 @@ private:
 #if defined(DEBUG) || defined(INLINE_DATA)
     long       m_MethodXmlFilePosition;
     CLRRandom* m_Random;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 };
-
-#endif // _INLINE_H_

@@ -1820,7 +1820,7 @@ void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* hea
         printf("  Extended Epilog Count      : %u\n", epilogCount);
     }
 
-    bool epilogStartAt[256] = {}; // One byte per possible epilog start index; initialized to false
+    bool epilogStartAt[256]{}; // One byte per possible epilog start index; initialized to false
 
     if (EBit == 0)
     {

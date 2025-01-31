@@ -1,12 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-//
-// State machine header used ONLY in the JIT.
-//
-
-#ifndef __sm_h__
-#define __sm_h__
+#pragma once
 
 #include "smcommon.h"
 
@@ -67,5 +62,3 @@ public:
 
     static SM_OPCODE MapToSMOpcode(OPCODE opcode);
 };
-
-#endif /* __sm_h__ */

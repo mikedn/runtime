@@ -7,7 +7,7 @@
 //
 // INST0-5 macro params:
 //   id    - the enum name for the instruction
-//   nm    - textual name (for assembly dipslay)
+//   nm    - textual name (for assembly display)
 //   um    - update mode, see IUM_xx enum (rd, wr, or rw)
 //   mr    - base encoding for R/M[reg] addressing mode
 //   mi    - base encoding for R/M,icon addressing mode

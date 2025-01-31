@@ -544,7 +544,7 @@ void UnwindInfo::CheckOpsize(uint8_t b1)
 // Return the size of the unwind code (from 1 to 4 bytes), given the first byte of the unwind bytes
 static unsigned GetUnwindSizeFromUnwindHeader(uint8_t b1)
 {
-    static uint8_t s_UnwindSize[256] = {
+    static const uint8_t s_UnwindSize[256]{
         // array of unwind sizes, in bytes (as specified in the ARM unwind specification)
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 00-0F
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 10-1F
@@ -644,7 +644,7 @@ void CodeGen::DumpUnwindInfo(bool isHotCode, CodeRange range, const uint8_t* hea
         printf("  Extended Epilog Count      : %u\n", epilogCount);
     }
 
-    bool epilogStartAt[1024] = {}; // One byte per possible epilog start index; initialized to false
+    bool epilogStartAt[1024]{}; // One byte per possible epilog start index; initialized to false
 
     if (EBit == 0)
     {

@@ -99,7 +99,7 @@ bool Compiler::impILConsumesAddr(const BYTE* codeAddr)
             // out if we need to do so.
 
             CORINFO_RESOLVED_TOKEN resolvedToken;
-            impResolveToken(codeAddr + sizeof(__int8), &resolvedToken, CORINFO_TOKENKIND_Field);
+            impResolveToken(codeAddr + 1, &resolvedToken, CORINFO_TOKENKIND_Field);
 
             var_types lclTyp = CorTypeToVarType(info.compCompHnd->getFieldType(resolvedToken.hField));
 
@@ -6321,10 +6321,6 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 //    For CEE_NEWOBJ, newobjThis should be the temp grabbed for the allocated
 //    uninitalized object.
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                                      CORINFO_RESOLVED_TOKEN* pResolvedToken,
                                      CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
@@ -7106,9 +7102,6 @@ PUSH_VALUE:
 
     return nullptr;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
 {
@@ -8284,12 +8277,12 @@ void Importer::impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset)
 
 // Get the first non-prefix opcode. Used for verification of valid combinations
 // of prefixes and actual opcodes.
-OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp)
+OPCODE Importer::impGetNonPrefixOpcode(const uint8_t* codeAddr, const uint8_t* codeEndp)
 {
     while (codeAddr < codeEndp)
     {
-        OPCODE opcode = (OPCODE)getU1LittleEndian(codeAddr);
-        codeAddr += sizeof(__int8);
+        OPCODE opcode = static_cast<OPCODE>(getU1LittleEndian(codeAddr));
+        codeAddr++;
 
         if (opcode == CEE_PREFIX1)
         {
@@ -8297,8 +8290,8 @@ OPCODE Importer::impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEnd
             {
                 break;
             }
-            opcode = (OPCODE)(getU1LittleEndian(codeAddr) + 256);
-            codeAddr += sizeof(__int8);
+            opcode = static_cast<OPCODE>(getU1LittleEndian(codeAddr) + 256);
+            codeAddr++;
         }
 
         switch (opcode)
@@ -8788,10 +8781,6 @@ bool Importer::impBlockIsInALoop(BasicBlock* block)
            ((block->bbFlags & BBF_BACKWARD_JUMP) != 0);
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 void Importer::impImportBlockCode(BasicBlock* block)
 {
     JITDUMP("\nImporting " FMT_BB " (PC=%03u) of '%s'", block->bbNum, block->bbCodeOffs, info.compFullName);
@@ -11168,9 +11157,6 @@ void Importer::impImportBlockCode(BasicBlock* block)
         prevOpcode = opcode;
     }
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 void Importer::ImportArgList()
 {

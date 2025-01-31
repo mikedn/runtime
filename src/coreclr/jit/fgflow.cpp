@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 // Flowgraph Predecessors and Successors
 
 //------------------------------------------------------------------------

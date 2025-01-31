@@ -734,8 +734,8 @@ public:
 class CycleCount
 {
 private:
-    double           cps;         // cycles per second
-    unsigned __int64 beginCycles; // cycles at stop watch construction
+    double   cps;         // cycles per second
+    uint64_t beginCycles; // cycles at stop watch construction
 public:
     CycleCount();
 
@@ -748,7 +748,7 @@ public:
 
 private:
     // Return true if successful.
-    bool GetCycles(unsigned __int64* time);
+    bool GetCycles(uint64_t* time);
 };
 
 // Uses win API QueryPerformanceCounter/QueryPerformanceFrequency.

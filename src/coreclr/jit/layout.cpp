@@ -1019,7 +1019,6 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 //    Layouts are called compatible if they are equal or if
 //    they have the same size and the same GC slots.
 //
-// static
 bool ClassLayout::AreCompatible(const ClassLayout* layout1, const ClassLayout* layout2)
 {
     assert((layout1 != nullptr) && (layout2 != nullptr));

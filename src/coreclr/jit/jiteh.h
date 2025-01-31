@@ -1,23 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          Exception Handling                               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-#ifndef _EH_H_
-#define _EH_H_
+#pragma once
 
 struct BasicBlock;
 class Compiler;
-
-/*****************************************************************************/
 
 // The following holds the table of exception handlers.
 
@@ -90,13 +77,13 @@ struct EHblkDsc
 
     EHHandlerType ebdHandlerType;
 
-#if !defined(FEATURE_EH_FUNCLETS)
-    // How nested is the try/handler within other *handlers* - 0 for outermost clauses, 1 for nesting with a handler,
-    // etc.
-    unsigned short ebdHandlerNestingLevel;
-#endif // !FEATURE_EH_FUNCLETS
+#ifndef FEATURE_EH_FUNCLETS
+    // How nested is the try/handler within other *handlers* - 0 for outermost clauses,
+    // 1 for nesting with a handler, etc.
+    uint16_t ebdHandlerNestingLevel;
+#endif
 
-    static const unsigned short NO_ENCLOSING_INDEX = USHRT_MAX;
+    static const uint16_t NO_ENCLOSING_INDEX = UINT16_MAX;
 
     // The index of the enclosing outer try region, NO_ENCLOSING_INDEX if none.
     // Be careful of 'mutually protect' catch and filter clauses (multiple
@@ -104,19 +91,19 @@ struct EHblkDsc
     // ebdEnclosingTryIndex, but the inner catch is *NOT* nested within the outer catch!
     // That is, if the "inner catch" throws an exception, it won't be caught by
     // the "outer catch" for mutually protect handlers.
-    unsigned short ebdEnclosingTryIndex;
+    uint16_t ebdEnclosingTryIndex;
 
     // The index of the enclosing outer handler region, NO_ENCLOSING_INDEX if none.
-    unsigned short ebdEnclosingHndIndex;
+    uint16_t ebdEnclosingHndIndex;
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
 
     // After funclets are created, this is the index of corresponding FuncInfoDsc
     // Special case for Filter/Filter-handler:
     //   Like the IL the filter funclet immediately preceeds the filter-handler funclet.
     //   So this index points to the filter-handler funclet. If you want the filter
     //   funclet index, just subtract 1.
-    unsigned short ebdFuncIndex;
+    uint16_t ebdFuncIndex;
 
 #endif // FEATURE_EH_FUNCLETS
 
@@ -127,34 +114,34 @@ struct EHblkDsc
     IL_OFFSET ebdHndEndOffset;
 
     // Returns the last block of the filter. Assumes the EH clause is a try/filter/filter-handler type.
-    BasicBlock* BBFilterLast();
+    BasicBlock* BBFilterLast() const;
 
-    bool HasCatchHandler();
-    bool HasFilter();
-    bool HasFinallyHandler();
-    bool HasFaultHandler();
-    bool HasFinallyOrFaultHandler();
+    bool HasCatchHandler() const;
+    bool HasFilter() const;
+    bool HasFinallyHandler() const;
+    bool HasFaultHandler() const;
+    bool HasFinallyOrFaultHandler() const;
 
     // Returns the block to which control will flow if an (otherwise-uncaught) exception is raised
     // in the try.  This is normally "ebdHndBeg", unless the try region has a filter, in which case that is returned.
     // (This is, in some sense, the "true handler," at least in the sense of control flow.  Note
     // that we model the transition from a filter to its handler as normal, non-exceptional control flow.)
-    BasicBlock* ExFlowBlock();
+    BasicBlock* ExFlowBlock() const;
 
-    bool InTryRegionILRange(BasicBlock* pBlk);
-    bool InFilterRegionILRange(BasicBlock* pBlk);
-    bool InHndRegionILRange(BasicBlock* pBlk);
+    bool InTryRegionILRange(BasicBlock* pBlk) const;
+    bool InFilterRegionILRange(BasicBlock* pBlk) const;
+    bool InHndRegionILRange(BasicBlock* pBlk) const;
 
-    bool InTryRegionBBRange(BasicBlock* pBlk);
-    bool InFilterRegionBBRange(BasicBlock* pBlk);
-    bool InHndRegionBBRange(BasicBlock* pBlk);
+    bool InTryRegionBBRange(BasicBlock* pBlk) const;
+    bool InFilterRegionBBRange(BasicBlock* pBlk) const;
+    bool InHndRegionBBRange(BasicBlock* pBlk) const;
 
-    IL_OFFSET ebdTryBegOffs();
-    IL_OFFSET ebdTryEndOffs();
-    IL_OFFSET ebdFilterBegOffs();
-    IL_OFFSET ebdFilterEndOffs();
-    IL_OFFSET ebdHndBegOffs();
-    IL_OFFSET ebdHndEndOffs();
+    IL_OFFSET ebdTryBegOffs() const;
+    IL_OFFSET ebdTryEndOffs() const;
+    IL_OFFSET ebdFilterBegOffs() const;
+    IL_OFFSET ebdFilterEndOffs() const;
+    IL_OFFSET ebdHndBegOffs() const;
+    IL_OFFSET ebdHndEndOffs() const;
 
     static bool ebdIsSameILTry(EHblkDsc* h1, EHblkDsc* h2); // Same 'try' region? Compare IL range.
 
@@ -162,20 +149,16 @@ struct EHblkDsc
     // if this region is directly in the main function body. Set '*inTryRegion' to 'true' if this region is
     // most nested within a 'try' region, or 'false' if this region is most nested within a handler. (Note
     // that filters cannot contain nested EH regions.)
-    unsigned ebdGetEnclosingRegionIndex(bool* inTryRegion);
+    unsigned ebdGetEnclosingRegionIndex(bool* inTryRegion) const;
 
     static bool ebdIsSameTry(EHblkDsc* h1, EHblkDsc* h2); // Same 'try' region? Compare begin/last blocks.
     bool ebdIsSameTry(Compiler* comp, unsigned t2);
-    bool ebdIsSameTry(BasicBlock* ebdTryBeg, BasicBlock* ebdTryLast);
+    bool ebdIsSameTry(BasicBlock* ebdTryBeg, BasicBlock* ebdTryLast) const;
 
 #ifdef DEBUG
-    void DispEntry(unsigned num); // Display this table entry
-#endif                            // DEBUG
+    void DispEntry(unsigned num) const; // Display this table entry
+#endif
 
 private:
     static bool InBBRange(BasicBlock* pBlk, BasicBlock* pStart, BasicBlock* pEnd);
 };
-
-/*****************************************************************************/
-#endif // _EH_H_
-/*****************************************************************************/

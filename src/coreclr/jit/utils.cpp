@@ -409,13 +409,13 @@ DECODE_OPCODE:
     switch (opcode)
     {
         case CEE_PREFIX1:
-            opcode = OPCODE(getU1LittleEndian(opcodePtr) + 256);
-            opcodePtr += sizeof(__int8);
+            opcode = static_cast<OPCODE>(getU1LittleEndian(opcodePtr) + 256);
+            opcodePtr++;
             goto DECODE_OPCODE;
 
         default:
         {
-            __int64 iOp;
+            int64_t iOp;
             double  dOp;
             int     jOp;
             DWORD   jOp2;
@@ -447,7 +447,7 @@ DECODE_OPCODE:
                     goto INT_OP;
                 case InlineI8:
                     iOp = getU4LittleEndian(opcodePtr);
-                    iOp |= (__int64)getU4LittleEndian(opcodePtr + 4) << 32;
+                    iOp |= static_cast<int64_t>(getU4LittleEndian(opcodePtr + 4)) << 32;
                     goto INT_OP;
 
                 INT_OP:
@@ -1485,8 +1485,8 @@ bool MethodSet::IsActiveMethod(const char* methodName, int methodHash)
 //
 double CachedCyclesPerSecond()
 {
-    static volatile LONG s_CachedCyclesPerSecondInitialized = 0;
-    static double        s_CachedCyclesPerSecond            = 0.0;
+    static volatile LONG s_CachedCyclesPerSecondInitialized;
+    static double        s_CachedCyclesPerSecond;
     static CritSecObject s_CachedCyclesPerSecondLock;
 
     if (s_CachedCyclesPerSecondInitialized == 1)
@@ -1521,7 +1521,7 @@ CycleCount::CycleCount() : cps(CachedCyclesPerSecond())
 {
 }
 
-bool CycleCount::GetCycles(unsigned __int64* time)
+bool CycleCount::GetCycles(uint64_t* time)
 {
     return CycleTimer::GetThreadCyclesS(time);
 }
@@ -1533,9 +1533,9 @@ bool CycleCount::Start()
 
 double CycleCount::ElapsedTime()
 {
-    unsigned __int64 nowCycles;
-    (void)GetCycles(&nowCycles);
-    return ((double)(nowCycles - beginCycles) / cps) * 1000.0;
+    uint64_t nowCycles;
+    GetCycles(&nowCycles);
+    return (static_cast<double>(nowCycles - beginCycles) / cps) * 1000.0;
 }
 
 bool PerfCounter::Start()

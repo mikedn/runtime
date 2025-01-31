@@ -45,7 +45,9 @@ class LoopHoist;
 class Cse;
 class Lowering;
 class Compiler;
-INDEBUG(class IndentStack;)
+#ifdef DEBUG
+class IndentStack;
+#endif
 
 // Declare global operator new overloads that use the compiler's arena allocator
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
@@ -791,20 +793,18 @@ enum API_ICorJitInfo_Names
 struct CompTimeInfo
 {
 #ifdef FEATURE_JIT_METHOD_PERF
-    // The string names of the phases.
     static const char* PhaseNames[];
+    static bool        PhaseHasChildren[];
+    static int         PhaseParent[];
+    static bool        PhaseReportsIRSize[];
 
-    static bool PhaseHasChildren[];
-    static int  PhaseParent[];
-    static bool PhaseReportsIRSize[];
-
-    unsigned         m_byteCodeBytes;
-    unsigned __int64 m_totalCycles;
-    unsigned __int64 m_invokesByPhase[PHASE_NUMBER_OF];
-    unsigned __int64 m_cyclesByPhase[PHASE_NUMBER_OF];
+    unsigned m_byteCodeBytes;
+    uint64_t m_totalCycles = 0;
+    uint64_t m_invokesByPhase[PHASE_NUMBER_OF]{};
+    uint64_t m_cyclesByPhase[PHASE_NUMBER_OF]{};
 #if MEASURE_CLRAPI_CALLS
-    unsigned __int64 m_CLRinvokesByPhase[PHASE_NUMBER_OF];
-    unsigned __int64 m_CLRcyclesByPhase[PHASE_NUMBER_OF];
+    uint64_t m_CLRinvokesByPhase[PHASE_NUMBER_OF]{};
+    uint64_t m_CLRcyclesByPhase[PHASE_NUMBER_OF]{};
 #endif
 
     unsigned m_nodeCountAfterPhase[PHASE_NUMBER_OF];
@@ -817,19 +817,21 @@ struct CompTimeInfo
     // it out in a report, so we can verify that it is, indeed, very small.  If it ever
     // isn't, this means that we're doing something significant between the end of the last
     // declared subphase and the end of its parent.
-    unsigned __int64 m_parentPhaseEndSlop;
-    bool             m_timerFailure;
+    uint64_t m_parentPhaseEndSlop = 0;
+    bool     m_timerFailure       = false;
 
 #if MEASURE_CLRAPI_CALLS
     // The following measures the time spent inside each individual CLR API call.
-    unsigned         m_allClrAPIcalls;
-    unsigned         m_perClrAPIcalls[API_ICorJitInfo_Names::API_COUNT];
-    unsigned __int64 m_allClrAPIcycles;
-    unsigned __int64 m_perClrAPIcycles[API_ICorJitInfo_Names::API_COUNT];
-    unsigned __int32 m_maxClrAPIcycles[API_ICorJitInfo_Names::API_COUNT];
-#endif // MEASURE_CLRAPI_CALLS
+    unsigned m_allClrAPIcalls = 0;
+    unsigned m_perClrAPIcalls[API_ICorJitInfo_Names::API_COUNT]{};
+    uint64_t m_allClrAPIcycles = 0;
+    uint64_t m_perClrAPIcycles[API_ICorJitInfo_Names::API_COUNT]{};
+    uint32_t m_maxClrAPIcycles[API_ICorJitInfo_Names::API_COUNT]{};
+#endif
 
-    CompTimeInfo(unsigned byteCodeBytes);
+    CompTimeInfo(unsigned byteCodeBytes) : m_byteCodeBytes(byteCodeBytes)
+    {
+    }
 #endif
 };
 
@@ -884,17 +886,17 @@ public:
 //
 class JitTimer
 {
-    unsigned __int64 m_start;         // Start of the compilation.
-    unsigned __int64 m_curPhaseStart; // Start of the current phase.
+    uint64_t m_start;         // Start of the compilation.
+    uint64_t m_curPhaseStart; // Start of the current phase.
 #if MEASURE_CLRAPI_CALLS
-    unsigned __int64 m_CLRcallStart;   // Start of the current CLR API call (if any).
-    unsigned __int64 m_CLRcallInvokes; // CLR API invokes under current outer so far
-    unsigned __int64 m_CLRcallCycles;  // CLR API  cycles under current outer so far.
-    int              m_CLRcallAPInum;  // The enum/index of the current CLR API call (or -1).
-    static double    s_cyclesPerSec;   // Cached for speedier measurements
+    uint64_t      m_CLRcallStart;        // Start of the current CLR API call (if any).
+    uint64_t      m_CLRcallInvokes = 0;  // CLR API invokes under current outer so far
+    uint64_t      m_CLRcallCycles  = 0;  // CLR API  cycles under current outer so far.
+    int           m_CLRcallAPInum  = -1; // The enum/index of the current CLR API call.
+    static double s_cyclesPerSec;        // Cached for speedier measurements
 #endif
 #ifdef DEBUG
-    Phases m_lastPhase; // The last phase that was completed (or (Phases)-1 to start).
+    Phases m_lastPhase = static_cast<Phases>(255); // The last phase that was completed
 #endif
     CompTimeInfo m_info; // The CompTimeInfo for this compilation.
 
@@ -935,7 +937,7 @@ public:
     // Attempts to query the cycle counter of the current thread.  If successful, returns "true" and sets
     // *cycles to the cycle counter value.  Otherwise, returns false and sets the "m_timerFailure" flag of
     // "m_info" to true.
-    bool GetThreadCycles(unsigned __int64* cycles)
+    bool GetThreadCycles(uint64_t* cycles)
     {
         bool res = CycleTimer::GetThreadCyclesS(cycles);
         if (!res)
@@ -949,9 +951,6 @@ public:
 };
 #endif // FEATURE_JIT_METHOD_PERF
 
-//-------------------------------------------------------------------------
-// LoopFlags: flags for the loop table.
-//
 enum LoopFlags : uint16_t
 {
     LPFLG_EMPTY = 0,
@@ -1625,7 +1624,7 @@ struct Importer
 
     void Import();
 
-    static OPCODE impGetNonPrefixOpcode(const BYTE* codeAddr, const BYTE* codeEndp);
+    static OPCODE impGetNonPrefixOpcode(const uint8_t* codeAddr, const uint8_t* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
     static bool impOpcodeIsCallOpcode(OPCODE opcode);
 
@@ -2567,10 +2566,10 @@ public:
     bool bbInExnFlowRegions(unsigned regionIndex, BasicBlock* blk);
     bool bbInHandlerRegions(unsigned regionIndex, BasicBlock* blk);
     bool bbInCatchHandlerRegions(BasicBlock* tryBlk, BasicBlock* hndBlk);
-    unsigned short bbFindInnermostCommonTryRegion(BasicBlock* bbOne, BasicBlock* bbTwo);
+    uint16_t bbFindInnermostCommonTryRegion(BasicBlock* bbOne, BasicBlock* bbTwo);
 
-    unsigned short bbFindInnermostTryRegionContainingHandlerRegion(unsigned handlerIndex);
-    unsigned short bbFindInnermostHandlerRegionContainingTryRegion(unsigned tryIndex);
+    uint16_t bbFindInnermostTryRegionContainingHandlerRegion(unsigned handlerIndex);
+    uint16_t bbFindInnermostHandlerRegionContainingTryRegion(unsigned tryIndex);
 
     // Returns true if "block" is the start of a try region.
     bool bbIsTryBeg(BasicBlock* block);
@@ -2668,8 +2667,8 @@ public:
 #endif // TARGET_X86
     }
 
-    bool     ehAnyFunclets();  // Are there any funclets in this function?
-    unsigned ehFuncletCount(); // Return the count of funclets in the function
+    bool     ehAnyFunclets() const; // Are there any funclets in this function?
+    unsigned ehFuncletCount();      // Return the count of funclets in the function
 
     unsigned bbThrowIndex(BasicBlock* blk); // Get the index to use as the cache key for sharing throw blocks
 
@@ -3493,19 +3492,13 @@ public:
     Compiler* impInlineRoot();
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    unsigned __int64 getInlineCycleCount()
+    uint64_t getInlineCycleCount() const
     {
         return m_compCycles;
     }
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-    //=========================================================================
-    //                          PROTECTED
-    //=========================================================================
+#endif
 
 protected:
-    //---------------- Local variable ref-counting ----------------------------
-
     void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
     bool IsDominatedByExceptionalEntry(BasicBlock* block);
 
@@ -4801,8 +4794,8 @@ public:
     unsigned optLoopCount = 0;       // number of tracked loops
 
 #ifdef DEBUG
-    unsigned char loopAlignCandidates = 0; // number of loops identified for alignment
-    unsigned char loopsAligned        = 0; // number of loops actually aligned
+    uint8_t loopAlignCandidates = 0; // number of loops identified for alignment
+    uint8_t loopsAligned        = 0; // number of loops actually aligned
 #endif
 
     bool optRecordLoop(BasicBlock* head,
@@ -4819,15 +4812,15 @@ public:
     unsigned optLoopsCloned       = 0; // number of loops cloned in the current method.
 
 #ifdef DEBUG
-    void optPrintLoopInfo(unsigned      loopNum,
-                          BasicBlock*   lpHead,
-                          BasicBlock*   lpFirst,
-                          BasicBlock*   lpTop,
-                          BasicBlock*   lpEntry,
-                          BasicBlock*   lpBottom,
-                          unsigned char lpExitCnt,
-                          BasicBlock*   lpExit,
-                          unsigned      parentLoop = BasicBlock::NOT_IN_LOOP) const;
+    void optPrintLoopInfo(unsigned    loopNum,
+                          BasicBlock* lpHead,
+                          BasicBlock* lpFirst,
+                          BasicBlock* lpTop,
+                          BasicBlock* lpEntry,
+                          BasicBlock* lpBottom,
+                          uint8_t     lpExitCnt,
+                          BasicBlock* lpExit,
+                          unsigned    parentLoop = BasicBlock::NOT_IN_LOOP) const;
     void optPrintLoopInfo(unsigned lnum) const;
     void optPrintLoopRecording(unsigned lnum) const;
 
@@ -5772,7 +5765,10 @@ public:
     PhaseStatus phSetThrowHelperBlockStackLevel();
 #endif
 
-    ArenaAllocator* compGetArenaAllocator();
+    ArenaAllocator* compGetArenaAllocator() const
+    {
+        return compArenaAllocator;
+    }
 
     void generatePatchpointInfo();
 
@@ -5793,7 +5789,10 @@ public:
     static void PrintAggregateLoopHoistStats(FILE* f);
 #endif // LOOP_HOIST_STATS
 
-    bool compIsForInlining() const;
+    bool compIsForInlining() const
+    {
+        return impInlineInfo != nullptr;
+    }
 
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
@@ -5897,9 +5896,9 @@ private:
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // These variables are associated with maintaining SQM data about compile time.
-    unsigned __int64 m_compCyclesAtEndOfInlining; // The thread-virtualized cycle count at the end of the inlining phase
-                                                  // in the current compilation.
-    unsigned __int64 m_compCycles;                // Net cycle count for current compilation
+    uint64_t m_compCyclesAtEndOfInlining; // The thread-virtualized cycle count at the end of the inlining phase
+                                          // in the current compilation.
+    uint64_t m_compCycles;                // Net cycle count for current compilation
     DWORD m_compTickCountAtEndOfInlining; // The result of GetTickCount() (# ms since some epoch marker) at the end of
                                           // the inlining phase in the current compilation.
 #endif                                    // defined(DEBUG) || defined(INLINE_DATA)
@@ -7348,57 +7347,31 @@ public:
     }
 };
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                   Miscellaneous Compiler stuff                            XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************
- *
- *  Variables to keep track of total code amounts.
- */
-
+// Variables to keep track of total code amounts.
 #if DISPLAY_SIZES
-
-extern size_t grossVMsize;
-extern size_t grossNCsize;
-extern size_t totalNCsize;
-
+extern size_t   grossVMsize;
+extern size_t   grossNCsize;
+extern size_t   totalNCsize;
 extern unsigned genMethodICnt;
 extern unsigned genMethodNCnt;
 extern size_t   gcHeaderISize;
 extern size_t   gcPtrMapISize;
 extern size_t   gcHeaderNSize;
 extern size_t   gcPtrMapNSize;
+#endif
 
-#endif // DISPLAY_SIZES
-
-/*****************************************************************************
- *
- *  Variables to keep track of basic block counts (more data on 1 BB methods)
- */
-
+// Variables to keep track of basic block counts (more data on 1 BB methods)
 #if COUNT_BASIC_BLOCKS
 extern Histogram bbCntTable;
 extern Histogram bbOneBBSizeTable;
 #endif
 
-/*****************************************************************************
- *
- *  Used by optFindNaturalLoops to gather statistical information such as
- *   - total number of natural loops
- *   - number of loops with 1, 2, ... exit conditions
- *   - number of loops that have an iterator (for like)
- *   - number of loops that have a constant iterator
- */
-
+// Used by optFindNaturalLoops to gather statistical information such as
+//  - total number of natural loops
+//  - number of loops with 1, 2, ... exit conditions
+//  - number of loops that have an iterator (for like)
+//  - number of loops that have a constant iterator
 #if COUNT_LOOPS
-
 extern unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
 extern unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
 extern unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
@@ -7414,24 +7387,18 @@ extern unsigned  loopsThisMethod;        // counts the number of loops in the cu
 extern bool      loopOverflowThisMethod; // True if we exceeded the max # of loops in the method.
 extern Histogram loopCountTable;         // Histogram of loop counts
 extern Histogram loopExitCountTable;     // Histogram of loop exit counts
+#endif
 
-#endif // COUNT_LOOPS
-
-/*****************************************************************************
- * variables to keep track of how many iterations we go in a dataflow pass
- */
-
+// Variables to keep track of how many iterations we go in a dataflow pass
 #if DATAFLOW_ITER
-
 extern unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
 extern unsigned CFiterCount;  // counts the # of iteration for the Const Folding dataflow
-
-#endif // DATAFLOW_ITER
+#endif
 
 #if MEASURE_BLOCK_SIZE
 extern size_t genFlowNodeSize;
 extern size_t genFlowNodeCnt;
-#endif // MEASURE_BLOCK_SIZE
+#endif
 
 #if MEASURE_NODE_SIZE
 struct NodeSizeStats
@@ -7444,27 +7411,22 @@ struct NodeSizeStats
     }
 
     // Count of tree nodes allocated.
-    unsigned __int64 genTreeNodeCnt;
-
+    uint64_t genTreeNodeCnt;
     // The size we allocate.
-    unsigned __int64 genTreeNodeSize;
-
+    uint64_t genTreeNodeSize;
     // The actual size of the node. Note that the actual size will likely be smaller
     // than the allocated size, but we sometimes use SetOper()/ChangeOper() to change
     // a smaller node to a larger one. TODO-Cleanup: add stats on
     // SetOper()/ChangeOper() usage to quantify this.
-    unsigned __int64 genTreeNodeActualSize;
+    uint64_t genTreeNodeActualSize;
 };
 extern NodeSizeStats genNodeSizeStats;        // Total node size stats
 extern NodeSizeStats genNodeSizeStatsPerFunc; // Per-function node size stats
 extern Histogram     genTreeNcntHist;
 extern Histogram     genTreeNsizHist;
-#endif // MEASURE_NODE_SIZE
+#endif
 
-/*****************************************************************************
- *  Count fatal errors (including noway_asserts).
- */
-
+// Count fatal errors (including noway_asserts).
 #if MEASURE_FATAL
 extern unsigned fatal_badCode;
 extern unsigned fatal_noWay;
@@ -7473,9 +7435,9 @@ extern unsigned fatal_NOMEM;
 extern unsigned fatal_noWayAssertBody;
 #ifdef DEBUG
 extern unsigned fatal_noWayAssertBodyArgs;
-#endif // DEBUG
+#endif
 extern unsigned fatal_NYI;
-#endif // MEASURE_FATAL
+#endif
 
 #ifdef DEBUG
 void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars);

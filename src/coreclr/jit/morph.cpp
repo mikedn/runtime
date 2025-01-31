@@ -9023,10 +9023,6 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     return qmark;
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 {
     assert(tree->OperKind() & GTK_SMPOP);
@@ -11379,10 +11375,6 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
     }
 #endif
 }
-
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 GenTree* Compiler::fgMorphSmpOpOptional(GenTreeOp* tree)
 {

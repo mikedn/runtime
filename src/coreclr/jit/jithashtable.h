@@ -57,23 +57,25 @@ public:
 class JitPrimeInfo
 {
 public:
-    constexpr JitPrimeInfo() : prime(0), magic(0), shift(0)
+    constexpr JitPrimeInfo()
     {
     }
+
     constexpr JitPrimeInfo(unsigned p, unsigned m, unsigned s) : prime(p), magic(m), shift(s)
     {
     }
-    unsigned prime;
-    unsigned magic;
-    unsigned shift;
+
+    unsigned prime = 0;
+    unsigned magic = 0;
+    unsigned shift = 0;
 
     // Compute `numerator` / `prime` using magic division
     unsigned magicNumberDivide(unsigned numerator) const
     {
-        unsigned __int64 num     = numerator;
-        unsigned __int64 mag     = magic;
-        unsigned __int64 product = (num * mag) >> (32 + shift);
-        return (unsigned)product;
+        uint64_t num     = numerator;
+        uint64_t mag     = magic;
+        uint64_t product = (num * mag) >> (32 + shift);
+        return static_cast<unsigned>(product);
     }
 
     // Compute `numerator` % `prime` using magic division
@@ -121,12 +123,10 @@ public:
     //    JitHashTable always starts out empty, with no allocation overhead.
     //    Call Reallocate to prime with an initial size if desired.
     //
-    JitHashTable(Allocator alloc) : m_alloc(alloc), m_table(nullptr), m_tableSizeInfo(), m_tableCount(0), m_tableMax(0)
+    JitHashTable(Allocator alloc) : m_alloc(alloc)
     {
-#ifndef __GNUC__ // these crash GCC
         static_assert_no_msg(Behavior::s_growth_factor_numerator > Behavior::s_growth_factor_denominator);
         static_assert_no_msg(Behavior::s_density_factor_numerator < Behavior::s_density_factor_denominator);
-#endif
     }
 
     //------------------------------------------------------------------------
@@ -691,7 +691,7 @@ private:
 
         void* operator new(size_t sz, Allocator alloc)
         {
-            return alloc.template allocate<unsigned char>(sz);
+            return alloc.template allocate<uint8_t>(sz);
         }
 
         void operator delete(void* p, Allocator alloc)
@@ -701,11 +701,11 @@ private:
     };
 
     // Instance members
-    Allocator    m_alloc;         // Allocator to use in this table.
-    Node**       m_table;         // pointer to table
-    JitPrimeInfo m_tableSizeInfo; // size of table (a prime) and information about it
-    unsigned     m_tableCount;    // number of elements in table
-    unsigned     m_tableMax;      // maximum occupied count
+    Allocator    m_alloc;           // Allocator to use in this table.
+    Node**       m_table = nullptr; // pointer to table
+    JitPrimeInfo m_tableSizeInfo;   // size of table (a prime) and information about it
+    unsigned     m_tableCount = 0;  // number of elements in table
+    unsigned     m_tableMax   = 0;  // maximum occupied count
 };
 
 template <typename Value,
@@ -725,7 +725,7 @@ class JitHashSet
 
         void* operator new(size_t sz, Allocator alloc)
         {
-            return alloc.template allocate<unsigned char>(sz);
+            return alloc.template allocate<uint8_t>(sz);
         }
 
         void operator delete(void* p, Allocator alloc)

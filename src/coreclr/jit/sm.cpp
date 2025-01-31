@@ -1,34 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                 State machine used in the JIT                             XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "sm.h"
 #include "smcommon.cpp"
 
-//
 // The array to map from EE opcodes (i.e. CEE_ ) to state machine opcodes (i.e. SM_ )
-//
-const SM_OPCODE smOpcodeMap[] = {
+const SM_OPCODE smOpcodeMap[]{
 #define OPCODEMAP(eename, eestring, smname) smname,
 #include "smopcodemap.def"
 #undef OPCODEMAP
 };
 
 // ????????? How to make this method inlinable, since it refers to smOpcodeMap????
-/* static */ SM_OPCODE CodeSeqSM::MapToSMOpcode(OPCODE opcode)
+SM_OPCODE CodeSeqSM::MapToSMOpcode(OPCODE opcode)
 {
     assert(opcode < CEE_COUNT);
 

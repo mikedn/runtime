@@ -2253,7 +2253,6 @@ public:
     }
 };
 
-/*****************************************************************************/
 // In the current design, we never instantiate GenTreeUnOp: it exists only to be
 // used as a base class.  For unary operators, we instantiate GenTreeOp, with a NULL second
 // argument.  We check that this is true dynamically.  We could tighten this and get static
@@ -7417,7 +7416,7 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
 struct GenCondition
 {
     // clang-format off
-    enum Code : unsigned char
+    enum Code : uint8_t
     {
         OperMask  = 7,
         Unsigned  = 8,

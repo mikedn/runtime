@@ -2,31 +2,24 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "inlinepolicy.h"
 
 // Lookup table for inline description strings
-
-static const char* InlineDescriptions[] = {
+static const char* InlineDescriptions[]{
 #define INLINE_OBSERVATION(name, type, description, impact, target) description,
 #include "inline.def"
 #undef INLINE_OBSERVATION
 };
 
 // Lookup table for inline targets
-
-static const InlineTarget InlineTargets[] = {
+static const InlineTarget InlineTargets[]{
 #define INLINE_OBSERVATION(name, type, description, impact, target) InlineTarget::target,
 #include "inline.def"
 #undef INLINE_OBSERVATION
 };
 
 // Lookup table for inline impacts
-
-static const InlineImpact InlineImpacts[] = {
+static const InlineImpact InlineImpacts[]{
 #define INLINE_OBSERVATION(name, type, description, impact, target) InlineImpact::impact,
 #include "inline.def"
 #undef INLINE_OBSERVATION
@@ -1501,8 +1494,8 @@ void InlineStrategy::DumpDataContents(FILE* file)
     mdMethodDef currentMethodToken = info.compCompHnd->getMethodDefFromMethod(info.compMethodHnd);
 
     // Convert time spent jitting into microseconds
-    unsigned         microsecondsSpentJitting = 0;
-    unsigned __int64 compCycles               = m_Compiler->getInlineCycleCount();
+    unsigned microsecondsSpentJitting = 0;
+    uint64_t compCycles               = m_Compiler->getInlineCycleCount();
     if (compCycles > 0)
     {
         double countsPerSec      = CachedCyclesPerSecond();
@@ -1596,8 +1589,8 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     unsigned hash = info.compMethodHash();
 
     // Convert time spent jitting into microseconds
-    unsigned         microsecondsSpentJitting = 0;
-    unsigned __int64 compCycles               = m_Compiler->getInlineCycleCount();
+    unsigned microsecondsSpentJitting = 0;
+    uint64_t compCycles               = m_Compiler->getInlineCycleCount();
     if (compCycles > 0)
     {
         double countsPerSec      = CachedCyclesPerSecond();

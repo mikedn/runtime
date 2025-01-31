@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 // Flowgraph Check and Dump Support
 
 #ifdef DEBUG
@@ -328,15 +324,8 @@ static void fprintfDouble(FILE* fgxFile, double value)
     }
 }
 
-//------------------------------------------------------------------------
-// fgDumpTree: Dump a tree into the DOT file. Used to provide a very short, one-line,
+// Dump a tree into the DOT file. Used to provide a very short, one-line,
 // visualization of a BBJ_COND block.
-//
-// Arguments:
-//    fgxFile - The file we are writing to.
-//    tree    - The operand to dump.
-//
-// static
 void Compiler::fgDumpTree(FILE* fgxFile, GenTree* const tree)
 {
     if (tree->OperIsRelop())
@@ -810,8 +799,8 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
         blkMap[block->bbNum] = blockOrdinal++;
     }
 
-    static const char* kindImage[] = {"EHFINALLYRET", "EHFILTERRET", "EHCATCHRET",  "THROW", "RETURN", "NONE",
-                                      "ALWAYS",       "LEAVE",       "CALLFINALLY", "COND",  "SWITCH"};
+    static const char* kindImage[]{"EHFINALLYRET", "EHFILTERRET", "EHCATCHRET",  "THROW", "RETURN", "NONE",
+                                   "ALWAYS",       "LEAVE",       "CALLFINALLY", "COND",  "SWITCH"};
 
     BasicBlock* block;
     for (block = fgFirstBB, blockOrdinal = 1; block != nullptr; block = block->bbNext, blockOrdinal++)
@@ -1641,7 +1630,6 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
 
 #endif // DUMP_FLOWGRAPHS
 
-/*****************************************************************************/
 #ifdef DEBUG
 
 void Compiler::fgDispReach()
@@ -1686,17 +1674,15 @@ void Compiler::fgDispDoms(BasicBlock** postOrder)
     }
 }
 
-/*****************************************************************************/
-
 void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 */)
 {
-    const unsigned __int64 flags    = block->bbFlags;
-    unsigned               bbNumMax = compIsForInlining() ? impInlineInfo->InlinerCompiler->fgBBNumMax : fgBBNumMax;
-    int                    maxBlockNumWidth = CountDigits(bbNumMax);
-    maxBlockNumWidth                        = max(maxBlockNumWidth, 2);
-    int blockNumWidth                       = CountDigits(block->bbNum);
-    blockNumWidth                           = max(blockNumWidth, 2);
-    int blockNumPadding                     = maxBlockNumWidth - blockNumWidth;
+    const uint64_t flags            = block->bbFlags;
+    unsigned       bbNumMax         = compIsForInlining() ? impInlineInfo->InlinerCompiler->fgBBNumMax : fgBBNumMax;
+    int            maxBlockNumWidth = CountDigits(bbNumMax);
+    maxBlockNumWidth                = max(maxBlockNumWidth, 2);
+    int blockNumWidth               = CountDigits(block->bbNum);
+    blockNumWidth                   = max(blockNumWidth, 2);
+    int blockNumPadding             = maxBlockNumWidth - blockNumWidth;
 
     printf("%s %2u", block->dspToString(blockNumPadding), block->bbRefs);
 
@@ -1984,7 +1970,6 @@ void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 *
     {
         cnt += 2;
         printf("{ ");
-        /* brace matching editor workaround to compensate for the preceding line: } */
     }
 
     if (flags & BBF_TRY_BEG)
@@ -1997,7 +1982,6 @@ void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 *
             {
                 cnt += 6;
                 printf("try { ");
-                /* brace matching editor workaround to compensate for the preceding line: } */
             }
         }
     }
@@ -2007,19 +1991,16 @@ void Compiler::fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth /* = 0 *
         if (HBtab->ebdTryLast == block)
         {
             cnt += 2;
-            /* brace matching editor workaround to compensate for the following line: { */
             printf("} ");
         }
         if (HBtab->ebdHndLast == block)
         {
             cnt += 2;
-            /* brace matching editor workaround to compensate for the following line: { */
             printf("} ");
         }
         if (HBtab->HasFilter() && block->bbNext == HBtab->ebdHndBeg)
         {
             cnt += 2;
-            /* brace matching editor workaround to compensate for the following line: { */
             printf("} ");
         }
     }
@@ -2149,8 +2130,6 @@ void Compiler::fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, 
         fgDumpTrees(firstBlock, lastBlock);
     }
 }
-
-/*****************************************************************************/
 
 void Compiler::fgDispBasicBlocks(bool dumpTrees)
 {
@@ -3295,5 +3274,4 @@ void Compiler::fgDebugCheckLoopTable()
     }
 }
 
-/*****************************************************************************/
 #endif // DEBUG

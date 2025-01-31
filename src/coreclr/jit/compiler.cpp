@@ -1,14 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          Compiler                                         XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
 #include "hostallocator.h"
 #include "patchpointinfo.h"
@@ -25,14 +17,11 @@ AssemblyNamesList2* Compiler::s_pJitDisasmIncludeAssembliesList;
 MethodSet*          Compiler::s_pJitMethodSet;
 #endif
 
-/*****************************************************************************
- *
- *  Little helpers to grab the current cycle counter value; this is done
- *  differently based on target architecture, host toolchain, etc. The
- *  main thing is to keep the overhead absolutely minimal; in fact, on
- *  x86/x64 we use RDTSC even though it's not thread-safe; GetThreadCycles
- *  (which is monotonous) is just too expensive.
- */
+// Little helpers to grab the current cycle counter value; this is done
+// differently based on target architecture, host toolchain, etc. The
+// main thing is to keep the overhead absolutely minimal; in fact, on
+// x86/x64 we use RDTSC even though it's not thread-safe; GetThreadCycles
+// (which is monotonous) is just too expensive.
 #ifdef FEATURE_JIT_METHOD_PERF
 
 #if defined(HOST_X86) || defined(HOST_AMD64)
@@ -40,7 +29,7 @@ MethodSet*          Compiler::s_pJitMethodSet;
 #if defined(_MSC_VER)
 
 #include <intrin.h>
-inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
+bool _our_GetThreadCycles(uint64_t* cycleOut)
 {
     *cycleOut = __rdtsc();
     return true;
@@ -48,11 +37,11 @@ inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
 
 #elif defined(__GNUC__)
 
-inline bool _our_GetThreadCycles(unsigned __int64* cycleOut)
+bool _our_GetThreadCycles(uint64_t* cycleOut)
 {
     uint32_t hi, lo;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-    *cycleOut = (static_cast<unsigned __int64>(hi) << 32) | static_cast<unsigned __int64>(lo);
+    *cycleOut = (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
     return true;
 }
 
@@ -83,33 +72,23 @@ static unsigned genSmallMethodsNeedingExtraMemoryCnt = 0;
 #endif
 
 #if MEASURE_NODE_SIZE
-NodeSizeStats genNodeSizeStats;
-NodeSizeStats genNodeSizeStatsPerFunc;
+NodeSizeStats         genNodeSizeStats;
+NodeSizeStats         genNodeSizeStatsPerFunc;
+static const unsigned genTreeNcntHistBuckets[]{10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 0};
+Histogram             genTreeNcntHist(genTreeNcntHistBuckets);
+static const unsigned genTreeNsizHistBuckets[]{1000, 5000, 10000, 50000, 100000, 500000, 1000000, 0};
+Histogram             genTreeNsizHist(genTreeNsizHistBuckets);
+#endif
 
-unsigned  genTreeNcntHistBuckets[] = {10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 0};
-Histogram genTreeNcntHist(genTreeNcntHistBuckets);
-
-unsigned  genTreeNsizHistBuckets[] = {1000, 5000, 10000, 50000, 100000, 500000, 1000000, 0};
-Histogram genTreeNsizHist(genTreeNsizHistBuckets);
-#endif // MEASURE_NODE_SIZE
-
-/*****************************************************************************/
 #if MEASURE_MEM_ALLOC
+static const unsigned memAllocHistBuckets[]{64, 128, 192, 256, 512, 1024, 4096, 8192, 0};
+Histogram             memAllocHist(memAllocHistBuckets);
+static const unsigned memUsedHistBuckets[]{16, 32, 64, 128, 192, 256, 512, 1024, 4096, 8192, 0};
+Histogram             memUsedHist(memUsedHistBuckets);
+#endif
 
-unsigned  memAllocHistBuckets[] = {64, 128, 192, 256, 512, 1024, 4096, 8192, 0};
-Histogram memAllocHist(memAllocHistBuckets);
-unsigned  memUsedHistBuckets[] = {16, 32, 64, 128, 192, 256, 512, 1024, 4096, 8192, 0};
-Histogram memUsedHist(memUsedHistBuckets);
-
-#endif // MEASURE_MEM_ALLOC
-
-/*****************************************************************************
- *
- *  Variables to keep track of total code amounts.
- */
-
+// Variables to keep track of total code amounts.
 #if DISPLAY_SIZES
-
 size_t grossVMsize; // Total IL code size
 size_t grossNCsize; // Native code + data size
 size_t totalNCsize; // Native code + data + GC info size (TODO-Cleanup: GC info size only accurate for JIT32_GCENCODER)
@@ -117,47 +96,37 @@ size_t gcHeaderISize; // GC header      size: interruptible methods
 size_t gcPtrMapISize; // GC pointer map size: interruptible methods
 size_t gcHeaderNSize; // GC header      size: non-interruptible methods
 size_t gcPtrMapNSize; // GC pointer map size: non-interruptible methods
-
-#endif // DISPLAY_SIZES
+#endif
 
 #if COUNT_BASIC_BLOCKS
 
-//          --------------------------------------------------
-//          Basic block count frequency table:
-//          --------------------------------------------------
-//              <=         1 ===>  26872 count ( 56% of total)
-//               2 ..      2 ===>    669 count ( 58% of total)
-//               3 ..      3 ===>   4687 count ( 68% of total)
-//               4 ..      5 ===>   5101 count ( 78% of total)
-//               6 ..     10 ===>   5575 count ( 90% of total)
-//              11 ..     20 ===>   3028 count ( 97% of total)
-//              21 ..     50 ===>   1108 count ( 99% of total)
-//              51 ..    100 ===>    182 count ( 99% of total)
-//             101 ..   1000 ===>     34 count (100% of total)
-//            1001 ..  10000 ===>      0 count (100% of total)
-//          --------------------------------------------------
+// --------------------------------------------------
+// Basic block count frequency table:
+// --------------------------------------------------
+//     <=         1 ===>  26872 count ( 56% of total)
+//      2 ..      2 ===>    669 count ( 58% of total)
+//      3 ..      3 ===>   4687 count ( 68% of total)
+//      4 ..      5 ===>   5101 count ( 78% of total)
+//      6 ..     10 ===>   5575 count ( 90% of total)
+//     11 ..     20 ===>   3028 count ( 97% of total)
+//     21 ..     50 ===>   1108 count ( 99% of total)
+//     51 ..    100 ===>    182 count ( 99% of total)
+//    101 ..   1000 ===>     34 count (100% of total)
+//   1001 ..  10000 ===>      0 count (100% of total)
+// --------------------------------------------------
+static const unsigned bbCntBuckets[]{1, 2, 3, 5, 10, 20, 50, 100, 1000, 10000, 0};
+Histogram             bbCntTable(bbCntBuckets);
+// Histogram for the IL opcode size of methods with a single basic block
+static const unsigned bbSizeBuckets[]{1, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 0};
+Histogram             bbOneBBSizeTable(bbSizeBuckets);
+#endif
 
-unsigned  bbCntBuckets[] = {1, 2, 3, 5, 10, 20, 50, 100, 1000, 10000, 0};
-Histogram bbCntTable(bbCntBuckets);
-
-/* Histogram for the IL opcode size of methods with a single basic block */
-
-unsigned  bbSizeBuckets[] = {1, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 0};
-Histogram bbOneBBSizeTable(bbSizeBuckets);
-
-#endif // COUNT_BASIC_BLOCKS
-
-/*****************************************************************************
- *
- *  Used by optFindNaturalLoops to gather statistical information such as
- *   - total number of natural loops
- *   - number of loops with 1, 2, ... exit conditions
- *   - number of loops that have an iterator (for like)
- *   - number of loops that have a constant iterator
- */
-
+// Used by optFindNaturalLoops to gather statistical information such as
+//  - total number of natural loops
+//  - number of loops with 1, 2, ... exit conditions
+//  - number of loops that have an iterator (for like)
+//  - number of loops that have a constant iterator
 #if COUNT_LOOPS
-
 unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
 unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
 unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
@@ -170,37 +139,28 @@ unsigned constIterLoopCount;      // counts the # of loops with a constant itera
 bool     hasMethodLoops;          // flag to keep track if we already counted a method as having loops
 unsigned loopsThisMethod;         // counts the number of loops in the current method
 bool     loopOverflowThisMethod;  // True if we exceeded the max # of loops in the method.
+// Histogram for number of loops in a method
+static const unsigned loopCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0};
+Histogram             loopCountTable(loopCountBuckets);
+// Histogram for number of loop exits
+static const unsigned loopExitCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 0};
+Histogram             loopExitCountTable(loopExitCountBuckets);
+#endif
 
-/* Histogram for number of loops in a method */
-
-unsigned  loopCountBuckets[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0};
-Histogram loopCountTable(loopCountBuckets);
-
-/* Histogram for number of loop exits */
-
-unsigned  loopExitCountBuckets[] = {0, 1, 2, 3, 4, 5, 6, 0};
-Histogram loopExitCountTable(loopExitCountBuckets);
-
-#endif // COUNT_LOOPS
-
-///////////////////////////////////////////////////////////////////////////////
-//
 // MEASURE_NOWAY: code to measure and rank dynamic occurrences of noway_assert.
 // (Just the appearances of noway_assert, whether the assert is true or false.)
 // This might help characterize the cost of noway_assert in non-DEBUG builds,
 // or determine which noway_assert should be simple DEBUG-only asserts.
-//
-///////////////////////////////////////////////////////////////////////////////
 
 #if MEASURE_NOWAY
 
 struct FileLine
 {
-    char*    m_file;
-    unsigned m_line;
-    char*    m_condStr;
+    char*    m_file    = nullptr;
+    unsigned m_line    = 0;
+    char*    m_condStr = nullptr;
 
-    FileLine() : m_file(nullptr), m_line(0), m_condStr(nullptr)
+    FileLine()
     {
     }
 
@@ -215,14 +175,7 @@ struct FileLine
         strcpy_s(m_condStr, newSize, condStr);
     }
 
-    FileLine(const FileLine& other)
-    {
-        m_file    = other.m_file;
-        m_line    = other.m_line;
-        m_condStr = other.m_condStr;
-    }
-
-    // GetHashCode() and Equals() are needed by JitHashTable
+    FileLine(const FileLine& other) = default;
 
     static unsigned GetHashCode(FileLine fl)
     {
@@ -289,95 +242,85 @@ struct NowayAssertCountMap
     };
 };
 
-void DisplayNowayAssertMap()
+static void DisplayNowayAssertMap()
 {
-    if (NowayAssertMap != nullptr)
+    if (NowayAssertMap == nullptr)
     {
-        FILE* fout;
+        return;
+    }
 
-        LPCWSTR strJitMeasureNowayAssertFile = JitConfig.JitMeasureNowayAssertFile();
-        if (strJitMeasureNowayAssertFile != nullptr)
+    FILE* fout;
+
+    LPCWSTR strJitMeasureNowayAssertFile = JitConfig.JitMeasureNowayAssertFile();
+    if (strJitMeasureNowayAssertFile != nullptr)
+    {
+        fout = _wfopen(strJitMeasureNowayAssertFile, W("a"));
+        if (fout == nullptr)
         {
-            fout = _wfopen(strJitMeasureNowayAssertFile, W("a"));
-            if (fout == nullptr)
-            {
-                printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
-                return;
-            }
+            printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
+            return;
         }
-        else
-        {
-            fout = jitstdout;
-        }
+    }
+    else
+    {
+        fout = jitstdout;
+    }
 
-        // Iterate noway assert map, create sorted table by occurrence, dump it.
-        unsigned             count = NowayAssertMap->GetCount();
-        NowayAssertCountMap* nacp  = new NowayAssertCountMap[count];
-        unsigned             i     = 0;
+    // Iterate noway assert map, create sorted table by occurrence, dump it.
+    unsigned             count = NowayAssertMap->GetCount();
+    NowayAssertCountMap* nacp  = new NowayAssertCountMap[count];
+    unsigned             i     = 0;
 
-        for (FileLineToCountMap::KeyIterator iter = NowayAssertMap->Begin(), end = NowayAssertMap->End();
-             !iter.Equal(end); ++iter)
-        {
-            nacp[i].count = iter.GetValue();
-            nacp[i].fl    = iter.Get();
-            ++i;
-        }
+    for (FileLineToCountMap::KeyIterator iter = NowayAssertMap->Begin(), end = NowayAssertMap->End(); !iter.Equal(end);
+         ++iter)
+    {
+        nacp[i].count = iter.GetValue();
+        nacp[i].fl    = iter.Get();
+        ++i;
+    }
 
-        jitstd::sort(nacp, nacp + count, NowayAssertCountMap::compare());
+    jitstd::sort(nacp, nacp + count, NowayAssertCountMap::compare());
 
-        if (fout == jitstdout)
-        {
-            // Don't output the header if writing to a file, since we'll be appending to existing dumps in that case.
-            fprintf(fout, "\nnoway_assert counts:\n");
-            fprintf(fout, "count, file, line, text\n");
-        }
+    if (fout == jitstdout)
+    {
+        // Don't output the header if writing to a file, since we'll be appending to existing dumps in that case.
+        fprintf(fout, "\nnoway_assert counts:\n");
+        fprintf(fout, "count, file, line, text\n");
+    }
 
-        for (i = 0; i < count; i++)
-        {
-            fprintf(fout, "%u, %s, %u, \"%s\"\n", nacp[i].count, nacp[i].fl.m_file, nacp[i].fl.m_line,
-                    nacp[i].fl.m_condStr);
-        }
+    for (i = 0; i < count; i++)
+    {
+        fprintf(fout, "%u, %s, %u, \"%s\"\n", nacp[i].count, nacp[i].fl.m_file, nacp[i].fl.m_line,
+                nacp[i].fl.m_condStr);
+    }
 
-        if (fout != jitstdout)
-        {
-            fclose(fout);
-            fout = nullptr;
-        }
+    if (fout != jitstdout)
+    {
+        fclose(fout);
+        fout = nullptr;
     }
 }
 
 #endif // MEASURE_NOWAY
 
-/*****************************************************************************
- * variables to keep track of how many iterations we go in a dataflow pass
- */
-
+// Variables to keep track of how many iterations we go in a dataflow pass
 #if DATAFLOW_ITER
-
 unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
 unsigned CFiterCount;  // counts the # of iteration for the Const Folding dataflow
-
-#endif // DATAFLOW_ITER
+#endif
 
 #if MEASURE_BLOCK_SIZE
 size_t genFlowNodeSize;
 size_t genFlowNodeCnt;
-#endif // MEASURE_BLOCK_SIZE
-
-/*****************************************************************************/
-// We keep track of methods we've already compiled.
-
-/*****************************************************************************
- *  Declare the statics
- */
+#endif
 
 #ifdef DEBUG
-/* static */
-LONG Compiler::s_compMethodsCount = 0; // to produce unique label names
+// We keep track of methods we've already compiled to produce unique label names.
+LONG Compiler::s_compMethodsCount;
 #endif
 
 #ifndef PROFILING_SUPPORTED
-const bool Compiler::Options::compNoPInvokeInlineCB = false;
+const bool Compiler::Options::compNoPInvokeInlineCB;
 #endif
 
 void Compiler::compStartup()
@@ -1750,17 +1693,13 @@ bool Compiler::compJitHaltMethod()
     return false;
 }
 
-/*****************************************************************************
- * Should we use a "stress-mode" for the given stressArea. We have different
- *   areas to allow the areas to be mixed in different combinations in
- *   different methods.
- * 'weight' indicates how often (as a percentage) the area should be stressed.
- *    It should reflect the usefulness:overhead ratio.
- */
-
-const LPCWSTR Compiler::s_compStressModeNames[STRESS_COUNT + 1] = {
+// Should we use a "stress-mode" for the given stressArea. We have different
+//   areas to allow the areas to be mixed in different combinations in
+//   different methods.
+// 'weight' indicates how often (as a percentage) the area should be stressed.
+//    It should reflect the usefulness:overhead ratio.
+const LPCWSTR Compiler::s_compStressModeNames[STRESS_COUNT + 1]{
 #define STRESS_MODE(mode) W("STRESS_") W(#mode),
-
     STRESS_MODES
 #undef STRESS_MODE
 };
@@ -3508,8 +3447,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     return CORJIT_OK;
 }
 
-/*****************************************************************************/
-
 #if MEASURE_CLRAPI_CALLS
 
 struct WrapICorJitInfo : public ICorJitInfo
@@ -3543,79 +3480,40 @@ public:
 // JIT time end to end, and by phases.
 
 #ifdef FEATURE_JIT_METHOD_PERF
-// Static variables
 CritSecObject       CompTimeSummaryInfo::s_compTimeSummaryLock;
 CompTimeSummaryInfo CompTimeSummaryInfo::s_compTimeSummary;
 #if MEASURE_CLRAPI_CALLS
 double JitTimer::s_cyclesPerSec = CachedCyclesPerSecond();
 #endif
-#endif // FEATURE_JIT_METHOD_PERF
+#endif
 
 #if defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS
-const char* PhaseNames[] = {
+const char* PhaseNames[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) string_nm,
 #include "compphases.h"
 };
 
-const char* PhaseEnums[] = {
-#define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) #enum_nm,
-#include "compphases.h"
-};
-
-const LPCWSTR PhaseShortNames[] = {
+const LPCWSTR PhaseShortNames[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) W(short_nm),
 #include "compphases.h"
 };
 #endif // defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS
 
 #ifdef FEATURE_JIT_METHOD_PERF
-bool PhaseHasChildren[] = {
+bool PhaseHasChildren[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) hasChildren,
 #include "compphases.h"
 };
 
-int PhaseParent[] = {
+int PhaseParent[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) parent,
 #include "compphases.h"
 };
 
-bool PhaseReportsIRSize[] = {
+bool PhaseReportsIRSize[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) measureIR,
 #include "compphases.h"
 };
-
-CompTimeInfo::CompTimeInfo(unsigned byteCodeBytes)
-    : m_byteCodeBytes(byteCodeBytes)
-    , m_totalCycles(0)
-    , m_parentPhaseEndSlop(0)
-    , m_timerFailure(false)
-#if MEASURE_CLRAPI_CALLS
-    , m_allClrAPIcalls(0)
-    , m_allClrAPIcycles(0)
-#endif
-{
-    for (int i = 0; i < PHASE_NUMBER_OF; i++)
-    {
-        m_invokesByPhase[i] = 0;
-        m_cyclesByPhase[i]  = 0;
-#if MEASURE_CLRAPI_CALLS
-        m_CLRinvokesByPhase[i] = 0;
-        m_CLRcyclesByPhase[i]  = 0;
-#endif
-    }
-
-#if MEASURE_CLRAPI_CALLS
-    assert(ARRAYSIZE(m_perClrAPIcalls) == API_ICorJitInfo_Names::API_COUNT);
-    assert(ARRAYSIZE(m_perClrAPIcycles) == API_ICorJitInfo_Names::API_COUNT);
-    assert(ARRAYSIZE(m_maxClrAPIcycles) == API_ICorJitInfo_Names::API_COUNT);
-    for (int i = 0; i < API_ICorJitInfo_Names::API_COUNT; i++)
-    {
-        m_perClrAPIcalls[i]  = 0;
-        m_perClrAPIcycles[i] = 0;
-        m_maxClrAPIcycles[i] = 0;
-    }
-#endif
-}
 
 bool CompTimeSummaryInfo::IncludedInFilteredData(CompTimeInfo& info)
 {
@@ -3884,7 +3782,7 @@ void CompTimeSummaryInfo::Print(FILE* f)
         fprintf(f, "     -------------------------------------------------------------------------------");
         fprintf(f, "---------------------\n");
 
-        static const char* APInames[] = {
+        static const char* APInames[]{
 #define DEF_CLR_API(name) #name,
 #include "ICorJitInfo_API_names.h"
         };
@@ -3904,8 +3802,8 @@ void CompTimeSummaryInfo::Print(FILE* f)
                 if (calls == 0)
                     continue;
 
-                unsigned __int64 cycles = m_total.m_perClrAPIcycles[i];
-                double           millis = 1000.0 * cycles / countsPerSec;
+                uint64_t cycles = m_total.m_perClrAPIcycles[i];
+                double   millis = 1000.0 * cycles / countsPerSec;
 
                 // Don't show the small fry to keep the results manageable
                 if (millis < 0.5)
@@ -3929,8 +3827,8 @@ void CompTimeSummaryInfo::Print(FILE* f)
                     continue;
                 }
 
-                unsigned __int32 maxcyc = m_maximum.m_maxClrAPIcycles[i];
-                double           max_ms = 1000.0 * maxcyc / countsPerSec;
+                uint32_t maxcyc = m_maximum.m_maxClrAPIcycles[i];
+                double   max_ms = 1000.0 * maxcyc / countsPerSec;
 
                 fprintf(f, "     %-40s", APInames[i]);                                 // API name
                 fprintf(f, " %8u %9.1f ms", calls, millis);                            // #calls, total time
@@ -3967,19 +3865,8 @@ void CompTimeSummaryInfo::Print(FILE* f)
 
 JitTimer::JitTimer(unsigned byteCodeSize) : m_info(byteCodeSize)
 {
-#if MEASURE_CLRAPI_CALLS
-    m_CLRcallInvokes = 0;
-    m_CLRcallCycles  = 0;
-#endif
+    uint64_t threadCurCycles;
 
-#ifdef DEBUG
-    m_lastPhase = (Phases)-1;
-#if MEASURE_CLRAPI_CALLS
-    m_CLRcallAPInum = -1;
-#endif
-#endif
-
-    unsigned __int64 threadCurCycles;
     if (_our_GetThreadCycles(&threadCurCycles))
     {
         m_start         = threadCurCycles;
@@ -3993,10 +3880,10 @@ void JitTimer::EndPhase(Compiler* compiler, Phases phase)
     // We re-run some phases currently, so this following assert doesn't work.
     // assert((int)phase > (int)m_lastPhase);  // We should end phases in increasing order.
 
-    unsigned __int64 threadCurCycles;
+    uint64_t threadCurCycles;
     if (_our_GetThreadCycles(&threadCurCycles))
     {
-        unsigned __int64 phaseCycles = (threadCurCycles - m_curPhaseStart);
+        uint64_t phaseCycles = (threadCurCycles - m_curPhaseStart);
 
         // If this is not a leaf phase, the assumption is that the last subphase must have just recently ended.
         // Credit the duration to "slop", the total of which should be very small.
@@ -4098,7 +3985,7 @@ void JitTimer::CLRApiCallLeave(unsigned apix)
     {
         if (JitConfig.JitEECallTimingInfo() != 0)
         {
-            unsigned __int64 threadCurCycles;
+            uint64_t threadCurCycles;
             if (_our_GetThreadCycles(&threadCurCycles))
             {
                 // Compute the cycles spent in the call.
@@ -4114,7 +4001,7 @@ void JitTimer::CLRApiCallLeave(unsigned apix)
 
                 m_info.m_perClrAPIcalls[apix] += 1;
                 m_info.m_perClrAPIcycles[apix] += threadCurCycles;
-                m_info.m_maxClrAPIcycles[apix] = max(m_info.m_maxClrAPIcycles[apix], (unsigned __int32)threadCurCycles);
+                m_info.m_maxClrAPIcycles[apix] = max(m_info.m_maxClrAPIcycles[apix], (uint32_t)threadCurCycles);
 
                 // Subtract the cycles from the enclosing phase by bumping its start time
                 m_curPhaseStart += threadCurCycles;
@@ -4260,7 +4147,7 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
     fprintf(s_csvFile, "%u,", comp->loopsAligned);
 #endif // DEBUG
 #endif // FEATURE_LOOP_ALIGN
-    unsigned __int64 totCycles = 0;
+    uint64_t totCycles = 0;
     for (int i = 0; i < PHASE_NUMBER_OF; i++)
     {
         if (!PhaseHasChildren[i])
@@ -4292,12 +4179,10 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp)
     fflush(s_csvFile);
 }
 
-// Perform process shutdown actions.
-//
-// static
 void JitTimer::Shutdown()
 {
     CritSecHolder csvLock(s_csvLock);
+
     if (s_csvFile != nullptr)
     {
         fclose(s_csvFile);
@@ -4317,13 +4202,11 @@ void JitTimer::Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includeP
 #endif // FEATURE_JIT_METHOD_PERF
 
 #if LOOP_HOIST_STATS
-// Static fields.
-CritSecObject Compiler::s_loopHoistStatsLock; // Default constructor.
-unsigned      Compiler::s_loopsConsidered             = 0;
-unsigned      Compiler::s_loopsWithHoistedExpressions = 0;
-unsigned      Compiler::s_totalHoistedExpressions     = 0;
+CritSecObject Compiler::s_loopHoistStatsLock;
+unsigned      Compiler::s_loopsConsidered;
+unsigned      Compiler::s_loopsWithHoistedExpressions;
+unsigned      Compiler::s_totalHoistedExpressions;
 
-// static
 void Compiler::PrintAggregateLoopHoistStats(FILE* f)
 {
     fprintf(f, "\n");
@@ -4411,8 +4294,8 @@ void Compiler::RecordStateAtEndOfCompilation()
 
     // Common portion
     m_compCycles = 0;
-    unsigned __int64 compCyclesAtEnd;
-    bool             b = CycleTimer::GetThreadCyclesS(&compCyclesAtEnd);
+    uint64_t compCyclesAtEnd;
+    bool     b = CycleTimer::GetThreadCyclesS(&compCyclesAtEnd);
     if (!b)
     {
         return; // We don't have a thread cycle counter.
@@ -4425,12 +4308,9 @@ void Compiler::RecordStateAtEndOfCompilation()
 }
 
 #if FUNC_INFO_LOGGING
-// static
-LPCWSTR Compiler::compJitFuncInfoFilename = nullptr;
-
-// static
-FILE* Compiler::compJitFuncInfoFile = nullptr;
-#endif // FUNC_INFO_LOGGING
+LPCWSTR Compiler::compJitFuncInfoFilename;
+FILE*   Compiler::compJitFuncInfoFile;
+#endif
 
 #ifdef DEBUG
 
@@ -4506,50 +4386,39 @@ void Compiler::dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to)
     printf("}\n");
 }
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          Debugging helpers                                XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-/*****************************************************************************/
-/* The following functions are intended to be called from the debugger, to dump
- * various data structures.
- *
- * The versions that start with 'c' take a Compiler* as the first argument.
- * The versions that start with 'd' use the tlsCompiler, so don't require a Compiler*.
- *
- * Summary:
- *      cBlock,      dBlock         : Display a basic block (call fgTableDispBasicBlock()).
- *      cBlocks,     dBlocks        : Display all the basic blocks of a function (call fgDispBasicBlocks()).
- *      cBlocksV,    dBlocksV       : Display all the basic blocks of a function (call fgDispBasicBlocks(true)).
- *                                    "V" means "verbose", and will dump all the trees.
- *      cStmt,       dStmt          : Display a Statement (call gtDispStmt()).
- *      cTree,       dTree          : Display a tree (call gtDispTree()).
- *      cTreeLIR,    dTreeLIR       : Display a tree in LIR form (call gtDispLIRNode()).
- *      cTrees,      dTrees         : Display all the trees in a function (call fgDumpTrees()).
- *      cEH,         dEH            : Display the EH handler table (call fgDispHandlerTab()).
- *      cVar,        dVar           : Display a local variable given its number (call lvaDumpEntry()).
- *      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc* (call lvaDumpEntry()).
- *      cVars,       dVars          : Display the local variable table (call lvaTableDump()).
- *      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors (call block->dspCheapPreds()).
- *      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
- *      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
- *      cReach,      dReach         : Display all block reachability (call fgDispReach()).
- *      cLiveness,   dLiveness      : Display per-block variable liveness (call fgDispBBLiveness()).
- *      cCVarSet,    dCVarSet       : Display a "converted" VARSET_TP: the varset is assumed to be tracked variable
- *                                    indices. These are converted to variable numbers and sorted. (Calls
- *                                    dumpConvertedVarSet()).
- *      cLoop,       dLoop          : Display the blocks of a loop, including the trees.
- *      cTreeFlags,  dTreeFlags     : Display tree flags
- *
- * The following don't require a Compiler* to work:
- *      dRegMask                    : Display a regMaskTP (call dspRegMask(mask)).
- *      dBlockList                  : Display a BasicBlockList*.
- */
+// The following functions are intended to be called from the debugger, to dump
+// various data structures.
+//
+// The versions that start with 'c' take a Compiler* as the first argument.
+// The versions that start with 'd' use the tlsCompiler, so don't require a Compiler*.
+//
+// Summary:
+//      cBlock,      dBlock         : Display a basic block (call fgTableDispBasicBlock()).
+//      cBlocks,     dBlocks        : Display all the basic blocks of a function (call fgDispBasicBlocks()).
+//      cBlocksV,    dBlocksV       : Display all the basic blocks of a function (call fgDispBasicBlocks(true)).
+//                                    "V" means "verbose", and will dump all the trees.
+//      cStmt,       dStmt          : Display a Statement (call gtDispStmt()).
+//      cTree,       dTree          : Display a tree (call gtDispTree()).
+//      cTreeLIR,    dTreeLIR       : Display a tree in LIR form (call gtDispLIRNode()).
+//      cTrees,      dTrees         : Display all the trees in a function (call fgDumpTrees()).
+//      cEH,         dEH            : Display the EH handler table (call fgDispHandlerTab()).
+//      cVar,        dVar           : Display a local variable given its number (call lvaDumpEntry()).
+//      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc* (call lvaDumpEntry()).
+//      cVars,       dVars          : Display the local variable table (call lvaTableDump()).
+//      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors (call block->dspCheapPreds()).
+//      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
+//      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
+//      cReach,      dReach         : Display all block reachability (call fgDispReach()).
+//      cLiveness,   dLiveness      : Display per-block variable liveness (call fgDispBBLiveness()).
+//      cCVarSet,    dCVarSet       : Display a "converted" VARSET_TP: the varset is assumed to be tracked variable
+//                                    indices. These are converted to variable numbers and sorted. (Calls
+//                                    dumpConvertedVarSet()).
+//      cLoop,       dLoop          : Display the blocks of a loop, including the trees.
+//      cTreeFlags,  dTreeFlags     : Display tree flags
+//
+// The following don't require a Compiler* to work:
+//      dRegMask                    : Display a regMaskTP (call dspRegMask(mask)).
+//      dBlockList                  : Display a BasicBlockList*.
 
 void cBlock(Compiler* comp, BasicBlock* block)
 {
@@ -5285,13 +5154,8 @@ void dTreeFlags(GenTree* tree)
 
 #endif // DEBUG
 
-// static
 const HelperCallProperties Compiler::s_helperCallProperties;
 
-/*****************************************************************************/
-/*****************************************************************************/
-
-//------------------------------------------------------------------------
 // killGCRefs:
 // Given some tree node return does it need all GC refs to be spilled from
 // callee save registers.

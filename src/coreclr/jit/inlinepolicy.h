@@ -24,8 +24,7 @@
 //
 // The default policy in use is the DefaultPolicy.
 
-#ifndef _INLINE_POLICY_H_
-#define _INLINE_POLICY_H_
+#pragma once
 
 #include "jit.h"
 #include "inline.h"
@@ -547,5 +546,3 @@ private:
 };
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
-
-#endif // _INLINE_POLICY_H_

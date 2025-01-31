@@ -1151,7 +1151,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
 
     // This is the containing loop, if any -- to label any blocks we create that are outside
     // the loop being cloned.
-    unsigned char ambientLoop = loop.lpParent;
+    uint8_t ambientLoop = loop.lpParent;
 
     // First, make sure that the loop has a unique header block, creating an empty one if necessary.
     compiler->optEnsureUniqueHead(loopNum, ambientWeight);

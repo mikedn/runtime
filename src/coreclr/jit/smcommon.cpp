@@ -3,27 +3,21 @@
 
 #if defined(DEBUG) || defined(SMGEN_COMPILE)
 
-//
 // The array of state-machine-opcode names
-//
-const char* const smOpcodeNames[] = {
+const char* const smOpcodeNames[]{
 #define SMOPDEF(smname, string) string,
 #include "smopcode.def"
 #undef SMOPDEF
 };
 
-//
 // The code sequences the state machine will look for.
-//
-
-const SM_OPCODE s_CodeSeqs[][MAX_CODE_SEQUENCE_LENGTH] = {
-
+const SM_OPCODE s_CodeSeqs[][MAX_CODE_SEQUENCE_LENGTH]{
 #define SMOPDEF(smname, string) {smname, CODE_SEQUENCE_END},
 // ==== Single opcode states ====
 #include "smopcode.def"
 #undef SMOPDEF
 
-    // ==== Legel prefixed opcode sequences ====
+    // ==== Legal prefixed opcode sequences ====
     {SM_CONSTRAINED, SM_CALLVIRT, CODE_SEQUENCE_END},
 
     // ==== Interesting patterns ====

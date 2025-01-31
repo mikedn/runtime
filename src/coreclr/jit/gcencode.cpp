@@ -261,10 +261,10 @@ void GCEncoder::CreateAndStoreGCInfo()
     codeGen->SetGCInfoSize(static_cast<unsigned>(infoBlockSize));
 }
 
-static unsigned char encodeUnsigned(BYTE* dest, unsigned value)
+static uint8_t encodeUnsigned(BYTE* dest, unsigned value)
 {
-    unsigned char size = 1;
-    unsigned      tmp  = value;
+    uint8_t  size = 1;
+    unsigned tmp  = value;
     while (tmp > 0x7F)
     {
         tmp >>= 7;
@@ -288,17 +288,17 @@ static unsigned char encodeUnsigned(BYTE* dest, unsigned value)
     return size;
 }
 
-static unsigned char encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
+static uint8_t encodeUDelta(BYTE* dest, unsigned value, unsigned lastValue)
 {
     assert(value >= lastValue);
     return encodeUnsigned(dest, value - lastValue);
 }
 
-static unsigned char encodeSigned(BYTE* dest, int val)
+static uint8_t encodeSigned(BYTE* dest, int val)
 {
-    unsigned char size  = 1;
-    unsigned      value = val;
-    BYTE          neg   = 0;
+    uint8_t  size  = 1;
+    unsigned value = val;
+    BYTE     neg   = 0;
     if (val < 0)
     {
         value = -val;
@@ -308,7 +308,7 @@ static unsigned char encodeSigned(BYTE* dest, int val)
     while (tmp > 0x3F)
     {
         tmp >>= 7;
-        assert(size < 16); // Definitely sufficient for unsigned.  Fits in an unsigned char, certainly.
+        assert(size < 16); // Definitely sufficient for unsigned. Fits in an uint8_t, certainly.
         size++;
     }
     if (dest)
@@ -1571,11 +1571,11 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
         *pCached = NO_CACHED_HEADER;
     }
 
-    assert(FitsIn<unsigned char>(prologSize));
-    header->prologSize = static_cast<unsigned char>(prologSize);
+    assert(FitsIn<uint8_t>(prologSize));
+    header->prologSize = static_cast<uint8_t>(prologSize);
 
-    assert(FitsIn<unsigned char>(epilogSize));
-    header->epilogSize = static_cast<unsigned char>(epilogSize);
+    assert(FitsIn<uint8_t>(epilogSize));
+    header->epilogSize = static_cast<uint8_t>(epilogSize);
 
     header->epilogCount = codeGen->GetEmitter()->GetEpilogCount();
     if (header->epilogCount != codeGen->GetEmitter()->GetEpilogCount())

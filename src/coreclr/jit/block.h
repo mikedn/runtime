@@ -1,18 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          BasicBlock                                       XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-#ifndef _BLOCK_H_
-#define _BLOCK_H_
+#pragma once
 
 #include "vartype.h"
 #include "_typeinfo.h"
@@ -31,32 +20,24 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // And this format for profile weights
 #define FMT_WT "%.7g"
 
-/*****************************************************************************
- *
- *  Each basic block ends with a jump which is described as a value
- *  of the following enumeration.
- */
-
-// clang-format off
-
-enum BBjumpKinds : BYTE
+// Each basic block ends with a jump which is described as a value
+// of the following enumeration.
+enum BBjumpKinds : uint8_t
 {
-    BBJ_EHFINALLYRET,// block ends with 'endfinally' (for finally or fault)
-    BBJ_EHFILTERRET, // block ends with 'endfilter'
-    BBJ_EHCATCHRET,  // block ends with a leave out of a catch (only #if defined(FEATURE_EH_FUNCLETS))
-    BBJ_THROW,       // block ends with 'throw'
-    BBJ_RETURN,      // block ends with 'ret'
-    BBJ_NONE,        // block flows into the next one (no jump)
-    BBJ_ALWAYS,      // block always jumps to the target
-    BBJ_LEAVE,       // block always jumps to the target, maybe out of guarded region. Only used until importing.
-    BBJ_CALLFINALLY, // block always calls the target finally
-    BBJ_COND,        // block conditionally jumps to the target
-    BBJ_SWITCH,      // block ends with a switch statement
+    BBJ_EHFINALLYRET, // block ends with 'endfinally' (for finally or fault)
+    BBJ_EHFILTERRET,  // block ends with 'endfilter'
+    BBJ_EHCATCHRET,   // block ends with a leave out of a catch (only #if defined(FEATURE_EH_FUNCLETS))
+    BBJ_THROW,        // block ends with 'throw'
+    BBJ_RETURN,       // block ends with 'ret'
+    BBJ_NONE,         // block flows into the next one (no jump)
+    BBJ_ALWAYS,       // block always jumps to the target
+    BBJ_LEAVE,        // block always jumps to the target, maybe out of guarded region. Only used until importing.
+    BBJ_CALLFINALLY,  // block always calls the target finally
+    BBJ_COND,         // block conditionally jumps to the target
+    BBJ_SWITCH,       // block ends with a switch statement
 
     BBJ_COUNT
 };
-
-// clang-format on
 
 struct GenTree;
 struct Statement;
@@ -847,11 +828,11 @@ struct BasicBlock : private LIR::Range
 
     // index, into the compHndBBtab table, of innermost 'try' clause containing the BB (used for raising exceptions).
     // Stored as index + 1; 0 means "no try index".
-    unsigned short bbTryIndex;
+    uint16_t bbTryIndex;
 
     // index, into the compHndBBtab table, of innermost handler (filter, catch, fault/finally) containing the BB.
     // Stored as index + 1; 0 means "no handler index".
-    unsigned short bbHndIndex;
+    uint16_t bbHndIndex;
 
     // Given two EH indices that are either bbTryIndex or bbHndIndex (or related), determine if index1 might be more
     // deeply nested than index2. Both index1 and index2 are in the range [0..compHndBBtabCount], where 0 means
@@ -905,12 +886,12 @@ struct BasicBlock : private LIR::Range
     }
     void setTryIndex(unsigned val)
     {
-        bbTryIndex = (unsigned short)(val + 1);
+        bbTryIndex = static_cast<uint16_t>(val + 1);
         assert(bbTryIndex != 0);
     }
     void setHndIndex(unsigned val)
     {
-        bbHndIndex = (unsigned short)(val + 1);
+        bbHndIndex = static_cast<uint16_t>(val + 1);
         assert(bbHndIndex != 0);
     }
     void clearTryIndex()
@@ -1904,7 +1885,3 @@ struct DomTreeNode
     BasicBlock* firstChild  = nullptr;
     BasicBlock* nextSibling = nullptr;
 };
-
-/*****************************************************************************/
-#endif // _BLOCK_H_
-/*****************************************************************************/

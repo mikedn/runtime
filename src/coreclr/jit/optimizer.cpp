@@ -1,19 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                              Optimizer                                    XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #include "jitpch.h"
 #include "jitgcinfo.h"
 
-//------------------------------------------------------------------------
 // optSetBlockWeights: adjust block weights, as follows:
 // 1. A block that is not reachable from the entry block is marked "run rarely".
 // 2. If we're not using profile weights, then any block with a non-zero weight
@@ -531,20 +521,15 @@ void Compiler::optUpdateLoopsBeforeRemoveBlock(BasicBlock* block, bool skipUnmar
 
 #ifdef DEBUG
 
-/*****************************************************************************
- *
- *  Print loop info in an uniform way.
- */
-
-void Compiler::optPrintLoopInfo(unsigned      loopInd,
-                                BasicBlock*   lpHead,
-                                BasicBlock*   lpFirst,
-                                BasicBlock*   lpTop,
-                                BasicBlock*   lpEntry,
-                                BasicBlock*   lpBottom,
-                                unsigned char lpExitCnt,
-                                BasicBlock*   lpExit,
-                                unsigned      parentLoop) const
+void Compiler::optPrintLoopInfo(unsigned    loopInd,
+                                BasicBlock* lpHead,
+                                BasicBlock* lpFirst,
+                                BasicBlock* lpTop,
+                                BasicBlock* lpEntry,
+                                BasicBlock* lpBottom,
+                                uint8_t     lpExitCnt,
+                                BasicBlock* lpExit,
+                                unsigned    parentLoop) const
 {
     noway_assert(lpHead);
 
@@ -568,11 +553,6 @@ void Compiler::optPrintLoopInfo(unsigned      loopInd,
     }
     printf(")");
 }
-
-/*****************************************************************************
- *
- *  Print loop information given the index of the loop in the loop table.
- */
 
 void Compiler::optPrintLoopInfo(unsigned lnum) const
 {
@@ -3105,11 +3085,6 @@ bool Compiler::optComputeLoopRep(const int        constInit,
     }
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
-
 // Look for loop unrolling candidates and unroll them.
 //
 // Loops must be of the form:
@@ -3563,9 +3538,6 @@ PhaseStatus Compiler::phUnrollLoops()
 
     return change ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 // Struct used in optInvertWhileLoop to count interesting constructs to boost the profitability score.
 struct OptInvertCountTreeInfoType

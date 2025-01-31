@@ -1,26 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-/***********************************************************************
-*
-* File: dis.cpp
-*
-
-*
-* File Comments:
-*
-*  This file handles disassembly. It is adapted from the MS linker.
-*
-***********************************************************************/
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
-/*****************************************************************************/
 #ifdef LATE_DISASM
-/*****************************************************************************/
-
 #include "disasm.h"
 #include "codegen.h"
 
@@ -37,8 +20,6 @@
 #else  // !DISASM_DEBUG
 #define DISASM_DUMP(...)
 #endif // !DISASM_DEBUG
-
-/*****************************************************************************/
 
 #define MAX_CLASSNAME_LENGTH 1024
 
@@ -80,15 +61,11 @@
 
 #endif
 
-/*****************************************************************************
- * The following is the callback for jump label and direct function calls fixups.
- * "addr" represents the address of jump that has to be
- * replaced with a label or function name.
- *
- * Return 1 if a name was written representing the address, 0 otherwise.
- */
-
-/* static */
+// The following is the callback for jump label and direct function calls fixups.
+// "addr" represents the address of jump that has to be
+// replaced with a label or function name.
+//
+// Return 1 if a name was written representing the address, 0 otherwise.
 size_t __stdcall DisAssembler::disCchAddr(
     const DIS* pdis, DIS::ADDR addr, __in_ecount(cchMax) wchar_t* wz, size_t cchMax, DWORDLONG* pdwDisp)
 {
@@ -100,9 +77,9 @@ size_t __stdcall DisAssembler::disCchAddr(
 size_t DisAssembler::disCchAddrMember(
     const DIS* pdis, DIS::ADDR addr, __in_ecount(cchMax) wchar_t* wz, size_t cchMax, DWORDLONG* pdwDisp)
 {
-    /* First check the termination type of the instruction
-     * because this might be a helper or static function call
-     * check to see if we have a fixup for the current address */
+    // First check the termination type of the instruction
+    // because this might be a helper or static function call
+    // check to see if we have a fixup for the current address
 
     size_t retval = 0; // assume we don't know
 
@@ -324,14 +301,10 @@ size_t DisAssembler::disCchAddrMember(
     return retval;
 }
 
-/*****************************************************************************
- * We annotate some instructions to get info needed to display the symbols
- * for that instruction.
- *
- * Return 1 if a name was written representing the address, 0 otherwise.
- */
-
-/* static */
+// We annotate some instructions to get info needed to display the symbols
+// for that instruction.
+//
+// Return 1 if a name was written representing the address, 0 otherwise.
 size_t __stdcall DisAssembler::disCchFixup(
     const DIS* pdis, DIS::ADDR addr, size_t size, __in_ecount(cchMax) wchar_t* wz, size_t cchMax, DWORDLONG* pdwDisp)
 {
@@ -563,15 +536,11 @@ size_t DisAssembler::disCchFixupMember(
     return 1;
 }
 
-/*****************************************************************************
- * This the callback for register-relative operands in an instruction.
- * If the register is ESP or EBP, the operand may be a local variable
- * or a parameter, else the operand may be an instance variable
- *
- * Return 1 if a name was written representing the register-relative operand, 0 otherwise.
- */
-
-/* static */
+// This the callback for register-relative operands in an instruction.
+// If the register is ESP or EBP, the operand may be a local variable
+// or a parameter, else the operand may be an instance variable
+//
+// Return 1 if a name was written representing the register-relative operand, 0 otherwise.
 size_t __stdcall DisAssembler::disCchRegRel(
     const DIS* pdis, DIS::REGA reg, DWORD disp, __in_ecount(cchMax) wchar_t* wz, size_t cchMax, DWORD* pdwDisp)
 {
@@ -776,15 +745,10 @@ size_t DisAssembler::disCchRegRelMember(
     return 1;
 }
 
-/*****************************************************************************
- *
- * Callback for register operands. Most probably, this is a local variable or
- * a parameter
- *
- * Return 1 if a name was written representing the register, 0 otherwise.
- */
-
-/* static */
+// Callback for register operands. Most probably, this is a local variable or
+// a parameter
+//
+// Return 1 if a name was written representing the register, 0 otherwise.
 size_t __stdcall DisAssembler::disCchReg(const DIS* pdis, DIS::REGA reg, __in_ecount(cchMax) wchar_t* wz, size_t cchMax)
 {
     DisAssembler* pDisAsm = (DisAssembler*)pdis->PvClient();

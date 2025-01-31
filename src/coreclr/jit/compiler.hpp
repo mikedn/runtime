@@ -26,79 +26,72 @@ inline unsigned Compiler::ehGetEnclosingHndIndex(unsigned regionIndex)
 inline unsigned Compiler::ehGetIndex(EHblkDsc* ehDsc)
 {
     assert(compHndBBtab <= ehDsc && ehDsc < compHndBBtab + compHndBBtabCount);
-    return (unsigned)(ehDsc - compHndBBtab);
+    return static_cast<unsigned>(ehDsc - compHndBBtab);
 }
 
 // Return the EH descriptor for the most nested 'try' region this BasicBlock is a member of
 // (or nullptr if this block is not in a 'try' region).
 inline EHblkDsc* Compiler::ehGetBlockTryDsc(BasicBlock* block)
 {
-    if (!block->hasTryIndex())
-    {
-        return nullptr;
-    }
-
-    return ehGetDsc(block->getTryIndex());
+    return block->hasTryIndex() ? ehGetDsc(block->getTryIndex()) : nullptr;
 }
 
 // Return the EH descriptor for the most nested filter or handler region this BasicBlock is a member of
 // (or nullptr if this block is not in a filter or handler region).
 inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block)
 {
-    if (!block->hasHndIndex())
-    {
-        return nullptr;
-    }
-
-    return ehGetDsc(block->getHndIndex());
+    return block->hasHndIndex() ? ehGetDsc(block->getHndIndex()) : nullptr;
 }
 
 //  Helpers to pull little-endian values out of a byte stream.
-inline unsigned __int8 getU1LittleEndian(const BYTE* ptr)
+inline uint8_t getU1LittleEndian(const uint8_t* ptr)
 {
-    return *(UNALIGNED unsigned __int8*)ptr;
+    return *ptr;
 }
 
-inline unsigned __int16 getU2LittleEndian(const BYTE* ptr)
-{
-    return GET_UNALIGNED_VAL16(ptr);
-}
-
-inline unsigned __int32 getU4LittleEndian(const BYTE* ptr)
-{
-    return GET_UNALIGNED_VAL32(ptr);
-}
-
-inline signed __int8 getI1LittleEndian(const BYTE* ptr)
-{
-    return *(UNALIGNED signed __int8*)ptr;
-}
-
-inline signed __int16 getI2LittleEndian(const BYTE* ptr)
+inline uint16_t getU2LittleEndian(const uint8_t* ptr)
 {
     return GET_UNALIGNED_VAL16(ptr);
 }
 
-inline signed __int32 getI4LittleEndian(const BYTE* ptr)
+inline uint32_t getU4LittleEndian(const uint8_t* ptr)
 {
     return GET_UNALIGNED_VAL32(ptr);
 }
 
-inline signed __int64 getI8LittleEndian(const BYTE* ptr)
+inline uint64_t getU8LittleEndian(const uint8_t* ptr)
 {
     return GET_UNALIGNED_VAL64(ptr);
 }
 
-inline float getR4LittleEndian(const BYTE* ptr)
+inline int8_t getI1LittleEndian(const uint8_t* ptr)
 {
-    __int32 val = getI4LittleEndian(ptr);
-    return *(float*)&val;
+    return *reinterpret_cast<const int8_t*>(ptr);
 }
 
-inline double getR8LittleEndian(const BYTE* ptr)
+inline int16_t getI2LittleEndian(const uint8_t* ptr)
 {
-    __int64 val = getI8LittleEndian(ptr);
-    return *(double*)&val;
+    return GET_UNALIGNED_VAL16(ptr);
+}
+
+inline int32_t getI4LittleEndian(const uint8_t* ptr)
+{
+    return GET_UNALIGNED_VAL32(ptr);
+}
+
+inline int64_t getI8LittleEndian(const uint8_t* ptr)
+{
+    return GET_UNALIGNED_VAL64(ptr);
+}
+
+inline float getR4LittleEndian(const uint8_t* ptr)
+{
+    return jitstd::bit_cast<float>(getU4LittleEndian(ptr));
+}
+
+inline double getR8LittleEndian(const uint8_t* ptr)
+{
+    return jitstd::bit_cast<double>(getU8LittleEndian(ptr));
 }
 
 #ifdef DEBUG
@@ -926,11 +919,6 @@ inline bool Compiler::compStressCompile(compStressArea stressArea, unsigned weig
 }
 #endif
 
-inline ArenaAllocator* Compiler::compGetArenaAllocator()
-{
-    return compArenaAllocator;
-}
-
 inline bool Compiler::compIsProfilerHookNeeded() const
 {
 #ifdef PROFILING_SUPPORTED
@@ -941,16 +929,6 @@ inline bool Compiler::compIsProfilerHookNeeded() const
 #else
     return false;
 #endif
-}
-
-/*****************************************************************************
- *
- *  Returns true if the compiler instance is created for inlining.
- */
-
-inline bool Compiler::compIsForInlining() const
-{
-    return (impInlineInfo != nullptr);
 }
 
 #if MEASURE_CLRAPI_CALLS

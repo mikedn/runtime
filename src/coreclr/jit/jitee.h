@@ -139,17 +139,17 @@ public:
 
     void Set(JitFlag flag)
     {
-        m_jitFlags |= 1ULL << (unsigned __int64)flag;
+        m_jitFlags |= 1ULL << flag;
     }
 
     void Clear(JitFlag flag)
     {
-        m_jitFlags &= ~(1ULL << (unsigned __int64)flag);
+        m_jitFlags &= ~(1ULL << flag);
     }
 
     bool IsSet(JitFlag flag) const
     {
-        return (m_jitFlags & (1ULL << (unsigned __int64)flag)) != 0;
+        return (m_jitFlags & (1ULL << flag)) != 0;
     }
 
     bool IsEmpty() const
@@ -232,6 +232,6 @@ public:
     }
 
 private:
-    unsigned __int64            m_jitFlags;
+    uint64_t                    m_jitFlags;
     CORINFO_InstructionSetFlags m_instructionSetFlags;
 };

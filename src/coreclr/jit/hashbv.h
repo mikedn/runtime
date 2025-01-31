@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef HASHBV_H
-#define HASHBV_H
+#pragma once
 
 //#define TESTING 1
 
@@ -15,11 +14,11 @@
 #define BITS_PER_NODE (1 << LOG2_BITS_PER_NODE)
 
 #ifdef TARGET_AMD64
-typedef unsigned __int64 elemType;
-typedef unsigned __int64 indexType;
+typedef uint64_t elemType;
+typedef uint64_t indexType;
 #else
-typedef unsigned int elemType;
-typedef unsigned int indexType;
+typedef uint32_t elemType;
+typedef uint32_t indexType;
 #endif
 
 class hashBvNode;
@@ -169,10 +168,10 @@ public:
         hashBv* next;
     };
 
-    unsigned short log2_hashSize;
+    uint16_t log2_hashSize;
     // used for heuristic resizing... could be overflowed in rare circumstances
     // but should not affect correctness
-    unsigned short numNodes;
+    uint16_t numNodes;
 
 public:
     hashBv(Compiler* comp);
@@ -182,7 +181,7 @@ public:
 #ifdef DEBUG
     void dump();
     void dumpFancy();
-#endif // DEBUG
+#endif
     __forceinline int hashtable_size()
     {
         return 1 << this->log2_hashSize;
@@ -340,6 +339,4 @@ indexType hashBv::FindFirstBit(Predicate predicate)
 void SimpleDumpNode(hashBvNode* n);
 void DumpNode(hashBvNode* n);
 void SimpleDumpDualNode(hashBv* a, hashBv* b, hashBvNode* n, hashBvNode* m);
-#endif // DEBUG
-
 #endif

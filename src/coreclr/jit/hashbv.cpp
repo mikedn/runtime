@@ -2,12 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-// --------------------------------------------------------------------
-// --------------------------------------------------------------------
 
 #ifdef DEBUG
 void hashBvNode::dump()
@@ -115,7 +109,7 @@ bool hashBvNode::belongsIn(indexType index)
     return true;
 }
 
-int countBitsInWord(unsigned int bits)
+int countBitsInWord(uint32_t bits)
 {
     // In-place adder tree: perform 16 1-bit adds, 8 2-bit adds,
     // 4 4-bit adds, 2 8=bit adds, and 1 16-bit add.
@@ -127,7 +121,7 @@ int countBitsInWord(unsigned int bits)
     return (int)bits;
 }
 
-int countBitsInWord(unsigned __int64 bits)
+int countBitsInWord(uint64_t bits)
 {
     bits = ((bits >> 1) & 0x5555555555555555) + (bits & 0x5555555555555555);
     bits = ((bits >> 2) & 0x3333333333333333) + (bits & 0x3333333333333333);
@@ -547,7 +541,7 @@ void hashBv::Resize(int newSize)
             }
         }
         nodeArr       = newNodes;
-        log2_hashSize = (unsigned short)log2_newSize;
+        log2_hashSize = static_cast<uint16_t>(log2_newSize);
     }
     else if (oldSize > newSize)
     {
@@ -581,7 +575,7 @@ void hashBv::Resize(int newSize)
             }
         }
         nodeArr       = newNodes;
-        log2_hashSize = (unsigned short)log2_newSize;
+        log2_hashSize = static_cast<uint16_t>(log2_newSize);
     }
     else
     {

@@ -620,8 +620,8 @@ void Compiler::fgAddSyncMethodEnterExit()
         {
             if (HBtab->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX)
             {
-                HBtab->ebdEnclosingTryIndex =
-                    (unsigned short)XTnew; // This EH region wasn't previously nested, but now it is.
+                // This EH region wasn't previously nested, but now it is.
+                HBtab->ebdEnclosingTryIndex = static_cast<uint16_t>(XTnew);
             }
         }
 

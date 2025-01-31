@@ -13,7 +13,6 @@ enum Phases : uint8_t
 };
 
 extern const char*   PhaseNames[];
-extern const char*   PhaseEnums[];
 extern const LPCWSTR PhaseShortNames[];
 
 enum class PhaseChecks : uint8_t

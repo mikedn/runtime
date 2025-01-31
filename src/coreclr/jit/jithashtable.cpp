@@ -3,10 +3,6 @@
 
 #include "jitpch.h"
 
-#if defined(_MSC_VER)
-#pragma hdrstop
-#endif // defined(_MSC_VER)
-
 // Table of primes and their magic-number-divide constant.
 // For more info see the book "Hacker's Delight" chapter 10.9 "Unsigned Division by Divisors >= 1"
 // These were selected by looking for primes, each roughly twice as big as the next, having

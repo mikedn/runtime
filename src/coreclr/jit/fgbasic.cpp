@@ -2,9 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
 
 //------------------------------------------------------------------------
 // fgEnsureFirstBBisScratch: Ensure that fgFirstBB is a scratch BasicBlock
@@ -641,10 +638,6 @@ private:
 //
 //    Also sets lvAddrExposed and lvHasILStoreOp, ilHasMultipleILStoreOp in LclVarDsc.
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
 ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
 {
     const IL_OFFSET codeSize     = info.compILCodeSize;
@@ -1825,9 +1818,6 @@ ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
 
     return jumpTargets;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 // Modifies lvaThisLclNum to refer to a temp if the value of 'this' can
 // change. The original this (info.compThisArg) then remains unmodified
@@ -2810,7 +2800,7 @@ void Compiler::compCreateEHTable()
                 if (begBetween)
                 {
                     // Record the enclosing scope link
-                    xtab->ebdEnclosingTryIndex = (unsigned short)XTnum;
+                    xtab->ebdEnclosingTryIndex = static_cast<uint16_t>(XTnum);
                 }
             }
 
@@ -2822,7 +2812,7 @@ void Compiler::compCreateEHTable()
                 if (begBetween)
                 {
                     // Record the enclosing scope link
-                    xtab->ebdEnclosingHndIndex = (unsigned short)XTnum;
+                    xtab->ebdEnclosingHndIndex = static_cast<uint16_t>(XTnum);
                 }
             }
         }
@@ -5642,14 +5632,14 @@ BasicBlock* Compiler::fgNewBBinRegionWorker(BBjumpKinds jumpKind,
     if (putInTryRegion)
     {
         noway_assert(regionIndex <= MAX_XCPTN_INDEX);
-        newBlk->bbTryIndex = (unsigned short)regionIndex;
+        newBlk->bbTryIndex = static_cast<uint16_t>(regionIndex);
         newBlk->bbHndIndex = bbFindInnermostHandlerRegionContainingTryRegion(regionIndex);
     }
     else
     {
         newBlk->bbTryIndex = bbFindInnermostTryRegionContainingHandlerRegion(regionIndex);
         noway_assert(regionIndex <= MAX_XCPTN_INDEX);
-        newBlk->bbHndIndex = (unsigned short)regionIndex;
+        newBlk->bbHndIndex = static_cast<uint16_t>(regionIndex);
     }
 
     // We're going to compare for equal try regions (to handle the case of 'mutually protect'

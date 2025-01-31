@@ -1,13 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef _HW_INTRINSIC_H_
-#define _HW_INTRINSIC_H_
+#pragma once
 
 #ifdef FEATURE_HW_INTRINSICS
 
 #ifdef TARGET_XARCH
-enum HWIntrinsicCategory : unsigned int
+enum HWIntrinsicCategory : unsigned
 {
     // Simple SIMD intrinsics
     // - take Vector128/256<T> parameters
@@ -43,7 +42,7 @@ enum HWIntrinsicCategory : unsigned int
 
 #elif defined(TARGET_ARM64)
 
-enum HWIntrinsicCategory : unsigned int
+enum HWIntrinsicCategory : unsigned
 {
     // Most of the Arm64 intrinsic fall into SIMD category:
     // - vector or scalar intrinsics that operate on one-or-many SIMD registers
@@ -70,7 +69,7 @@ enum HWIntrinsicCategory : unsigned int
 #error Unsupported platform
 #endif
 
-enum HWIntrinsicFlag : unsigned int
+enum HWIntrinsicFlag : unsigned
 {
     HW_Flag_NoFlag = 0,
 
@@ -155,7 +154,7 @@ enum HWIntrinsicFlag : unsigned int
 
 #if defined(TARGET_XARCH)
 // This mirrors the System.Runtime.Intrinsics.X86.FloatComparisonMode enumeration
-enum class FloatComparisonMode : unsigned char
+enum class FloatComparisonMode : uint8_t
 {
     // _CMP_EQ_OQ
     OrderedEqualNonSignaling = 0,
@@ -254,7 +253,7 @@ enum class FloatComparisonMode : unsigned char
     UnorderedTrueSignaling = 31,
 };
 
-enum class FloatRoundingMode : unsigned char
+enum class FloatRoundingMode : uint8_t
 {
     // _MM_FROUND_TO_NEAREST_INT
     ToNearestInteger = 0x00,
@@ -493,7 +492,9 @@ private:
 
 #endif // TARGET_ARM64
 
-INDEBUG(const char* GetHWIntrinsicIdName(NamedIntrinsic id);)
+#ifdef DEBUG
+const char* GetHWIntrinsicIdName(NamedIntrinsic id);
+#endif
 
 inline NamedIntrinsic GetCreateSimdHWIntrinsic(var_types type)
 {
@@ -536,5 +537,3 @@ inline NamedIntrinsic GetZeroSimdHWIntrinsic(var_types type)
 }
 
 #endif // FEATURE_HW_INTRINSICS
-
-#endif // _HW_INTRINSIC_H_

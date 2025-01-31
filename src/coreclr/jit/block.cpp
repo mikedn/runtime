@@ -1,31 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          BasicBlock                                       XX
-XX                                                                           XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
 #include "jitpch.h"
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
 #include "jitstd/algorithm.h"
 
 #if MEASURE_BLOCK_SIZE
-/* static  */
 size_t BasicBlock::s_Size;
-/* static */
 size_t BasicBlock::s_Count;
-#endif // MEASURE_BLOCK_SIZE
+#endif
 
 #ifdef DEBUG
-flowList* ShuffleHelper(unsigned hash, flowList* res)
+static flowList* ShuffleHelper(unsigned hash, flowList* res)
 {
     flowList* head = res;
     for (flowList *prev = nullptr; res != nullptr; prev = res, res = res->flNext)
@@ -42,7 +27,7 @@ flowList* ShuffleHelper(unsigned hash, flowList* res)
     return head;
 }
 
-unsigned SsaStressHashHelper()
+static unsigned SsaStressHashHelper()
 {
     // hash = 0: turned off, hash = 1: use method hash, hash = *: use custom hash.
     unsigned hash = JitConfig.JitSsaStress();

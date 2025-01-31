@@ -1,21 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                          DisAsm                                           XX
-XX                                                                           XX
-XX  The dis-assembler to display the native code generated                   XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+#pragma once
 
-/*****************************************************************************/
-#ifndef _DIS_H_
-#define _DIS_H_
-/*****************************************************************************/
 #ifdef LATE_DISASM
 
 // free() is deprecated (we should only allocate and free memory through CLR hosting interfaces)
@@ -206,8 +193,4 @@ private:
                          bool        dispCodeBytes = false);
 };
 
-/*****************************************************************************/
 #endif // LATE_DISASM
-/*****************************************************************************/
-#endif // _DIS_H_
-/*****************************************************************************/

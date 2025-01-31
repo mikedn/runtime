@@ -2,12 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-
-#ifdef _MSC_VER
-#pragma hdrstop
-#endif
-
-#include "lower.h" // for LowerNode()
+#include "lower.h"
 
 // Flowgraph Optimization
 
@@ -4007,11 +4002,6 @@ bool Compiler::fgExpandRarelyRunBlocks()
     return result;
 }
 
-#ifdef _PREFAST_
-#pragma warning(push)
-#pragma warning(disable : 21000) // Suppress PREFast warning about overly large function
-#endif
-
 //-----------------------------------------------------------------------------
 // fgReorderBlocks: reorder blocks to favor frequent fall through paths,
 //     move rare blocks to the end of the method/eh region, and move
@@ -5182,9 +5172,6 @@ bool Compiler::fgReorderBlocks()
 
     return changed;
 }
-#ifdef _PREFAST_
-#pragma warning(pop)
-#endif
 
 void Compiler::phUpdateFlowGraph()
 {
