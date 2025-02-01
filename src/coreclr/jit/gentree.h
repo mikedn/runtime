@@ -1837,13 +1837,7 @@ private:
     {
     }
 
-    typedef void* VtablePtr;
-
-    VtablePtr GetVtableForOper(genTreeOps oper);
     void SetVtableForOper(genTreeOps oper);
-
-    static VtablePtr s_vtablesForOpers[GT_COUNT];
-    static VtablePtr s_vtableForOp;
 #endif // DEBUGGABLE_GENTREE
 
 public:

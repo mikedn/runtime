@@ -3467,97 +3467,27 @@ var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 }
 
 #if DEBUGGABLE_GENTREE
-GenTree::VtablePtr GenTree::s_vtablesForOpers[GT_COUNT];
-GenTree::VtablePtr GenTree::s_vtableForOp;
-
-GenTree::VtablePtr GenTree::GetVtableForOper(genTreeOps oper)
+template <class T>
+static constexpr void* GetVTable()
 {
-    noway_assert(oper < GT_COUNT);
+    T t;
+    return *reinterpret_cast<void**>(&t);
+}
 
-    // First, check a cache.
+static void* GetVTableForOper(genTreeOps oper)
+{
+    static void* const tbls[GT_COUNT]{
+#define GTNODE(n, s, k) GetVTable<s>(),
+#include "gtlist.h"
+    };
 
-    if (s_vtablesForOpers[oper] != nullptr)
-    {
-        return s_vtablesForOpers[oper];
-    }
-
-    // Otherwise, look up the correct vtable entry. Note that we want the most derived GenTree subtype
-    // for an oper. E.g., GT_LCL_LOAD is defined in GTSTRUCT_N as GenTreeLclVar and in GTSTRUCT_1 as
-    // GenTreeLclLoad. We want the GenTreeLclLoad vtable, since nothing should actually be instantiated
-    // as a GenTreeLclVar.
-
-    VtablePtr res = nullptr;
-    switch (oper)
-    {
-
-// clang-format off
-
-#define GTSTRUCT_0(nm, tag)                             // handle explicitly
-#define GTSTRUCT_1(nm, tag)                             \
-        case tag:                                       \
-        {                                               \
-            GenTree##nm gt;                             \
-            res = *reinterpret_cast<VtablePtr*>(&gt);   \
-        }                                               \
-        break;
-#define GTSTRUCT_2(nm, tag, tag2)                       \
-        case tag:                                       \
-        case tag2:                                      \
-        {                                               \
-            GenTree##nm gt;                             \
-            res = *reinterpret_cast<VtablePtr*>(&gt);   \
-        }                                               \
-        break;
-#define GTSTRUCT_3(nm, tag, tag2, tag3)                 \
-        case tag:                                       \
-        case tag2:                                      \
-        case tag3:                                      \
-        {                                               \
-            GenTree##nm gt;                             \
-            res = *reinterpret_cast<VtablePtr*>(&gt);   \
-        }                                               \
-        break;
-#define GTSTRUCT_4(nm, tag, tag2, tag3, tag4)           \
-        case tag:                                       \
-        case tag2:                                      \
-        case tag3:                                      \
-        case tag4:                                      \
-        {                                               \
-            GenTree##nm gt;                             \
-            res = *reinterpret_cast<VtablePtr*>(&gt);   \
-        }                                               \
-        break;
-#define GTSTRUCT_N(nm, ...)                             /*handle explicitly*/
-#define GTSTRUCT_2_SPECIAL(nm, tag, tag2)               /*handle explicitly*/
-#define GTSTRUCT_3_SPECIAL(nm, tag, tag2, tag3)         /*handle explicitly*/
-#include "gtstructs.h"
-
-        // clang-format on
-
-        default:
-        {
-            // Should be unary or binary op.
-            if (s_vtableForOp == nullptr)
-            {
-                unsigned opKind = OperKind(oper);
-                assert(!IsExOp(opKind));
-                assert(OperIsSimple(oper) || OperIsLeaf(oper));
-                // Need to provide non-null operands.
-                GenTreeIntCon dummyOp(TYP_INT, 0);
-                GenTreeOp     gt(oper, TYP_INT, &dummyOp, ((opKind & GTK_UNOP) ? nullptr : &dummyOp));
-                s_vtableForOp = *reinterpret_cast<VtablePtr*>(&gt);
-            }
-            res = s_vtableForOp;
-            break;
-        }
-    }
-    s_vtablesForOpers[oper] = res;
-    return res;
+    assert(oper < _countof(tbls));
+    return tbls[oper];
 }
 
 void GenTree::SetVtableForOper(genTreeOps oper)
 {
-    *reinterpret_cast<VtablePtr*>(this) = GetVtableForOper(oper);
+    *reinterpret_cast<void**>(this) = GetVTableForOper(oper);
 }
 #endif // DEBUGGABLE_GENTREE
 
@@ -5249,7 +5179,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_CONST_ADDR:
         case GT_ARGPLACE:
         case GT_REG_USE:
-        case GT_EMITNOP:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
         case GT_IL_OFFSET:

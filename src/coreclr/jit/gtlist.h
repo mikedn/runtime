@@ -41,7 +41,7 @@ GTNODE(CNS_STR          , GenTreeStrCon       , GTK_LEAF)
 //-----------------------------------------------------------------------------
 
 GTNODE(NOT              , GenTreeOp           , GTK_UNOP|GTK_VN)
-GTNODE(NOP              , GenTree             , GTK_UNOP|GTK_NOCONTAIN)
+GTNODE(NOP              , GenTreeOp           , GTK_UNOP|GTK_NOCONTAIN)
 GTNODE(NEG              , GenTreeOp           , GTK_UNOP|GTK_VN)
 GTNODE(FNEG             , GenTreeOp           , GTK_UNOP|GTK_VN)
 GTNODE(FTRUNC           , GenTreeOp           , GTK_UNOP|GTK_VN)
@@ -278,7 +278,6 @@ GTNODE(CLS_VAR_ADDR     , GenTreeClsVar       , GTK_LEAF)                       
 GTNODE(CONST_ADDR       , GenTreeConstAddr    , GTK_LEAF)                        // constant data address (.rodata)
 GTNODE(ARGPLACE         , GenTree             , GTK_LEAF|GTK_NOVALUE|GTK_NOTLIR) // placeholder for a register arg
 GTNODE(REG_USE          , GenTreeRegUse       , GTK_LEAF)                        // use of a register
-GTNODE(EMITNOP          , GenTree             , GTK_LEAF|GTK_NOVALUE)            // emitter-placed nop
 GTNODE(PINVOKE_PROLOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke prolog seq
 GTNODE(PINVOKE_EPILOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke epilog seq
 GTNODE(PUTARG_REG       , GenTreeOp           , GTK_UNOP)                        // operator that places outgoing arg in register

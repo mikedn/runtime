@@ -6434,7 +6434,6 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CONST_ADDR:
         case GT_ARGPLACE:
         case GT_REG_USE:
-        case GT_EMITNOP:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
         case GT_IL_OFFSET:
@@ -6820,7 +6819,6 @@ public:
             case GT_CONST_ADDR:
             case GT_ARGPLACE:
             case GT_REG_USE:
-            case GT_EMITNOP:
             case GT_PINVOKE_PROLOG:
             case GT_PINVOKE_EPILOG:
             case GT_IL_OFFSET:
