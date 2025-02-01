@@ -240,15 +240,9 @@ size_t GenTree::GetNodeSize() const
     return GenTree::s_gtNodeSizes[gtOper];
 }
 
-//------------------------------------------------------------------------
-// ReplaceWith: replace this with the src node. The source must be an isolated node
-//              and cannot be used after the replacement.
-//
-// Arguments:
-//    src  - source tree, that replaces this.
-//    comp - the compiler instance to transfer annotations for arrays.
-//
-void GenTree::ReplaceWith(GenTree* src, Compiler* comp)
+// Replace this with the src node. The source must be an isolated node
+// and cannot be used after the replacement.
+void GenTree::ReplaceWith(GenTree* src)
 {
     // The source may be big only if the target is also a big node
     assert(((gtDebugFlags & GTF_DEBUG_NODE_LARGE) != 0) ||
@@ -264,26 +258,21 @@ void GenTree::ReplaceWith(GenTree* src, Compiler* comp)
     GenTree* prev = gtPrev;
     GenTree* next = gtNext;
     // The VTable pointer is copied intentionally here
-    memcpy((void*)this, (void*)src, src->GetNodeSize());
-    this->gtPrev = prev;
-    this->gtNext = next;
+    memcpy(this, src, src->GetNodeSize());
+    gtPrev = prev;
+    gtNext = next;
 
     INDEBUG(gtSeqNum = 0;)
     DEBUG_DESTROY_NODE(src);
 }
 
-/*****************************************************************************
- *
- *  When 'NODEBASH_STATS' is enabled in "jit.h" we record all instances of
- *  an existing GenTree node having its operator changed. This can be useful
- *  for two (related) things - to see what is being bashed (and what isn't),
- *  and to verify that the existing choices for what nodes are marked 'large'
- *  are reasonable (to minimize "wasted" space).
- *
- *  And yes, the hash function / logic is simplistic, but it is conflict-free
- *  and transparent for what we need.
- */
-
+// When 'NODEBASH_STATS' is enabled in "jit.h" we record all instances of
+// an existing GenTree node having its operator changed. This can be useful
+// for two (related) things - to see what is being bashed (and what isn't),
+// and to verify that the existing choices for what nodes are marked 'large'
+// are reasonable (to minimize "wasted" space).
+// And yes, the hash function / logic is simplistic, but it is conflict-free
+// and transparent for what we need.
 #if NODEBASH_STATS
 
 #define BASH_HASH_SIZE 211

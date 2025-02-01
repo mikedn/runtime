@@ -2295,7 +2295,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             assert(!varTypeIsStruct(argNode->GetType()) && !argInfo.argHasGlobRef && !argInfo.argHasSideEff &&
                    !argInfo.paramIsAddressTaken && !argInfo.paramHasStores);
 
-            argInfo.paramSingleUse->ReplaceWith(argNode, this);
+            argInfo.paramSingleUse->ReplaceWith(argNode);
 
             // TODO-MIKE-Fix: This moves the argument tree to some inlinee block,
             // it should copy BBF_IR_SUMMARY flags from the inliner call block.

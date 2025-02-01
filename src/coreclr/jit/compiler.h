@@ -7070,7 +7070,7 @@ public:
             case GT_INTRINSIC:
             {
                 // LEA and INTRINSIC are fake BINOPs. For LEA either operand may be null,
-                // and for INTRINSIC the second operand may be null, makeing it unary.
+                // and for INTRINSIC the second operand may be null, making it unary.
                 // Handle them separately so that real BINOPs do not need extra null checks.
                 GenTree** op1Use = &node->AsOp()->gtOp1;
                 GenTree** op2Use = &node->AsOp()->gtOp2;

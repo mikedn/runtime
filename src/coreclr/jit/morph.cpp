@@ -12124,7 +12124,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             copy = new (this, GT_CALL) GenTreeCall();
         }
 
-        copy->ReplaceWith(tree, this);
+        copy->ReplaceWith(tree);
 
         DEBUG_DESTROY_NODE(tree);
         tree = copy;

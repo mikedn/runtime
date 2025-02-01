@@ -410,6 +410,16 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
     gtFlags &= mask;
 }
 
+inline GenTree* GenTree::ChangeToNop()
+{
+    SetOperResetFlags(GT_NOP);
+    SetType(TYP_VOID);
+    GenTreeOp* op = AsOp();
+    op->gtOp1     = nullptr;
+    op->gtOp2     = nullptr;
+    return op;
+}
+
 inline GenTreeIntCon* GenTree::ChangeToIntCon(ssize_t value)
 {
 #ifdef TARGET_64BIT

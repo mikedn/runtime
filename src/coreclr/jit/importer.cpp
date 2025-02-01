@@ -3138,17 +3138,13 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             if (impStackTop().val->IsCall())
             {
                 GenTreeCall* call = impStackTop().val->AsCall();
-                if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
+                if (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
                 {
-                    CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->gtCallArgs->GetNode());
-                    if (hClass != NO_CLASS_HANDLE)
+                    if (CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->gtCallArgs->GetNode()))
                     {
-                        retNode =
-                            gtNewIconNode((info.compCompHnd->isValueClass(hClass) &&
-                                           // pointers are not value types (e.g. typeof(int*).IsValueType is false)
-                                           info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR)
-                                              ? 1
-                                              : 0);
+                        retNode = gtNewIconNode(info.compCompHnd->isValueClass(hClass) &&
+                                                // pointers are not value types (e.g. typeof(int*).IsValueType is false)
+                                                info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
                         impPopStack(); // drop CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE call
                     }
                 }
@@ -3169,7 +3165,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     {
                         // drop get_CurrentThread() call
                         impPopStack();
-                        call->ReplaceWith(gtNewNothingNode(), comp);
+                        call->ChangeToNop();
                         retNode = gtNewHelperCallNode(CORINFO_HELP_GETCURRENTMANAGEDTHREADID, TYP_INT);
                     }
                 }

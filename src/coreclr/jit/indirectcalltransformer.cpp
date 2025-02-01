@@ -516,7 +516,7 @@ private:
                 JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(),
                         returnTemp->GetLclNum());
 
-                retExpr->ReplaceWith(tempTree, compiler);
+                retExpr->ReplaceWith(tempTree);
             }
             else if (retExpr != nullptr)
             {
