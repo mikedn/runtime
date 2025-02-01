@@ -3650,18 +3650,21 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
         DISPNODE(node);
         JITDUMP("Replaced with: ");
         DISPNODE(op1);
+
         if (BlockRange().TryGetUse(node, &use))
         {
-            use.ReplaceWith(comp, op1);
+            use.SetDef(op1);
         }
         else
         {
             op1->SetUnusedValue();
         }
+
         GenTree* next = node->gtNext;
         BlockRange().Remove(op2);
         BlockRange().Remove(node);
         JITDUMP("Remove [%06u], [%06u]\n", op2->GetID(), node->GetID());
+
         return next;
     }
 
@@ -4191,7 +4194,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
         ContainCheckBinary(mask);
     }
 
-    use.ReplaceWith(comp, newDivMod);
+    use.SetDef(newDivMod);
     BlockRange().Remove(divMod);
 
     return newDivMod->gtNext;
@@ -4553,7 +4556,7 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
         lea->SetSideEffects(GTF_NONE);
         BlockRange().InsertBefore(elem, leaBase, lea);
 
-        elemUse.ReplaceWith(comp, lea);
+        elemUse.SetDef(lea);
     }
 
     GenTree* nextToLower = elem->gtNext;
@@ -4847,7 +4850,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
         if (BlockRange().TryGetUse(bitcast, &use))
         {
-            use.ReplaceWith(comp, src);
+            use.SetDef(src);
         }
         else
         {
@@ -4922,7 +4925,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
 
             if (BlockRange().TryGetUse(cast, &use))
             {
-                use.ReplaceWith(comp, src);
+                use.SetDef(src);
             }
             else
             {
@@ -4974,7 +4977,7 @@ GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
 
         if (BlockRange().TryGetUse(node, &use))
         {
-            use.ReplaceWith(comp, src);
+            use.SetDef(src);
         }
         else
         {

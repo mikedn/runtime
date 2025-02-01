@@ -146,7 +146,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
     {
         case GT_BOX:
             // GT_BOX at this level just passes through so get rid of it
-            use.ReplaceWith(comp, node->AsBox()->GetOp(0));
+            use.SetDef(node->AsBox()->GetOp(0));
             BlockRange().Remove(node);
             break;
 
@@ -220,7 +220,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             {
                 if (!use.IsDummyUse())
                 {
-                    use.ReplaceWith(comp, value);
+                    use.SetDef(value);
                 }
                 else
                 {
@@ -257,9 +257,10 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
             BlockRange().Remove(node);
 
             GenTree* value = node->AsOp()->GetOp(1);
+
             if (!use.IsDummyUse())
             {
-                use.ReplaceWith(comp, value);
+                use.SetDef(value);
             }
             else
             {

@@ -1646,7 +1646,7 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
         newDivMod = neg;
     }
 
-    use.ReplaceWith(comp, newDivMod);
+    use.SetDef(newDivMod);
     BlockRange().Remove(div);
 
     return newDivMod->gtNext;

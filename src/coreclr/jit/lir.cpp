@@ -127,71 +127,14 @@ void LIR::Use::AssertIsValid() const
     assert(m_user->FindUse(Def()) == m_edge);
 }
 
-//------------------------------------------------------------------------
-// LIR::Use::ReplaceWith: Changes the use to point to a new value.
-//
-// For example, given the following LIR:
-//
-//    t15 =    lclVar    int    arg1
-//    t16 =    lclVar    int    arg1
-//
-//          /--*  t15 int
-//          +--*  t16 int
-//    t17 = *  ==        int
-//
-//          /--*  t17 int
-//          *  jmpTrue   void
-//
-// If we wanted to replace the use of t17 with a use of the constant "1", we
-// might do the following (where `opEq` is a `Use` value that represents the
-// use of t17):
-//
-//    GenTree* constantOne = compiler->gtNewIconNode(1);
-//    range.InsertAfter(opEq.Def(), constantOne);
-//    opEq.ReplaceWith(compiler, constantOne);
-//
-// Which would produce something like the following LIR:
-//
-//    t15 =    lclVar    int    arg1
-//    t16 =    lclVar    int    arg1
-//
-//          /--*  t15 int
-//          +--*  t16 int
-//    t17 = *  ==        int
-//
-//    t18 =    const     int    1
-//
-//          /--*  t18 int
-//          *  jmpTrue   void
-//
-// Eliminating the now-dead compare and its operands using `LIR::Range::Remove`
-// would then give us:
-//
-//    t18 =    const     int    1
-//
-//          /--*  t18 int
-//          *  jmpTrue   void
-//
-// Arguments:
-//    compiler - The Compiler context.
-//    replacement - The replacement node.
-//
-void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
+void LIR::Use::SetDef(GenTree* def)
 {
+    assert(def != nullptr);
     assert(IsInitialized());
-    assert(compiler != nullptr);
-    assert(replacement != nullptr);
     assert(IsDummyUse() || m_range->Contains(m_user));
-    assert(m_range->Contains(replacement));
+    assert(m_range->Contains(def));
 
-    if (!IsDummyUse())
-    {
-        m_user->ReplaceOperand(m_edge, replacement);
-    }
-    else
-    {
-        *m_edge = replacement;
-    }
+    *m_edge = def;
 }
 
 // Assigns the def for this use to a local and points the use to a use
@@ -247,7 +190,7 @@ LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenT
     GenTreeLclLoad*  load  = compiler->gtNewLclLoad(lcl, type);
     m_range->InsertAfter(def, store, load);
 
-    ReplaceWith(compiler, load);
+    SetDef(load);
 
     JITDUMP("ReplaceWithLclLoad created store :\n");
     DISPNODE(store);

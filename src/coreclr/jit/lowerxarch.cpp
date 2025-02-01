@@ -811,7 +811,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             {
                 cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
                 BlockRange().InsertAfter(cmp, cc);
-                cmpUse.ReplaceWith(comp, cc);
+                cmpUse.SetDef(cc);
             }
 
             cc->gtFlags |= GTF_USE_FLAGS;
@@ -1054,7 +1054,7 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
             {
                 cc = new (comp, GT_SETCC) GenTreeCC(GT_SETCC, condition, TYP_INT);
                 BlockRange().InsertAfter(node, cc);
-                use.ReplaceWith(comp, cc);
+                use.SetDef(cc);
             }
         }
     }
@@ -2523,7 +2523,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
         {
             GenTreeUnOp* conv = comp->gtNewOperNode(GT_CONV, eltType, node);
             BlockRange().InsertAfter(node, conv);
-            use.ReplaceWith(comp, conv);
+            use.SetDef(conv);
             LowerNode(conv);
         }
     }

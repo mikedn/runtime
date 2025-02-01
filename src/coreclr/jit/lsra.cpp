@@ -4135,7 +4135,7 @@ void LinearScan::insertCopyOrReload(BasicBlock* block, GenTree* value, unsigned 
     // Insert the copy/reload after the spilled node and replace the use of
     // the original node with a use of the copy/reload.
     blockRange.InsertAfter(value, copy);
-    use.ReplaceWith(compiler, copy);
+    use.SetDef(copy);
 }
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE

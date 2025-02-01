@@ -72,7 +72,7 @@ public:
         void AssertIsValid() const;
         bool IsDummyUse() const;
 
-        void ReplaceWith(Compiler* compiler, GenTree* replacement);
+        void SetDef(GenTree* def);
         LclVarDsc* ReplaceWithLclLoad(Compiler*         compiler,
                                       LclVarDsc*        lcl      = nullptr,
                                       GenTreeLclStore** newStore = nullptr);
