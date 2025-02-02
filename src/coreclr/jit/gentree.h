@@ -1826,56 +1826,156 @@ public:
 #endif
 };
 
+class GenTreeUse
+{
+    friend struct GenTreeHWIntrinsic;
+    friend struct GenTreeInstr;
+    friend struct GenTreeArrElem;
+
+    GenTree* m_node;
+
+protected:
+    GenTreeUse(GenTree* node = nullptr) : m_node(node)
+    {
+    }
+
+    GenTreeUse(GenTreeUse&&)      = default;
+    GenTreeUse(const GenTreeUse&) = delete;
+    GenTreeUse& operator=(const GenTreeUse&) = delete;
+
+public:
+    GenTree*& NodeRef()
+    {
+        return m_node;
+    }
+
+    GenTree* GetNode() const
+    {
+        assert(m_node != nullptr);
+        return m_node;
+    }
+
+    void SetNode(GenTree* node)
+    {
+        assert(node != nullptr);
+        m_node = node;
+    }
+};
+
+template <class U>
+class GenTreeUseLink : public GenTreeUse
+{
+    U* m_next = nullptr;
+
+public:
+    GenTreeUseLink(GenTree* node, U* next = nullptr) : GenTreeUse(node), m_next(next)
+    {
+    }
+
+    U*& NextRef()
+    {
+        return m_next;
+    }
+
+    U* GetNext() const
+    {
+        return m_next;
+    }
+
+    void SetNext(U* next)
+    {
+        m_next = next;
+    }
+};
+
+template <class U>
+class GenTreeUseLinkIterator
+{
+    U* use;
+
+public:
+    GenTreeUseLinkIterator(U* use) : use(use)
+    {
+    }
+
+    U& operator*() const
+    {
+        return *use;
+    }
+
+    U* operator->() const
+    {
+        return use;
+    }
+
+    U* GetUse() const
+    {
+        return use;
+    }
+
+    void operator++()
+    {
+        use = use->GetNext();
+    }
+
+    bool operator==(const GenTreeUseLinkIterator& other) const
+    {
+        return use == other.use;
+    }
+
+    bool operator!=(const GenTreeUseLinkIterator& other) const
+    {
+        return use != other.use;
+    }
+};
+
+template <class U>
+class GenTreeUseLinkList
+{
+protected:
+    U* m_head = nullptr;
+    U* m_tail = nullptr;
+
+public:
+    GenTreeUseLinkList() = default;
+
+    GenTreeUseLinkList(U* head) : m_head(head)
+    {
+    }
+
+    U* GetHead() const
+    {
+        return m_head;
+    }
+
+    GenTreeUseLinkIterator<U> begin() const
+    {
+        return m_head;
+    }
+
+    GenTreeUseLinkIterator<U> end() const
+    {
+        return nullptr;
+    }
+};
+
 // Represents a list of fields constituting a struct, when it is passed as an argument.
 //
 struct GenTreeFieldList : public GenTree
 {
-    class Use
+    class Use : public GenTreeUseLink<Use>
     {
-        GenTree*  m_node;
-        Use*      m_next;
         uint16_t  m_offset;
         var_types m_type;
 
     public:
         Use(GenTree* node, unsigned offset, var_types type)
-            : m_node(node), m_next(nullptr), m_offset(static_cast<uint16_t>(offset)), m_type(type)
+            : GenTreeUseLink(node), m_offset(static_cast<uint16_t>(offset)), m_type(type)
         {
             // We can save space on 32 bit hosts by storing the offset as uint16_t. Struct promotion
             // only accepts structs which are much smaller than that - 128 bytes = max 4 fields * max
             // SIMD vector size (32 bytes).
             assert(offset <= UINT16_MAX);
-        }
-
-        GenTree*& NodeRef()
-        {
-            return m_node;
-        }
-
-        GenTree* GetNode() const
-        {
-            return m_node;
-        }
-
-        void SetNode(GenTree* node)
-        {
-            assert(node != nullptr);
-            m_node = node;
-        }
-
-        Use*& NextRef()
-        {
-            return m_next;
-        }
-
-        Use* GetNext() const
-        {
-            return m_next;
-        }
-
-        void SetNext(Use* next)
-        {
-            m_next = next;
         }
 
         unsigned GetOffset() const
@@ -1894,66 +1994,11 @@ struct GenTreeFieldList : public GenTree
         }
     };
 
-    class UseIterator
+    using UseIterator = GenTreeUseLinkIterator<Use>;
+
+    class UseList : public GenTreeUseLinkList<Use>
     {
-        Use* use;
-
     public:
-        UseIterator(Use* use) : use(use)
-        {
-        }
-
-        Use& operator*()
-        {
-            return *use;
-        }
-
-        Use* operator->()
-        {
-            return use;
-        }
-
-        void operator++()
-        {
-            use = use->GetNext();
-        }
-
-        bool operator==(const UseIterator& other)
-        {
-            return use == other.use;
-        }
-
-        bool operator!=(const UseIterator& other)
-        {
-            return use != other.use;
-        }
-    };
-
-    class UseList
-    {
-        Use* m_head;
-        Use* m_tail;
-
-    public:
-        UseList() : m_head(nullptr), m_tail(nullptr)
-        {
-        }
-
-        Use* GetHead() const
-        {
-            return m_head;
-        }
-
-        UseIterator begin() const
-        {
-            return m_head;
-        }
-
-        UseIterator end() const
-        {
-            return nullptr;
-        }
-
         void AddUse(Use* newUse)
         {
             assert(newUse->GetNext() == nullptr);
@@ -3414,97 +3459,26 @@ inline LclUses GenTreeLclDef::Uses()
 
 struct GenTreePhi final : public GenTree
 {
-    class Use
+    class Use : public GenTreeUseLink<Use>
     {
-        GenTree* m_node;
-        Use*     m_next;
-
     public:
-        Use(GenTreeLclUse* node, Use* next = nullptr) : m_node(node), m_next(next)
+        Use(GenTreeLclUse* node, Use* next = nullptr) : GenTreeUseLink(node, next)
         {
-        }
-
-        GenTree*& NodeRef()
-        {
-            return m_node;
         }
 
         GenTreeLclUse* GetNode() const
         {
-            return m_node->AsLclUse();
+            return GenTreeUseLink::GetNode()->AsLclUse();
         }
 
         void SetNode(GenTreeLclUse* node)
         {
-            m_node = node;
-        }
-
-        Use*& NextRef()
-        {
-            return m_next;
-        }
-
-        Use* GetNext() const
-        {
-            return m_next;
+            GenTreeUseLink::SetNode(node);
         }
     };
 
-    class UseIterator
-    {
-        Use* m_use;
-
-    public:
-        UseIterator(Use* use) : m_use(use)
-        {
-        }
-
-        Use& operator*() const
-        {
-            return *m_use;
-        }
-
-        Use* operator->() const
-        {
-            return m_use;
-        }
-
-        UseIterator& operator++()
-        {
-            m_use = m_use->GetNext();
-            return *this;
-        }
-
-        bool operator==(const UseIterator& i) const
-        {
-            return m_use == i.m_use;
-        }
-
-        bool operator!=(const UseIterator& i) const
-        {
-            return m_use != i.m_use;
-        }
-    };
-
-    class UseList
-    {
-        Use* m_uses;
-
-    public:
-        UseList(Use* uses) : m_uses(uses)
-        {
-        }
-
-        UseIterator begin() const
-        {
-            return UseIterator(m_uses);
-        }
-
-        UseIterator end() const
-        {
-            return UseIterator(nullptr);
-        }
-    };
+    using UseIterator = GenTreeUseLinkIterator<Use>;
+    using UseList     = GenTreeUseLinkList<Use>;
 
     Use* m_uses;
 
@@ -4013,16 +3987,13 @@ class CallArgInfo;
 
 struct GenTreeCall final : public GenTree
 {
-    class Use
+    class Use : public GenTreeUseLink<Use>
     {
-        GenTree* m_node;
-        Use*     m_next;
         unsigned m_sigTypeNum;
 
     public:
         Use(GenTree* node, Use* next = nullptr)
-            : m_node(node)
-            , m_next(next)
+            : GenTreeUseLink(node, next)
             // Always record the type of node at call arg's creation. PopCallArgs will override this with
             // the actual signature type but for helper calls there is no signature information so we'll just
             // whatever we have. Helper calls usually don't have struct params so this should work most of the
@@ -4033,38 +4004,6 @@ struct GenTreeCall final : public GenTree
             , m_sigTypeNum(static_cast<unsigned>(varActualType(node->GetType())))
         {
             assert(node != nullptr);
-        }
-
-        GenTree*& NodeRef()
-        {
-            return m_node;
-        }
-
-        GenTree* GetNode() const
-        {
-            assert(m_node != nullptr);
-            return m_node;
-        }
-
-        void SetNode(GenTree* node)
-        {
-            assert(node != nullptr);
-            m_node = node;
-        }
-
-        Use*& NextRef()
-        {
-            return m_next;
-        }
-
-        Use* GetNext() const
-        {
-            return m_next;
-        }
-
-        void SetNext(Use* next)
-        {
-            m_next = next;
         }
 
         unsigned GetSigTypeNum() const
@@ -4078,66 +4017,8 @@ struct GenTreeCall final : public GenTree
         }
     };
 
-    class UseIterator
-    {
-        Use* m_use;
-
-    public:
-        UseIterator(Use* use) : m_use(use)
-        {
-        }
-
-        Use& operator*() const
-        {
-            return *m_use;
-        }
-
-        Use* operator->() const
-        {
-            return m_use;
-        }
-
-        Use* GetUse() const
-        {
-            return m_use;
-        }
-
-        UseIterator& operator++()
-        {
-            m_use = m_use->GetNext();
-            return *this;
-        }
-
-        bool operator==(const UseIterator& i) const
-        {
-            return m_use == i.m_use;
-        }
-
-        bool operator!=(const UseIterator& i) const
-        {
-            return m_use != i.m_use;
-        }
-    };
-
-    class UseList
-    {
-        Use* m_uses;
-
-    public:
-        UseList(Use* uses) : m_uses(uses)
-        {
-        }
-
-        UseIterator begin() const
-        {
-            return UseIterator(m_uses);
-        }
-
-        UseIterator end() const
-        {
-            return UseIterator(nullptr);
-        }
-    };
+    using UseIterator = GenTreeUseLinkIterator<Use>;
+    using UseList     = GenTreeUseLinkList<Use>;
 
     Use* gtCallThisArg;  // The instance argument ('this' pointer)
     Use* gtCallArgs;     // The list of arguments in original evaluation order
@@ -4718,7 +4599,7 @@ public:
         assert(regCount <= static_cast<unsigned>(isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
     }
 
-    // Get the use that coresponds to this argument.
+    // Get the use that corresponds to this argument.
     // This is the "real" argument use and not the use of the setup tree.
     GenTreeCall::Use* GetUse() const
     {
@@ -5259,41 +5140,6 @@ public:
     bool IsCommutative() = delete;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIntrinsic, GenTreeOp)
-};
-
-class GenTreeUse
-{
-    friend struct GenTreeHWIntrinsic;
-    friend struct GenTreeInstr;
-    friend struct GenTreeArrElem;
-
-    GenTree* m_node;
-
-    GenTreeUse(GenTree* node = nullptr) : m_node(node)
-    {
-    }
-
-    GenTreeUse(GenTreeUse&&)      = default;
-    GenTreeUse(const GenTreeUse&) = delete;
-    GenTreeUse& operator=(const GenTreeUse&) = delete;
-
-public:
-    GenTree*& NodeRef()
-    {
-        return m_node;
-    }
-
-    GenTree* GetNode() const
-    {
-        assert(m_node != nullptr);
-        return m_node;
-    }
-
-    void SetNode(GenTree* node)
-    {
-        assert(node != nullptr);
-        m_node = node;
-    }
 };
 
 #ifdef FEATURE_HW_INTRINSICS
