@@ -2919,14 +2919,14 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
 
     assert(fgStmtListThreaded);
 
-    noway_assert(stmt->GetTreeList());
+    noway_assert(stmt->GetNodeList());
 
     // The first node's gtPrev must be nullptr (the gtPrev list is not circular).
     // The last node's gtNext must be nullptr (the gtNext list is not circular). This is tested if the loop below
     // terminates.
-    assert(stmt->GetTreeList()->gtPrev == nullptr);
+    assert(stmt->GetNodeList()->gtPrev == nullptr);
 
-    for (GenTree* tree = stmt->GetTreeList(); tree != nullptr; tree = tree->gtNext)
+    for (GenTree* tree = stmt->GetNodeList(); tree != nullptr; tree = tree->gtNext)
     {
         if (tree->gtPrev)
         {
@@ -2934,7 +2934,7 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
         }
         else
         {
-            noway_assert(tree == stmt->GetTreeList());
+            noway_assert(tree == stmt->GetNodeList());
         }
 
         if (tree->gtNext)
@@ -2958,7 +2958,7 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
                 noway_assert(tree->gtFlags & GTF_ORDER_SIDEEFF);
                 // The GT_CATCH_ARG has to be the first thing evaluated
                 noway_assert(stmt == block->FirstNonPhiDef());
-                noway_assert(stmt->GetTreeList()->OperIs(GT_CATCH_ARG));
+                noway_assert(stmt->GetNodeList()->OperIs(GT_CATCH_ARG));
                 // The root of the tree should have GTF_ORDER_SIDEEFF set
                 noway_assert(stmt->GetRootNode()->gtFlags & GTF_ORDER_SIDEEFF);
             }

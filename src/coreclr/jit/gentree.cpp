@@ -1541,12 +1541,12 @@ void Compiler::gtSetStmtOrder(Statement* stmt)
 {
     GenTree* tree = stmt->GetRootNode();
     gtSetOrder(tree);
-    stmt->SetTreeList(gtSetTreeSeq(tree, false));
+    stmt->SetNodeList(gtSetTreeSeq(tree, false));
 }
 
 void Compiler::gtSetStmtSeq(Statement* stmt)
 {
-    stmt->SetTreeList(gtSetTreeSeq(stmt->GetRootNode(), false));
+    stmt->SetNodeList(gtSetTreeSeq(stmt->GetRootNode(), false));
 }
 
 void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,

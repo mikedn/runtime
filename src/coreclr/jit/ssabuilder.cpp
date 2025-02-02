@@ -552,7 +552,7 @@ void SsaBuilder::InsertPhi(BasicBlock* block, LclVarDsc* lcl)
     def->SetCosts(0, 0);
 
     Statement* stmt = compiler->gtNewStmt(def);
-    stmt->SetTreeList(phi);
+    stmt->SetNodeList(phi);
     phi->gtNext = def;
     def->gtPrev = phi;
 
@@ -1156,9 +1156,9 @@ void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* load, Statement*
 
         if (extract->gtPrev == nullptr)
         {
-            assert(stmt->GetTreeList() == extract);
+            assert(stmt->GetNodeList() == extract);
 
-            stmt->SetTreeList(use);
+            stmt->SetNodeList(use);
             use->gtNext     = extract;
             extract->gtPrev = use;
         }
@@ -1776,7 +1776,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     }
     else
     {
-        stmt->SetTreeList(src->gtNext);
+        stmt->SetNodeList(src->gtNext);
     }
 }
 

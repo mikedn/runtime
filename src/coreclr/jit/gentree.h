@@ -6318,50 +6318,44 @@ struct GenTreeILOffset : public GenTree
     DECLARE_DEBUGGABLE_GENTREE(GenTreeILOffset, GenTree)
 };
 
-// GenTreeList: adapter class for forward iteration of the execution order GenTree linked list
-// using range-based `for`, normally used via Statement::TreeList(), e.g.:
-//    for (GenTree* const tree : stmt->TreeList()) ...
-//
-class GenTreeList
+class GenTreeNodeList
 {
-    GenTree* m_trees;
+    GenTree* m_head;
 
-    // Forward iterator for the execution order GenTree linked list (using `gtNext` pointer).
-    //
+public:
     class iterator
     {
-        GenTree* m_tree;
+        GenTree* m_node;
 
     public:
-        iterator(GenTree* tree) : m_tree(tree)
+        iterator(GenTree* node) : m_node(node)
         {
         }
 
         GenTree* operator*() const
         {
-            return m_tree;
+            return m_node;
         }
 
         iterator& operator++()
         {
-            m_tree = m_tree->gtNext;
+            m_node = m_node->gtNext;
             return *this;
         }
 
         bool operator!=(const iterator& i) const
         {
-            return m_tree != i.m_tree;
+            return m_node != i.m_node;
         }
     };
 
-public:
-    GenTreeList(GenTree* trees) : m_trees(trees)
+    GenTreeNodeList(GenTree* head) : m_head(head)
     {
     }
 
     iterator begin() const
     {
-        return iterator(m_trees);
+        return iterator(m_head);
     }
 
     iterator end() const
@@ -6376,18 +6370,35 @@ public:
 
 struct Statement
 {
+    // The root of the expression tree.
+    // Note: It will be the last node in evaluation order.
+    GenTree* m_rootNode;
+
+    // The node list head (for forward walks in evaluation order).
+    // The value is `nullptr` until we have set the sequencing of the nodes.
+    GenTree* m_nodeList = nullptr;
+
+    // The statement nodes are doubly-linked. The first statement node in a block points
+    // to the last node in the block via its `m_prev` link. Note that the last statement node
+    // does not point to the first: it's `m_next == nullptr`; that is, the list is not fully circular.
+    Statement* m_next = nullptr;
+    Statement* m_prev = nullptr;
+
+    InlineContext* m_inlineContext = nullptr; // The inline context for this statement.
+    IL_OFFSETX     m_ilOffsetX;               // The instr offset (if available).
+    bool           m_compilerAdded = false;   // Was the statement created by optimizer?
+
+#ifdef DEBUG
+    unsigned m_stmtID;
+#endif
+
 public:
     Statement(GenTree* expr, IL_OFFSETX offset DEBUGARG(unsigned stmtID))
         : m_rootNode(expr)
-        , m_treeList(nullptr)
-        , m_next(nullptr)
-        , m_prev(nullptr)
-        , m_inlineContext(nullptr)
-        , m_ILOffsetX(offset)
+        , m_ilOffsetX(offset)
 #ifdef DEBUG
         , m_stmtID(stmtID)
 #endif
-        , m_compilerAdded(false)
     {
         assert(expr != nullptr);
     }
@@ -6407,37 +6418,19 @@ public:
         m_rootNode = treeRoot;
     }
 
-    // [[deprecated]]
-    GenTree* GetTreeList() const
-    {
-        return m_treeList;
-    }
-
     GenTree* GetNodeList() const
     {
-        return m_treeList;
+        return m_nodeList;
     }
 
     void SetNodeList(GenTree* list)
     {
-        m_treeList = list;
+        m_nodeList = list;
     }
 
-    // [[deprecated]]
-    void SetTreeList(GenTree* treeHead)
+    GenTreeNodeList Nodes() const
     {
-        m_treeList = treeHead;
-    }
-
-    // [[deprecated]]
-    GenTreeList TreeList() const
-    {
-        return GenTreeList(GetTreeList());
-    }
-
-    GenTreeList Nodes() const
-    {
-        return GenTreeList(m_treeList);
+        return GenTreeNodeList(m_nodeList);
     }
 
     InlineContext* GetInlineContext() const
@@ -6452,12 +6445,12 @@ public:
 
     IL_OFFSETX GetILOffsetX() const
     {
-        return m_ILOffsetX;
+        return m_ilOffsetX;
     }
 
     void SetILOffsetX(IL_OFFSETX offsetX)
     {
-        m_ILOffsetX = offsetX;
+        m_ilOffsetX = offsetX;
     }
 
 #ifdef DEBUG
@@ -6506,43 +6499,13 @@ public:
     {
         return m_rootNode->GetCostEx();
     }
-
-private:
-    // The root of the expression tree.
-    // Note: It will be the last node in evaluation order.
-    GenTree* m_rootNode;
-
-    // The tree list head (for forward walks in evaluation order).
-    // The value is `nullptr` until we have set the sequencing of the nodes.
-    GenTree* m_treeList;
-
-    // The statement nodes are doubly-linked. The first statement node in a block points
-    // to the last node in the block via its `m_prev` link. Note that the last statement node
-    // does not point to the first: it's `m_next == nullptr`; that is, the list is not fully circular.
-    Statement* m_next;
-    Statement* m_prev;
-
-    InlineContext* m_inlineContext; // The inline context for this statement.
-
-    IL_OFFSETX m_ILOffsetX; // The instr offset (if available).
-
-    INDEBUG(unsigned m_stmtID;)
-
-    bool m_compilerAdded; // Was the statement created by optimizer?
 };
 
-// StatementList: adapter class for forward iteration of the statement linked list using range-based `for`,
-// normally used via BasicBlock::Statements(), e.g.:
-//    for (Statement* const stmt : block->Statements()) ...
-// or:
-//    for (Statement* const stmt : block->NonPhiStatements()) ...
-//
 class StatementList
 {
-    Statement* m_stmts;
+    Statement* m_head;
 
-    // Forward iterator for the statement linked list.
-    //
+public:
     class iterator
     {
         Statement* m_stmt;
@@ -6569,14 +6532,13 @@ class StatementList
         }
     };
 
-public:
-    StatementList(Statement* stmts) : m_stmts(stmts)
+    StatementList(Statement* head) : m_head(head)
     {
     }
 
     iterator begin() const
     {
-        return iterator(m_stmts);
+        return iterator(m_head);
     }
 
     iterator end() const
