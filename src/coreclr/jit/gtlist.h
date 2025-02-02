@@ -241,8 +241,6 @@ GTNODE(JTRUE            , GenTreeOp           , GTK_UNOP|GTK_NOVALUE)
 
 GTNODE(FIELD_ADDR       , GenTreeFieldAddr    , GTK_UNOP|GTK_EXOP|GTK_NOTLIR) // Member-field address
 GTNODE(ARR_ELEM         , GenTreeArrElem      , GTK_SPECIAL)            // Multi-dimensional array-element address
-GTNODE(ARR_INDEX        , GenTreeArrIndex     , GTK_BINOP|GTK_EXOP)     // Effective, bounds-checked index for one dimension of a multi-dimensional array element
-GTNODE(ARR_OFFSET       , GenTreeArrOffs      , GTK_SPECIAL)            // Flattened offset of multi-dimensional array element
 GTNODE(CALL             , GenTreeCall         , GTK_SPECIAL|GTK_NOCONTAIN)
 GTNODE(FIELD_LIST       , GenTreeFieldList    , GTK_SPECIAL)            // List of fields of a struct, when passed as an argument
 GTNODE(RETURN           , GenTreeOp           , GTK_UNOP|GTK_NOVALUE)   // return from current function

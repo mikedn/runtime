@@ -250,6 +250,11 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
     return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
 
+inline GenTreeAddrMode* Compiler::gtNewAddrMode(GenTree* base, int offset)
+{
+    return new (this, GT_LEA) GenTreeAddrMode(base, offset);
+}
+
 inline GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));

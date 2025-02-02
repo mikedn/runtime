@@ -4487,6 +4487,18 @@ bool Lowering::CanWidenSimd12ToSimd16(const LclVarDsc* lcl)
 }
 #endif // FEATURE_SIMD
 
+static unsigned OffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension)
+{
+    // Note that the lower bound and length fields of the Array object are always INT, even on 64-bit targets.
+    return Compiler::eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * (dimension + rank);
+}
+
+static unsigned OffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension)
+{
+    // Note that the lower bound and length fields of the Array object are always INT, even on 64-bit targets.
+    return Compiler::eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * dimension;
+}
+
 GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
 {
     assert(elem->TypeIs(TYP_BYREF));
@@ -4495,71 +4507,122 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
 
     assert(array->TypeIs(TYP_REF));
 
-    // We need to have the array object in a local.
-    // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) results in poor CQ,
+    // TODO-MIKE-Review: Allowing DNER LCL_LOAD results in poor CQ,
     // we really should always have the array reference in a register.
-    if (!array->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    if (!array->OperIs(GT_LCL_LOAD))
     {
         LIR::Use use(BlockRange(), &elem->GetUse(0).NodeRef(), elem);
         ReplaceWithLclLoad(use);
         array = elem->GetArray();
     }
 
-    assert(array->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    if (mdArrayLengthTempLcl == nullptr)
+    {
+        // TODO-MIKE-Review: It's possible to use only 2 temporaries, if we do the index
+        // multiplication earlier. However, that causes problems with madd formation on ARM64.
+        mdArrayLengthTempLcl = comp->lvaNewTemp(TYP_INT, true DEBUG_ARG("MDArrayLengthTemp"));
+        mdArrayIndex1TempLcl = comp->lvaNewTemp(TYP_INT, true DEBUG_ARG("MDArrayIndex1Temp"));
+        mdArrayIndex2TempLcl = comp->lvaNewTemp(TYP_INT, true DEBUG_ARG("MDArrayIndex2Temp"));
+    }
 
-    var_types elemType = elem->GetElemType();
-    unsigned  rank     = elem->GetRank();
+    // TODO-MIKE-Review: This should probably be done during global morphing, so that the
+    // invariant dimension computations can be hoisted. We could also propagate constant
+    // lower bounds and length if the array is created within the same method (and lower
+    // bounds would be very useful to propagate as they're always 0 for C# created arrays).
 
-    GenTree* linearIndex = new (comp, GT_ARR_INDEX) GenTreeArrIndex(array, elem->GetIndex(0), 0, rank, elemType);
-    linearIndex->SetSideEffects(GTF_EXCEPT);
-    BlockRange().InsertBefore(elem, linearIndex);
+    LclVarDsc* const arrayLcl  = array->AsLclLoad()->GetLcl();
+    LclVarDsc* const lengthLcl = mdArrayLengthTempLcl;
+    LclVarDsc* const index1Lcl = mdArrayIndex1TempLcl;
+    LclVarDsc* const index2Lcl = mdArrayIndex2TempLcl;
+
+    var_types const elemType         = elem->GetElemType();
+    unsigned const  rank             = elem->GetRank();
+    unsigned        lowerBoundOffset = OffsetOfMDArrayLowerBound(elemType, rank, 0);
+    unsigned        lengthOffset     = OffsetOfMDArrayDimensionSize(elemType, rank, 0);
+
+    GenTree* addr  = comp->gtNewAddrMode(array, lowerBoundOffset);
+    GenTree* load  = comp->gtNewIndLoad(TYP_INT, addr);
+    GenTree* index = comp->gtNewOperNode(GT_SUB, TYP_INT, elem->GetIndex(0), load);
+    GenTree* store = comp->gtNewLclStore(index1Lcl, TYP_INT, index);
+    BlockRange().InsertBefore(elem, addr, load, index, store);
+    GenTree* nextToLower = addr;
+
+    array = comp->gtNewLclLoad(arrayLcl, TYP_REF);
+    addr  = comp->gtNewAddrMode(array, lengthOffset);
+    load  = comp->gtNewIndLoad(TYP_INT, addr);
+    BlockRange().InsertBefore(elem, array, addr, load);
+
+    index           = comp->gtNewLclLoad(index1Lcl, TYP_INT);
+    GenTree* check  = comp->gtNewBoundsChk(index, load, ThrowHelperKind::IndexOutOfRange);
+    GenTree* linear = comp->gtNewLclLoad(index1Lcl, TYP_INT);
+    BlockRange().InsertBefore(elem, index, check, linear);
+    GenTree* mul;
 
     for (unsigned dim = 1; dim < rank; dim++)
     {
-        array        = comp->gtCloneSimple(array);
-        GenTree* idx = new (comp, GT_ARR_INDEX) GenTreeArrIndex(array, elem->GetIndex(dim), dim, rank, elemType);
-        idx->SetSideEffects(GTF_EXCEPT);
-        BlockRange().InsertBefore(elem, array, idx);
+        lowerBoundOffset = OffsetOfMDArrayLowerBound(elemType, rank, dim);
+        lengthOffset     = OffsetOfMDArrayDimensionSize(elemType, rank, dim);
 
-        array        = comp->gtCloneSimple(array);
-        GenTree* ofs = new (comp, GT_ARR_OFFSET) GenTreeArrOffs(linearIndex, idx, array, dim, rank, elemType);
-        ofs->SetSideEffects(GTF_NONE);
-        BlockRange().InsertBefore(elem, array, ofs);
+        array = comp->gtNewLclLoad(arrayLcl, TYP_REF);
+        addr  = comp->gtNewAddrMode(array, lowerBoundOffset);
+        load  = comp->gtNewIndLoad(TYP_INT, addr);
+        index = comp->gtNewOperNode(GT_SUB, TYP_INT, elem->GetIndex(dim), load);
+        BlockRange().InsertBefore(elem, array, addr, load, index);
 
-        linearIndex = ofs;
+        array = comp->gtNewLclLoad(arrayLcl, TYP_REF);
+        addr  = comp->gtNewAddrMode(array, lengthOffset);
+        load  = comp->gtNewIndLoad(TYP_INT, addr);
+        store = comp->gtNewLclStore(lengthLcl, TYP_INT, load);
+        BlockRange().InsertBefore(elem, array, addr, load, store);
+
+        store = comp->gtNewLclStore(index2Lcl, TYP_INT, index);
+        index = comp->gtNewLclLoad(index2Lcl, TYP_INT);
+        load  = comp->gtNewLclLoad(lengthLcl, TYP_INT);
+        check = comp->gtNewBoundsChk(index, load, ThrowHelperKind::IndexOutOfRange);
+        BlockRange().InsertBefore(elem, store, index, load, check);
+
+        index  = comp->gtNewLclLoad(index2Lcl, TYP_INT);
+        load   = comp->gtNewLclLoad(lengthLcl, TYP_INT);
+        mul    = comp->gtNewOperNode(GT_MUL, TYP_INT, linear, load);
+        linear = comp->gtNewOperNode(GT_ADD, TYP_INT, mul, index);
+        BlockRange().InsertBefore(elem, index, load, mul, linear);
     }
 
     LIR::Use elemUse;
 
     if (!BlockRange().TryGetUse(elem, &elemUse))
     {
-        linearIndex->SetUnusedValue();
+        linear->SetUnusedValue();
     }
     else
     {
         unsigned scale    = elem->GetElemSize();
-        GenTree* leaIndex = linearIndex;
+        GenTree* leaIndex = linear;
+
+#ifdef TARGET_64BIT
+        // TODO-MIKE-CQ: This is not eliminated by codegen even if the upper 32 bits are known to be 0.
+        // Actually, this probably a LSRA problem, since it allocates a different register to UXT for
+        // no reason (the UXT operand is SDSU so it should just reuse its register).
+        leaIndex = comp->gtNewOperNode(GT_UXT, TYP_LONG, leaIndex);
+        BlockRange().InsertBefore(elem, leaIndex);
+#endif
 
         if (!AddrMode::IsIndexScale(scale))
         {
             GenTree* scaleNode = comp->gtNewIconNode(scale, TYP_I_IMPL);
             leaIndex           = comp->gtNewOperNode(GT_MUL, TYP_I_IMPL, leaIndex, scaleNode);
-            leaIndex->SetSideEffects(GTF_NONE);
             BlockRange().InsertBefore(elem, scaleNode, leaIndex);
-            ContainCheckMul(leaIndex->AsOp());
             scale = 1;
         }
 
-        unsigned offset  = Compiler::eeGetMDArrayDataOffset(elemType, rank);
-        GenTree* leaBase = comp->gtCloneSimple(array);
-        GenTree* lea     = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, leaBase, leaIndex, scale, offset);
-        lea->SetSideEffects(GTF_NONE);
-        BlockRange().InsertBefore(elem, leaBase, lea);
+        unsigned offset = Compiler::eeGetMDArrayDataOffset(elemType, rank);
+        array           = comp->gtNewLclLoad(arrayLcl, TYP_REF);
+        GenTree* lea    = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, array, leaIndex, scale, offset);
+        BlockRange().InsertBefore(elem, array, lea);
 
         elemUse.SetDef(lea);
     }
 
-    GenTree* nextToLower = elem->gtNext;
     BlockRange().Remove(elem);
     return nextToLower;
 }

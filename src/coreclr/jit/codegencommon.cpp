@@ -186,20 +186,6 @@ regMaskTP Compiler::compHelperCallKillSet(CorInfoHelpFunc helper)
     }
 }
 
-// Returns the offset from the Array object to the lower bound for the given dimension.
-unsigned CodeGen::genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension)
-{
-    // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
-    return Compiler::eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * (dimension + rank);
-}
-
-// Returns the offset from the Array object to the attr for the given dimension.
-unsigned CodeGen::genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension)
-{
-    // Note that the lower bound and length fields of the Array object are always TYP_INT, even on 64-bit targets.
-    return Compiler::eeGetArrayDataOffset(elemType) + varTypeSize(TYP_INT) * dimension;
-}
-
 bool AddrMode::IsIndexScale(size_t value)
 {
     return (value == 1) || (value == 2) || (value == 4) || (value == 8);

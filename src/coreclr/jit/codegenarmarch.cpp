@@ -760,48 +760,6 @@ void CodeGen::GenRegUse(GenTreeRegUse* node)
     DefReg(node);
 }
 
-void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
-{
-    unsigned  dim              = arrIndex->GetDimension();
-    unsigned  rank             = arrIndex->GetRank();
-    var_types elemType         = arrIndex->GetElemType();
-    unsigned  lowerBoundOffset = genOffsetOfMDArrayLowerBound(elemType, rank, dim);
-    unsigned  lengthOffset     = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
-
-    RegNum arrayReg = UseReg(arrIndex->GetArray());
-    RegNum indexReg = UseReg(arrIndex->GetIndex());
-    RegNum dstReg   = arrIndex->GetRegNum();
-    RegNum tmpReg   = arrIndex->GetSingleTempReg();
-    assert(dstReg != tmpReg);
-
-    Emitter& emit = *GetEmitter();
-    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lowerBoundOffset);
-    emit.emitIns_R_R_R(INS_sub, EA_4BYTE, dstReg, indexReg, tmpReg);
-    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
-    emit.emitIns_R_R(INS_cmp, EA_4BYTE, dstReg, tmpReg);
-    genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange);
-
-    DefReg(arrIndex);
-}
-
-void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
-{
-    unsigned lengthOffset =
-        genOffsetOfMDArrayDimensionSize(arrOffset->GetElemType(), arrOffset->GetRank(), arrOffset->GetDimension());
-
-    RegNum offsetReg = UseReg(arrOffset->GetOffset());
-    RegNum indexReg  = UseReg(arrOffset->GetIndex());
-    RegNum arrayReg  = UseReg(arrOffset->GetArray());
-    RegNum tmpReg    = arrOffset->GetSingleTempReg();
-    RegNum dstReg    = arrOffset->GetRegNum();
-
-    Emitter& emit = *GetEmitter();
-    emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
-    emit.emitIns_R_R_R_R(INS_MULADD, EA_PTRSIZE, dstReg, tmpReg, offsetReg, indexReg);
-
-    DefReg(arrOffset);
-}
-
 void CodeGen::GenShift(GenTreeOp* shift)
 {
     assert(shift->OperIs(GT_LSH, GT_RSH, GT_RSZ, GT_ROR));

@@ -209,8 +209,6 @@ static_assert_no_msg(sizeof(GenTreeQmark)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndexAddr)    <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeArrLen)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeBoundsChk)    <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeArrIndex)     <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeArrOffs)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndir)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeIndStore)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeAddrMode)     <= TREE_NODE_SZ_SMALL);
@@ -897,8 +895,6 @@ AGAIN:
             return GenTreeCall::Equals(op1->AsCall(), op2->AsCall());
         case GT_ARR_ELEM:
             return GenTreeArrElem::Equals(op1->AsArrElem(), op2->AsArrElem());
-        case GT_ARR_OFFSET:
-            return GenTreeArrOffs::Equals(op1->AsArrOffs(), op2->AsArrOffs());
         case GT_PHI:
             return GenTreePhi::Equals(op1->AsPhi(), op2->AsPhi());
         case GT_FIELD_LIST:
@@ -1087,7 +1083,6 @@ AGAIN:
                     break;
 
                 // For the ones below no extra argument matters for comparison.
-                case GT_ARR_INDEX:
                 case GT_INDEX_ADDR:
                     break;
 
@@ -1209,7 +1204,6 @@ AGAIN:
             }
             break;
 
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -2846,7 +2840,6 @@ void Compiler::gtSetCosts(GenTree* tree)
                 break;
 
             case GT_CMPXCHG:
-            case GT_ARR_OFFSET:
             case GT_COPY_BLK:
             case GT_INIT_BLK:
                 if (tree->OperIs(GT_CMPXCHG))
@@ -3255,7 +3248,6 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
         }
 #endif // FEATURE_HW_INTRINSICS
 
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -4496,9 +4488,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_ARR_LENGTH:
                 copy = new (this, GT_ARR_LENGTH) GenTreeArrLen(tree->AsArrLen());
                 break;
-            case GT_ARR_INDEX:
-                copy = new (this, GT_ARR_INDEX) GenTreeArrIndex(tree->AsArrIndex());
-                break;
             case GT_LCL_STORE:
                 copy = new (this, GT_LCL_STORE) GenTreeLclStore(tree->AsLclStore());
                 break;
@@ -4665,9 +4654,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             break;
         case GT_QMARK:
             copy = new (this, GT_QMARK) GenTreeQmark(tree->AsQmark());
-            goto CLONE_TERNARY;
-        case GT_ARR_OFFSET:
-            copy = new (this, GT_ARR_OFFSET) GenTreeArrOffs(tree->AsArrOffs());
             goto CLONE_TERNARY;
         case GT_CMPXCHG:
             copy = new (this, GT_CMPXCHG) GenTreeCmpXchg(tree->AsCmpXchg());
@@ -4947,8 +4933,6 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_LCLHEAP: // TODO-MIKE-Review: Do we really care about this?
         case GT_BOUNDS_CHECK:
         case GT_ARR_ELEM:
-        case GT_ARR_INDEX:
-        case GT_ARR_OFFSET:
         case GT_CKFINITE:
         case GT_OVF_U:
         case GT_OVF_TRUNC:
@@ -5293,7 +5277,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             AdvanceArrElem();
             return;
 
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -5627,52 +5610,6 @@ void Compiler::gtDispNodeName(GenTree* tree)
         for (unsigned i = 0; i < arrElem->GetRank() - 1; i++)
         {
             p += SimpleSprintf_s(p, buf, sizeof(buf), ",");
-        }
-
-        SimpleSprintf_s(p, buf, sizeof(buf), "]");
-    }
-    else if (tree->OperIs(GT_ARR_OFFSET, GT_ARR_INDEX))
-    {
-        char* p = buf + SimpleSprintf_s(buf, buf, sizeof(buf), "%s[", name);
-
-        unsigned currDim;
-        unsigned rank;
-
-        if (tree->OperIs(GT_ARR_OFFSET))
-        {
-            currDim = tree->AsArrOffs()->GetDimension();
-            rank    = tree->AsArrOffs()->GetRank();
-        }
-        else
-        {
-            currDim = tree->AsArrIndex()->GetDimension();
-            rank    = tree->AsArrIndex()->GetRank();
-        }
-
-        for (unsigned dim = 0; dim < rank; dim++)
-        {
-            // Use a defacto standard i,j,k for the dimensions.
-            // Note that we only support up to rank 3 arrays with these nodes, so we won't run out of characters.
-            char dimChar = '*';
-
-            if (dim == currDim)
-            {
-                dimChar = static_cast<char>('i' + dim);
-            }
-            else if (dim > currDim)
-            {
-                dimChar = ' ';
-            }
-
-            if (dimChar != ' ')
-            {
-                p += SimpleSprintf_s(p, buf, sizeof(buf), "%c", dimChar);
-            }
-
-            if (dim != rank - 1)
-            {
-                p += SimpleSprintf_s(p, buf, sizeof(buf), ",");
-            }
         }
 
         SimpleSprintf_s(p, buf, sizeof(buf), "]");
@@ -7373,7 +7310,6 @@ void Compiler::gtDispTreeRec(
             }
             break;
 
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:

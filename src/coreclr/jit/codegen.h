@@ -161,10 +161,6 @@ private:
     unsigned gcInfoSize = 0;
 #endif
 
-    // JIT-time constants for use in multi-dimensional array code generation.
-    unsigned genOffsetOfMDArrayLowerBound(var_types elemType, unsigned rank, unsigned dimension);
-    unsigned genOffsetOfMDArrayDimensionSize(var_types elemType, unsigned rank, unsigned dimension);
-
     void InitLclBlockLiveInRegs();
     void genCodeForBBlist();
 
@@ -787,8 +783,6 @@ protected:
 #endif
     void GenJmpTable(GenTree* node, const BBswtDesc& switchDesc);
     void GenSwitchTable(GenTreeOp* node);
-    void GenArrIndex(GenTreeArrIndex* node);
-    void GenArrOffs(GenTreeArrOffs* node);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void GenCall(GenTreeCall* call);
     void GenJmp(GenTree* jmp);

@@ -3145,56 +3145,6 @@ void CodeGen::GenNullCheck(GenTreeNullCheck* node)
     GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, reg, reg, 0);
 }
 
-void CodeGen::GenArrIndex(GenTreeArrIndex* arrIndex)
-{
-    unsigned  dim              = arrIndex->GetDimension();
-    unsigned  rank             = arrIndex->GetRank();
-    var_types elemType         = arrIndex->GetElemType();
-    unsigned  lowerBoundOffset = genOffsetOfMDArrayLowerBound(elemType, rank, dim);
-    unsigned  lengthOffset     = genOffsetOfMDArrayDimensionSize(elemType, rank, dim);
-
-    RegNum arrayReg = UseReg(arrIndex->GetArray());
-    RegNum indexReg = UseReg(arrIndex->GetIndex());
-    RegNum dstReg   = arrIndex->GetRegNum();
-
-    Emitter& emit = *GetEmitter();
-    // TODO-XArch-CQ: make this contained if it's an immediate that fits.
-    emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, indexReg, /* canSkip */ true);
-    emit.emitIns_R_AR(INS_sub, EA_4BYTE, dstReg, arrayReg, lowerBoundOffset);
-    emit.emitIns_R_AR(INS_cmp, EA_4BYTE, dstReg, arrayReg, lengthOffset);
-    genJumpToThrowHlpBlk(EJ_ae, ThrowHelperKind::IndexOutOfRange);
-
-    DefReg(arrIndex);
-}
-
-void CodeGen::GenArrOffs(GenTreeArrOffs* arrOffset)
-{
-    unsigned lengthOffset =
-        genOffsetOfMDArrayDimensionSize(arrOffset->GetElemType(), arrOffset->GetRank(), arrOffset->GetDimension());
-
-    RegNum offsetReg = UseReg(arrOffset->GetOffset());
-    RegNum indexReg  = UseReg(arrOffset->GetIndex());
-    RegNum arrayReg  = UseReg(arrOffset->GetArray());
-    RegNum tmpReg    = arrOffset->GetSingleTempReg();
-    RegNum dstReg    = arrOffset->GetRegNum();
-
-    Emitter& emit = *GetEmitter();
-    emit.emitIns_R_AR(INS_mov, EA_4BYTE, tmpReg, arrayReg, lengthOffset);
-    emit.emitIns_R_R(INS_imul, EA_PTRSIZE, tmpReg, offsetReg);
-
-    if (tmpReg == dstReg)
-    {
-        emit.emitIns_R_R(INS_add, EA_PTRSIZE, tmpReg, indexReg);
-    }
-    else
-    {
-        emit.emitIns_Mov(INS_mov, EA_PTRSIZE, dstReg, indexReg, /* canSkip */ true);
-        emit.emitIns_R_R(INS_add, EA_PTRSIZE, dstReg, tmpReg);
-    }
-
-    DefReg(arrOffset);
-}
-
 instruction CodeGen::ins_FloatCompare(var_types type)
 {
     return type == TYP_FLOAT ? INS_ucomiss : INS_ucomisd;

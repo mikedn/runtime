@@ -24,6 +24,9 @@ class Lowering
     LclVarDsc* m_simd32MemoryTempLcl = nullptr;
 #endif
 #endif // FEATURE_HW_INTRINSICS
+    LclVarDsc* mdArrayLengthTempLcl = nullptr;
+    LclVarDsc* mdArrayIndex1TempLcl = nullptr;
+    LclVarDsc* mdArrayIndex2TempLcl = nullptr;
 
 public:
     Lowering(Compiler* compiler) : comp(compiler)

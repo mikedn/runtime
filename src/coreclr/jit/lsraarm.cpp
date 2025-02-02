@@ -252,32 +252,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBoundsChk(tree->AsBoundsChk());
             break;
 
-        case GT_ARR_INDEX:
-            BuildInternalIntDef(tree);
-            setInternalRegsDelayFree = true;
-            // The lifetime of the arrObj must be extended because it is
-            // used multiple times while the result is being computed.
-            setDelayFree(BuildUse(tree->AsArrIndex()->GetArray()));
-            BuildUse(tree->AsArrIndex()->GetIndex());
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_ARR_OFFSET:
-            if (!tree->AsArrOffs()->GetOp(0)->isContained())
-            {
-                // Here we simply need an internal register, which must be different
-                // from any of the operand's registers, but may be the same as targetReg.
-                BuildInternalIntDef(tree);
-                BuildUse(tree->AsArrOffs()->GetOp(0));
-            }
-
-            BuildUse(tree->AsArrOffs()->GetOp(1));
-            BuildUse(tree->AsArrOffs()->GetOp(2));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
         case GT_LEA:
             BuildAddrMode(tree->AsAddrMode());
             break;

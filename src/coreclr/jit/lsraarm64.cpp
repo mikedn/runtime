@@ -296,32 +296,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBoundsChk(tree->AsBoundsChk());
             break;
 
-        case GT_ARR_INDEX:
-            BuildInternalIntDef(tree);
-            setInternalRegsDelayFree = true;
-            // The lifetime of the arrObj must be extended because it is
-            // used multiple times while the result is being computed.
-            setDelayFree(BuildUse(tree->AsArrIndex()->GetArray()));
-            BuildUse(tree->AsArrIndex()->GetIndex());
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
-        case GT_ARR_OFFSET:
-            // This consumes the offset, if any, the arrObj and the effective index,
-            // and produces the flattened offset for this dimension.
-            if (!tree->AsArrOffs()->GetOp(0)->isContained())
-            {
-                BuildUse(tree->AsArrOffs()->GetOp(0));
-            }
-
-            BuildUse(tree->AsArrOffs()->GetOp(1));
-            BuildUse(tree->AsArrOffs()->GetOp(2));
-            BuildInternalIntDef(tree);
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
         case GT_LEA:
             BuildAddrMode(tree->AsAddrMode());
             break;

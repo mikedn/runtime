@@ -2941,6 +2941,7 @@ public:
 
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
+    GenTreeAddrMode* gtNewAddrMode(GenTree* base, int offset);
     GenTreeIndLoad* gtNewIndLoad(var_types type, GenTree* addr);
     GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);
@@ -6562,7 +6563,6 @@ void GenTree::VisitOperands(TVisitor visitor)
             }
             return;
 
-        case GT_ARR_OFFSET:
         case GT_CMPXCHG:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
@@ -6983,7 +6983,6 @@ public:
                 }
                 break;
 
-            case GT_ARR_OFFSET:
             case GT_CMPXCHG:
             case GT_COPY_BLK:
             case GT_INIT_BLK:

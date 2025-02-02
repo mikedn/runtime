@@ -5926,12 +5926,11 @@ struct GenTreeArrElem : public GenTree
 
     using Use = GenTreeUse;
 
-    Use m_uses[MaxNumOps];
-
 private:
     uint8_t   m_numOps;
     uint8_t   m_elemSize;
     var_types m_elemType;
+    Use       m_uses[MaxNumOps];
 
 public:
     GenTreeArrElem(var_types elemType, unsigned elemSize, unsigned numOps, GenTree** ops)
@@ -6057,133 +6056,6 @@ public:
 
 #if DEBUGGABLE_GENTREE
     GenTreeArrElem() = default;
-#endif
-};
-
-struct GenTreeArrIndex : public GenTreeOp
-{
-    uint8_t   gtCurrDim;
-    uint8_t   gtArrRank;
-    var_types gtArrElemType;
-
-    GenTreeArrIndex(GenTree* arrObj, GenTree* indexExpr, unsigned currDim, unsigned arrRank, var_types elemType)
-        : GenTreeOp(GT_ARR_INDEX, TYP_I_IMPL, arrObj, indexExpr)
-        , gtCurrDim(static_cast<uint8_t>(currDim))
-        , gtArrRank(static_cast<uint8_t>(arrRank))
-        , gtArrElemType(elemType)
-    {
-        gtFlags |= GTF_EXCEPT;
-    }
-
-    GenTreeArrIndex(const GenTreeArrIndex* copyFrom)
-        : GenTreeOp(copyFrom)
-        , gtCurrDim(copyFrom->gtCurrDim)
-        , gtArrRank(copyFrom->gtArrRank)
-        , gtArrElemType(copyFrom->gtArrElemType)
-    {
-        gtFlags |= GTF_EXCEPT;
-    }
-
-    unsigned GetRank() const
-    {
-        return gtArrRank;
-    }
-
-    unsigned GetDimension() const
-    {
-        return gtCurrDim;
-    }
-
-    var_types GetElemType() const
-    {
-        return gtArrElemType;
-    }
-
-    GenTree* GetArray() const
-    {
-        return gtOp1;
-    }
-
-    GenTree* GetIndex() const
-    {
-        return gtOp2;
-    }
-
-    bool IsCommutative() = delete;
-
-    static bool Equals(const GenTreeArrIndex* x, const GenTreeArrIndex* y)
-    {
-        return (x->gtArrRank == y->gtArrRank) && (x->gtArrElemType == y->gtArrElemType) &&
-               (x->gtCurrDim == y->gtCurrDim) && Compare(x->gtOp1, y->gtOp1) && Compare(x->gtOp2, y->gtOp2);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeArrIndex() = default;
-#endif
-};
-
-struct GenTreeArrOffs : public GenTreeTernaryOp
-{
-private:
-    uint8_t   m_dimension;
-    uint8_t   m_rank;
-    var_types m_elemType;
-
-public:
-    GenTreeArrOffs(GenTree* offset, GenTree* index, GenTree* array, unsigned dim, unsigned rank, var_types elemType)
-        : GenTreeTernaryOp(GT_ARR_OFFSET, TYP_I_IMPL, offset, index, array)
-        , m_dimension(static_cast<uint8_t>(dim))
-        , m_rank(static_cast<uint8_t>(rank))
-        , m_elemType(elemType)
-    {
-    }
-
-    GenTreeArrOffs(GenTreeArrOffs* copyFrom)
-        : GenTreeTernaryOp(copyFrom)
-        , m_dimension(copyFrom->m_dimension)
-        , m_rank(copyFrom->m_rank)
-        , m_elemType(copyFrom->m_elemType)
-    {
-    }
-
-    unsigned GetRank() const
-    {
-        return m_rank;
-    }
-
-    unsigned GetDimension() const
-    {
-        return m_dimension;
-    }
-
-    var_types GetElemType() const
-    {
-        return m_elemType;
-    }
-
-    GenTree* GetOffset() const
-    {
-        return gtOp1;
-    }
-
-    GenTree* GetIndex() const
-    {
-        return gtOp2;
-    }
-
-    GenTree* GetArray() const
-    {
-        return gtOp3;
-    }
-
-    static bool Equals(const GenTreeArrOffs* x, const GenTreeArrOffs* y)
-    {
-        return (x->m_rank == y->m_rank) && (x->m_elemType == y->m_elemType) && (x->m_dimension == y->m_dimension) &&
-               Compare(x->gtOp1, y->gtOp1) && Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
-    }
-
-#if DEBUGGABLE_GENTREE
-    GenTreeArrOffs() = default;
 #endif
 };
 

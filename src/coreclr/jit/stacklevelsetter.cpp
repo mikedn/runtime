@@ -122,7 +122,6 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* 
 
         case GT_INDEX_ADDR:
         case GT_ARR_ELEM:
-        case GT_ARR_INDEX:
             SetThrowHelperBlockStackLevel(ThrowHelperKind::IndexOutOfRange, throwBlock);
             break;
 

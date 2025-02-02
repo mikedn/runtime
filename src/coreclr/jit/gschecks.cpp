@@ -244,10 +244,6 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             return Compiler::WALK_SKIP_SUBTREES;
         }
 
-        case GT_ARR_INDEX:
-        case GT_ARR_OFFSET:
-            unreached();
-
         default:
             return Compiler::WALK_CONTINUE;
     }

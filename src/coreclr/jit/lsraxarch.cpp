@@ -324,29 +324,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildBoundsChk(tree->AsBoundsChk());
             break;
 
-        case GT_ARR_INDEX:
-            assert(!tree->AsArrIndex()->GetArray()->isContained());
-            assert(!tree->AsArrIndex()->GetIndex()->isContained());
-            // The lifetime of the arrObj must be extended because it is
-            // used multiple times while the result is being computed.
-            setDelayFree(BuildUse(tree->AsArrIndex()->GetArray()));
-            BuildUse(tree->AsArrIndex()->GetIndex());
-            BuildDef(tree);
-            break;
-
-        case GT_ARR_OFFSET:
-            if (!tree->AsArrOffs()->GetOp(0)->isContained())
-            {
-                BuildInternalIntDef(tree);
-                BuildUse(tree->AsArrOffs()->GetOp(0));
-            }
-
-            BuildUse(tree->AsArrOffs()->GetOp(1));
-            BuildUse(tree->AsArrOffs()->GetOp(2));
-            BuildInternalUses();
-            BuildDef(tree);
-            break;
-
         case GT_LEA:
             BuildAddrMode(tree->AsAddrMode());
             break;
@@ -448,16 +425,19 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
     BuildDef(interlocked);
 }
 
-void LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
+RefPosition* LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates))
 {
     if (!node->isContained())
     {
-        BuildUse(node X86_ARG(candidates));
+        return BuildUse(node X86_ARG(candidates));
     }
-    else if (node->OperIs(GT_IND_LOAD))
+
+    if (node->OperIs(GT_IND_LOAD))
     {
         BuildAddrUses(node->AsIndLoad()->GetAddr());
     }
+
+    return nullptr;
 }
 
 #ifdef DEBUG

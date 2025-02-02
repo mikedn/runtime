@@ -904,12 +904,6 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_INDEX_ADDR:
             GenIndexAddr(node->AsIndexAddr());
             break;
-        case GT_ARR_INDEX:
-            GenArrIndex(node->AsArrIndex());
-            break;
-        case GT_ARR_OFFSET:
-            GenArrOffs(node->AsArrOffs());
-            break;
         case GT_INTRINSIC:
             GenIntrinsic(node->AsIntrinsic());
             break;
