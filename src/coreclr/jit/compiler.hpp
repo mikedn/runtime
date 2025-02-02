@@ -370,7 +370,7 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 #if DEBUGGABLE_GENTREE
     // Change the vtable of the node, so that it shows up correctly in the debugger.
-    SetVtableForOper(oper);
+    SetVTable();
 #endif
 
     if (oper == GT_CNS_INT)

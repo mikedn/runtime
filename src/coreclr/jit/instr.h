@@ -1,8 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#ifndef INSTR_H
-#define INSTR_H
+#pragma once
 
 #define BAD_CODE 0x0BADC0DE // better not match a real encoding!
 
@@ -377,5 +376,3 @@ struct Arm64Imm
 };
 
 #endif
-
-#endif // INSTR_H

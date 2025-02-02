@@ -1383,6 +1383,7 @@ public:
 
     SequenceVisitor(Compiler* compiler, bool isLIR)
         : GenTreeVisitor(compiler)
+        , m_dummyHead(GT_NONE, TYP_VOID)
         , m_tail(&m_dummyHead)
         , m_isLIR(isLIR)
 #ifdef DEBUG
@@ -3451,24 +3452,24 @@ var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 template <class T>
 static constexpr void* GetVTable()
 {
-    T t;
+    T t(GenTree::Dummy::None);
     return *reinterpret_cast<void**>(&t);
 }
 
 static void* GetVTableForOper(genTreeOps oper)
 {
-    static void* const tbls[GT_COUNT]{
+    static void* const tables[GT_COUNT]{
 #define GTNODE(n, s, k) GetVTable<s>(),
 #include "gtlist.h"
     };
 
-    assert(oper < _countof(tbls));
-    return tbls[oper];
+    assert(oper < _countof(tables));
+    return tables[oper];
 }
 
-void GenTree::SetVtableForOper(genTreeOps oper)
+void GenTree::SetVTable()
 {
-    *reinterpret_cast<void**>(this) = GetVTableForOper(oper);
+    *reinterpret_cast<void**>(this) = GetVTableForOper(gtOper);
 }
 #endif // DEBUGGABLE_GENTREE
 

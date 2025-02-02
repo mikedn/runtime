@@ -617,14 +617,8 @@ constexpr unsigned GetCseIndex(CseInfo info)
 #define IND_COST_EX 3 // execution cost for an indirection
 
 // Forward declarations of the subtypes
-#define GTSTRUCT_0(fn, en) struct GenTree##fn;
-#define GTSTRUCT_1(fn, en) struct GenTree##fn;
-#define GTSTRUCT_2(fn, en, en2) struct GenTree##fn;
-#define GTSTRUCT_3(fn, en, en2, en3) struct GenTree##fn;
-#define GTSTRUCT_4(fn, en, en2, en3, en4) struct GenTree##fn;
+#define GTSTRUCT_0(fn, ...) struct GenTree##fn;
 #define GTSTRUCT_N(fn, ...) struct GenTree##fn;
-#define GTSTRUCT_2_SPECIAL(fn, en, en2) GTSTRUCT_2(fn, en, en2)
-#define GTSTRUCT_3_SPECIAL(fn, en, en2, en3) GTSTRUCT_3(fn, en, en2, en3)
 #include "gtstructs.h"
 
 struct GenTree
@@ -680,6 +674,32 @@ public:
     genTreeOps        gtOperSave = GT_NONE; // Only used to save oper when we destroy a node, to aid debugging.
 #endif
 
+    inline void* operator new(size_t sz, class Compiler*, genTreeOps oper);
+
+    GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
+
+    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->GetOper(), copyFrom->GetType())
+    {
+    }
+
+    GenTree(const GenTree&) = delete;
+    GenTree& operator=(const GenTree&) = delete;
+
+// clang-format off
+#if DEBUGGABLE_GENTREE
+    enum class Dummy { None };
+    GenTree(Dummy) {}
+#define DECLARE_DEBUGGABLE_GENTREE(klass, base) klass(Dummy dummy) : base(dummy) {}
+protected:
+    // In DEBUG builds, add a dummy virtual method, to give the debugger run-time type information.
+    virtual void DummyVirt() const {}
+    void SetVTable();
+public:
+#else
+#define DECLARE_DEBUGGABLE_GENTREE(klass, base)
+#endif // DEBUGGABLE_GENTREE
+// clang-format on
+
 // We use GT_STRUCT_0 only for the category of simple ops.
 #define GTSTRUCT_0(fn, en)                                                                                             \
     GenTree##fn* As##fn()                                                                                              \
@@ -713,23 +733,7 @@ public:
         return OperIs(__VA_ARGS__) ? reinterpret_cast<const GenTree##fn*>(this) : nullptr;                             \
     }
 
-#define GTSTRUCT_1(fn, en) GTSTRUCT_N(fn, en)
-#define GTSTRUCT_2(fn, en, en2) GTSTRUCT_N(fn, en, en2)
-#define GTSTRUCT_3(fn, en, en2, en3) GTSTRUCT_N(fn, en, en2, en3)
-#define GTSTRUCT_4(fn, en, en2, en3, en4) GTSTRUCT_N(fn, en, en2, en3, en4)
-#define GTSTRUCT_2_SPECIAL(fn, en, en2) GTSTRUCT_2(fn, en, en2)
-#define GTSTRUCT_3_SPECIAL(fn, en, en2, en3) GTSTRUCT_3(fn, en, en2, en3)
-
 #include "gtstructs.h"
-
-#undef GTSTRUCT_0
-#undef GTSTRUCT_1
-#undef GTSTRUCT_2
-#undef GTSTRUCT_3
-#undef GTSTRUCT_4
-#undef GTSTRUCT_N
-#undef GTSTRUCT_2_SPECIAL
-#undef GTSTRUCT_3_SPECIAL
 
     genTreeOps GetOper() const
     {
@@ -1739,10 +1743,6 @@ public:
 
     bool IsPhiDef() const;
 
-    GenTree()
-    {
-    }
-
     // Returns an iterator that will produce the use edge to each operand of this node. Differs
     // from the sequence of nodes produced by a loop over `GetChild` in its handling of call, phi,
     // and block op nodes.
@@ -1823,32 +1823,7 @@ public:
     {
         return gtTreeID;
     }
-
-private:
-    GenTree& operator=(const GenTree& gt)
-    {
-        assert(!"Don't copy");
-        return *this;
-    }
-#endif // DEBUG
-
-#if DEBUGGABLE_GENTREE
-    // In DEBUG builds, add a dummy virtual method, to give the debugger run-time type information.
-    virtual void DummyVirt()
-    {
-    }
-
-    void SetVtableForOper(genTreeOps oper);
-#endif // DEBUGGABLE_GENTREE
-
-public:
-    inline void* operator new(size_t sz, class Compiler*, genTreeOps oper);
-
-    inline GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
-
-    GenTree(const GenTree* copyFrom) : GenTree(copyFrom->GetOper(), copyFrom->GetType())
-    {
-    }
+#endif
 };
 
 // Represents a list of fields constituting a struct, when it is passed as an argument.
@@ -2096,6 +2071,8 @@ public:
 
         return (i1 == end1) && (i2 == end2);
     }
+
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldList, GenTree)
 };
 
 //------------------------------------------------------------------------
@@ -2304,11 +2281,7 @@ public:
         }
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeUnOp() : GenTree(), gtOp1(nullptr)
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeUnOp, GenTree)
 };
 
 struct GenTreeOp : public GenTreeUnOp
@@ -2382,9 +2355,7 @@ struct GenTreeOp : public GenTreeUnOp
         return OperIsCommutative(gtOper);
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeOp() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeOp, GenTreeUnOp)
 };
 
 struct GenTreeRegUse : public GenTree
@@ -2407,9 +2378,7 @@ public:
         m_srcReg = reg;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeRegUse() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeRegUse, GenTree)
 };
 
 #ifndef FEATURE_EH_FUNCLETS
@@ -2437,9 +2406,7 @@ public:
         nesting = level;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeEndLFin() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeEndLFin, GenTree)
 };
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -2462,9 +2429,7 @@ public:
         return handle;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeJmp() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeJmp, GenTree)
 };
 
 struct GenTreeMethodAddr : public GenTree
@@ -2506,9 +2471,7 @@ public:
     }
 #endif
 
-#if DEBUGGABLE_GENTREE
-    GenTreeMethodAddr() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeMethodAddr, GenTree)
 };
 
 struct GenTreeIntConCommon : public GenTree
@@ -2520,9 +2483,7 @@ struct GenTreeIntConCommon : public GenTree
     void SetInt64Value(int64_t val);
     int64_t GetValue() const;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIntConCommon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIntConCommon, GenTree)
 };
 
 // This is the GT_CNS_INT struct definition.
@@ -2785,9 +2746,7 @@ public:
 #endif
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIntCon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIntCon, GenTreeIntConCommon)
 };
 
 #ifndef TARGET_64BIT
@@ -2816,9 +2775,7 @@ public:
         value = val;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLngCon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLngCon, GenTreeIntConCommon)
 };
 #endif // !TARGET_64BIT
 
@@ -2896,9 +2853,7 @@ public:
         return GetBits() == 0;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeDblCon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeDblCon, GenTree)
 };
 
 struct GenTreeStrCon : public GenTree
@@ -2933,9 +2888,7 @@ public:
         return (s1->handle == s2->handle) && (s1->token == s2->token);
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeStrCon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeStrCon, GenTree)
 };
 
 struct GenTreeLclVarCommon : public GenTreeUnOp
@@ -2983,9 +2936,7 @@ public:
 
     uint16_t GetLclOffs() const;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclVarCommon() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVarCommon, GenTreeUnOp)
 };
 
 // GenTreeLclVar - load/store of local variable
@@ -3026,9 +2977,7 @@ public:
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclVar() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVar, GenTreeLclVarCommon)
 };
 
 struct GenTreeLclLoad : GenTreeLclVar
@@ -3042,9 +2991,7 @@ struct GenTreeLclLoad : GenTreeLclVar
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclLoad() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclLoad, GenTreeLclVar)
 };
 
 struct GenTreeLclStore : GenTreeLclVar
@@ -3076,9 +3023,7 @@ struct GenTreeLclStore : GenTreeLclVar
     GenTree* gtGetOp2() const          = delete;
     GenTree* gtGetOp2IfPresent() const = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclStore() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
 };
 
 // GenTreeLclFld - load/store of local variable field
@@ -3170,9 +3115,7 @@ public:
     bool IsOffsetMisaligned() const;
 #endif
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclFld() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclFld, GenTreeLclVarCommon)
 };
 
 struct GenTreeLclLoadFld : public GenTreeLclFld
@@ -3185,9 +3128,7 @@ struct GenTreeLclLoadFld : public GenTreeLclFld
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclLoadFld() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclLoadFld, GenTreeLclFld)
 };
 
 struct GenTreeLclStoreFld : public GenTreeLclFld
@@ -3219,9 +3160,7 @@ struct GenTreeLclStoreFld : public GenTreeLclFld
     GenTree* gtGetOp2() const          = delete;
     GenTree* gtGetOp2IfPresent() const = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclStoreFld() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStoreFld, GenTreeLclFld)
 };
 
 struct GenTreeLclAddr : public GenTreeLclVarCommon
@@ -3275,9 +3214,7 @@ public:
         return (a1->GetLcl() == a2->GetLcl()) && (a1->m_lclOffs == a2->m_lclOffs);
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclAddr() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclAddr, GenTreeLclVarCommon)
 };
 
 struct GenTreeLclUse;
@@ -3355,9 +3292,7 @@ public:
         return m_uses;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclDef() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclDef, GenTreeUnOp)
 };
 
 struct GenTreeLclUse final : public GenTree
@@ -3415,9 +3350,7 @@ public:
         return m_nextUse;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeLclUse() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclUse, GenTree)
 };
 
 class LclUses
@@ -3586,9 +3519,7 @@ struct GenTreePhi final : public GenTree
 
     static bool Equals(GenTreePhi* phi1, GenTreePhi* phi2);
 
-#if DEBUGGABLE_GENTREE
-    GenTreePhi() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreePhi, GenTree)
 };
 
 class FieldInfo
@@ -3694,9 +3625,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeInsert() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeInsert, GenTreeOp)
 };
 
 struct GenTreeExtract final : public GenTreeUnOp
@@ -3740,9 +3669,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeExtract() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeExtract, GenTreeUnOp)
 };
 
 struct GenTreeBox : public GenTreeUnOp
@@ -3760,9 +3687,7 @@ struct GenTreeBox : public GenTreeUnOp
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeBox() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeBox, GenTreeUnOp)
 };
 
 struct GenTreeFieldAddr : public GenTreeUnOp
@@ -3866,9 +3791,7 @@ public:
     }
 #endif
 
-#if DEBUGGABLE_GENTREE
-    GenTreeFieldAddr() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldAddr, GenTreeUnOp)
 };
 
 enum class InlineObservation;
@@ -4719,9 +4642,7 @@ public:
 
     static bool Equals(GenTreeCall* c1, GenTreeCall* c2);
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCall() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeCall, GenTree)
 };
 
 class CallArgInfo
@@ -5213,11 +5134,7 @@ struct GenTreeTernaryOp : public GenTreeOp
     const GenTreeOp*   AsOp() const              = delete;
     bool               IsCommutative()           = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeTernaryOp() : GenTreeOp()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeTernaryOp, GenTreeOp)
 };
 
 struct GenTreeCmpXchg : public GenTreeTernaryOp
@@ -5250,9 +5167,7 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
         return gtOp3;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCmpXchg() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeCmpXchg, GenTreeTernaryOp)
 };
 
 struct GenTreeQmark : public GenTreeTernaryOp
@@ -5298,11 +5213,7 @@ struct GenTreeQmark : public GenTreeTernaryOp
         gtOp2 = elseExpr;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeQmark() : GenTreeTernaryOp()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeQmark, GenTreeTernaryOp)
 };
 
 struct GenTreeIntrinsic : public GenTreeOp
@@ -5347,9 +5258,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIntrinsic() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIntrinsic, GenTreeOp)
 };
 
 class GenTreeUse
@@ -5689,11 +5598,7 @@ private:
     }
 
 public:
-#if DEBUGGABLE_GENTREE
-    GenTreeHWIntrinsic() : GenTree()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeHWIntrinsic, GenTree)
 };
 #endif // FEATURE_HW_INTRINSICS
 
@@ -5801,9 +5706,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndexAddr() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndexAddr, GenTreeOp)
 };
 
 struct GenTreeArrLen : public GenTreeUnOp
@@ -5840,11 +5743,7 @@ struct GenTreeArrLen : public GenTreeUnOp
         return TARGET_POINTER_SIZE;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeArrLen() : GenTreeUnOp()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeArrLen, GenTreeUnOp)
 };
 
 struct GenTreeBoundsChk : public GenTreeOp
@@ -5913,9 +5812,7 @@ struct GenTreeBoundsChk : public GenTreeOp
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeBoundsChk() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeBoundsChk, GenTreeOp)
 };
 
 struct GenTreeArrElem : public GenTree
@@ -6054,9 +5951,7 @@ public:
         return true;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeArrElem() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeArrElem, GenTree)
 };
 
 struct GenTreeAddrMode : public GenTreeOp
@@ -6154,9 +6049,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeAddrMode() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeAddrMode, GenTreeOp)
 };
 
 struct GenTreeIndir : public GenTreeOp
@@ -6234,9 +6127,7 @@ public:
 
     bool IsCommutative() = delete;
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndir() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndir, GenTreeOp)
 };
 
 struct GenTreeNullCheck : public GenTreeIndir
@@ -6246,9 +6137,7 @@ struct GenTreeNullCheck : public GenTreeIndir
         gtFlags |= GTF_EXCEPT;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeNullCheck() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeNullCheck, GenTreeIndir)
 };
 
 enum class StructStoreKind : uint8_t
@@ -6351,9 +6240,7 @@ public:
         m_kind = kind;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeBlk() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeBlk, GenTreeIndir)
 };
 
 // This node is used for block values that have a dynamic size.
@@ -6433,9 +6320,7 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
 #endif
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeDynBlk() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeDynBlk, GenTreeTernaryOp)
 };
 
 struct GenTreeIndLoad : public GenTreeIndir
@@ -6448,9 +6333,7 @@ struct GenTreeIndLoad : public GenTreeIndir
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndLoad() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoad, GenTreeIndir)
 };
 
 struct GenTreeIndLoadBlk : public GenTreeBlk
@@ -6463,9 +6346,7 @@ struct GenTreeIndLoadBlk : public GenTreeBlk
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndLoadBlk() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoadBlk, GenTreeBlk)
 };
 
 struct GenTreeIndLoadObj : public GenTreeBlk
@@ -6484,9 +6365,7 @@ struct GenTreeIndLoadObj : public GenTreeBlk
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndLoadObj() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoadObj, GenTreeBlk)
 };
 
 struct GenTreeIndStore : public GenTreeIndir
@@ -6500,9 +6379,7 @@ struct GenTreeIndStore : public GenTreeIndir
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndStore() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStore, GenTreeIndir)
 };
 
 struct GenTreeIndStoreBlk : public GenTreeBlk
@@ -6515,9 +6392,7 @@ struct GenTreeIndStoreBlk : public GenTreeBlk
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndStoreBlk() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStoreBlk, GenTreeBlk)
 };
 
 struct GenTreeIndStoreObj : public GenTreeBlk
@@ -6535,12 +6410,8 @@ struct GenTreeIndStoreObj : public GenTreeBlk
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeIndStoreObj() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStoreObj, GenTreeBlk)
 };
-
-/* gtRetExp -- Place holder for the return expression from an inline candidate (GT_RET_EXPR) */
 
 struct GenTreeRetExpr : public GenTree
 {
@@ -6585,28 +6456,20 @@ public:
         m_retBlockIRSummary = blockIRSummary;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeRetExpr() : GenTree()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeRetExpr, GenTree)
 };
 
 class InlineContext;
 
 struct GenTreeILOffset : public GenTree
 {
-    IL_OFFSETX gtStmtILoffsx; // instr offset (if available)
+    IL_OFFSETX gtStmtILoffsx;
 
     GenTreeILOffset(IL_OFFSETX offset) : GenTree(GT_IL_OFFSET, TYP_VOID), gtStmtILoffsx(offset)
     {
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeILOffset() : GenTree(GT_IL_OFFSET, TYP_VOID)
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeILOffset, GenTree)
 };
 
 // GenTreeList: adapter class for forward iteration of the execution order GenTree linked list
@@ -6910,9 +6773,7 @@ public:
         return x->addr == y->addr;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeClsVar() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeClsVar, GenTree)
 };
 
 struct ConstData;
@@ -6939,9 +6800,7 @@ struct GenTreeConstAddr : public GenTree
         return x->data == y->data;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeConstAddr() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeConstAddr, GenTree)
 };
 
 // Argument passed on stack (GT_PUTARG_STK)
@@ -7059,11 +6918,7 @@ public:
     }
 #endif
 
-#if DEBUGGABLE_GENTREE
-    GenTreePutArgStk() : GenTreeUnOp()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgStk, GenTreeUnOp)
 };
 
 #if FEATURE_ARG_SPLIT
@@ -7133,11 +6988,7 @@ public:
 #endif
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreePutArgSplit() : GenTreePutArgStk()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgSplit, GenTreePutArgStk)
 };
 #endif // FEATURE_ARG_SPLIT
 
@@ -7151,9 +7002,7 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
         ClearOtherRegs();
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCopyOrReload() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeCopyOrReload, GenTreeUnOp)
 };
 
 struct GenTreeAllocObj final : public GenTreeUnOp
@@ -7214,9 +7063,7 @@ struct GenTreeAllocObj final : public GenTreeUnOp
     }
 #endif
 
-#if DEBUGGABLE_GENTREE
-    GenTreeAllocObj() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeAllocObj, GenTreeUnOp)
 };
 
 struct GenTreeRuntimeLookup final : public GenTreeUnOp
@@ -7273,9 +7120,7 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
         return reinterpret_cast<CORINFO_FIELD_HANDLE>(gtHnd);
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeRuntimeLookup() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeRuntimeLookup, GenTreeUnOp)
 };
 
 // Represents the condition of a GT_JCC or GT_SETCC node.
@@ -7518,8 +7363,6 @@ public:
     }
 };
 
-// Represents a GT_JCC or GT_SETCC node.
-
 struct GenTreeCC final : public GenTree
 {
 private:
@@ -7542,9 +7385,7 @@ public:
         condition = cond;
     }
 
-#if DEBUGGABLE_GENTREE
-    GenTreeCC() = default;
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeCC, GenTree)
 };
 
 inline bool GenTree::IsDblConPositiveZero() const

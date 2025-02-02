@@ -6391,12 +6391,8 @@ private:
         return HasInlineUses() ? m_inlineUses : m_uses;
     }
 
-#if DEBUGGABLE_GENTREE
 public:
-    GenTreeInstr() : GenTree()
-    {
-    }
-#endif
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeInstr, GenTree)
 };
 
 template <typename TVisitor>
