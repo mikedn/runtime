@@ -284,34 +284,14 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 
     if (!lcl->IsPromoted())
     {
-        // We cannot decompose a st.lclVar that is not promoted because doing so
-        // changes its liveness semantics. For example, consider the following
-        // decomposition of a st.lclVar into two st.lclFlds:
-        //
-        // Before:
-        //
-        //          /--* t0      int
-        //          +--* t1      int
-        //     t2 = *  gt_long   long
-        //
-        //          /--* t2      long
-        //          *  st.lclVar long    V0
-        //
-        // After:
-        //          /--* t0      int
-        //          *  st.lclFld int     V0    [+0]
-        //
-        //          /--* t1      int
-        //          *  st.lclFld int     V0    [+4]
-        //
-        // Before decomposition, the `st.lclVar` is a simple def of `V0`. After
-        // decomposition, each `st.lclFld` is a partial def of `V0`. This partial
-        // def is treated as both a use and a def of the appropriate lclVar. This
-        // difference will affect any situation in which the liveness of a variable
-        // at a def matters (e.g. dead store elimination, live-in sets, etc.). As
-        // a result, we leave these stores as-is and generate the decomposed store
-        // in the code generator.
-        //
+        // We cannot decompose a LCL_STORE that is not promoted because doing so
+        // changes its liveness semantics - the resulting LCL_STORE_FLDs as partial
+        // definitions and thus are also uses, while the original store was a full
+        // definition of the local.
+        // This difference will affect any situation in which the liveness of a variable
+        // at a def matters (e.g. dead store elimination, live-in sets, etc.). As a
+        // result, we leave these stores as-is and generate the decomposed store in the
+        // the code generator.
         // NOTE: this does extend the lifetime of the low half of the `GT_LONG`
         // node as compared to the decomposed form. If we start doing more code
         // motion in the backend, this may cause some CQ issues and some sort of

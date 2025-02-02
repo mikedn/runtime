@@ -1476,26 +1476,6 @@ void Lowering::LowerCall(GenTreeCall* call)
 // To do this, we look for the first GT_PUTARG_STK or GT_PUTARG_REG, and insert the hook immediately before
 // that. If there are no args, then it should be inserted before the call node.
 //
-// For example:
-//              *  stmtExpr  void  (top level) (IL 0x000...0x010)
-// arg0 SETUP   |  /--*  argPlace  ref    REG NA $c5
-// this in rcx  |  |     /--*  argPlace  ref    REG NA $c1
-//              |  |     |  /--*  call      ref    System.Globalization.CultureInfo.get_InvariantCulture $c2
-// arg1 SETUP   |  |     +--*  st.lclVar ref    V02 tmp1          REG NA $c2
-//              |  |     |  /--*  lclVar    ref    V02 tmp1         u : 2 (last use) REG NA $c2
-// arg1 in rdx  |  |     +--*  putarg_reg ref    REG NA
-//              |  |     |  /--*  lclVar    ref    V00 arg0         u : 2 (last use) REG NA $80
-// this in rcx  |  |     +--*  putarg_reg ref    REG NA
-//              |  |  /--*  call nullcheck ref    System.String.ToLower $c5
-//              |  |  {  *  stmtExpr  void  (embedded)(IL 0x000... ? ? ? )
-//              |  |  {  \--*  prof_hook void   REG NA
-// arg0 in rcx  |  +--*  putarg_reg ref    REG NA
-// control expr |  +--*  const(h)  long   0x7ffe8e910e98 ftn REG NA
-//              \--*  call      void   System.Runtime.Remoting.Identity.RemoveAppNameOrAppGuidIfNecessary $VN.Void
-//
-// In this case, the GT_PUTARG_REG src is a nested call. We need to put the instructions after that call
-// (as shown). We assume that of all the GT_PUTARG_*, only the first one can have a nested call.
-//
 // X86:
 // Insert the profiler hook immediately before the call. The profiler hook will preserve
 // all argument registers (ECX, EDX), but nothing else.

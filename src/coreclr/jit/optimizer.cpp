@@ -5128,61 +5128,26 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
     return opr1;
 }
 
-//-----------------------------------------------------------------------------
-// optOptimizeBools:    Folds boolean conditionals for GT_JTRUE/GT_RETURN nodes
+// Folds boolean conditionals for GT_JTRUE/GT_RETURN nodes
 //
-// Notes:
-//      If the operand of GT_JTRUE/GT_RETURN node is GT_EQ/GT_NE of the form
-//      "if (boolVal ==/!=  0/1)", the GT_EQ/GT_NE nodes are translated into a
-//      GT_EQ/GT_NE node with
-//          "op1" being a boolean GT_OR/GT_AND lclVar and
-//          "op2" the const 0/1.
-//      For example, the folded tree for the below boolean optimization is shown below:
-//      Case 1:     (x == 0 && y ==0) => (x | y) == 0
-//          *  RETURN   int
-//          \--*  EQ        int
-//             +--*  OR         int
-//             |  +--*  LCL_VAR     int     V00 arg0
-//             |  \--*  LCL_VAR     int     V01 arg1
-//             \--*  CNS_INT    int     0
+// If the operand of GT_JTRUE/GT_RETURN node is GT_EQ/GT_NE of the form
+// "if (boolVal ==/!=  0/1)", the GT_EQ/GT_NE nodes are translated into a
+// GT_EQ/GT_NE node with
+//     "op1" being a boolean GT_OR/GT_AND lclVar and
+//     "op2" the const 0/1.
+// For example, the folded tree for the below boolean optimization is shown below:
+// Case 1:     (x == 0 && y ==0) => (x | y) == 0
+// Case 2:     (x == null && y == null) ==> (x | y) == 0
+// Case 3:     (x == 0 && y == 0 && z == 0) ==> ((x | y) | z) == 0
+// Case 4:     (x == 0 && y == 0 && z == 0 && w == 0) ==> (((x | y) | z) | w) == 0
 //
-//      Case 2:     (x == null && y == null) ==> (x | y) == 0
-//          *  RETURN    int
-//          \-- * EQ        int
-//              + -- * OR        long
-//              |    +-- * LCL_VAR   ref    V00 arg0
-//              |    \-- * LCL_VAR   ref    V01 arg1
-//              \-- * CNS_INT   long   0
-//
-//      Case 3:     (x == 0 && y == 0 && z == 0) ==> ((x | y) | z) == 0
-//          *  RETURN    int
-//          \-- * EQ        int
-//              + -- * OR        int
-//              |    +-- * OR        int
-//              |    |   +-- * LCL_VAR   int    V00 arg0
-//              |    |   \-- * LCL_VAR   int    V01 arg1
-//              |    \-- * LCL_VAR   int    V02 arg2
-//              \-- * CNS_INT   int    0
-//
-//      Case 4:     (x == 0 && y == 0 && z == 0 && w == 0) ==> (((x | y) | z) | w) == 0
-//          *  RETURN    int
-//          \-- *  EQ        int
-//              +  *  OR        int
-//              |  +--*  OR        int
-//              |  |  +--*  OR        int
-//              |  |  |  +--*  LCL_VAR   int    V00 arg0
-//              |  |  |  \--*  LCL_VAR   int    V01 arg1
-//              |  |  \--*  LCL_VAR   int    V02 arg2
-//              |  \--*  LCL_VAR   int    V03 arg3
-//              \--*  CNS_INT   int    0
-//
-//      Patterns that are not optimized include (x == 1 && y == 1), (x == 1 || y == 1),
-//      (x == 0 || y == 0) because currently their comptree is not marked as boolean expression.
-//      When m_foldOp == GT_AND or m_cmpOp == GT_NE, both compTrees must be boolean expression
-//      in order to skip below cases when compTree is not boolean expression:
-//          - x == 1 && y == 1 ==> (x&y)!=0: Skip cases where x or y is greather than 1, e.g., x=3, y=1
-//          - x == 1 || y == 1 ==> (x|y)!=0: Skip cases where either x or y is greater than 1, e.g., x=2, y=0
-//          - x == 0 || y == 0 ==> (x&y)==0: Skip cases where x and y have opposite bits set, e.g., x=2, y=1
+// Patterns that are not optimized include (x == 1 && y == 1), (x == 1 || y == 1),
+// (x == 0 || y == 0) because currently their tree is not marked as boolean expression.
+// When m_foldOp == GT_AND or m_cmpOp == GT_NE, both trees must be boolean expression
+// in order to skip below cases when compTree is not boolean expression:
+//     - x == 1 && y == 1 ==> (x&y)!=0: Skip cases where x or y is greater than 1, e.g., x=3, y=1
+//     - x == 1 || y == 1 ==> (x|y)!=0: Skip cases where either x or y is greater than 1, e.g., x=2, y=0
+//     - x == 0 || y == 0 ==> (x&y)==0: Skip cases where x and y have opposite bits set, e.g., x=2, y=1
 //
 void Compiler::optOptimizeBools()
 {
