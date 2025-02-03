@@ -1231,7 +1231,7 @@ public:
         : GenTreeVisitor<ClassProbeVisitor>(compiler), m_functor(functor), m_compiler(compiler)
     {
     }
-    Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         if (GenTreeCall* const call = (*use)->IsCall())
         {
@@ -1241,7 +1241,7 @@ public:
             }
         }
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 };
 

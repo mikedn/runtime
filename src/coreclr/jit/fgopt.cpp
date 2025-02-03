@@ -5708,9 +5708,9 @@ unsigned Compiler::fgMeasureIR()
             for (Statement* const stmt : block->Statements())
             {
                 fgWalkTreePre(stmt->GetRootNodePointer(),
-                              [](GenTree** slot, fgWalkData* data) -> Compiler::fgWalkResult {
-                                  (*reinterpret_cast<unsigned*>(data->pCallbackData))++;
-                                  return Compiler::WALK_CONTINUE;
+                              [](GenTree** use, GenTreeWalkData* data) {
+                                  (*static_cast<unsigned*>(data->data))++;
+                                  return GenTreeWalkResult::Continue;
                               },
                               &nodeCount);
             }

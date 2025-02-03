@@ -83,9 +83,9 @@ struct MarkPtrsInfo
     }
 };
 
-static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::fgWalkData* data)
+static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTreeWalkData* data)
 {
-    MarkPtrsInfo* state = static_cast<MarkPtrsInfo*>(data->pCallbackData);
+    MarkPtrsInfo* state = static_cast<MarkPtrsInfo*>(data->data);
     Compiler*     comp  = data->compiler;
     GenTree*      tree  = *use;
 
@@ -100,7 +100,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             comp->fgWalkTreePre(&tree->AsIndir()->gtOp1, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
         case GT_IND_STORE:
         case GT_IND_STORE_BLK:
@@ -117,7 +117,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->isUnderIndir = wasUnderIndir;
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
@@ -164,7 +164,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
                 }
             }
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
@@ -177,7 +177,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             comp->fgWalkTreePre(&value, MarkPtrsAndAssignGroups, state);
             state->storeLcl = prevStoreLcl;
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
         case GT_ARR_ELEM:
         {
@@ -189,7 +189,7 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             }
             state->isUnderIndir = wasUnderIndir;
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
         case GT_CALL:
         {
@@ -241,11 +241,11 @@ static Compiler::fgWalkResult MarkPtrsAndAssignGroups(GenTree** use, Compiler::f
             state->storeLcl     = prevStoreLcl;
             state->isUnderIndir = wasUnderIndir;
 
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
 
         default:
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
     }
 }
 
@@ -439,7 +439,7 @@ void Compiler::gsParamsToShadows()
         {
         }
 
-        Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* tree = *use;
 
@@ -456,7 +456,7 @@ void Compiler::gsParamsToShadows()
                 }
             }
 
-            return WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
     };
 

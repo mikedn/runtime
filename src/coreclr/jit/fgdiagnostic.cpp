@@ -2725,13 +2725,13 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         {
         }
 
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             m_operands.Push(*use);
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
-        fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree*     node          = *use;
             GenTreeFlags expectedFlags = GTF_NONE;
@@ -2858,7 +2858,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 
             CheckFlags(node, actualFlags, expectedFlags);
 
-            return fgWalkResult::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
     private:
@@ -3173,11 +3173,11 @@ void Compiler::fgDebugCheckNodesUniqueness()
         {
         }
 
-        static Compiler::fgWalkResult MarkTreeId(GenTree** use, Compiler::fgWalkData* data)
+        static GenTreeWalkResult MarkTreeId(GenTree** use, GenTreeWalkData* data)
         {
-            UniquenessCheckWalker* walker = static_cast<UniquenessCheckWalker*>(data->pCallbackData);
+            UniquenessCheckWalker* walker = static_cast<UniquenessCheckWalker*>(data->data);
             walker->CheckTreeId(*use);
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         void CheckTreeId(GenTree* node)

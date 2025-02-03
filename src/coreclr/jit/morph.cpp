@@ -789,17 +789,17 @@ unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 #if FEATURE_FIXED_OUT_ARGS
 static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
 {
-    if (compiler->fgUseThrowHelperBlocks() || ((tree->gtFlags & GTF_EXCEPT) == 0))
+    if (compiler->fgUseThrowHelperBlocks() || !tree->HasAnySideEffect(GTF_EXCEPT))
     {
         return false;
     }
 
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTreeWalkData* data) {
         GenTree* node = *use;
 
-        if ((node->gtFlags & GTF_EXCEPT) == 0)
+        if (!node->HasAnySideEffect(GTF_EXCEPT))
         {
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
 
         switch (node->GetOper())
@@ -819,12 +819,12 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
             case GT_OVF_FTOS:
             case GT_OVF_FTOU:
             case GT_BOUNDS_CHECK:
-                return Compiler::WALK_ABORT;
+                return GenTreeWalkResult::Abort;
 
             case GT_INDEX_ADDR:
                 if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
                 {
-                    return Compiler::WALK_ABORT;
+                    return GenTreeWalkResult::Abort;
                 }
                 break;
 
@@ -832,15 +832,15 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
                 break;
         }
 
-        return Compiler::WALK_CONTINUE;
-    }) == Compiler::WALK_ABORT;
+        return GenTreeWalkResult::Continue;
+    }) == GenTreeWalkResult::Abort;
 }
 
 static bool HasLclHeap(Compiler* compiler, GenTree* tree)
 {
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, Compiler::fgWalkData* data) {
-        return (*use)->OperIs(GT_LCLHEAP) ? Compiler::WALK_ABORT : Compiler::WALK_CONTINUE;
-    }) == Compiler::WALK_ABORT;
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTreeWalkData* data) {
+        return (*use)->OperIs(GT_LCLHEAP) ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
+    }) == GenTreeWalkResult::Abort;
 }
 #endif // FEATURE_FIXED_OUT_ARGS
 
@@ -7218,9 +7218,9 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     }
 
 #ifdef DEBUG
-    auto resetMorphedFlag = [](GenTree** slot, fgWalkData* data) -> fgWalkResult {
-        (*slot)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-        return WALK_CONTINUE;
+    auto resetMorphedFlag = [](GenTree** use, GenTreeWalkData* data) {
+        (*use)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+        return GenTreeWalkResult::Continue;
     };
 
     fgWalkTreePost(&arr, resetMorphedFlag);
@@ -13180,10 +13180,10 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 }
 
 #ifdef DEBUG
-Compiler::fgWalkResult Compiler::fgAssertNoQmark(GenTree** tree, fgWalkData* data)
+static GenTreeWalkResult fgAssertNoQmark(GenTree** use, GenTreeWalkData* data)
 {
-    assert(!(*tree)->IsQmark());
-    return WALK_CONTINUE;
+    assert(!(*use)->IsQmark());
+    return GenTreeWalkResult::Continue;
 }
 
 /*****************************************************************************

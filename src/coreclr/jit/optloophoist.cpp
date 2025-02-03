@@ -607,26 +607,26 @@ public:
             m_valueStack.Clear();
         }
 
-        // Only uncondtionally executed blocks in the loop are visited (see HoistLoop)
+        // Only unconditionally executed blocks in the loop are visited (see HoistLoop)
         // so after we're done visiting the first block we need to assume the worst, that the
-        // blocks that are not visisted have side effects.
+        // blocks that are not visited have side effects.
         m_beforeSideEffect = false;
     }
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
         m_valueStack.Emplace(node);
-        return fgWalkResult::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* tree = *use;
 
         if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            return fgWalkResult::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         if (GenTreeLclUse* use = tree->IsLclUse())
@@ -635,7 +635,7 @@ public:
             // Such blocks may or may not be traversed by various JIT phases - SSA builder does not
             // traverse them but this code does and ends up asserting due to missing SSA numbers.
             // Well, at least that's why this probably checks for NoSsaNum, but it seems unlikely
-            // that loop hositing would hit dead code. We'll see.
+            // that loop hoisting would hit dead code. We'll see.
 
             bool isInvariant = !ssa.GetLoop(m_loopNum)->lpContains(use->GetDef()->GetBlock());
 
@@ -660,7 +660,7 @@ public:
                 top.m_hoistable = IsNodeHoistable(tree);
             }
 
-            return fgWalkResult::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         // Initclass CLS_VAR_ADDRs and IconHandles are the base cases of cctor dependent trees.
@@ -926,7 +926,7 @@ public:
         top.m_cctorDependent = treeIsCctorDependent;
         top.m_invariant      = treeIsInvariant;
 
-        return fgWalkResult::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 };
 

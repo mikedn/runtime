@@ -15730,14 +15730,14 @@ public:
         }
     }
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* tree = *use;
 
-        if ((tree->gtFlags & GTF_CALL) == 0)
+        if (!tree->HasAnySideEffect(GTF_CALL))
         {
             // Trees with ret_expr are marked as GTF_CALL.
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
 
         if (tree->IsRetExpr())
@@ -15745,7 +15745,7 @@ public:
             StoreRetExprAsLocalVar(use);
         }
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
     void StoreRetExprAsLocalVar(GenTree** use)
@@ -16671,7 +16671,7 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 //
 bool Compiler::impHasAddressTakenLocals(GenTree* tree)
 {
-    auto visitor = [](GenTree** use, fgWalkData* data) {
+    auto visitor = [](GenTree** use, GenTreeWalkData* data) {
         GenTree* node = *use;
 
         // TODO-MIKE-Review: This is dubious, what we really want is the equivalent
@@ -16685,7 +16685,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
 
             if (lcl->lvHasLdAddrOp)
             {
-                return WALK_ABORT;
+                return GenTreeWalkResult::Abort;
             }
         }
         // TODO-MIKE-Review: Does this need to check for local stores?
@@ -16695,14 +16695,14 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
 
             if (lcl->lvHasLdAddrOp)
             {
-                return WALK_ABORT;
+                return GenTreeWalkResult::Abort;
             }
         }
 
-        return WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     };
 
-    return fgWalkTreePre(&tree, visitor) == WALK_ABORT;
+    return fgWalkTreePre(&tree, visitor) == GenTreeWalkResult::Abort;
 }
 
 // Check for the special case where an address is the constant 0.

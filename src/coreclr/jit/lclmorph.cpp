@@ -253,7 +253,7 @@ public:
     // rather than in PostOrderVisit because it makes it easy to handle nodes with an
     // arbitrary number of operands - just pop values until the value corresponding
     // to the visited node is encountered.
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
 
@@ -273,13 +273,13 @@ public:
 
         PushValue(node);
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
     // Evaluate a node. Since this is done in postorder, the node's operands have already been
     // evaluated and are available on the value stack. The value produced by the visited node
     // is left on the top of the evaluation stack.
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
 
@@ -493,7 +493,7 @@ public:
         }
 
         assert(TopValue(0).Node() == node);
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
 private:
@@ -2986,7 +2986,7 @@ public:
 #endif
     }
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
 
@@ -2998,7 +2998,7 @@ public:
 #else
                 MorphVarargsStackParamAddr(node->AsLclAddr());
 #endif
-                return Compiler::WALK_SKIP_SUBTREES;
+                return GenTreeWalkResult::Skip;
             case GT_LCL_STORE:
             case GT_LCL_STORE_FLD:
             case GT_LCL_LOAD:
@@ -3008,9 +3008,9 @@ public:
 #else
                 MorphVarargsStackParam(node->AsLclVarCommon());
 #endif
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             default:
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
         }
     }
 

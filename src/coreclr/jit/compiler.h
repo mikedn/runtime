@@ -3141,42 +3141,14 @@ public:
 
     // For tree walks
 
-    struct fgWalkData
-    {
-        Compiler* compiler;
-        void*     pCallbackData; // user-provided data
-        GenTree*  parent;        // parent of current node, provided to callback
+    GenTreeWalkResult fgWalkTreePre(GenTree** use, GenTreeWalkPreFn visitor, void* callbackData = nullptr);
+    GenTreeWalkResult fgWalkTree(GenTree**         use,
+                                 GenTreeWalkPreFn  preVisitor,
+                                 GenTreeWalkPostFn postVisitor,
+                                 void*             callbackData = nullptr);
+    GenTreeWalkResult fgWalkTreePost(GenTree** use, GenTreeWalkPostFn visitor, void* callbackData = nullptr);
 
-        fgWalkData(Compiler* compiler, void* callbackData) : compiler(compiler), pCallbackData(callbackData)
-        {
-        }
-    };
-
-    enum fgWalkResult
-    {
-        WALK_CONTINUE,
-        WALK_SKIP_SUBTREES,
-        WALK_ABORT
-    };
-
-    typedef fgWalkResult(fgWalkPreFn)(GenTree** use, fgWalkData* data);
-    typedef fgWalkResult(fgWalkPostFn)(GenTree** use, fgWalkData* data);
-
-    fgWalkResult fgWalkTreePre(GenTree** use, fgWalkPreFn* visitor, void* callbackData = nullptr);
-    fgWalkResult fgWalkTree(GenTree**     use,
-                            fgWalkPreFn*  preVisitor,
-                            fgWalkPostFn* postVisitor,
-                            void*         callbackData = nullptr);
-    fgWalkResult fgWalkTreePost(GenTree** use, fgWalkPostFn* visitor, void* callbackData = nullptr);
-
-    struct FindLinkData
-    {
-        GenTree*  nodeToFind;
-        GenTree** useEdge;
-        GenTree*  user;
-    };
-
-    FindLinkData gtFindLink(Statement* stmt, GenTree* node);
+    GenTree** gtFindUse(Statement* stmt, GenTree* node);
     bool impHasCatchArg(GenTree* tree);
 
 #ifdef DEBUG
@@ -3869,7 +3841,6 @@ public:
     bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
 
 #ifdef DEBUG
-    static fgWalkPreFn fgAssertNoQmark;
     void fgPreExpandQmarkChecks(GenTree* expr);
     void fgPostExpandQmarkChecks();
 #endif
@@ -4197,14 +4168,8 @@ public:
     bool fgReorderBlocks();
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
     bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
-
-    // method that returns if you should split here
-    typedef bool(fgSplitPredicate)(GenTree* tree, GenTree* parent, fgWalkData* data);
-
     void fgRemoveReturnBlock(BasicBlock* block);
-
-    /* Helper code that has been factored out */
-    inline void fgConvertBBToThrowBB(BasicBlock* block);
+    void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value);
@@ -6698,7 +6663,7 @@ void GenTree::VisitBinOpOperands(TVisitor visitor)
 //         {
 //         }
 //
-//         Compiler::fgWalkResult PreOrderVisit(GenTree* node)
+//         GenTreeWalkResult PreOrderVisit(GenTree* node)
 //         {
 //             m_count++;
 //         }
@@ -6713,8 +6678,6 @@ template <typename TVisitor>
 class GenTreeVisitor
 {
 protected:
-    typedef Compiler::fgWalkResult fgWalkResult;
-
     enum
     {
         ComputeStack      = false,
@@ -6735,18 +6698,18 @@ protected:
         static_assert_no_msg(!TVisitor::DoLclVarsOnly || TVisitor::DoPreOrder);
     }
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        return fgWalkResult::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
-        return fgWalkResult::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
 public:
-    fgWalkResult WalkTree(GenTree** use, GenTree* user)
+    GenTreeWalkResult WalkTree(GenTree** use, GenTree* user)
     {
         assert(use != nullptr);
 
@@ -6757,17 +6720,17 @@ public:
             m_ancestors.Push(node);
         }
 
-        fgWalkResult result = fgWalkResult::WALK_CONTINUE;
+        GenTreeWalkResult result = GenTreeWalkResult::Continue;
         if (TVisitor::DoPreOrder && !TVisitor::DoLclVarsOnly)
         {
             result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
-            if (result == fgWalkResult::WALK_ABORT)
+            if (result == GenTreeWalkResult::Abort)
             {
                 return result;
             }
 
             node = *use;
-            if ((node == nullptr) || (result == fgWalkResult::WALK_SKIP_SUBTREES))
+            if ((node == nullptr) || (result == GenTreeWalkResult::Skip))
             {
                 goto DONE;
             }
@@ -6781,7 +6744,7 @@ public:
                 if (TVisitor::DoLclVarsOnly)
                 {
                     result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6825,13 +6788,13 @@ public:
                 if (TVisitor::DoLclVarsOnly)
                 {
                     result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
                 }
                 result = WalkTree(&node->AsUnOp()->gtOp1, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
@@ -6899,7 +6862,7 @@ public:
 #endif
                 assert(node->AsUnOp()->gtOp1 != nullptr);
                 result = WalkTree(&node->AsUnOp()->gtOp1, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
@@ -6910,7 +6873,7 @@ public:
                 for (GenTreePhi::Use& use : node->AsPhi()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6921,7 +6884,7 @@ public:
                 for (GenTreeFieldList::Use& use : node->AsFieldList()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6933,12 +6896,12 @@ public:
                 if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOp())
                 {
                     result = WalkTree(&node->AsHWIntrinsic()->GetUse(1).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
                     result = WalkTree(&node->AsHWIntrinsic()->GetUse(0).NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6948,7 +6911,7 @@ public:
                     for (GenTreeHWIntrinsic::Use& use : node->AsHWIntrinsic()->Uses())
                     {
                         result = WalkTree(&use.NodeRef(), node);
-                        if (result == fgWalkResult::WALK_ABORT)
+                        if (result == GenTreeWalkResult::Abort)
                         {
                             return result;
                         }
@@ -6961,7 +6924,7 @@ public:
                 for (GenTreeInstr::Use& use : node->AsInstr()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6972,7 +6935,7 @@ public:
                 for (GenTreeArrElem::Use& use : node->AsArrElem()->Uses())
                 {
                     result = WalkTree(&use.NodeRef(), node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -6984,17 +6947,17 @@ public:
             case GT_INIT_BLK:
             case GT_QMARK:
                 result = WalkTree(&node->AsTernaryOp()->gtOp1, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
                 result = WalkTree(&node->AsTernaryOp()->gtOp2, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
                 result = WalkTree(&node->AsTernaryOp()->gtOp3, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
@@ -7007,7 +6970,7 @@ public:
                 if (call->gtCallThisArg != nullptr)
                 {
                     result = WalkTree(&call->gtCallThisArg->NodeRef(), call);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7016,7 +6979,7 @@ public:
                 for (GenTreeCall::Use& use : call->Args())
                 {
                     result = WalkTree(&use.NodeRef(), call);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7025,7 +6988,7 @@ public:
                 for (GenTreeCall::Use& use : call->LateArgs())
                 {
                     result = WalkTree(&use.NodeRef(), call);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7036,14 +6999,14 @@ public:
                     if (call->gtCallCookie != nullptr)
                     {
                         result = WalkTree(&call->gtCallCookie, call);
-                        if (result == fgWalkResult::WALK_ABORT)
+                        if (result == GenTreeWalkResult::Abort)
                         {
                             return result;
                         }
                     }
 
                     result = WalkTree(&call->gtCallAddr, call);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7052,7 +7015,7 @@ public:
                 if (call->gtControlExpr != nullptr)
                 {
                     result = WalkTree(&call->gtControlExpr, call);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7078,7 +7041,7 @@ public:
                 if (*op1Use != nullptr)
                 {
                     result = WalkTree(op1Use, node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7087,7 +7050,7 @@ public:
                 if (*op2Use != nullptr)
                 {
                     result = WalkTree(op2Use, node);
-                    if (result == fgWalkResult::WALK_ABORT)
+                    if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
@@ -7111,13 +7074,13 @@ public:
                 }
 
                 result = WalkTree(op1Use, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
 
                 result = WalkTree(op2Use, node);
-                if (result == fgWalkResult::WALK_ABORT)
+                if (result == GenTreeWalkResult::Abort)
                 {
                     return result;
                 }
@@ -7145,9 +7108,9 @@ template <bool computeStack, bool doPreOrder, bool doPostOrder, bool doLclVarsOn
 class GenericTreeWalker final
     : public GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>
 {
-    Compiler::fgWalkData    walkData;
-    Compiler::fgWalkPreFn*  preVisitor;
-    Compiler::fgWalkPostFn* postVisitor;
+    GenTreeWalkData   walkData;
+    GenTreeWalkPreFn  preVisitor;
+    GenTreeWalkPostFn postVisitor;
 
 public:
     enum
@@ -7159,10 +7122,10 @@ public:
         UseExecutionOrder = useExecutionOrder,
     };
 
-    GenericTreeWalker(Compiler*               compiler,
-                      Compiler::fgWalkPreFn*  preVisitor,
-                      Compiler::fgWalkPostFn* postVisitor,
-                      void*                   callbackData)
+    GenericTreeWalker(Compiler*         compiler,
+                      GenTreeWalkPreFn  preVisitor,
+                      GenTreeWalkPostFn postVisitor,
+                      void*             callbackData)
         : GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>(
               compiler)
         , walkData(compiler, callbackData)
@@ -7172,35 +7135,35 @@ public:
         assert((preVisitor != nullptr) || (postVisitor != nullptr));
     }
 
-    Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        walkData.parent = user;
+        walkData.user = user;
         return preVisitor(use, &walkData);
     }
 
-    Compiler::fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
-        walkData.parent = user;
+        walkData.user = user;
         return postVisitor(use, &walkData);
     }
 };
 
-inline Compiler::fgWalkResult Compiler::fgWalkTreePre(GenTree** use, fgWalkPreFn* visitor, void* callbackData)
+inline GenTreeWalkResult Compiler::fgWalkTreePre(GenTree** use, GenTreeWalkPreFn visitor, void* callbackData)
 {
     GenericTreeWalker<false, true, false, false, true> walker(this, visitor, nullptr, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
-inline Compiler::fgWalkResult Compiler::fgWalkTreePost(GenTree** use, fgWalkPostFn* visitor, void* callbackData)
+inline GenTreeWalkResult Compiler::fgWalkTreePost(GenTree** use, GenTreeWalkPostFn visitor, void* callbackData)
 {
     GenericTreeWalker<false, false, true, false, true> walker(this, nullptr, visitor, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
-inline Compiler::fgWalkResult Compiler::fgWalkTree(GenTree**    use,
-                                                   fgWalkPreFn* preVisitor,
-                                                   fgWalkPreFn* postVisitor,
-                                                   void*        callbackData)
+inline GenTreeWalkResult Compiler::fgWalkTree(GenTree**        use,
+                                              GenTreeWalkPreFn preVisitor,
+                                              GenTreeWalkPreFn postVisitor,
+                                              void*            callbackData)
 
 {
     assert((preVisitor != nullptr) && (postVisitor != nullptr));

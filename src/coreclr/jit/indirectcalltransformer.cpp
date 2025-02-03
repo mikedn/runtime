@@ -778,7 +778,7 @@ private:
                 {
                 }
 
-                fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+                GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
                 {
                     GenTree* const node = *use;
 
@@ -787,17 +787,17 @@ private:
                         if (call->IsInlineCandidate() && !call->IsGuardedDevirtualizationCandidate())
                         {
                             m_unclonableNode = node;
-                            return fgWalkResult::WALK_ABORT;
+                            return GenTreeWalkResult::Abort;
                         }
                     }
                     else if (node->OperIs(GT_RET_EXPR))
                     {
                         m_unclonableNode = node;
-                        return fgWalkResult::WALK_ABORT;
+                        return GenTreeWalkResult::Abort;
                     }
 
                     m_nodeCount++;
-                    return fgWalkResult::WALK_CONTINUE;
+                    return GenTreeWalkResult::Continue;
                 }
             };
 
@@ -1009,14 +1009,14 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
     {
         for (Statement* const stmt : block->Statements())
         {
-            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, fgWalkData* data) {
+            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, GenTreeWalkData* data) {
                 if (GenTreeCall* call = (*use)->IsCall())
                 {
                     assert(!call->IsFatPointerCandidate());
                     assert(!call->IsGuardedDevirtualizationCandidate());
                     assert(!call->IsExpRuntimeLookup());
                 }
-                return WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             });
         }
     }

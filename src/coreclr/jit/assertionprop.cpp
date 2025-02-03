@@ -2369,9 +2369,9 @@ private:
             }
             else
             {
-                Compiler::FindLinkData use = compiler->gtFindLink(stmt, tree);
-                noway_assert((use.useEdge != nullptr) && (use.user != nullptr));
-                use.user->ReplaceOperand(use.useEdge, newTree);
+                GenTree** use = compiler->gtFindUse(stmt, tree);
+                assert(use != nullptr);
+                *use = newTree;
             }
 
             // We need to ensure that the gtNext field is set as it is used to traverse
@@ -2943,7 +2943,7 @@ private:
             return stmt;
         }
 
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             PropagateNonNull(*use);
             return PropagateConst(use, user);
@@ -3097,14 +3097,14 @@ private:
             return m_compiler->fgNewStmtNearEnd(m_block, sideEffects);
         }
 
-        fgWalkResult PropagateConst(GenTree** use, GenTree* user)
+        GenTreeWalkResult PropagateConst(GenTree** use, GenTree* user)
         {
             GenTree* tree = *use;
 
             // We already handled JTRUE's operand, skip it.
             if ((user != nullptr) && user->OperIs(GT_JTRUE))
             {
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
 
             if (tree->TypeIs(TYP_STRUCT))
@@ -3158,7 +3158,7 @@ private:
                     }
                 }
 
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
 
             if (varTypeIsSIMD(tree->GetType()))
@@ -3205,13 +3205,13 @@ private:
                 }
 #endif // FEATURE_HW_INTRINSICS
 
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
 
             // GTF_DONT_CSE is also used to block constant propagation, not just CSE.
             if (!tree->CanCSE())
             {
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
 
 #ifndef TARGET_64BIT
@@ -3226,7 +3226,7 @@ private:
                     // Don't undo constant CSEs.
                     if (tree->AsLclLoad()->GetLcl()->lvIsCSE)
                     {
-                        return Compiler::WALK_CONTINUE;
+                        return GenTreeWalkResult::Continue;
                     }
                     break;
 
@@ -3234,7 +3234,7 @@ private:
                     // Don't undo constant CSEs.
                     if (tree->AsLclUse()->GetDef()->GetLcl()->lvIsCSE)
                     {
-                        return Compiler::WALK_CONTINUE;
+                        return GenTreeWalkResult::Continue;
                     }
                     break;
 
@@ -3272,7 +3272,7 @@ private:
                     // that aren't currently constant evaluated.
                     if (varTypeIsSmall(tree->GetType()))
                     {
-                        return Compiler::WALK_CONTINUE;
+                        return GenTreeWalkResult::Continue;
                     }
                     FALLTHROUGH;
                 case GT_FADD:
@@ -3309,7 +3309,7 @@ private:
                 // constants, like CORINFO_HELP_FLTREM and CORINFO_HELP_DBLREM.
 
                 default:
-                    return Compiler::WALK_CONTINUE;
+                    return GenTreeWalkResult::Continue;
             }
 
             GenTree* newTree = GetConstNode(tree);
@@ -3325,7 +3325,7 @@ private:
                 }
                 else
                 {
-                    user->ReplaceOperand(use, newTree);
+                    *use = newTree;
                 }
 
                 JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
@@ -3351,11 +3351,11 @@ private:
                 if ((m_vnStore->GetVNFunc(tree->GetConservativeVN(), &lclAddr) == VNF_LclAddr) &&
                     ChangeToLocalAddress(tree, lclAddr))
                 {
-                    return Compiler::WALK_SKIP_SUBTREES;
+                    return GenTreeWalkResult::Skip;
                 }
             }
 
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         GenTree* GetConstNode(GenTree* tree)

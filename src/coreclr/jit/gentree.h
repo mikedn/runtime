@@ -1551,8 +1551,6 @@ public:
     // Find the user of this node, and optionally capture the use so that it can be modified.
     GenTree* FindUser(GenTree*** use = nullptr);
 
-    void ReplaceOperand(GenTree** useEdge, GenTree* replacement);
-
     inline GenTree* gtEffectiveVal();
 
     GenTree* SkipComma();
@@ -7538,3 +7536,24 @@ inline bool GenTree::IsHelperCall()
 
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
+
+struct GenTreeWalkData
+{
+    Compiler* compiler;
+    void*     data;
+    GenTree*  user;
+
+    GenTreeWalkData(Compiler* compiler, void* data) : compiler(compiler), data(data)
+    {
+    }
+};
+
+enum class GenTreeWalkResult
+{
+    Continue,
+    Skip,
+    Abort
+};
+
+using GenTreeWalkPreFn  = GenTreeWalkResult (*)(GenTree** use, GenTreeWalkData* data);
+using GenTreeWalkPostFn = GenTreeWalkResult (*)(GenTree** use, GenTreeWalkData* data);

@@ -2538,7 +2538,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
         }
 
-        Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
 
@@ -2578,7 +2578,7 @@ void Compiler::lvaComputeRefCountsHIR()
                     break;
             }
 
-            return WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)

@@ -129,7 +129,7 @@ public:
         UseExecutionOrder = false,
     };
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* tree = *use;
 
@@ -140,9 +140,9 @@ public:
         //
         // So bail out for any trees that don't have this flag.
 
-        if ((tree->gtFlags & GTF_CALL) == 0)
+        if (!tree->HasAnySideEffect(GTF_CALL))
         {
-            return Compiler::WALK_SKIP_SUBTREES;
+            return GenTreeWalkResult::Skip;
         }
 
         if (GenTreeRetExpr* retExpr = tree->IsRetExpr())
@@ -224,10 +224,10 @@ public:
         }
 #endif
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* tree = *use;
 
@@ -241,7 +241,7 @@ public:
             // from PreOrderVisit so we don't reach this case?
 
             assert((user != nullptr) && user->OperIs(GT_NOP));
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         if (GenTreeCall* call = tree->IsCall())
@@ -319,7 +319,7 @@ public:
             *use = m_compiler->gtFoldExpr(tree);
         }
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 };
 
@@ -368,7 +368,7 @@ void Compiler::inlFoldJTrue(BasicBlock* block)
 //
 void Compiler::inlDebugCheckInlineCandidates()
 {
-    auto visitor = [](GenTree** use, fgWalkData* data) {
+    auto visitor = [](GenTree** use, GenTreeWalkData* data) {
         GenTree* node = *use;
 
         if (GenTreeCall* call = node->IsCall())
@@ -380,7 +380,7 @@ void Compiler::inlDebugCheckInlineCandidates()
             assert(!node->IsRetExpr());
         }
 
-        return WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     };
 
     for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)

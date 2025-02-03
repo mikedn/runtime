@@ -33,7 +33,7 @@ private:
 
     void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
 
-    Compiler::fgWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
+    GenTreeWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
 };
 
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
@@ -64,16 +64,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     comp->fgInitArgInfo(call);
     comp->fgSetupArgs(call);
 
-    if (parents.Size() > 1)
-    {
-        parents.Top(1)->ReplaceOperand(use, call);
-    }
-    else
-    {
-        // If there's no user, the tree being replaced is the root of the
-        // statement (and no special handling is necessary).
-        *use = call;
-    }
+    *use = call;
 
     BlockRange().InsertAfter(insertionPoint, LIR::Range(comp->gtSetTreeSeq(call), call));
 
@@ -81,14 +72,13 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     // 0 is current node, so start at 1
     for (unsigned i = 1; i < parents.Size(); i++)
     {
-        parents.Top(i)->gtFlags |= (call->gtFlags & GTF_ALL_EFFECT) | GTF_CALL;
+        parents.Top(i)->AddSideEffects(call->GetSideEffects() | GTF_CALL);
     }
 
     // Since "tree" is replaced with "call", pop "tree" node (i.e the current node)
     // and replace it with "call" on parent stack.
     assert(parents.Top() == tree);
-    (void)parents.Pop();
-    parents.Push(call);
+    parents.TopRef() = call;
 }
 
 // Rewrite an intrinsic operator as a GT_CALL to the original method.
@@ -117,7 +107,7 @@ void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*
                       args);
 }
 
-Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
+GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 {
     assert(useEdge != nullptr);
 
@@ -229,7 +219,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 
                 BlockRange().Remove(node);
 
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
             break;
 
@@ -284,7 +274,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
                 }
             }
 
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
         break;
 
@@ -380,7 +370,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
         if (use.IsDummyUse())
         {
             BlockRange().Remove(node);
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
@@ -429,7 +419,7 @@ Compiler::fgWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* use
 #endif
     }
 
-    return Compiler::WALK_CONTINUE;
+    return GenTreeWalkResult::Continue;
 }
 
 void Rationalizer::Run()
@@ -456,7 +446,7 @@ void Rationalizer::Run()
         // This needs to be done before the transition to LIR because it relies on the use
         // of fgSetupArgs, which is designed to operate on HIR. Once this is done for a
         // particular statement, link that statement's nodes into the current basic block.
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* const node = *use;
             if (node->IsIntrinsic() &&
@@ -465,11 +455,11 @@ void Rationalizer::Run()
                 m_rationalizer.RewriteIntrinsicAsUserCall(use, this->m_ancestors);
             }
 
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         // Rewrite HIR nodes into LIR nodes.
-        fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
         {
             return m_rationalizer.RewriteNode(use, user);
         }

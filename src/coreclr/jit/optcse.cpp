@@ -215,7 +215,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
     CseDefUse defUse1(this);
     CseDefUse defUse2(this);
 
-    auto visitor = [](GenTree** use, Compiler::fgWalkData* walkData) {
+    auto visitor = [](GenTree** use, GenTreeWalkData* walkData) {
         GenTree*   node = *use;
         CseDefUse* data = static_cast<CseDefUse*>(walkData->pCallbackData);
 
@@ -226,7 +226,7 @@ bool Compiler::cseCanSwapOrder(GenTree* tree1, GenTree* tree2)
             BitVecOps::AddElemD(&data->traits, IsCseDef(node->GetCseInfo()) ? data->def : data->use, index);
         }
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     };
 
     fgWalkTreePre(&tree1, visitor, &defUse1);
@@ -2386,7 +2386,7 @@ public:
         {
         }
 
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
 
@@ -2403,7 +2403,7 @@ public:
                     }
 
                     m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
+                    return GenTreeWalkResult::Skip;
                 }
 
                 // Generally all GT_CALL nodes are considered to have side-effects.
@@ -2420,13 +2420,13 @@ public:
                     JITDUMP("Preserving " FMT_CSE " def [%06u]", GetCseIndex(node->GetCseInfo()), node->GetID());
 
                     m_sideEffects.Push(node);
-                    return Compiler::WALK_SKIP_SUBTREES;
+                    return GenTreeWalkResult::Skip;
                 }
 
                 UnmarkCseUse(node);
             }
 
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         ArrayStack<GenTree*>& GetSideEffects()

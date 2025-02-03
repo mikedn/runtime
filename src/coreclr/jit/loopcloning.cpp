@@ -1520,9 +1520,9 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
         for (Statement* stmt : block->Statements())
         {
             context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                            [](GenTree** use, Compiler::fgWalkData* data) {
+                                            [](GenTree** use, GenTreeWalkData* data) {
                                                 LoopCloneVisitorInfo* info =
-                                                    static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
+                                                    static_cast<LoopCloneVisitorInfo*>(data->data);
                                                 GenTree* node = *use;
 
                                                 if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
@@ -1530,7 +1530,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
                                                     info->SummarizeLocalStoresVisitor(node->AsLclVarCommon());
                                                 }
 
-                                                return Compiler::WALK_CONTINUE;
+                                                return GenTreeWalkResult::Continue;
                                             },
                                             this);
         }
@@ -1669,17 +1669,16 @@ void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
             info.stmt = stmt;
 
             compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                    [](GenTree** use, Compiler::fgWalkData* data) {
-                                        LoopCloneVisitorInfo* info =
-                                            static_cast<LoopCloneVisitorInfo*>(data->pCallbackData);
-                                        GenTree* comma = *use;
+                                    [](GenTree** use, GenTreeWalkData* data) {
+                                        LoopCloneVisitorInfo* info  = static_cast<LoopCloneVisitorInfo*>(data->data);
+                                        GenTree*              comma = *use;
 
                                         if (comma->OperIs(GT_COMMA))
                                         {
                                             info->ArrayIndexVisitor(comma->AsOp());
                                         }
 
-                                        return Compiler::WALK_CONTINUE;
+                                        return GenTreeWalkResult::Continue;
                                     },
                                     &info);
         }

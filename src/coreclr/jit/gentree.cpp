@@ -1404,7 +1404,7 @@ public:
         return head;
     }
 
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
 
@@ -1417,7 +1417,7 @@ public:
 
             if (node->OperIs(GT_ARGPLACE))
             {
-                return Compiler::WALK_CONTINUE;
+                return GenTreeWalkResult::Continue;
             }
         }
 
@@ -1427,7 +1427,7 @@ public:
 
         INDEBUG(node->gtSeqNum = ++m_seqNum;)
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 };
 
@@ -1469,13 +1469,13 @@ public:
         assert(m_head->gtSeqNum == 1);
     }
 
-    fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         m_nodeStack.Push(*use);
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 
-    fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+    GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         GenTree* node = *use;
 
@@ -1485,7 +1485,7 @@ public:
         // Placeholders are not linked in LIR.
         if (m_isLIR && node->OperIs(GT_ARGPLACE))
         {
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
         // Check if the gtNext/gtPrev links are valid.
@@ -1517,7 +1517,7 @@ public:
             m_operands.Pop();
         }
 
-        return Compiler::WALK_CONTINUE;
+        return GenTreeWalkResult::Continue;
     }
 };
 
@@ -3332,15 +3332,6 @@ GenTree** GenTree::FindUse(GenTree* def)
     return use;
 }
 
-void GenTree::ReplaceOperand(GenTree** useEdge, GenTree* replacement)
-{
-    assert(useEdge != nullptr);
-    assert(replacement != nullptr);
-    assert(FindUse(*useEdge) == useEdge);
-
-    *useEdge = replacement;
-}
-
 //------------------------------------------------------------------------
 // FindUser: Find the user of a node, and optionally capture the use so
 //    that it can be modified.
@@ -5021,14 +5012,14 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
         {
         }
 
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
             node->RemoveSideEffects(GTF_ASG | GTF_CALL | GTF_EXCEPT);
-            return WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
 
-        fgWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree*     node  = *use;
             GenTreeFlags flags = node->gtFlags;
@@ -5059,7 +5050,7 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
                 user->AddSideEffects(flags & GTF_ALL_EFFECT);
             }
 
-            return WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
     } visitor(this);
 
@@ -10263,13 +10254,13 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
         {
         }
 
-        fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
 
             if (!m_compiler->gtTreeHasSideEffects(node, m_flags))
             {
-                return Compiler::WALK_SKIP_SUBTREES;
+                return GenTreeWalkResult::Skip;
             }
 
             // TODO-Cleanup: Atomics have GTF_ASG set but for some reason gtNodeHasSideEffects ignores
@@ -10287,7 +10278,7 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
                 }
 
                 m_sideEffects.Push(node);
-                return Compiler::WALK_SKIP_SUBTREES;
+                return GenTreeWalkResult::Skip;
             }
 
             // Generally all GT_CALL nodes are considered to have side-effects.
@@ -10295,7 +10286,7 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
             // not have side effects that we needed to keep.
             assert(!node->OperIs(GT_CALL) || node->AsCall()->IsHelperCall());
 
-            return Compiler::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
     };
 
@@ -10372,35 +10363,34 @@ void dispNodeList(GenTree* list, bool verbose)
 
 #endif // DEBUG
 
-// Callback used by the tree walker to implement fgFindLink()
-static Compiler::fgWalkResult gtFindLinkCB(GenTree** pTree, Compiler::fgWalkData* cbData)
+GenTree** Compiler::gtFindUse(Statement* stmt, GenTree* value)
 {
-    Compiler::FindLinkData* data = (Compiler::FindLinkData*)cbData->pCallbackData;
-    if (*pTree == data->nodeToFind)
+    struct Data
     {
-        data->useEdge = pTree;
-        data->user    = cbData->parent;
-        return Compiler::WALK_ABORT;
+        GenTree*  value;
+        GenTree** use;
+    };
+
+    Data data{value};
+
+    if (fgWalkTreePre(stmt->GetRootNodePointer(),
+                      [](GenTree** use, GenTreeWalkData* walkData) {
+                          Data* data = static_cast<Data*>(walkData->data);
+
+                          if (*use != data->value)
+                          {
+                              return GenTreeWalkResult::Continue;
+                          }
+
+                          data->use = use;
+                          return GenTreeWalkResult::Abort;
+                      },
+                      &data) == GenTreeWalkResult::Abort)
+    {
+        return data.use;
     }
 
-    return Compiler::WALK_CONTINUE;
-}
-
-Compiler::FindLinkData Compiler::gtFindLink(Statement* stmt, GenTree* node)
-{
-    FindLinkData data{node, nullptr, nullptr};
-
-    fgWalkResult result = fgWalkTreePre(stmt->GetRootNodePointer(), gtFindLinkCB, &data);
-
-    if (result == WALK_ABORT)
-    {
-        assert(data.nodeToFind == *data.useEdge);
-        return data;
-    }
-    else
-    {
-        return {node, nullptr, nullptr};
-    }
+    return nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -10498,30 +10488,24 @@ bool GenTreeCall::IsTypeHandleToRuntimeTypeHandleHelperCall() const
 
 struct ComplexityStruct
 {
-    unsigned m_numNodes;
+    unsigned m_numNodes = 0;
     unsigned m_nodeLimit;
-    ComplexityStruct(unsigned nodeLimit) : m_numNodes(0), m_nodeLimit(nodeLimit)
+
+    ComplexityStruct(unsigned nodeLimit) : m_nodeLimit(nodeLimit)
     {
     }
 };
 
-static Compiler::fgWalkResult ComplexityExceedsWalker(GenTree** pTree, Compiler::fgWalkData* data)
+static GenTreeWalkResult ComplexityExceedsWalker(GenTree** use, GenTreeWalkData* data)
 {
-    ComplexityStruct* pComplexity = (ComplexityStruct*)data->pCallbackData;
-    if (++pComplexity->m_numNodes > pComplexity->m_nodeLimit)
-    {
-        return Compiler::WALK_ABORT;
-    }
-    else
-    {
-        return Compiler::WALK_CONTINUE;
-    }
+    ComplexityStruct* complexity = static_cast<ComplexityStruct*>(data->data);
+    return ++complexity->m_numNodes > complexity->m_nodeLimit ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
 }
 
 bool Compiler::gtComplexityExceeds(GenTree* tree, unsigned limit)
 {
     ComplexityStruct complexity(limit);
-    return fgWalkTreePre(&tree, &ComplexityExceedsWalker, &complexity) == WALK_ABORT;
+    return fgWalkTreePre(&tree, &ComplexityExceedsWalker, &complexity) == GenTreeWalkResult::Abort;
 }
 
 bool GenTree::IsPhiDef() const

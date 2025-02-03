@@ -55,9 +55,7 @@ private:
     struct BuildConnGraphVisitorCallbackData;
     bool CanLclVarEscapeViaParentStack(ArrayStack<GenTree*>* parentStack, unsigned int lclNum);
     void UpdateAncestorTypes(GenTree* tree, ArrayStack<GenTree*>* parentStack, var_types newType);
-#ifdef DEBUG
-    static Compiler::fgWalkResult AssertWhenAllocObjFoundVisitor(GenTree** pTree, Compiler::fgWalkData* data);
-#endif // DEBUG
+
     static const unsigned int s_StackAllocMaxSize = 0x2000U;
 };
 
@@ -307,7 +305,7 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         {
         }
 
-        Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* tree = *use;
 
@@ -338,7 +336,7 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
                 m_allocator->MarkLclVarAsEscaping(lcl->GetLclNum());
             }
 
-            return Compiler::fgWalkResult::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
     };
 
@@ -454,6 +452,18 @@ void ObjectAllocator::ComputeStackObjectPointers()
         }
     }
 }
+
+#ifdef DEBUG
+static GenTreeWalkResult AssertWhenAllocObjFoundVisitor(GenTree** use, GenTreeWalkData* data)
+{
+    GenTree* tree = *use;
+
+    assert(tree != nullptr);
+    assert(!tree->OperIs(GT_ALLOCOBJ));
+
+    return GenTreeWalkResult::Continue;
+}
+#endif
 
 //------------------------------------------------------------------------
 // MorphAllocObjNodes: Morph each GT_ALLOCOBJ node either into an
@@ -788,30 +798,6 @@ void ObjectAllocator::UpdateAncestorTypes(GenTree* node, ArrayStack<GenTree*>* u
     return;
 }
 
-#ifdef DEBUG
-//------------------------------------------------------------------------
-// AssertWhenAllocObjFoundVisitor: Look for a GT_ALLOCOBJ node and assert
-//                                 when found one.
-//
-// Arguments:
-//    pTree   - Tree to examine
-//    data    - Walker data
-//
-// Return Value:
-//    Always returns fgWalkResult::WALK_CONTINUE
-
-Compiler::fgWalkResult ObjectAllocator::AssertWhenAllocObjFoundVisitor(GenTree** pTree, Compiler::fgWalkData* data)
-{
-    GenTree* tree = *pTree;
-
-    assert(tree != nullptr);
-    assert(!tree->OperIs(GT_ALLOCOBJ));
-
-    return Compiler::fgWalkResult::WALK_CONTINUE;
-}
-
-#endif // DEBUG
-
 //------------------------------------------------------------------------
 // RewriteUses: Find uses of the newobj temp for stack-allocated
 //              objects and replace with address of the stack local.
@@ -835,7 +821,7 @@ void ObjectAllocator::RewriteUses()
         {
         }
 
-        Compiler::fgWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree*   tree   = *use;
             LclVarDsc* lcl    = tree->AsLclVarCommon()->GetLcl();
@@ -873,7 +859,7 @@ void ObjectAllocator::RewriteUses()
                 m_allocator->UpdateAncestorTypes(tree, &m_ancestors, newType);
             }
 
-            return Compiler::fgWalkResult::WALK_CONTINUE;
+            return GenTreeWalkResult::Continue;
         }
     };
 

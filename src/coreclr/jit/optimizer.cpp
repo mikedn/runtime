@@ -3546,21 +3546,21 @@ struct OptInvertCountTreeInfoType
     unsigned arrayLengthCount        = 0;
 };
 
-static Compiler::fgWalkResult optInvertCountTreeInfo(GenTree** pTree, Compiler::fgWalkData* data)
+static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTreeWalkData* data)
 {
-    OptInvertCountTreeInfoType* o = (OptInvertCountTreeInfoType*)data->pCallbackData;
+    OptInvertCountTreeInfoType* o = static_cast<OptInvertCountTreeInfoType*>(data->data);
 
-    if (Compiler::IsSharedStaticHelper(*pTree))
+    if (Compiler::IsSharedStaticHelper(*use))
     {
         o->sharedStaticHelperCount += 1;
     }
 
-    if ((*pTree)->OperIs(GT_ARR_LENGTH))
+    if ((*use)->OperIs(GT_ARR_LENGTH))
     {
         o->arrayLengthCount += 1;
     }
 
-    return Compiler::WALK_CONTINUE;
+    return GenTreeWalkResult::Continue;
 }
 
 //-----------------------------------------------------------------------------
@@ -4250,19 +4250,19 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
         for (Statement* stmt : beg->Statements())
         {
             if (fgWalkTreePre(stmt->GetRootNodePointer(),
-                              [](GenTree** use, Compiler::fgWalkData* data) {
+                              [](GenTree** use, GenTreeWalkData* data) {
                                   GenTree*  tree = *use;
-                                  WalkData* desc = static_cast<WalkData*>(data->pCallbackData);
+                                  WalkData* desc = static_cast<WalkData*>(data->data);
 
                                   // TODO-MIKE-Cleanup: Why the crap are LCL_STORE_FLDs ignored?
                                   // This is likely used only for INT locals but then you can actually
                                   // modify an INT local with a LCL_FLD...
                                   return tree->OperIs(GT_LCL_STORE) && (tree->AsLclStore()->GetLcl() == desc->lcl) &&
                                                  (tree != desc->skip)
-                                             ? Compiler::WALK_ABORT
-                                             : Compiler::WALK_CONTINUE;
+                                             ? GenTreeWalkResult::Abort
+                                             : GenTreeWalkResult::Continue;
                               },
-                              &walkData) != WALK_CONTINUE)
+                              &walkData) != GenTreeWalkResult::Continue)
             {
                 return true;
             }
