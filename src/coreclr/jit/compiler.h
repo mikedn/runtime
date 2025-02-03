@@ -6687,10 +6687,9 @@ protected:
         UseExecutionOrder = false,
     };
 
-    Compiler*            m_compiler;
-    ArrayStack<GenTree*> m_ancestors;
+    Compiler* m_compiler;
 
-    GenTreeVisitor(Compiler* compiler) : m_compiler(compiler), m_ancestors(compiler->getAllocator(CMK_ArrayStack))
+    GenTreeVisitor(Compiler* compiler) : m_compiler(compiler)
     {
         assert(compiler != nullptr);
 
@@ -6708,6 +6707,16 @@ protected:
         return GenTreeWalkResult::Continue;
     }
 
+    void Push(GenTree* node)
+    {
+        unreached();
+    }
+
+    void Pop()
+    {
+        unreached();
+    }
+
 public:
     GenTreeWalkResult WalkTree(GenTree** use, GenTree* user)
     {
@@ -6717,7 +6726,7 @@ public:
 
         if (TVisitor::ComputeStack)
         {
-            m_ancestors.Push(node);
+            reinterpret_cast<TVisitor*>(this)->Push(node);
         }
 
         GenTreeWalkResult result = GenTreeWalkResult::Continue;
@@ -7099,16 +7108,15 @@ public:
 
         if (TVisitor::ComputeStack)
         {
-            m_ancestors.Pop();
+            reinterpret_cast<TVisitor*>(this)->Pop();
         }
 
         return result;
     }
 };
 
-template <bool computeStack, bool doPreOrder, bool doPostOrder, bool doLclVarsOnly, bool useExecutionOrder>
-class GenericTreeWalker final
-    : public GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>
+template <bool doPreOrder, bool doPostOrder>
+class GenericTreeWalker final : public GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>
 {
     GenTreeWalkData   walkData;
     GenTreeWalkPreFn  preVisitor;
@@ -7117,24 +7125,21 @@ class GenericTreeWalker final
 public:
     enum
     {
-        ComputeStack      = computeStack,
-        DoPreOrder        = doPreOrder,
-        DoPostOrder       = doPostOrder,
-        DoLclVarsOnly     = doLclVarsOnly,
-        UseExecutionOrder = useExecutionOrder,
+        DoPreOrder  = doPreOrder,
+        DoPostOrder = doPostOrder,
     };
 
     GenericTreeWalker(Compiler*         compiler,
                       GenTreeWalkPreFn  preVisitor,
                       GenTreeWalkPostFn postVisitor,
                       void*             callbackData)
-        : GenTreeVisitor<GenericTreeWalker<computeStack, doPreOrder, doPostOrder, doLclVarsOnly, useExecutionOrder>>(
-              compiler)
+        : GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>(compiler)
         , walkData(compiler, callbackData)
         , preVisitor(preVisitor)
         , postVisitor(postVisitor)
     {
-        assert((preVisitor != nullptr) || (postVisitor != nullptr));
+        assert(!doPreOrder || (preVisitor != nullptr));
+        assert(!doPostOrder || (postVisitor != nullptr));
     }
 
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
@@ -7152,13 +7157,13 @@ public:
 
 inline GenTreeWalkResult Compiler::fgWalkTreePre(GenTree** use, GenTreeWalkPreFn visitor, void* callbackData)
 {
-    GenericTreeWalker<false, true, false, false, true> walker(this, visitor, nullptr, callbackData);
+    GenericTreeWalker<true, false> walker(this, visitor, nullptr, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
 inline GenTreeWalkResult Compiler::fgWalkTreePost(GenTree** use, GenTreeWalkPostFn visitor, void* callbackData)
 {
-    GenericTreeWalker<false, false, true, false, true> walker(this, nullptr, visitor, callbackData);
+    GenericTreeWalker<false, true> walker(this, nullptr, visitor, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
@@ -7168,9 +7173,7 @@ inline GenTreeWalkResult Compiler::fgWalkTree(GenTree**        use,
                                               void*            callbackData)
 
 {
-    assert((preVisitor != nullptr) && (postVisitor != nullptr));
-
-    GenericTreeWalker<true, true, true, false, true> walker(this, preVisitor, postVisitor, callbackData);
+    GenericTreeWalker<true, true> walker(this, preVisitor, postVisitor, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 

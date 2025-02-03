@@ -187,6 +187,7 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
     };
 
     ArrayStack<Value, 16> m_valueStack;
+    ArrayStack<GenTree*> m_ancestors;
     INDEBUG(bool m_stmtModified;)
 
 public:
@@ -198,8 +199,20 @@ public:
     };
 
     LocalAddressVisitor(Compiler* comp)
-        : GenTreeVisitor<LocalAddressVisitor>(comp), m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
+        : GenTreeVisitor<LocalAddressVisitor>(comp)
+        , m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
+        , m_ancestors(comp->getAllocator(CMK_LocalAddressVisitor))
     {
+    }
+
+    void Push(GenTree* node)
+    {
+        m_ancestors.Push(node);
+    }
+
+    void Pop()
+    {
+        m_ancestors.Pop();
     }
 
     void VisitStmt(Statement* stmt DEBUGARG(BasicBlock* block))

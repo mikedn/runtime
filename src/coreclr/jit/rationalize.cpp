@@ -426,7 +426,8 @@ void Rationalizer::Run()
 {
     class RationalizeVisitor final : public GenTreeVisitor<RationalizeVisitor>
     {
-        Rationalizer& m_rationalizer;
+        Rationalizer&        m_rationalizer;
+        ArrayStack<GenTree*> m_ancestors;
 
     public:
         enum
@@ -438,8 +439,20 @@ void Rationalizer::Run()
         };
 
         RationalizeVisitor(Rationalizer& rationalizer)
-            : GenTreeVisitor<RationalizeVisitor>(rationalizer.comp), m_rationalizer(rationalizer)
+            : GenTreeVisitor<RationalizeVisitor>(rationalizer.comp)
+            , m_rationalizer(rationalizer)
+            , m_ancestors(rationalizer.comp->getAllocator(CMK_ArrayStack))
         {
+        }
+
+        void Push(GenTree* node)
+        {
+            m_ancestors.Push(node);
+        }
+
+        void Pop()
+        {
+            m_ancestors.Pop();
         }
 
         // Rewrite intrinsics that are not supported by the target back into user calls.

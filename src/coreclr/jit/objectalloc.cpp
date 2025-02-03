@@ -290,7 +290,8 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 {
     class BuildConnGraphVisitor final : public GenTreeVisitor<BuildConnGraphVisitor>
     {
-        ObjectAllocator* m_allocator;
+        ObjectAllocator*     m_allocator;
+        ArrayStack<GenTree*> m_ancestors;
 
     public:
         enum
@@ -301,8 +302,20 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         };
 
         BuildConnGraphVisitor(ObjectAllocator* allocator)
-            : GenTreeVisitor<BuildConnGraphVisitor>(allocator->comp), m_allocator(allocator)
+            : GenTreeVisitor<BuildConnGraphVisitor>(allocator->comp)
+            , m_allocator(allocator)
+            , m_ancestors(allocator->comp->getAllocator(CMK_ObjectAllocator))
         {
+        }
+
+        void Push(GenTree* node)
+        {
+            m_ancestors.Push(node);
+        }
+
+        void Pop()
+        {
+            m_ancestors.Pop();
         }
 
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
@@ -806,7 +819,8 @@ void ObjectAllocator::RewriteUses()
 {
     class RewriteUsesVisitor final : public GenTreeVisitor<RewriteUsesVisitor>
     {
-        ObjectAllocator* m_allocator;
+        ObjectAllocator*     m_allocator;
+        ArrayStack<GenTree*> m_ancestors;
 
     public:
         enum
@@ -817,8 +831,20 @@ void ObjectAllocator::RewriteUses()
         };
 
         RewriteUsesVisitor(ObjectAllocator* allocator)
-            : GenTreeVisitor<RewriteUsesVisitor>(allocator->comp), m_allocator(allocator)
+            : GenTreeVisitor<RewriteUsesVisitor>(allocator->comp)
+            , m_allocator(allocator)
+            , m_ancestors(allocator->comp->getAllocator(CMK_ObjectAllocator))
         {
+        }
+
+        void Push(GenTree* node)
+        {
+            m_ancestors.Push(node);
+        }
+
+        void Pop()
+        {
+            m_ancestors.Pop();
         }
 
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
