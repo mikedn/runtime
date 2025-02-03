@@ -2861,6 +2861,7 @@ private:
 
     class VNConstPropVisitor final : public GenTreeVisitor<VNConstPropVisitor>
     {
+        Compiler*      m_compiler;
         ValueNumStore* m_vnStore;
         BasicBlock*    m_block;
         Statement*     m_stmt;
@@ -2872,7 +2873,7 @@ private:
             DoPreOrder = true
         };
 
-        VNConstPropVisitor(Compiler* compiler) : GenTreeVisitor(compiler), m_vnStore(compiler->vnStore)
+        VNConstPropVisitor(Compiler* compiler) : m_compiler(compiler), m_vnStore(compiler->vnStore)
         {
         }
 

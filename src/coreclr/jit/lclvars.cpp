@@ -2504,6 +2504,7 @@ void Compiler::lvaComputeRefCountsHIR()
 {
     class MarkLocalVarsVisitor final : public GenTreeVisitor<MarkLocalVarsVisitor>
     {
+        Compiler*            m_compiler;
         BasicBlock*          m_block;
         BasicBlock::weight_t m_weight;
         Statement*           m_stmt;
@@ -2514,7 +2515,7 @@ void Compiler::lvaComputeRefCountsHIR()
             DoPreOrder = true,
         };
 
-        MarkLocalVarsVisitor(Compiler* compiler) : GenTreeVisitor<MarkLocalVarsVisitor>(compiler)
+        MarkLocalVarsVisitor(Compiler* compiler) : m_compiler(compiler)
         {
         }
 

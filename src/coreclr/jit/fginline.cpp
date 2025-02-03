@@ -111,12 +111,13 @@ PhaseStatus Compiler::fgInline()
 
 class RetExprReplaceVisitor : public GenTreeVisitor<RetExprReplaceVisitor>
 {
+    Compiler*   m_compiler;
     BasicBlock* m_block;
     Statement*  m_stmt;
 
 public:
     RetExprReplaceVisitor(Compiler* compiler, BasicBlock* block, Statement* stmt)
-        : GenTreeVisitor(compiler), m_block(block), m_stmt(stmt)
+        : m_compiler(compiler), m_block(block), m_stmt(stmt)
     {
     }
 

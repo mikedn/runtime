@@ -302,9 +302,7 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         };
 
         BuildConnGraphVisitor(ObjectAllocator* allocator)
-            : GenTreeVisitor<BuildConnGraphVisitor>(allocator->comp)
-            , m_allocator(allocator)
-            , m_ancestors(allocator->comp->getAllocator(CMK_ObjectAllocator))
+            : m_allocator(allocator), m_ancestors(allocator->comp->getAllocator(CMK_ObjectAllocator))
         {
         }
 
@@ -816,6 +814,7 @@ void ObjectAllocator::RewriteUses()
 {
     class RewriteUsesVisitor final : public GenTreeVisitor<RewriteUsesVisitor>
     {
+        Compiler*            m_compiler;
         ObjectAllocator*     m_allocator;
         ArrayStack<GenTree*> m_ancestors;
 
@@ -828,7 +827,7 @@ void ObjectAllocator::RewriteUses()
         };
 
         RewriteUsesVisitor(ObjectAllocator* allocator)
-            : GenTreeVisitor<RewriteUsesVisitor>(allocator->comp)
+            : m_compiler(allocator->comp)
             , m_allocator(allocator)
             , m_ancestors(allocator->comp->getAllocator(CMK_ObjectAllocator))
         {

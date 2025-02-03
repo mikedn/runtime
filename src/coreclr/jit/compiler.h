@@ -6687,12 +6687,8 @@ protected:
         UseExecutionOrder = false,
     };
 
-    Compiler* m_compiler;
-
-    GenTreeVisitor(Compiler* compiler) : m_compiler(compiler)
+    GenTreeVisitor()
     {
-        assert(compiler != nullptr);
-
         static_assert_no_msg(TVisitor::DoPreOrder || TVisitor::DoPostOrder);
         static_assert_no_msg(!TVisitor::DoLclVarsOnly || TVisitor::DoPreOrder);
     }
@@ -7129,11 +7125,8 @@ public:
         DoPostOrder = doPostOrder,
     };
 
-    GenericTreeWalker(Compiler*         compiler,
-                      GenTreeWalkPreFn  preVisitor,
-                      GenTreeWalkPostFn postVisitor,
-                      void*             callbackData)
-        : GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>(compiler)
+    GenericTreeWalker(GenTreeWalkPreFn preVisitor, GenTreeWalkPostFn postVisitor, void* callbackData)
+        : GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>()
         , preVisitor(preVisitor)
         , postVisitor(postVisitor)
         , data(callbackData)
@@ -7155,13 +7148,13 @@ public:
 
 inline GenTreeWalkResult Compiler::fgWalkTreePre(GenTree** use, GenTreeWalkPreFn visitor, void* callbackData)
 {
-    GenericTreeWalker<true, false> walker(this, visitor, nullptr, callbackData);
+    GenericTreeWalker<true, false> walker(visitor, nullptr, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
 inline GenTreeWalkResult Compiler::fgWalkTreePost(GenTree** use, GenTreeWalkPostFn visitor, void* callbackData)
 {
-    GenericTreeWalker<false, true> walker(this, nullptr, visitor, callbackData);
+    GenericTreeWalker<false, true> walker(nullptr, visitor, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 
@@ -7171,7 +7164,7 @@ inline GenTreeWalkResult Compiler::fgWalkTree(GenTree**        use,
                                               void*            callbackData)
 
 {
-    GenericTreeWalker<true, true> walker(this, preVisitor, postVisitor, callbackData);
+    GenericTreeWalker<true, true> walker(preVisitor, postVisitor, callbackData);
     return walker.WalkTree(use, nullptr);
 }
 

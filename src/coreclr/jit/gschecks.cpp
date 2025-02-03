@@ -425,6 +425,8 @@ void Compiler::gsParamsToShadows()
 
     class ReplaceShadowParamsVisitor final : public GenTreeVisitor<ReplaceShadowParamsVisitor>
     {
+        Compiler* m_compiler;
+
         // Walk the locals of the method (i.e. LCL_LOAD_FLD and LCL_LOAD nodes) and replace the ones that correspond to
         // "vulnerable" parameters with their shadow copies. If an original local variable has small type then replace
         // the LCL_LOAD node type with TYP_INT.
@@ -435,7 +437,7 @@ void Compiler::gsParamsToShadows()
             DoLclVarsOnly = true
         };
 
-        ReplaceShadowParamsVisitor(Compiler* compiler) : GenTreeVisitor<ReplaceShadowParamsVisitor>(compiler)
+        ReplaceShadowParamsVisitor(Compiler* compiler) : m_compiler(compiler)
         {
         }
 

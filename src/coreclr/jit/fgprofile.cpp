@@ -1227,8 +1227,7 @@ public:
     TFunctor& m_functor;
     Compiler* m_compiler;
 
-    ClassProbeVisitor(Compiler* compiler, TFunctor& functor)
-        : GenTreeVisitor<ClassProbeVisitor>(compiler), m_functor(functor), m_compiler(compiler)
+    ClassProbeVisitor(Compiler* compiler, TFunctor& functor) : m_functor(functor), m_compiler(compiler)
     {
     }
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)

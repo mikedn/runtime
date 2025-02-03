@@ -15711,7 +15711,7 @@ public:
         DoPreOrder = true
     };
 
-    SpillRetExprHelper(Importer* importer) : GenTreeVisitor<SpillRetExprHelper>(importer->comp), importer(importer)
+    SpillRetExprHelper(Importer* importer) : importer(importer)
     {
     }
 
@@ -15752,10 +15752,11 @@ public:
     {
         GenTreeRetExpr* retExpr = (*use)->AsRetExpr();
 
-        LclVarDsc* lcl = m_compiler->lvaAllocTemp(true DEBUGARG("RET_EXPR temp"));
+        Compiler*  compiler = importer->comp;
+        LclVarDsc* lcl      = compiler->lvaAllocTemp(true DEBUGARG("RET_EXPR temp"));
         JITDUMP("Storing return expression [%06u] to a local var V%02u.\n", retExpr->GetID(), lcl->GetLclNum());
         importer->impAppendTempStore(lcl, retExpr, retExpr->GetLayout(), Importer::CHECK_SPILL_NONE);
-        *use = m_compiler->gtNewLclLoad(lcl, retExpr->GetType());
+        *use = compiler->gtNewLclLoad(lcl, retExpr->GetType());
 
         if (retExpr->TypeIs(TYP_REF))
         {
@@ -15766,9 +15767,9 @@ public:
 
             bool isExact   = false;
             bool isNonNull = false;
-            if (CORINFO_CLASS_HANDLE retClsHnd = m_compiler->gtGetClassHandle(retExpr, &isExact, &isNonNull))
+            if (CORINFO_CLASS_HANDLE retClsHnd = compiler->gtGetClassHandle(retExpr, &isExact, &isNonNull))
             {
-                m_compiler->lvaSetClass(lcl, retClsHnd, isExact);
+                compiler->lvaSetClass(lcl, retClsHnd, isExact);
             }
         }
     }

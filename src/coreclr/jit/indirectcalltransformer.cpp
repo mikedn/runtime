@@ -764,17 +764,18 @@ private:
             // Helper class to check a statement for uncloneable nodes and count the total number of nodes.
             class UnclonableVisitor final : public GenTreeVisitor<UnclonableVisitor>
             {
+                Compiler* m_compiler;
+
             public:
                 enum
                 {
                     DoPreOrder = true
                 };
 
-                GenTree* m_unclonableNode;
-                unsigned m_nodeCount;
+                GenTree* m_unclonableNode = nullptr;
+                unsigned m_nodeCount      = 0;
 
-                UnclonableVisitor(Compiler* compiler)
-                    : GenTreeVisitor<UnclonableVisitor>(compiler), m_unclonableNode(nullptr), m_nodeCount(0)
+                UnclonableVisitor(Compiler* compiler) : m_compiler(compiler)
                 {
                 }
 

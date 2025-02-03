@@ -7539,9 +7539,9 @@ const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
 
 enum class GenTreeWalkResult
 {
+    Abort,
     Continue,
-    Skip,
-    Abort
+    Skip
 };
 
 using GenTreeWalkPreFn  = GenTreeWalkResult (*)(GenTree** use, GenTree* user, void* data);

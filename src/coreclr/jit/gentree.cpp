@@ -1382,8 +1382,7 @@ public:
     };
 
     SequenceVisitor(Compiler* compiler, bool isLIR)
-        : GenTreeVisitor(compiler)
-        , m_dummyHead(GT_NONE, TYP_VOID)
+        : m_dummyHead(GT_NONE, TYP_VOID)
         , m_tail(&m_dummyHead)
         , m_isLIR(isLIR)
 #ifdef DEBUG
@@ -1434,10 +1433,10 @@ public:
 #ifdef DEBUG
 class SequenceDebugCheckVisitor : public GenTreeVisitor<SequenceDebugCheckVisitor>
 {
-    GenTree*             m_head;
-    GenTree*             m_tail;
+    GenTree*             m_head = nullptr;
+    GenTree*             m_tail = nullptr;
     bool                 m_isLIR;
-    unsigned             m_seqNum;
+    unsigned             m_seqNum = 0;
     ArrayStack<GenTree*> m_nodeStack;
     ArrayStack<GenTree*> m_operands;
 
@@ -1450,11 +1449,7 @@ public:
     };
 
     SequenceDebugCheckVisitor(Compiler* compiler, bool isLIR)
-        : GenTreeVisitor(compiler)
-        , m_head(nullptr)
-        , m_tail(nullptr)
-        , m_isLIR(isLIR)
-        , m_seqNum(0)
+        : m_isLIR(isLIR)
         , m_nodeStack(compiler->getAllocator(CMK_DebugOnly))
         , m_operands(compiler->getAllocator(CMK_DebugOnly))
     {
@@ -4998,6 +4993,8 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
 {
     class SideEffectsUpdateVisitor : public GenTreeVisitor<SideEffectsUpdateVisitor>
     {
+        Compiler* m_compiler;
+
     public:
         enum
         {
@@ -5005,7 +5002,7 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
             DoPostOrder = true,
         };
 
-        SideEffectsUpdateVisitor(Compiler* compiler) : GenTreeVisitor(compiler)
+        SideEffectsUpdateVisitor(Compiler* compiler) : m_compiler(compiler)
         {
         }
 
@@ -10236,6 +10233,8 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
 
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
+        Compiler* m_compiler;
+
     public:
         const GenTreeFlags   m_flags;
         ArrayStack<GenTree*> m_sideEffects;
@@ -10247,7 +10246,7 @@ GenTree* Compiler::gtExtractSideEffList(GenTree* expr, GenTreeFlags flags, bool 
         };
 
         SideEffectExtractor(Compiler* compiler, GenTreeFlags flags)
-            : GenTreeVisitor(compiler), m_flags(flags), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
+            : m_compiler(compiler), m_flags(flags), m_sideEffects(compiler->getAllocator(CMK_SideEffects))
         {
         }
 

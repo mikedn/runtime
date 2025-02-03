@@ -439,9 +439,7 @@ void Rationalizer::Run()
         };
 
         RationalizeVisitor(Rationalizer& rationalizer)
-            : GenTreeVisitor<RationalizeVisitor>(rationalizer.comp)
-            , m_rationalizer(rationalizer)
-            , m_ancestors(rationalizer.comp->getAllocator(CMK_ArrayStack))
+            : m_rationalizer(rationalizer), m_ancestors(rationalizer.comp->getAllocator(CMK_ArrayStack))
         {
         }
 

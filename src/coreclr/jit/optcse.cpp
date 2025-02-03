@@ -2365,6 +2365,7 @@ public:
 
     class SideEffectExtractor final : public GenTreeVisitor<SideEffectExtractor>
     {
+        Compiler*            m_compiler;
         float                m_blockWeight;
         Value**              m_valueTable;
         unsigned             m_valueCount;
@@ -2378,7 +2379,7 @@ public:
         };
 
         SideEffectExtractor(Compiler* compiler, BasicBlock* block, Value** valueTable, unsigned valueCount)
-            : GenTreeVisitor(compiler)
+            : m_compiler(compiler)
             , m_blockWeight(block->getBBWeight(compiler))
             , m_valueTable(valueTable)
             , m_valueCount(valueCount)

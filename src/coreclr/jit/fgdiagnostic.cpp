@@ -2708,6 +2708,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
 {
     class CheckFlagsTreeVisitor : public GenTreeVisitor<CheckFlagsTreeVisitor>
     {
+        Compiler* m_compiler;
         ArrayStack<GenTree*, 16> m_operands;
 
     public:
@@ -2718,7 +2719,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
         };
 
         CheckFlagsTreeVisitor(Compiler* compiler)
-            : GenTreeVisitor(compiler), m_operands(compiler->getAllocator(CMK_DebugOnly))
+            : m_compiler(compiler), m_operands(compiler->getAllocator(CMK_DebugOnly))
         {
         }
 

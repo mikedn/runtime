@@ -559,7 +559,7 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
             return true;
         }
 
-        if (BasicBlock* loopEntryBlock = m_compiler->vnStore->GetLoopMemoryBlock(tree))
+        if (BasicBlock* loopEntryBlock = ssa.GetVNStore()->GetLoopMemoryBlock(tree))
         {
             ValueNum loopMemoryVN = loopEntryBlock->memoryEntryDef->vn;
 
@@ -581,8 +581,7 @@ public:
     };
 
     LoopHoistTreeVisitor(SsaOptimizer& ssa, unsigned loopNum, LoopHoist* loopHoist)
-        : GenTreeVisitor(ssa.GetCompiler())
-        , ssa(ssa)
+        : ssa(ssa)
         , m_valueStack(ssa.GetCompiler()->getAllocator(CMK_LoopHoist))
         , m_beforeSideEffect(true)
         , m_loopNum(loopNum)
@@ -796,7 +795,7 @@ public:
                 // Check if we should clear m_beforeSideEffect.
                 // If 'tree' can throw an exception then we need to set m_beforeSideEffect to false.
                 // Note that calls are handled below
-                if (tree->OperMayThrow(m_compiler) && !tree->IsCall())
+                if (tree->OperMayThrow(ssa.GetCompiler()) && !tree->IsCall())
                 {
                     m_beforeSideEffect = false;
                 }

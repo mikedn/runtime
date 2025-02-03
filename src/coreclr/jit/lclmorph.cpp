@@ -186,9 +186,12 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 #endif // DEBUG
     };
 
+    Compiler* m_compiler;
     ArrayStack<Value, 16> m_valueStack;
     ArrayStack<GenTree*> m_ancestors;
-    INDEBUG(bool m_stmtModified;)
+#ifdef DEBUG
+    bool m_stmtModified;
+#endif
 
 public:
     enum
@@ -199,7 +202,7 @@ public:
     };
 
     LocalAddressVisitor(Compiler* comp)
-        : GenTreeVisitor<LocalAddressVisitor>(comp)
+        : m_compiler(comp)
         , m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
         , m_ancestors(comp->getAllocator(CMK_LocalAddressVisitor))
     {
@@ -2968,7 +2971,10 @@ void Compiler::phMarkAddressExposedLocals()
 
 class IndirectParamMorphVisitor final : public GenTreeVisitor<IndirectParamMorphVisitor>
 {
-    INDEBUG(bool m_stmtModified = false;)
+    Compiler* m_compiler;
+#ifdef DEBUG
+    bool m_stmtModified = false;
+#endif
 
 public:
     enum
@@ -2976,7 +2982,7 @@ public:
         DoPreOrder = true,
     };
 
-    IndirectParamMorphVisitor(Compiler* comp) : GenTreeVisitor<IndirectParamMorphVisitor>(comp)
+    IndirectParamMorphVisitor(Compiler* comp) : m_compiler(comp)
     {
     }
 
