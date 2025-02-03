@@ -2703,7 +2703,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
         newT->bbJumpKind = BBJ_ALWAYS;
         newT->bbJumpDest = t;
         newT->bbStmtList = nullptr;
-        fgInsertStmtAtEnd(newT, gtNewStmt(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
+        fgInsertStmtAtEnd(newT, gtNewStmt(gtNewNothingNode()));
     }
 
     // If it had been a do-while loop (top == entry), update entry, as well.
@@ -2732,7 +2732,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
         optLoopTable[loopInd].lpHead = h2;
         h2->bbJumpDest               = optLoopTable[loopInd].lpEntry;
         h2->bbStmtList               = nullptr;
-        fgInsertStmtAtEnd(h2, gtNewStmt(gtNewOperNode(GT_NOP, TYP_VOID, nullptr)));
+        fgInsertStmtAtEnd(h2, gtNewStmt(gtNewNothingNode()));
     }
 
     // If any loops nested in "loopInd" have the same head and entry as "loopInd",

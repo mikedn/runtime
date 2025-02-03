@@ -3165,7 +3165,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     {
                         // drop get_CurrentThread() call
                         impPopStack();
-                        call->ChangeToNop();
+                        call->ChangeToNothingNode();
                         retNode = gtNewHelperCallNode(CORINFO_HELP_GETCURRENTMANAGEDTHREADID, TYP_INT);
                     }
                 }

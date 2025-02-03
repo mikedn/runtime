@@ -1631,7 +1631,6 @@ public:
     void SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
     void SetOperResetFlags(genTreeOps oper);
     void ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate = CLEAR_VN);
-    GenTree*       ChangeToNop();
     GenTreeIntCon* ChangeToIntCon(ssize_t value);
     GenTreeIntCon* ChangeToIntCon(var_types type, ssize_t value);
     GenTreeIntCon* ChangeToIntCon(void* addr, HandleKind kind);
