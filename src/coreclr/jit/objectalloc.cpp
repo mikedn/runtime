@@ -467,13 +467,10 @@ void ObjectAllocator::ComputeStackObjectPointers()
 }
 
 #ifdef DEBUG
-static GenTreeWalkResult AssertWhenAllocObjFoundVisitor(GenTree** use, GenTreeWalkData* data)
+static GenTreeWalkResult AssertWhenAllocObjFoundVisitor(GenTree** use, GenTree* user, void* data)
 {
     GenTree* tree = *use;
-
-    assert(tree != nullptr);
-    assert(!tree->OperIs(GT_ALLOCOBJ));
-
+    assert((tree != nullptr) && !tree->OperIs(GT_ALLOCOBJ));
     return GenTreeWalkResult::Continue;
 }
 #endif

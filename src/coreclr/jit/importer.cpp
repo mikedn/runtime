@@ -16671,7 +16671,7 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 //
 bool Compiler::impHasAddressTakenLocals(GenTree* tree)
 {
-    auto visitor = [](GenTree** use, GenTreeWalkData* data) {
+    auto visitor = [](GenTree** use, GenTree* user, void* data) {
         GenTree* node = *use;
 
         // TODO-MIKE-Review: This is dubious, what we really want is the equivalent

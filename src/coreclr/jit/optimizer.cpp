@@ -3546,9 +3546,9 @@ struct OptInvertCountTreeInfoType
     unsigned arrayLengthCount        = 0;
 };
 
-static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTreeWalkData* data)
+static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTree* user, void* data)
 {
-    OptInvertCountTreeInfoType* o = static_cast<OptInvertCountTreeInfoType*>(data->data);
+    OptInvertCountTreeInfoType* o = static_cast<OptInvertCountTreeInfoType*>(data);
 
     if (Compiler::IsSharedStaticHelper(*use))
     {
@@ -4250,9 +4250,9 @@ bool Compiler::optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip,
         for (Statement* stmt : beg->Statements())
         {
             if (fgWalkTreePre(stmt->GetRootNodePointer(),
-                              [](GenTree** use, GenTreeWalkData* data) {
+                              [](GenTree** use, GenTree* user, void* data) {
                                   GenTree*  tree = *use;
-                                  WalkData* desc = static_cast<WalkData*>(data->data);
+                                  WalkData* desc = static_cast<WalkData*>(data);
 
                                   // TODO-MIKE-Cleanup: Why the crap are LCL_STORE_FLDs ignored?
                                   // This is likely used only for INT locals but then you can actually

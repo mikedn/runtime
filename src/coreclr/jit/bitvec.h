@@ -18,6 +18,11 @@ public:
     {
     }
 
+    Compiler* GetCompiler() const
+    {
+        return comp;
+    }
+
     static Word* Alloc(Env t, unsigned wordCount);
 
     static unsigned GetSize(Env t)

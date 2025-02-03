@@ -83,10 +83,10 @@ struct MarkPtrsInfo
     }
 };
 
-static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTreeWalkData* data)
+static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, void* data)
 {
-    MarkPtrsInfo* state = static_cast<MarkPtrsInfo*>(data->data);
-    Compiler*     comp  = data->compiler;
+    MarkPtrsInfo* state = static_cast<MarkPtrsInfo*>(data);
+    Compiler*     comp  = state->assignSetTraits.GetCompiler();
     GenTree*      tree  = *use;
 
     switch (tree->GetOper())

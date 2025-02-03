@@ -7537,17 +7537,6 @@ inline bool GenTree::IsHelperCall()
 const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
 const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
 
-struct GenTreeWalkData
-{
-    Compiler* compiler;
-    void*     data;
-    GenTree*  user;
-
-    GenTreeWalkData(Compiler* compiler, void* data) : compiler(compiler), data(data)
-    {
-    }
-};
-
 enum class GenTreeWalkResult
 {
     Continue,
@@ -7555,5 +7544,5 @@ enum class GenTreeWalkResult
     Abort
 };
 
-using GenTreeWalkPreFn  = GenTreeWalkResult (*)(GenTree** use, GenTreeWalkData* data);
-using GenTreeWalkPostFn = GenTreeWalkResult (*)(GenTree** use, GenTreeWalkData* data);
+using GenTreeWalkPreFn  = GenTreeWalkResult (*)(GenTree** use, GenTree* user, void* data);
+using GenTreeWalkPostFn = GenTreeWalkResult (*)(GenTree** use, GenTree* user, void* data);

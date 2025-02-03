@@ -1520,10 +1520,9 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
         for (Statement* stmt : block->Statements())
         {
             context.compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                            [](GenTree** use, GenTreeWalkData* data) {
-                                                LoopCloneVisitorInfo* info =
-                                                    static_cast<LoopCloneVisitorInfo*>(data->data);
-                                                GenTree* node = *use;
+                                            [](GenTree** use, GenTree* user, void* data) {
+                                                LoopCloneVisitorInfo* info = static_cast<LoopCloneVisitorInfo*>(data);
+                                                GenTree*              node = *use;
 
                                                 if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                                                 {
@@ -1669,8 +1668,8 @@ void LoopCloneContext::IdentifyLoopOptInfo(unsigned loopNum)
             info.stmt = stmt;
 
             compiler->fgWalkTreePre(stmt->GetRootNodePointer(),
-                                    [](GenTree** use, GenTreeWalkData* data) {
-                                        LoopCloneVisitorInfo* info  = static_cast<LoopCloneVisitorInfo*>(data->data);
+                                    [](GenTree** use, GenTree* user, void* data) {
+                                        LoopCloneVisitorInfo* info  = static_cast<LoopCloneVisitorInfo*>(data);
                                         GenTree*              comma = *use;
 
                                         if (comma->OperIs(GT_COMMA))

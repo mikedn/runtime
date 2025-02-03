@@ -10371,8 +10371,8 @@ GenTree** Compiler::gtFindUse(Statement* stmt, GenTree* value)
     Data data{value};
 
     if (fgWalkTreePre(stmt->GetRootNodePointer(),
-                      [](GenTree** use, GenTreeWalkData* walkData) {
-                          Data* data = static_cast<Data*>(walkData->data);
+                      [](GenTree** use, GenTree* user, void* walkData) {
+                          Data* data = static_cast<Data*>(walkData);
 
                           if (*use != data->value)
                           {
@@ -10493,9 +10493,9 @@ struct ComplexityStruct
     }
 };
 
-static GenTreeWalkResult ComplexityExceedsWalker(GenTree** use, GenTreeWalkData* data)
+static GenTreeWalkResult ComplexityExceedsWalker(GenTree** use, GenTree* user, void* data)
 {
-    ComplexityStruct* complexity = static_cast<ComplexityStruct*>(data->data);
+    ComplexityStruct* complexity = static_cast<ComplexityStruct*>(data);
     return ++complexity->m_numNodes > complexity->m_nodeLimit ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
 }
 

@@ -7118,9 +7118,9 @@ public:
 template <bool doPreOrder, bool doPostOrder>
 class GenericTreeWalker final : public GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>
 {
-    GenTreeWalkData   walkData;
     GenTreeWalkPreFn  preVisitor;
     GenTreeWalkPostFn postVisitor;
+    void*             data;
 
 public:
     enum
@@ -7134,9 +7134,9 @@ public:
                       GenTreeWalkPostFn postVisitor,
                       void*             callbackData)
         : GenTreeVisitor<GenericTreeWalker<doPreOrder, doPostOrder>>(compiler)
-        , walkData(compiler, callbackData)
         , preVisitor(preVisitor)
         , postVisitor(postVisitor)
+        , data(callbackData)
     {
         assert(!doPreOrder || (preVisitor != nullptr));
         assert(!doPostOrder || (postVisitor != nullptr));
@@ -7144,14 +7144,12 @@ public:
 
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
-        walkData.user = user;
-        return preVisitor(use, &walkData);
+        return preVisitor(use, user, data);
     }
 
     GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
-        walkData.user = user;
-        return postVisitor(use, &walkData);
+        return postVisitor(use, user, data);
     }
 };
 

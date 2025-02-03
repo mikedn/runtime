@@ -3170,9 +3170,9 @@ void Compiler::fgDebugCheckNodesUniqueness()
         {
         }
 
-        static GenTreeWalkResult MarkTreeId(GenTree** use, GenTreeWalkData* data)
+        static GenTreeWalkResult MarkTreeId(GenTree** use, GenTree* user, void* data)
         {
-            UniquenessCheckWalker* walker = static_cast<UniquenessCheckWalker*>(data->data);
+            UniquenessCheckWalker* walker = static_cast<UniquenessCheckWalker*>(data);
             walker->CheckTreeId(*use);
             return GenTreeWalkResult::Continue;
         }

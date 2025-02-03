@@ -365,7 +365,7 @@ void Compiler::inlFoldJTrue(BasicBlock* block)
 //
 void Compiler::inlDebugCheckInlineCandidates()
 {
-    auto visitor = [](GenTree** use, GenTreeWalkData* data) {
+    auto visitor = [](GenTree** use, GenTree* user, void* data) {
         GenTree* node = *use;
 
         if (GenTreeCall* call = node->IsCall())

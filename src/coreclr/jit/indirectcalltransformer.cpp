@@ -1009,7 +1009,7 @@ PhaseStatus Compiler::fgTransformIndirectCalls()
     {
         for (Statement* const stmt : block->Statements())
         {
-            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, GenTreeWalkData* data) {
+            fgWalkTreePre(stmt->GetRootNodePointer(), [](GenTree** use, GenTree* user, void* data) {
                 if (GenTreeCall* call = (*use)->IsCall())
                 {
                     assert(!call->IsFatPointerCandidate());

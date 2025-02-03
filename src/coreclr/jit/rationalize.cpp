@@ -465,7 +465,7 @@ void Rationalizer::Run()
             if (node->IsIntrinsic() &&
                 m_rationalizer.comp->IsIntrinsicImplementedByUserCall(node->AsIntrinsic()->GetIntrinsic()))
             {
-                m_rationalizer.RewriteIntrinsicAsUserCall(use, this->m_ancestors);
+                m_rationalizer.RewriteIntrinsicAsUserCall(use, m_ancestors);
             }
 
             return GenTreeWalkResult::Continue;

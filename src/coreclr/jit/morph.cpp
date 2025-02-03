@@ -794,7 +794,7 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
         return false;
     }
 
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTreeWalkData* data) {
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
         GenTree* node = *use;
 
         if (!node->HasAnySideEffect(GTF_EXCEPT))
@@ -838,7 +838,7 @@ static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
 
 static bool HasLclHeap(Compiler* compiler, GenTree* tree)
 {
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTreeWalkData* data) {
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
         return (*use)->OperIs(GT_LCLHEAP) ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
     }) == GenTreeWalkResult::Abort;
 }
@@ -7218,7 +7218,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     }
 
 #ifdef DEBUG
-    auto resetMorphedFlag = [](GenTree** use, GenTreeWalkData* data) {
+    auto resetMorphedFlag = [](GenTree** use, GenTree* user, void* data) {
         (*use)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
         return GenTreeWalkResult::Continue;
     };
@@ -13180,7 +13180,7 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
 }
 
 #ifdef DEBUG
-static GenTreeWalkResult fgAssertNoQmark(GenTree** use, GenTreeWalkData* data)
+static GenTreeWalkResult fgAssertNoQmark(GenTree** use, GenTree* user, void* data)
 {
     assert(!(*use)->IsQmark());
     return GenTreeWalkResult::Continue;
