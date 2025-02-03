@@ -6721,6 +6721,7 @@ public:
         }
 
         GenTreeWalkResult result = GenTreeWalkResult::Continue;
+
         if (TVisitor::DoPreOrder && !TVisitor::DoLclVarsOnly)
         {
             result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
@@ -6730,6 +6731,7 @@ public:
             }
 
             node = *use;
+
             if ((node == nullptr) || (result == GenTreeWalkResult::Skip))
             {
                 goto DONE;

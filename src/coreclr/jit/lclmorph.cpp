@@ -192,11 +192,9 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 public:
     enum
     {
-        DoPreOrder        = true,
-        DoPostOrder       = true,
-        ComputeStack      = true,
-        DoLclVarsOnly     = false,
-        UseExecutionOrder = false,
+        DoPreOrder   = true,
+        DoPostOrder  = true,
+        ComputeStack = true,
     };
 
     LocalAddressVisitor(Compiler* comp)
@@ -2962,11 +2960,7 @@ class IndirectParamMorphVisitor final : public GenTreeVisitor<IndirectParamMorph
 public:
     enum
     {
-        DoPreOrder        = true,
-        DoPostOrder       = false,
-        ComputeStack      = false,
-        DoLclVarsOnly     = false,
-        UseExecutionOrder = false,
+        DoPreOrder = true,
     };
 
     IndirectParamMorphVisitor(Compiler* comp) : GenTreeVisitor<IndirectParamMorphVisitor>(comp)

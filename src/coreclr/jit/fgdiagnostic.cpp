@@ -2713,11 +2713,8 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
     public:
         enum
         {
-            ComputeStack      = false,
-            DoPreOrder        = true,
-            DoPostOrder       = true,
-            DoLclVarsOnly     = false,
-            UseExecutionOrder = false,
+            DoPreOrder  = true,
+            DoPostOrder = true,
         };
 
         CheckFlagsTreeVisitor(Compiler* compiler)

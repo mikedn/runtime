@@ -122,11 +122,8 @@ public:
 
     enum
     {
-        ComputeStack      = false,
-        DoPreOrder        = true,
-        DoPostOrder       = true,
-        DoLclVarsOnly     = false,
-        UseExecutionOrder = false,
+        DoPreOrder  = true,
+        DoPostOrder = true,
     };
 
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)

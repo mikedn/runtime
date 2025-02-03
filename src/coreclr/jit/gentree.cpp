@@ -5001,11 +5001,8 @@ void Compiler::gtUpdateStmtSideEffects(Statement* stmt)
     public:
         enum
         {
-            DoPreOrder        = true,
-            DoPostOrder       = true,
-            ComputeStack      = false,
-            DoLclVarsOnly     = false,
-            UseExecutionOrder = false
+            DoPreOrder  = true,
+            DoPostOrder = true,
         };
 
         SideEffectsUpdateVisitor(Compiler* compiler) : GenTreeVisitor(compiler)

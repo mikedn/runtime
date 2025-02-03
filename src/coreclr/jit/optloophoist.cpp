@@ -575,10 +575,8 @@ class LoopHoistTreeVisitor : public GenTreeVisitor<LoopHoistTreeVisitor>
 public:
     enum
     {
-        ComputeStack      = false,
         DoPreOrder        = true,
         DoPostOrder       = true,
-        DoLclVarsOnly     = false,
         UseExecutionOrder = true,
     };
 
