@@ -4354,7 +4354,7 @@ private:
 
 private:
     //                  Recognize a bitwise rotation pattern and convert into a GT_ROL or a GT_ROR node.
-    GenTree* fgRecognizeAndMorphBitwiseRotation(GenTree* tree);
+    GenTreeOp* fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
     bool fgOperIsBitwiseRotationRoot(genTreeOps oper);
 
 #if !defined(TARGET_64BIT)
@@ -6405,7 +6405,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_NOP:
         case GT_RETURN:
         case GT_RETFILT:
-            if (this->AsUnOp()->gtOp1 == nullptr)
+            if (AsUnOp()->gtOp1 == nullptr)
             {
                 return;
             }

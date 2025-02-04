@@ -824,13 +824,11 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
 
                 // Include a line with the basics of the branch condition, if possible.
                 // Find the loop termination test at the bottom of the loop.
-                Statement* condStmt = block->lastStmt();
-                if (condStmt != nullptr)
+                if (Statement* condStmt = block->lastStmt())
                 {
                     GenTree* const condTree = condStmt->GetRootNode();
-                    noway_assert(condTree->OperIs(GT_JTRUE));
-                    GenTree* const compareTree = condTree->AsOp()->gtOp1;
-                    fgDumpTree(fgxFile, compareTree);
+                    assert(condTree->OperIs(GT_JTRUE));
+                    fgDumpTree(fgxFile, condTree->AsUnOp()->GetOp(0));
                 }
             }
 
@@ -2944,7 +2942,7 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
             noway_assert(tree == stmt->GetRootNode());
         }
 
-        /* Cross-check gtPrev,gtNext with GetOp() for simple trees */
+        // Cross-check gtPrev,gtNext with GetOp() for simple trees
 
         GenTree* expectedPrevTree = nullptr;
 
@@ -2961,28 +2959,14 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
                 noway_assert(stmt->GetRootNode()->gtFlags & GTF_ORDER_SIDEEFF);
             }
         }
-
-        if (tree->OperIsUnary() && tree->AsOp()->gtOp1)
+        else if (tree->OperIsUnary() && (tree->AsUnOp()->gtOp1 != nullptr))
         {
-            expectedPrevTree = tree->AsOp()->gtOp1;
+            expectedPrevTree = tree->AsUnOp()->GetOp(0);
         }
-        else if (tree->OperIsBinary() && tree->AsOp()->gtOp1)
+        else if (tree->OperIsBinary() && (tree->AsOp()->gtOp1 != nullptr))
         {
-            if (tree->AsOp()->gtOp2)
-            {
-                if (tree->gtFlags & GTF_REVERSE_OPS)
-                {
-                    expectedPrevTree = tree->AsOp()->gtOp1;
-                }
-                else
-                {
-                    expectedPrevTree = tree->AsOp()->gtOp2;
-                }
-            }
-            else
-            {
-                expectedPrevTree = tree->AsOp()->gtOp1;
-            }
+            expectedPrevTree = (tree->AsOp()->gtOp2 == nullptr) || tree->IsReverseOp() ? tree->AsOp()->GetOp(0)
+                                                                                       : tree->AsOp()->GetOp(1);
         }
 
         noway_assert(expectedPrevTree == nullptr ||     // No expectations about the prev node
@@ -2990,13 +2974,8 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
     }
 }
 
-/*****************************************************************************
- *
- * A DEBUG routine to check the correctness of the links between statements
- * and ordinary nodes within a statement.
- *
- ****************************************************************************/
-
+// A DEBUG routine to check the correctness of the links between statements
+// and ordinary nodes within a statement.
 void Compiler::fgDebugCheckLinks(bool morphTrees)
 {
     // This used to be only on for stress, and there was a comment stating that

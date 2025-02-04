@@ -2267,11 +2267,6 @@ public:
     }
 };
 
-// In the current design, we never instantiate GenTreeUnOp: it exists only to be
-// used as a base class.  For unary operators, we instantiate GenTreeOp, with a NULL second
-// argument.  We check that this is true dynamically.  We could tighten this and get static
-// checking, but that would entail accessing the first child of a unary operator via something
-// like gtUnOp.gtOp1 instead of AsOp()->gtOp1.
 struct GenTreeUnOp : public GenTree
 {
     GenTree* gtOp1;

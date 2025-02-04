@@ -850,14 +850,14 @@ AGAIN:
             if (!Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp1, swapOK))
             {
                 if (swapOK && OperIsCommutative(oper) &&
-                    ((op1->AsOp()->gtOp1->gtFlags | op1->AsOp()->gtOp2->gtFlags | op2->AsOp()->gtOp1->gtFlags |
-                      op2->AsOp()->gtOp2->gtFlags) &
-                     GTF_ALL_EFFECT) == 0)
+                    ((op1->AsOp()->GetOp(0)->gtFlags | op1->AsOp()->GetOp(1)->gtFlags | op2->AsOp()->GetOp(0)->gtFlags |
+                      op2->AsOp()->GetOp(1)->gtFlags) &
+                     GTF_ALL_EFFECT) == GTF_NONE)
                 {
-                    if (Compare(op1->AsOp()->gtOp1, op2->AsOp()->gtOp2, swapOK))
+                    if (Compare(op1->AsOp()->GetOp(0), op2->AsOp()->GetOp(1), swapOK))
                     {
-                        op1 = op1->AsOp()->gtOp2;
-                        op2 = op2->AsOp()->gtOp1;
+                        op1 = op1->AsOp()->GetOp(1);
+                        op2 = op2->AsOp()->GetOp(0);
                         goto AGAIN;
                     }
                 }
@@ -872,15 +872,15 @@ AGAIN:
         }
         else
         {
-
             op1 = op1->AsOp()->gtOp1;
             op2 = op2->AsOp()->gtOp1;
 
-            if (!op1)
+            if (op1 == nullptr)
             {
                 return (op2 == nullptr);
             }
-            if (!op2)
+
+            if (op2 == nullptr)
             {
                 return false;
             }
@@ -993,15 +993,13 @@ AGAIN:
                 break;
         }
 
-        // clang-format off
         // narrow 'add' into a 32-bit 'val'
         unsigned val;
 #ifdef HOST_64BIT
         val = genTreeHashAdd(uhi32(add), ulo32(add));
-#else // 32-bit host
-        val = add;
+#else
+        val         = add;
 #endif
-        // clang-format on
 
         hash = genTreeHashAdd(hash, val);
         goto DONE;
@@ -1012,7 +1010,6 @@ AGAIN:
     if (kind & GTK_UNOP)
     {
         op1 = tree->AsOp()->gtOp1;
-        /* Special case: no sub-operand at all */
 
         if (GenTree::IsExOp(kind))
         {
@@ -1054,7 +1051,7 @@ AGAIN:
             }
         }
 
-        if (!op1)
+        if (op1 == nullptr)
         {
             goto DONE;
         }
@@ -1098,31 +1095,18 @@ AGAIN:
         op1          = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->AsOp()->gtOp2;
 
-        /* Is there a second sub-operand? */
-
-        if (!op2)
+        if (op2 == nullptr)
         {
-            /* Special case: no sub-operands at all */
-
-            if (!op1)
+            if (op1 == nullptr)
             {
                 goto DONE;
             }
-
-            /* This is a unary operator */
 
             tree = op1;
             goto AGAIN;
         }
 
-        /* This is a binary operator */
-
-        unsigned hsh1 = gtHashValue(op1);
-
-        /* Add op1's hash to the running value and continue with op2 */
-
-        hash = genTreeHashAdd(hash, hsh1);
-
+        hash = genTreeHashAdd(hash, gtHashValue(op1));
         tree = op2;
         goto AGAIN;
     }
@@ -1222,7 +1206,6 @@ AGAIN:
     }
 
 DONE:
-
     return hash;
 }
 
@@ -4562,14 +4545,14 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
         if (GenTree* op1 = tree->AsOp()->gtOp1)
         {
-            copy->AsOp()->gtOp1 = gtCloneExpr(op1, addFlags, constLcl, constVal);
-            copy->gtFlags |= copy->AsOp()->gtOp1->GetSideEffects();
+            copy->AsOp()->SetOp(0, gtCloneExpr(op1, addFlags, constLcl, constVal));
+            copy->gtFlags |= copy->AsOp()->GetOp(0)->GetSideEffects();
         }
 
         if (GenTree* op2 = tree->gtGetOp2IfPresent())
         {
-            copy->AsOp()->gtOp2 = gtCloneExpr(op2, addFlags, constLcl, constVal);
-            copy->gtFlags |= copy->AsOp()->gtOp2->GetSideEffects();
+            copy->AsOp()->SetOp(1, gtCloneExpr(op2, addFlags, constLcl, constVal));
+            copy->gtFlags |= copy->AsOp()->GetOp(1)->GetSideEffects();
         }
 
         goto DONE;
@@ -7324,14 +7307,14 @@ void Compiler::gtDispTreeRec(
 
         if (!topOnly)
         {
-            if (tree->AsOp()->gtOp1 != nullptr)
+            if (GenTree* op1 = tree->AsOp()->gtOp1)
             {
-                gtDispChild(tree->AsOp()->gtOp1, (tree->gtGetOp2IfPresent() == nullptr) ? IIArcBottom : IIArc);
+                gtDispChild(op1, tree->AsOp()->gtOp2 == nullptr ? IIArcBottom : IIArc);
             }
 
-            if (tree->gtGetOp2IfPresent() != nullptr)
+            if (GenTree* op2 = tree->AsOp()->gtOp2)
             {
-                gtDispChild(tree->AsOp()->gtOp2, IIArcBottom);
+                gtDispChild(op2, IIArcBottom);
             }
         }
     }
@@ -7860,8 +7843,8 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     if ((op1Kind == TPK_Handle) && (op2Kind == TPK_Handle))
     {
         JITDUMP("Optimizing compare of types-from-handles to instead compare handles\n");
-        GenTree*             op1ClassFromHandle = tree->AsOp()->gtOp1->AsCall()->gtCallArgs->GetNode();
-        GenTree*             op2ClassFromHandle = tree->AsOp()->gtOp2->AsCall()->gtCallArgs->GetNode();
+        GenTree*             op1ClassFromHandle = tree->AsOp()->GetOp(0)->AsCall()->gtCallArgs->GetNode();
+        GenTree*             op2ClassFromHandle = tree->AsOp()->GetOp(1)->AsCall()->gtCallArgs->GetNode();
         CORINFO_CLASS_HANDLE cls1Hnd            = NO_CLASS_HANDLE;
         CORINFO_CLASS_HANDLE cls2Hnd            = NO_CLASS_HANDLE;
 
@@ -7931,7 +7914,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
         if (op1->OperIs(GT_INTRINSIC))
         {
-            arg1 = op1->AsUnOp()->gtOp1;
+            arg1 = op1->AsUnOp()->GetOp(0);
         }
         else
         {
@@ -7944,7 +7927,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 
         if (op2->OperIs(GT_INTRINSIC))
         {
-            arg2 = op2->AsUnOp()->gtOp1;
+            arg2 = op2->AsUnOp()->GetOp(0);
         }
         else
         {
@@ -8008,7 +7991,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     // Note we may see intrinsified or regular calls to GetType
     if (opOther->OperIs(GT_INTRINSIC))
     {
-        objOp = opOther->AsUnOp()->gtOp1;
+        objOp = opOther->AsUnOp()->GetOp(0);
     }
     else
     {
@@ -8504,11 +8487,11 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
     if (op == op1)
     {
-        tree->AsOp()->gtOp1 = newOp;
+        tree->AsOp()->SetOp(0, newOp);
     }
     else
     {
-        tree->AsOp()->gtOp2 = newOp;
+        tree->AsOp()->SetOp(1, newOp);
     }
 
     tree->SetSideEffects(newOp->GetSideEffects());

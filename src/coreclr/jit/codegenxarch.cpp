@@ -5733,7 +5733,7 @@ void CodeGen::genPreAdjustStackForPutArgStk(unsigned argSize)
 
 void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 {
-    GenTreeFieldList* const fieldList = putArgStk->gtOp1->AsFieldList();
+    GenTreeFieldList* const fieldList = putArgStk->GetOp(0)->AsFieldList();
     assert(fieldList != nullptr);
 
     assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::Push) ||

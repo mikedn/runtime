@@ -4651,12 +4651,12 @@ Statement* OptBoolsDsc::optOptimizeBoolsChkBlkCond()
         }
 
         // The third block is Return with "CNS_INT int 0/1"
-        if (!testTree3->AsOp()->gtOp1->OperIs(GT_CNS_INT))
+        if (!testTree3->AsOp()->GetOp(0)->OperIs(GT_CNS_INT))
         {
             return nullptr;
         }
 
-        if (!testTree3->AsOp()->gtOp1->TypeIs(TYP_INT))
+        if (!testTree3->AsOp()->GetOp(0)->TypeIs(TYP_INT))
         {
             return nullptr;
         }
@@ -4914,9 +4914,9 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
     genTreeOps foldOp;
     genTreeOps cmpOp;
 
-    ssize_t it1val = m_testInfo1.compTree->AsOp()->gtOp2->AsIntCon()->GetValue();
-    ssize_t it2val = m_testInfo2.compTree->AsOp()->gtOp2->AsIntCon()->GetValue();
-    ssize_t it3val = m_t3->AsOp()->gtOp1->AsIntCon()->GetValue();
+    ssize_t it1val = m_testInfo1.compTree->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+    ssize_t it2val = m_testInfo2.compTree->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+    ssize_t it3val = m_t3->AsOp()->GetOp(0)->AsIntCon()->GetValue();
 
     if ((m_testInfo1.compTree->OperIs(GT_NE) && m_testInfo2.compTree->OperIs(GT_EQ)) &&
         (it1val == 0 && it2val == 0 && it3val == 0))
@@ -5019,16 +5019,16 @@ void OptBoolsDsc::optOptimizeBoolsGcStress()
     GenTree* relop  = test.compTree;
     bool     isBool = test.isBool;
 
-    if (comparand->gtFlags & (GTF_ASG | GTF_CALL | GTF_ORDER_SIDEEFF))
+    if (comparand->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_ORDER_SIDEEFF))
     {
         return;
     }
 
     GenTree* comparandClone = m_comp->gtCloneExpr(comparand);
 
-    noway_assert(relop->AsOp()->gtOp1 == comparand);
-    genTreeOps oper      = m_comp->compStressCompile(m_comp->STRESS_OPT_BOOLS_GC, 50) ? GT_OR : GT_AND;
-    relop->AsOp()->gtOp1 = m_comp->gtNewOperNode(oper, TYP_I_IMPL, comparand, comparandClone);
+    noway_assert(relop->AsOp()->GetOp(0) == comparand);
+    genTreeOps oper = m_comp->compStressCompile(m_comp->STRESS_OPT_BOOLS_GC, 50) ? GT_OR : GT_AND;
+    relop->AsOp()->SetOp(0, m_comp->gtNewOperNode(oper, TYP_I_IMPL, comparand, comparandClone));
 
     // Comparand type is already checked, and we have const int, there is no harm
     // morphing it into a TYP_I_IMPL.
@@ -5045,7 +5045,7 @@ void OptBoolsDsc::optOptimizeBoolsGcStress()
 //      pOptTest    The test info for the test tree
 //
 // Return:
-//      On success, return the first operand (gtOp1) of compTree, else return nullptr.
+//      On success, return the first operand of compTree, else return nullptr.
 //
 // Notes:
 //      On entry, testTree is set.

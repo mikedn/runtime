@@ -2631,15 +2631,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
     if (block->NumSucc(this) == 1)
     {
         // Use BBJ_ALWAYS for a switch with only a default clause, or with only one unique successor.
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nRemoving a switch jump with a single target (" FMT_BB ")\n", block->bbNum);
-            printf("BEFORE:\n");
-        }
-#endif // DEBUG
+        JITDUMP("\nRemoving a switch jump with a single target (" FMT_BB ")\nBEFORE:\n", block->bbNum);
 
         if (block->IsLIR())
         {
@@ -2690,10 +2682,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
             }
             else
             {
-
             NO_SWITCH_SIDE_EFFECT:
-
-                /* conditional has NO side effect - remove it */
+                // conditional has NO side effect - remove it
                 fgRemoveStmt(block, switchStmt);
             }
         }
@@ -2716,13 +2706,13 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         // Use a BBJ_COND(switchVal==0) for a switch with only one
         // significant clause besides the default clause, if the
         // default clause is bbNext
-        GenTree* switchVal = switchTree->AsOp()->gtOp1;
+        GenTree* switchVal = switchTree->AsOp()->GetOp(0);
         noway_assert(varActualTypeIsIntOrI(switchVal->GetType()));
 
         // If we are in LIR, remove the jump table from the block.
         if (block->IsLIR())
         {
-            GenTree* jumpTable = switchTree->AsOp()->gtOp2;
+            GenTree* jumpTable = switchTree->AsOp()->GetOp(1);
             assert(jumpTable->OperIs(GT_JMPTABLE));
             blockRange->Remove(jumpTable);
         }
@@ -3571,11 +3561,11 @@ bool Compiler::fgOptimizeSwitchJumps()
         // The dominant case should not be the default case, as we already peel that one.
         //
         assert(dominantCase < (block->bbJumpSwt->bbsCount - 1));
-        BasicBlock* const dominantTarget = block->bbJumpSwt->bbsDstTab[dominantCase];
-        Statement* const  switchStmt     = block->lastStmt();
-        GenTree* const    switchTree     = switchStmt->GetRootNode();
+        BasicBlock* const  dominantTarget = block->bbJumpSwt->bbsDstTab[dominantCase];
+        Statement* const   switchStmt     = block->lastStmt();
+        GenTreeUnOp* const switchTree     = switchStmt->GetRootNode()->AsUnOp();
         assert(switchTree->OperIs(GT_SWITCH));
-        GenTree* const switchValue = switchTree->AsUnOp()->GetOp(0);
+        GenTree* const switchValue = switchTree->GetOp(0);
 
         // Split the switch block just before at the switch.
         //
@@ -3595,7 +3585,7 @@ bool Compiler::fgOptimizeSwitchJumps()
 
         // Set up a compare in the upstream block, "stealing" the switch value tree.
         //
-        GenTree* const   dominantCaseCompare = gtNewOperNode(GT_EQ, TYP_INT, switchValue, gtNewIconNode(dominantCase));
+        GenTreeOp* const dominantCaseCompare = gtNewOperNode(GT_EQ, TYP_INT, switchValue, gtNewIconNode(dominantCase));
         GenTree* const   jmpTree             = gtNewOperNode(GT_JTRUE, TYP_VOID, dominantCaseCompare);
         Statement* const jmpStmt             = gtNewStmt(jmpTree, switchStmt->GetILOffsetX());
         fgInsertStmtAtEnd(block, jmpStmt);
@@ -3608,12 +3598,12 @@ bool Compiler::fgOptimizeSwitchJumps()
         // Reattach switch value to the switch. This may introduce a comma
         // in the upstream compare tree, if the switch value expression is complex.
         //
-        switchTree->AsOp()->gtOp1 = fgMakeMultiUse(&dominantCaseCompare->AsOp()->gtOp1);
+        switchTree->SetOp(0, fgMakeMultiUse(&dominantCaseCompare->gtOp1));
 
         // Update flags
         //
-        switchTree->gtFlags = switchTree->AsOp()->gtOp1->gtFlags;
-        dominantCaseCompare->gtFlags |= dominantCaseCompare->AsOp()->gtOp1->gtFlags;
+        switchTree->gtFlags = switchTree->GetOp(0)->gtFlags;
+        dominantCaseCompare->gtFlags |= dominantCaseCompare->GetOp(0)->gtFlags;
         jmpTree->gtFlags |= dominantCaseCompare->gtFlags;
         dominantCaseCompare->gtFlags |= GTF_DONT_CSE;
 

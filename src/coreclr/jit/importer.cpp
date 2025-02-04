@@ -11229,13 +11229,13 @@ void Importer::ImportRefAnyType()
     else
     {
         // The pointer may have side-effects
-        if (op1->AsOp()->gtOp1->gtFlags & GTF_SIDE_EFFECT)
+        if (op1->AsOp()->GetOp(0)->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
-            impSpillAllAppendTree(op1->AsOp()->gtOp1);
+            impSpillAllAppendTree(op1->AsOp()->GetOp(0));
         }
 
         // We already have the class handle
-        op1 = op1->AsOp()->gtOp2;
+        op1 = op1->AsOp()->GetOp(1);
     }
 
     // convert native TypeHandle to RuntimeTypeHandle

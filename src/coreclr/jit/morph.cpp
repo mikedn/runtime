@@ -9425,8 +9425,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     assert(!csePhase);
 
                     tree = fgMorphModToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->gtOp1;
-                    op2  = tree->AsOp()->gtOp2;
+                    op1  = tree->AsOp()->GetOp(0);
+                    op2  = tree->AsOp()->GetOp(1);
                 }
             }
 #else  // !TARGET_ARM64
@@ -9447,8 +9447,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 if (!isPow2(absDivisorValue))
                 {
                     tree = fgMorphModToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->gtOp1;
-                    op2  = tree->AsOp()->gtOp2;
+                    op1  = tree->AsOp()->GetOp(0);
+                    op2  = tree->AsOp()->GetOp(1);
                 }
             }
 #endif // !TARGET_ARM64
@@ -9679,11 +9679,11 @@ DONE_MORPHING_CHILDREN:
         }
 
         // If we created a comma-throw tree then we need to morph op1
-        if (fgIsCommaThrow(tree DEBUGARG(false)))
+        if (GenTreeOp* comma = fgIsCommaThrow(tree DEBUGARG(false)))
         {
-            tree->AsOp()->gtOp1 = fgMorphTree(tree->AsOp()->gtOp1);
-            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-            return tree;
+            comma->SetOp(0, fgMorphTree(comma->GetOp(0)));
+            INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+            return comma;
         }
 
         return tree;
@@ -9889,7 +9889,7 @@ DONE_MORPHING_CHILDREN:
 
                     GenTree* relop_op1 = relop->GetOp(0);
 
-                    bool reverse = ((ival2 == 0) == (oper == GT_EQ));
+                    bool reverse = (ival2 == 0) == (oper == GT_EQ);
 
                     if (reverse)
                     {
@@ -9901,10 +9901,10 @@ DONE_MORPHING_CHILDREN:
 
                     // Comma now has fewer nodes underneath it, so we need to regenerate its flags
                     comma->gtFlags &= ~GTF_ALL_EFFECT;
-                    comma->gtFlags |= (comma->AsOp()->gtOp1->gtFlags) & GTF_ALL_EFFECT;
-                    comma->gtFlags |= (comma->AsOp()->gtOp2->gtFlags) & GTF_ALL_EFFECT;
+                    comma->gtFlags |= comma->AsOp()->GetOp(0)->GetSideEffects();
+                    comma->gtFlags |= comma->AsOp()->GetOp(1)->GetSideEffects();
 
-                    noway_assert((relop->gtFlags & GTF_REVERSE_OPS) == 0);
+                    noway_assert(!relop->IsReverseOp());
                     relop->gtFlags |= tree->gtFlags & (GTF_DONT_CSE | GTF_ALL_EFFECT);
 
                     return relop;
@@ -10010,19 +10010,19 @@ DONE_MORPHING_CHILDREN:
                         goto SKIP;
                     }
 
-                    if (!rshiftOp->AsOp()->gtOp2->IsIntCon())
+                    if (!rshiftOp->AsOp()->GetOp(1)->IsIntCon())
                     {
                         goto SKIP;
                     }
 
-                    ssize_t shiftAmount = rshiftOp->AsOp()->gtOp2->AsIntCon()->GetValue();
+                    ssize_t shiftAmount = rshiftOp->AsOp()->GetOp(1)->AsIntCon()->GetValue();
 
                     if (shiftAmount < 0)
                     {
                         goto SKIP;
                     }
 
-                    if (!andOp->AsOp()->gtOp2->IsIntegralConst(1))
+                    if (!andOp->AsOp()->GetOp(1)->IsIntegralConst(1))
                     {
                         goto SKIP;
                     }
@@ -10055,7 +10055,7 @@ DONE_MORPHING_CHILDREN:
 
                         uint64_t newAndOperand = 1ull << shiftAmount;
 
-                        andOp->AsOp()->gtOp2->AsIntConCommon()->SetInt64Value(newAndOperand);
+                        andOp->AsOp()->GetOp(1)->AsIntConCommon()->SetInt64Value(newAndOperand);
 
                         // Reverse the cond if necessary
                         if (ival2 == 1)
@@ -10066,9 +10066,9 @@ DONE_MORPHING_CHILDREN:
                         }
                     }
 
-                    andOp->AsOp()->gtOp1 = rshiftOp->AsOp()->gtOp1;
+                    andOp->AsOp()->SetOp(0, rshiftOp->AsOp()->GetOp(0));
 
-                    DEBUG_DESTROY_NODE(rshiftOp->AsOp()->gtOp2);
+                    DEBUG_DESTROY_NODE(rshiftOp->AsOp()->GetOp(1));
                     DEBUG_DESTROY_NODE(rshiftOp);
                 }
             } // END if (ival2 != INT_MAX)
@@ -10444,10 +10444,10 @@ DONE_MORPHING_CHILDREN:
                     // op2: NEG
                     // op2Child: b
 
-                    GenTree* op2Child = op2->AsOp()->gtOp1; // b
+                    GenTree* op2Child = op2->AsUnOp()->GetOp(0); // b
                     oper              = GT_ADD;
                     tree->SetOper(GT_ADD, GenTree::PRESERVE_VN);
-                    tree->AsOp()->gtOp2 = op2Child;
+                    tree->AsOp()->SetOp(1, op2Child);
 
                     DEBUG_DESTROY_NODE(op2);
 
@@ -10465,10 +10465,10 @@ DONE_MORPHING_CHILDREN:
                     // op2: NEG
                     // op2Child: b
 
-                    GenTree* op1Child   = op1->AsOp()->gtOp1; // a
-                    GenTree* op2Child   = op2->AsOp()->gtOp1; // b
-                    tree->AsOp()->gtOp1 = op2Child;
-                    tree->AsOp()->gtOp2 = op1Child;
+                    GenTree* op1Child = op1->AsUnOp()->GetOp(0); // a
+                    GenTree* op2Child = op2->AsUnOp()->GetOp(0); // b
+                    tree->AsOp()->SetOp(0, op2Child);
+                    tree->AsOp()->SetOp(1, op1Child);
 
                     DEBUG_DESTROY_NODE(op1);
                     DEBUG_DESTROY_NODE(op2);
@@ -10602,11 +10602,11 @@ DONE_MORPHING_CHILDREN:
                         // op2: b
                         // op1Child: a
 
-                        GenTree* op1Child = op1->AsOp()->gtOp1; // a
+                        GenTree* op1Child = op1->AsUnOp()->GetOp(0); // a
                         oper              = GT_SUB;
                         tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
-                        tree->AsOp()->gtOp1 = op2;
-                        tree->AsOp()->gtOp2 = op1Child;
+                        tree->AsOp()->SetOp(0, op2);
+                        tree->AsOp()->SetOp(1, op1Child);
 
                         DEBUG_DESTROY_NODE(op1);
 
@@ -10627,10 +10627,10 @@ DONE_MORPHING_CHILDREN:
                         // op2: NEG
                         // op2Child: b
 
-                        GenTree* op2Child = op2->AsOp()->gtOp1; // a
+                        GenTree* op2Child = op2->AsUnOp()->GetOp(0); // a
                         oper              = GT_SUB;
                         tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
-                        tree->AsOp()->gtOp2 = op2Child;
+                        tree->AsOp()->SetOp(1, op2Child);
 
                         DEBUG_DESTROY_NODE(op2);
 
@@ -10729,13 +10729,13 @@ DONE_MORPHING_CHILDREN:
             }
             else if (fgOperIsBitwiseRotationRoot(oper))
             {
-                tree = fgRecognizeAndMorphBitwiseRotation(tree);
+                tree = fgRecognizeAndMorphBitwiseRotation(tree->AsOp());
 
                 // fgRecognizeAndMorphBitwiseRotation may return a new tree
                 oper = tree->GetOper();
                 typ  = tree->GetType();
-                op1  = tree->AsOp()->gtOp1;
-                op2  = tree->AsOp()->gtOp2;
+                op1  = tree->AsOp()->GetOp(0);
+                op2  = tree->AsOp()->GetOp(1);
             }
             break;
 
@@ -11845,7 +11845,7 @@ bool Compiler::fgOperIsBitwiseRotationRoot(genTreeOps oper)
 // Assumption:
 //    The input is a GT_OR or a GT_XOR tree.
 
-GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
+GenTreeOp* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 {
     //
     // Check for a rotation pattern, e.g.,
@@ -11885,7 +11885,7 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
     // M & (N - 1) == N - 1
     // op is either | or ^
 
-    if (((tree->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0) || ((tree->gtFlags & GTF_ORDER_SIDEEFF) != 0))
+    if (tree->HasAnySideEffect(GTF_PERSISTENT_SIDE_EFFECTS) || tree->HasAnySideEffect(GTF_ORDER_SIDEEFF))
     {
         // We can't do anything if the tree has assignments, calls, or volatile
         // reads. Note that we allow GTF_EXCEPT side effect since any exceptions
@@ -12041,20 +12041,20 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
         {
             noway_assert((rotateOp == GT_ROL) || (rotateOp == GT_ROR));
 
-            unsigned inputTreeEffects = tree->gtFlags & GTF_ALL_EFFECT;
+            GenTreeFlags inputTreeEffects = tree->GetSideEffects();
 
             // We can use the same tree only during global morph; reusing the tree in a later morph
             // may invalidate value numbers.
             if (fgGlobalMorph)
             {
-                tree->AsOp()->gtOp1 = rotatedValue;
-                tree->AsOp()->gtOp2 = rotateIndex;
+                tree->AsOp()->SetOp(0, rotatedValue);
+                tree->AsOp()->SetOp(1, rotateIndex);
                 tree->ChangeOper(rotateOp);
 
-                unsigned childFlags = 0;
+                GenTreeFlags childFlags = GTF_NONE;
                 for (GenTree* op : tree->Operands())
                 {
-                    childFlags |= (op->gtFlags & GTF_ALL_EFFECT);
+                    childFlags |= op->GetSideEffects();
                 }
 
                 // The parent's flags should be a superset of its operands' flags
@@ -12063,12 +12063,13 @@ GenTree* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTree* tree)
             else
             {
                 tree = gtNewOperNode(rotateOp, rotatedValueActualType, rotatedValue, rotateIndex);
-                noway_assert(inputTreeEffects == (tree->gtFlags & GTF_ALL_EFFECT));
+                noway_assert(inputTreeEffects == tree->GetSideEffects());
             }
 
             return tree;
         }
     }
+
     return tree;
 }
 
@@ -13215,8 +13216,8 @@ void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
         fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark);
-        fgPreExpandQmarkChecks(topQmark->gtOp2);
-        fgPreExpandQmarkChecks(topQmark->gtOp3);
+        fgPreExpandQmarkChecks(topQmark->GetOp(1));
+        fgPreExpandQmarkChecks(topQmark->GetOp(2));
     }
 }
 #endif // DEBUG

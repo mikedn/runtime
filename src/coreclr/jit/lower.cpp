@@ -279,7 +279,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_XORR:
         case GT_XAND:
         case GT_XADD:
-            ContainImmOperand(node, node->AsOp()->gtOp2);
+            ContainImmOperand(node, node->AsOp()->GetOp(1));
             break;
 
         case GT_CMPXCHG:
@@ -616,7 +616,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     noway_assert(jumpCnt >= 2);
 
     // Spill the argument to the switch node into a local so that it can be used later.
-    LIR::Use use(switchBBRange, &(node->AsOp()->gtOp1), node);
+    LIR::Use use(switchBBRange, &node->AsOp()->gtOp1, node);
     ReplaceWithLclLoad(use);
 
     // GT_SWITCH(indexExpression) is now two statements:
@@ -624,7 +624,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     //   2. and a statement with GT_SWITCH(temp)
 
     assert(node->OperIs(GT_SWITCH));
-    GenTree*   temp        = node->AsOp()->gtOp1;
+    GenTree*   temp        = node->AsUnOp()->GetOp(0);
     LclVarDsc* tempLcl     = temp->AsLclLoad()->GetLcl();
     var_types  tempLclType = temp->GetType();
 
@@ -892,7 +892,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     GenTree* next = node->gtNext;
 
     // Get rid of the GT_SWITCH(temp).
-    switchBBRange.Remove(node->AsOp()->gtOp1);
+    switchBBRange.Remove(node->AsUnOp()->GetOp(0));
     switchBBRange.Remove(node);
 
     return next;
@@ -2725,7 +2725,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
             vtableCallTempLcl = comp->lvaAllocTemp(true DEBUGARG("virtual vtable call"));
         }
 
-        LIR::Use thisPtrUse(BlockRange(), &(thisArgInfo->GetNode()->AsUnOp()->gtOp1), thisArgInfo->GetNode());
+        LIR::Use thisPtrUse(BlockRange(), &thisArgInfo->GetNode()->AsUnOp()->gtOp1, thisArgInfo->GetNode());
         ReplaceWithLclLoad(thisPtrUse, vtableCallTempLcl);
         thisUse = comp->gtNewLclLoad(vtableCallTempLcl, thisPtr->GetType());
     }

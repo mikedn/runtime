@@ -479,14 +479,14 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     address.ReplaceWithLclLoad(m_compiler);
     JITDUMPRANGE(Range(), address.Def(), "[DecomposeIndStore]: Saving address tree to a temp var:\n");
 
-    if (!gtLong->gtOp1->OperIsLeaf())
+    if (!gtLong->GetOp(0)->OperIsLeaf())
     {
         LIR::Use op1(Range(), &gtLong->gtOp1, gtLong);
         op1.ReplaceWithLclLoad(m_compiler);
         JITDUMPRANGE(Range(), op1.Def(), "[DecomposeIndStore]: Saving low data tree to a temp var:\n");
     }
 
-    if (!gtLong->gtOp2->OperIsLeaf())
+    if (!gtLong->GetOp(1)->OperIsLeaf())
     {
         LIR::Use op2(Range(), &gtLong->gtOp2, gtLong);
         op2.ReplaceWithLclLoad(m_compiler);
@@ -500,7 +500,7 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 
     Range().Remove(gtLong);
     Range().Remove(dataHigh);
-    storeIndLow->gtOp2 = dataLow;
+    storeIndLow->SetValue(dataLow);
     storeIndLow->SetType(TYP_INT);
 
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
