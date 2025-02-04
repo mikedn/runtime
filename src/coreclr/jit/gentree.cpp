@@ -937,8 +937,6 @@ unsigned Compiler::gtHashValue(GenTree* tree)
     unsigned hash = 0;
 
 AGAIN:
-    assert(tree);
-
     oper = tree->GetOper();
     kind = tree->OperKind();
 
@@ -993,7 +991,6 @@ AGAIN:
                 break;
         }
 
-        // narrow 'add' into a 32-bit 'val'
         unsigned val;
 #ifdef HOST_64BIT
         val = genTreeHashAdd(uhi32(add), ulo32(add));
@@ -1001,16 +998,11 @@ AGAIN:
         val         = add;
 #endif
 
-        hash = genTreeHashAdd(hash, val);
-        goto DONE;
+        return genTreeHashAdd(hash, val);
     }
-
-    GenTree* op1;
 
     if (kind & GTK_UNOP)
     {
-        op1 = tree->AsOp()->gtOp1;
-
         if (GenTree::IsExOp(kind))
         {
             // ExOp operators extend operators with extra, non-GenTree* members.  In many cases,
@@ -1051,12 +1043,13 @@ AGAIN:
             }
         }
 
-        if (op1 == nullptr)
+        tree = tree->AsOp()->gtOp1;
+
+        if (tree == nullptr)
         {
-            goto DONE;
+            return hash;
         }
 
-        tree = op1;
         goto AGAIN;
     }
 
@@ -1092,14 +1085,14 @@ AGAIN:
             }
         }
 
-        op1          = tree->AsOp()->gtOp1;
+        GenTree* op1 = tree->AsOp()->gtOp1;
         GenTree* op2 = tree->AsOp()->gtOp2;
 
         if (op2 == nullptr)
         {
             if (op1 == nullptr)
             {
-                goto DONE;
+                return hash;
             }
 
             tree = op1;
@@ -1114,11 +1107,9 @@ AGAIN:
     switch (tree->GetOper())
     {
         case GT_ARR_ELEM:
-            hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->GetArray()));
-
-            for (unsigned dim = 0; dim < tree->AsArrElem()->GetRank(); dim++)
+            for (GenTreeArrElem::Use& use : tree->AsArrElem()->Uses())
             {
-                hash = genTreeHashAdd(hash, gtHashValue(tree->AsArrElem()->GetIndex(dim)));
+                hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
             break;
 
@@ -1139,7 +1130,7 @@ AGAIN:
             }
             else
             {
-                hash = genTreeHashAdd(hash, tree->AsCall()->gtCallMethHnd);
+                hash = genTreeHashAdd(hash, tree->AsCall()->GetMethodHandle());
             }
 
             for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
@@ -1192,7 +1183,6 @@ AGAIN:
         case GT_COPY_BLK:
         case GT_INIT_BLK:
         case GT_QMARK:
-            // TODO-MIKE-Review: The hash does not include non operand data from ARR_OFFSET
             for (unsigned i = 0; i < 3; i++)
             {
                 hash = genTreeHashAdd(hash, gtHashValue(tree->AsTernaryOp()->GetOp(i)));
@@ -1200,12 +1190,9 @@ AGAIN:
             break;
 
         default:
-            INDEBUG(gtDispTree(tree);)
-            assert(!"unexpected operator");
-            break;
+            unreached();
     }
 
-DONE:
     return hash;
 }
 

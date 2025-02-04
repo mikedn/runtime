@@ -13836,20 +13836,16 @@ bool Compiler::fgCheckStmtAfterTailCall(Statement* callStmt)
 
 void Compiler::fgMorphArrElem(GenTreeArrElem* arrElem)
 {
-    GenTreeFlags sideEffects = arrElem->GetSideEffects() & ~GTF_CALL;
+    GenTreeFlags sideEffects = GTF_NONE;
 
-    GenTree* array = fgMorphTree(arrElem->GetArray());
-    sideEffects |= array->GetSideEffects();
-    arrElem->SetArray(array);
-
-    for (unsigned i = 0, rank = arrElem->GetRank(); i < rank; i++)
+    for (GenTreeArrElem::Use& use : arrElem->Uses())
     {
-        GenTree* index = fgMorphTree(arrElem->GetIndex(i));
-        sideEffects |= index->GetSideEffects();
-        arrElem->SetIndex(i, index);
+        GenTree* op = fgMorphTree(use.GetNode());
+        sideEffects |= op->GetSideEffects();
+        use.SetNode(op);
     }
 
-    arrElem->SetSideEffects(sideEffects);
+    arrElem->SetSideEffects(sideEffects | GTF_EXCEPT);
 
     if (fgGlobalMorph)
     {
