@@ -24,20 +24,17 @@ private:
     }
 
     void RewriteNodeAsCall(GenTree**             use,
-                           ArrayStack<GenTree*>& parents,
                            CORINFO_METHOD_HANDLE callHnd,
 #ifdef FEATURE_READYTORUN_COMPILER
                            CORINFO_CONST_LOOKUP entryPoint,
 #endif
                            GenTreeCall::Use* args);
 
-    void RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents);
-
+    void RewriteIntrinsicAsUserCall(GenTree** use);
     GenTreeWalkResult RewriteNode(GenTree** useEdge, GenTree* user);
 };
 
 void Rationalizer::RewriteNodeAsCall(GenTree**             use,
-                                     ArrayStack<GenTree*>& parents,
                                      CORINFO_METHOD_HANDLE callHnd,
 #ifdef FEATURE_READYTORUN_COMPILER
                                      CORINFO_CONST_LOOKUP entryPoint,
@@ -47,6 +44,8 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     GenTree* const tree           = *use;
     GenTree* const treeFirstNode  = comp->gtGetFirstNode(tree);
     GenTree* const insertionPoint = treeFirstNode->gtPrev;
+
+    assert(tree->HasAnySideEffect(GTF_CALL));
 
 #if DEBUG
     CORINFO_SIG_INFO sig;
@@ -67,18 +66,6 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     *use = call;
 
     BlockRange().InsertAfter(insertionPoint, LIR::Range(comp->gtSetTreeSeq(call), call));
-
-    // Propagate flags of "call" to its parents.
-    // 0 is current node, so start at 1
-    for (unsigned i = 1; i < parents.Size(); i++)
-    {
-        parents.Top(i)->AddSideEffects(call->GetSideEffects() | GTF_CALL);
-    }
-
-    // Since "tree" is replaced with "call", pop "tree" node (i.e the current node)
-    // and replace it with "call" on parent stack.
-    assert(parents.Top() == tree);
-    parents.TopRef() = call;
 }
 
 // Rewrite an intrinsic operator as a GT_CALL to the original method.
@@ -86,7 +73,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 // The ones that are not being rewritten here must be handled in Codegen.
 // Conceptually, the lower is the right place to do the rewrite.
 // Keeping it in rationalization is mainly for throughput issue.
-void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*>& parents)
+void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use)
 {
     GenTreeIntrinsic* intrinsic = (*use)->AsIntrinsic();
     GenTreeCall::Use* args;
@@ -100,7 +87,7 @@ void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use, ArrayStack<GenTree*
         args = comp->gtNewCallArgs(intrinsic->GetOp(0), intrinsic->GetOp(1));
     }
 
-    RewriteNodeAsCall(use, parents, intrinsic->gtMethodHandle,
+    RewriteNodeAsCall(use, intrinsic->gtMethodHandle,
 #ifdef FEATURE_READYTORUN_COMPILER
                       intrinsic->gtEntryPoint,
 #endif
@@ -420,31 +407,18 @@ void Rationalizer::Run()
 {
     class RationalizeVisitor final : public GenTreeVisitor<RationalizeVisitor>
     {
-        Rationalizer&        m_rationalizer;
-        ArrayStack<GenTree*> m_ancestors;
+        Rationalizer& m_rationalizer;
 
     public:
         enum
         {
-            ComputeStack      = true,
             DoPreOrder        = true,
             DoPostOrder       = true,
             UseExecutionOrder = true,
         };
 
-        RationalizeVisitor(Rationalizer& rationalizer)
-            : m_rationalizer(rationalizer), m_ancestors(rationalizer.comp->getAllocator(CMK_ArrayStack))
+        RationalizeVisitor(Rationalizer& rationalizer) : m_rationalizer(rationalizer)
         {
-        }
-
-        void Push(GenTree* node)
-        {
-            m_ancestors.Push(node);
-        }
-
-        void Pop()
-        {
-            m_ancestors.Pop();
         }
 
         // Rewrite intrinsics that are not supported by the target back into user calls.
@@ -454,10 +428,11 @@ void Rationalizer::Run()
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* const node = *use;
+
             if (node->IsIntrinsic() &&
                 m_rationalizer.comp->IsIntrinsicImplementedByUserCall(node->AsIntrinsic()->GetIntrinsic()))
             {
-                m_rationalizer.RewriteIntrinsicAsUserCall(use, m_ancestors);
+                m_rationalizer.RewriteIntrinsicAsUserCall(use);
             }
 
             return GenTreeWalkResult::Continue;
