@@ -2510,11 +2510,6 @@ void Compiler::lvaComputeRefCountsHIR()
         Statement*           m_stmt;
 
     public:
-        enum
-        {
-            DoPreOrder = true,
-        };
-
         MarkLocalVarsVisitor(Compiler* compiler) : m_compiler(compiler)
         {
         }
@@ -2539,7 +2534,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
         }
 
-        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        void PreOrderVisitLclRef(GenTree** use, GenTree* user)
         {
             GenTree* node = *use;
 
@@ -2568,9 +2563,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 {
                     LclVarDsc* lcl = node->AsLclAddr()->GetLcl();
                     assert(lcl->IsAddressExposed());
-#if ASSERTION_PROP
                     DisqualifyAddCopy(lcl);
-#endif
                     m_compiler->lvaAddRef(lcl, 0);
                 }
                 break;
@@ -2578,8 +2571,6 @@ void Compiler::lvaComputeRefCountsHIR()
                 default:
                     break;
             }
-
-            return GenTreeWalkResult::Continue;
         }
 
         void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
@@ -2591,9 +2582,7 @@ void Compiler::lvaComputeRefCountsHIR()
             if (lcl->IsAddressExposed() || node->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
             {
                 lcl->lvIsBoolean = false;
-#if ASSERTION_PROP
                 DisqualifyAddCopy(lcl);
-#endif
             }
 
             if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
