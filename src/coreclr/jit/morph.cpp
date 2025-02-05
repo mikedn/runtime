@@ -12051,12 +12051,7 @@ GenTreeOp* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
                 tree->AsOp()->SetOp(1, rotateIndex);
                 tree->ChangeOper(rotateOp);
 
-                GenTreeFlags childFlags = GTF_NONE;
-                for (GenTree* op : tree->Operands())
-                {
-                    childFlags |= op->GetSideEffects();
-                }
-
+                GenTreeFlags childFlags = rotatedValue->GetSideEffects() | rotateIndex->GetSideEffects();
                 // The parent's flags should be a superset of its operands' flags
                 noway_assert((inputTreeEffects & childFlags) == childFlags);
             }
