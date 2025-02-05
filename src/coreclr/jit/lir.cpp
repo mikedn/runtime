@@ -392,7 +392,7 @@ GenTree* LIR::Range::MoveBefore(GenTree* before, GenTree* node)
 {
     if (node->gtNext != before)
     {
-        Remove(node);
+        Unlink(node);
         InsertBefore(before, node);
     }
 
@@ -825,29 +825,10 @@ void LIR::Range::InsertAtEnd(Range&& range)
     InsertAfter(m_lastNode, std::move(range));
 }
 
-//------------------------------------------------------------------------
-// LIR::Range::Remove: Removes a node from this range.
-//
-// Arguments:
-//    node - The node to remove. Must be part of this range.
-//    markOperandsUnused - If true, marks the node's operands as unused.
-//
-void LIR::Range::Remove(GenTree* node, bool markOperandsUnused)
+void LIR::Range::Unlink(GenTree* node)
 {
     assert(node != nullptr);
     assert(Contains(node));
-
-    if (markOperandsUnused)
-    {
-        node->VisitOperands([](GenTree* operand) -> GenTree::VisitResult {
-            // The operand of JTRUE does not produce a value (just sets the flags).
-            if (operand->IsValue())
-            {
-                operand->SetUnusedValue();
-            }
-            return GenTree::VisitResult::Continue;
-        });
-    }
 
     GenTree* prev = node->gtPrev;
     GenTree* next = node->gtNext;
@@ -874,6 +855,30 @@ void LIR::Range::Remove(GenTree* node, bool markOperandsUnused)
 
     node->gtPrev = nullptr;
     node->gtNext = nullptr;
+}
+
+//------------------------------------------------------------------------
+// LIR::Range::Remove: Removes a node from this range.
+//
+// Arguments:
+//    node - The node to remove. Must be part of this range.
+//    markOperandsUnused - If true, marks the node's operands as unused.
+//
+void LIR::Range::Remove(GenTree* node, bool markOperandsUnused)
+{
+    if (markOperandsUnused)
+    {
+        node->VisitOperands([](GenTree* operand) {
+            if (operand->IsValue())
+            {
+                operand->SetUnusedValue();
+            }
+
+            return GenTree::VisitResult::Continue;
+        });
+    }
+
+    Unlink(node);
 }
 
 #ifdef DEBUG
@@ -971,7 +976,7 @@ void LIR::Range::Delete(Compiler* compiler, BasicBlock* block, GenTree* node)
     assert(node != nullptr);
     assert((block == nullptr) == (compiler == nullptr));
 
-    Remove(node);
+    Unlink(node);
     DEBUG_DESTROY_NODE(node);
 }
 

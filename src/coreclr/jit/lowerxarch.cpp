@@ -24,7 +24,7 @@ GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
 
         if (node->gtPrev != src)
         {
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             BlockRange().InsertAfter(src, node);
         }
 
@@ -250,7 +250,7 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 
         offset = intCon->GetInt32Value();
 
-        BlockRange().Remove(intCon);
+        BlockRange().Unlink(intCon);
     }
     else
     {
@@ -622,7 +622,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         // Indirect calls already have the correct target arg, we just need to remove
         // the dummy call address added during morph.
         assert(call->gtCallAddr->IsIntegralConst(0));
-        BlockRange().Remove(call->gtCallAddr);
+        BlockRange().Unlink(call->gtCallAddr);
         call->gtCallAddr = nullptr;
     }
     else if (call->IsDelegateInvoke())
@@ -658,7 +658,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     if (target != nullptr)
     {
         assert(targetArg->GetOp(0)->IsIntCon());
-        BlockRange().Remove(targetArg->GetOp(0));
+        BlockRange().Unlink(targetArg->GetOp(0));
         targetArg->SetOp(0, target);
     }
 
@@ -736,8 +736,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
         GenTree* andOp1 = op1->AsOp()->GetOp(0);
         GenTree* andOp2 = op1->AsOp()->GetOp(1);
 
-        BlockRange().Remove(op1);
-        BlockRange().Remove(op2);
+        BlockRange().Unlink(op1);
+        BlockRange().Unlink(op2);
 
         cmp->ChangeOper(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
         cmp->SetOp(0, andOp1);
@@ -796,8 +796,8 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
             cmp->GetOp(1)->ClearContained();
 
-            BlockRange().Remove(lsh->AsOp()->GetOp(0));
-            BlockRange().Remove(lsh);
+            BlockRange().Unlink(lsh->AsOp()->GetOp(0));
+            BlockRange().Unlink(lsh);
 
             GenTreeCC* cc;
 
@@ -862,7 +862,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             op2->SetType(TYP_UBYTE);
             cmp->SetOp(0, op1);
 
-            BlockRange().Remove(cast);
+            BlockRange().Unlink(cast);
         }
     }
 
@@ -884,7 +884,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             op1->gtFlags |= GTF_SET_FLAGS;
             op1->SetUnusedValue();
 
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
 
             GenTree*   next = cmp->gtNext;
             GenTree*   cc;
@@ -897,14 +897,14 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                 cc   = next;
                 ccOp = GT_JCC;
                 next = nullptr;
-                BlockRange().Remove(cmp);
+                BlockRange().Unlink(cmp);
             }
             else if (BlockRange().TryGetUse(cmp, &cmpUse) && cmpUse.User()->OperIs(GT_JTRUE))
             {
                 cc   = cmpUse.User();
                 ccOp = GT_JCC;
                 next = nullptr;
-                BlockRange().Remove(cmp);
+                BlockRange().Unlink(cmp);
             }
             else // The relop is not used by a JTRUE or it is not used at all.
             {
@@ -1207,17 +1207,17 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
     if (argX->OperIs(GT_FNEG))
     {
         uses[0]->SetNode(argX->AsUnOp()->GetOp(0));
-        BlockRange().Remove(argX);
+        BlockRange().Unlink(argX);
     }
     if (argY->OperIs(GT_FNEG))
     {
         uses[1]->SetNode(argY->AsUnOp()->GetOp(0));
-        BlockRange().Remove(argY);
+        BlockRange().Unlink(argY);
     }
     if (argZ->OperIs(GT_FNEG))
     {
         uses[2]->SetNode(argZ->AsUnOp()->GetOp(0));
-        BlockRange().Remove(argZ);
+        BlockRange().Unlink(argZ);
         node->SetIntrinsic(negMul ? NI_FMA_MultiplySubtractNegatedScalar : NI_FMA_MultiplySubtractScalar);
     }
     else
@@ -1506,7 +1506,7 @@ void Lowering::LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmp
         // just use PTEST. We can't support it for floating-point, however,
         // as it has both +0.0 and -0.0 where +0.0 == -0.0
 
-        BlockRange().Remove(op2);
+        BlockRange().Unlink(op2);
 
         node->SetOp(0, op1);
         LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
@@ -1582,13 +1582,13 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
 
     GenTree* op1 = op->AsOp()->GetOp(0);
     GenTree* op2 = op->AsOp()->GetOp(1);
-    BlockRange().Remove(op);
+    BlockRange().Unlink(op);
 
     if (op1->IsIntegralConst(0) && op2->IsIntegralConst(0))
     {
         node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
-        BlockRange().Remove(op1);
-        BlockRange().Remove(op2);
+        BlockRange().Unlink(op1);
+        BlockRange().Unlink(op2);
 
         return;
     }
@@ -1597,7 +1597,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
     {
         node->SetIntrinsic(NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, 1);
         node->SetOp(0, op1);
-        BlockRange().Remove(op2);
+        BlockRange().Unlink(op2);
         LowerNode(node);
 
         return;
@@ -1608,7 +1608,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
     if (op1->IsIntegralConst(0))
     {
         movd1 = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_LONG);
-        BlockRange().Remove(op1);
+        BlockRange().Unlink(op1);
         BlockRange().InsertBefore(node, movd1);
     }
     else
@@ -1658,7 +1658,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
 
     if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
     {
-        BlockRange().Remove(op);
+        BlockRange().Unlink(op);
         node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
     }
 }
@@ -1687,7 +1687,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             assert(op->OperIs(GT_LONG));
             ops[i * 2]     = op->AsOp()->GetOp(0);
             ops[i * 2 + 1] = op->AsOp()->GetOp(1);
-            BlockRange().Remove(op);
+            BlockRange().Unlink(op);
         }
 
         numOps *= 2;
@@ -1859,7 +1859,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
             if (op->IsDblConPositiveZero())
             {
-                BlockRange().Remove(op);
+                BlockRange().Unlink(op);
             }
             else
             {
@@ -1989,7 +1989,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     auto UnpackLow = [this](var_types eltType, GenTree* op1, GenTree* op2) -> GenTree* {
         if (op1->IsHWIntrinsicZero() && op2->IsHWIntrinsicZero())
         {
-            BlockRange().Remove(op1);
+            BlockRange().Unlink(op1);
             return op2;
         }
 
@@ -2095,7 +2095,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
         vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_INT, 16, lo, hi);
         BlockRange().InsertAfter(op1, lo, hi, vec);
-        BlockRange().Remove(op1);
+        BlockRange().Unlink(op1);
         LowerNode(lo);
         LowerNode(hi);
         LowerNode(vec);
@@ -2317,12 +2317,12 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 #ifndef TARGET_64BIT
         if (node->GetOp(i)->OperIs(GT_LONG))
         {
-            BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(0));
-            BlockRange().Remove(node->GetOp(i)->AsOp()->GetOp(1));
+            BlockRange().Unlink(node->GetOp(i)->AsOp()->GetOp(0));
+            BlockRange().Unlink(node->GetOp(i)->AsOp()->GetOp(1));
         }
 #endif
 
-        BlockRange().Remove(node->GetOp(i));
+        BlockRange().Unlink(node->GetOp(i));
     }
 
     unsigned size = node->GetSimdSize();
@@ -2509,7 +2509,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
         if (idx != nullptr)
         {
-            BlockRange().Remove(idx);
+            BlockRange().Unlink(idx);
         }
     }
 
@@ -2588,7 +2588,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         LowerNode(vec);
 
         index++;
-        BlockRange().Remove(elt);
+        BlockRange().Unlink(elt);
         elt = elt->AsOp()->GetOp(1);
 
         node->SetSimdBaseType(eltType);
@@ -2621,7 +2621,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
 
         case TYP_DOUBLE:
             intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
-            BlockRange().Remove(idx);
+            BlockRange().Unlink(idx);
             idx = nullptr;
             elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, 16, elt);
             BlockRange().InsertBefore(node, elt);
@@ -2637,7 +2637,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
             else if (index == 0)
             {
                 intrinsic = NI_SSE_MoveScalar;
-                BlockRange().Remove(idx);
+                BlockRange().Unlink(idx);
                 idx = nullptr;
                 elt = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, elt);
                 BlockRange().InsertBefore(node, elt);
@@ -2733,7 +2733,7 @@ void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
                 case NI_Vector128_CreateScalarUnsafe:
                     elt = vecElt->GetOp(0);
                     node->SetOp(1, elt);
-                    BlockRange().Remove(vecElt);
+                    BlockRange().Unlink(vecElt);
                     break;
                 case NI_SSE_LoadScalarVector128:
                 case NI_SSE_LoadVector128:
@@ -3668,7 +3668,7 @@ void Lowering::ContainCheckIntToFloat(GenTreeUnOp* cast)
             // right after the source node to avoid the interference check.
             if (cast->gtPrev != src)
             {
-                BlockRange().Remove(cast);
+                BlockRange().Unlink(cast);
                 BlockRange().InsertAfter(src, cast);
             }
 
@@ -3693,7 +3693,7 @@ void Lowering::ContainCheckFloatToInt(GenTreeUnOp* cast)
         // right after the source node to avoid the interference check.
         if (cast->gtPrev != src)
         {
-            BlockRange().Remove(cast);
+            BlockRange().Unlink(cast);
             BlockRange().InsertAfter(src, cast);
         }
 
@@ -3716,7 +3716,7 @@ void Lowering::ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src)
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
         {
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             BlockRange().InsertAfter(src, node);
         }
 

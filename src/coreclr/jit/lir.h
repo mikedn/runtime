@@ -283,7 +283,8 @@ public:
         void InsertAtBeginning(Range&& range);
         void InsertAtEnd(Range&& range);
 
-        void Remove(GenTree* node, bool markOperandsUnused = false);
+        void Unlink(GenTree* node);
+        void Remove(GenTree* node, bool markOperandsUnused);
         Range Remove(GenTree* firstNode, GenTree* lastNode);
         Range Remove(ReadOnlyRange&& range);
 

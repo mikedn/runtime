@@ -2714,7 +2714,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         {
             GenTree* jumpTable = switchTree->AsOp()->GetOp(1);
             assert(jumpTable->OperIs(GT_JMPTABLE));
-            blockRange->Remove(jumpTable);
+            blockRange->Unlink(jumpTable);
         }
 
         // Change the GT_SWITCH(switchVal) into GT_JTRUE(GT_EQ(switchVal==0)).

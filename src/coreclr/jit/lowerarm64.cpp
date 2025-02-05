@@ -153,7 +153,7 @@ void Lowering::CombineNot(GenTreeInstr* instr)
 
         instr->SetOp(0, op1);
 
-        BlockRange().Remove(shift);
+        BlockRange().Unlink(shift);
     }
 }
 
@@ -340,8 +340,8 @@ void Lowering::LowerLogical(GenTreeOp* logical)
                 GenTreeInstr* instr = MakeInstr(logical, ins, size, shift->GetOp(0));
                 instr->SetImmediate(imm);
 
-                BlockRange().Remove(shift);
-                BlockRange().Remove(op2);
+                BlockRange().Unlink(shift);
+                BlockRange().Unlink(op2);
                 return;
             }
         }
@@ -350,7 +350,7 @@ void Lowering::LowerLogical(GenTreeOp* logical)
 
         if (CanEncodeBitmaskImm(op2->AsIntCon()->GetValue(), size, &encodedBitmaskImm))
         {
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
 
             instruction ins;
 
@@ -446,12 +446,12 @@ void Lowering::LowerLogical(GenTreeOp* logical)
 
     if (mvn != nullptr)
     {
-        BlockRange().Remove(mvn);
+        BlockRange().Unlink(mvn);
     }
 
     if (shift != nullptr)
     {
-        BlockRange().Remove(shift);
+        BlockRange().Unlink(shift);
     }
 }
 
@@ -497,7 +497,7 @@ void Lowering::LowerShiftVariable(GenTreeOp* shift)
         assert(IsLegalToMoveUseForward(andInstr, shift, andInstr->GetOp(0)));
 
         op2 = andInstr->GetOp(0);
-        BlockRange().Remove(andInstr);
+        BlockRange().Unlink(andInstr);
     }
 
     instruction ins;
@@ -551,7 +551,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
             JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", op1->GetID(),
                     shift->GetID(), consumedBits);
 
-            BlockRange().Remove(op1);
+            BlockRange().Unlink(op1);
             op1 = op1->AsUnOp()->GetOp(0);
             op1->ClearContained();
         }
@@ -571,7 +571,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
             JITDUMP("Removing CAST [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", op1->GetID(),
                     producedBits, shift->GetID(), consumedBits);
 
-            BlockRange().Remove(op1);
+            BlockRange().Unlink(op1);
             op1 = op1->AsUnOp()->GetOp(0);
             op1->ClearContained();
         }
@@ -595,7 +595,7 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
     GenTreeInstr* instr = MakeInstr(shift, ins, size, op1);
     instr->SetImmediate(shiftAmount);
 
-    BlockRange().Remove(op2);
+    BlockRange().Unlink(op2);
 
     CombineShiftImmediate(instr);
 }
@@ -685,7 +685,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             shift->SetOp(0, op1);
             shift->SetImmediate(imm);
 
-            BlockRange().Remove(andInstr);
+            BlockRange().Unlink(andInstr);
 
             return;
         }
@@ -789,7 +789,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             shift->SetOp(0, op1);
             shift->SetImmediate(imm);
 
-            BlockRange().Remove(ext);
+            BlockRange().Unlink(ext);
 
             return;
         }
@@ -907,7 +907,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
             shift->SetOp(0, op1);
             shift->SetImmediate(imm);
 
-            BlockRange().Remove(conv);
+            BlockRange().Unlink(conv);
 
             return;
         }
@@ -1001,7 +1001,7 @@ void Lowering::LowerNegate(GenTreeUnOp* neg)
     if (GenTreeInstr* mul = IsInstr(op1, INS_mul, size, 2))
     {
         MakeInstr(neg, INS_mneg, size, mul->GetOp(0), mul->GetOp(1));
-        BlockRange().Remove(mul);
+        BlockRange().Unlink(mul);
         return;
     }
 
@@ -1029,7 +1029,7 @@ void Lowering::LowerNegate(GenTreeUnOp* neg)
 
     if (shift != nullptr)
     {
-        BlockRange().Remove(shift);
+        BlockRange().Unlink(shift);
     }
 }
 
@@ -1069,7 +1069,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
             GenTreeInstr* instr = MakeInstr(arith, ins, size, op1);
             instr->SetImmediate(encodedArithImm);
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
             return;
         }
     }
@@ -1181,12 +1181,12 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
 
         if (shift != nullptr)
         {
-            BlockRange().Remove(shift);
+            BlockRange().Unlink(shift);
         }
 
         if (extend != nullptr)
         {
-            BlockRange().Remove(extend);
+            BlockRange().Unlink(extend);
         }
     }
     else
@@ -1200,7 +1200,7 @@ void Lowering::LowerArithmetic(GenTreeOp* arith)
         instr->SetOp(1, mul->GetOp(1));
         instr->SetOp(2, op1);
 
-        BlockRange().Remove(mul);
+        BlockRange().Unlink(mul);
     }
 }
 
@@ -1279,7 +1279,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
             GenTreeInstr* instr = MakeInstr(mul, INS_mul, size, op1);
             instr->SetImmediate(genLog2(value - 1));
 
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
 
             return;
         }
@@ -1308,8 +1308,8 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
                     assert(IsLegalToMoveUseForward(ext1, mul, op1));
                     assert(IsLegalToMoveUseForward(ext2, mul, op2));
 
-                    BlockRange().Remove(ext1);
-                    BlockRange().Remove(ext2);
+                    BlockRange().Unlink(ext1);
+                    BlockRange().Unlink(ext2);
                 }
             }
             else if (GenTreeIntCon* con = op2->IsIntCon())
@@ -1325,7 +1325,7 @@ void Lowering::LowerMultiply(GenTreeOp* mul)
 
                     assert(IsLegalToMoveUseForward(ext1, mul, op1));
 
-                    BlockRange().Remove(ext1);
+                    BlockRange().Unlink(ext1);
                 }
             }
         }
@@ -1631,7 +1631,7 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
     BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
     ContainCheckBinary(adjustedDividend);
 
-    BlockRange().Remove(divisor);
+    BlockRange().Unlink(divisor);
 
     divisor->SetValue(genLog2(absDivisorValue));
 
@@ -1647,7 +1647,7 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
     }
 
     use.SetDef(newDivMod);
-    BlockRange().Remove(div);
+    BlockRange().Unlink(div);
 
     return newDivMod->gtNext;
 }
@@ -1705,7 +1705,7 @@ void Lowering::ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src)
         // We can move it right after the source node to avoid the interference check.
         if (node->gtPrev != src)
         {
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             BlockRange().InsertAfter(src, node);
         }
 
@@ -1757,7 +1757,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
 
         if (varTypeIsSmallUnsigned(castType) || !cmp->OperIs(GT_GT))
         {
-            BlockRange().Remove(op1);
+            BlockRange().Unlink(op1);
 
             op1 = op1->AsUnOp()->GetOp(0);
             // CAST may have a contained memory operand but ARM compare/test nodes do not.
@@ -1792,8 +1792,8 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
 
         if (op2Value == 0)
         {
-            BlockRange().Remove(op1);
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op1);
+            BlockRange().Unlink(op2);
 
             cmp->SetOper(cmp->OperIs(GT_EQ) ? GT_TEST_EQ : GT_TEST_NE);
             cmp->SetOp(0, andInstr->GetOp(0));
@@ -1837,7 +1837,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
             instr->SetImmediate(EA_SIZE_IN_BYTES(size) * 8 - 1);
             CombineShiftImmediate(instr);
 
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
 
             return instr->gtNext;
         }
@@ -1879,7 +1879,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
             op1Instr->SetType(TYP_VOID);
             op1Instr->gtFlags |= GTF_SET_FLAGS;
 
-            BlockRange().Remove(op2);
+            BlockRange().Unlink(op2);
 
             GenTree*   next = cmp->gtNext;
             GenTree*   cc;
@@ -1892,14 +1892,14 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
                 cc   = next;
                 ccOp = GT_JCC;
                 next = nullptr;
-                BlockRange().Remove(cmp);
+                BlockRange().Unlink(cmp);
             }
             else if (BlockRange().TryGetUse(cmp, &cmpUse) && cmpUse.User()->OperIs(GT_JTRUE))
             {
                 cc   = cmpUse.User();
                 ccOp = GT_JCC;
                 next = nullptr;
-                BlockRange().Remove(cmp);
+                BlockRange().Unlink(cmp);
             }
             else // The relop is not used by a JTRUE or it is not used at all.
             {
@@ -2007,7 +2007,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 
             relopOp2->SetContained();
 
-            BlockRange().Remove(jtrue);
+            BlockRange().Unlink(jtrue);
 
             assert(relop->gtNext == nullptr);
             return nullptr;

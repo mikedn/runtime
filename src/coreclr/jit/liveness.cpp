@@ -1038,7 +1038,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     DISPNODE(lclNode);
 
                     lclNode->GetOp(0)->SetUnusedValue();
-                    blockRange.Remove(node);
+                    blockRange.Unlink(node);
                     useDefRemoved = true;
                 }
 
@@ -1063,7 +1063,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     JITDUMP("Removing dead node:\n");
                     DISPNODE(node);
 
-                    blockRange.Remove(node);
+                    blockRange.Unlink(node);
                 }
                 break;
 
@@ -1092,7 +1092,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                         return GenTree::VisitResult::Continue;
                     });
 
-                    blockRange.Remove(node);
+                    blockRange.Unlink(node);
                 }
                 break;
             }
@@ -1110,7 +1110,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     else
                     {
                         node->AsIndir()->GetAddr()->SetUnusedValue();
-                        blockRange.Remove(node);
+                        blockRange.Unlink(node);
                     }
                 }
                 break;
@@ -1188,7 +1188,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                         return GenTree::VisitResult::Continue;
                     });
 
-                    blockRange.Remove(node);
+                    blockRange.Unlink(node);
                 }
                 break;
         }

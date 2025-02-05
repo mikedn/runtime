@@ -124,7 +124,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         case GT_BOX:
             // GT_BOX at this level just passes through so get rid of it
             use.SetDef(node->AsBox()->GetOp(0));
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             break;
 
         case GT_ARR_LENGTH:
@@ -204,7 +204,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
                     value->SetUnusedValue();
                 }
 
-                BlockRange().Remove(node);
+                BlockRange().Unlink(node);
 
                 return GenTreeWalkResult::Continue;
             }
@@ -232,7 +232,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
                 }
             }
 
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
 
             GenTree* value = node->AsOp()->GetOp(1);
 
@@ -264,7 +264,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         }
 
         case GT_ARGPLACE:
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             break;
 
         case GT_INTRINSIC:
@@ -351,7 +351,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
     {
         if (use.IsDummyUse())
         {
-            BlockRange().Remove(node);
+            BlockRange().Unlink(node);
             return GenTreeWalkResult::Continue;
         }
 

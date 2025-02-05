@@ -301,7 +301,7 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
 
     assert(lcl->GetPromotedFieldCount() == 2);
     GenTreeOp* value = rhs->AsOp();
-    Range().Remove(value);
+    Range().Unlink(value);
 
     GenTreeLclStore* loStore = tree;
     loStore->SetType(TYP_INT);
@@ -321,7 +321,7 @@ GenTree* DecomposeLongs::DecomposeLclStoreFld(LIR::Use& use)
 
     GenTreeOp* value = store->GetValue()->AsOp();
     assert(value->OperIs(GT_LONG));
-    Range().Remove(value);
+    Range().Unlink(value);
 
     // The original store node will be repurposed to store the low half of the GT_LONG.
     store->SetValue(value->GetOp(0));
@@ -353,7 +353,7 @@ GenTree* DecomposeLongs::DecomposeOvfUnsigned(LIR::Use& use)
     cast->SetType(TYP_INT);
     cast->SetOp(0, hiSrcOp);
 
-    Range().Remove(srcOp);
+    Range().Unlink(srcOp);
 
     return FinalizeDecomposition(use, loSrcOp, cast, cast);
 }
@@ -389,7 +389,7 @@ GenTree* DecomposeLongs::DecomposeSignExtend(LIR::Use& use)
     GenTree* hiResult = m_compiler->gtNewOperNode(GT_RSH, TYP_INT, loCopy, shiftBy);
 
     Range().InsertAfter(sxt, loCopy, shiftBy, hiResult);
-    Range().Remove(sxt);
+    Range().Unlink(sxt);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -413,7 +413,7 @@ GenTree* DecomposeLongs::DecomposeUnsignedExtend(LIR::Use& use)
     GenTree* hiResult = m_compiler->gtNewIconNode(0);
 
     Range().InsertAfter(uxt, hiResult);
-    Range().Remove(uxt);
+    Range().Unlink(uxt);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -450,7 +450,7 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
 
     assert(loUse != nullptr);
 
-    Range().Remove(longNode);
+    Range().Unlink(longNode);
 
     loUse->SetNode(longNode->GetOp(0));
     loUse->SetType(TYP_INT);
@@ -498,8 +498,8 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     GenTree*         dataHigh    = gtLong->GetOp(1);
     GenTreeIndStore* storeIndLow = store;
 
-    Range().Remove(gtLong);
-    Range().Remove(dataHigh);
+    Range().Unlink(gtLong);
+    Range().Unlink(dataHigh);
     storeIndLow->SetValue(dataLow);
     storeIndLow->SetType(TYP_INT);
 
@@ -549,7 +549,7 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
     assert(value->OperIs(GT_LONG));
     GenTree* loValue = value->GetOp(0);
     GenTree* hiValue = value->GetOp(1);
-    Range().Remove(value);
+    Range().Unlink(value);
 
     node->SetType(TYP_INT);
     node->SetOp(0, loValue);
@@ -569,7 +569,7 @@ GenTree* DecomposeLongs::DecomposeBswap(LIR::Use& use)
     assert(value->OperIs(GT_LONG));
     GenTree* loValue = value->GetOp(0);
     GenTree* hiValue = value->GetOp(1);
-    Range().Remove(value);
+    Range().Unlink(value);
 
     node->SetType(TYP_INT);
     node->SetOp(0, loValue);
@@ -589,7 +589,7 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
     assert(value->OperIs(GT_LONG));
     GenTree* loValue = value->GetOp(0);
     GenTree* hiValue = value->GetOp(1);
-    Range().Remove(value);
+    Range().Unlink(value);
 
     node->SetType(TYP_INT);
     node->SetOp(0, loValue);
@@ -659,8 +659,8 @@ GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
     GenTree* loOp2 = op2->GetOp(0);
     GenTree* hiOp2 = op2->GetOp(1);
 
-    Range().Remove(op1);
-    Range().Remove(op2);
+    Range().Unlink(op1);
+    Range().Unlink(op2);
 
     node->SetOper(loOper);
     node->SetType(TYP_INT);
@@ -695,8 +695,8 @@ GenTree* DecomposeLongs::DecomposeBitwise(LIR::Use& use)
     GenTree* loOp2 = op2->GetOp(0);
     GenTree* hiOp2 = op2->GetOp(1);
 
-    Range().Remove(op1);
-    Range().Remove(op2);
+    Range().Unlink(op1);
+    Range().Unlink(op2);
 
     node->SetType(TYP_INT);
     node->AsOp()->SetOp(0, loOp1);
@@ -729,7 +729,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
         // Reduce count modulo 64 to match behavior found in the shift helpers,
         // Compiler::gtFoldExpr and ValueNumStore::EvalOpIntegral.
         unsigned count = static_cast<unsigned>(imm->GetValue() & 0x3F);
-        Range().Remove(shiftByOp);
+        Range().Unlink(shiftByOp);
 
         if (count == 0)
         {
@@ -740,7 +740,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 value->SetUnusedValue();
             }
 
-            Range().Remove(shift);
+            Range().Unlink(shift);
             use.SetDef(value);
 
             return next;
@@ -758,11 +758,11 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // SHL lo, imm
                 // SHLD hi, reg1, imm
 
-                Range().Remove(value);
+                Range().Unlink(value);
 
                 loValue             = RepresentOpAsLclLoad(loValue, value, &value->AsOp()->gtOp1);
                 LclVarDsc* loOp1Lcl = loValue->AsLclLoad()->GetLcl();
-                Range().Remove(loValue);
+                Range().Unlink(loValue);
 
                 GenTree* shiftByHi = m_compiler->gtNewIconNode(count, TYP_INT);
                 GenTree* shiftByLo = m_compiler->gtNewIconNode(count, TYP_INT);
@@ -790,13 +790,13 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                 // feeds the hi operand while there are no side effects)
 
-                if ((hiValue->gtFlags & GTF_ALL_EFFECT) == 0)
+                if (hiValue->HasAnySideEffect(GTF_ALL_EFFECT))
                 {
-                    Range().Remove(hiValue, true);
+                    hiValue->SetUnusedValue();
                 }
                 else
                 {
-                    hiValue->SetUnusedValue();
+                    Range().Remove(hiValue, true);
                 }
 
                 if (count == 32)
@@ -810,11 +810,11 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                     loOp1Use.ReplaceWithLclLoad(m_compiler);
 
                     hiResult = loOp1Use.Def();
-                    Range().Remove(value);
+                    Range().Unlink(value);
                 }
                 else
                 {
-                    Range().Remove(value);
+                    Range().Unlink(value);
                     assert(count > 32 && count < 64);
 
                     // Move loOp1 into hiResult, do a GT_LSH with count - 32.
@@ -834,7 +834,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
         }
         else if (oper == GT_RSZ)
         {
-            Range().Remove(value);
+            Range().Unlink(value);
 
             if (count < 32)
             {
@@ -902,12 +902,12 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
         {
             assert(oper == GT_RSH);
 
-            Range().Remove(value);
+            Range().Unlink(value);
 
             hiValue             = RepresentOpAsLclLoad(hiValue, value, &value->AsOp()->gtOp2);
             LclVarDsc* hiOp1Lcl = hiValue->AsLclLoad()->GetLcl();
             GenTree*   hiCopy   = m_compiler->gtNewLclLoad(hiOp1Lcl, TYP_INT);
-            Range().Remove(hiValue);
+            Range().Unlink(hiValue);
 
             if (count < 32)
             {
@@ -968,7 +968,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
             insertAfter = hiResult;
         }
 
-        Range().Remove(shift);
+        Range().Unlink(shift);
 
         return FinalizeDecomposition(use, loResult, hiResult, insertAfter);
     }
@@ -984,10 +984,10 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
     loValue   = RepresentOpAsLclLoad(loValue, value, &value->AsOp()->gtOp1);
     hiValue   = RepresentOpAsLclLoad(hiValue, value, &value->AsOp()->gtOp2);
 
-    Range().Remove(shiftByOp);
-    Range().Remove(value);
-    Range().Remove(loValue);
-    Range().Remove(hiValue);
+    Range().Unlink(shiftByOp);
+    Range().Unlink(value);
+    Range().Unlink(loValue);
+    Range().Unlink(hiValue);
 
     CorInfoHelpFunc helper;
 
@@ -1016,7 +1016,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
 
     LIR::InsertHelperCallBefore(m_compiler, Range(), shift, call);
 
-    Range().Remove(shift);
+    Range().Unlink(shift);
     use.SetDef(call);
 
     return DecomposeCall(use);
@@ -1034,7 +1034,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     unsigned count = rotateByOp->AsIntCon()->GetUInt32Value();
     assert((0 < count) && (count < 64));
 
-    Range().Remove(rotateByOp);
+    Range().Unlink(rotateByOp);
 
     GenTree* loResult;
     GenTree* hiResult;
@@ -1060,7 +1060,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
         }
 
         GenTree* next = node->gtNext;
-        Range().Remove(node);
+        Range().Unlink(node);
         use.SetDef(value);
 
         return next;
@@ -1081,7 +1081,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
         hiOp1 = value->GetOp(0);
         loOp1 = value->GetOp(1);
 
-        Range().Remove(value);
+        Range().Unlink(value);
         loOp1 = RepresentOpAsLclLoad(loOp1, value, &value->AsOp()->gtOp2);
         hiOp1 = RepresentOpAsLclLoad(hiOp1, value, &value->AsOp()->gtOp1);
 
@@ -1092,7 +1092,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
         loOp1 = value->GetOp(0);
         hiOp1 = value->GetOp(1);
 
-        Range().Remove(value);
+        Range().Unlink(value);
         loOp1 = RepresentOpAsLclLoad(loOp1, value, &value->AsOp()->gtOp1);
         hiOp1 = RepresentOpAsLclLoad(hiOp1, value, &value->AsOp()->gtOp2);
     }
@@ -1100,8 +1100,8 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     LclVarDsc* loOp1Lcl = loOp1->AsLclLoad()->GetLcl();
     LclVarDsc* hiOp1Lcl = hiOp1->AsLclLoad()->GetLcl();
 
-    Range().Remove(loOp1);
-    Range().Remove(hiOp1);
+    Range().Unlink(loOp1);
+    Range().Unlink(hiOp1);
 
     GenTree* rotateByHi = m_compiler->gtNewIconNode(count, TYP_INT);
     GenTree* rotateByLo = m_compiler->gtNewIconNode(count, TYP_INT);
@@ -1123,7 +1123,7 @@ GenTree* DecomposeLongs::DecomposeRotate(LIR::Use& use)
     Range().InsertBefore(node, loCopy, hiOp1, hiOp);
     Range().InsertBefore(node, rotateByHi, hiResult);
 
-    Range().Remove(node);
+    Range().Unlink(node);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -1151,8 +1151,8 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     assert(op2->OperIs(GT_SXT, GT_UXT) && op2->TypeIs(TYP_LONG));
     assert(op1->GetOper() == op2->GetOper());
 
-    Range().Remove(op1);
-    Range().Remove(op2);
+    Range().Unlink(op1);
+    Range().Unlink(op2);
 
     tree->SetOp(0, op1->GetOp(0));
     tree->SetOp(1, op2->GetOp(0));
@@ -1197,8 +1197,8 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
     assert(hiOp2->AsIntCon()->GetValue() == 0);
 
     // Get rid of op2's hi part. We don't need it.
-    Range().Remove(hiOp2);
-    Range().Remove(op2);
+    Range().Unlink(hiOp2);
+    Range().Unlink(op2);
 
     // Lo part is the GT_UMOD
     GenTree* loResult = tree;
@@ -1270,7 +1270,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     LclVarDsc* simdTmpLcl = simdTmpVar->AsLclLoad()->GetLcl();
     JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op1 tree to a temp var:\n");
     DISPTREERANGE(Range(), simdTmpVar);
-    Range().Remove(simdTmpVar);
+    Range().Unlink(simdTmpVar);
     op1 = node->GetOp(0);
 
     GenTree*   indexTmpVar = nullptr;
@@ -1282,7 +1282,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
         indexTmpLcl = indexTmpVar->AsLclLoad()->GetLcl();
         JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op2 tree to a temp var:\n");
         DISPTREERANGE(Range(), indexTmpVar);
-        Range().Remove(indexTmpVar);
+        Range().Unlink(indexTmpVar);
         op2 = node->GetOp(1);
     }
 
@@ -1296,7 +1296,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     {
         // Reuse the existing index constant node.
         indexTimesTwo1 = node->GetOp(1);
-        Range().Remove(indexTimesTwo1);
+        Range().Unlink(indexTimesTwo1);
         indexTimesTwo1->AsIntCon()->SetValue(index * 2);
 
         Range().InsertBefore(node, simdTmpVar1, indexTimesTwo1);
@@ -1341,7 +1341,7 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 
     // Done with the original tree; remove it.
 
-    Range().Remove(node);
+    Range().Unlink(node);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
 }
@@ -1376,7 +1376,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
 
     JITDUMP("Removing the LONG source:\n");
     DISPNODE(src);
-    Range().Remove(src);
+    Range().Unlink(src);
 
     LIR::Use use;
     if (Range().TryGetUse(trunc, &use))
@@ -1397,7 +1397,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
     JITDUMP("Removing TRUNC:\n");
     DISPNODE(trunc);
 
-    Range().Remove(trunc);
+    Range().Unlink(trunc);
 
     JITDUMPRANGE(Range(), treeToDisplay, "Final result:\n")
 

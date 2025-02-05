@@ -608,7 +608,7 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
         GenTree*   store = comp->gtNewLclStore(lcl, type, value);
 
         switchBBRange.InsertAfter(node, store);
-        switchBBRange.Remove(node);
+        switchBBRange.Unlink(node);
 
         return store;
     }
@@ -892,8 +892,8 @@ GenTree* Lowering::LowerSwitch(GenTreeUnOp* node)
     GenTree* next = node->gtNext;
 
     // Get rid of the GT_SWITCH(temp).
-    switchBBRange.Remove(node->AsUnOp()->GetOp(0));
-    switchBBRange.Remove(node);
+    switchBBRange.Unlink(node->AsUnOp()->GetOp(0));
+    switchBBRange.Unlink(node);
 
     return next;
 }
@@ -1325,7 +1325,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
         argInfo->SetNode(fieldList);
         BlockRange().InsertAfter(arg, fieldList);
-        BlockRange().Remove(arg);
+        BlockRange().Unlink(arg);
 
         GenTree* newArg = InsertPutArg(call, argInfo);
 
@@ -1819,8 +1819,8 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
     GenTree* hiSrc1 = src1->GetOp(1);
     GenTree* loSrc2 = src2->GetOp(0);
     GenTree* hiSrc2 = src2->GetOp(1);
-    BlockRange().Remove(src1);
-    BlockRange().Remove(src2);
+    BlockRange().Unlink(src1);
+    BlockRange().Unlink(src2);
 
     genTreeOps condition = cmp->GetOper();
     GenTree*   loCmp;
@@ -1844,7 +1844,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
         if (loSrc2->IsIntegralConst(0))
         {
-            BlockRange().Remove(loSrc2);
+            BlockRange().Unlink(loSrc2);
             loCmp = loSrc1;
         }
         else
@@ -1861,7 +1861,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
         if (hiSrc2->IsIntegralConst(0))
         {
-            BlockRange().Remove(hiSrc2);
+            BlockRange().Unlink(hiSrc2);
             hiCmp = hiSrc1;
         }
         else
@@ -1936,13 +1936,13 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
         if (loSrc2->IsIntegralConst(0))
         {
-            BlockRange().Remove(loSrc2);
+            BlockRange().Unlink(loSrc2);
 
             // Very conservative dead code removal... but it helps.
 
             if (loSrc1->OperIs(GT_CNS_INT, GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
-                BlockRange().Remove(loSrc1);
+                BlockRange().Unlink(loSrc1);
             }
             else
             {
@@ -1969,7 +1969,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
             if (hiSrc1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
-                BlockRange().Remove(hiSrc1);
+                BlockRange().Unlink(hiSrc1);
                 BlockRange().InsertBefore(hiCmp, hiSrc1);
             }
         }
@@ -1985,7 +1985,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
     LIR::Use cmpUse;
     if (BlockRange().TryGetUse(cmp, &cmpUse) && cmpUse.User()->OperIs(GT_JTRUE))
     {
-        BlockRange().Remove(cmp);
+        BlockRange().Unlink(cmp);
 
         GenTree* jcc       = cmpUse.User();
         jcc->AsOp()->gtOp1 = nullptr;
@@ -2232,8 +2232,8 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
                     GenTree* vec = extract->GetOp(0);
                     vec->ClearContained();
                     use.SetNode(vec);
-                    BlockRange().Remove(extract->GetOp(1));
-                    BlockRange().Remove(extract);
+                    BlockRange().Unlink(extract->GetOp(1));
+                    BlockRange().Unlink(extract);
                 }
             }
         }
@@ -3603,7 +3603,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     {
         GenTree* node = am.nodes[i];
         assert(node->OperIs(GT_ADD, GT_LSH, GT_MUL, GT_CNS_INT));
-        BlockRange().Remove(node);
+        BlockRange().Unlink(node);
     }
 
     JITDUMP("New addressing mode node:\n  ");
@@ -3641,8 +3641,8 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
         }
 
         GenTree* next = node->gtNext;
-        BlockRange().Remove(op2);
-        BlockRange().Remove(node);
+        BlockRange().Unlink(op2);
+        BlockRange().Unlink(node);
         JITDUMP("Remove [%06u], [%06u]\n", op2->GetID(), node->GetID());
 
         return next;
@@ -4140,7 +4140,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     ContainCheckBinary(adjustedDividend);
 
     GenTree* newDivMod;
-    BlockRange().Remove(divisor);
+    BlockRange().Unlink(divisor);
 
     if (isDiv)
     {
@@ -4175,7 +4175,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
     }
 
     use.SetDef(newDivMod);
-    BlockRange().Remove(divMod);
+    BlockRange().Unlink(divMod);
 
     return newDivMod->gtNext;
 }
@@ -4255,7 +4255,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
                         shift->GetID(), consumedBits);
 
-                BlockRange().Remove(src);
+                BlockRange().Unlink(src);
                 src = src->AsUnOp()->GetOp(0);
                 src->ClearContained();
             }
@@ -4267,7 +4267,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 JITDUMP("Removing TRUNC [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
                         shift->GetID(), consumedBits);
 
-                BlockRange().Remove(src);
+                BlockRange().Unlink(src);
                 src = cast->GetOp(0);
                 src->ClearContained();
 
@@ -4278,7 +4278,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                     // needs to be removed since the shift wouldn't know what to do with it.
                     // TODO-MIKE-Cleanup: Why doesn't CAST lowering deal with this?!
 
-                    BlockRange().Remove(src);
+                    BlockRange().Unlink(src);
                     src->AsOp()->GetOp(1)->SetUnusedValue();
                     src = src->AsOp()->GetOp(0);
                 }
@@ -4302,7 +4302,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 JITDUMP("Removing CONV [%06u] producing %u bits from LSH [%06u] consuming %u bits\n", cast->GetID(),
                         producedBits, shift->GetID(), consumedBits);
 
-                BlockRange().Remove(src);
+                BlockRange().Unlink(src);
                 src = cast->GetOp(0);
                 src->ClearContained();
             }
@@ -4312,7 +4312,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 JITDUMP("Removing SXT/UXT [%06u] producing 32 bits from LSH [%06u] consuming %u bits\n", src->GetID(),
                         shift->GetID(), consumedBits);
 
-                BlockRange().Remove(src);
+                BlockRange().Unlink(src);
                 src = src->AsUnOp()->GetOp(0);
                 src->ClearContained();
             }
@@ -4362,8 +4362,8 @@ void Lowering::LowerShift(GenTreeOp* shift)
                 break;
             }
 
-            BlockRange().Remove(shiftBy);
-            BlockRange().Remove(maskOp);
+            BlockRange().Unlink(shiftBy);
+            BlockRange().Unlink(maskOp);
 
             shiftBy = shiftBy->AsOp()->GetOp(0);
             shiftBy->ClearContained();
@@ -4603,7 +4603,7 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
         elemUse.SetDef(lea);
     }
 
-    BlockRange().Remove(elem);
+    BlockRange().Unlink(elem);
     return nextToLower;
 }
 
@@ -4802,7 +4802,7 @@ void Lowering::LowerLclHeap(GenTreeUnOp* node)
         if (size->GetValue() == 0)
         {
             node->ChangeToIntCon(0);
-            BlockRange().Remove(size);
+            BlockRange().Unlink(size);
         }
         else
         {
@@ -4900,7 +4900,7 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
             src->SetUnusedValue();
         }
 
-        BlockRange().Remove(bitcast);
+        BlockRange().Unlink(bitcast);
     }
 
     return next;
@@ -4976,7 +4976,7 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
             }
 
             GenTree* next = cast->gtNext;
-            BlockRange().Remove(cast);
+            BlockRange().Unlink(cast);
             return next;
         }
     }
@@ -5028,7 +5028,7 @@ GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
         }
 
         GenTree* next = node->gtNext;
-        BlockRange().Remove(node);
+        BlockRange().Unlink(node);
 
         return next;
     }
@@ -5561,7 +5561,7 @@ GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
             return op;
         }
 
-        BlockRange().Remove(op);
+        BlockRange().Unlink(op);
         castOp->ClearContained();
         return castOp;
     }

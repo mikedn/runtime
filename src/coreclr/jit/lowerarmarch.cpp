@@ -235,7 +235,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
         return;
     }
 
-    BlockRange().Remove(offsetNode);
+    BlockRange().Unlink(offsetNode);
 
     addr->ChangeToAddrMode(addr->AsOp()->GetOp(0), nullptr, 0, static_cast<int>(offset));
     addr->SetContained();
@@ -259,7 +259,7 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 
         offset = intCon->GetInt32Value();
 
-        BlockRange().Remove(intCon);
+        BlockRange().Unlink(intCon);
     }
     else
     {
@@ -355,7 +355,7 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
             if (valueOp->OperIs(GT_FNEG))
             {
                 createVector64->SetOp(0, valueOp->AsUnOp()->GetOp(0));
-                BlockRange().Remove(valueOp);
+                BlockRange().Unlink(valueOp);
                 wasNegated = true;
             }
         }
@@ -490,7 +490,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
                 // We found a containable immediate under
                 // a cast, so remove the cast from the LIR.
 
-                BlockRange().Remove(node->GetOp(0));
+                BlockRange().Unlink(node->GetOp(0));
                 node->SetOp(0, op1);
             }
             return true;
@@ -513,7 +513,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
 
     if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
     {
-        BlockRange().Remove(op);
+        BlockRange().Unlink(op);
 
         node->SetIntrinsic(node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe ? NI_Vector128_get_Zero
                                                                                    : NI_Vector64_get_Zero,
@@ -563,7 +563,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         if (op->IsDblConPositiveZero() || (!varTypeIsSmall(eltType) && op->IsIntegralConst(0)))
         {
-            BlockRange().Remove(op);
+            BlockRange().Unlink(op);
         }
         else
         {
@@ -704,7 +704,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
 
     for (unsigned i = 0; i < numOps; i++)
     {
-        BlockRange().Remove(node->GetOp(i));
+        BlockRange().Unlink(node->GetOp(i));
     }
 
     unsigned size = node->GetSimdSize();
