@@ -2072,7 +2072,7 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
         assert(test->OperIsConditionalJump());
 
         bool               isClosed;
-        unsigned           sideEffects;
+        GenTreeFlags       sideEffects;
         LIR::ReadOnlyRange testRange = blockRange.GetTreeRange(test, &isClosed, &sideEffects);
 
         // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that produces unacceptable
@@ -2636,7 +2636,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         if (block->IsLIR())
         {
             bool               isClosed;
-            unsigned           sideEffects;
+            GenTreeFlags       sideEffects;
             LIR::ReadOnlyRange switchTreeRange = blockRange->GetTreeRange(switchTree, &isClosed, &sideEffects);
 
             // The switch tree should form a contiguous, side-effect free range by construction. See
@@ -3126,7 +3126,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
             }
 
             bool               isClosed;
-            unsigned           sideEffects;
+            GenTreeFlags       sideEffects;
             LIR::ReadOnlyRange jmpRange = blockRange.GetTreeRange(jmp, &isClosed, &sideEffects);
 
             // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that produces unacceptable

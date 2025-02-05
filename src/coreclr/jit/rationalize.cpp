@@ -119,7 +119,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         node->SetType(TYP_UBYTE);
     }
 
-    node->gtFlags &= ~GTF_REVERSE_OPS;
+    node->SetReverseOps(false);
 
     LIR::Use use;
     if (user == nullptr)
@@ -180,11 +180,11 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         case GT_IND_LOAD_BLK:
         IND:
             // Remove side effects that may have been inherited from address.
-            node->gtFlags &= ~GTF_ASG;
+            node->RemoveSideEffects(GTF_ASG);
 
             if ((node->gtFlags & GTF_IND_NONFAULTING) != 0)
             {
-                node->gtFlags &= ~GTF_EXCEPT;
+                node->RemoveSideEffects(GTF_EXCEPT);
             }
             break;
 
@@ -225,23 +225,24 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
         case GT_COMMA:
         {
-            GenTree*           op1         = node->AsOp()->GetOp(0);
-            bool               isClosed    = false;
-            unsigned           sideEffects = 0;
-            LIR::ReadOnlyRange lhsRange    = BlockRange().GetTreeRange(op1, &isClosed, &sideEffects);
-
-            if ((sideEffects & GTF_ALL_EFFECT) == 0)
             {
-                // The LHS has no side effects. Remove it.
-                // None of the transforms performed herein violate tree order, so isClosed
-                // should always be true.
-                assert(isClosed);
+                GenTree*           op1         = node->AsOp()->GetOp(0);
+                bool               isClosed    = false;
+                GenTreeFlags       sideEffects = GTF_NONE;
+                LIR::ReadOnlyRange range       = BlockRange().GetTreeRange(op1, &isClosed, &sideEffects);
 
-                BlockRange().Delete(comp, m_block, std::move(lhsRange));
-            }
-            else if (op1->IsValue())
-            {
-                op1->SetUnusedValue();
+                if (sideEffects == GTF_NONE)
+                {
+                    // The LHS has no side effects. Remove it.
+                    // None of the transforms performed herein violate tree order, so isClosed should always be true.
+                    assert(isClosed);
+
+                    BlockRange().Delete(comp, m_block, std::move(range));
+                }
+                else if (op1->IsValue())
+                {
+                    op1->SetUnusedValue();
+                }
             }
 
             BlockRange().Remove(node);
@@ -250,23 +251,21 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
             if (!use.IsDummyUse())
             {
-                use.SetDef(value);
+                use.SetDef(node->AsOp()->GetOp(1));
             }
             else
             {
-                // This is a top-level comma. If the RHS has no side effects we can remove
-                // it as well.
+                // This is a top-level comma. If the RHS has no side effects we can remove it as well.
                 bool               isClosed    = false;
-                unsigned           sideEffects = 0;
-                LIR::ReadOnlyRange rhsRange    = BlockRange().GetTreeRange(value, &isClosed, &sideEffects);
+                GenTreeFlags       sideEffects = GTF_NONE;
+                LIR::ReadOnlyRange range       = BlockRange().GetTreeRange(value, &isClosed, &sideEffects);
 
-                if ((sideEffects & GTF_ALL_EFFECT) == 0)
+                if (sideEffects == GTF_NONE)
                 {
-                    // None of the transforms performed herein violate tree order, so isClosed
-                    // should always be true.
+                    // None of the transforms performed herein violate tree order, so isClosed should always be true.
                     assert(isClosed);
 
-                    BlockRange().Delete(comp, m_block, std::move(rhsRange));
+                    BlockRange().Delete(comp, m_block, std::move(range));
                 }
                 else if (value->IsValue())
                 {
@@ -276,12 +275,8 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
             return GenTreeWalkResult::Continue;
         }
-        break;
 
         case GT_ARGPLACE:
-            // Remove argplace and list nodes from the execution order.
-            //
-            // TODO: remove phi args and phi nodes as well?
             BlockRange().Remove(node);
             break;
 
@@ -294,7 +289,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         case GT_UDIV:
         case GT_MOD:
         case GT_UMOD:
-            node->SetSideEffects(node->GetSideEffects() & GTF_EXCEPT);
+            node->RemoveSideEffects(GTF_ALL_EFFECT & ~GTF_EXCEPT);
             break;
 
         case GT_ADD:
@@ -374,7 +369,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         }
 
         // Local reads are side-effect-free; clear any flags leftover from frontend transformations.
-        node->SetSideEffects(GTF_EMPTY);
+        node->SetSideEffects(GTF_NONE);
 
 #ifndef TARGET_64BIT
         if (node->TypeIs(TYP_LONG) ||
@@ -392,18 +387,17 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         if (!node->OperIsStore())
         {
             // Clear the GTF_ASG flag for all nodes but stores
-            node->gtFlags &= ~GTF_ASG;
+            node->RemoveSideEffects(GTF_ASG);
         }
         else if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
             // Local stores may have inherited GTF_EXCEPT from the value tree.
-            node->gtFlags &= ~GTF_EXCEPT;
+            node->RemoveSideEffects(GTF_EXCEPT);
         }
 
         if (!node->IsCall())
         {
-            // Clear the GTF_CALL flag for all nodes but calls
-            node->gtFlags &= ~GTF_CALL;
+            node->RemoveSideEffects(GTF_CALL);
         }
 
         if (node->IsValue() && use.IsDummyUse())

@@ -1101,21 +1101,21 @@ bool LIR::Range::TryGetUse(GenTree* node, Use* use)
 // Returns:
 //    The computed subrange.
 //
-LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
-                                              GenTree*  start,
-                                              bool*     isClosed,
-                                              unsigned* sideEffects) const
+LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned      markCount,
+                                              GenTree*      start,
+                                              bool*         isClosed,
+                                              GenTreeFlags* sideEffects) const
 {
     assert(markCount != 0);
     assert(start != nullptr);
     assert(isClosed != nullptr);
     assert(sideEffects != nullptr);
 
-    bool     sawUnmarkedNode    = false;
-    unsigned sideEffectsInRange = 0;
+    bool         sawUnmarkedNode    = false;
+    GenTreeFlags sideEffectsInRange = GTF_NONE;
+    GenTree*     firstNode          = start;
+    GenTree*     lastNode           = nullptr;
 
-    GenTree* firstNode = start;
-    GenTree* lastNode  = nullptr;
     for (;;)
     {
         if (firstNode->HasLIRMark())
@@ -1149,7 +1149,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
 
         if (lastNode != nullptr)
         {
-            sideEffectsInRange |= (firstNode->gtFlags & GTF_ALL_EFFECT);
+            sideEffectsInRange |= firstNode->GetSideEffects();
         }
 
         if (markCount == 0)
@@ -1169,6 +1169,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
 
     *isClosed    = !sawUnmarkedNode;
     *sideEffects = sideEffectsInRange;
+
     return ReadOnlyRange(firstNode, lastNode);
 }
 
@@ -1187,7 +1188,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
 //    The computed subrange.
 LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed) const
 {
-    unsigned unused;
+    GenTreeFlags unused;
     return GetTreeRange(root, isClosed, &unused);
 }
 
@@ -1206,7 +1207,7 @@ LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed) const
 //
 // Returns:
 //    The computed subrange.
-LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, unsigned* sideEffects) const
+LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, GenTreeFlags* sideEffects) const
 {
     assert(root != nullptr);
 
