@@ -296,9 +296,8 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
     public:
         enum
         {
-            DoPreOrder    = true,
-            DoLclVarsOnly = true,
-            ComputeStack  = true,
+            DoPreOrder  = true,
+            DoPostOrder = true
         };
 
         BuildConnGraphVisitor(ObjectAllocator* allocator)
@@ -306,19 +305,21 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
         {
         }
 
-        void Push(GenTree* node)
-        {
-            m_ancestors.Push(node);
-        }
-
-        void Pop()
-        {
-            m_ancestors.Pop();
-        }
-
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            GenTree* tree = *use;
+            m_ancestors.Push(*use);
+            return GenTreeWalkResult::Continue;
+        }
+
+        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        {
+            m_ancestors.Pop();
+            return GenTreeWalkResult::Continue;
+        }
+
+        void PreOrderVisitLclRef(GenTree** use, GenTree* user)
+        {
+            GenTreeLclVarCommon* tree = (*use)->AsLclVarCommon();
 
             assert(tree == m_ancestors.Top());
 
@@ -346,8 +347,6 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
                 m_allocator->MarkLclVarAsEscaping(lcl->GetLclNum());
             }
-
-            return GenTreeWalkResult::Continue;
         }
     };
 
@@ -821,9 +820,8 @@ void ObjectAllocator::RewriteUses()
     public:
         enum
         {
-            DoPreOrder    = true,
-            DoLclVarsOnly = true,
-            ComputeStack  = true,
+            DoPreOrder  = true,
+            DoPostOrder = true
         };
 
         RewriteUsesVisitor(ObjectAllocator* allocator)
@@ -833,21 +831,23 @@ void ObjectAllocator::RewriteUses()
         {
         }
 
-        void Push(GenTree* node)
-        {
-            m_ancestors.Push(node);
-        }
-
-        void Pop()
-        {
-            m_ancestors.Pop();
-        }
-
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
-            GenTree*   tree   = *use;
-            LclVarDsc* lcl    = tree->AsLclVarCommon()->GetLcl();
-            unsigned   lclNum = lcl->GetLclNum();
+            m_ancestors.Push(*use);
+            return GenTreeWalkResult::Continue;
+        }
+
+        GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
+        {
+            m_ancestors.Pop();
+            return GenTreeWalkResult::Continue;
+        }
+
+        void PreOrderVisitLclRef(GenTree** use, GenTree* user)
+        {
+            GenTreeLclVarCommon* tree   = (*use)->AsLclVarCommon();
+            LclVarDsc*           lcl    = tree->GetLcl();
+            unsigned             lclNum = lcl->GetLclNum();
 
             if ((lclNum < BitVecTraits::GetSize(m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))
@@ -880,8 +880,6 @@ void ObjectAllocator::RewriteUses()
 
                 m_allocator->UpdateAncestorTypes(tree, &m_ancestors, newType);
             }
-
-            return GenTreeWalkResult::Continue;
         }
     };
 

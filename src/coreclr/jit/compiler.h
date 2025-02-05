@@ -6628,17 +6628,11 @@ void GenTree::VisitBinOpOperands(TVisitor visitor)
 // This class implements a configurable walker for IR trees. There are five configuration options (defaults values are
 // shown in parentheses):
 //
-// - ComputeStack (false): when true, the walker will push each node onto the `m_ancestors` stack. "Ancestors" is a bit
-//                         of a misnomer, as the first entry will always be the current node.
-//
 // - DoPreOrder (false): when true, the walker will invoke `TVisitor::PreOrderVisit` with the current node as an
 //                       argument before visiting the node's operands.
 //
 // - DoPostOrder (false): when true, the walker will invoke `TVisitor::PostOrderVisit` with the current node as an
 //                        argument after visiting the node's operands.
-//
-// - DoLclVarsOnly (false): when true, the walker will only invoke `TVisitor::PreOrderVisit` for lclVar nodes.
-//                          `DoPreOrder` must be true if this option is true.
 //
 // - UseExecutionOrder (false): when true, then walker will visit a node's operands in execution order (e.g. if a
 //                              binary operator has the `GTF_REVERSE_OPS` flag set, the second operand will be
@@ -6680,37 +6674,23 @@ class GenTreeVisitor
 protected:
     enum
     {
-        ComputeStack      = false,
         DoPreOrder        = false,
         DoPostOrder       = false,
-        DoLclVarsOnly     = false,
-        UseExecutionOrder = false,
+        UseExecutionOrder = false
     };
-
-    GenTreeVisitor()
-    {
-        static_assert_no_msg(TVisitor::DoPreOrder || TVisitor::DoPostOrder);
-        static_assert_no_msg(!TVisitor::DoLclVarsOnly || TVisitor::DoPreOrder);
-    }
 
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         return GenTreeWalkResult::Continue;
     }
 
+    void PreOrderVisitLclRef(GenTree** use, GenTree* user)
+    {
+    }
+
     GenTreeWalkResult PostOrderVisit(GenTree** use, GenTree* user)
     {
         return GenTreeWalkResult::Continue;
-    }
-
-    void Push(GenTree* node)
-    {
-        unreached();
-    }
-
-    void Pop()
-    {
-        unreached();
     }
 
 public:
@@ -6720,14 +6700,9 @@ public:
 
         GenTree* node = *use;
 
-        if (TVisitor::ComputeStack)
-        {
-            reinterpret_cast<TVisitor*>(this)->Push(node);
-        }
-
         GenTreeWalkResult result = GenTreeWalkResult::Continue;
 
-        if (TVisitor::DoPreOrder && !TVisitor::DoLclVarsOnly)
+        if (TVisitor::DoPreOrder)
         {
             result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
             if (result == GenTreeWalkResult::Abort)
@@ -6745,19 +6720,6 @@ public:
 
         switch (node->GetOper())
         {
-            case GT_LCL_LOAD:
-            case GT_LCL_LOAD_FLD:
-            case GT_LCL_ADDR:
-                if (TVisitor::DoLclVarsOnly)
-                {
-                    result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-                FALLTHROUGH;
-
             case GT_LCL_USE:
             case GT_CATCH_ARG:
             case GT_LABEL:
@@ -6790,16 +6752,15 @@ public:
             case GT_IL_OFFSET:
                 break;
 
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
+            case GT_LCL_ADDR:
+                reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
+                break;
+
             case GT_LCL_STORE:
             case GT_LCL_STORE_FLD:
-                if (TVisitor::DoLclVarsOnly)
-                {
-                    result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
+                reinterpret_cast<TVisitor*>(this)->PreOrderVisitLclRef(use, user);
                 result = WalkTree(&node->AsUnOp()->gtOp1, node);
                 if (result == GenTreeWalkResult::Abort)
                 {
@@ -7096,15 +7057,9 @@ public:
         }
 
     DONE:
-        // Finally, visit the current node
         if (TVisitor::DoPostOrder)
         {
             result = reinterpret_cast<TVisitor*>(this)->PostOrderVisit(use, user);
-        }
-
-        if (TVisitor::ComputeStack)
-        {
-            reinterpret_cast<TVisitor*>(this)->Pop();
         }
 
         return result;

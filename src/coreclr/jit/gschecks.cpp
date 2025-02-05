@@ -431,34 +431,26 @@ void Compiler::gsParamsToShadows()
         // "vulnerable" parameters with their shadow copies. If an original local variable has small type then replace
         // the LCL_LOAD node type with TYP_INT.
     public:
-        enum
-        {
-            DoPreOrder    = true,
-            DoLclVarsOnly = true
-        };
-
         ReplaceShadowParamsVisitor(Compiler* compiler) : m_compiler(compiler)
         {
         }
 
-        GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
+        void PreOrderVisitLclRef(GenTree** use, GenTree* user)
         {
-            GenTree* tree = *use;
+            GenTreeLclVarCommon* tree = (*use)->AsLclVarCommon();
 
-            LclVarDsc* lcl          = tree->AsLclVarCommon()->GetLcl();
+            LclVarDsc* lcl          = tree->GetLcl();
             unsigned   shadowLclNum = m_compiler->gsLclShadowMap[lcl->GetLclNum()];
 
             if (shadowLclNum != BAD_VAR_NUM)
             {
-                tree->AsLclVarCommon()->SetLcl(m_compiler->lvaGetDesc(shadowLclNum));
+                tree->SetLcl(m_compiler->lvaGetDesc(shadowLclNum));
 
                 if (varTypeIsSmall(lcl->GetType()) && tree->OperIs(GT_LCL_LOAD, GT_LCL_STORE))
                 {
                     tree->SetType(TYP_INT);
                 }
             }
-
-            return GenTreeWalkResult::Continue;
         }
     };
 
