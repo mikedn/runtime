@@ -196,9 +196,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 public:
     enum
     {
-        DoPreOrder   = true,
-        DoPostOrder  = true,
-        ComputeStack = true,
+        DoPreOrder  = true,
+        DoPostOrder = true
     };
 
     LocalAddressVisitor(Compiler* comp)
@@ -206,16 +205,6 @@ public:
         , m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
         , m_ancestors(comp->getAllocator(CMK_LocalAddressVisitor))
     {
-    }
-
-    void Push(GenTree* node)
-    {
-        m_ancestors.Push(node);
-    }
-
-    void Pop()
-    {
-        m_ancestors.Pop();
     }
 
     void VisitStmt(Statement* stmt DEBUGARG(BasicBlock* block))
@@ -272,19 +261,14 @@ public:
         GenTree* node = *use;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if (m_compiler->lvaRefCountState == RCS_MORPH)
+        if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
+            node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_LCL_ADDR))
         {
-            if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
-            {
-                UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon()->GetLcl());
-            }
-            else if (node->OperIs(GT_LCL_ADDR))
-            {
-                UpdateImplicitByRefParamRefCounts(node->AsLclAddr()->GetLcl());
-            }
+            UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon());
         }
 #endif
 
+        m_ancestors.Push(node);
         PushValue(node);
 
         return GenTreeWalkResult::Continue;
@@ -505,6 +489,8 @@ public:
                 }
                 break;
         }
+
+        m_ancestors.Pop();
 
         assert(TopValue(0).Node() == node);
         return GenTreeWalkResult::Continue;
@@ -2068,8 +2054,10 @@ private:
     // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
     // it decides if it's legal to elide certain copies of them;
     // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
-    void UpdateImplicitByRefParamRefCounts(LclVarDsc* lcl)
+    void UpdateImplicitByRefParamRefCounts(GenTreeLclVarCommon* lclRef)
     {
+        LclVarDsc* lcl = lclRef->GetLcl();
+
         // We should not encounter any promoted fields yet.
         assert(!lcl->IsPromotedField());
 
@@ -2095,10 +2083,10 @@ private:
         // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
         // longer wraps struct args in OBJs.
 
-        if (((m_ancestors.Size() >= 3) && m_ancestors.Top(0)->OperIs(GT_LCL_ADDR) &&
-             m_ancestors.Top(1)->OperIs(GT_IND_LOAD_OBJ) && m_ancestors.Top(2)->OperIs(GT_CALL)) ||
-            ((m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_LCL_LOAD) &&
-             m_ancestors.Top(0)->TypeIs(TYP_STRUCT) && m_ancestors.Top(1)->OperIs(GT_CALL)))
+        if ((lclRef->OperIs(GT_LCL_ADDR) && (m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_IND_LOAD_OBJ) &&
+             m_ancestors.Top(1)->OperIs(GT_CALL)) ||
+            (lclRef->OperIs(GT_LCL_LOAD) && lclRef->TypeIs(TYP_STRUCT) && (m_ancestors.Size() >= 1) &&
+             m_ancestors.Top(0)->OperIs(GT_CALL)))
         {
             JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
 
