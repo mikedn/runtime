@@ -264,7 +264,7 @@ public:
         if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
             node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_LCL_ADDR))
         {
-            UpdateImplicitByRefParamRefCounts(node->AsLclRef());
+            UpdateImplicitByRefParamRefCounts(node->AsLclRef(), user);
         }
 #endif
 
@@ -2054,7 +2054,7 @@ private:
     // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
     // it decides if it's legal to elide certain copies of them;
     // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
-    void UpdateImplicitByRefParamRefCounts(GenTreeLclRef* lclRef)
+    void UpdateImplicitByRefParamRefCounts(GenTreeLclRef* lclRef, GenTree* user)
     {
         LclVarDsc* lcl = lclRef->GetLcl();
 
@@ -2073,20 +2073,10 @@ private:
         // See if this struct is an argument to a call. This information is recorded
         // via the weighted early ref count for the local, and feeds the undo promotion
         // heuristic.
-        //
-        // It can be approximate, so the pattern match below need not be exhaustive.
-        // But the pattern should at least subset the implicit byref cases that are
-        // handled in fgCanFastTailCall and abiMakeImplicitlyByRefStructArgCopy.
-        //
-        // CALL(IND_LOAD_OBJ(LCL_ADDR))
 
-        // TODO-MIKE-Cleanup: The OBJ check is likely useless since the importer no
-        // longer wraps struct args in OBJs.
+        // TODO-MIKE-Cleanup: Should this included LCL_LOAD_FLD too?
 
-        if ((lclRef->OperIs(GT_LCL_ADDR) && (m_ancestors.Size() >= 2) && m_ancestors.Top(0)->OperIs(GT_IND_LOAD_OBJ) &&
-             m_ancestors.Top(1)->OperIs(GT_CALL)) ||
-            (lclRef->OperIs(GT_LCL_LOAD) && lclRef->TypeIs(TYP_STRUCT) && (m_ancestors.Size() >= 1) &&
-             m_ancestors.Top(0)->OperIs(GT_CALL)))
+        if ((lclRef->OperIs(GT_LCL_LOAD) && lclRef->TypeIs(TYP_STRUCT) && user->OperIs(GT_CALL)))
         {
             JITDUMP("Adding V%02u implicit-by-ref param call ref\n", lcl->GetLclNum());
 
