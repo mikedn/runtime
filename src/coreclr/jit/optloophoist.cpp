@@ -848,7 +848,7 @@ public:
             }
             else if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
-                LclVarDsc* lcl = tree->AsLclVarCommon()->GetLcl();
+                LclVarDsc* lcl = tree->AsLclRef()->GetLcl();
 
                 if (lcl->IsAddressExposed()
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)

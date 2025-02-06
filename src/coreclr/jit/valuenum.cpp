@@ -72,7 +72,7 @@ private:
     void SummarizeLoopLocalDefs(GenTreeLclDef* def, VNLoopMemorySummary& summary);
     void SummarizeLoopIndirMemoryStores(GenTreeIndir* store, VNLoopMemorySummary& summary);
     void SummarizeLoopObjFieldMemoryStores(GenTreeIndir* store, FieldSeqNode* fieldSeq, VNLoopMemorySummary& summary);
-    void SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary);
+    void SummarizeLoopLocalMemoryStores(GenTreeLclRef* store, VNLoopMemorySummary& summary);
     void SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemorySummary& summary);
     bool BlockIsLoopEntry(BasicBlock* block, unsigned* loopNum);
 
@@ -2991,7 +2991,7 @@ void ValueNumbering::NumberComma(GenTreeOp* comma)
 
     if (op1->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        op1 = op1->AsLclVarCommon()->GetOp(0);
+        op1 = op1->AsLclRef()->GetOp(0);
     }
 
     ValueNumPair exset1;
@@ -3410,7 +3410,7 @@ ValueNumPair ValueNumbering::ExtractStructField(GenTree* load, ValueNumPair stru
     return structVNP;
 }
 
-void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclVarCommon* store, VNLoopMemorySummary& summary)
+void ValueNumbering::SummarizeLoopLocalMemoryStores(GenTreeLclRef* store, VNLoopMemorySummary& summary)
 {
     if (store->GetLcl()->IsAddressExposed())
     {
@@ -6426,7 +6426,7 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
-            SummarizeLoopLocalMemoryStores(node->AsLclVarCommon(), summary);
+            SummarizeLoopLocalMemoryStores(node->AsLclRef(), summary);
             break;
 
         case GT_LCL_DEF:

@@ -381,8 +381,8 @@ void CodeGen::genConsumeRegs(GenTree* op)
 
     if (op->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        assert(IsValidContainedLcl(op->AsLclVarCommon()));
-        liveness.UpdateLife(this, op->AsLclVarCommon());
+        assert(IsValidContainedLcl(op->AsLclRef()));
+        liveness.UpdateLife(this, op->AsLclRef());
 
         return;
     }
@@ -1000,7 +1000,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
 
         if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            LclVarDsc* lcl = src->AsLclVarCommon()->GetLcl();
+            LclVarDsc* lcl = src->AsLclRef()->GetLcl();
 
             bool isEBPbased;
             int  frameOffset = compiler->lvaLclFrameAddress(lcl, &isEBPbased);
@@ -1016,7 +1016,7 @@ void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
             baseReg  = isEBPbased ? REG_EBP : REG_ESP;
             indexReg = REG_NA;
             scale    = 1;
-            offset   = frameOffset + src->AsLclVarCommon()->GetLclOffs();
+            offset   = frameOffset + src->AsLclRef()->GetLclOffs();
         }
         else if (src->AsIndir()->GetAddr()->isUsedFromReg())
         {

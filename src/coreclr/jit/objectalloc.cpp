@@ -319,7 +319,7 @@ void ObjectAllocator::MarkEscapingVarsAndBuildConnGraph()
 
         void PreOrderVisitLclRef(GenTree** use, GenTree* user)
         {
-            GenTreeLclVarCommon* tree = (*use)->AsLclVarCommon();
+            GenTreeLclRef* tree = (*use)->AsLclRef();
 
             assert(tree == m_ancestors.Top());
 
@@ -845,9 +845,9 @@ void ObjectAllocator::RewriteUses()
 
         void PreOrderVisitLclRef(GenTree** use, GenTree* user)
         {
-            GenTreeLclVarCommon* tree   = (*use)->AsLclVarCommon();
-            LclVarDsc*           lcl    = tree->GetLcl();
-            unsigned             lclNum = lcl->GetLclNum();
+            GenTreeLclRef* tree   = (*use)->AsLclRef();
+            LclVarDsc*     lcl    = tree->GetLcl();
+            unsigned       lclNum = lcl->GetLclNum();
 
             if ((lclNum < BitVecTraits::GetSize(m_allocator->m_bitVecTraits)) &&
                 m_allocator->MayLclVarPointToStack(lclNum))

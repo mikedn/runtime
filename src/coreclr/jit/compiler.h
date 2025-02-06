@@ -757,7 +757,7 @@ public:
         m_layout = layout;
     }
 
-    var_types GetRegisterType(const GenTreeLclVarCommon* tree) const;
+    var_types GetRegisterType(const GenTreeLclRef* tree) const;
     var_types GetRegisterType() const;
     var_types GetActualRegisterType() const;
 
@@ -3108,7 +3108,7 @@ public:
     int gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags);
     void gtDispConst(GenTree* tree);
     void gtDispLeaf(GenTree* tree);
-    void dmpLclVarCommon(GenTreeLclVarCommon* node);
+    void dmpLclVarCommon(GenTreeLclRef* node);
     void dmpSsaDefUse(GenTree* node);
     void dmpExtract(GenTreeExtract* extract);
     void dmpInsert(GenTreeInsert* insert);
@@ -3875,24 +3875,21 @@ public:
         bool fgCurMemoryHavoc : 1; // True if the current basic block is known to set memory to a "havoc" value.
     };
 
-    void fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* tree);
+    void fgMarkUseDef(LivenessState& state, GenTreeLclRef* tree);
     void fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* node);
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
     void fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars);
     void fgLiveVarAnalysis();
-    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node);
-    bool fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                      VARSET_TP            keepAlive,
-                                      LclVarDsc*           lcl,
-                                      GenTreeLclVarCommon* node);
-    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclVarCommon* node);
+    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node);
+    bool fgComputeLifeTrackedLocalDef(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
 
     bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
     bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
     bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
 
-    GenTree* fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block);
+    GenTree* fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block);
 
     void fgInterBlockLocalVarLivenessUntracked();
     bool fgInterBlockLocalVarLiveness();
@@ -4446,7 +4443,7 @@ private:
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* fgMorphLeaf(GenTree* tree);
     GenTree* fgMorphInitStruct(GenTree* store, GenTree* value);
-    GenTree* fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree* value);
+    GenTree* fgMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* value);
     GenTree* fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
     GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
@@ -4456,7 +4453,7 @@ private:
     GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
 #ifdef FEATURE_SIMD
     GenTree* fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl);
-    GenTree* fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* destLcl);
+    GenTree* fgMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* destLcl);
 #endif
     GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
     GenTree* fgMorphCopyStruct(GenTree* store, GenTree* value);
@@ -5019,7 +5016,7 @@ public:
     void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
     void morphAssertionMerge(unsigned              elseAssertionCount,
                              const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclVarCommon* store));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclRef* store));
 
 private:
     BitVec& morphAssertionGetDependent(unsigned lclNum);
@@ -5028,7 +5025,7 @@ private:
     void morphAssertionAdd(MorphAssertion& assertion);
     const MorphAssertion& morphAssertionGet(unsigned index);
     void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store));
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclRef* store));
     const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
 
     GenTree* morphAssertionPropagateLclLoad(GenTreeLclLoad* load);
@@ -5965,7 +5962,7 @@ public:
 #ifdef FEATURE_SIMD
     GenTree* abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg);
 #endif
-    GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg);
+    GenTree* abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg);
     GenTree* abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg);
     GenTree* abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize);
     GenTree* abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned indirSize);

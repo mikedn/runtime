@@ -214,7 +214,7 @@ class CodeGenLivenessUpdater
     VARSET_TP scratchSet2;
 #endif
 
-    void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    void UpdateLifePromoted(CodeGen* codeGen, GenTreeLclRef* lclNode);
 
     void SetLiveLclRegs(regMaskTP regs);
     void UpdateLiveLclRegs(const LclVarDsc* lcl, bool isDying);
@@ -245,7 +245,7 @@ public:
     void BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* block, const RegNumSmall* map);
     void BeginPrologEpilogCodeGen();
 
-    void UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode);
+    void UpdateLife(CodeGen* codeGen, GenTreeLclRef* lclNode);
     void UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStore* store);
 
     void MoveReg(CodeGen* codeGen, LclVarDsc* lcl, GenTreeLclLoad* src, GenTreeCopyOrReload* dst);

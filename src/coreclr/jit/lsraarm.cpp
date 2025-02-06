@@ -16,7 +16,7 @@ void LinearScan::BuildNode(GenTree* tree)
     {
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
-            assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
+            assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
 
             if (tree->OperIs(GT_LCL_LOAD_FLD) && tree->AsLclLoadFld()->IsOffsetMisaligned())
             {

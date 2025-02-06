@@ -952,7 +952,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
     }
 }
 
-void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
+void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 

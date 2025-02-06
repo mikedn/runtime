@@ -1476,7 +1476,7 @@ struct LoopCloneVisitorInfo
     bool IsLclLoopInvariant(unsigned lclNum);
     bool IsLclAssignedInLoop(unsigned lclNum);
     void SummarizeLocalStores(unsigned lclNum);
-    void SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store);
+    void SummarizeLocalStoresVisitor(GenTreeLclRef* store);
 };
 
 bool LoopCloneVisitorInfo::IsLclLoopInvariant(unsigned lclNum)
@@ -1526,7 +1526,7 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
 
                                                 if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                                                 {
-                                                    info->SummarizeLocalStoresVisitor(node->AsLclVarCommon());
+                                                    info->SummarizeLocalStoresVisitor(node->AsLclRef());
                                                 }
 
                                                 return GenTreeWalkResult::Continue;
@@ -1536,11 +1536,11 @@ void LoopCloneVisitorInfo::SummarizeLocalStores(unsigned lclNum)
     }
 }
 
-void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclVarCommon* store)
+void LoopCloneVisitorInfo::SummarizeLocalStoresVisitor(GenTreeLclRef* store)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
-    LclVarDsc* lcl = store->AsLclVarCommon()->GetLcl();
+    LclVarDsc* lcl = store->AsLclRef()->GetLcl();
 
     // We currently don't add any locals during loop cloning but in case it
     // happens just be conservative and treat any new locals as modified.

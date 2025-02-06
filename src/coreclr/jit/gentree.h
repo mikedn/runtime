@@ -2928,7 +2928,7 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeStrCon, GenTree)
 };
 
-struct GenTreeLclVarCommon : public GenTreeUnOp
+struct GenTreeLclRef : public GenTreeUnOp
 {
 private:
     LclVarDsc* m_lcl;
@@ -2937,23 +2937,20 @@ private:
 #endif
 
 protected:
-    GenTreeLclVarCommon(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
+    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), m_lcl(lcl)
     {
         assert(lcl != nullptr);
     }
 
-    GenTreeLclVarCommon(genTreeOps oper,
-                        var_types  type,
-                        LclVarDsc* lcl,
-                        GenTree* value DEBUGARG(bool largeNode = false))
+    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type, value DEBUGARG(largeNode)), m_lcl(lcl)
     {
         assert(lcl != nullptr);
         gtFlags |= GTF_ASG | value->GetSideEffects();
     }
 
-    GenTreeLclVarCommon(const GenTreeLclVarCommon* copyFrom)
+    GenTreeLclRef(const GenTreeLclRef* copyFrom)
         : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lcl(copyFrom->m_lcl)
     {
     }
@@ -2973,31 +2970,31 @@ public:
 
     uint16_t GetLclOffs() const;
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVarCommon, GenTreeUnOp)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclRef, GenTreeUnOp)
 };
 
 // GenTreeLclVar - load/store of local variable
-struct GenTreeLclVar : public GenTreeLclVarCommon
+struct GenTreeLclVar : public GenTreeLclRef
 {
 protected:
     GenTreeLclVar(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_LCL_LOAD, type, lcl DEBUGARG(largeNode))
+        : GenTreeLclRef(GT_LCL_LOAD, type, lcl DEBUGARG(largeNode))
     {
     }
 
     GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclVarCommon(GT_LCL_STORE, type, lcl, value DEBUGARG(largeNode))
+        : GenTreeLclRef(GT_LCL_STORE, type, lcl, value DEBUGARG(largeNode))
     {
     }
 
-    GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclVarCommon(copyFrom)
+    GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclRef(copyFrom)
     {
     }
 
 public:
     bool IsMultiReg() const
     {
-        return ((gtFlags & GTF_VAR_MULTIREG) != 0);
+        return (gtFlags & GTF_VAR_MULTIREG) != 0;
     }
 
     void ClearMultiReg()
@@ -3014,7 +3011,7 @@ public:
     unsigned GetMultiRegCount(Compiler* compiler) const;
     var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVar, GenTreeLclVarCommon)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVar, GenTreeLclRef)
 };
 
 struct GenTreeLclLoad : GenTreeLclVar
@@ -3064,7 +3061,7 @@ struct GenTreeLclStore : GenTreeLclVar
 };
 
 // GenTreeLclFld - load/store of local variable field
-struct GenTreeLclFld : public GenTreeLclVarCommon
+struct GenTreeLclFld : public GenTreeLclRef
 {
 private:
     uint16_t      m_lclOffs;   // offset into the variable to access
@@ -3073,7 +3070,7 @@ private:
 
 protected:
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs)
-        : GenTreeLclVarCommon(GT_LCL_LOAD_FLD, type, lcl)
+        : GenTreeLclRef(GT_LCL_LOAD_FLD, type, lcl)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3082,7 +3079,7 @@ protected:
     }
 
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
-        : GenTreeLclVarCommon(GT_LCL_STORE_FLD, type, lcl, value)
+        : GenTreeLclRef(GT_LCL_STORE_FLD, type, lcl, value)
         , m_lclOffs(static_cast<uint16_t>(lclOffs))
         , m_layoutNum(0)
         , m_fieldSeq(FieldSeqStore::NotAField())
@@ -3091,7 +3088,7 @@ protected:
     }
 
     GenTreeLclFld(const GenTreeLclFld* copyFrom)
-        : GenTreeLclVarCommon(copyFrom)
+        : GenTreeLclRef(copyFrom)
         , m_lclOffs(copyFrom->m_lclOffs)
         , m_layoutNum(copyFrom->m_layoutNum)
         , m_fieldSeq(copyFrom->m_fieldSeq)
@@ -3152,7 +3149,7 @@ public:
     bool IsOffsetMisaligned() const;
 #endif
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclFld, GenTreeLclVarCommon)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclFld, GenTreeLclRef)
 };
 
 struct GenTreeLclLoadFld : public GenTreeLclFld
@@ -3200,7 +3197,7 @@ struct GenTreeLclStoreFld : public GenTreeLclFld
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStoreFld, GenTreeLclFld)
 };
 
-struct GenTreeLclAddr : public GenTreeLclVarCommon
+struct GenTreeLclAddr : public GenTreeLclRef
 {
 private:
     uint16_t      m_lclOffs;
@@ -3208,13 +3205,13 @@ private:
 
 public:
     GenTreeLclAddr(var_types type, LclVarDsc* lcl, unsigned lclOffs)
-        : GenTreeLclVarCommon(GT_LCL_ADDR, type, lcl), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
+        : GenTreeLclRef(GT_LCL_ADDR, type, lcl), m_lclOffs(static_cast<uint16_t>(lclOffs)), m_fieldSeq(nullptr)
     {
         assert(lclOffs <= UINT16_MAX);
     }
 
     GenTreeLclAddr(const GenTreeLclAddr* copyFrom)
-        : GenTreeLclVarCommon(copyFrom), m_lclOffs(copyFrom->m_lclOffs), m_fieldSeq(copyFrom->m_fieldSeq)
+        : GenTreeLclRef(copyFrom), m_lclOffs(copyFrom->m_lclOffs), m_fieldSeq(copyFrom->m_fieldSeq)
     {
     }
 
@@ -3251,7 +3248,7 @@ public:
         return (a1->GetLcl() == a2->GetLcl()) && (a1->m_lclOffs == a2->m_lclOffs);
     }
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclAddr, GenTreeLclVarCommon)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeLclAddr, GenTreeLclRef)
 };
 
 struct GenTreeLclUse;

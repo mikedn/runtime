@@ -929,10 +929,10 @@ public:
 
 private:
     void BlockRenameVariables(BasicBlock* block);
-    void RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block);
+    void RenameLclStore(GenTreeLclRef* store, BasicBlock* block);
     void RenameMemoryStore(GenTreeIndir* store, BasicBlock* block);
     void RenamePhiDef(GenTreeLclDef* def, BasicBlock* block);
-    void RenameLclUse(GenTreeLclVarCommon* load, Statement* stmt, BasicBlock* block);
+    void RenameLclUse(GenTreeLclRef* load, Statement* stmt, BasicBlock* block);
 
     void AddDefToHandlerPhis(BasicBlock* block, GenTreeLclDef* def);
     void AddMemoryDefToHandlerPhis(BasicBlock* block, SsaMemDef* def);
@@ -982,7 +982,7 @@ void SsaRenameDomTreeVisitor::AddPhiArg(BasicBlock*    pred,
                     def->GetID(), pred->bbNum, block->bbNum);
 }
 
-void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclVarCommon* store, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclRef* store, BasicBlock* block)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -1114,7 +1114,7 @@ void SsaRenameDomTreeVisitor::RenamePhiDef(GenTreeLclDef* def, BasicBlock* block
     renameStack.PushLclDef(block, def->GetLcl(), def);
 }
 
-void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclVarCommon* load, Statement* stmt, BasicBlock* block)
+void SsaRenameDomTreeVisitor::RenameLclUse(GenTreeLclRef* load, Statement* stmt, BasicBlock* block)
 {
     assert(load->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
@@ -1291,7 +1291,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
         {
             if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
-                RenameLclStore(node->AsLclVarCommon(), block);
+                RenameLclStore(node->AsLclRef(), block);
             }
             else if (node->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
             {
@@ -1303,7 +1303,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
             }
             else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
-                RenameLclUse(node->AsLclVarCommon(), stmt, block);
+                RenameLclUse(node->AsLclRef(), stmt, block);
             }
             else if (node->OperIs(GT_NULLCHECK))
             {

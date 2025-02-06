@@ -3139,7 +3139,7 @@ private:
                     }
                     else if (user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
                     {
-                        assert(user->AsLclVarCommon()->GetOp(0) == tree);
+                        assert(user->AsLclRef()->GetOp(0) == tree);
                         user->AsOp()->SetOp(0, m_compiler->gtNewIconNode(0));
                         m_stmtMorphPending = true;
                     }

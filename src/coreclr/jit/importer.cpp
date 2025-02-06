@@ -16561,7 +16561,7 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
         // TODO-MIKE-Review: Does this need to check for local stores?
         if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            return tree->AsLclVarCommon()->GetLcl() == lcl;
+            return tree->AsLclRef()->GetLcl() == lcl;
         }
 
         if (tree->OperIs(GT_RET_EXPR))
@@ -16688,7 +16688,7 @@ bool Compiler::impHasAddressTakenLocals(GenTree* tree)
         // TODO-MIKE-Review: Does this need to check for local stores?
         else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            LclVarDsc* lcl = node->AsLclVarCommon()->GetLcl();
+            LclVarDsc* lcl = node->AsLclRef()->GetLcl();
 
             if (lcl->lvHasLdAddrOp)
             {

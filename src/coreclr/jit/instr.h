@@ -262,7 +262,7 @@ enum emitAttr : unsigned
 #ifdef TARGET_64BIT
     EA_PTRSIZE = EA_8BYTE,
 #else
-    EA_PTRSIZE     = EA_4BYTE,
+    EA_PTRSIZE = EA_4BYTE,
 #endif
 
     EA_GCREF_FLG = GCT_GCREF << 7,

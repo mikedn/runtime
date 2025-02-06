@@ -1734,7 +1734,7 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
             continue;
         }
 
-        if (node->AsLclVarCommon()->GetLcl() != paramLcl)
+        if (node->AsLclRef()->GetLcl() != paramLcl)
         {
             continue;
         }
@@ -1798,7 +1798,7 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
             }
         }
 
-        node->AsLclVarCommon()->SetLcl(tmpLcl);
+        node->AsLclRef()->SetLcl(tmpLcl);
     }
 }
 
@@ -5238,7 +5238,7 @@ void Lowering::LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayou
 
     if (!store->OperIs(GT_IND_STORE_OBJ))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {

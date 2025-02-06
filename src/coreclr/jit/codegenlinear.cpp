@@ -1314,7 +1314,7 @@ regNumber CodeGen::UseReg(GenTree* node)
 
     if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        liveness.UpdateLife(this, node->AsLclVarCommon());
+        liveness.UpdateLife(this, node->AsLclRef());
     }
 
     liveness.RemoveGCRegs(genRegMask(node->GetRegNum()));
@@ -1745,7 +1745,7 @@ void CodeGen::genConsumeAddress(GenTree* addr)
 }
 
 #ifdef DEBUG
-bool CodeGen::IsValidContainedLcl(GenTreeLclVarCommon* node)
+bool CodeGen::IsValidContainedLcl(GenTreeLclRef* node)
 {
     // A contained local must be living on stack and marked as reg optional,
     // or not be a register candidate.
@@ -1774,7 +1774,7 @@ void CodeGen::ConsumeStructStore(
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -1828,14 +1828,14 @@ void CodeGen::ConsumeStructStore(
     {
         assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclVarCommon()));
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclRef()));
     }
 
     if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclVarCommon()));
+        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclRef()));
     }
 
     if (sizeReg != REG_NA)

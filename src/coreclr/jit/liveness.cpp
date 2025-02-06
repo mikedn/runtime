@@ -4,7 +4,7 @@
 #include "jitpch.h"
 #include "lower.h"
 
-void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclVarCommon* node)
+void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -200,13 +200,13 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     {
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
-            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
+            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryUse = true;
                 break;
             }
 
-            fgMarkUseDef(state, tree->AsLclVarCommon());
+            fgMarkUseDef(state, tree->AsLclRef());
             break;
 
         case GT_LCL_ADDR:
@@ -299,13 +299,13 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
-            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
+            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
             {
                 state.fgCurMemoryDef = true;
                 break;
             }
 
-            fgMarkUseDef(state, tree->AsLclVarCommon());
+            fgMarkUseDef(state, tree->AsLclRef());
             break;
 
         case GT_IND_STORE:
@@ -383,9 +383,9 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         {
             if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
-                if (!node->AsLclVarCommon()->GetLcl()->IsAddressExposed())
+                if (!node->AsLclRef()->GetLcl()->IsAddressExposed())
                 {
-                    fgMarkUseDef(state, node->AsLclVarCommon());
+                    fgMarkUseDef(state, node->AsLclRef());
                 }
             }
             else if (node->OperIs(GT_LCL_ADDR))
@@ -715,17 +715,17 @@ void Compiler::fgLiveVarAnalysis()
 #endif // DEBUG
 }
 
-void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclVarCommon* node)
+void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
     node->SetLastUse(0, VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()));
 }
 
-bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
-                                            VARSET_TP            keepAlive,
-                                            LclVarDsc*           lcl,
-                                            GenTreeLclVarCommon* node)
+bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
+                                            VARSET_TP      keepAlive,
+                                            LclVarDsc*     lcl,
+                                            GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -757,10 +757,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&           liveOut,
     return false;
 }
 
-bool Compiler::fgComputeLifePromotedLocal(VARSET_TP&           liveOut,
-                                          VARSET_TP            keepAlive,
-                                          LclVarDsc*           lcl,
-                                          GenTreeLclVarCommon* node)
+bool Compiler::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
     assert(lcl->IsPromoted() && !lcl->IsAddressExposed());
@@ -855,8 +852,8 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statem
     {
         if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-            LclVarDsc*           lcl     = lclNode->GetLcl();
+            GenTreeLclRef* lclNode = node->AsLclRef();
+            LclVarDsc*     lcl     = lclNode->GetLcl();
 
             if (lcl->HasLiveness())
             {
@@ -870,9 +867,9 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statem
         }
         else if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
-            GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-            LclVarDsc*           lcl         = lclNode->GetLcl();
-            bool                 isDeadStore = false;
+            GenTreeLclRef* lclNode     = node->AsLclRef();
+            LclVarDsc*     lcl         = lclNode->GetLcl();
+            bool           isDeadStore = false;
 
             if (lcl->HasLiveness())
             {
@@ -953,8 +950,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_LCL_LOAD:
             case GT_LCL_LOAD_FLD:
             {
-                GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                LclVarDsc*           lcl     = lclNode->GetLcl();
+                GenTreeLclRef* lclNode = node->AsLclRef();
+                LclVarDsc*     lcl     = lclNode->GetLcl();
 
                 if (node->IsUnusedValue())
                 {
@@ -982,9 +979,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_LCL_STORE:
             case GT_LCL_STORE_FLD:
             {
-                GenTreeLclVarCommon* lclNode     = node->AsLclVarCommon();
-                LclVarDsc*           lcl         = lclNode->GetLcl();
-                bool                 isDeadStore = false;
+                GenTreeLclRef* lclNode     = node->AsLclRef();
+                LclVarDsc*     lcl         = lclNode->GetLcl();
+                bool           isDeadStore = false;
 
                 if (lcl->HasLiveness())
                 {
@@ -1197,7 +1194,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
     return useDefRemoved;
 }
 
-GenTree* Compiler::fgRemoveDeadStore(GenTreeLclVarCommon* store, Statement* stmt, BasicBlock* block)
+GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block)
 {
     assert(!compRationalIRForm);
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));

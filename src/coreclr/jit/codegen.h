@@ -396,7 +396,7 @@ public:
 
     StackAddrMode GetStackAddrMode(unsigned lclNum, int lclOffs);
     StackAddrMode GetStackAddrMode(LclVarDsc* lcl, int lclOffs);
-    StackAddrMode GetStackAddrMode(GenTreeLclVarCommon* lclNode);
+    StackAddrMode GetStackAddrMode(GenTreeLclRef* lclNode);
     StackAddrMode GetStackAddrMode(SpillTemp* spillTemp);
 
 #ifdef TARGET_XARCH
@@ -640,7 +640,7 @@ protected:
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
 #ifdef DEBUG
-    bool IsValidContainedLcl(GenTreeLclVarCommon* node);
+    bool IsValidContainedLcl(GenTreeLclRef* node);
 #endif
 
 #ifdef TARGET_ARMARCH

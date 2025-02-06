@@ -185,7 +185,7 @@ void CodeGenLivenessUpdater::BeginBlockCodeGen(CodeGen* codeGen, BasicBlock* blo
     liveGCByRefRegs = newGCByrefRegs;
 }
 
-void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
+void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclRef* lclNode)
 {
     assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD) &&
            !lclNode->IsMultiRegLclStore());
@@ -339,7 +339,7 @@ void CodeGenLivenessUpdater::UpdateLifeMultiReg(CodeGen* codeGen, GenTreeLclStor
     DBEXEC(compiler->verbose, DumpDiff(codeGen);)
 }
 
-void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclVarCommon* lclNode)
+void CodeGenLivenessUpdater::UpdateLifePromoted(CodeGen* codeGen, GenTreeLclRef* lclNode)
 {
     assert(!lclNode->IsMultiRegLclStore() && !lclNode->IsAnyRegSpill());
 

@@ -3537,7 +3537,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
     }
 }
 
-void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
+void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -3611,13 +3611,12 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclVarCommon* store)
         unsigned   lclOffs = store->GetLclOffs();
         GenTree*   load    = nullptr;
 
-        if (op1->IsLclVarCommon() && (op1->AsLclVarCommon()->GetLcl() == lcl) &&
-            (op1->AsLclVarCommon()->GetLclOffs() == lclOffs))
+        if (op1->IsLclRef() && (op1->AsLclRef()->GetLcl() == lcl) && (op1->AsLclRef()->GetLclOffs() == lclOffs))
         {
             load = op1;
         }
-        else if ((op2 != nullptr) && src->AsOp()->IsCommutative() && op2->IsLclVarCommon() &&
-                 (op2->AsLclVarCommon()->GetLcl() == lcl) && (op2->AsLclVarCommon()->GetLclOffs() == lclOffs))
+        else if ((op2 != nullptr) && src->AsOp()->IsCommutative() && op2->IsLclRef() &&
+                 (op2->AsLclRef()->GetLcl() == lcl) && (op2->AsLclRef()->GetLclOffs() == lclOffs))
         {
             load = op2;
         }

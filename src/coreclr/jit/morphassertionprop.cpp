@@ -1452,7 +1452,7 @@ GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
     return tree;
 }
 
-void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCommon* store))
+void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclRef* store))
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -1478,7 +1478,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclVarCo
     assert(DepBitVecOps::IsEmpty(this, killed));
 }
 
-void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclVarCommon* store))
+void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclRef* store))
 {
     assert(fgGlobalMorph);
 

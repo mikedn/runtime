@@ -2838,7 +2838,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     if (arg->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(arg->GetType())))
     {
-        LclVarDsc* lcl = arg->AsLclVarCommon()->GetLcl();
+        LclVarDsc* lcl = arg->AsLclRef()->GetLcl();
 
         if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
         {
@@ -3573,7 +3573,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
             }
         }
 
-        return abiMorphMultiRegLclArg(argInfo, arg->AsLclVarCommon());
+        return abiMorphMultiRegLclArg(argInfo, arg->AsLclRef());
     }
 
     if (arg->OperIs(GT_IND_LOAD_OBJ))
@@ -3772,7 +3772,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 
 #endif // FEATURE_SIMD
 
-GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclVarCommon* arg)
+GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg)
 {
     LclVarDsc*   lcl       = arg->GetLcl();
     ClassLayout* argLayout = arg->OperIs(GT_LCL_LOAD) ? lcl->GetLayout() : arg->AsLclLoadFld()->GetLayout(this);
@@ -7484,13 +7484,13 @@ GenTree* Compiler::fgMorphInitStruct(GenTree* store, GenTree* value)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        store = fgMorphLclStoreStructInit(store->AsLclVarCommon(), value);
+        store = fgMorphLclStoreStructInit(store->AsLclRef(), value);
     }
 
     return store;
 }
 
-GenTree* Compiler::fgMorphLclStoreStructInit(GenTreeLclVarCommon* store, GenTree* src)
+GenTree* Compiler::fgMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* src)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
     assert(varTypeIsStruct(store->GetType()));
@@ -7964,7 +7964,7 @@ GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
     return store;
 }
 
-GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclVarCommon* store, LclVarDsc* dstLcl)
+GenTree* Compiler::fgMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLcl)
 {
     assert(varTypeIsSIMD(dstLcl->GetType()));
     // Only Vector2/3/4 are promoted.
@@ -8194,7 +8194,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             }
             else
             {
-                store->AsLclVarCommon()->SetOp(0, src);
+                store->AsLclRef()->SetOp(0, src);
             }
         }
 #endif
@@ -8210,7 +8210,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         }
         else
         {
-            store->AsLclVarCommon()->SetOp(0, src);
+            store->AsLclRef()->SetOp(0, src);
         }
     }
 
@@ -8222,13 +8222,13 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        destLclOffs = store->AsLclVarCommon()->GetLclOffs();
-        destLcl     = store->AsLclVarCommon()->GetLcl();
+        destLclOffs = store->AsLclRef()->GetLclOffs();
+        destLcl     = store->AsLclRef()->GetLcl();
 
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionCount != 0)
         {
-            morphAssertionKill(destLcl DEBUGARG(store->AsLclVarCommon()));
+            morphAssertionKill(destLcl DEBUGARG(store->AsLclRef()));
         }
 #endif
     }
@@ -8243,8 +8243,8 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
     if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        srcLclOffs = src->AsLclVarCommon()->GetLclOffs();
-        srcLcl     = src->AsLclVarCommon()->GetLcl();
+        srcLclOffs = src->AsLclRef()->GetLclOffs();
+        srcLcl     = src->AsLclRef()->GetLcl();
     }
     else if (GenTreeLclUse* use = src->IsLclUse())
     {
@@ -8326,7 +8326,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
         src->OperIs(GT_LCL_LOAD, GT_BITCAST, GT_HWINTRINSIC))
     {
-        return fgMorphPromoteVecStore(store->AsLclVarCommon(), destLcl);
+        return fgMorphPromoteVecStore(store->AsLclRef(), destLcl);
     }
 #endif // FEATURE_SIMD
 
@@ -8458,7 +8458,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         }
     };
 
-    auto SplitLclLoad = [this](GenTree** loads, GenTreeLclVarCommon* load, LclVarDsc* promotedLcl) {
+    auto SplitLclLoad = [this](GenTree** loads, GenTreeLclRef* load, LclVarDsc* promotedLcl) {
         LclVarDsc* lcl     = load->GetLcl();
         unsigned   lclOffs = load->GetLclOffs();
 
@@ -8499,7 +8499,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
     };
 
-    auto SplitLclStore = [this](GenTree** stores, GenTreeLclVarCommon* store, GenTree** loads, LclVarDsc* promotedLcl) {
+    auto SplitLclStore = [this](GenTree** stores, GenTreeLclRef* store, GenTree** loads, LclVarDsc* promotedLcl) {
         LclVarDsc* lcl     = store->GetLcl();
         unsigned   lclOffs = store->GetLclOffs();
 
@@ -8702,7 +8702,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     }
     else if (srcLcl != nullptr)
     {
-        SplitLclLoad(fieldLoads, src->AsLclVarCommon(), destLcl);
+        SplitLclLoad(fieldLoads, src->AsLclRef(), destLcl);
     }
     else
     {
@@ -8717,7 +8717,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
     }
     else if (destLcl != nullptr)
     {
-        SplitLclStore(fieldStores, store->AsLclVarCommon(), fieldLoads, srcLcl);
+        SplitLclStore(fieldStores, store->AsLclRef(), fieldLoads, srcLcl);
     }
     else
     {
@@ -9051,7 +9051,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             FALLTHROUGH;
         case GT_LCL_STORE_FLD:
-            if (tree->AsLclVarCommon()->GetLcl()->IsAddressExposed())
+            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
             {
                 tree->AddSideEffects(GTF_GLOB_REF);
             }
@@ -9721,7 +9721,7 @@ DONE_MORPHING_CHILDREN:
             {
                 assert(varTypeIsSmall(op1->GetType()));
                 op1 = op1->AsUnOp()->GetOp(0);
-                tree->AsLclVarCommon()->SetOp(0, op1);
+                tree->AsLclRef()->SetOp(0, op1);
             }
             return tree;
 
@@ -12363,7 +12363,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG
         {
             if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
             {
-                morphAssertionKill(tree->AsLclVarCommon()->GetLcl() DEBUGARG(tree->AsLclVarCommon()));
+                morphAssertionKill(tree->AsLclRef()->GetLcl() DEBUGARG(tree->AsLclRef()));
             }
         }
 

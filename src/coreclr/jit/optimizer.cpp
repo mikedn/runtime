@@ -5689,16 +5689,15 @@ void Compiler::phRemoveRedundantZeroInits()
                     case GT_LCL_ADDR:
                     case GT_LCL_LOAD:
                     case GT_LCL_LOAD_FLD:
-                        BitVecOps::AddElemD(bitVecTraits, referencedLocals,
-                                            node->AsLclVarCommon()->GetLcl()->GetLclNum());
+                        BitVecOps::AddElemD(bitVecTraits, referencedLocals, node->AsLclRef()->GetLcl()->GetLclNum());
                         break;
 
                     case GT_LCL_STORE:
                     case GT_LCL_STORE_FLD:
                     {
-                        GenTreeLclVarCommon* lclNode = node->AsLclVarCommon();
-                        LclVarDsc*           lcl     = lclNode->GetLcl();
-                        unsigned             lclNum  = lcl->GetLclNum();
+                        GenTreeLclRef* lclNode = node->AsLclRef();
+                        LclVarDsc*     lcl     = lclNode->GetLcl();
+                        unsigned       lclNum  = lcl->GetLclNum();
 
                         // We need to count the number of tracked var defs in the block
                         // so that we can update block->bbVarDef if we remove any tracked var defs.

@@ -122,7 +122,7 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
         {
-            LclVarDsc* loadLcl = tree->AsLclVarCommon()->GetLcl();
+            LclVarDsc* loadLcl = tree->AsLclRef()->GetLcl();
 
             if (state->isUnderIndir)
             {
@@ -169,8 +169,8 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
         {
-            GenTreeLclVarCommon* store = tree->AsLclVarCommon();
-            GenTree*             value = store->GetOp(0);
+            GenTreeLclRef* store = tree->AsLclRef();
+            GenTree*       value = store->GetOp(0);
 
             LclVarDsc* prevStoreLcl = state->storeLcl;
             state->storeLcl         = store->GetLcl();
@@ -437,7 +437,7 @@ void Compiler::gsParamsToShadows()
 
         void PreOrderVisitLclRef(GenTree** use, GenTree* user)
         {
-            GenTreeLclVarCommon* tree = (*use)->AsLclVarCommon();
+            GenTreeLclRef* tree = (*use)->AsLclRef();
 
             LclVarDsc* lcl          = tree->GetLcl();
             unsigned   shadowLclNum = m_compiler->gsLclShadowMap[lcl->GetLclNum()];

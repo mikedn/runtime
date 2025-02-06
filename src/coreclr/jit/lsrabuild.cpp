@@ -558,11 +558,11 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
 
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
-            if (node->TypeIs(TYP_STRUCT) && !node->AsLclVarCommon()->GetOp(0)->IsCall())
+            if (node->TypeIs(TYP_STRUCT) && !node->AsLclRef()->GetOp(0)->IsCall())
             {
                 ClassLayout* layout = node->OperIs(GT_LCL_STORE) ? node->AsLclStore()->GetLcl()->GetLayout()
                                                                  : node->AsLclStoreFld()->GetLayout(compiler);
-                return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclVarCommon()->GetOp(0)));
+                return getKillSetForStructStore(GetStructStoreKind(true, layout, node->AsLclRef()->GetOp(0)));
             }
 
             return RBM_NONE;
@@ -3421,7 +3421,7 @@ void LinearScan::BuildLclStoreFld(GenTreeLclStoreFld* store)
     BuildLclStoreCommon(store);
 }
 
-void LinearScan::BuildLclStoreCommon(GenTreeLclVarCommon* store)
+void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 

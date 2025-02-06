@@ -264,7 +264,7 @@ public:
         if ((m_compiler->lvaRefCountState == RCS_MORPH) &&
             node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_LCL_ADDR))
         {
-            UpdateImplicitByRefParamRefCounts(node->AsLclVarCommon());
+            UpdateImplicitByRefParamRefCounts(node->AsLclRef());
         }
 #endif
 
@@ -1658,7 +1658,7 @@ private:
         }
         else
         {
-            value = RetypeStructLclLoad(value->AsLclVarCommon(), store->GetType());
+            value = RetypeStructLclLoad(value->AsLclRef(), store->GetType());
         }
 
         store->SetValue(value);
@@ -1723,7 +1723,7 @@ private:
         }
         else
         {
-            value = RetypeStructLclLoad(value->AsLclVarCommon(), type);
+            value = RetypeStructLclLoad(value->AsLclRef(), type);
         }
 
         ret->SetType(type);
@@ -1842,7 +1842,7 @@ private:
         return call;
     }
 
-    GenTree* RetypeStructLclLoad(GenTreeLclVarCommon* load, var_types type)
+    GenTree* RetypeStructLclLoad(GenTreeLclRef* load, var_types type)
     {
         assert(load->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && load->TypeIs(TYP_STRUCT));
         assert(type != TYP_STRUCT);
@@ -2054,7 +2054,7 @@ private:
     // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
     // it decides if it's legal to elide certain copies of them;
     // lvaRetypeImplicitByRefParams checks the ref counts when it decides to undo promotions.
-    void UpdateImplicitByRefParamRefCounts(GenTreeLclVarCommon* lclRef)
+    void UpdateImplicitByRefParamRefCounts(GenTreeLclRef* lclRef)
     {
         LclVarDsc* lcl = lclRef->GetLcl();
 
@@ -3007,7 +3007,7 @@ public:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
                 MorphImplicitByRefParam(node);
 #else
-                MorphVarargsStackParam(node->AsLclVarCommon());
+                MorphVarargsStackParam(node->AsLclRef());
 #endif
                 return GenTreeWalkResult::Continue;
             default:
@@ -3091,8 +3091,8 @@ public:
     {
         assert(tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
-        GenTreeLclVarCommon* lclNode = tree->AsLclVarCommon();
-        LclVarDsc*           lcl     = lclNode->GetLcl();
+        GenTreeLclRef* lclNode = tree->AsLclRef();
+        LclVarDsc*     lcl     = lclNode->GetLcl();
 
         if (lcl->IsImplicitByRefParam())
         {
@@ -3270,7 +3270,7 @@ public:
         INDEBUG(m_stmtModified = true;)
     }
 
-    void MorphVarargsStackParam(GenTreeLclVarCommon* lclNode)
+    void MorphVarargsStackParam(GenTreeLclRef* lclNode)
     {
         assert(lclNode->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 

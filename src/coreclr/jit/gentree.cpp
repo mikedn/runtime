@@ -193,7 +193,7 @@ static_assert_no_msg(sizeof(GenTreeLngCon)       <= TREE_NODE_SZ_SMALL);
 #endif
 static_assert_no_msg(sizeof(GenTreeDblCon)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeStrCon)       <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreeLclVarCommon) <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeLclRef) <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclLoad)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclStore)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeLclLoadFld)   <= TREE_NODE_SZ_SMALL);
@@ -6443,7 +6443,7 @@ void Compiler::gtDispLeaf(GenTree* tree)
         case GT_LCL_LOAD_FLD:
         case GT_LCL_LOAD:
         case GT_LCL_ADDR:
-            dmpLclVarCommon(tree->AsLclVarCommon());
+            dmpLclVarCommon(tree->AsLclRef());
             break;
 
         case GT_LCL_USE:
@@ -6523,7 +6523,7 @@ void Compiler::gtDispLeaf(GenTree* tree)
     }
 }
 
-void Compiler::dmpLclVarCommon(GenTreeLclVarCommon* node)
+void Compiler::dmpLclVarCommon(GenTreeLclRef* node)
 {
     const LclVarDsc* lcl = node->GetLcl();
 
@@ -6832,7 +6832,7 @@ void Compiler::gtDispTreeRec(
     {
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
-            dmpLclVarCommon(tree->AsLclVarCommon());
+            dmpLclVarCommon(tree->AsLclRef());
             break;
         case GT_LCL_DEF:
             dmpSsaDefUse(tree);
@@ -12016,7 +12016,7 @@ bool GenTree::HasTempReg(RegNum reg) const
 // Return Value:
 //    The offset value.
 //
-uint16_t GenTreeLclVarCommon::GetLclOffs() const
+uint16_t GenTreeLclRef::GetLclOffs() const
 {
     if (const GenTreeLclFld* lclFld = IsLclFld())
     {

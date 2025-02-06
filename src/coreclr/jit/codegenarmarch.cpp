@@ -19,7 +19,7 @@ void CodeGen::GenKeepAlive(GenTreeUnOp* node)
         // in lowering and only a reg optional LCL_LOAD can become contained.
         if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            liveness.UpdateLife(this, src->AsLclVarCommon());
+            liveness.UpdateLife(this, src->AsLclRef());
         }
     }
     else
@@ -1009,10 +1009,10 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -1143,10 +1143,10 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -1189,8 +1189,8 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclVarCommon()->GetLcl();
-        srcOffset = src->AsLclVarCommon()->GetLclOffs();
+        srcLcl    = src->AsLclRef()->GetLcl();
+        srcOffset = src->AsLclRef()->GetLclOffs();
     }
     else
     {
@@ -1333,10 +1333,10 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -1531,7 +1531,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
 
         dstOnStack  = true;
         dstAddrType = TYP_I_IMPL;
@@ -2824,8 +2824,8 @@ void CodeGen::UseOperandRegs(GenTree* op)
         return;
     }
 
-    assert(IsValidContainedLcl(op->AsLclVarCommon()));
-    liveness.UpdateLife(this, op->AsLclVarCommon());
+    assert(IsValidContainedLcl(op->AsLclRef()));
+    liveness.UpdateLife(this, op->AsLclRef());
 }
 
 #endif // TARGET_ARMARCH

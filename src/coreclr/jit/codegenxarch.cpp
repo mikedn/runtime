@@ -2222,10 +2222,10 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -2405,10 +2405,10 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -2452,8 +2452,8 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclVarCommon()->GetLcl();
-        srcOffset = src->AsLclVarCommon()->GetLclOffs();
+        srcLcl    = src->AsLclRef()->GetLcl();
+        srcOffset = src->AsLclRef()->GetLclOffs();
     }
     else
     {
@@ -2582,10 +2582,10 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        dstLcl    = store->AsLclVarCommon()->GetLcl();
-        dstOffset = store->AsLclVarCommon()->GetLclOffs();
+        dstLcl    = store->AsLclRef()->GetLcl();
+        dstOffset = store->AsLclRef()->GetLclOffs();
 
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
@@ -2723,7 +2723,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
 
         dstOnStack  = true;
         dstAddrType = TYP_I_IMPL;
@@ -3556,14 +3556,14 @@ void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
 
     if (src->OperIsUnary())
     {
-        assert(src->AsUnOp()->GetOp(0)->AsLclVarCommon()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
+        assert(src->AsUnOp()->GetOp(0)->AsLclRef()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
 
         GetEmitter()->emitIns_S(ins, attr, s);
 
         return;
     }
 
-    assert(src->AsOp()->GetOp(0)->AsLclVarCommon()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
+    assert(src->AsOp()->GetOp(0)->AsLclRef()->GetLcl()->GetLclNum() == static_cast<unsigned>(s.varNum));
 
     src = src->AsOp()->GetOp(1);
 
@@ -7269,7 +7269,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     }
     else
     {
-        m_lcl = tree->AsLclVarCommon()->GetLcl();
+        m_lcl = tree->AsLclRef()->GetLcl();
 
         if (tree->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
         {
@@ -8727,8 +8727,8 @@ void CodeGen::UseRMRegs(GenTree* op)
 
     if (op->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        assert(IsValidContainedLcl(op->AsLclVarCommon()));
-        liveness.UpdateLife(this, op->AsLclVarCommon());
+        assert(IsValidContainedLcl(op->AsLclRef()));
+        liveness.UpdateLife(this, op->AsLclRef());
         return;
     }
 

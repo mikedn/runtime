@@ -371,7 +371,7 @@ StackAddrMode CodeGen::GetStackAddrMode(LclVarDsc* lcl, int lclOffs)
     return {static_cast<int>(lcl->GetLclNum()), lclOffs};
 }
 
-StackAddrMode CodeGen::GetStackAddrMode(GenTreeLclVarCommon* lclNode)
+StackAddrMode CodeGen::GetStackAddrMode(GenTreeLclRef* lclNode)
 {
     return {static_cast<int>(lclNode->GetLcl()->GetLclNum()), lclNode->GetLclOffs()};
 }

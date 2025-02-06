@@ -371,7 +371,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {

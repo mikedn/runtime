@@ -142,7 +142,7 @@ AliasSet::NodeInfo::NodeInfo(GenTree* node) : m_node(node)
     else if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
         isLclVarAccess = true;
-        lcl            = node->AsLclVarCommon()->GetLcl();
+        lcl            = node->AsLclRef()->GetLcl();
     }
     else
     {
@@ -197,7 +197,7 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
     node->VisitOperands([compiler, this](GenTree* operand) -> GenTree::VisitResult {
         if (operand->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            LclVarDsc* lcl = operand->AsLclVarCommon()->GetLcl();
+            LclVarDsc* lcl = operand->AsLclRef()->GetLcl();
 
             if (lcl->IsAddressExposed())
             {
@@ -291,7 +291,7 @@ bool AliasSet::InterferesWith(const NodeInfo& other) const
             {
                 // If this set stores any addressable location and the node uses an address-exposed local,
                 // the set interferes with the node.
-                LclVarDsc* lcl = operand->AsLclVarCommon()->GetLcl();
+                LclVarDsc* lcl = operand->AsLclRef()->GetLcl();
 
                 if (lcl->IsAddressExposed() && m_storesAddressableLocation)
                 {

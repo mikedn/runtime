@@ -2768,9 +2768,9 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                 expectedFlags |= GTF_ORDER_SIDEEFF;
             }
 
-            if (node->IsLclVarCommon() && !node->IsLclAddr())
+            if (node->IsLclRef() && !node->IsLclAddr())
             {
-                if (node->AsLclVarCommon()->GetLcl()->IsAddressExposed())
+                if (node->AsLclRef()->GetLcl()->IsAddressExposed())
                 {
                     expectedFlags |= GTF_GLOB_REF;
                 }

@@ -55,7 +55,7 @@ private:
     void ContainCheckIndStore(GenTreeIndStore* store);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
-    void ContainCheckStoreLcl(GenTreeLclVarCommon* store);
+    void ContainCheckStoreLcl(GenTreeLclRef* store);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);

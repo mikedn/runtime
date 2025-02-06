@@ -2815,11 +2815,11 @@ bool Compiler::fgBlockEndFavorsTailDuplication(BasicBlock* block, LclVarDsc* lcl
             // variable that's used in the condition but if we allow LCL_FLD we don't
             // know which field is assigned to and which field is used in the condition.
             // This does not appear to be a correctness issue though.
-            LclVarDsc* op1Lcl = tree->AsLclVarCommon()->GetLcl();
+            LclVarDsc* op1Lcl = tree->AsLclRef()->GetLcl();
 
             if (op1Lcl == lcl)
             {
-                GenTree* const value = tree->AsLclVarCommon()->GetOp(0);
+                GenTree* const value = tree->AsLclRef()->GetOp(0);
 
                 if (value->OperIs(GT_ARR_LENGTH) || value->OperIsConst() || value->OperIsCompare())
                 {
@@ -2947,12 +2947,12 @@ bool Compiler::fgBlockIsGoodTailDuplicationCandidate(BasicBlock* target, LclVarD
 
     if (op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        lcl1 = op1->AsLclVarCommon()->GetLcl();
+        lcl1 = op1->AsLclRef()->GetLcl();
     }
 
     if (op2->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        lcl2 = op2->AsLclVarCommon()->GetLcl();
+        lcl2 = op2->AsLclRef()->GetLcl();
     }
 
     if ((lcl1 != nullptr) && op2->OperIsConst())

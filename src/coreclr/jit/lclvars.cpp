@@ -2377,7 +2377,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 // Return Value:
 //    TYP_UNDEF if the layout is not enregistrable, the register type otherwise.
 //
-var_types LclVarDsc::GetRegisterType(const GenTreeLclVarCommon* tree) const
+var_types LclVarDsc::GetRegisterType(const GenTreeLclRef* tree) const
 {
     var_types targetType = tree->GetType();
     var_types lclVarType = GetType();
@@ -2556,7 +2556,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 case GT_LCL_STORE_FLD:
                 case GT_LCL_LOAD:
                 case GT_LCL_LOAD_FLD:
-                    MarkLclRefs(node->AsLclVarCommon(), user);
+                    MarkLclRefs(node->AsLclRef(), user);
                     break;
 
                 case GT_LCL_ADDR:
@@ -2573,7 +2573,7 @@ void Compiler::lvaComputeRefCountsHIR()
             }
         }
 
-        void MarkLclRefs(GenTreeLclVarCommon* node, GenTree* user)
+        void MarkLclRefs(GenTreeLclRef* node, GenTree* user)
         {
             LclVarDsc* lcl = node->GetLcl();
 
@@ -2746,13 +2746,13 @@ void Compiler::lvaComputeRefCountsLIR()
                         lvaGenericsContextInUse = true;
                     }
 
-                    lcl = node->AsLclVarCommon()->GetLcl();
+                    lcl = node->AsLclRef()->GetLcl();
                     break;
 
                 case GT_LCL_STORE:
                 case GT_LCL_STORE_FLD:
                     assert((node->gtFlags & GTF_VAR_CONTEXT) == 0);
-                    lcl = node->AsLclVarCommon()->GetLcl();
+                    lcl = node->AsLclRef()->GetLcl();
 
                     // If this is an EH var, use a zero weight for defs, so that we don't
                     // count those in our heuristic for register allocation, since they always

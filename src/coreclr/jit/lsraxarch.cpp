@@ -16,7 +16,7 @@ void LinearScan::BuildNode(GenTree* tree)
     {
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
-            assert(!tree->AsLclVarCommon()->GetLcl()->IsRegCandidate());
+            assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
 
 #ifdef FEATURE_SIMD
             // Need an additional register to read upper 4 bytes of Vector3.
@@ -852,7 +852,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
-        src = store->AsLclVarCommon()->GetOp(0);
+        src = store->AsLclRef()->GetOp(0);
     }
     else
     {
