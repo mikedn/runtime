@@ -6704,14 +6704,16 @@ public:
         if (TVisitor::DoPreOrder)
         {
             result = reinterpret_cast<TVisitor*>(this)->PreOrderVisit(use, user);
+
             if (result == GenTreeWalkResult::Abort)
             {
                 return result;
             }
 
             node = *use;
+            assert(node != nullptr);
 
-            if ((node == nullptr) || (result == GenTreeWalkResult::Skip))
+            if (result == GenTreeWalkResult::Skip)
             {
                 goto DONE;
             }
