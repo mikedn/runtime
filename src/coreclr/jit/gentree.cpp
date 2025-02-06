@@ -1965,7 +1965,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                         costEx = 5;
                         costSz = 15;
                     }
-                    else if (IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
+                    else if (tree->AsIntrinsic()->IsUserCall())
                     {
                         costEx = 36;
                         costSz = 4;
@@ -2985,7 +2985,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
 
                 level1 += 2;
 
-                if (IsIntrinsicImplementedByUserCall(tree->AsIntrinsic()->GetIntrinsic()))
+                if (tree->AsIntrinsic()->IsUserCall())
                 {
                     // Do not swap operand execution order for intrinsics that are implemented by user calls
                     // because of trickiness around ensuring the execution order does not change during rationalization.
@@ -4937,7 +4937,7 @@ bool GenTree::OperRequiresCallFlag(Compiler* comp) const
             return true;
 
         case GT_INTRINSIC:
-            return comp->IsIntrinsicImplementedByUserCall(AsIntrinsic()->GetIntrinsic());
+            return AsIntrinsic()->IsUserCall();
 
 #if FEATURE_FIXED_OUT_ARGS && !defined(TARGET_64BIT)
         case GT_LSH:

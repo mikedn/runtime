@@ -5092,34 +5092,36 @@ struct GenTreeQmark : public GenTreeTernaryOp
 struct GenTreeIntrinsic : public GenTreeOp
 {
 private:
-    NamedIntrinsic m_intrinsicName;
-
-public:
-    CORINFO_METHOD_HANDLE gtMethodHandle; // Method handle of the method which is treated as an intrinsic.
+    NamedIntrinsic        m_intrinsicName;
+    CORINFO_METHOD_HANDLE m_methodHandle;
 #ifdef FEATURE_READYTORUN_COMPILER
-    // Call target lookup info for method call from a Ready To Run module
-    CORINFO_CONST_LOOKUP gtEntryPoint;
+    CORINFO_CONST_LOOKUP m_entryPoint;
 #endif
 
+public:
     GenTreeIntrinsic(var_types type, GenTree* op1, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, nullptr), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
+        : GenTreeIntrinsic(type, op1, nullptr, intrinsicName, methodHandle)
     {
-        assert(intrinsicName != NI_Illegal);
     }
 
     GenTreeIntrinsic(
         var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsicName), gtMethodHandle(methodHandle)
+        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsicName), m_methodHandle(methodHandle)
     {
         assert(intrinsicName != NI_Illegal);
+
+        if (methodHandle != nullptr)
+        {
+            gtFlags |= GTF_CALL;
+        }
     }
 
     GenTreeIntrinsic(const GenTreeIntrinsic* copyFrom)
         : GenTreeOp(copyFrom)
         , m_intrinsicName(copyFrom->m_intrinsicName)
-        , gtMethodHandle(copyFrom->gtMethodHandle)
+        , m_methodHandle(copyFrom->m_methodHandle)
 #ifdef FEATURE_READYTORUN_COMPILER
-        , gtEntryPoint(copyFrom->gtEntryPoint)
+        , m_entryPoint(copyFrom->m_entryPoint)
 #endif
     {
     }
@@ -5127,6 +5129,34 @@ public:
     NamedIntrinsic GetIntrinsic() const
     {
         return m_intrinsicName;
+    }
+
+    bool IsUserCall() const
+    {
+        return m_methodHandle != nullptr;
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    void ClearEntryPoint()
+    {
+        m_entryPoint.addr       = nullptr;
+        m_entryPoint.accessType = IAT_VALUE;
+    }
+
+    void SetEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
+    {
+        m_entryPoint = entryPoint;
+    }
+
+    const CORINFO_CONST_LOOKUP& GetEntryPoint()
+    {
+        return m_entryPoint;
+    }
+#endif
+
+    CORINFO_METHOD_HANDLE GetMethodHandle2() const
+    {
+        return m_methodHandle;
     }
 
     bool IsCommutative() = delete;

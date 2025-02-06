@@ -3513,12 +3513,9 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
                 NO_WAY("Unsupported number of args for Math Intrinsic");
         }
 
-        op1 = new (comp, GT_INTRINSIC) GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName, method);
-
-        if (IsIntrinsicImplementedByUserCall(intrinsicName))
-        {
-            op1->gtFlags |= GTF_CALL;
-        }
+        op1 = new (comp, GT_INTRINSIC)
+            GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName,
+                             IsIntrinsicImplementedByUserCall(intrinsicName) ? method : nullptr);
     }
 
     return op1;
@@ -6479,12 +6476,11 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     if (opts.IsReadyToRun())
                     {
                         noway_assert(callInfo->kind == CORINFO_CALL);
-                        intrinsic->gtEntryPoint = callInfo->codePointerLookup.constLookup;
+                        intrinsic->SetEntryPoint(callInfo->codePointerLookup.constLookup);
                     }
                     else
                     {
-                        intrinsic->gtEntryPoint.addr       = nullptr;
-                        intrinsic->gtEntryPoint.accessType = IAT_VALUE;
+                        intrinsic->ClearEntryPoint();
                     }
                 }
 #endif
@@ -14835,13 +14831,13 @@ bool Compiler::IsTargetIntrinsic(NamedIntrinsic intrinsicName)
 }
 
 // Returns true if the given intrinsic will be implemented by calling System.Math methods.
-bool Compiler::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
+bool Importer::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
 {
     // Currently, if a math intrinsic is not implemented by target-specific
     // instructions, it will be implemented by a System.Math call. In the
     // future, if we turn to implementing some of them with helper calls,
     // this predicate needs to be revisited.
-    return !IsTargetIntrinsic(intrinsicName);
+    return !comp->IsTargetIntrinsic(intrinsicName);
 }
 
 bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsic)
@@ -16844,11 +16840,6 @@ bool Importer::compExactlyDependsOn(CORINFO_InstructionSet isa)
 bool Importer::compOpportunisticallyDependsOn(CORINFO_InstructionSet isa)
 {
     return comp->compOpportunisticallyDependsOn(isa);
-}
-
-bool Importer::IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName)
-{
-    return comp->IsIntrinsicImplementedByUserCall(intrinsicName);
 }
 
 void Importer::setMethodHasExpRuntimeLookup()

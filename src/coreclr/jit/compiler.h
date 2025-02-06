@@ -3547,7 +3547,6 @@ public:
                                                GenTreeCall::Use*       args               = nullptr,
                                                CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
 
-    bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsic);
     bool IsTargetIntrinsic(NamedIntrinsic intrinsic);
     static bool IsMathIntrinsic(NamedIntrinsic intrinsic);
 

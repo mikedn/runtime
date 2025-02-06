@@ -87,9 +87,9 @@ void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use)
         args = comp->gtNewCallArgs(intrinsic->GetOp(0), intrinsic->GetOp(1));
     }
 
-    RewriteNodeAsCall(use, intrinsic->gtMethodHandle,
+    RewriteNodeAsCall(use, intrinsic->GetMethodHandle2(),
 #ifdef FEATURE_READYTORUN_COMPILER
-                      intrinsic->gtEntryPoint,
+                      intrinsic->GetEntryPoint(),
 #endif
                       args);
 }
@@ -269,7 +269,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
-            assert(comp->IsTargetIntrinsic(node->AsIntrinsic()->GetIntrinsic()));
+            assert(!node->AsIntrinsic()->IsUserCall());
             break;
 
         case GT_DIV:
@@ -429,10 +429,12 @@ void Rationalizer::Run()
         {
             GenTree* const node = *use;
 
-            if (node->IsIntrinsic() &&
-                m_rationalizer.comp->IsIntrinsicImplementedByUserCall(node->AsIntrinsic()->GetIntrinsic()))
+            if (GenTreeIntrinsic* intrinsic = node->IsIntrinsic())
             {
-                m_rationalizer.RewriteIntrinsicAsUserCall(use);
+                if (intrinsic->IsUserCall())
+                {
+                    m_rationalizer.RewriteIntrinsicAsUserCall(use);
+                }
             }
 
             return GenTreeWalkResult::Continue;
