@@ -188,7 +188,6 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 
     Compiler* m_compiler;
     ArrayStack<Value, 16> m_valueStack;
-    ArrayStack<GenTree*> m_ancestors;
 #ifdef DEBUG
     bool m_stmtModified;
 #endif
@@ -200,10 +199,7 @@ public:
         DoPostOrder = true
     };
 
-    LocalAddressVisitor(Compiler* comp)
-        : m_compiler(comp)
-        , m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
-        , m_ancestors(comp->getAllocator(CMK_LocalAddressVisitor))
+    LocalAddressVisitor(Compiler* comp) : m_compiler(comp), m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
     {
     }
 
@@ -268,7 +264,6 @@ public:
         }
 #endif
 
-        m_ancestors.Push(node);
         PushValue(node);
 
         return GenTreeWalkResult::Continue;
@@ -490,8 +485,6 @@ public:
                 break;
         }
 
-        m_ancestors.Pop();
-
         assert(TopValue(0).Node() == node);
         return GenTreeWalkResult::Continue;
     }
@@ -639,31 +632,14 @@ private:
         // is 32 bits we will quirk the size to 64 bits. Some PInvoke signatures incorrectly specify
         // a ByRef to an INT32 when they actually write a SIZE_T or INT64. There are cases where
         // overwriting these extra 4 bytes corrupts some data (such as a saved register) that leads
-        // to A/V. Wheras previously the JIT64 codegen did not lead to an A/V.
-        if (!lcl->IsParam() && !lcl->IsPromotedField() && varActualTypeIsInt(lcl->GetType()))
+        // to A/V. Whereas previously the JIT64 codegen did not lead to an A/V.
+        if (!lcl->IsParam() && !lcl->IsPromotedField() && varActualTypeIsInt(lcl->GetType()) && user->OperIs(GT_CALL))
         {
-            // TODO-Cleanup: This should simply check if the user is a call node, not if a call ancestor exists.
-            if (HasCallOnStack())
-            {
-                lcl->lvQuirkToLong = true;
-                JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", addrVal.Lcl()->GetLclNum(),
-                        varTypeName(lcl->GetType()));
-            }
+            lcl->lvQuirkToLong = true;
+            JITDUMP("Adding a quirk for the storage size of V%02u of type %s\n", addrVal.Lcl()->GetLclNum(),
+                    varTypeName(lcl->GetType()));
         }
 #endif // TARGET_64BIT
-    }
-
-    bool HasCallOnStack() const
-    {
-        for (unsigned i = 0; i < m_ancestors.Size(); i++)
-        {
-            if (m_ancestors.Top(i)->OperIs(GT_CALL))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     GenTree* MorphStructLclLoad(GenTreeLclLoad* load, GenTree* user)
