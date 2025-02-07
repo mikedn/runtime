@@ -5063,13 +5063,7 @@ void Compiler::gtUpdateNodeSideEffects(GenTree* node)
     node->gtFlags = flags;
 }
 
-GenTreeUseEdgeIterator::GenTreeUseEdgeIterator()
-    : m_advance(nullptr), m_node(nullptr), m_edge(nullptr), m_statePtr(nullptr), m_state(-1)
-{
-}
-
-GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
-    : m_advance(nullptr), m_node(node), m_edge(nullptr), m_statePtr(nullptr), m_state(0)
+GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 {
     assert(m_node != nullptr);
 
@@ -5111,7 +5105,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
         case GT_IL_OFFSET:
-            m_state = -1;
             return;
 
         // Standard unary operators
@@ -5176,27 +5169,47 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             m_advance = &GenTreeUseEdgeIterator::Terminate;
             return;
 
-        // Unary operators with an optional operand
         case GT_NOP:
         case GT_RETURN:
         case GT_RETFILT:
-            if (m_node->AsUnOp()->gtOp1 == nullptr)
-            {
-                assert(m_node->NullOp1Legal());
-                m_state = -1;
-            }
-            else
+            if (m_node->AsUnOp()->gtOp1 != nullptr)
             {
                 m_edge    = &m_node->AsUnOp()->gtOp1;
                 m_advance = &GenTreeUseEdgeIterator::Terminate;
             }
             return;
 
-        // Special nodes
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+        case GT_QMARK:
+            m_edge = &m_node->AsTernaryOp()->gtOp1;
+            assert(*m_edge != nullptr);
+            m_advance = &GenTreeUseEdgeIterator::AdvanceTernaryOp;
+            return;
+
         case GT_FIELD_LIST:
             m_statePtr = m_node->AsFieldList()->Uses().GetHead();
             m_advance  = &GenTreeUseEdgeIterator::AdvanceFieldList;
             AdvanceFieldList();
+            return;
+
+        case GT_PHI:
+            m_statePtr = m_node->AsPhi()->Uses().GetHead();
+            m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
+            AdvancePhi();
+            return;
+
+        case GT_ARR_ELEM:
+            m_statePtr = m_node->AsArrElem()->Uses().begin();
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceArrElem;
+            AdvanceArrElem();
+            return;
+
+        case GT_INSTR:
+            m_statePtr = m_node->AsInstr()->Uses().begin();
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceInstr;
+            AdvanceInstr();
             return;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -5214,33 +5227,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             }
             return;
 #endif // FEATURE_HW_INTRINSICS
-
-        case GT_INSTR:
-            m_statePtr = m_node->AsInstr()->Uses().begin();
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceInstr;
-            AdvanceInstr();
-            return;
-
-        case GT_PHI:
-            m_statePtr = m_node->AsPhi()->m_uses;
-            m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
-            AdvancePhi();
-            return;
-
-        case GT_ARR_ELEM:
-            m_statePtr = m_node->AsArrElem()->Uses().begin();
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceArrElem;
-            AdvanceArrElem();
-            return;
-
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-        case GT_QMARK:
-            m_edge = &m_node->AsTernaryOp()->gtOp1;
-            assert(*m_edge != nullptr);
-            m_advance = &GenTreeUseEdgeIterator::AdvanceTernaryOp;
-            return;
 
         case GT_CALL:
             AdvanceCall<CALL_INSTANCE>();
@@ -5264,53 +5250,54 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node)
             }
             FALLTHROUGH;
         default:
-            SetEntryStateForBinOp();
+            assert(m_node->OperIsBinary());
+
+            if (m_node->IsReverseOp())
+            {
+                m_edge    = &m_node->AsOp()->gtOp2;
+                m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp0;
+            }
+            else
+            {
+                m_edge    = &m_node->AsOp()->gtOp1;
+                m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp1;
+            }
             return;
     }
 }
 
 void GenTreeUseEdgeIterator::AdvanceTernaryOp()
 {
-    switch (m_state)
+    if (m_edge == &m_node->AsTernaryOp()->gtOp1)
     {
-        case 0:
-            m_edge  = &m_node->AsTernaryOp()->gtOp2;
-            m_state = 1;
-            break;
-        case 1:
-            m_edge    = &m_node->AsTernaryOp()->gtOp3;
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
-            break;
-        default:
-            unreached();
-    }
-
-    assert(*m_edge != nullptr);
-}
-
-void GenTreeUseEdgeIterator::AdvanceArrElem()
-{
-    assert(m_state == 0);
-
-    if (m_statePtr == m_node->AsArrElem()->Uses().end())
-    {
-        m_state = -1;
+        m_edge = &m_node->AsTernaryOp()->gtOp2;
     }
     else
     {
-        GenTreeArrElem::Use* currentUse = static_cast<GenTreeArrElem::Use*>(m_statePtr);
-        m_edge                          = &currentUse->NodeRef();
-        m_statePtr                      = currentUse + 1;
+        m_edge    = &m_node->AsTernaryOp()->gtOp3;
+        m_advance = &GenTreeUseEdgeIterator::Terminate;
+    }
+}
+
+void GenTreeUseEdgeIterator::AdvancePhi()
+{
+    if (m_statePtr == nullptr)
+    {
+        m_edge = nullptr;
+    }
+    else
+    {
+        GenTreePhi::Use* currentUse = static_cast<GenTreePhi::Use*>(m_statePtr);
+        m_edge                      = &currentUse->NodeRef();
+        m_statePtr                  = currentUse->GetNext();
     }
 }
 
 void GenTreeUseEdgeIterator::AdvanceFieldList()
 {
-    assert(m_state == 0);
-
     if (m_statePtr == nullptr)
     {
-        m_state = -1;
+        m_edge = nullptr;
     }
     else
     {
@@ -5320,14 +5307,40 @@ void GenTreeUseEdgeIterator::AdvanceFieldList()
     }
 }
 
+void GenTreeUseEdgeIterator::AdvanceArrElem()
+{
+    if (m_statePtr == m_node->AsArrElem()->Uses().end())
+    {
+        m_edge = nullptr;
+    }
+    else
+    {
+        GenTreeArrElem::Use* currentUse = static_cast<GenTreeArrElem::Use*>(m_statePtr);
+        m_edge                          = &currentUse->NodeRef();
+        m_statePtr                      = currentUse + 1;
+    }
+}
+
+void GenTreeUseEdgeIterator::AdvanceInstr()
+{
+    if (m_statePtr == m_node->AsInstr()->Uses().end())
+    {
+        m_edge = nullptr;
+    }
+    else
+    {
+        GenTreeInstr::Use* currentUse = static_cast<GenTreeInstr::Use*>(m_statePtr);
+        m_edge                        = &currentUse->NodeRef();
+        m_statePtr                    = currentUse + 1;
+    }
+}
+
 #ifdef FEATURE_HW_INTRINSICS
 void GenTreeUseEdgeIterator::AdvanceHWIntrinsic()
 {
-    assert(m_state == 0);
-
     if (m_statePtr == m_node->AsHWIntrinsic()->Uses().end())
     {
-        m_state = -1;
+        m_edge = nullptr;
     }
     else
     {
@@ -5339,7 +5352,6 @@ void GenTreeUseEdgeIterator::AdvanceHWIntrinsic()
 
 void GenTreeUseEdgeIterator::AdvanceHWIntrinsicReverseOp()
 {
-    assert(m_state == 0);
     assert(m_edge == &m_node->AsHWIntrinsic()->GetUse(1).NodeRef());
 
     m_edge    = &m_node->AsHWIntrinsic()->GetUse(0).NodeRef();
@@ -5347,66 +5359,22 @@ void GenTreeUseEdgeIterator::AdvanceHWIntrinsicReverseOp()
 }
 #endif // FEATURE_HW_INTRINSICS
 
-void GenTreeUseEdgeIterator::AdvanceInstr()
+void GenTreeUseEdgeIterator::AdvanceBinOp0()
 {
-    assert(m_state == 0);
-
-    if (m_statePtr == m_node->AsInstr()->Uses().end())
-    {
-        m_state = -1;
-    }
-    else
-    {
-        GenTreeInstr::Use* currentUse = static_cast<GenTreeInstr::Use*>(m_statePtr);
-        m_edge                        = &currentUse->NodeRef();
-        m_statePtr                    = currentUse + 1;
-    }
-}
-
-void GenTreeUseEdgeIterator::AdvancePhi()
-{
-    assert(m_state == 0);
-
-    if (m_statePtr == nullptr)
-    {
-        m_state = -1;
-    }
-    else
-    {
-        GenTreePhi::Use* currentUse = static_cast<GenTreePhi::Use*>(m_statePtr);
-        m_edge                      = &currentUse->NodeRef();
-        m_statePtr                  = currentUse->GetNext();
-    }
-}
-
-template <bool ReverseOperands>
-void           GenTreeUseEdgeIterator::AdvanceBinOp()
-{
-    assert(ReverseOperands == ((m_node->gtFlags & GTF_REVERSE_OPS) != 0));
-
-    m_edge = !ReverseOperands ? &m_node->AsOp()->gtOp2 : &m_node->AsOp()->gtOp1;
+    m_edge = &m_node->AsOp()->gtOp1;
     assert(*m_edge != nullptr);
     m_advance = &GenTreeUseEdgeIterator::Terminate;
 }
 
-void GenTreeUseEdgeIterator::SetEntryStateForBinOp()
+void GenTreeUseEdgeIterator::AdvanceBinOp1()
 {
-    assert(m_node->OperIsBinary());
-
-    if (m_node->IsReverseOp())
-    {
-        m_edge    = &m_node->AsOp()->gtOp2;
-        m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp<true>;
-    }
-    else
-    {
-        m_edge    = &m_node->AsOp()->gtOp1;
-        m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp<false>;
-    }
+    m_edge = &m_node->AsOp()->gtOp2;
+    assert(*m_edge != nullptr);
+    m_advance = &GenTreeUseEdgeIterator::Terminate;
 }
 
-template <int state>
-void          GenTreeUseEdgeIterator::AdvanceCall()
+template <GenTreeUseEdgeIterator::CallState state>
+void                                        GenTreeUseEdgeIterator::AdvanceCall()
 {
     GenTreeCall* const call = m_node->AsCall();
 
@@ -5459,9 +5427,10 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
                 m_edge = &call->gtControlExpr;
                 return;
             }
-            else if (!call->IsIndirectCall())
+
+            if (!call->IsIndirectCall())
             {
-                m_state = -1;
+                m_edge = nullptr;
                 return;
             }
             FALLTHROUGH;
@@ -5487,21 +5456,6 @@ void          GenTreeUseEdgeIterator::AdvanceCall()
         default:
             unreached();
     }
-}
-
-void GenTreeUseEdgeIterator::Terminate()
-{
-    m_state = -1;
-}
-
-GenTreeUseEdgeIterator& GenTreeUseEdgeIterator::operator++()
-{
-    if (m_state != -1)
-    {
-        (this->*m_advance)();
-    }
-
-    return *this;
 }
 
 GenTreeUseEdgeIterator GenTree::UseEdgesBegin()

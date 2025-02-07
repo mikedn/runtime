@@ -1783,10 +1783,6 @@ public:
     template <typename TVisitor>
     void VisitOperands(TVisitor visitor);
 
-private:
-    template <typename TVisitor>
-    void VisitBinOpOperands(TVisitor visitor);
-
 public:
     bool IsReuseRegValCandidate()
     {
@@ -2129,90 +2125,75 @@ public:
 // - Some specialization has been performed for specific node types/shapes (e.g. the advance function for
 //   binary nodes is specialized based on whether or not the node has the GTF_REVERSE_OPS flag set)
 //
-// Valid values of this type may be obtained by calling `GenTree::UseEdgesBegin` and `GenTree::UseEdgesEnd`.
-//
 class GenTreeUseEdgeIterator final
 {
-    friend class GenTreeOperandIterator;
-    friend GenTreeUseEdgeIterator GenTree::UseEdgesBegin();
-    friend GenTreeUseEdgeIterator GenTree::UseEdgesEnd();
-
-    enum
+    enum CallState
     {
-        CALL_INSTANCE     = 0,
-        CALL_ARGS         = 1,
-        CALL_LATE_ARGS    = 2,
-        CALL_CONTROL_EXPR = 3,
-        CALL_COOKIE       = 4,
-        CALL_ADDRESS      = 5,
-        CALL_TERMINAL     = 6,
+        CALL_INSTANCE,
+        CALL_ARGS,
+        CALL_LATE_ARGS,
+        CALL_CONTROL_EXPR,
+        CALL_COOKIE,
+        CALL_ADDRESS,
+        CALL_TERMINAL,
     };
 
     typedef void (GenTreeUseEdgeIterator::*AdvanceFn)();
 
-    AdvanceFn m_advance;
-    GenTree*  m_node;
-    GenTree** m_edge;
-    // Pointer sized state storage, GenTreeArgList* or GenTreePhi::Use* or GenTreeCall::Use* currently.
-    void* m_statePtr;
-    // Integer sized state storage, usually the operand index for non-list based nodes.
-    int m_state;
+    AdvanceFn m_advance  = nullptr;
+    GenTree*  m_node     = nullptr;
+    GenTree** m_edge     = nullptr;
+    void*     m_statePtr = nullptr;
 
-    GenTreeUseEdgeIterator(GenTree* node);
-
-    // Advance functions for special nodes
+    void AdvanceBinOp0();
+    void AdvanceBinOp1();
     void AdvanceTernaryOp();
-    void AdvanceArrElem();
     void AdvanceFieldList();
     void AdvancePhi();
+    void AdvanceArrElem();
+    void AdvanceInstr();
 #ifdef FEATURE_HW_INTRINSICS
     void AdvanceHWIntrinsic();
     void AdvanceHWIntrinsicReverseOp();
 #endif
-    void AdvanceInstr();
 
-    template <bool ReverseOperands>
-    void           AdvanceBinOp();
-    void           SetEntryStateForBinOp();
+    template <CallState state>
+    void                AdvanceCall();
 
-    // The advance function for call nodes
-    template <int state>
-    void          AdvanceCall();
-
-    void Terminate();
+    void Terminate()
+    {
+        m_edge = nullptr;
+    }
 
 public:
-    GenTreeUseEdgeIterator();
+    GenTreeUseEdgeIterator() = default;
+    GenTreeUseEdgeIterator(GenTree* node);
 
-    inline GenTree** operator*()
+    GenTree** operator*() const
     {
-        assert(m_state != -1);
         return m_edge;
     }
 
-    inline GenTree** operator->()
+    GenTree** operator->() const
     {
-        assert(m_state != -1);
         return m_edge;
     }
 
-    inline bool operator==(const GenTreeUseEdgeIterator& other) const
+    GenTreeUseEdgeIterator& operator++()
     {
-        if (m_state == -1 || other.m_state == -1)
-        {
-            return m_state == other.m_state;
-        }
-
-        return (m_node == other.m_node) && (m_edge == other.m_edge) && (m_statePtr == other.m_statePtr) &&
-               (m_state == other.m_state);
+        (this->*m_advance)();
+        return *this;
     }
 
-    inline bool operator!=(const GenTreeUseEdgeIterator& other) const
+    bool operator==(const GenTreeUseEdgeIterator& other) const
     {
-        return !(operator==(other));
+        return m_edge == other.m_edge;
     }
 
-    GenTreeUseEdgeIterator& operator++();
+    bool operator!=(const GenTreeUseEdgeIterator& other) const
+    {
+        return m_edge != other.m_edge;
+    }
 };
 
 //------------------------------------------------------------------------
@@ -2226,41 +2207,38 @@ public:
 // `GenTree::OperandsBegin` and `GenTree::OperandsEnd`.
 class GenTreeOperandIterator final
 {
-    friend GenTreeOperandIterator GenTree::OperandsBegin();
-    friend GenTreeOperandIterator GenTree::OperandsEnd();
-
     GenTreeUseEdgeIterator m_useEdges;
-
-    GenTreeOperandIterator(GenTree* node) : m_useEdges(node)
-    {
-    }
 
 public:
     GenTreeOperandIterator() : m_useEdges()
     {
     }
 
-    inline GenTree* operator*()
+    GenTreeOperandIterator(GenTree* node) : m_useEdges(node)
+    {
+    }
+
+    GenTree* operator*()
     {
         return *(*m_useEdges);
     }
 
-    inline GenTree* operator->()
+    GenTree* operator->()
     {
         return *(*m_useEdges);
     }
 
-    inline bool operator==(const GenTreeOperandIterator& other) const
+    bool operator==(const GenTreeOperandIterator& other) const
     {
         return m_useEdges == other.m_useEdges;
     }
 
-    inline bool operator!=(const GenTreeOperandIterator& other) const
+    bool operator!=(const GenTreeOperandIterator& other) const
     {
         return !(operator==(other));
     }
 
-    inline GenTreeOperandIterator& operator++()
+    GenTreeOperandIterator& operator++()
     {
         ++m_useEdges;
         return *this;

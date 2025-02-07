@@ -6598,23 +6598,19 @@ void GenTree::VisitOperands(TVisitor visitor)
         }
 
         default:
-            VisitBinOpOperands<TVisitor>(visitor);
+        {
+            assert(OperIsBinary());
+
+            GenTreeOp* const op = AsOp();
+            assert(op->gtOp1 != nullptr);
+            assert(op->gtOp2 != nullptr);
+
+            if (visitor(op->gtOp1) != VisitResult::Abort)
+            {
+                visitor(op->gtOp2);
+            }
             return;
-    }
-}
-
-template <typename TVisitor>
-void GenTree::VisitBinOpOperands(TVisitor visitor)
-{
-    assert(OperIsBinary());
-
-    GenTreeOp* const op = AsOp();
-    assert(op->gtOp1 != nullptr);
-    assert(op->gtOp2 != nullptr);
-
-    if (visitor(op->gtOp1) != VisitResult::Abort)
-    {
-        visitor(op->gtOp2);
+        }
     }
 }
 
