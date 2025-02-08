@@ -2138,31 +2138,31 @@ class GenTreeUseEdgeIterator final
         CALL_TERMINAL,
     };
 
-    typedef void (GenTreeUseEdgeIterator::*AdvanceFn)();
+    typedef GenTree** (GenTreeUseEdgeIterator::*AdvanceFn)();
 
     AdvanceFn m_advance  = nullptr;
     GenTree*  m_node     = nullptr;
     GenTree** m_edge     = nullptr;
     void*     m_statePtr = nullptr;
 
-    void AdvanceBinOp0();
-    void AdvanceBinOp1();
-    void AdvanceTernaryOp();
-    void AdvanceFieldList();
-    void AdvancePhi();
-    void AdvanceArrElem();
-    void AdvanceInstr();
+    GenTree** AdvanceBinOp0();
+    GenTree** AdvanceBinOp1();
+    GenTree** AdvanceTernaryOp();
+    GenTree** AdvanceFieldList();
+    GenTree** AdvancePhi();
+    GenTree** AdvanceArrElem();
+    GenTree** AdvanceInstr();
 #ifdef FEATURE_HW_INTRINSICS
-    void AdvanceHWIntrinsic();
-    void AdvanceHWIntrinsicReverseOp();
+    GenTree** AdvanceHWIntrinsic();
+    GenTree** AdvanceHWIntrinsicReverseOp();
 #endif
 
     template <CallState state>
-    void                AdvanceCall();
+    GenTree**           AdvanceCall();
 
-    void Terminate()
+    GenTree** Terminate()
     {
-        m_edge = nullptr;
+        return nullptr;
     }
 
 public:
@@ -2181,7 +2181,7 @@ public:
 
     GenTreeUseEdgeIterator& operator++()
     {
-        (this->*m_advance)();
+        m_edge = (this->*m_advance)();
         return *this;
     }
 
