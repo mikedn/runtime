@@ -582,7 +582,7 @@ void Compiler::lvaInitRetBufParam(ParamAllocInfo& paramInfo, bool useFixedRetBuf
 
 void Compiler::lvaInitGenericsContextParam(ParamAllocInfo& paramInfo)
 {
-    if ((info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE) == 0)
+    if (!info.compMethodInfo->args.hasTypeArg())
     {
         return;
     }

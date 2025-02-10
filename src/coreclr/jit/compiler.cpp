@@ -3296,14 +3296,9 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         info.compCallConv = CorInfoCallConvExtension::Managed;
     }
 
-    switch (info.compMethodInfo->args.getCallConv())
+    if (info.compMethodInfo->args.isVarArg())
     {
-        case CORINFO_CALLCONV_NATIVEVARARG:
-        case CORINFO_CALLCONV_VARARG:
-            info.compIsVarArgs = true;
-            break;
-        default:
-            break;
+        info.compIsVarArgs = true;
     }
 
     lvaInitTable();

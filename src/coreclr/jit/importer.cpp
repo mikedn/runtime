@@ -4138,7 +4138,7 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
         eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
 
         // We don't know the target method, so we have to infer the flags, or assume the worst-case.
-        mflags = (sig.callConv & CORINFO_CALLCONV_HASTHIS) ? 0 : CORINFO_FLG_STATIC;
+        mflags = sig.hasThis() ? 0 : CORINFO_FLG_STATIC;
     }
     else
     {
@@ -4160,7 +4160,7 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
     // We must have got the methodClassHnd if opcode is not CEE_CALLI
     assert((methodHnd != nullptr && methodClassHnd != nullptr) || opcode == CEE_CALLI);
 
-    if ((sig.callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
+    if (sig.getCallConv() == CORINFO_CALLCONV_VARARG)
     {
         eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
     }
@@ -5071,22 +5071,16 @@ bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
     //
     //   A desktop test case where this seems to matter is
     //   jit\jit64\ebvts\mcpp\sources2\ijw\__clrcall\vector_ctor_dtor.02\deldtor_clr.exe
-    if (block->hasTryIndex())
-    {
-        // This does not apply to the raw pinvoke call that is inside the pinvoke
-        // ILStub. In this case, we have to inline the raw pinvoke call into the stub,
-        // otherwise we would end up with a stub that recursively calls itself, and end
-        // up with a stack overflow.
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers())
-        {
-            return true;
-        }
-
-        return false;
-    }
-#endif // TARGET_64BIT
-
+    //
+    // This does not apply to the raw pinvoke call that is inside the pinvoke
+    // ILStub. In this case, we have to inline the raw pinvoke call into the stub,
+    // otherwise we would end up with a stub that recursively calls itself, and end
+    // up with a stack overflow.
+    return !block->hasTryIndex() ||
+           (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers());
+#else
     return true;
+#endif
 }
 
 //------------------------------------------------------------------------
@@ -5098,14 +5092,14 @@ bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
 //    methHnd    - handle for the method being called (may be null)
 //    sig        - signature of the method being called
 //    mflags     - method flags for the method being called
-//    block      - block contaning the call, or for inlinees, block
+//    block      - block containing the call, or for inlinees, block
 //                 containing the call being inlined
 //
 // Notes:
 //   Sets GTF_CALL_M_PINVOKE on the call for pinvokes.
 //
 //   Also sets GTF_CALL_UNMANAGED on call for inline pinvokes if the
-//   call passes a combination of legality and profitabilty checks.
+//   call passes a combination of legality and profitability checks.
 //
 //   If GTF_CALL_UNMANAGED is set, increments info.compUnmanagedCallCountWithGCTransition
 
@@ -5133,7 +5127,7 @@ void Importer::impCheckForPInvokeCall(
     }
     else
     {
-        if (sig->getCallConv() == CORINFO_CALLCONV_DEFAULT || sig->getCallConv() == CORINFO_CALLCONV_VARARG)
+        if ((sig->getCallConv() == CORINFO_CALLCONV_DEFAULT) || (sig->getCallConv() == CORINFO_CALLCONV_VARARG))
         {
             return;
         }
@@ -6370,7 +6364,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         sig        = &calliSig;
         methHnd    = nullptr;
-        mflags     = ((sig->callConv & CORINFO_CALLCONV_HASTHIS) != 0) ? 0 : CORINFO_FLG_STATIC;
+        mflags     = sig->hasThis() ? 0 : CORINFO_FLG_STATIC;
         clsHnd     = nullptr;
         clsFlags   = 0;
         retTypeSig = sig;
@@ -6383,9 +6377,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         clsHnd   = pResolvedToken->hClass;
         clsFlags = callInfo->classFlags;
 
-        if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (sig->retType != CORINFO_TYPE_VOID)) ||
-            ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG) ||
-            ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG))
+        if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (sig->retType != CORINFO_TYPE_VOID)) || sig->isVarArg())
         {
             eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
                              &callSiteSig);
@@ -6435,13 +6427,13 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
 
             // For now ignore varargs
-            if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
+            if (sig->getCallConv() == CORINFO_CALLCONV_NATIVEVARARG)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_NATIVE_VARARGS);
                 return nullptr;
             }
 
-            if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
+            if (sig->getCallConv() == CORINFO_CALLCONV_VARARG)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_HAS_MANAGED_VARARGS);
                 return nullptr;
@@ -6519,9 +6511,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             NO_WAY("Virtual call to a function added via EnC is not supported");
         }
 
-        if ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT &&
-            (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG &&
-            (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG)
+        if ((sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) && !sig->isVarArg())
         {
             BADCODE("Bad calling convention");
         }
@@ -6540,8 +6530,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             case CORINFO_VIRTUALCALL_STUB:
             {
-                assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
-                assert(!(clsFlags & CORINFO_FLG_VALUECLASS));
+                assert((mflags & CORINFO_FLG_STATIC) == 0);
+                assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
+
                 if (callInfo->stubLookup.lookupKind.needsRuntimeLookup)
                 {
                     if (callInfo->stubLookup.lookupKind.runtimeLookupKind == CORINFO_LOOKUP_NOT_SUPPORTED)
@@ -6552,8 +6543,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                         return nullptr;
                     }
 
-                    assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG &&
-                           (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
+                    assert(!sig->isVarArg());
 
                     GenTree* stubAddr = impRuntimeLookupToTree(pResolvedToken, &callInfo->stubLookup, methHnd);
                     assert(!compDonotInline());
@@ -6668,8 +6658,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 #endif
 
                 // Sine we are jumping over some code, check that its OK to skip that code
-                assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG &&
-                       (sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
+                assert(!sig->isVarArg());
                 goto DONE;
             }
 
@@ -6702,10 +6691,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // indirect call.  This is because a runtime lookup is required to get the code entry point.
 
                 // These calls always follow a uniform calling convention, i.e. no extra hidden params
-                assert((sig->callConv & CORINFO_CALLCONV_PARAMTYPE) == 0);
-
-                assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG);
-                assert((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_NATIVEVARARG);
+                assert(!sig->hasTypeArg());
+                assert(!sig->isVarArg());
 
                 GenTree* fptr = impLookupToTree(pResolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
                                                 callInfo->hMethod);
@@ -6775,13 +6762,12 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     assert((clsHnd != NO_CLASS_HANDLE) || (opcode == CEE_CALLI));
 
     // CALL_VIRT and NEWOBJ must have a THIS pointer
-    assert((opcode != CEE_CALLVIRT && opcode != CEE_NEWOBJ) || (sig->callConv & CORINFO_CALLCONV_HASTHIS));
+    assert((opcode != CEE_CALLVIRT && opcode != CEE_NEWOBJ) || sig->hasThis());
     // static bit and hasThis are negations of one another
-    assert(((mflags & CORINFO_FLG_STATIC) != 0) == ((sig->callConv & CORINFO_CALLCONV_HASTHIS) == 0));
+    assert(((mflags & CORINFO_FLG_STATIC) != 0) == !sig->hasThis());
     assert(call != nullptr);
 
-    if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG ||
-        (sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_NATIVEVARARG)
+    if (sig->isVarArg())
     {
 #if !FEATURE_VARARG
         BADCODE("Varargs not supported.");
@@ -6849,7 +6835,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         impCheckForPInvokeCall(call, methHnd, sig, mflags, block);
     }
 
-    if ((call->gtFlags & GTF_CALL_UNMANAGED) != 0)
+    if (call->IsUnmanaged())
     {
         // We set up the unmanaged call by linking the frame, disabling GC, etc
         // This needs to be cleaned up on return.
@@ -6868,8 +6854,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
 
-        if ((opcode == CEE_CALLI) && ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_DEFAULT) &&
-            ((sig->callConv & CORINFO_CALLCONV_MASK) != CORINFO_CALLCONV_VARARG))
+        if ((opcode == CEE_CALLI) && (sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) &&
+            (sig->getCallConv() != CORINFO_CALLCONV_VARARG))
         {
             if (CreateCallICookie(call, sig) == nullptr)
             {
@@ -6888,7 +6874,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         GenTree* extraArg = nullptr;
 
-        if ((sig->callConv & CORINFO_CALLCONV_MASK) == CORINFO_CALLCONV_VARARG)
+        if (sig->getCallConv() == CORINFO_CALLCONV_VARARG)
         {
             extraArg = CreateVarargsCallArgHandle(call, sig);
 
@@ -6900,7 +6886,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
         }
 
-        if ((sig->callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
+        if (sig->hasTypeArg())
         {
             assert(opcode != CEE_CALLI);
             assert(extraArg == nullptr);
@@ -6931,7 +6917,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         //-------------------------------------------------------------------------
         // The "this" pointer
 
-        if (((mflags & CORINFO_FLG_STATIC) == 0) && ((sig->callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0))
+        if (((mflags & CORINFO_FLG_STATIC) == 0) && !sig->hasExplicitThis())
         {
             GenTree* obj = impPopStack().val;
 
@@ -11861,8 +11847,8 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
 
     CORINFO_SIG_INFO sig;
     eeGetMethodSig(resolvedToken.hMethod, &sig);
-    if (sig.numArgs != info.compMethodInfo->args.numArgs || sig.retType != info.compMethodInfo->args.retType ||
-        sig.callConv != info.compMethodInfo->args.callConv)
+    if ((sig.numArgs != info.compMethodInfo->args.numArgs) || (sig.retType != info.compMethodInfo->args.retType) ||
+        (sig.callConv != info.compMethodInfo->args.callConv))
     {
         BADCODE("Incompatible target for CEE_JMPs");
     }
@@ -11890,7 +11876,7 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
-    if ((callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
+    if (callInfo.sig.hasTypeArg())
     {
         NO_WAY("Currently do not support LDFTN of parameterized functions");
     }
@@ -11922,7 +11908,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN | CORINFO_CALLINFO_CALLVIRT, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
-    if ((callInfo.sig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
+    if (callInfo.sig.hasTypeArg())
     {
         NO_WAY("Currently do not support LDFTN of parameterized functions");
     }
@@ -12331,7 +12317,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         return;
     }
 
-    if (((callInfo.sig.callConv & CORINFO_CALLCONV_EXPLICITTHIS) == 0) && (newObjThis != nullptr))
+    if (!callInfo.sig.hasExplicitThis() && (newObjThis != nullptr))
     {
         assert(!call->IsVirtual());
 

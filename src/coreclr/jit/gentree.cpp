@@ -7234,12 +7234,15 @@ void Compiler::gtDispTreeRec(
         {
             if (GenTree* op1 = tree->AsOp()->gtOp1)
             {
-                gtDispChild(op1, tree->AsOp()->gtOp2 == nullptr ? IIArcBottom : IIArc);
+                gtDispChild(op1, tree->OperIsUnary() || (tree->AsOp()->gtOp2 == nullptr) ? IIArcBottom : IIArc);
             }
 
-            if (GenTree* op2 = tree->AsOp()->gtOp2)
+            if (tree->OperIsBinary())
             {
-                gtDispChild(op2, IIArcBottom);
+                if (GenTree* op2 = tree->AsOp()->gtOp2)
+                {
+                    gtDispChild(op2, IIArcBottom);
+                }
             }
         }
     }

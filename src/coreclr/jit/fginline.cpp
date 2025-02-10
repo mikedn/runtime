@@ -1236,7 +1236,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     unsigned typeCtxtArgNum = UINT32_MAX;
 
-    if ((argsSig.callConv & CORINFO_CALLCONV_PARAMTYPE) != 0)
+    if (argsSig.hasTypeArg())
     {
 #ifndef TARGET_X86
         typeCtxtArgNum = argNum;
