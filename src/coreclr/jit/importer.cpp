@@ -5150,6 +5150,7 @@ void Importer::impCheckForPInvokeCall(
     {
         return;
     }
+
     comp->optNativeCallCount++;
 
     if (methHnd == nullptr && (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
@@ -5204,6 +5205,7 @@ void Importer::impCheckForPInvokeCall(
 
     call->gtFlags |= GTF_CALL_UNMANAGED;
     call->unmgdCallConv = unmanagedCallConv;
+
     if (!call->IsSuppressGCTransition())
     {
         info.compUnmanagedCallCountWithGCTransition++;
@@ -6357,6 +6359,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     unsigned              mflags;
     CORINFO_CLASS_HANDLE  clsHnd;
     unsigned              clsFlags;
+    GenTreeCall*          call  = nullptr;
+    GenTree*              value = nullptr;
+    var_types             callRetTyp;
 
     if (opcode == CEE_CALLI)
     {
@@ -6368,14 +6373,32 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         clsHnd     = nullptr;
         clsFlags   = 0;
         retTypeSig = sig;
+        callRetTyp = CorTypeToVarType(sig->retType);
+
+        JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode],
+                callInfo->kind, varTypeName(callRetTyp),
+                callRetTyp == TYP_STRUCT ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
+
+        call = impImportIndirectCall(&calliSig, ilOffset);
+
+        // This should be checked in impImportBlockCode.
+        assert(!compIsForInlining() ||
+               ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) == 0));
     }
     else
     {
-        sig      = &callInfo->sig;
-        methHnd  = callInfo->hMethod;
-        mflags   = callInfo->methodFlags;
-        clsHnd   = pResolvedToken->hClass;
-        clsFlags = callInfo->classFlags;
+        sig        = &callInfo->sig;
+        methHnd    = callInfo->hMethod;
+        mflags     = callInfo->methodFlags;
+        clsHnd     = pResolvedToken->hClass;
+        clsFlags   = callInfo->classFlags;
+        callRetTyp = CorTypeToVarType(sig->retType);
+
+        assert(clsHnd != NO_CLASS_HANDLE);
+        // CALL_VIRT and NEWOBJ must have a THIS pointer
+        assert((opcode != CEE_CALLVIRT && opcode != CEE_NEWOBJ) || sig->hasThis());
+        // static bit and hasThis are negations of one another
+        assert(((mflags & CORINFO_FLG_STATIC) != 0) == !sig->hasThis());
 
         if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (sig->retType != CORINFO_TYPE_VOID)) || sig->isVarArg())
         {
@@ -6388,26 +6411,11 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             retTypeSig = sig;
         }
-    }
 
-    var_types callRetTyp = CorTypeToVarType(sig->retType);
+        JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode],
+                callInfo->kind, varTypeName(callRetTyp),
+                callRetTyp == TYP_STRUCT ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
-    JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode], callInfo->kind,
-            varTypeName(callRetTyp),
-            (callRetTyp == TYP_STRUCT) ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
-
-    GenTreeCall* call  = nullptr;
-    GenTree*     value = nullptr;
-
-    if (opcode == CEE_CALLI)
-    {
-        call = impImportIndirectCall(&calliSig, ilOffset);
-
-        // This should be checked in impImportBlockCode.
-        assert(!compIsForInlining() || !(impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY));
-    }
-    else // (opcode != CEE_CALLI)
-    {
         CorInfoIntrinsics intrinsicID = CORINFO_INTRINSIC_Count;
 
         if (compIsForInlining())
@@ -6420,7 +6428,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
 
             // Does the inlinee use StackCrawlMark
-            if (mflags & CORINFO_FLG_DONT_INLINE_CALLER)
+            if ((mflags & CORINFO_FLG_DONT_INLINE_CALLER) != 0)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLEE_STACK_CRAWL_MARK);
                 return nullptr;
@@ -6448,6 +6456,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         // <NICE> Factor this into getCallInfo </NICE>
         bool isSpecialIntrinsic = false;
+
         if ((mflags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
         {
             const bool isTailCall = (tailCallFailReason == nullptr) && ((prefixFlags & PREFIX_TAILCALL) != 0);
@@ -6591,16 +6600,16 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             case CORINFO_VIRTUALCALL_VTABLE:
             {
-                assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
-                assert(!(clsFlags & CORINFO_FLG_VALUECLASS));
+                assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+                assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
+
                 call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                 call->gtFlags |= GTF_CALL_VIRT_VTABLE;
 
                 // Should we expand virtual call targets early for this method?
-                //
                 if (opts.compExpandCallsEarly)
                 {
-                    // Mark this method to expand the virtual call target early in fgMorpgCall
+                    // Mark this method to expand the virtual call target early in fgMorphCall
                     call->SetExpandedEarly();
                 }
                 break;
@@ -6614,10 +6623,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     return nullptr;
                 }
 
-                assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
-                assert(!(clsFlags & CORINFO_FLG_VALUECLASS));
-                // OK, We've been told to call via LDVIRTFTN, so just
-                // take the call now....
+                assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+                assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
+
+                // OK, We've been told to call via LDVIRTFTN, so just take the call now....
 
                 GenTreeCall::Use* args = PopCallArgs(sig);
 
@@ -6638,8 +6647,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
                 fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
-                // Create the actual call node
-
                 call                = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
                 call->gtCallThisArg = gtNewCallArgs(thisPtrUses[1]);
 
@@ -6648,6 +6655,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     // CoreRT generic virtual method: need to handle potential fat function pointers
                     addFatPointerCandidate(call);
                 }
+
 #ifdef FEATURE_READYTORUN_COMPILER
                 if (opts.IsReadyToRun())
                 {
@@ -6657,8 +6665,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 }
 #endif
 
-                // Sine we are jumping over some code, check that its OK to skip that code
+                // Since we are jumping over some code, check that its OK to skip that code
                 assert(!sig->isVarArg());
+
                 goto DONE;
             }
 
@@ -6671,7 +6680,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // TODO-CQ: JIT64 does not introduce the null check for many more helper calls
                 // and intrinsics.
                 if (callInfo->nullInstanceCheck &&
-                    !((mflags & CORINFO_FLG_INTRINSIC) != 0 && (intrinsicID == CORINFO_INTRINSIC_Object_GetType)))
+                    (((mflags & CORINFO_FLG_INTRINSIC) == 0) || (intrinsicID != CORINFO_INTRINSIC_Object_GetType)))
                 {
                     call->gtFlags |= GTF_CALL_NULLCHECK;
                 }
@@ -6736,8 +6745,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if ((mflags & CORINFO_FLG_DELEGATE_INVOKE) != 0)
         {
-            assert(!(mflags & CORINFO_FLG_STATIC)); // can't call a static method
-            assert(mflags & CORINFO_FLG_FINAL);
+            assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+            assert((mflags & CORINFO_FLG_FINAL) != 0);
 
             // Set the delegate flag
             call->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
@@ -6749,23 +6758,14 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             if (opcode == CEE_CALLVIRT)
             {
-                assert(mflags & CORINFO_FLG_FINAL);
+                assert((mflags & CORINFO_FLG_FINAL) != 0);
 
                 // It should have the GTF_CALL_NULLCHECK flag set. Reset it.
-                assert(call->gtFlags & GTF_CALL_NULLCHECK);
+                assert((call->gtFlags & GTF_CALL_NULLCHECK) != 0);
                 call->gtFlags &= ~GTF_CALL_NULLCHECK;
             }
         }
     }
-
-    assert(sig != nullptr);
-    assert((clsHnd != NO_CLASS_HANDLE) || (opcode == CEE_CALLI));
-
-    // CALL_VIRT and NEWOBJ must have a THIS pointer
-    assert((opcode != CEE_CALLVIRT && opcode != CEE_NEWOBJ) || sig->hasThis());
-    // static bit and hasThis are negations of one another
-    assert(((mflags & CORINFO_FLG_STATIC) != 0) == !sig->hasThis());
-    assert(call != nullptr);
 
     if (sig->isVarArg())
     {
@@ -6802,7 +6802,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 (sig->retType != CORINFO_TYPE_PTR) && (sig->retType != CORINFO_TYPE_VAR))
             {
                 // Make sure that all valuetypes (including enums) that we push are loaded.
-                // This is to guarantee that if a GC is triggerred from the prestub of this
+                // This is to guarantee that if a GC is triggered from the prestub of this
                 // methods, all valuetypes in the method signature are already loaded.
                 // We need to be able to find the size of the valuetypes, but we cannot
                 // do a class-load from within GC.
@@ -6815,25 +6815,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             sig = retTypeSig;
         }
-
-// We will have "cookie" as the last argument but we cannot push
-// it on the operand stack because we may overflow, so we append it
-// to the arg list next after we pop them
 #endif // FEATURE_VARARG
     }
 
-    //--------------------------- Inline NDirect ------------------------------
+    //--------------------------- Inline PInvoke ------------------------------
 
     // For inline cases we technically should look at both the current
     // block and the call site block (or just the latter if we've
     // fused the EH trees). However the block-related checks pertain to
     // EH and we currently won't inline a method with EH. So for
     // inlinees, just checking the call site block is sufficient.
-    {
-        // New lexical block here to avoid compilation errors because of GOTOs.
-        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
-        impCheckForPInvokeCall(call, methHnd, sig, mflags, block);
-    }
+    impCheckForPInvokeCall(call, methHnd, sig, mflags, compIsForInlining() ? impInlineInfo->iciBlock : currentBlock);
 
     if (call->IsUnmanaged())
     {
@@ -6853,41 +6845,13 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 #ifdef UNIX_X86_ABI
         call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
-
-        if ((opcode == CEE_CALLI) && (sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) &&
-            (sig->getCallConv() != CORINFO_CALLCONV_VARARG))
-        {
-            if (CreateCallICookie(call, sig) == nullptr)
-            {
-                assert(compDonotInline());
-
-                return nullptr;
-            }
-
-            if (tailCallFailReason == nullptr)
-            {
-                tailCallFailReason = "PInvoke calli";
-            }
-        }
-
         // Create the argument list
 
         GenTree* extraArg = nullptr;
 
-        if (sig->getCallConv() == CORINFO_CALLCONV_VARARG)
-        {
-            extraArg = CreateVarargsCallArgHandle(call, sig);
-
-            if (extraArg == nullptr)
-            {
-                assert(compDonotInline());
-
-                return nullptr;
-            }
-        }
-
         if (sig->hasTypeArg())
         {
+            assert(sig->getCallConv() != CORINFO_CALLCONV_VARARG);
             assert(opcode != CEE_CALLI);
             assert(extraArg == nullptr);
 
@@ -6899,6 +6863,31 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert(compDonotInline());
 
                 return nullptr;
+            }
+        }
+        else if (sig->getCallConv() == CORINFO_CALLCONV_VARARG)
+        {
+            extraArg = CreateVarargsCallArgHandle(call, sig);
+
+            if (extraArg == nullptr)
+            {
+                assert(compDonotInline());
+
+                return nullptr;
+            }
+        }
+        else if ((opcode == CEE_CALLI) && (sig->getCallConv() != CORINFO_CALLCONV_DEFAULT))
+        {
+            if (CreateCallICookie(call, sig) == nullptr)
+            {
+                assert(compDonotInline());
+
+                return nullptr;
+            }
+
+            if (tailCallFailReason == nullptr)
+            {
+                tailCallFailReason = "PInvoke calli";
             }
         }
 
@@ -6922,22 +6911,18 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             GenTree* obj = impPopStack().val;
 
             obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
+
             if (compDonotInline())
             {
                 return nullptr;
             }
 
-            // Store the "this" value in the call
             call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
             call->gtCallThisArg = gtNewCallArgs(obj);
 
-            // Is this a virtual or interface call?
             if (call->IsVirtual())
             {
-                // only true object pointers can be virtual
                 assert(obj->TypeIs(TYP_REF));
-
-                // See if we can devirtualize.
 
                 const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
                 impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
@@ -6960,10 +6945,10 @@ DONE:
         SetupTailCall(call, opcode, prefixFlags, sig, pResolvedToken, methHnd, tailCallFailReason);
     }
 
-    // Note: we assume that small return types are already normalized by the managed callee
+    // Note: we assume that small int return types are already widened by the managed callee
     // or by the pinvoke stub for calls to unmanaged code.
 
-    if (compIsForInlining() && opcode == CEE_CALLVIRT)
+    if (compIsForInlining() && (opcode == CEE_CALLVIRT))
     {
         GenTree* callObj = call->gtCallThisArg->GetNode();
 
@@ -6975,11 +6960,9 @@ DONE:
     }
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    // Keep track of the raw IL offset of the call
     call->gtRawILOffset = rawILOffset;
 #endif
 
-    // Is it an inline candidate?
     impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
     if ((sig->flags & CORINFO_SIGFLAG_FAT_CALL) != 0)
@@ -7008,15 +6991,13 @@ PUSH_CALL:
         impSpillAllAppendTree(call);
 
         // TODO: Still using the widened type.
-        GenTreeRetExpr* retExpr                         = gtNewRetExpr(call);
-        call->gtInlineCandidateInfo->retExprPlaceholder = retExpr;
-
-        value = retExpr;
+        value                                           = gtNewRetExpr(call);
+        call->gtInlineCandidateInfo->retExprPlaceholder = value->AsRetExpr();
     }
     else
     {
-        // For non-candidates we must also spill, since we might have locals live on the eval
-        // stack that this call can modify.
+        // For non-candidates we must also spill, since we might have address exposed locals live
+        // on the eval stack that this call can modify.
         //
         // Suppress this for certain well-known call targets that we know won't modify locals,
         // eg calls that are recognized in gtCanOptimizeTypeEquality. Otherwise we may break key
@@ -7059,9 +7040,9 @@ PUSH_CALL:
         }
     }
 
-    // Usual native calling conventions do not automatically widen returned small int values to
-    // INT so we have to do it in the caller. R2R also follows the native calling and widens in
-    // the caller, even if the callee is a managed method that automatically widens itself.
+    // Usual native calling conventions do not automatically widen returned small int values to INT
+    // so we have to do it in the caller. R2R also follows the native calling convention and widens
+    // in the caller, even if the callee is a managed method that automatically widens itself.
 
     if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
