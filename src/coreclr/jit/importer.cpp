@@ -5133,8 +5133,6 @@ void Importer::impCheckForPInvokeCall(
         }
 
         unmanagedCallConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
-
-        assert(call->gtCallCookie == nullptr);
     }
 
     if (suppressGCTransition)
@@ -6359,8 +6357,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     unsigned              mflags;
     CORINFO_CLASS_HANDLE  clsHnd;
     unsigned              clsFlags;
-    GenTreeCall*          call  = nullptr;
-    GenTree*              value = nullptr;
+    GenTree*              pInvokeCalliCookie = nullptr;
+    GenTreeCall*          call               = nullptr;
+    GenTree*              value              = nullptr;
     var_types             callRetTyp;
 
     if (opcode == CEE_CALLI)
@@ -6878,7 +6877,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         }
         else if ((opcode == CEE_CALLI) && (sig->getCallConv() != CORINFO_CALLCONV_DEFAULT))
         {
-            if (CreateCallICookie(call, sig) == nullptr)
+            pInvokeCalliCookie = CreateCallICookie(call, sig);
+
+            if (pInvokeCalliCookie == nullptr)
             {
                 assert(compDonotInline());
 
@@ -6972,6 +6973,17 @@ DONE:
     }
 
     assert(opcode != CEE_NEWOBJ);
+
+    if (pInvokeCalliCookie != nullptr)
+    {
+        assert(!call->IsUnmanaged());
+
+        comp->gtAppendCallArgs(call->gtCallArgs, comp->gtNewCallArgs(pInvokeCalliCookie, call->gtCallAddr));
+
+        call->gtCallAddr    = nullptr;
+        call->gtCallType    = CT_HELPER;
+        call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
+    }
 
     if (callRetTyp == TYP_VOID)
     {
@@ -7093,8 +7105,6 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     {
         assert(cookie->IsIntCon());
     }
-
-    call->gtCallCookie = cookie;
 
     return cookie;
 }
@@ -15925,17 +15935,6 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
         return;
     }
 
-    // Indirect calls may use the cookie, bail if so...
-    //
-    // If transforming these provides a benefit, we could save this off in the same way
-    // we save the stub address below.
-    if (call->IsIndirectCall() && (call->AsCall()->gtCallCookie != nullptr))
-    {
-        JITDUMP("NOT Marking call [%06u] as guarded devirtualization candidate -- indirect with cookie\n",
-                call->GetID());
-        return;
-    }
-
 #ifdef DEBUG
 
     // See if disabled by range
@@ -16581,12 +16580,6 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 
         if (call->IsIndirectCall())
         {
-            GenTree* cookie = call->gtCallCookie;
-
-            // PInvoke-calli cookie is a constant, or constant address indirection.
-            assert((cookie == nullptr) || cookie->IsIntCon() ||
-                   (cookie->OperIs(GT_IND_LOAD) && cookie->AsIndLoad()->GetAddr()->IsIntCon()));
-
             return impHasLclRef(call->gtCallAddr, lcl);
         }
 

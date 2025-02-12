@@ -2133,7 +2133,6 @@ class GenTreeUseEdgeIterator final
         CALL_ARGS,
         CALL_LATE_ARGS,
         CALL_CONTROL_EXPR,
-        CALL_COOKIE,
         CALL_ADDRESS,
         CALL_TERMINAL,
     };
@@ -3994,8 +3993,6 @@ struct GenTreeCall final : public GenTree
                          //             - that were evaluated into a temp LclVar
 
     union {
-        // only used for CALLI unmanaged calls (CT_INDIRECT)
-        GenTree* gtCallCookie;
         // gtInlineCandidateInfo is only used when inlining methods
         InlineCandidateInfo*                  gtInlineCandidateInfo;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;

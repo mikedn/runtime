@@ -499,7 +499,7 @@ bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const
         return true;
     }
 
-    if (IsIndirectCall() && (gtCallCookie != nullptr))
+    if (IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
     {
         // R10 = PInvoke target param
         // R11 = PInvoke cookie param
@@ -3815,7 +3815,6 @@ GenTreeCall* Compiler::gtNewCallNode(
     {
         node->gtCallAddr = static_cast<GenTree*>(target);
         assert(node->gtCallAddr->TypeIs(TYP_I_IMPL));
-        node->gtCallCookie = nullptr;
     }
     else
     {
@@ -3959,9 +3958,8 @@ GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTreeCall::Use*& head, GenTree
     return arg;
 }
 
-GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree* node)
+void Compiler::gtAppendCallArgs(GenTreeCall::Use*& head, GenTreeCall::Use* args)
 {
-    GenTreeCall::Use*  arg  = gtNewCallArgs(node);
     GenTreeCall::Use** last = &head;
 
     while (*last != nullptr)
@@ -3969,7 +3967,13 @@ GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree*
         last = &((*last)->NextRef());
     }
 
-    *last = arg;
+    *last = args;
+}
+
+GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree* node)
+{
+    GenTreeCall::Use* arg = gtNewCallArgs(node);
+    gtAppendCallArgs(head, arg);
     return arg;
 }
 
@@ -4713,15 +4717,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
     {
         assert(tree->gtControlExpr == nullptr);
 
-        if (tree->gtCallCookie == nullptr)
-        {
-            copy->gtCallCookie = nullptr;
-        }
-        else
-        {
-            copy->gtCallCookie = gtCloneExpr(tree->gtCallCookie, addFlags, constLcl, constVal);
-        }
-
         copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, constLcl, constVal);
     }
     else
@@ -5407,7 +5402,7 @@ GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall(
             {
                 if (call->IsIndirectCall())
                 {
-                    m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_COOKIE>;
+                    m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ADDRESS>;
                 }
                 else
                 {
@@ -5419,16 +5414,6 @@ GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall(
             if (!call->IsIndirectCall())
             {
                 return nullptr;
-            }
-            FALLTHROUGH;
-
-        case CALL_COOKIE:
-            assert(call->IsIndirectCall());
-
-            m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ADDRESS>;
-            if (call->gtCallCookie != nullptr)
-            {
-                return &call->gtCallCookie;
             }
             FALLTHROUGH;
 
@@ -7133,12 +7118,6 @@ void Compiler::gtDispTreeRec(
 
                 if (call->IsIndirectCall())
                 {
-                    if (call->gtCallCookie != nullptr)
-                    {
-                        gtDispChild(call->gtCallCookie, (call->gtCallCookie == lastChild) ? IIArcBottom : IIArc,
-                                    "cookie");
-                    }
-
                     gtDispChild(call->gtCallAddr, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc, "callAddr");
                 }
 
@@ -7484,10 +7463,6 @@ void Compiler::dmpNodeOperands(GenTree* node)
             else if (operand == call->gtControlExpr)
             {
                 displayOperand(operand, prefix, "control expr");
-            }
-            else if (operand == call->gtCallCookie)
-            {
-                displayOperand(operand, prefix, "cookie");
             }
             else
             {

@@ -2861,6 +2861,7 @@ public:
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
 
     GenTreeCall::Use* gtPrependNewCallArg(GenTreeCall::Use*& args, GenTree* node);
+    void gtAppendCallArgs(GenTreeCall::Use*& list, GenTreeCall::Use* args);
     GenTreeCall::Use* gtAppendNewCallArg(GenTreeCall::Use*& list, GenTree* node);
 
     GenTreeCall* gtNewCallNode(
@@ -6561,11 +6562,6 @@ void GenTree::VisitOperands(TVisitor visitor)
 
             if (call->IsIndirectCall())
             {
-                if ((call->gtCallCookie != nullptr) && (visitor(call->gtCallCookie) == VisitResult::Abort))
-                {
-                    return;
-                }
-
                 if (visitor(call->gtCallAddr) == VisitResult::Abort)
                 {
                     return;
@@ -6958,15 +6954,6 @@ public:
 
                 if (call->IsIndirectCall())
                 {
-                    if (call->gtCallCookie != nullptr)
-                    {
-                        result = WalkTree(&call->gtCallCookie, call);
-                        if (result == GenTreeWalkResult::Abort)
-                        {
-                            return result;
-                        }
-                    }
-
                     result = WalkTree(&call->gtCallAddr, call);
                     if (result == GenTreeWalkResult::Abort)
                     {

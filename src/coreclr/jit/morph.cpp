@@ -1634,28 +1634,22 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
     else
 #endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-        if (call->IsIndirectCall() && (call->gtCallCookie != nullptr))
+        if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
     {
         assert(!call->IsUnmanaged());
-        GenTree* cookie = call->gtCallCookie;
-        assert(cookie->IsIntCon() || (cookie->OperIs(GT_IND_LOAD) && cookie->AsIndLoad()->GetAddr()->IsIntCon()));
 
-#ifdef TARGET_X86
-        gtAppendNewCallArg(call->gtCallArgs, cookie);
-#else
-        gtPrependNewCallArg(call->gtCallArgs, cookie);
-#endif
+        GenTree* target = nullptr;
+        GenTree* cookie = nullptr;
 
-        nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
-        numArgs++;
-
-        GenTree* target = gtCloneComplex(call->gtCallAddr);
-        gtPrependNewCallArg(call->gtCallArgs, target);
-        call->gtCallCookie  = nullptr;
-        call->gtCallType    = CT_HELPER;
-        call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
+        for (GenTreeCall::Use* use = call->gtCallArgs; use->GetNext() != nullptr; use = use->GetNext())
+        {
+            cookie = use->GetNode();
+            target = use->GetNext()->GetNode();
+        }
 
         nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
+        numArgs++;
+        nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
         numArgs++;
     }
 
@@ -2271,12 +2265,6 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
     {
         call->gtCallAddr = fgMorphTree(call->gtCallAddr);
         argsSideEffects |= call->gtCallAddr->gtFlags;
-
-        if (call->gtCallCookie != nullptr)
-        {
-            call->gtCallCookie = fgMorphTree(call->gtCallCookie);
-            argsSideEffects |= call->gtCallCookie->gtFlags;
-        }
     }
 
     call->gtFlags &= ~GTF_ASG;
@@ -6557,7 +6545,7 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
     assert(!call->IsUnmanaged());
     assert(!call->IsHelperCall());
-    assert(call->IsVirtual() || !call->IsIndirectCall() || (call->gtCallCookie == nullptr));
+    assert(call->IsVirtual() || !call->IsIndirectCall());
     assert(!call->IsImplicitTailCall());
 
     // The call will be transformed into a helper call so it can no longer have a special
@@ -7033,7 +7021,7 @@ bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
         return false;
     }
 
-    if (call->IsIndirectCall())
+    if (call->IsIndirectCall() || call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
     {
         return true;
     }

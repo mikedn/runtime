@@ -1367,10 +1367,6 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 #endif
 
-    // Indirect cookie calls gets transformed by fgSetupArgs as indirect call with
-    // non-standard args. Hence we should never see this type of call in lower.
-    noway_assert(!call->IsIndirectCall() || (call->gtCallCookie == nullptr));
-
     call->ClearOtherRegs();
     LowerCallArgs(call);
 
