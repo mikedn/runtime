@@ -433,7 +433,7 @@ void GenTreeFieldList::InsertFieldLIR(
 // performed.
 bool GenTreeCall::IsPure() const
 {
-    return IsHelperCall() && Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(gtCallMethHnd));
+    return IsHelperCall() && Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(m_methodHandle));
 }
 
 //-------------------------------------------------------------------------
@@ -458,7 +458,7 @@ bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool
         return true;
     }
 
-    CorInfoHelpFunc             helper           = compiler->eeGetHelperNum(gtCallMethHnd);
+    CorInfoHelpFunc             helper           = compiler->eeGetHelperNum(m_methodHandle);
     const HelperCallProperties& helperProperties = Compiler::s_helperCallProperties;
 
     // We definitely care about the side effects if MutatesHeap is true
@@ -539,7 +539,7 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
         return false;
     }
 
-    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    switch (Compiler::eeGetHelperNum(m_methodHandle))
     {
         case CORINFO_HELP_UNBOX_NULLABLE:
             return true;
@@ -556,7 +556,7 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
 
 bool GenTreeCall::IsHelperCall(CorInfoHelpFunc helper) const
 {
-    return IsHelperCall() && (gtCallMethHnd == Compiler::eeFindHelper(helper));
+    return IsHelperCall() && (m_methodHandle == Compiler::eeFindHelper(helper));
 }
 
 bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
@@ -573,16 +573,9 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         return false;
     }
 
-    if (c1->IsIndirectCall())
+    if (!c1->IsIndirectCall())
     {
-        if (!Compare(c1->gtCallAddr, c2->gtCallAddr))
-        {
-            return false;
-        }
-    }
-    else
-    {
-        if (c1->gtCallMethHnd != c2->gtCallMethHnd)
+        if (c1->GetMethodHandle() != c2->GetMethodHandle())
         {
             return false;
         }
@@ -593,6 +586,11 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
             return false;
         }
 #endif
+    }
+
+    if (!Compare(c1->GetCallAddr(), c2->GetCallAddr()))
+    {
+        return false;
     }
 
     if ((c1->gtCallThisArg != nullptr) != (c2->gtCallThisArg != nullptr))
@@ -636,17 +634,7 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         }
     }
 
-    if ((i1 != end1) || (i2 != end2))
-    {
-        return false;
-    }
-
-    if (!Compare(c1->gtControlExpr, c2->gtControlExpr))
-    {
-        return false;
-    }
-
-    return true;
+    return (i1 == end1) && (i2 == end2);
 }
 
 //--------------------------------------------------------------------------
@@ -1124,11 +1112,12 @@ AGAIN:
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
 
-            if (tree->AsCall()->IsIndirectCall())
+            if (GenTree* addr = tree->AsCall()->GetCallAddr())
             {
-                hash = genTreeHashAdd(hash, gtHashValue(tree->AsCall()->gtCallAddr));
+                hash = genTreeHashAdd(hash, gtHashValue(addr));
             }
-            else
+
+            if (!tree->AsCall()->IsIndirectCall())
             {
                 hash = genTreeHashAdd(hash, tree->AsCall()->GetMethodHandle());
             }
@@ -2663,23 +2652,20 @@ void Compiler::gtSetCosts(GenTree* tree)
 
                 if (call->IsIndirectCall())
                 {
-                    GenTree* indirect = call->gtCallAddr;
-
-                    gtSetCosts(indirect);
-                    costEx += indirect->GetCostEx() + IND_COST_EX;
-                    costSz += indirect->GetCostSz();
+                    GenTree* addr = call->GetCallAddr();
+                    gtSetCosts(addr);
+                    costEx += addr->GetCostEx() + IND_COST_EX;
+                    costSz += addr->GetCostSz();
                 }
                 else
                 {
                     if (call->IsVirtual())
                     {
-                        GenTree* controlExpr = call->gtControlExpr;
-
-                        if (controlExpr != nullptr)
+                        if (GenTree* addr = call->GetCallAddr())
                         {
-                            gtSetCosts(controlExpr);
-                            costEx += controlExpr->GetCostEx();
-                            costSz += controlExpr->GetCostSz();
+                            gtSetCosts(addr);
+                            costEx += addr->GetCostEx();
+                            costSz += addr->GetCostSz();
                         }
                     }
 
@@ -3133,13 +3119,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 level = Max(level, gtSetCallArgsOrder(call->LateArgs()));
             }
 
-            if (call->IsIndirectCall())
+            if (GenTree* addr = call->GetCallAddr())
             {
-                level = Max(level, gtSetOrder(call->gtCallAddr));
-            }
-            else if (call->IsVirtual() && (call->gtControlExpr != nullptr))
-            {
-                level = Max(level, gtSetOrder(call->gtControlExpr));
+                level = Max(level, gtSetOrder(addr));
             }
 
             return level + 6;
@@ -3741,15 +3723,15 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->SetRetSigType(node->GetType());
     call->SetRetLayout(nullptr);
 
-    call->gtCallType            = CT_HELPER;
-    call->gtCallMethHnd         = eeFindHelper(helper);
-    call->gtCallThisArg         = nullptr;
-    call->gtCallArgs            = args;
-    call->gtCallLateArgs        = nullptr;
+    call->gtCallType = CT_HELPER;
+    call->SetMethodHandle(eeFindHelper(helper));
+    call->gtCallThisArg  = nullptr;
+    call->gtCallArgs     = args;
+    call->gtCallLateArgs = nullptr;
+    call->SetCallAddr(nullptr);
     call->fgArgInfo             = nullptr;
     call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
     call->gtInlineCandidateInfo = nullptr;
-    call->gtControlExpr         = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
@@ -3813,12 +3795,11 @@ GenTreeCall* Compiler::gtNewCallNode(
 
     if (kind == CT_INDIRECT)
     {
-        node->gtCallAddr = static_cast<GenTree*>(target);
-        assert(node->gtCallAddr->TypeIs(TYP_I_IMPL));
+        node->SetCallAddr(static_cast<GenTree*>(target));
     }
     else
     {
-        node->gtCallMethHnd         = static_cast<CORINFO_METHOD_HANDLE>(target);
+        node->SetMethodHandle(static_cast<CORINFO_METHOD_HANDLE>(target));
         node->gtInlineCandidateInfo = nullptr;
     }
 
@@ -4713,15 +4694,9 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
     // a shallow copy suffices.
     copy->tailCallInfo = tree->tailCallInfo;
 
-    if (tree->IsIndirectCall())
+    if (!tree->IsIndirectCall())
     {
-        assert(tree->gtControlExpr == nullptr);
-
-        copy->gtCallAddr = gtCloneExpr(tree->gtCallAddr, addFlags, constLcl, constVal);
-    }
-    else
-    {
-        copy->gtCallMethHnd = tree->gtCallMethHnd;
+        copy->SetMethodHandle(tree->GetMethodHandle());
 
         if (tree->IsVirtualStub())
         {
@@ -4731,11 +4706,11 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
         {
             copy->gtInlineCandidateInfo = nullptr;
         }
+    }
 
-        if (tree->gtControlExpr != nullptr)
-        {
-            copy->gtControlExpr = gtCloneExpr(tree->gtControlExpr, addFlags, constLcl, constVal);
-        }
+    if (GenTree* addr = tree->GetCallAddr())
+    {
+        copy->SetCallAddr(gtCloneExpr(addr, addFlags, constLcl, constVal));
     }
 
     if (tree->fgArgInfo != nullptr)
@@ -5394,36 +5369,11 @@ GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall(
                 m_statePtr            = use->GetNext();
                 return edge;
             }
-            m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_CONTROL_EXPR>;
             FALLTHROUGH;
-
-        case CALL_CONTROL_EXPR:
-            if (call->gtControlExpr != nullptr)
-            {
-                if (call->IsIndirectCall())
-                {
-                    m_advance = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ADDRESS>;
-                }
-                else
-                {
-                    m_advance = &GenTreeUseEdgeIterator::Terminate;
-                }
-                return &call->gtControlExpr;
-            }
-
-            if (!call->IsIndirectCall())
-            {
-                return nullptr;
-            }
-            FALLTHROUGH;
-
-        case CALL_ADDRESS:
-            assert(call->IsIndirectCall() && (call->gtCallAddr != nullptr));
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
-            return &call->gtCallAddr;
 
         default:
-            unreached();
+            m_advance = &GenTreeUseEdgeIterator::Terminate;
+            return call->GetCallAddr() != nullptr ? &call->m_callAddr : nullptr;
     }
 }
 
@@ -7098,7 +7048,7 @@ void Compiler::gtDispTreeRec(
                 {
                     GenTree* argNode = call->gtCallThisArg->GetNode();
                     gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
-                    gtDispChild(argNode, (argNode == lastChild) ? IIArcBottom : IIArc, buf);
+                    gtDispChild(argNode, argNode == lastChild ? IIArcBottom : IIArc, buf);
                     argNum++;
                 }
 
@@ -7106,25 +7056,20 @@ void Compiler::gtDispTreeRec(
                 {
                     GenTree* argNode = use.GetNode();
                     gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
-                    gtDispChild(argNode, (argNode == lastChild) ? IIArcBottom : IIArc, buf);
+                    gtDispChild(argNode, argNode == lastChild ? IIArcBottom : IIArc, buf);
                     argNum++;
                 }
 
                 for (GenTreeCall::Use& use : call->LateArgs())
                 {
-                    gtGetCallArgMsg(call, call->GetArgInfoByLateArgUse(&use), use.GetNode(), buf, sizeof(buf));
-                    gtDispChild(use.GetNode(), (use.GetNext() == nullptr) ? IIArcBottom : IIArc, buf);
+                    GenTree* argNode = use.GetNode();
+                    gtGetCallArgMsg(call, call->GetArgInfoByLateArgUse(&use), argNode, buf, sizeof(buf));
+                    gtDispChild(use.GetNode(), argNode == lastChild ? IIArcBottom : IIArc, buf);
                 }
 
-                if (call->IsIndirectCall())
+                if (GenTree* addr = call->GetCallAddr())
                 {
-                    gtDispChild(call->gtCallAddr, (call->gtCallAddr == lastChild) ? IIArcBottom : IIArc, "callAddr");
-                }
-
-                if (call->gtControlExpr != nullptr)
-                {
-                    gtDispChild(call->gtControlExpr, (call->gtControlExpr == lastChild) ? IIArcBottom : IIArc,
-                                "control expr");
+                    gtDispChild(addr, addr == lastChild ? IIArcBottom : IIArc, "addr");
                 }
             }
         }
@@ -7456,13 +7401,9 @@ void Compiler::dmpNodeOperands(GenTree* node)
 
         if (GenTreeCall* call = node->IsCall())
         {
-            if (operand == call->gtCallAddr)
+            if (operand == call->GetCallAddr())
             {
-                displayOperand(operand, prefix, "callAddr");
-            }
-            else if (operand == call->gtControlExpr)
-            {
-                displayOperand(operand, prefix, "control expr");
+                displayOperand(operand, prefix, "addr");
             }
             else
             {
@@ -10346,7 +10287,7 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
 
 bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 {
-    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    switch (Compiler::eeGetHelperNum(m_methodHandle))
     {
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL:
@@ -10358,7 +10299,7 @@ bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 
 bool GenTreeCall::IsTypeHandleToRuntimeTypeHandleHelperCall() const
 {
-    switch (Compiler::eeGetHelperNum(gtCallMethHnd))
+    switch (Compiler::eeGetHelperNum(m_methodHandle))
     {
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
@@ -10605,7 +10546,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
                         // Grab the signature in this context.
                         CORINFO_SIG_INFO sig;
-                        eeGetMethodSig(call->gtCallMethHnd, &sig, exactClass);
+                        eeGetMethodSig(call->GetMethodHandle(), &sig, exactClass);
                         assert(sig.retType == CORINFO_TYPE_CLASS);
                         objClass = sig.retTypeClass;
                     }
@@ -10803,7 +10744,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
     *pIsNonNull                    = false;
     *pIsExact                      = false;
     CORINFO_CLASS_HANDLE  objClass = nullptr;
-    const CorInfoHelpFunc helper   = eeGetHelperNum(call->gtCallMethHnd);
+    const CorInfoHelpFunc helper   = eeGetHelperNum(call->GetMethodHandle());
 
     switch (helper)
     {

@@ -235,7 +235,7 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
                 // a write to memory.
 
                 state->isUnderIndir = true;
-                comp->fgWalkTreePre(&call->gtCallAddr, MarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(&call->m_callAddr, MarkPtrsAndAssignGroups, state);
             }
 
             state->storeLcl     = prevStoreLcl;

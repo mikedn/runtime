@@ -733,20 +733,18 @@ void LinearScan::BuildCall(GenTreeCall* call)
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
     }
 
-    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
-
-    if (ctrlExpr != nullptr)
+    if (GenTree* addr = call->GetCallAddr())
     {
-        regMaskTP ctrlExprCandidates = RBM_NONE;
+        regMaskTP addrCandidates = RBM_NONE;
 
         // In case of fast tail implemented as jmp, make sure that gtControlExpr is
         // computed into a register.
         if (call->IsFastTailCall())
         {
-            assert(!ctrlExpr->isContained());
+            assert(!addr->isContained());
             // Fast tail call - make sure that call target is always computed in RAX
             // so that epilog sequence can generate "jmp rax" to achieve fast tail call.
-            ctrlExprCandidates = RBM_RAX;
+            addrCandidates = RBM_RAX;
         }
 #ifdef TARGET_X86
         else if (call->IsVirtualStub() && call->IsIndirectCall())
@@ -758,8 +756,8 @@ void LinearScan::BuildCall(GenTreeCall* call)
             //
             // Where EAX is also used as an argument to the stub dispatch helper. Make
             // sure that the call target address is computed into EAX in this case.
-            assert(ctrlExpr->OperIs(GT_IND_LOAD) && ctrlExpr->isContained());
-            ctrlExprCandidates = RBM_VIRTUAL_STUB_TARGET;
+            assert(addr->OperIs(GT_IND_LOAD) && addr->isContained());
+            addrCandidates = RBM_VIRTUAL_STUB_TARGET;
         }
 #endif // TARGET_X86
 
@@ -771,17 +769,17 @@ void LinearScan::BuildCall(GenTreeCall* call)
             // Don't assign the call target to any of the argument registers because
             // we will use them to also pass floating point arguments as required
             // by win-x64 ABI.
-            ctrlExprCandidates = allIntRegs() & ~RBM_ARG_REGS;
+            addrCandidates = allIntRegs() & ~RBM_ARG_REGS;
         }
 #endif
 
-        if (ctrlExpr->isContained())
+        if (addr->isContained())
         {
-            BuildAddrUses(ctrlExpr->AsIndir()->GetAddr(), ctrlExprCandidates);
+            BuildAddrUses(addr->AsIndir()->GetAddr(), addrCandidates);
         }
         else
         {
-            BuildUse(ctrlExpr, ctrlExprCandidates);
+            BuildUse(addr, addrCandidates);
         }
     }
 

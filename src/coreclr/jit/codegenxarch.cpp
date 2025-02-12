@@ -3998,7 +3998,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
 void CodeGen::GenCall(GenTreeCall* call)
 {
     // All virtuals should have been expanded into a control expression
-    assert(!call->IsVirtual() || (call->gtControlExpr != nullptr) || (call->gtCallAddr != nullptr));
+    assert(!call->IsVirtual() || (call->GetCallAddr() != nullptr));
 
     genAlignStackBeforeCall(call);
 
@@ -4068,21 +4068,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, REG_ARG_0, REG_ARG_0, 0);
     }
 
-    CORINFO_METHOD_HANDLE methHnd;
-    GenTree*              target;
-
-    if (call->IsIndirectCall())
-    {
-        assert(call->gtControlExpr == nullptr);
-
-        methHnd = nullptr;
-        target  = call->gtCallAddr;
-    }
-    else
-    {
-        methHnd = call->GetMethodHandle();
-        target  = call->gtControlExpr;
-    }
+    CORINFO_METHOD_HANDLE methHnd = call->GetMethodHandle();
+    GenTree*              target  = call->GetCallAddr();
 
 #if FEATURE_FASTTAILCALL
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
@@ -4105,7 +4092,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif
 
-    // For a pinvoke to unmanged code we emit a label to clear
+    // For a pinvoke to unmanaged code we emit a label to clear
     // the GC pointer state before the callsite.
     // We can't utilize the typical lazy killing of GC pointers
     // at (or inside) the callsite.
@@ -4706,7 +4693,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         // target address will be in gtDirectCallAddress. It is still possible that calls
         // to user funcs require indirection, in which case the control expression will
         // be non-null.
-        if (call->IsUserCall() && (call->gtControlExpr == nullptr))
+        if (call->IsUserCall() && (call->GetCallAddr() == nullptr))
         {
             assert(call->GetMethodHandle() != nullptr);
 

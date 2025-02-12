@@ -2410,7 +2410,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         GenTreeCall::Use* args = newArrayCall->AsCall()->gtCallArgs;
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (newArrayCall->AsCall()->gtCallMethHnd == eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
+        if (newArrayCall->AsCall()->GetMethodHandle() == eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
         {
             // Array length is 1st argument for readytorun helper
             arrayLengthNode = args->GetNode();
@@ -3341,7 +3341,8 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     {
         // make sure both arguments are `typeof()`
         CORINFO_METHOD_HANDLE hTypeof = eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE);
-        if ((typeTo->AsCall()->gtCallMethHnd == hTypeof) && (typeFrom->AsCall()->gtCallMethHnd == hTypeof))
+
+        if ((typeTo->AsCall()->GetMethodHandle() == hTypeof) && (typeFrom->AsCall()->GetMethodHandle() == hTypeof))
         {
             CORINFO_CLASS_HANDLE hClassTo   = gtGetHelperArgClassHandle(typeTo->AsCall()->gtCallArgs->GetNode());
             CORINFO_CLASS_HANDLE hClassFrom = gtGetHelperArgClassHandle(typeFrom->AsCall()->gtCallArgs->GetNode());
@@ -6978,11 +6979,11 @@ DONE:
     {
         assert(!call->IsUnmanaged());
 
-        comp->gtAppendCallArgs(call->gtCallArgs, comp->gtNewCallArgs(pInvokeCalliCookie, call->gtCallAddr));
+        comp->gtAppendCallArgs(call->gtCallArgs, comp->gtNewCallArgs(pInvokeCalliCookie, call->GetCallAddr()));
 
-        call->gtCallAddr    = nullptr;
-        call->gtCallType    = CT_HELPER;
-        call->gtCallMethHnd = eeFindHelper(CORINFO_HELP_PINVOKE_CALLI);
+        call->gtCallType = CT_HELPER;
+        call->SetCallAddr(nullptr);
+        call->SetMethodHandle(eeFindHelper(CORINFO_HELP_PINVOKE_CALLI));
     }
 
     if (callRetTyp == TYP_VOID)
@@ -12515,7 +12516,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             // and in fact it will pass the wrong info to the inliner code
             *ExactContextHnd = nullptr;
 
-            call->gtCallMethHnd = alternateCtor;
+            call->SetMethodHandle(alternateCtor);
             noway_assert(call->gtCallArgs->GetNext()->GetNext() == nullptr);
 
             GenTreeCall::Use* addArgs = nullptr;
@@ -14635,7 +14636,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     }
     else
     {
-        fncHandle = call->gtCallMethHnd;
+        fncHandle = call->GetMethodHandle();
 
         // Reuse method flags from the original callInfo if possible
         if (fncHandle == callInfo->hMethod)
@@ -15195,8 +15196,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // Make the updates.
     call->gtFlags &= ~GTF_CALL_VIRT_VTABLE;
     call->gtFlags &= ~GTF_CALL_VIRT_STUB;
-    call->gtCallMethHnd = derivedMethod;
-    call->gtCallType    = CT_USER_FUNC;
+    call->gtCallType = CT_USER_FUNC;
+    call->SetCallAddr(nullptr);
+    call->SetMethodHandle(derivedMethod);
     call->gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
 
     // Virtual calls include an implicit null check, which we may
@@ -15376,7 +15378,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif
                                 }
 
-                                call->gtCallMethHnd   = unboxedEntryMethod;
+                                call->SetMethodHandle(unboxedEntryMethod);
                                 derivedMethod         = unboxedEntryMethod;
                                 pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
 
@@ -15408,7 +15410,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         {
                             JITDUMP("Success! invoking unboxed entry point on local copy\n");
                             call->gtCallThisArg = gtNewCallArgs(localCopyThis);
-                            call->gtCallMethHnd = unboxedEntryMethod;
+                            call->SetMethodHandle(unboxedEntryMethod);
                             call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
                             derivedMethod         = unboxedEntryMethod;
                             pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
@@ -15471,7 +15473,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
                             call->gtCallThisArg = gtNewCallArgs(boxPayload);
-                            call->gtCallMethHnd = unboxedEntryMethod;
+                            call->SetMethodHandle(unboxedEntryMethod);
                             call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
 
                             // Method attributes will differ because unboxed entry point is shared
@@ -15521,7 +15523,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
                         call->gtCallThisArg = gtNewCallArgs(boxPayload);
-                        call->gtCallMethHnd = unboxedEntryMethod;
+                        call->SetMethodHandle(unboxedEntryMethod);
                         call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
                         derivedMethod         = unboxedEntryMethod;
                         pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
@@ -16560,7 +16562,6 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
     {
         // We haven't morphed calls yet.
         assert(call->gtCallLateArgs == nullptr);
-        assert(call->gtControlExpr == nullptr);
 
         if (call->gtCallThisArg != nullptr)
         {
@@ -16578,9 +16579,9 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
             }
         }
 
-        if (call->IsIndirectCall())
+        if (GenTree* addr = call->GetCallAddr())
         {
-            return impHasLclRef(call->gtCallAddr, lcl);
+            return impHasLclRef(addr, lcl);
         }
 
         return false;

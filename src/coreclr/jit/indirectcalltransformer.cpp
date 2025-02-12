@@ -222,7 +222,7 @@ private:
     public:
         FatPointerCallTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
             : Transformer(compiler, block, stmt, call DEBUGARG("FatPointerCall"))
-            , fptrAddress(origCall->gtCallAddr)
+            , fptrAddress(origCall->GetCallAddr())
             , pointerType(fptrAddress->GetType())
         {
         }
@@ -288,7 +288,7 @@ private:
         {
             Statement*   fatStmt = compiler->gtCloneStmt(stmt);
             GenTreeCall* fatCall = GetCall(fatStmt);
-            fatCall->gtCallAddr  = actualCallAddress;
+            fatCall->SetCallAddr(actualCallAddress);
             AddHiddenArgument(fatCall, hiddenArgument);
             return fatStmt;
         }

@@ -3049,7 +3049,7 @@ public:
     // Note when inlining, this looks for calls back to the root method.
     bool gtIsRecursiveCall(GenTreeCall* call)
     {
-        return gtIsRecursiveCall(call->gtCallMethHnd);
+        return gtIsRecursiveCall(call->GetMethodHandle());
     }
 
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle)
@@ -5978,7 +5978,7 @@ public:
 #endif
     void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
 
-    bool killGCRefs(GenTree* tree);
+    bool killGCRefs(GenTree* tree) const;
 }; // end of class Compiler
 
 template <typename T>
@@ -6560,17 +6560,9 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
 
-            if (call->IsIndirectCall())
+            if (call->GetCallAddr() != nullptr)
             {
-                if (visitor(call->gtCallAddr) == VisitResult::Abort)
-                {
-                    return;
-                }
-            }
-
-            if (call->gtControlExpr != nullptr)
-            {
-                visitor(call->gtControlExpr);
+                visitor(call->m_callAddr);
             }
 
             return;
@@ -6952,18 +6944,9 @@ public:
                     }
                 }
 
-                if (call->IsIndirectCall())
+                if (call->GetCallAddr() != nullptr)
                 {
-                    result = WalkTree(&call->gtCallAddr, call);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-
-                if (call->gtControlExpr != nullptr)
-                {
-                    result = WalkTree(&call->gtControlExpr, call);
+                    result = WalkTree(&call->m_callAddr, call);
                     if (result == GenTreeWalkResult::Abort)
                     {
                         return result;

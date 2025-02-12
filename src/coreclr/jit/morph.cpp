@@ -1596,7 +1596,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (call->IsIndirectCall())
         {
-            stubAddrArg = gtCloneComplex(call->gtCallAddr);
+            stubAddrArg = gtCloneComplex(call->GetCallAddr());
         }
         else
         {
@@ -2261,10 +2261,10 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         argsSideEffects |= use.GetNode()->gtFlags;
     }
 
-    if (call->IsIndirectCall())
+    if (GenTree* addr = call->GetCallAddr())
     {
-        call->gtCallAddr = fgMorphTree(call->gtCallAddr);
-        argsSideEffects |= call->gtCallAddr->gtFlags;
+        call->SetCallAddr(fgMorphTree(addr));
+        argsSideEffects |= call->GetCallAddr()->gtFlags;
     }
 
     call->gtFlags &= ~GTF_ASG;
@@ -6194,7 +6194,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         {
             if (call->IsIndirectCall())
             {
-                target = call->gtCallAddr;
+                target = call->GetCallAddr();
 
                 noway_assert(target != nullptr);
             }
@@ -6227,8 +6227,9 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     }
 
     // This is now a direct call to the store args stub and not a tailcall.
-    call->gtCallType    = CT_USER_FUNC;
-    call->gtCallMethHnd = help.hStoreArgs;
+    call->gtCallType = CT_USER_FUNC;
+    call->SetMethodHandle(help.hStoreArgs);
+    call->SetCallAddr(nullptr);
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_DELEGATE_INV | GTF_CALL_M_WRAPPER_DELEGATE_INV);
 
@@ -6545,7 +6546,6 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
 
     assert(!call->IsUnmanaged());
     assert(!call->IsHelperCall());
-    assert(call->IsVirtual() || !call->IsIndirectCall());
     assert(!call->IsImplicitTailCall());
 
     // The call will be transformed into a helper call so it can no longer have a special
@@ -6660,10 +6660,10 @@ void Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call)
     {
         // Use the indirect call target as target argument. Note that since that target argument is
         // last this doesn't change eveluation order.
-        targetArg = call->gtCallAddr;
+        targetArg = call->GetCallAddr();
         // Put a dummy 0 node so we can keep the call as indirect for now.
         // TODO-MIKE-Review: Why not transform into the actual helper call here?
-        call->gtCallAddr = gtNewIconNode(0);
+        call->SetCallAddr(gtNewIconNode(0));
     }
     else
     {
@@ -7131,14 +7131,14 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
-        if (call->gtControlExpr == nullptr)
+        if (call->GetCallAddr() == nullptr)
         {
             assert(fgGlobalMorph);
-            call->gtControlExpr = fgExpandVirtualVtableCallTarget(call);
+            call->SetCallAddr(fgExpandVirtualVtableCallTarget(call));
         }
 
-        call->gtControlExpr = fgMorphTree(call->gtControlExpr);
-        call->AddSideEffects(call->gtControlExpr->GetSideEffects());
+        call->SetCallAddr(fgMorphTree(call->GetCallAddr()));
+        call->AddSideEffects(call->GetCallAddr()->GetSideEffects());
     }
 
     // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
@@ -7269,7 +7269,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
     unsigned vtabOffsOfIndirection;
     unsigned vtabOffsAfterIndirection;
     bool     isRelative;
-    info.compCompHnd->getMethodVTableOffset(call->gtCallMethHnd, &vtabOffsOfIndirection, &vtabOffsAfterIndirection,
+    info.compCompHnd->getMethodVTableOffset(call->GetMethodHandle(), &vtabOffsOfIndirection, &vtabOffsAfterIndirection,
                                             &isRelative);
 
     // Dereference the this pointer to obtain the method table, it is called vtab below

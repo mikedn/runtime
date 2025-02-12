@@ -5151,38 +5151,30 @@ void dTreeFlags(GenTree* tree)
 
 const HelperCallProperties Compiler::s_helperCallProperties;
 
-// killGCRefs:
 // Given some tree node return does it need all GC refs to be spilled from
 // callee save registers.
-//
-// Arguments:
-//    tree       - the tree for which we ask about gc refs.
-//
 // Return Value:
 //    true       - tree kills GC refs on callee save registers
 //    false      - tree doesn't affect GC refs on callee save registers
-bool Compiler::killGCRefs(GenTree* tree)
+bool Compiler::killGCRefs(GenTree* tree) const
 {
-    if (tree->IsCall())
+    if (GenTreeCall* call = tree->IsCall())
     {
-        GenTreeCall* call = tree->AsCall();
         if (call->IsUnmanaged())
         {
             return true;
         }
 
-        if (call->gtCallMethHnd == eeFindHelper(CORINFO_HELP_JIT_PINVOKE_BEGIN))
+        if (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_JIT_PINVOKE_BEGIN))
         {
             assert(opts.ShouldUsePInvokeHelpers());
             return true;
         }
-    }
-    else if (tree->OperIs(GT_START_PREEMPTGC))
-    {
-        return true;
+
+        return false;
     }
 
-    return false;
+    return tree->OperIs(GT_START_PREEMPTGC);
 }
 
 //------------------------------------------------------------------------

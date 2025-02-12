@@ -1381,7 +1381,7 @@ void Lowering::LowerCall(GenTreeCall* call)
     {
         if (call->IsVirtualStub())
         {
-            LowerIndirectVirtualStubCall(call);
+            call->SetCallAddr(LowerIndirectVirtualStubCall(call));
         }
         else if (call->IsUnmanaged())
         {
@@ -1390,18 +1390,18 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else if (call->IsDelegateInvoke())
     {
-        call->gtControlExpr = LowerDelegateInvoke(call);
+        call->SetCallAddr(LowerDelegateInvoke(call));
     }
     else if (call->IsVirtualVtable())
     {
         if (!call->IsExpandedEarly())
         {
-            call->gtControlExpr = LowerVirtualVtableCall(call);
+            call->SetCallAddr(LowerVirtualVtableCall(call));
         }
     }
     else if (call->IsVirtualStub())
     {
-        call->gtControlExpr = LowerVirtualStubCall(call);
+        call->SetCallAddr(LowerVirtualStubCall(call));
     }
     else
     {
@@ -1409,11 +1409,11 @@ void Lowering::LowerCall(GenTreeCall* call)
 
         if (call->IsUnmanaged())
         {
-            call->gtControlExpr = LowerDirectPInvokeCall(call);
+            call->SetCallAddr(LowerDirectPInvokeCall(call));
         }
         else
         {
-            call->gtControlExpr = LowerDirectCall(call);
+            call->SetCallAddr(LowerDirectCall(call));
         }
     }
 
@@ -1558,7 +1558,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
     // Args for tail call are setup in incoming arg area.  The gc-ness of args of
     // caller and callee (which being tail called) may not match.  Therefore, everything
-    // from arg setup until the epilog need to be non-interuptible by GC.  This is
+    // from arg setup until the epilog need to be non-interruptible by GC. This is
     // achieved by inserting GT_START_NONGC before the very first GT_PUTARG_STK node
     // of call is setup.  Note that once a stack arg is setup, it cannot have nested
     // calls subsequently in execution order to setup other args, because the nested
@@ -1586,7 +1586,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     if (!putargs.Empty())
     {
         // Get the earliest operand of the first PUTARG_STK node. We will make
-        // the requred copies of args before this node.
+        // the required copies of args before this node.
         bool     unused;
         GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &unused).FirstNode();
         // Insert GT_START_NONGC node before we evaluate the PUTARG_STK args.
@@ -2447,7 +2447,7 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
     return load;
 }
 
-void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
+GenTree* Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
 {
     assert(call->IsVirtualStub() && call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
@@ -2462,9 +2462,9 @@ void Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     // fgSetupArgs will have created trees to pass the address in VirtualStubParam.reg.
     // All we have to do here is add an indirection to generate the actual call target.
 
-    GenTreeIndLoad* ind = comp->gtNewIndLoad(TYP_I_IMPL, call->gtCallAddr);
-    BlockRange().InsertAfter(call->gtCallAddr, ind);
-    call->gtCallAddr = ind;
+    GenTreeIndLoad* ind = comp->gtNewIndLoad(TYP_I_IMPL, call->GetCallAddr());
+    BlockRange().InsertAfter(call->GetCallAddr(), ind);
+    return ind;
 }
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
@@ -2689,7 +2689,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
 GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
     noway_assert(call->IsUserCall());
-    assert(!call->IsExpandedEarly() && (call->gtControlExpr == nullptr));
+    assert(!call->IsExpandedEarly() && (call->GetCallAddr() == nullptr));
 
     // Get hold of the vtable offset (note: this might be expensive)
     unsigned vtabOffsOfIndirection;
@@ -3161,7 +3161,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     if (call->IsIndirectCall())
     {
         bool isClosed;
-        insertBefore = BlockRange().GetTreeRange(call->gtCallAddr, &isClosed).FirstNode();
+        insertBefore = BlockRange().GetTreeRange(call->GetCallAddr(), &isClosed).FirstNode();
         assert(isClosed);
     }
 
@@ -3230,7 +3230,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
         void*                 pEmbedMethodHandle = nullptr;
         CORINFO_METHOD_HANDLE embedMethodHandle =
-            comp->info.compCompHnd->embedMethodHandle(call->gtCallMethHnd, &pEmbedMethodHandle);
+            comp->info.compCompHnd->embedMethodHandle(call->GetMethodHandle(), &pEmbedMethodHandle);
 
         noway_assert((!embedMethodHandle) != (!pEmbedMethodHandle));
 

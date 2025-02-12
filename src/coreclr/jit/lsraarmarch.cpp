@@ -87,22 +87,20 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
 
 void LinearScan::BuildCall(GenTreeCall* call)
 {
-    GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr;
-
-    if (ctrlExpr != nullptr)
+    if (GenTree* addr = call->GetCallAddr())
     {
-        assert(ctrlExpr->TypeIs(TYP_I_IMPL));
+        assert(addr->TypeIs(TYP_I_IMPL));
 
-        regMaskTP ctrlExprCandidates = RBM_NONE;
+        regMaskTP addrCandidates = RBM_NONE;
 
 #if FEATURE_FASTTAILCALL
-        // In case of fast tail implemented as jmp, make sure that gtControlExpr is
+        // In case of fast tail implemented as jmp, make sure that call addr is
         // computed into a register.
         if (call->IsFastTailCall())
         {
-            // Fast tail call - make sure that call target is always computed in R12(ARM32)/IP0(ARM64)
+            // Fast tail call - make sure that call addr is always computed in R12(ARM32)/IP0(ARM64)
             // so that epilog sequence can generate "br xip0/r12" to achieve fast tail call.
-            ctrlExprCandidates = RBM_FASTTAILCALL_TARGET;
+            addrCandidates = RBM_FASTTAILCALL_TARGET;
         }
 #endif
     }
@@ -197,9 +195,9 @@ void LinearScan::BuildCall(GenTreeCall* call)
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
     }
 
-    if (ctrlExpr != nullptr)
+    if (GenTree* addr = call->GetCallAddr())
     {
-        BuildUse(ctrlExpr);
+        BuildUse(addr);
     }
 
     BuildInternalUses();

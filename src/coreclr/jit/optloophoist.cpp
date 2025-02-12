@@ -739,7 +739,7 @@ public:
                 }
                 else
                 {
-                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->gtCallMethHnd);
+                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
 
                     if (!Compiler::s_helperCallProperties.IsPure(helpFunc))
                     {

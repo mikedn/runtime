@@ -621,9 +621,8 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
         // Indirect calls already have the correct target arg, we just need to remove
         // the dummy call address added during morph.
-        assert(call->gtCallAddr->IsIntegralConst(0));
-        BlockRange().Unlink(call->gtCallAddr);
-        call->gtCallAddr = nullptr;
+        assert(call->GetCallAddr()->IsIntegralConst(0));
+        BlockRange().Unlink(call->GetCallAddr());
     }
     else if (call->IsDelegateInvoke())
     {
@@ -668,13 +667,13 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
 
     // Transform this call node into a call to CORINFO_HELP_TAILCALL.
-    call->gtCallType    = CT_HELPER;
-    call->gtCallMethHnd = Compiler::eeFindHelper(CORINFO_HELP_TAILCALL);
+    call->gtCallType = CT_HELPER;
+    call->SetMethodHandle(Compiler::eeFindHelper(CORINFO_HELP_TAILCALL));
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
 
     // Lower this as if it were a normal helper call.
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
-    call->gtControlExpr = LowerDirectCall(call);
+    call->SetCallAddr(LowerDirectCall(call));
     // Now add back tail call flags for identifying this node as tail call dispatched via helper.
     // CodeGen needs checks this in order to insert the GS cookie check (if required).
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
@@ -3296,7 +3295,7 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     assert(!call->IsIndirectCall() || !call->IsFastTailCall() || !call->IsVirtualStub());
 #endif
 
-    if (GenTree* ctrlExpr = call->IsIndirectCall() ? call->gtCallAddr : call->gtControlExpr)
+    if (GenTree* ctrlExpr = call->GetCallAddr())
     {
         assert(ctrlExpr->TypeIs(TYP_I_IMPL));
 

@@ -1954,7 +1954,7 @@ PhaseStatus Compiler::fgTailMergeThrows()
 
         static unsigned GetHashCode(const ThrowHelper& x)
         {
-            return static_cast<unsigned>(reinterpret_cast<uintptr_t>(x.m_call->gtCallMethHnd));
+            return static_cast<unsigned>(reinterpret_cast<uintptr_t>(x.m_call->GetMethodHandle()));
         }
     };
 

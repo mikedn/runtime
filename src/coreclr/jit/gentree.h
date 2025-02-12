@@ -2131,10 +2131,7 @@ class GenTreeUseEdgeIterator final
     {
         CALL_INSTANCE,
         CALL_ARGS,
-        CALL_LATE_ARGS,
-        CALL_CONTROL_EXPR,
-        CALL_ADDRESS,
-        CALL_TERMINAL,
+        CALL_LATE_ARGS
     };
 
     typedef GenTree** (GenTreeUseEdgeIterator::*AdvanceFn)();
@@ -3787,7 +3784,7 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_SUPPRESS_GC_TRANSITION  = 0x01000000, // suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
     GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x02000000, // this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
     GTF_CALL_M_STRESS_TAILCALL         = 0x04000000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
-    GTF_CALL_M_EXPANDED_EARLY          = 0x08000000, // the Virtual Call target address is expanded and placed in gtControlExpr in Morph rather than in Lower
+    GTF_CALL_M_EXPANDED_EARLY          = 0x08000000, // the Virtual Call target address is expanded in Morph rather than in Lower
 };
 // clang-format on
 
@@ -3986,11 +3983,15 @@ struct GenTreeCall final : public GenTree
     using UseIterator = GenTreeUseLinkIterator<Use>;
     using UseList     = GenTreeUseLinkList<Use>;
 
-    Use* gtCallThisArg;  // The instance argument ('this' pointer)
-    Use* gtCallArgs;     // The list of arguments in original evaluation order
-    Use* gtCallLateArgs; // On x86:     The register arguments in an optimal order
-                         // On ARM/x64: - also includes any outgoing arg space arguments
-                         //             - that were evaluated into a temp LclVar
+    Use* gtCallThisArg  = nullptr; // The instance argument ('this' pointer)
+    Use* gtCallArgs     = nullptr; // The list of arguments in original evaluation order
+    Use* gtCallLateArgs = nullptr; // On x86:     The register arguments in an optimal order
+                                   // On ARM/x64: - also includes any outgoing arg space arguments
+                                   //             - that were evaluated into a temp LclVar
+    GenTree* m_callAddr = nullptr;
+
+    CORINFO_METHOD_HANDLE m_methodHandle = nullptr; // For CT_USER_FUNC/CT_HELPER, null for CT_INDIRECT
+    CallInfo*             fgArgInfo      = nullptr;
 
     union {
         // gtInlineCandidateInfo is only used when inlining methods
@@ -4001,16 +4002,6 @@ struct GenTreeCall final : public GenTree
         CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
         void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
     };
-
-    union {
-        CORINFO_METHOD_HANDLE gtCallMethHnd; // CT_USER_FUNC/CT_HELPER
-        GenTree*              gtCallAddr;    // CT_INDIRECT
-    };
-
-    // expression evaluated after args are placed which determines the control target
-    GenTree* gtControlExpr;
-
-    CallInfo* fgArgInfo;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     // Call target lookup info for method call from a Ready To Run module
@@ -4048,11 +4039,7 @@ struct GenTreeCall final : public GenTree
 public:
     GenTreeCall(var_types type, CallKind kind, Use* args)
         : GenTree(GT_CALL, varActualType(type))
-        , gtCallThisArg(nullptr)
         , gtCallArgs(args)
-        , gtCallLateArgs(nullptr)
-        , gtControlExpr(nullptr)
-        , fgArgInfo(nullptr)
         , tailCallInfo(nullptr)
         , m_retLayout(nullptr)
         , gtCallMoreFlags(GTF_CALL_M_EMPTY)
@@ -4072,11 +4059,6 @@ public:
 
     GenTreeCall(const GenTreeCall* copyFrom)
         : GenTree(GT_CALL, copyFrom->GetType())
-        , gtCallThisArg(nullptr)
-        , gtCallArgs(nullptr)
-        , gtCallLateArgs(nullptr)
-        , gtControlExpr(nullptr)
-        , fgArgInfo(nullptr)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , gtCallType(copyFrom->gtCallType)
@@ -4471,9 +4453,27 @@ public:
         return IsUnmanaged() ? unmgdCallConv : CorInfoCallConvExtension::Managed;
     }
 
+    GenTree* GetCallAddr() const
+    {
+        return m_callAddr;
+    }
+
+    void SetCallAddr(GenTree* addr)
+    {
+        assert((addr == nullptr) || addr->TypeIs(TYP_I_IMPL));
+        assert((addr != nullptr) || !IsIndirectCall());
+        m_callAddr = addr;
+    }
+
     CORINFO_METHOD_HANDLE GetMethodHandle() const
     {
-        return gtCallMethHnd;
+        return m_methodHandle;
+    }
+
+    void SetMethodHandle(CORINFO_METHOD_HANDLE handle)
+    {
+        assert(IsUserCall() || IsHelperCall() || (handle == nullptr));
+        m_methodHandle = handle;
     }
 
     InlineCandidateInfo* GetInlineCandidateInfo() const
