@@ -132,7 +132,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 
     insGroup* gsCheckEndLabel = emit.CreateTempLabel();
     emit.emitIns_J(INS_je, gsCheckEndLabel);
-    genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
+    GenHelperCall(CORINFO_HELP_FAIL_FAST);
     emit.DefineTempLabel(gsCheckEndLabel);
 
 #ifdef TARGET_X86
@@ -1449,7 +1449,7 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
     GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
     insGroup* skipLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, skipLabel);
-    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
+    GenHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
@@ -1509,7 +1509,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         }
 
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, spOffset);
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
+        GenHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (compiler->info.compPublishStubParam)
         {
@@ -1525,7 +1525,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
                              RBM_NONE);
 
         GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, -(int)frameSize);
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE);
+        GenHelperCall(CORINFO_HELP_STACK_PROBE);
 
         if (initReg == REG_DEFAULT_HELPER_CALL_TARGET)
         {
@@ -2039,11 +2039,11 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
 #ifdef TARGET_AMD64
         case StructStoreKind::MemSet:
             ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            genEmitHelperCall(CORINFO_HELP_MEMSET);
+            GenHelperCall(CORINFO_HELP_MEMSET);
             break;
         case StructStoreKind::MemCpy:
             ConsumeDynBlk(store, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-            genEmitHelperCall(CORINFO_HELP_MEMCPY);
+            GenHelperCall(CORINFO_HELP_MEMCPY);
             break;
 #endif
         case StructStoreKind::RepStos:
@@ -2182,7 +2182,7 @@ void CodeGen::GenStructStore(GenTree* store, StructStoreKind kind, ClassLayout* 
 void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
 {
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-    genEmitHelperCall(CORINFO_HELP_MEMSET);
+    GenHelperCall(CORINFO_HELP_MEMSET);
 }
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
@@ -2190,7 +2190,7 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
     assert(!layout->HasGCPtr());
 
     ConsumeStructStore(store, layout, REG_ARG_0, REG_ARG_1, REG_ARG_2);
-    genEmitHelperCall(CORINFO_HELP_MEMCPY);
+    GenHelperCall(CORINFO_HELP_MEMCPY);
 }
 
 #endif // TARGET_AMD64
@@ -2780,7 +2780,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
             // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
-                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
+                GenHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
             }
             else
             {
@@ -2850,7 +2850,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 
         liveness.SetGCRegs(TYP_REF, inGCrefRegSet | genRegMask(tempReg));
         liveness.SetGCRegs(TYP_BYREF, inByrefRegSet);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
+        GenHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
         liveness.SetGCRegs(TYP_REF, outGCrefRegSet);
         liveness.SetGCRegs(TYP_BYREF, outByrefRegSet);
     }
@@ -2865,7 +2865,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     {
         emit.emitIns_R_AR(INS_lea, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, addrOffset);
         emit.emitIns_Mov(INS_mov, EA_GCREF, REG_ARG_1, valReg1, /*canSkip*/ true);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
+        GenHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {
@@ -3987,7 +3987,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     noway_assert((reg != REG_ESP) && (reg != REG_WRITE_BARRIER));
 
     GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_WRITE_BARRIER, addr->GetRegNum(), /*canSkip*/ true);
-    genEmitHelperCall(regToHelper[writeBarrierForm != GCInfo::WBF_BarrierUnchecked][reg], EA_PTRSIZE);
+    GenHelperCall(regToHelper[writeBarrierForm != GCInfo::WBF_BarrierUnchecked][reg], EA_PTRSIZE);
 
     return true;
 #else  // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
@@ -4037,14 +4037,14 @@ void CodeGen::GenCall(GenTreeCall* call)
         }
 #endif // UNIX_AMD64_ABI
 
-        regNumber argReg = UseReg(argNode);
+        RegNum argReg = UseReg(argNode);
 
         assert(argReg == argInfo->GetRegNum());
 
 #ifdef WINDOWS_AMD64_ABI
         if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))
         {
-            regNumber intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
+            RegNum intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
             GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, argReg,
                                       /* canSkip */ false);
         }
@@ -4179,12 +4179,12 @@ void CodeGen::GenCall(GenTreeCall* call)
         noway_assert(helperNum != CORINFO_HELP_UNDEF);
     }
 
-    emitter::EmitCallType emitCallType;
-    void*                 callAddr     = nullptr;
-    regNumber             amBaseReg    = REG_NA;
-    regNumber             amIndexReg   = REG_NA;
-    unsigned              amIndexScale = 0;
-    int32_t               amOffset     = 0;
+    CallInsKind callKind;
+    void*       callAddr     = nullptr;
+    RegNum      amBaseReg    = REG_NA;
+    RegNum      amIndexReg   = REG_NA;
+    unsigned    amIndexScale = 0;
+    int32_t     amOffset     = 0;
 
     if (target != nullptr)
     {
@@ -4210,7 +4210,7 @@ void CodeGen::GenCall(GenTreeCall* call)
                                       /*canSkip*/ true);
             GetEmitter()->emitIns_Nop(3);
 
-            emitCallType = emitter::EC_INDIR_ARD;
+            callKind     = CK_INDIR_ARD;
             amBaseReg    = REG_VIRTUAL_STUB_TARGET;
             amIndexScale = 1;
         }
@@ -4226,12 +4226,12 @@ void CodeGen::GenCall(GenTreeCall* call)
                 // contained only if it can be encoded as PC-relative offset.
                 AMD64_ONLY(assert(compiler->IsRIPRelativeAddress(intConAddr)));
 
-                emitCallType = emitter::EC_FUNC_TOKEN_INDIR;
-                callAddr     = reinterpret_cast<void*>(intConAddr->GetValue());
+                callKind = CK_FUNC_TOKEN_INDIR;
+                callAddr = reinterpret_cast<void*>(intConAddr->GetValue());
             }
             else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
             {
-                emitCallType = emitter::EC_INDIR_ARD;
+                callKind = CK_INDIR_ARD;
 
                 if (GenTree* base = addrMode->GetBase())
                 {
@@ -4251,8 +4251,7 @@ void CodeGen::GenCall(GenTreeCall* call)
                 // TODO-MIKE-Review: It looks like there's no way to have a contained CLS_VAR_ADDR
                 // addr here because the importer spills the target to a local. Maybe it shouldn't.
 
-                emitCallType = emitter::EC_INDIR_ARD;
-
+                callKind  = CK_INDIR_ARD;
                 amBaseReg = UseReg(addr);
             }
         }
@@ -4262,15 +4261,14 @@ void CodeGen::GenCall(GenTreeCall* call)
             // We just need to emit "call reg" in this case.
             assert(genIsValidIntReg(target->GetRegNum()));
 
-            emitCallType = emitter::EC_INDIR_R;
-            amBaseReg    = UseReg(target);
+            callKind  = CK_INDIR_R;
+            amBaseReg = UseReg(target);
         }
     }
 #ifdef FEATURE_READYTORUN_COMPILER
     else if (call->gtEntryPoint.addr != nullptr)
     {
-        emitCallType =
-            call->gtEntryPoint.accessType == IAT_VALUE ? emitter::EC_FUNC_TOKEN : emitter::EC_FUNC_TOKEN_INDIR;
+        callKind = call->gtEntryPoint.accessType == IAT_VALUE ? CK_FUNC_TOKEN : CK_FUNC_TOKEN_INDIR;
         callAddr = call->gtEntryPoint.addr;
     }
 #endif
@@ -4278,8 +4276,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         assert(call->IsUserCall() || call->IsHelperCall());
 
-        emitCallType = emitter::EC_FUNC_TOKEN;
-        callAddr     = call->gtDirectCallAddress;
+        callKind = CK_FUNC_TOKEN;
+        callAddr = call->gtDirectCallAddress;
 
         assert(callAddr != nullptr);
     }
@@ -4296,7 +4294,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        emitCallType,
+        callKind,
         methHnd
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
@@ -4328,6 +4326,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     liveness.SetGCRegs(TYP_BYREF, liveness.GetGCRegs(TYP_BYREF) & ~RBM_ARG_REGS);
 
     var_types returnType = call->GetType();
+
     if (returnType != TYP_VOID)
     {
 #ifdef TARGET_X86
@@ -4412,7 +4411,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         Emitter& emit = *GetEmitter();
 
-        regNumber spRegCheck = REG_SPBASE;
+        RegNum spRegCheck = REG_SPBASE;
 
         if (!fCallerPop && (stackArgBytes != 0))
         {
@@ -4433,7 +4432,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif // defined(DEBUG) && defined(TARGET_X86)
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
     //-------------------------------------------------------------------------
     // Create a label for tracking of region protected by the monitor in synchronized methods.
     // This needs to be here, rather than above where fPossibleSyncHelperCall is set,
@@ -4480,9 +4479,8 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif
 }
 
-void CodeGen::GenJmp(GenTree* jmp)
+void CodeGen::GenJmp(GenTreeJmp* jmp)
 {
-    assert(jmp->OperIs(GT_JMP));
     assert(compiler->compJmpOpUsed);
 
 #ifdef PROFILING_SUPPORTED
@@ -4619,18 +4617,15 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
     noway_assert(block->bbJumpKind == BBJ_RETURN);
     noway_assert(block->GetFirstLIRNode());
 
-    // figure out what jump we have
     GenTree* jmpNode = block->lastNode();
+
 #if !FEATURE_FASTTAILCALL
-    // x86
     GenTreeJmp* jmp = jmpNode->IsJmp();
     noway_assert(jmp != nullptr);
 #else
-    // amd64
     // If jmpNode is GT_JMP then gtNext must be null.
     // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
     noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
-
     // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
     noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
 
@@ -4641,18 +4636,18 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         CORINFO_CONST_LOOKUP addrInfo;
         compiler->info.compCompHnd->getFunctionEntryPoint(jmp->GetMethodHandle(), &addrInfo);
 
-        emitter::EmitCallType callType   = emitter::EC_FUNC_TOKEN_INDIR;
-        void*                 addr       = addrInfo.addr;
-        regNumber             indCallReg = REG_NA;
+        CallInsKind callKind  = CK_FUNC_TOKEN_INDIR;
+        void*       addr      = addrInfo.addr;
+        RegNum      amBaseReg = REG_NA;
 
         if (addrInfo.accessType == IAT_PVALUE)
         {
 #ifdef TARGET_AMD64
             if (!compiler->eeIsRIPRelativeAddress(addrInfo.addr))
             {
-                callType   = emitter::EC_INDIR_ARD;
-                indCallReg = REG_RAX;
-                instGen_Set_Reg_To_Addr(indCallReg, addr);
+                callKind  = CK_INDIR_ARD;
+                amBaseReg = REG_RAX;
+                instGen_Set_Reg_To_Addr(amBaseReg, addr);
                 addr = nullptr;
             }
 #endif
@@ -4661,12 +4656,12 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         {
             noway_assert(addrInfo.accessType == IAT_VALUE);
 
-            callType = emitter::EC_FUNC_TOKEN;
+            callKind = CK_FUNC_TOKEN;
         }
 
         // clang-format off
         GetEmitter()->emitIns_Call(
-            callType,
+            callKind,
             jmp->GetMethodHandle()
             DEBUGARG(nullptr),
             addr,
@@ -4674,7 +4669,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             0,                                                      
 #endif
             EA_UNKNOWN MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),        
-            indCallReg, REG_NA, 0, 0, 
+            amBaseReg, REG_NA, 0, 0, 
             true 
         );
         // clang-format on
@@ -4699,7 +4694,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 
             // clang-format off
             GetEmitter()->emitIns_Call(
-                emitter::EC_FUNC_TOKEN,
+                CK_FUNC_TOKEN,
                 call->GetMethodHandle()
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,
@@ -4730,9 +4725,9 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 
 void CodeGen::GenLea(GenTreeAddrMode* lea)
 {
-    regNumber baseReg  = lea->GetBase() == nullptr ? REG_NA : UseReg(lea->GetBase());
-    regNumber indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
-    regNumber dstReg   = lea->GetRegNum();
+    RegNum baseReg  = lea->GetBase() == nullptr ? REG_NA : UseReg(lea->GetBase());
+    RegNum indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
+    RegNum dstReg   = lea->GetRegNum();
     // TODO-MIKE-Cleanup: The emitter is dumb and wants scale 1 when index is not present.
     unsigned scale  = indexReg == REG_NA ? 1 : lea->GetScale();
     int      offset = lea->GetOffset();
@@ -6632,30 +6627,28 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
 }
 
 #ifdef TARGET_X86
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTargetReg)
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, RegNum callTargetReg)
 #else
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum callTargetReg)
 #endif
 {
-    void* addr  = nullptr;
-    void* pAddr = nullptr;
-
-    emitter::EmitCallType callType = emitter::EC_FUNC_TOKEN;
-    addr                           = compiler->compGetHelperFtn(helper, &pAddr);
-    regNumber callTarget           = REG_NA;
+    void*       pAddr      = nullptr;
+    void*       addr       = compiler->compGetHelperFtn(helper, &pAddr);
+    RegNum      callTarget = REG_NA;
+    CallInsKind callKind   = CK_FUNC_TOKEN;
 
     if (addr == nullptr)
     {
         assert(pAddr != nullptr);
 
 #ifdef TARGET_X86
-        callType = emitter::EC_FUNC_TOKEN_INDIR;
+        callKind = CK_FUNC_TOKEN_INDIR;
         addr     = pAddr;
 #else  // TARGET_AMD64
         if (compiler->eeIsRIPRelativeAddress(pAddr) || FitsIn<int32_t>(reinterpret_cast<intptr_t>(pAddr)))
         {
             // generate call whose target is specified by 32-bit offset relative to PC or zero.
-            callType = emitter::EC_FUNC_TOKEN_INDIR;
+            callKind = CK_FUNC_TOKEN_INDIR;
             addr     = pAddr;
         }
         else
@@ -6684,7 +6677,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 
             GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
 
-            callType   = emitter::EC_INDIR_ARD;
+            callKind   = CK_INDIR_ARD;
             callTarget = callTargetReg;
         }
 #endif // TARGET_AMD64
@@ -6692,7 +6685,7 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        callType,
+        callKind,
         Compiler::eeFindHelper(helper)
         DEBUGARG(nullptr),
         addr,
@@ -6864,7 +6857,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov rax, helper addr; call rax"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
+    GenHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
 #ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
@@ -6932,7 +6925,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #else
     int argSize = REGSIZE_BYTES;
 #endif
-    genEmitHelperCall(helper, argSize, EA_UNKNOWN /* retSize */);
+    GenHelperCall(helper, argSize, EA_UNKNOWN /* retSize */);
 
 #ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
@@ -7021,7 +7014,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov rax, helper addr; call rax"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
+    GenHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
     // TODO-AMD64-CQ: Rather than reloading, see if this could be optimized by combining with prolog
     // generation logic that moves args around as required by first BB entry point conditions
@@ -7095,7 +7088,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // We use R11 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r11, helper addr; call r11"
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
+    GenHelperCall(CORINFO_HELP_PROF_FCN_ENTER, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != RBM_NONE)
@@ -7179,7 +7172,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // We use R8 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r8, helper addr; call r8"
-    genEmitHelperCall(helper, EA_UNKNOWN, REG_ARG_2);
+    GenHelperCall(helper, EA_UNKNOWN, REG_ARG_2);
 
 #else // !defined(UNIX_AMD64_ABI)
 
@@ -7213,7 +7206,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // We use R11 here. This will emit either
     // "call ip-relative 32-bit offset" or
     // "mov r11, helper addr; call r11"
-    genEmitHelperCall(helper, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
+    GenHelperCall(helper, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
 #endif // !defined(UNIX_AMD64_ABI)
 }
@@ -8688,7 +8681,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
         GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
-        genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
+        GenHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }
 }

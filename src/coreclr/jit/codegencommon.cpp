@@ -1266,7 +1266,7 @@ void CodeGen::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause
 
 void CodeGen::genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf)
 {
-    genEmitHelperCall(GCInfo::GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
+    GenHelperCall(GCInfo::GetWriteBarrierHelperCall(wbf), EA_PTRSIZE);
 }
 
 /*

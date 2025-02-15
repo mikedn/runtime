@@ -3,6 +3,12 @@
 
 #ifdef TARGET_ARM64
 
+enum CallInsKind
+{
+    CK_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
+    CK_INDIR_R     // Indirect call via register
+};
+
 class Arm64Emitter final : public EmitterBase
 {
     friend class Arm64Encoder;
@@ -71,13 +77,7 @@ public:
     void emitIns_R_AH(RegNum reg,
                       void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
-    enum EmitCallType
-    {
-        EC_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-        EC_INDIR_R     // Indirect call via register
-    };
-
-    void emitIns_Call(EmitCallType          kind,
+    void emitIns_Call(CallInsKind           kind,
                       CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                       void*    addr,
                       emitAttr retRegAttr,

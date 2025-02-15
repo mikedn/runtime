@@ -7120,7 +7120,7 @@ void Arm64Emitter::emitIns_CallFinally(insGroup* label)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void Arm64Emitter::emitIns_Call(EmitCallType          kind,
+void Arm64Emitter::emitIns_Call(CallInsKind           kind,
                                 CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                                 void*    addr,
                                 emitAttr retRegAttr,
@@ -7128,13 +7128,13 @@ void Arm64Emitter::emitIns_Call(EmitCallType          kind,
                                 RegNum   reg,
                                 bool     isJump)
 {
-    assert((kind == EC_INDIR_R) || (reg == REG_NA));
-    assert((kind != EC_INDIR_R) || (addr == nullptr));
-    assert((kind != EC_INDIR_R) || (reg != REG_NA));
+    assert((kind == CK_INDIR_R) || (reg == REG_NA));
+    assert((kind != CK_INDIR_R) || (addr == nullptr));
+    assert((kind != CK_INDIR_R) || (reg != REG_NA));
 
     instrDesc* id = NewInstrCall(methodHandle, retRegAttr, retReg2Attr);
 
-    if (kind == EC_INDIR_R)
+    if (kind == CK_INDIR_R)
     {
         id->idIns(isJump ? INS_br_tail : INS_blr);
         id->idInsFmt(IF_BR_1B);
@@ -7142,7 +7142,7 @@ void Arm64Emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert(kind == EC_FUNC_TOKEN);
+        assert(kind == CK_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idIns(isJump ? INS_b_tail : INS_bl);

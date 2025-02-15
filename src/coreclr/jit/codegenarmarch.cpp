@@ -97,7 +97,7 @@ void CodeGen::EpilogGSCookieCheck()
 
     insGroup* gsCheckBlk = emit.CreateTempLabel();
     emit.emitIns_J(INS_beq, gsCheckBlk);
-    genEmitHelperCall(CORINFO_HELP_FAIL_FAST);
+    GenHelperCall(CORINFO_HELP_FAIL_FAST);
     emit.DefineTempLabel(gsCheckBlk);
 }
 
@@ -895,7 +895,7 @@ void CodeGen::GenDynBlk(GenTreeDynBlk* store)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(store->OperIs(GT_COPY_BLK) ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
+    GenHelperCall(store->OperIs(GT_COPY_BLK) ? CORINFO_HELP_MEMCPY : CORINFO_HELP_MEMSET);
 
     if (store->IsVolatile() && store->OperIs(GT_COPY_BLK))
     {
@@ -976,7 +976,7 @@ void CodeGen::GenStructStoreMemSet(GenTree* store, ClassLayout* layout)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(CORINFO_HELP_MEMSET);
+    GenHelperCall(CORINFO_HELP_MEMSET);
 }
 
 void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
@@ -990,7 +990,7 @@ void CodeGen::GenStructStoreMemCpy(GenTree* store, ClassLayout* layout)
         instGen_MemoryBarrier();
     }
 
-    genEmitHelperCall(CORINFO_HELP_MEMCPY);
+    GenHelperCall(CORINFO_HELP_MEMCPY);
 
     if (store->IsIndir() && store->AsIndir()->IsVolatile())
     {
@@ -1630,7 +1630,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
             // TODO-MIKE-Cleanup: Remove bogus BYREF write barriers.
             if (layout->IsGCPtr(i))
             {
-                genEmitHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
+                GenHelperCall(CORINFO_HELP_ASSIGN_BYREF, EA_PTRSIZE);
             }
 #ifdef TARGET_ARM64
             else if ((i + 1 < slotCount) && !layout->IsGCPtr(i + 1))
@@ -1702,7 +1702,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 
         liveness.SetGCRegs(TYP_REF, inGCrefRegSet);
         liveness.SetGCRegs(TYP_BYREF, inByrefRegSet | RBM_WRITE_BARRIER_DST);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
+        GenHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
         liveness.SetGCRegs(TYP_REF, outGCrefRegSet);
         liveness.SetGCRegs(TYP_BYREF, outByrefRegSet);
     }
@@ -1714,7 +1714,7 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
     if (layout->IsGCRef(1))
     {
         emit.emitIns_Mov(INS_mov, EA_GCREF, REG_WRITE_BARRIER_SRC, valReg1, /*canSkip*/ true);
-        genEmitHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
+        GenHelperCall(CORINFO_HELP_CHECKED_ASSIGN_REF, EA_PTRSIZE);
     }
     else
     {
@@ -1877,9 +1877,9 @@ void CodeGen::GenCall(GenTreeCall* call)
         }
     }
 
-    emitter::EmitCallType emitCallType;
-    void*                 callAddr = nullptr;
-    regNumber             callReg  = REG_NA;
+    CallInsKind callKind;
+    void*       callAddr = nullptr;
+    RegNum      callReg  = REG_NA;
 
     if (target != nullptr)
     {
@@ -1890,8 +1890,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         //
         assert(genIsValidIntReg(target->GetRegNum()));
 
-        emitCallType = emitter::EC_INDIR_R;
-        callReg      = target->GetRegNum();
+        callKind = CK_INDIR_R;
+        callReg  = target->GetRegNum();
     }
 #ifdef FEATURE_READYTORUN_COMPILER
     else if (call->IsR2ROrVirtualStubRelativeIndir())
@@ -1903,14 +1903,14 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(!call->IsTailCall());
 
         callReg = call->GetSingleTempReg();
+
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callReg, REG_R2R_INDIRECT_PARAM);
 
         // We have now generated code for gtControlExpr evaluating it into `tmpReg`.
         // We just need to emit "call tmpReg" in this case.
-        //
         assert(genIsValidIntReg(callReg));
 
-        emitCallType = emitter::EC_INDIR_R;
+        callKind = CK_INDIR_R;
     }
 #endif // FEATURE_READYTORUN_COMPILER
     else
@@ -1918,7 +1918,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(call->IsHelperCall() || call->IsUserCall());
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (call->gtEntryPoint.addr != NULL)
+        if (call->gtEntryPoint.addr != nullptr)
         {
             assert(call->gtEntryPoint.accessType == IAT_VALUE);
 
@@ -1935,14 +1935,15 @@ void CodeGen::GenCall(GenTreeCall* call)
 #ifdef TARGET_ARM
         if (!ArmImm::IsBlImm(reinterpret_cast<ssize_t>(callAddr), compiler))
         {
-            emitCallType = emitter::EC_INDIR_R;
-            callReg      = call->GetSingleTempReg();
+            callKind = CK_INDIR_R;
+            callReg  = call->GetSingleTempReg();
+
             instGen_Set_Reg_To_Addr(callReg, callAddr);
         }
         else
 #endif
         {
-            emitCallType = emitter::EC_FUNC_TOKEN;
+            callKind = CK_FUNC_TOKEN;
         }
 
 #if 0 && defined(TARGET_ARM64)
@@ -1951,9 +1952,10 @@ void CodeGen::GenCall(GenTreeCall* call)
         // If this path is enabled, we need to ensure that REG_IP0 is assigned during Lowering.
 
         // Load the call target address in x16
-        emitCallType = emitter::EC_INDIR_R;
+        callKind = CK_INDIR_R;
         callReg = REG_IP0;
-        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, (ssize_t)addr);
+
+        instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, reinterpret_cast<ssize_t>(addr));
 #endif
     }
 
@@ -1969,7 +1971,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        emitCallType,
+        callKind,
         methHnd
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
         callAddr,
@@ -2020,7 +2022,7 @@ void CodeGen::GenCall(GenTreeCall* call)
                 returnType = call->GetRegType(0);
             }
 
-            regNumber returnReg;
+            RegNum returnReg;
 
 #ifdef TARGET_ARM
             if (call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME))
@@ -2069,9 +2071,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 }
 
-void CodeGen::GenJmp(GenTree* jmp)
+void CodeGen::GenJmp(GenTreeJmp* jmp)
 {
-    assert(jmp->OperIs(GT_JMP));
     assert(compiler->compJmpOpUsed);
 
 #ifdef PROFILING_SUPPORTED
@@ -2233,7 +2234,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
     GenTree* jmpNode = block->lastNode();
 #if !FEATURE_FASTTAILCALL
     noway_assert(jmpNode->OperIs(GT_JMP));
-#else  // FEATURE_FASTTAILCALL
+#else
     noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
     noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
 
@@ -2246,9 +2247,10 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         assert(addrInfo.addr != nullptr);
 
 #ifdef TARGET_ARMARCH
-        emitter::EmitCallType callType;
-        void*                 addr;
-        regNumber             indCallReg;
+        CallInsKind callKind;
+        void*       addr;
+        RegNum      callReg;
+
         switch (addrInfo.accessType)
         {
             case IAT_VALUE:
@@ -2259,9 +2261,9 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 #endif
                 {
                     // Simple direct call
-                    callType   = emitter::EC_FUNC_TOKEN;
-                    addr       = addrInfo.addr;
-                    indCallReg = REG_NA;
+                    callKind = CK_FUNC_TOKEN;
+                    addr     = addrInfo.addr;
+                    callReg  = REG_NA;
                     break;
                 }
 
@@ -2272,13 +2274,15 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             case IAT_PVALUE:
                 // Load the address into a register, load indirect and call  through a register
                 // We have to use R12 since we assume the argument registers are in use
-                callType   = emitter::EC_INDIR_R;
-                indCallReg = REG_INDIRECT_CALL_TARGET_REG;
-                addr       = NULL;
-                instGen_Set_Reg_To_Addr(indCallReg, addrInfo.addr);
+                callKind = CK_INDIR_R;
+                callReg  = REG_INDIRECT_CALL_TARGET_REG;
+                addr     = nullptr;
+
+                instGen_Set_Reg_To_Addr(callReg, addrInfo.addr);
+
                 if (addrInfo.accessType == IAT_PVALUE)
                 {
-                    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, indCallReg, indCallReg, 0);
+                    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, callReg, callReg, 0);
                 }
                 break;
 
@@ -2287,28 +2291,27 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 // We have to use R12 since we assume the argument registers are in use
                 // LR is used as helper register right before it is restored from stack, thus,
                 // all relative address calculations are performed before LR is restored.
-                callType   = emitter::EC_INDIR_R;
-                indCallReg = REG_R12;
-                addr       = nullptr;
+                callKind = CK_INDIR_R;
+                callReg  = REG_R12;
+                addr     = nullptr;
                 break;
 
             case IAT_PPVALUE:
             default:
-                NO_WAY("Unsupported JMP indirection");
+                unreached();
         }
 
-        /* Simply emit a jump to the methodHnd. This is similar to a call so we can use
-         * the same descriptor with some minor adjustments.
-         */
+        // Simply emit a jump to the methodHnd. This is similar to a call so we can use
+        // the same descriptor with some minor adjustments.
 
         // clang-format off
         GetEmitter()->emitIns_Call(
-            callType,
+            callKind,
             methHnd
             DEBUGARG(nullptr),
             addr,
             EA_UNKNOWN ARM64_ARG(EA_UNKNOWN),
-            indCallReg, 
+            callReg, 
             true);
         // clang-format on
         CLANG_FORMAT_COMMENT_ANCHOR;
@@ -2333,7 +2336,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 
             // clang-format off
             GetEmitter()->emitIns_Call(
-                emitter::EC_FUNC_TOKEN,
+                CK_FUNC_TOKEN,
                 call->GetMethodHandle()
                 DEBUGARG(nullptr),
                 call->gtDirectCallAddress,

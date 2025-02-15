@@ -3,6 +3,14 @@
 
 #ifdef TARGET_XARCH
 
+enum CallInsKind
+{
+    CK_FUNC_TOKEN,       // Direct call to a helper/static/nonvirtual/global method
+    CK_FUNC_TOKEN_INDIR, // Indirect call to a helper/static/nonvirtual/global method
+    CK_INDIR_R,          // Indirect call via register
+    CK_INDIR_ARD         // Indirect call via an addressing mode
+};
+
 class X86Emitter final : public EmitterBase
 {
     friend class X86Encoder;
@@ -140,15 +148,7 @@ public:
     void emitIns_SIMD_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
     void emitIns_SIMD_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
 
-    enum EmitCallType
-    {
-        EC_FUNC_TOKEN,       // Direct call to a helper/static/nonvirtual/global method
-        EC_FUNC_TOKEN_INDIR, // Indirect call to a helper/static/nonvirtual/global method
-        EC_INDIR_R,          // Indirect call via register
-        EC_INDIR_ARD         // Indirect call via an addressing mode
-    };
-
-    void emitIns_Call(EmitCallType          kind,
+    void emitIns_Call(CallInsKind           kind,
                       CORINFO_METHOD_HANDLE methodHandle,
 #ifdef DEBUG
                       CORINFO_SIG_INFO* sigInfo,

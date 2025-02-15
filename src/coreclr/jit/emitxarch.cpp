@@ -3583,7 +3583,7 @@ void X86Emitter::UpdateStackLevel(instruction ins, ssize_t val)
 // EC_INDIR_R          : call ireg (addr has to be null)
 // EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
 //
-void X86Emitter::emitIns_Call(EmitCallType          kind,
+void X86Emitter::emitIns_Call(CallInsKind           kind,
                               CORINFO_METHOD_HANDLE methodHandle,
 #ifdef DEBUG
                               CORINFO_SIG_INFO* sigInfo,
@@ -3602,10 +3602,10 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
                               int32_t  amDisp,
                               bool     isJump)
 {
-    assert((kind != EC_FUNC_TOKEN && kind != EC_FUNC_TOKEN_INDIR) ||
+    assert((kind != CK_FUNC_TOKEN && kind != CK_FUNC_TOKEN_INDIR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
-    assert(kind < EC_INDIR_R || kind == EC_INDIR_ARD || addr == nullptr);
-    assert(kind != EC_INDIR_R || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
+    assert(kind < CK_INDIR_R || kind == CK_INDIR_ARD || addr == nullptr);
+    assert(kind != CK_INDIR_R || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
 
 #ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push.
@@ -3622,26 +3622,26 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
 #ifdef TARGET_X86
                                  argSlotCount,
 #endif
-                                 (kind == EC_INDIR_ARD) ? amDisp : 0);
+                                 kind == CK_INDIR_ARD ? amDisp : 0);
 
     if (!isJump)
     {
         id->idIns(INS_call);
     }
-    else if (kind == EC_FUNC_TOKEN)
+    else if (kind == CK_FUNC_TOKEN)
     {
         id->idIns(INS_l_jmp);
     }
     else
     {
-        assert((kind == EC_FUNC_TOKEN_INDIR) || (kind == EC_INDIR_ARD));
+        assert((kind == CK_FUNC_TOKEN_INDIR) || (kind == CK_INDIR_ARD));
 
         id->idIns(INS_i_jmp);
     }
 
     unsigned sz;
 
-    if (kind == EC_INDIR_R)
+    if (kind == CK_INDIR_R)
     {
         id->idInsFmt(IF_RRD);
         // Move the GC regs info to the unused address mode bits.
@@ -3651,7 +3651,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
 
         sz = 2 + IsExtendedReg(amBase);
     }
-    else if (kind == EC_INDIR_ARD)
+    else if (kind == CK_INDIR_ARD)
     {
         assert(amBase != REG_NA);
 
@@ -3662,7 +3662,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
 
         sz = EncodingSizeAM(id, GetCodeMR(INS_call));
     }
-    else if (kind == EC_FUNC_TOKEN_INDIR)
+    else if (kind == CK_FUNC_TOKEN_INDIR)
     {
         assert(addr != nullptr);
 
@@ -3686,7 +3686,7 @@ void X86Emitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert(kind == EC_FUNC_TOKEN);
+        assert(kind == CK_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);

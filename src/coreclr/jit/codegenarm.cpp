@@ -1034,7 +1034,7 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
     GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, UseReg(data), 0);
     insGroup* skipLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_beq, skipLabel);
-    genEmitHelperCall(CORINFO_HELP_STOP_FOR_GC);
+    GenHelperCall(CORINFO_HELP_STOP_FOR_GC);
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
@@ -1202,11 +1202,10 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
-void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNumber callTargetReg)
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum callTargetReg)
 {
-    // Can we call the helper function directly
-
-    void *addr = NULL, **pAddr = NULL;
+    void* addr  = nullptr;
+    void* pAddr = nullptr;
 
 #if defined(DEBUG) && defined(PROFILING_SUPPORTED)
     // Don't ask VM if it hasn't requested ELT hooks
@@ -1219,11 +1218,11 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
     else
 #endif
     {
-        addr = compiler->compGetHelperFtn(helper, (void**)&pAddr);
+        addr = compiler->compGetHelperFtn(helper, &pAddr);
     }
 
-    emitter::EmitCallType callKind;
-    void*                 callAddr;
+    CallInsKind callKind;
+    void*       callAddr;
 
     if ((addr == nullptr) || !ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler))
     {
@@ -1245,12 +1244,12 @@ void CodeGen::genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize, regNum
             GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, callTargetReg, callTargetReg, 0);
         }
 
-        callKind = emitter::EC_INDIR_R;
+        callKind = CK_INDIR_R;
         callAddr = nullptr;
     }
     else
     {
-        callKind      = emitter::EC_FUNC_TOKEN;
+        callKind      = CK_FUNC_TOKEN;
         callAddr      = addr;
         callTargetReg = REG_NA;
     }
@@ -1319,7 +1318,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
         instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
     }
 
-    genEmitHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
+    GenHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
 
     if (initReg == argReg)
     {
@@ -1405,7 +1404,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     liveness.RemoveGCRegs(RBM_R0);
 
-    genEmitHelperCall(helper);
+    GenHelperCall(helper);
 
     // Restore state that existed before profiler callback
     if (r0InUse)
@@ -1496,7 +1495,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     else
     {
         genInstrWithConstant(INS_sub, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize, REG_STACK_PROBE_HELPER_ARG);
-        genEmitHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
+        GenHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         unwindPadding();
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 
@@ -2773,7 +2772,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
         GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
-        genEmitHelperCall(Compiler::GetThrowHelperCall(throwKind));
+        GenHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }
 }

@@ -187,14 +187,14 @@ public:
     bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 #ifdef TARGET_X86
-    void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA)
+    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, RegNum callTarget = REG_NA)
     {
-        genEmitHelperCall(helper, 0, retSize, callTarget);
+        GenHelperCall(helper, 0, retSize, callTarget);
     }
 
-    void genEmitHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, regNumber callTarget = REG_NA);
+    void GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, RegNum callTarget = REG_NA);
 #else
-    void genEmitHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, regNumber callTarget = REG_NA);
+    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, RegNum callTarget = REG_NA);
 #endif
 
     void genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf);
@@ -212,9 +212,9 @@ public:
     struct ParamRegInfo;
 
     void genPrologMoveParamRegs(
-        unsigned regCount, regMaskTP regLiveIn, bool isFloat, regNumber tempReg, bool* tempRegClobbered);
+        unsigned regCount, regMaskTP regLiveIn, bool isFloat, RegNum tempReg, bool* tempRegClobbered);
     regMaskTP genPrologBuildParamRegsTable(
-        ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, regNumber tempReg);
+        ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs, bool isFloat, RegNum tempReg);
     void genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs,
                                                     unsigned      paramRegCount,
                                                     regMaskTP     liveParamRegs);
@@ -223,7 +223,7 @@ public:
                                 unsigned      paramRegCount,
                                 regMaskTP     liveParamRegs,
                                 bool          isFloat,
-                                regNumber     tempReg,
+                                RegNum        tempReg,
                                 bool*         tempRegClobbered);
     void genPrologEnregisterIncomingStackParams();
     void MarkStackLocals();
@@ -785,7 +785,7 @@ protected:
     void GenSwitchTable(GenTreeOp* node);
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void GenCall(GenTreeCall* call);
-    void GenJmp(GenTree* jmp);
+    void GenJmp(GenTreeJmp* jmp);
     void GenJmpEpilog(BasicBlock* block
 #ifdef TARGET_ARMARCH
                       ,

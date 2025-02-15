@@ -982,7 +982,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenCall(node->AsCall());
             break;
         case GT_JMP:
-            GenJmp(node);
+            GenJmp(node->AsJmp());
             break;
         case GT_MEMORYBARRIER:
             GenMemoryBarrier(node);

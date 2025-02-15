@@ -3757,20 +3757,20 @@ void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
 //
 // Please consult the "debugger team notification" comment in genFnProlog().
 //
-void ArmEmitter::emitIns_Call(EmitCallType          kind,
+void ArmEmitter::emitIns_Call(CallInsKind           kind,
                               CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
                               void*    addr,
                               emitAttr retSize,
                               RegNum   reg,
                               bool     isJump)
 {
-    assert((kind == EC_INDIR_R) || (reg == REG_NA));
-    assert((kind != EC_INDIR_R) || (addr == nullptr));
-    assert((kind != EC_INDIR_R) || (reg != REG_NA));
+    assert((kind == CK_INDIR_R) || (reg == REG_NA));
+    assert((kind != CK_INDIR_R) || (addr == nullptr));
+    assert((kind != CK_INDIR_R) || (reg != REG_NA));
 
     instrDesc* id = NewInstrCall(methodHandle, retSize);
 
-    if (kind == EC_INDIR_R)
+    if (kind == CK_INDIR_R)
     {
         id->idIns(isJump ? INS_bx : INS_blx);
         id->idInsFmt(IF_T1_D2);
@@ -3779,7 +3779,7 @@ void ArmEmitter::emitIns_Call(EmitCallType          kind,
     }
     else
     {
-        assert(kind == EC_FUNC_TOKEN);
+        assert(kind == CK_FUNC_TOKEN);
         // if addr is nullptr then this call is treated as a recursive call.
         assert((addr == nullptr) || ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler));
 
