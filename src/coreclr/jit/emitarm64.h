@@ -3,12 +3,6 @@
 
 #ifdef TARGET_ARM64
 
-enum CallInsKind
-{
-    CK_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-    CK_INDIR_R     // Indirect call via register
-};
-
 class Arm64Emitter final : public EmitterBase
 {
     friend class Arm64Encoder;
@@ -77,13 +71,11 @@ public:
     void emitIns_R_AH(RegNum reg,
                       void* addr DEBUGARG(void* handle = nullptr) DEBUGARG(HandleKind handleKind = HandleKind::None));
 
-    void emitIns_Call(CallInsKind           kind,
-                      CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                      void*    addr,
-                      emitAttr retRegAttr,
-                      emitAttr retReg2Attr,
-                      RegNum   reg    = REG_NA,
-                      bool     isJump = false);
+    void emitIns_Call(RegNum reg,
+                      void*  addr,
+                      jitstd::pair<emitAttr, emitAttr> retRegAttr,
+                      bool                  isJump,
+                      CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo = nullptr));
 
 private:
     template <typename T>
@@ -95,7 +87,7 @@ private:
     instrDesc* NewInstrCns(int32_t imm);
     instrDesc* NewInstrGCReg(emitAttr attr, RegNum reg);
     instrDescJmp* NewInstrJmp();
-    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr retSize, emitAttr secondRetSize);
+    instrDesc* NewInstrCall(CORINFO_METHOD_HANDLE methodHandle, emitAttr regReg0Attr, emitAttr retReg1Attr);
     instrDescCGCA* AllocInstrCGCA();
 
     // Method to do check if mov is redundant with respect to the last instruction.

@@ -5,10 +5,10 @@
 
 enum CallInsKind
 {
-    CK_FUNC_TOKEN,       // Direct call to a helper/static/nonvirtual/global method
-    CK_FUNC_TOKEN_INDIR, // Indirect call to a helper/static/nonvirtual/global method
-    CK_INDIR_R,          // Indirect call via register
-    CK_INDIR_ARD         // Indirect call via an addressing mode
+    CK_FUNC_TOKEN       = IF_METHOD,
+    CK_FUNC_TOKEN_INDIR = IF_METHPTR,
+    CK_INDIR_R          = IF_RRD,
+    CK_INDIR_ARD        = IF_ARD
 };
 
 class X86Emitter final : public EmitterBase
@@ -148,24 +148,26 @@ public:
     void emitIns_SIMD_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
     void emitIns_SIMD_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
 
-    void emitIns_Call(CallInsKind           kind,
-                      CORINFO_METHOD_HANDLE methodHandle,
-#ifdef DEBUG
-                      CORINFO_SIG_INFO* sigInfo,
-#endif
-                      void* addr,
-#ifdef TARGET_X86
-                      int32_t argSize,
-#endif
-                      emitAttr retRegAttr,
+    void emitIns_Call(insFormat format,
+                      void*     addr,
+                      RegNum    amBase,
+                      RegNum    amIndex,
+                      unsigned  amScale,
+                      int32_t   amDisp,
+                      bool      isJump,
+                      emitAttr  retRegAttr,
 #ifdef UNIX_AMD64_ABI
                       emitAttr retReg2Attr,
 #endif
-                      RegNum   amBase  = REG_NA,
-                      RegNum   amIndex = REG_NA,
-                      unsigned amScale = 0,
-                      int32_t  amDisp  = 0,
-                      bool     isJump  = false);
+#ifdef TARGET_X86
+                      int32_t argSize,
+#endif
+                      CORINFO_METHOD_HANDLE methodHandle
+#ifdef DEBUG
+                      ,
+                      CORINFO_SIG_INFO* sigInfo = nullptr
+#endif
+                      );
 
 private:
     bool UseVEXEncoding() const;

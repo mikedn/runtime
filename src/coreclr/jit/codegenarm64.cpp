@@ -3362,12 +3362,11 @@ bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
     return genSaveFpLrWithAllCalleeSavedRegisters;
 }
 
-void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum callTargetReg)
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum tempReg)
 {
-    void*       pAddr      = nullptr;
-    void*       addr       = compiler->compGetHelperFtn(helper, &pAddr);
-    CallInsKind callKind   = CK_FUNC_TOKEN;
-    RegNum      callTarget = REG_NA;
+    void*  pAddr   = nullptr;
+    void*  addr    = compiler->compGetHelperFtn(helper, &pAddr);
+    RegNum addrReg = REG_NA;
 
     if (addr == nullptr)
     {
@@ -3379,38 +3378,34 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum cal
         // ldr x, [x]
         // br x
 
-        if (callTargetReg == REG_NA)
+        if (tempReg == REG_NA)
         {
             // If a callTargetReg has not been explicitly provided, we will use REG_DEFAULT_HELPER_CALL_TARGET, but
             // this is only a valid assumption if the helper call is known to kill REG_DEFAULT_HELPER_CALL_TARGET.
-            callTargetReg = REG_DEFAULT_HELPER_CALL_TARGET;
+            tempReg = REG_DEFAULT_HELPER_CALL_TARGET;
         }
 
-        regMaskTP callTargetMask = genRegMask(callTargetReg);
+        regMaskTP callTargetMask = genRegMask(tempReg);
         regMaskTP callKillSet    = compiler->compHelperCallKillSet(helper);
 
         // assert that all registers in callTargetMask are in the callKillSet
         noway_assert((callTargetMask & callKillSet) == callTargetMask);
 
-        callTarget = callTargetReg;
+        addrReg = tempReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AH(callTarget, pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
-                                                   DEBUGARG(HandleKind::Method));
+        GetEmitter()->emitIns_R_AH(addrReg, pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
+                                                DEBUGARG(HandleKind::Method));
 
-        GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, callTarget, callTarget);
-        callKind = CK_INDIR_R;
+        GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, addrReg, addrReg);
     }
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        callKind,
-        Compiler::eeFindHelper(helper)
-        DEBUGARG(nullptr),
-        addr,
-        retSize, EA_UNKNOWN,
-        callTarget,
-        false);
+        addrReg, addr,
+        { retRegAttr, EA_UNKNOWN },
+        false,
+        Compiler::eeFindHelper(helper));
     // clang-format on
 }
 

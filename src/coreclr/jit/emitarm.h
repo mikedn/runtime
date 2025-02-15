@@ -3,12 +3,6 @@
 
 #ifdef TARGET_ARM
 
-enum CallInsKind
-{
-    CK_FUNC_TOKEN, // Direct call to a helper/static/nonvirtual/global method
-    CK_INDIR_R     // Indirect call via register
-};
-
 class ArmEmitter final : public EmitterBase
 {
     friend class ArmEncoder;
@@ -70,12 +64,11 @@ public:
     void emitIns_R_D(instruction ins, RegNum reg, ConstData* data);
     void emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, RegNum reg);
 
-    void emitIns_Call(CallInsKind           kind,
-                      CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                      void*    addr,
-                      emitAttr retRegAttr,
-                      RegNum   reg    = REG_NA,
-                      bool     isJump = false);
+    void emitIns_Call(RegNum                reg,
+                      void*                 addr,
+                      emitAttr              retRegAttr,
+                      bool                  isJump,
+                      CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo = nullptr));
 
     unsigned GetInstructionSize(const emitLocation& loc);
 

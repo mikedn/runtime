@@ -1600,7 +1600,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else
         {
-            assert((call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT) != 0);
+            assert(call->IsVirtualStubRelativeIndir());
             stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
             stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
         }

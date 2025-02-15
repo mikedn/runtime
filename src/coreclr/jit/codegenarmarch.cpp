@@ -1807,25 +1807,23 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(argNode->GetRegNum() == argInfo->GetRegNum());
     }
 
-    // Insert a null check on "this" pointer if asked.
     if (call->NeedsNullCheck())
     {
         assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_R0);
 
-#if defined(TARGET_ARM)
-        const regNumber tmpReg = call->ExtractTempReg();
+#ifdef TARGET_ARM
+        RegNum tmpReg = call->ExtractTempReg();
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, REG_R0, 0);
-#elif defined(TARGET_ARM64)
+#else
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_R0, 0);
 #endif
     }
 
-    CORINFO_METHOD_HANDLE methHnd = call->GetMethodHandle();
-    GenTree*              target  = call->GetCallAddr();
+    GenTree* target = call->GetCallAddr();
 
 #if FEATURE_FASTTAILCALL
-    // If fast tail call, then we are done.  In this case we setup the args (both reg args
-    // and stack args in incoming arg area) and call target.  Epilog sequence would
+    // If fast tail call, then we are done. In this case we setup the args (both reg args
+    // and stack args in incoming arg area) and call target. Epilog sequence would
     // generate "br <reg>".
     if (call->IsFastTailCall())
     {
@@ -1850,67 +1848,21 @@ void CodeGen::GenCall(GenTreeCall* call)
         GetEmitter()->DefineTempLabel();
     }
 
-    // Determine return value attr(s).
-    emitAttr retSize       = EA_PTRSIZE;
-    emitAttr secondRetSize = EA_UNKNOWN;
-
-    if (varTypeIsStruct(call->GetType()) || call->HasMultiRegRetVal())
-    {
-        retSize = emitTypeSize(call->GetRegType(0));
-
-        if (call->GetRegCount() > 1)
-        {
-            secondRetSize = emitTypeSize(call->GetRegType(1));
-        }
-    }
-    else
-    {
-        assert(!call->TypeIs(TYP_STRUCT));
-
-        if (call->TypeIs(TYP_REF))
-        {
-            retSize = EA_GCREF;
-        }
-        else if (call->TypeIs(TYP_BYREF))
-        {
-            retSize = EA_BYREF;
-        }
-    }
-
-    CallInsKind callKind;
-    void*       callAddr = nullptr;
-    RegNum      callReg  = REG_NA;
+    void*  callAddr = nullptr;
+    RegNum callReg  = REG_NA;
 
     if (target != nullptr)
     {
-        genConsumeReg(target);
-
-        // We have already generated code for gtControlExpr evaluating it into a register.
-        // We just need to emit "call reg" in this case.
-        //
-        assert(genIsValidIntReg(target->GetRegNum()));
-
-        callKind = CK_INDIR_R;
-        callReg  = target->GetRegNum();
+        callReg = UseReg(target);
     }
 #ifdef FEATURE_READYTORUN_COMPILER
-    else if (call->IsR2ROrVirtualStubRelativeIndir())
+    else if (call->IsR2RRelativeIndir() || (call->IsVirtualStub() && call->IsVirtualStubRelativeIndir()))
     {
         // Generate a direct call to a non-virtual user defined or helper method
-        assert(call->IsHelperCall() || call->IsUserCall());
-        assert(((call->IsR2RRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_PVALUE)) ||
-               ((call->IsVirtualStubRelativeIndir()) && (call->gtEntryPoint.accessType == IAT_VALUE)));
-        assert(!call->IsTailCall());
+        assert((call->IsHelperCall() || call->IsUserCall()) && !call->IsTailCall());
 
         callReg = call->GetSingleTempReg();
-
         GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callReg, REG_R2R_INDIRECT_PARAM);
-
-        // We have now generated code for gtControlExpr evaluating it into `tmpReg`.
-        // We just need to emit "call tmpReg" in this case.
-        assert(genIsValidIntReg(callReg));
-
-        callKind = CK_INDIR_R;
     }
 #endif // FEATURE_READYTORUN_COMPILER
     else
@@ -1935,28 +1887,49 @@ void CodeGen::GenCall(GenTreeCall* call)
 #ifdef TARGET_ARM
         if (!ArmImm::IsBlImm(reinterpret_cast<ssize_t>(callAddr), compiler))
         {
-            callKind = CK_INDIR_R;
-            callReg  = call->GetSingleTempReg();
-
+            callReg = call->GetSingleTempReg();
             instGen_Set_Reg_To_Addr(callReg, callAddr);
+            callAddr = nullptr;
         }
-        else
 #endif
-        {
-            callKind = CK_FUNC_TOKEN;
-        }
 
 #if 0 && defined(TARGET_ARM64)
         // Use this path if you want to load an absolute call target using
-        //  a sequence of movs followed by an indirect call (blr instruction)
+        // a sequence of movs followed by an indirect call (blr instruction)
         // If this path is enabled, we need to ensure that REG_IP0 is assigned during Lowering.
 
         // Load the call target address in x16
-        callKind = CK_INDIR_R;
         callReg = REG_IP0;
 
         instGen_Set_Reg_To_Imm(EA_8BYTE, callReg, reinterpret_cast<ssize_t>(addr));
 #endif
+    }
+
+    emitAttr retReg0Attr = EA_PTRSIZE;
+#ifdef TARGET_ARM64
+    emitAttr regReg1Attr = EA_UNKNOWN;
+#endif
+
+    if (varTypeIsStruct(call->GetType()) || call->HasMultiRegRetVal())
+    {
+        retReg0Attr = emitTypeSize(call->GetRegType(0));
+
+#ifdef TARGET_ARM64
+        if (call->GetRegCount() > 1)
+        {
+            regReg1Attr = emitTypeSize(call->GetRegType(1));
+        }
+#else
+        assert(call->GetRegCount() == 1);
+#endif
+    }
+    else if (call->TypeIs(TYP_REF))
+    {
+        retReg0Attr = EA_GCREF;
+    }
+    else if (call->TypeIs(TYP_BYREF))
+    {
+        retReg0Attr = EA_BYREF;
     }
 
     // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
@@ -1971,13 +1944,11 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        callKind,
-        methHnd
-        DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig),
-        callAddr,
-        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(secondRetSize),
-        callReg,
-        false);
+        callReg, callAddr,
+        { retReg0Attr ARM64_ARG(regReg1Attr) },
+        false,
+        call->GetMethodHandle()
+        DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig));
     // clang-format on
 
     if (genPendingCallLabel != nullptr)
@@ -2247,9 +2218,8 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         assert(addrInfo.addr != nullptr);
 
 #ifdef TARGET_ARMARCH
-        CallInsKind callKind;
-        void*       addr;
-        RegNum      callReg;
+        void*  addr    = nullptr;
+        RegNum addrReg = REG_NA;
 
         switch (addrInfo.accessType)
         {
@@ -2260,10 +2230,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
 #endif
                 {
-                    // Simple direct call
-                    callKind = CK_FUNC_TOKEN;
-                    addr     = addrInfo.addr;
-                    callReg  = REG_NA;
+                    addr = addrInfo.addr;
                     break;
                 }
 
@@ -2274,15 +2241,13 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             case IAT_PVALUE:
                 // Load the address into a register, load indirect and call  through a register
                 // We have to use R12 since we assume the argument registers are in use
-                callKind = CK_INDIR_R;
-                callReg  = REG_INDIRECT_CALL_TARGET_REG;
-                addr     = nullptr;
+                addrReg = REG_INDIRECT_CALL_TARGET_REG;
 
-                instGen_Set_Reg_To_Addr(callReg, addrInfo.addr);
+                instGen_Set_Reg_To_Addr(addrReg, addrInfo.addr);
 
                 if (addrInfo.accessType == IAT_PVALUE)
                 {
-                    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, callReg, callReg, 0);
+                    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, addrReg, addrReg, 0);
                 }
                 break;
 
@@ -2291,9 +2256,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 // We have to use R12 since we assume the argument registers are in use
                 // LR is used as helper register right before it is restored from stack, thus,
                 // all relative address calculations are performed before LR is restored.
-                callKind = CK_INDIR_R;
-                callReg  = REG_R12;
-                addr     = nullptr;
+                addrReg = REG_R12;
                 break;
 
             case IAT_PPVALUE:
@@ -2306,13 +2269,10 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 
         // clang-format off
         GetEmitter()->emitIns_Call(
-            callKind,
-            methHnd
-            DEBUGARG(nullptr),
-            addr,
-            EA_UNKNOWN ARM64_ARG(EA_UNKNOWN),
-            callReg, 
-            true);
+            addrReg, addr,
+            { EA_UNKNOWN ARM64_ARG(EA_UNKNOWN) },
+            true,
+            methHnd);
         // clang-format on
         CLANG_FORMAT_COMMENT_ANCHOR;
 #endif // TARGET_ARMARCH
@@ -2336,13 +2296,10 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 
             // clang-format off
             GetEmitter()->emitIns_Call(
-                CK_FUNC_TOKEN,
-                call->GetMethodHandle()
-                DEBUGARG(nullptr),
-                call->gtDirectCallAddress,
-                EA_UNKNOWN ARM64_ARG(EA_UNKNOWN),
-                REG_NA,
-                true);
+                REG_NA, call->gtDirectCallAddress,
+                { EA_UNKNOWN ARM64_ARG(EA_UNKNOWN) },
+                true,
+                call->GetMethodHandle());
             // clang-format on
         }
         else

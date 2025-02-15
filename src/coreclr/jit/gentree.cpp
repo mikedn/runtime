@@ -2682,9 +2682,9 @@ void Compiler::gtSetCosts(GenTree* tree)
                         costEx += (1 + IND_COST_EX);
                         costSz += 8;
 
-                        if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
+                        if (call->IsVirtualStubRelativeIndir())
                         {
-                            // Must use R12 for the ldr target -- REG_JUMP_THUNK_PARAM
+                            // Must use R12 for the ldr target
                             costSz += 2;
                         }
                     }

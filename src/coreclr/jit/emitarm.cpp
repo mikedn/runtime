@@ -3750,27 +3750,15 @@ void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
     AppendInstr(id);
 }
 
-// Add a call instruction (direct or indirect).
-//
-// EC_FUNC_TOKEN : addr is the method address
-// EC_INDIR_R    : call ireg (addr has to be null)
-//
-// Please consult the "debugger team notification" comment in genFnProlog().
-//
-void ArmEmitter::emitIns_Call(CallInsKind           kind,
-                              CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                              void*    addr,
-                              emitAttr retSize,
-                              RegNum   reg,
-                              bool     isJump)
+void ArmEmitter::emitIns_Call(RegNum                reg,
+                              void*                 addr,
+                              emitAttr              regRegAttr,
+                              bool                  isJump,
+                              CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
 {
-    assert((kind == CK_INDIR_R) || (reg == REG_NA));
-    assert((kind != CK_INDIR_R) || (addr == nullptr));
-    assert((kind != CK_INDIR_R) || (reg != REG_NA));
+    instrDesc* id = NewInstrCall(methodHandle, regRegAttr);
 
-    instrDesc* id = NewInstrCall(methodHandle, retSize);
-
-    if (kind == CK_INDIR_R)
+    if (reg != REG_NA)
     {
         id->idIns(isJump ? INS_bx : INS_blx);
         id->idInsFmt(IF_T1_D2);
@@ -3779,7 +3767,6 @@ void ArmEmitter::emitIns_Call(CallInsKind           kind,
     }
     else
     {
-        assert(kind == CK_FUNC_TOKEN);
         // if addr is nullptr then this call is treated as a recursive call.
         assert((addr == nullptr) || ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler));
 

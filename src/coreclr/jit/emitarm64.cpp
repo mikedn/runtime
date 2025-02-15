@@ -7113,28 +7113,15 @@ void Arm64Emitter::emitIns_CallFinally(insGroup* label)
     AppendInstr(id);
 }
 
-// Add a call instruction (direct or indirect).
-//
-// EC_FUNC_TOKEN : addr is the method address
-// EC_INDIR_R    : call ireg (addr has to be null)
-//
-// Please consult the "debugger team notification" comment in genFnProlog().
-//
-void Arm64Emitter::emitIns_Call(CallInsKind           kind,
-                                CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo),
-                                void*    addr,
-                                emitAttr retRegAttr,
-                                emitAttr retReg2Attr,
-                                RegNum   reg,
-                                bool     isJump)
+void Arm64Emitter::emitIns_Call(RegNum reg,
+                                void*  addr,
+                                jitstd::pair<emitAttr, emitAttr> retRegAttr,
+                                bool                  isJump,
+                                CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
 {
-    assert((kind == CK_INDIR_R) || (reg == REG_NA));
-    assert((kind != CK_INDIR_R) || (addr == nullptr));
-    assert((kind != CK_INDIR_R) || (reg != REG_NA));
+    instrDesc* id = NewInstrCall(methodHandle, retRegAttr.first, retRegAttr.second);
 
-    instrDesc* id = NewInstrCall(methodHandle, retRegAttr, retReg2Attr);
-
-    if (kind == CK_INDIR_R)
+    if (reg != REG_NA)
     {
         id->idIns(isJump ? INS_br_tail : INS_blr);
         id->idInsFmt(IF_BR_1B);
@@ -7142,7 +7129,6 @@ void Arm64Emitter::emitIns_Call(CallInsKind           kind,
     }
     else
     {
-        assert(kind == CK_FUNC_TOKEN);
         assert(addr != nullptr);
 
         id->idIns(isJump ? INS_b_tail : INS_bl);

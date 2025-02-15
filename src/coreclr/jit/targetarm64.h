@@ -108,9 +108,6 @@
   #define REG_EXCEPTION_OBJECT     REG_R0
   #define RBM_EXCEPTION_OBJECT     RBM_R0
 
-  #define REG_JUMP_THUNK_PARAM     REG_R12
-  #define RBM_JUMP_THUNK_PARAM     RBM_R12
-
   // ARM64 write barrier ABI (see vm\arm64\asmhelpers.asm, vm\arm64\asmhelpers.S):
   // CORINFO_HELP_ASSIGN_REF (JIT_WriteBarrier), CORINFO_HELP_CHECKED_ASSIGN_REF (JIT_CheckedWriteBarrier):
   //     On entry:

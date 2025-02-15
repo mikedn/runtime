@@ -177,13 +177,10 @@
 #ifdef UNIX_AMD64_ABI
   #define REG_EXCEPTION_OBJECT     REG_ESI
   #define RBM_EXCEPTION_OBJECT     RBM_ESI
-#else // !UNIX_AMD64_ABI
+#else
   #define REG_EXCEPTION_OBJECT     REG_EDX
   #define RBM_EXCEPTION_OBJECT     RBM_EDX
-#endif // !UNIX_AMD64_ABI
-
-  #define REG_JUMP_THUNK_PARAM     REG_EAX
-  #define RBM_JUMP_THUNK_PARAM     RBM_EAX
+#endif
 
   // Register to be used for emitting helper calls whose call target is an indir of an
   // absolute memory address in case of Rel32 overflow i.e. a data address could not be

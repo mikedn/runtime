@@ -4278,6 +4278,7 @@ public:
         return false;
 #endif
     }
+
     bool IsTailCallConvertibleToLoop() const
     {
 #if FEATURE_TAILCALL_OPT
@@ -4291,6 +4292,7 @@ public:
     {
         return (gtCallMoreFlags & GTF_CALL_M_DELEGATE_INV) != 0;
     }
+
     bool IsVirtualStubRelativeIndir() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT) != 0;
@@ -4298,11 +4300,6 @@ public:
 
 #ifdef FEATURE_READYTORUN_COMPILER
 #ifdef TARGET_ARMARCH
-    bool IsR2ROrVirtualStubRelativeIndir() const
-    {
-        return IsR2RRelativeIndir() || (IsVirtualStub() && IsVirtualStubRelativeIndir());
-    }
-
     bool IsR2RRelativeIndir() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_R2R_REL_INDIRECT) != 0;

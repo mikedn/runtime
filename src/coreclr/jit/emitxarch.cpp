@@ -3574,38 +3574,31 @@ void X86Emitter::UpdateStackLevel(instruction ins, ssize_t val)
 
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-// Add a call instruction (direct or indirect).
-//
-// argSize < 0 means that the caller will pop the arguments
-//
-// EC_FUNC_TOKEN       : addr is the method address
-// EC_FUNC_TOKEN_INDIR : addr is the indirect method address
-// EC_INDIR_R          : call ireg (addr has to be null)
-// EC_INDIR_ARD        : call [ireg + xreg * xmul + disp] (addr has to be null)
-//
-void X86Emitter::emitIns_Call(CallInsKind           kind,
-                              CORINFO_METHOD_HANDLE methodHandle,
-#ifdef DEBUG
-                              CORINFO_SIG_INFO* sigInfo,
-#endif
-                              void* addr,
-#ifdef TARGET_X86
-                              int32_t argSize,
-#endif
-                              emitAttr retRegAttr,
+void X86Emitter::emitIns_Call(insFormat format,
+                              void*     addr,
+                              RegNum    amBase,
+                              RegNum    amIndex,
+                              unsigned  amScale,
+                              int32_t   amDisp,
+                              bool      isJump,
+                              emitAttr  retRegAttr,
 #ifdef UNIX_AMD64_ABI
                               emitAttr retReg2Attr,
 #endif
-                              RegNum   amBase,
-                              RegNum   amIndex,
-                              unsigned amScale,
-                              int32_t  amDisp,
-                              bool     isJump)
+#ifdef TARGET_X86
+                              int32_t argSize,
+#endif
+                              CORINFO_METHOD_HANDLE methodHandle
+#ifdef DEBUG
+                              ,
+                              CORINFO_SIG_INFO* sigInfo
+#endif
+                              )
 {
-    assert((kind != CK_FUNC_TOKEN && kind != CK_FUNC_TOKEN_INDIR) ||
+    assert((format != IF_METHOD && format != IF_METHPTR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));
-    assert(kind < CK_INDIR_R || kind == CK_INDIR_ARD || addr == nullptr);
-    assert(kind != CK_INDIR_R || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
+    assert(format == IF_METHOD || format == IF_METHPTR || format == IF_ARD || addr == nullptr);
+    assert(format != IF_RRD || (genIsValidIntReg(amBase) && amIndex == REG_NA && amScale == 0 && amDisp == 0));
 
 #ifdef TARGET_X86
     // Our stack level should be always greater than the bytes of arguments we push.
@@ -3622,26 +3615,26 @@ void X86Emitter::emitIns_Call(CallInsKind           kind,
 #ifdef TARGET_X86
                                  argSlotCount,
 #endif
-                                 kind == CK_INDIR_ARD ? amDisp : 0);
+                                 format == IF_ARD ? amDisp : 0);
 
     if (!isJump)
     {
         id->idIns(INS_call);
     }
-    else if (kind == CK_FUNC_TOKEN)
+    else if (format == IF_METHOD)
     {
         id->idIns(INS_l_jmp);
     }
     else
     {
-        assert((kind == CK_FUNC_TOKEN_INDIR) || (kind == CK_INDIR_ARD));
+        assert((format == IF_METHPTR) || (format == IF_ARD));
 
         id->idIns(INS_i_jmp);
     }
 
     unsigned sz;
 
-    if (kind == CK_INDIR_R)
+    if (format == IF_RRD)
     {
         id->idInsFmt(IF_RRD);
         // Move the GC regs info to the unused address mode bits.
@@ -3651,7 +3644,7 @@ void X86Emitter::emitIns_Call(CallInsKind           kind,
 
         sz = 2 + IsExtendedReg(amBase);
     }
-    else if (kind == CK_INDIR_ARD)
+    else if (format == IF_ARD)
     {
         assert(amBase != REG_NA);
 
@@ -3662,7 +3655,7 @@ void X86Emitter::emitIns_Call(CallInsKind           kind,
 
         sz = EncodingSizeAM(id, GetCodeMR(INS_call));
     }
-    else if (kind == CK_FUNC_TOKEN_INDIR)
+    else if (format == IF_METHPTR)
     {
         assert(addr != nullptr);
 
@@ -3686,7 +3679,7 @@ void X86Emitter::emitIns_Call(CallInsKind           kind,
     }
     else
     {
-        assert(kind == CK_FUNC_TOKEN);
+        assert(format == IF_METHOD);
         assert(addr != nullptr);
 
         id->idInsFmt(IF_METHOD);

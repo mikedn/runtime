@@ -6575,11 +6575,14 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     call                     = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                     call->gtStubCallStubAddr = callInfo->stubLookup.constLookup.addr;
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
-                    assert(callInfo->stubLookup.constLookup.accessType != IAT_PPVALUE &&
-                           callInfo->stubLookup.constLookup.accessType != IAT_RELPVALUE);
+
                     if (callInfo->stubLookup.constLookup.accessType == IAT_PVALUE)
                     {
                         call->gtCallMoreFlags |= GTF_CALL_M_VIRTSTUB_REL_INDIRECT;
+                    }
+                    else
+                    {
+                        assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
                     }
                 }
 

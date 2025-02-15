@@ -1202,7 +1202,7 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
-void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum callTargetReg)
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum tempReg)
 {
     void* addr  = nullptr;
     void* pAddr = nullptr;
@@ -1221,48 +1221,37 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum cal
         addr = compiler->compGetHelperFtn(helper, &pAddr);
     }
 
-    CallInsKind callKind;
-    void*       callAddr;
+    RegNum addrReg = REG_NA;
 
     if ((addr == nullptr) || !ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addr), compiler))
     {
-        if (callTargetReg == REG_NA)
+        if (tempReg == REG_NA)
         {
             // If a callTargetReg has not been explicitly provided, we will use REG_DEFAULT_HELPER_CALL_TARGET, but
             // this is only a valid assumption if the helper call is known to kill REG_DEFAULT_HELPER_CALL_TARGET.
-            callTargetReg = REG_DEFAULT_HELPER_CALL_TARGET;
+            tempReg = REG_DEFAULT_HELPER_CALL_TARGET;
         }
 
-        // Load the address into a register and call through a register
         if (addr != nullptr)
         {
-            instGen_Set_Reg_To_Addr(callTargetReg, addr);
+            instGen_Set_Reg_To_Addr(tempReg, addr);
         }
         else
         {
-            instGen_Set_Reg_To_Addr(callTargetReg, pAddr);
-            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, callTargetReg, callTargetReg, 0);
+            instGen_Set_Reg_To_Addr(tempReg, pAddr);
+            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tempReg, tempReg, 0);
         }
 
-        callKind = CK_INDIR_R;
-        callAddr = nullptr;
-    }
-    else
-    {
-        callKind      = CK_FUNC_TOKEN;
-        callAddr      = addr;
-        callTargetReg = REG_NA;
+        addrReg = tempReg;
+        addr    = nullptr;
     }
 
     // clang-format off
     GetEmitter()->emitIns_Call(
-        callKind,
-        Compiler::eeFindHelper(helper)
-        DEBUGARG(nullptr),
-        callAddr,
-        retSize,
-        callTargetReg,
-        false);
+        addrReg, addr,
+        retRegAttr,
+        false,
+        Compiler::eeFindHelper(helper));
     // clang-format on
 }
 

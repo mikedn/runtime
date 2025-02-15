@@ -409,10 +409,8 @@ static_assert_no_msg(sizeof(target_ssize_t) == TARGET_POINTER_SIZE);
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
 #define MULTIREG_HAS_SECOND_GC_RET 1
-#define MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(x) , x
 #else
 #define MULTIREG_HAS_SECOND_GC_RET 0
-#define MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(x)
 #endif
 
 #ifdef UNIX_AMD64_ABI
