@@ -1773,7 +1773,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
             // TODO-MIKE-Review: Why is UnspillRegsIfNeeded called instead of UseRegs?
             // Also, we're skipping a RELOAD/COPY above. Probably we can't actually
-            // get a COPY/RELOAD here becuase these nodes have specific, single reg
+            // get a COPY/RELOAD here because these nodes have specific, single reg
             // requirements so there's little point in LSRA adding reloads/copies...
             UnspillRegsIfNeeded(argSplit);
             INDEBUG(VerifyUseOrder(argSplit));

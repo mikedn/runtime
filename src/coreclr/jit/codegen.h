@@ -187,14 +187,14 @@ public:
     bool SpillRegCandidateLclVar(GenTreeLclVar* node);
 
 #ifdef TARGET_X86
-    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, RegNum callTarget = REG_NA)
+    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN)
     {
-        GenHelperCall(helper, 0, retSize, callTarget);
+        GenHelperCall(helper, 0, retSize);
     }
 
-    void GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, RegNum callTarget = REG_NA);
+    void GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize);
 #else
-    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, RegNum callTarget = REG_NA);
+    void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN, RegNum tempReg = REG_NA);
 #endif
 
     void genGCWriteBarrier(GenTreeIndStore* store, GCInfo::WriteBarrierForm wbf);

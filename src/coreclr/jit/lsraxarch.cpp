@@ -169,6 +169,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_RETURNTRAP:
             // TODO-MIKE-Review: This internal def occurs after the use.
+            // Also, x86 doesn't need this register.
             BuildInternalIntDef(tree);
             assert(tree->AsUnOp()->GetOp(0)->isContained());
             BuildAddrUses(tree->AsUnOp()->GetOp(0)->AsIndir()->GetAddr());

@@ -1443,13 +1443,13 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
     assert(mem->isContained());
     genConsumeAddress(mem->GetAddr());
 
-    regNumber tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
+    RegNum tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
 
     GetEmitter()->emitIns_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
     insGroup* skipLabel = GetEmitter()->CreateTempLabel();
     GetEmitter()->emitIns_J(INS_je, skipLabel);
-    GenHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN, tmpReg);
+    GenHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN NOT_X86_ARG(tmpReg));
     GetEmitter()->DefineTempLabel(skipLabel);
 }
 
@@ -3994,6 +3994,98 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
     return false;
 #endif // !defined(TARGET_X86) || !NOGC_WRITE_BARRIERS
 }
+
+#ifdef TARGET_X86
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize)
+{
+    void*       pAddr    = nullptr;
+    void*       addr     = compiler->compGetHelperFtn(helper, &pAddr);
+    CallInsKind callKind = CK_FUNC_TOKEN;
+
+    if (addr == nullptr)
+    {
+        assert(pAddr != nullptr);
+
+        callKind = CK_FUNC_TOKEN_INDIR;
+        addr     = pAddr;
+    }
+
+    // clang-format off
+    GetEmitter()->emitIns_Call(
+        callKind,
+        Compiler::eeFindHelper(helper)
+        DEBUGARG(nullptr),
+        addr,
+        argSize,
+        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
+        REG_NA, REG_NA, 0, 0,
+        false);
+    // clang-format on
+}
+#endif // TARGET_X86
+
+#ifdef TARGET_AMD64
+void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum tempReg)
+{
+    void*       pAddr    = nullptr;
+    void*       addr     = compiler->compGetHelperFtn(helper, &pAddr);
+    RegNum      addrReg  = REG_NA;
+    CallInsKind callKind = CK_FUNC_TOKEN;
+
+    if (addr == nullptr)
+    {
+        assert(pAddr != nullptr);
+
+        if (compiler->eeIsRIPRelativeAddress(pAddr) || FitsIn<int32_t>(reinterpret_cast<intptr_t>(pAddr)))
+        {
+            // generate call whose target is specified by 32-bit offset relative to PC or zero.
+            callKind = CK_FUNC_TOKEN_INDIR;
+            addr     = pAddr;
+        }
+        else
+        {
+            // If this indirect address cannot be encoded as 32-bit offset relative to PC or Zero,
+            // load it into REG_HELPER_CALL_TARGET and use register indirect addressing mode to
+            // make the call.
+            //    mov   reg, addr
+            //    call  [reg]
+
+            if (tempReg == REG_NA)
+            {
+                // If a callTargetReg has not been explicitly provided, we will use REG_DEFAULT_HELPER_CALL_TARGET, but
+                // this is only a valid assumption if the helper call is known to kill REG_DEFAULT_HELPER_CALL_TARGET.
+                tempReg = REG_DEFAULT_HELPER_CALL_TARGET;
+
+                regMaskTP callTargetMask = genRegMask(tempReg);
+                noway_assert((callTargetMask & compiler->compHelperCallKillSet(helper)) == callTargetMask);
+            }
+            else
+            {
+                // The call target must not overwrite any live variable, though it may not be in the
+                // kill set for the call.
+                regMaskTP callTargetMask = genRegMask(tempReg);
+                noway_assert((callTargetMask & liveness.GetLiveLclRegs()) == RBM_NONE);
+            }
+
+            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, tempReg, reinterpret_cast<ssize_t>(pAddr));
+
+            callKind = CK_INDIR_ARD;
+            addrReg  = tempReg;
+        }
+    }
+
+    // clang-format off
+    GetEmitter()->emitIns_Call(
+        callKind,
+        Compiler::eeFindHelper(helper)
+        DEBUGARG(nullptr),
+        addr,
+        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
+        addrReg, REG_NA, 0, 0,
+        false);
+    // clang-format on
+}
+#endif // TARGET_AMD64
 
 void CodeGen::GenCall(GenTreeCall* call)
 {
@@ -6624,78 +6716,6 @@ void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk
         i += nonGCSequenceLength - 1;
     }
 #endif // TARGET_AMD64
-}
-
-#ifdef TARGET_X86
-void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retSize, RegNum callTargetReg)
-#else
-void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize, RegNum callTargetReg)
-#endif
-{
-    void*       pAddr      = nullptr;
-    void*       addr       = compiler->compGetHelperFtn(helper, &pAddr);
-    RegNum      callTarget = REG_NA;
-    CallInsKind callKind   = CK_FUNC_TOKEN;
-
-    if (addr == nullptr)
-    {
-        assert(pAddr != nullptr);
-
-#ifdef TARGET_X86
-        callKind = CK_FUNC_TOKEN_INDIR;
-        addr     = pAddr;
-#else  // TARGET_AMD64
-        if (compiler->eeIsRIPRelativeAddress(pAddr) || FitsIn<int32_t>(reinterpret_cast<intptr_t>(pAddr)))
-        {
-            // generate call whose target is specified by 32-bit offset relative to PC or zero.
-            callKind = CK_FUNC_TOKEN_INDIR;
-            addr     = pAddr;
-        }
-        else
-        {
-            // If this indirect address cannot be encoded as 32-bit offset relative to PC or Zero,
-            // load it into REG_HELPER_CALL_TARGET and use register indirect addressing mode to
-            // make the call.
-            //    mov   reg, addr
-            //    call  [reg]
-
-            if (callTargetReg == REG_NA)
-            {
-                // If a callTargetReg has not been explicitly provided, we will use REG_DEFAULT_HELPER_CALL_TARGET, but
-                // this is only a valid assumption if the helper call is known to kill REG_DEFAULT_HELPER_CALL_TARGET.
-                callTargetReg            = REG_DEFAULT_HELPER_CALL_TARGET;
-                regMaskTP callTargetMask = genRegMask(callTargetReg);
-                noway_assert((callTargetMask & compiler->compHelperCallKillSet(helper)) == callTargetMask);
-            }
-            else
-            {
-                // The call target must not overwrite any live variable, though it may not be in the
-                // kill set for the call.
-                regMaskTP callTargetMask = genRegMask(callTargetReg);
-                noway_assert((callTargetMask & liveness.GetLiveLclRegs()) == RBM_NONE);
-            }
-
-            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, callTargetReg, reinterpret_cast<ssize_t>(pAddr));
-
-            callKind   = CK_INDIR_ARD;
-            callTarget = callTargetReg;
-        }
-#endif // TARGET_AMD64
-    }
-
-    // clang-format off
-    GetEmitter()->emitIns_Call(
-        callKind,
-        Compiler::eeFindHelper(helper)
-        DEBUGARG(nullptr),
-        addr,
-#ifdef TARGET_X86
-        argSize,
-#endif
-        retSize MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(EA_UNKNOWN),
-        callTarget, REG_NA, 0, 0,
-        false);
-    // clang-format on
 }
 
 // Uncomment "#define ALL_ARM64_EMITTER_UNIT_TESTS" to run all the unit tests here.
