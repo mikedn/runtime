@@ -7488,7 +7488,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
 
     if (useEntryPointAddrAsArg0)
     {
-        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(call->gtEntryPoint.addr, HandleKind::MethodAddr));
+        vnpArgs[vnpArgIndex++].SetBoth(vnStore->VNForHandle(call->m_entryPointAddr, HandleKind::MethodAddr));
     }
 #endif // FEATURE_READYTORUN_COMPILER
 

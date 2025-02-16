@@ -2478,9 +2478,10 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
     CORINFO_CONST_LOOKUP entryPoint;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    if (call->gtEntryPoint.addr != nullptr)
+    if (call->m_entryPointAddr != nullptr)
     {
-        entryPoint = call->gtEntryPoint;
+        entryPoint.accessType = call->m_entryPointAccessType;
+        entryPoint.addr       = call->m_entryPointAddr;
     }
     else
 #endif
@@ -2520,7 +2521,8 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
     if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr)
                                                     X86_ONLY(&&!call->IsTailCallViaJitHelper()))
     {
-        call->gtDirectCallAddress = entryPoint.addr;
+        call->m_entryPointAccessType = IAT_VALUE;
+        call->m_entryPointAddr       = entryPoint.addr;
 
         return nullptr;
     }
@@ -2561,12 +2563,8 @@ GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
     if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
         (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
     {
-        call->gtDirectCallAddress = entryPoint.addr;
-
-#ifdef FEATURE_READYTORUN_COMPILER
-        call->gtEntryPoint.addr       = nullptr;
-        call->gtEntryPoint.accessType = IAT_VALUE;
-#endif
+        call->m_entryPointAccessType = IAT_VALUE;
+        call->m_entryPointAddr       = entryPoint.addr;
 
         return nullptr;
     }

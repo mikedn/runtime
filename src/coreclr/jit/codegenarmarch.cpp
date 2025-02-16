@@ -1868,21 +1868,10 @@ void CodeGen::GenCall(GenTreeCall* call)
     else
     {
         assert(call->IsHelperCall() || call->IsUserCall());
+        assert(call->m_entryPointAccessType == IAT_VALUE);
+        assert(call->m_entryPointAddr != nullptr);
 
-#ifdef FEATURE_READYTORUN_COMPILER
-        if (call->gtEntryPoint.addr != nullptr)
-        {
-            assert(call->gtEntryPoint.accessType == IAT_VALUE);
-
-            callAddr = call->gtEntryPoint.addr;
-        }
-        else
-#endif
-        {
-            callAddr = call->gtDirectCallAddress;
-        }
-
-        assert(callAddr != nullptr);
+        callAddr = call->m_entryPointAddr;
 
 #ifdef TARGET_ARM
         if (!ArmImm::IsBlImm(reinterpret_cast<ssize_t>(callAddr), compiler))
@@ -2287,16 +2276,17 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
 
         // Try to dispatch this as a direct branch; this is possible when the call is
         // truly direct. In this case, the control expression will be null and the direct
-        // target address will be in gtDirectCallAddress. It is still possible that calls
+        // target address will be in gtEntryPoint.addr. It is still possible that calls
         // to user funcs require indirection, in which case the control expression will
         // be non-null.
         if (call->IsUserCall() && (call->GetCallAddr() == nullptr))
         {
             assert(call->GetMethodHandle() != nullptr);
+            assert(call->m_entryPointAccessType == IAT_VALUE);
 
             // clang-format off
             GetEmitter()->emitIns_Call(
-                REG_NA, call->gtDirectCallAddress,
+                REG_NA, call->m_entryPointAddr,
                 { EA_UNKNOWN ARM64_ARG(EA_UNKNOWN) },
                 true,
                 call->GetMethodHandle());

@@ -580,12 +580,10 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
             return false;
         }
 
-#ifdef FEATURE_READYTORUN_COMPILER
-        if (c1->gtEntryPoint.addr != c2->gtEntryPoint.addr)
+        if (c1->m_entryPointAddr != c2->m_entryPointAddr)
         {
             return false;
         }
-#endif
     }
 
     if (!Compare(c1->GetCallAddr(), c2->GetCallAddr()))
@@ -3729,9 +3727,11 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->gtCallArgs     = args;
     call->gtCallLateArgs = nullptr;
     call->SetCallAddr(nullptr);
-    call->fgArgInfo             = nullptr;
-    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
-    call->gtInlineCandidateInfo = nullptr;
+    call->fgArgInfo              = nullptr;
+    call->m_entryPointAddr       = nullptr;
+    call->m_entryPointAccessType = IAT_VALUE;
+    call->gtCallMoreFlags        = GTF_CALL_M_EMPTY;
+    call->gtInlineCandidateInfo  = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
@@ -3739,11 +3739,6 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
 #if DEBUG
     call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
     call->callSig             = nullptr;
-#endif
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    call->gtEntryPoint.addr       = nullptr;
-    call->gtEntryPoint.accessType = IAT_VALUE;
 #endif
 
     call->GetRetDesc()->Reset();
@@ -3802,11 +3797,6 @@ GenTreeCall* Compiler::gtNewCallNode(
         node->SetMethodHandle(static_cast<CORINFO_METHOD_HANDLE>(target));
         node->gtInlineCandidateInfo = nullptr;
     }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    node->gtEntryPoint.addr       = nullptr;
-    node->gtEntryPoint.accessType = IAT_VALUE;
-#endif
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // These get updated after call node is built.
@@ -4718,10 +4708,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
         copy->fgArgInfo = new (this, CMK_CallInfo) fgArgInfo(this, copy, tree);
     }
 
-#ifdef FEATURE_READYTORUN_COMPILER
-    copy->setEntryPoint(tree->gtEntryPoint);
-#endif
-
 #if defined(DEBUG) || defined(INLINE_DATA)
     copy->gtInlineObservation = tree->gtInlineObservation;
     copy->gtRawILOffset       = tree->gtRawILOffset;
@@ -4729,7 +4715,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
 
     // We keep track of the number of no return calls, so if we've cloned
     // one of these, update the tracking.
-    //
     if (tree->IsNoReturn())
     {
         assert(copy->IsNoReturn());

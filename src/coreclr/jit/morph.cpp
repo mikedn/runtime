@@ -1618,9 +1618,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
         // for indirection cell address, which ZapIndirectHelperThunk expects.
 
-        assert(call->gtEntryPoint.addr != nullptr);
+        assert(call->m_entryPointAddr != nullptr);
 
-        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->gtEntryPoint.addr, HandleKind::MethodAddr);
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
         cellAddress->SetDumpHandle(call->GetMethodHandle());
         // Don't attempt to CSE this constant on ARM32.
         // This constant has specific register requirements, and LSRA doesn't

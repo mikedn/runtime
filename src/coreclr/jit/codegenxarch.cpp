@@ -4323,21 +4323,12 @@ void CodeGen::GenCall(GenTreeCall* call)
             amBaseReg = UseReg(target);
         }
     }
-#ifdef FEATURE_READYTORUN_COMPILER
-    else if (call->gtEntryPoint.addr != nullptr)
-    {
-        format   = call->gtEntryPoint.accessType == IAT_VALUE ? IF_METHOD : IF_METHPTR;
-        callAddr = call->gtEntryPoint.addr;
-    }
-#endif
     else
     {
-        assert(call->IsUserCall() || call->IsHelperCall());
+        assert(call->m_entryPointAddr != nullptr);
 
-        format   = IF_METHOD;
-        callAddr = call->gtDirectCallAddress;
-
-        assert(callAddr != nullptr);
+        format   = call->m_entryPointAccessType == IAT_VALUE ? IF_METHOD : IF_METHPTR;
+        callAddr = call->m_entryPointAddr;
     }
 
     emitAttr retReg0Attr = EA_PTRSIZE;
@@ -4766,17 +4757,18 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
 
         // Calls to a user func can be dispatched as an RIP-relative jump when they are
         // truly direct; in this case, the control expression will be null and the direct
-        // target address will be in gtDirectCallAddress. It is still possible that calls
+        // target address will be in gtEntryPoint.addr. It is still possible that calls
         // to user funcs require indirection, in which case the control expression will
         // be non-null.
         if (call->IsUserCall() && (call->GetCallAddr() == nullptr))
         {
             assert(call->GetMethodHandle() != nullptr);
+            assert(call->m_entryPointAccessType == IAT_VALUE);
 
             // clang-format off
             GetEmitter()->emitIns_Call(
                 IF_METHOD,
-                call->gtDirectCallAddress,
+                call->m_entryPointAddr,
                 REG_NA, REG_NA, 0, 0,
                 true,
                 EA_UNKNOWN UNIX_AMD64_ABI_ONLY_ARG(EA_UNKNOWN),

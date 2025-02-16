@@ -4000,14 +4000,7 @@ struct GenTreeCall final : public GenTree
         ClassProfileCandidateInfo*            gtClassProfileCandidateInfo;
         void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
         CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
-        void*                  gtDirectCallAddress; // Used to pass direct call address between lower and codegen
     };
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    // Call target lookup info for method call from a Ready To Run module
-    // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and internal padding.
-    CORINFO_CONST_LOOKUP gtEntryPoint;
-#endif
 
     union {
         TailCallSiteInfo* tailCallInfo;
@@ -4019,6 +4012,11 @@ struct GenTreeCall final : public GenTree
 
     GenTreeCallFlags gtCallMoreFlags;
 
+    // Call target lookup info for method call from a Ready To Run module
+    // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and padding.
+    void*          m_entryPointAddr       = nullptr;
+    InfoAccessType m_entryPointAccessType = IAT_VALUE;
+
     uint8_t gtCallType : 3;   // value from the CallKind enumeration
     uint8_t m_retSigType : 5; // Signature return type
 
@@ -4028,13 +4026,14 @@ struct GenTreeCall final : public GenTree
     // For non-inline candidates, track the first observation
     // that blocks candidacy.
     InlineObservation gtInlineObservation;
-
     // IL offset of the call wrt its parent method.
     IL_OFFSET gtRawILOffset;
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
+#ifdef DEBUG
     // Used to register callsites with the EE
-    INDEBUG(CORINFO_SIG_INFO* callSig;)
+    CORINFO_SIG_INFO* callSig = nullptr;
+#endif
 
 public:
     GenTreeCall(var_types type, CallKind kind, Use* args)
@@ -4045,9 +4044,6 @@ public:
         , gtCallMoreFlags(GTF_CALL_M_EMPTY)
         , gtCallType(static_cast<uint8_t>(kind))
         , m_retSigType(type)
-#ifdef DEBUG
-        , callSig(nullptr)
-#endif
     {
         gtFlags |= (GTF_CALL | GTF_GLOB_REF);
 
@@ -4061,6 +4057,8 @@ public:
         : GenTree(GT_CALL, copyFrom->GetType())
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
+        , m_entryPointAddr(copyFrom->m_entryPointAddr)
+        , m_entryPointAccessType(copyFrom->m_entryPointAccessType)
         , gtCallType(copyFrom->gtCallType)
         , m_retSigType(copyFrom->m_retSigType)
         , m_retDesc(copyFrom->m_retDesc)
@@ -4308,10 +4306,11 @@ public:
 
     void setEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
     {
-        gtEntryPoint = entryPoint;
+        m_entryPointAddr       = entryPoint.addr;
+        m_entryPointAccessType = entryPoint.accessType;
 
 #ifdef TARGET_ARMARCH
-        if (gtEntryPoint.accessType == IAT_PVALUE)
+        if (entryPoint.accessType == IAT_PVALUE)
         {
             gtCallMoreFlags |= GTF_CALL_M_R2R_REL_INDIRECT;
         }
