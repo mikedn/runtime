@@ -4977,12 +4977,7 @@ public:
 
     unsigned optMethodFlags = 0;
 
-    bool doesMethodHaveNoReturnCalls()
-    {
-        return optNoReturnCallCount > 0;
-    }
-
-    void setMethodHasNoReturnCalls()
+    void AddNoReturnCall()
     {
         optNoReturnCallCount++;
     }

@@ -1775,7 +1775,7 @@ ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
             // Mark the call node as "no return" as it can impact caller's code quality.
             inlineInfo->iciCall->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
             // Mark root method as containing a noreturn call.
-            inlineInfo->InlinerCompiler->setMethodHasNoReturnCalls();
+            inlineInfo->InlinerCompiler->AddNoReturnCall();
         }
 
         // If the inline is viable and discretionary, do the

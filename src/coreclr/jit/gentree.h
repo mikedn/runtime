@@ -4055,6 +4055,10 @@ public:
 
     GenTreeCall(const GenTreeCall* copyFrom)
         : GenTree(GT_CALL, copyFrom->GetType())
+        , m_methodHandle(copyFrom->m_methodHandle)
+        // The tail call info does not change after it is allocated, so a shallow copy suffices.
+        // Note that this also copies unmgdCallConv...
+        , tailCallInfo(copyFrom->tailCallInfo)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , m_entryPointAddr(copyFrom->m_entryPointAddr)
@@ -4062,6 +4066,15 @@ public:
         , gtCallType(copyFrom->gtCallType)
         , m_retSigType(copyFrom->m_retSigType)
         , m_retDesc(copyFrom->m_retDesc)
+#if defined(DEBUG) || defined(INLINE_DATA)
+        , gtInlineObservation(copyFrom->gtInlineObservation)
+        , gtRawILOffset(copyFrom->gtRawILOffset)
+#endif
+#ifdef DEBUG
+        // The call sig comes from the EE and doesn't change throughout the compilation process, meaning
+        // we only really need one physical copy of it. Therefore a shallow pointer copy will suffice.
+        , callSig(copyFrom->callSig)
+#endif
     {
     }
 

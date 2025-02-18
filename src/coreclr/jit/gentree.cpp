@@ -4654,6 +4654,18 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
+    if (!tree->IsIndirectCall())
+    {
+        if (tree->IsVirtualStub())
+        {
+            copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
+        }
+        else
+        {
+            copy->gtInlineCandidateInfo = nullptr;
+        }
+    }
+
     if (tree->gtCallThisArg != nullptr)
     {
         copy->gtCallThisArg = gtNewCallArgs(gtCloneExpr(tree->gtCallThisArg->GetNode(), addFlags, constLcl, constVal));
@@ -4674,30 +4686,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
         argsTail  = &((*argsTail)->NextRef());
     }
 
-    // The call sig comes from the EE and doesn't change throughout the compilation process, meaning
-    // we only really need one physical copy of it. Therefore a shallow pointer copy will suffice.
-    // (Note that this still holds even if the tree we are cloning was created by an inlinee compiler,
-    // because the inlinee still uses the inliner's memory allocator anyway.)
-    INDEBUG(copy->callSig = tree->callSig;)
-
-    // The tail call info does not change after it is allocated, so for the same reasons as above
-    // a shallow copy suffices.
-    copy->tailCallInfo = tree->tailCallInfo;
-
-    if (!tree->IsIndirectCall())
-    {
-        copy->SetMethodHandle(tree->GetMethodHandle());
-
-        if (tree->IsVirtualStub())
-        {
-            copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
-        }
-        else
-        {
-            copy->gtInlineCandidateInfo = nullptr;
-        }
-    }
-
     if (GenTree* addr = tree->GetCallAddr())
     {
         copy->SetCallAddr(gtCloneExpr(addr, addFlags, constLcl, constVal));
@@ -4705,20 +4693,12 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
 
     if (tree->fgArgInfo != nullptr)
     {
-        copy->fgArgInfo = new (this, CMK_CallInfo) fgArgInfo(this, copy, tree);
+        copy->fgArgInfo = new (this, CMK_CallInfo) CallInfo(this, copy, tree);
     }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
-    copy->gtInlineObservation = tree->gtInlineObservation;
-    copy->gtRawILOffset       = tree->gtRawILOffset;
-#endif
-
-    // We keep track of the number of no return calls, so if we've cloned
-    // one of these, update the tracking.
-    if (tree->IsNoReturn())
+    if (copy->IsNoReturn())
     {
-        assert(copy->IsNoReturn());
-        setMethodHasNoReturnCalls();
+        AddNoReturnCall();
     }
 
     return copy;

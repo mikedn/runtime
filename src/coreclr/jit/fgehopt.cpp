@@ -1925,10 +1925,8 @@ PhaseStatus Compiler::fgTailMergeThrows()
         JITDUMP("Method does not have multiple noreturn calls.\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
-    else
-    {
-        JITDUMP("Scanning the %u candidates\n", optNoReturnCallCount);
-    }
+
+    JITDUMP("Scanning the %u candidates\n", optNoReturnCallCount);
 
     // This transformation requires block pred lists to be built
     // so that flow can be safely updated.
