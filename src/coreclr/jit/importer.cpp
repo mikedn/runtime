@@ -2265,8 +2265,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         isMDArray = true;
     }
 
-    CORINFO_CLASS_HANDLE arrayClsHnd =
-        reinterpret_cast<CORINFO_CLASS_HANDLE>(newArrayCall->compileTimeHelperArgumentHandle);
+    CORINFO_CLASS_HANDLE arrayClsHnd = newArrayCall->compileTimeHelperArgumentHandle;
 
     if (arrayClsHnd == nullptr)
     {
@@ -4766,28 +4765,18 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
     impPushOnStack(boxed, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(resolvedToken->hClass)));
 }
 
-//------------------------------------------------------------------------
-// impImportNewObjArray: Build and import `new` of multi-dimmensional array
+// Build and import `new` of multi-dimensional array
 //
-// Arguments:
-//    resolvedToken - The CORINFO_RESOLVED_TOKEN that has been initialized
-//                     by a call to CEEInfo::resolveToken().
-//    pCallInfo - The CORINFO_CALL_INFO that has been initialized
-//                by a call to CEEInfo::getCallInfo().
+// The multi-dimensional array constructor arguments (array dimensions) are
+// pushed on the IL stack on entry to this method.
 //
-// Assumptions:
-//    The multi-dimensional array constructor arguments (array dimensions) are
-//    pushed on the IL stack on entry to this method.
-//
-// Notes:
-//    Multi-dimensional array constructors are imported as calls to a JIT
-//    helper, not as regular calls.
-
-void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo)
+// Multi-dimensional array constructors are imported as calls to a JIT
+// helper, not as regular calls.
+void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo)
 {
-    assert(pCallInfo->sig.numArgs != 0);
+    assert(callInfo->sig.numArgs != 0);
 
-    GenTree* classHandle = impParentClassTokenToHandle(pResolvedToken);
+    GenTree* classHandle = impParentClassTokenToHandle(resolvedToken);
     if (classHandle == nullptr)
     {
         assert(!compDonotInline());
@@ -4837,7 +4826,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         // Increase size of lvaNewObjArrayArgs to be the largest size needed to hold 'numArgs' integers
         // for our call to CORINFO_HELP_NEW_MDARR_NONVARARG.
-        argsLcl->SetBlockType(max(argsLcl->GetBlockSize(), pCallInfo->sig.numArgs * sizeof(int32_t)));
+        argsLcl->SetBlockType(max(argsLcl->GetBlockSize(), callInfo->sig.numArgs * sizeof(int32_t)));
 
         // The side-effects may include allocation of more multi-dimensional arrays. Spill all side-effects
         // to ensure that the shared lvaNewObjArrayArgs local variable is only ever used to pass arguments
@@ -4853,7 +4842,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         // Pop dimension arguments from the stack one at a time and store it
         // into lvaNewObjArrayArgs temp.
-        for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
+        for (int i = callInfo->sig.numArgs - 1; i >= 0; i--)
         {
             GenTree* arg   = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
             GenTree* store = comp->gtNewLclStoreFld(TYP_INT, argsLcl, 4 * i, arg);
@@ -4863,7 +4852,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
 
         GenTreeCall::Use* args = gtNewCallArgs(node);
 
-        args = gtPrependNewCallArg(gtNewIconNode(pCallInfo->sig.numArgs), args);
+        args = gtPrependNewCallArg(gtNewIconNode(callInfo->sig.numArgs), args);
         args = gtPrependNewCallArg(classHandle, args);
         node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
     }
@@ -4872,7 +4861,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         GenTreeCall::Use* args    = nullptr;
         GenTreeCall::Use* lastArg = nullptr;
 
-        for (int i = pCallInfo->sig.numArgs - 1; i >= 0; i--)
+        for (int i = callInfo->sig.numArgs - 1; i >= 0; i--)
         {
             GenTree* dim = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
             args         = gtPrependNewCallArg(dim, args);
@@ -4883,7 +4872,7 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
             }
         }
 
-        GenTreeIntCon* numArgsNode = gtNewIconNode(pCallInfo->sig.numArgs);
+        GenTreeIntCon* numArgsNode = gtNewIconNode(callInfo->sig.numArgs);
 
 #ifdef TARGET_X86
         lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
@@ -4905,12 +4894,12 @@ void Importer::impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORI
         node->gtFlags |= use.GetNode()->gtFlags & GTF_GLOB_EFFECT;
     }
 
-    node->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)pResolvedToken->hClass;
+    node->AsCall()->compileTimeHelperArgumentHandle = resolvedToken->hClass;
 
     // Remember that this basic block contains 'new' of a md array
     currentBlock->bbFlags |= BBF_HAS_NEWARRAY;
 
-    impPushOnStack(node, typeInfo(TI_REF, pResolvedToken->hClass));
+    impPushOnStack(node, typeInfo(TI_REF, resolvedToken->hClass));
 }
 
 GenTree* Importer::impTransformThis(GenTree*                thisPtr,
@@ -12023,7 +12012,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
         op1 = gtNewHelperCallNode(info.compCompHnd->getNewArrHelper(resolvedToken.hClass), TYP_REF, args);
     }
 
-    op1->AsCall()->compileTimeHelperArgumentHandle = (CORINFO_GENERIC_HANDLE)resolvedToken.hClass;
+    op1->AsCall()->compileTimeHelperArgumentHandle = resolvedToken.hClass;
 
     // Remember that this basic block contains 'new' of an sd array
 
@@ -12080,7 +12069,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     {
         assert((classFlags & CORINFO_FLG_VAROBJSIZE) != 0);
 
-        impImportNewObjArray(&resolvedToken, &callInfo);
+        ImportNewObjArray(&resolvedToken, &callInfo);
 
         return;
     }

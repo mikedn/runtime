@@ -5573,8 +5573,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             return nullptr;
         }
 
+        TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
+
         assert(call->IsTailPrefixedCall());
-        assert(call->tailCallInfo != nullptr);
+        assert(tailCallInfo != nullptr);
 
         // We do not currently handle non-standard args except for VSD stubs.
         if (!call->IsVirtualStub() && call->HasNonStandardAddedArgs(this))
@@ -5595,12 +5597,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // Make sure we can get the helpers. We do this last as the runtime
             // will likely be required to generate these.
             CORINFO_RESOLVED_TOKEN* token = nullptr;
-            CORINFO_SIG_INFO*       sig   = call->tailCallInfo->GetSig();
+            CORINFO_SIG_INFO*       sig   = tailCallInfo->GetSig();
             unsigned                flags = 0;
-            if (!call->tailCallInfo->IsCalli())
+
+            if (!tailCallInfo->IsCalli())
             {
-                token = call->tailCallInfo->GetToken();
-                if (call->tailCallInfo->IsCallvirt())
+                token = tailCallInfo->GetToken();
+                if (tailCallInfo->IsCallvirt())
                 {
                     flags |= CORINFO_TAILCALL_IS_CALLVIRT;
                 }
@@ -6073,7 +6076,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 #endif
 
         call->gtFlags &= ~GTF_CALL_VIRT_STUB;
-        call->m_entryPointAddr = nullptr;
+        call->m_entryPointAddr       = nullptr;
         call->m_entryPointAccessType = IAT_VALUE;
     }
 
@@ -6209,18 +6212,20 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         }
         else
         {
-            assert(!call->tailCallInfo->GetSig()->hasTypeArg());
+            TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
+
+            assert(!tailCallInfo->GetSig()->hasTypeArg());
 
             CORINFO_CALLINFO_FLAGS flags = CORINFO_CALLINFO_LDFTN;
 
-            if (call->tailCallInfo->IsCallvirt())
+            if (tailCallInfo->IsCallvirt())
             {
                 flags = static_cast<CORINFO_CALLINFO_FLAGS>(flags | CORINFO_CALLINFO_CALLVIRT);
             }
 
             CORINFO_CALL_INFO callInfo;
-            eeGetCallInfo(call->tailCallInfo->GetToken(), nullptr, flags, &callInfo);
-            target = getVirtMethodPointerTree(thisPtrStubArg, call->tailCallInfo->GetToken(), &callInfo);
+            eeGetCallInfo(tailCallInfo->GetToken(), nullptr, flags, &callInfo);
+            target = getVirtMethodPointerTree(thisPtrStubArg, tailCallInfo->GetToken(), &callInfo);
         }
 
         gtAppendNewCallArg(call->gtCallArgs, target);

@@ -1983,7 +1983,7 @@ struct Importer
                              const BYTE* codeAddr DEBUGARG(const BYTE* codeEnd));
     void impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken);
 
-    void impImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+    void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
 
     bool impCanPInvokeInline();
     bool impCanPInvokeInlineCallSite(BasicBlock* block);

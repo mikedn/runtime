@@ -10784,17 +10784,13 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
         case CORINFO_HELP_NEWARR_1_VC:
         case CORINFO_HELP_NEWARR_1_ALIGN8:
         case CORINFO_HELP_READYTORUN_NEWARR_1:
-        {
-            CORINFO_CLASS_HANDLE arrayHnd = (CORINFO_CLASS_HANDLE)call->compileTimeHelperArgumentHandle;
-
-            if (arrayHnd != NO_CLASS_HANDLE)
+            if (CORINFO_CLASS_HANDLE arrayHnd = call->compileTimeHelperArgumentHandle)
             {
                 objClass    = arrayHnd;
                 *pIsExact   = true;
                 *pIsNonNull = true;
             }
             break;
-        }
 
         default:
             break;
