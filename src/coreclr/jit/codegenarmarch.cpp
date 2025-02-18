@@ -1934,7 +1934,11 @@ void CodeGen::GenCall(GenTreeCall* call)
     // clang-format off
     GetEmitter()->emitIns_Call(
         callReg, callAddr,
-        { retReg0Attr ARM64_ARG(regReg1Attr) },
+#ifdef TARGET_ARM64
+        { retReg0Attr, regReg1Attr },
+#else
+        retReg0Attr,
+#endif
         false,
         call->GetMethodHandle()
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig));
@@ -2259,7 +2263,11 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
         // clang-format off
         GetEmitter()->emitIns_Call(
             addrReg, addr,
-            { EA_UNKNOWN ARM64_ARG(EA_UNKNOWN) },
+#ifdef TARGET_ARM64
+            { EA_UNKNOWN, EA_UNKNOWN },
+#else
+            EA_UNKNOWN,
+#endif
             true,
             methHnd);
         // clang-format on
@@ -2287,7 +2295,11 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             // clang-format off
             GetEmitter()->emitIns_Call(
                 REG_NA, call->m_entryPointAddr,
-                { EA_UNKNOWN ARM64_ARG(EA_UNKNOWN) },
+#ifdef TARGET_ARM64
+                { EA_UNKNOWN, EA_UNKNOWN },
+#else
+                EA_UNKNOWN
+#endif
                 true,
                 call->GetMethodHandle());
             // clang-format on
