@@ -1856,7 +1856,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         callReg = UseReg(target);
     }
 #ifdef FEATURE_READYTORUN_COMPILER
-    else if (call->IsR2RRelativeIndir() || (call->IsVirtualStub() && call->IsVirtualStubRelativeIndir()))
+    else if (call->IsR2RRelativeIndir() || call->IsVirtualStubRelativeIndir())
     {
         // Generate a direct call to a non-virtual user defined or helper method
         assert((call->IsHelperCall() || call->IsUserCall()) && !call->IsTailCall());

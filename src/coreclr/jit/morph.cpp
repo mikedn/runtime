@@ -1600,8 +1600,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else
         {
-            assert(call->IsVirtualStubRelativeIndir());
-            stubAddrArg = gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+            assert(call->m_entryPointAccessType == IAT_PVALUE);
+            stubAddrArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
             stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
         }
 
@@ -6073,6 +6073,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 #endif
 
         call->gtFlags &= ~GTF_CALL_VIRT_STUB;
+        call->m_entryPointAddr = nullptr;
+        call->m_entryPointAccessType = IAT_VALUE;
     }
 
     GenTree* callDispatcherAndGetResult =

@@ -2810,9 +2810,9 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     // THIS IS VERY TIGHTLY TIED TO THE PREDICATES IN
     // vm\i386\cGenCpu.h, esp. isCallRegisterIndirect.
 
-    noway_assert(call->gtStubCallStubAddr != nullptr);
+    noway_assert(call->m_entryPointAddr != nullptr);
     // If not indirect, then it should always be relative indir call. This is ensured by VM.
-    noway_assert(call->IsVirtualStubRelativeIndir());
+    noway_assert(call->m_entryPointAccessType == IAT_PVALUE);
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
     // Skip inserting the indirection node to load the address that is already
@@ -2834,7 +2834,7 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     insertBefore               = insertBefore == nullptr ? call : insertBefore;
 #endif
 
-    GenTreeIntCon*  addr   = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+    GenTreeIntCon*  addr   = comp->gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
     GenTreeIndLoad* target = comp->gtNewIndLoad(TYP_I_IMPL, addr);
     BlockRange().InsertBefore(insertBefore, addr, target);
     ContainCheckIndir(target);

@@ -4671,14 +4671,6 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                     JITDUMP("Disabling GDV for [%06u] because of in-box struct return\n", call->GetID());
 
                     call->ClearGuardedDevirtualizationCandidate();
-
-                    if (call->IsVirtualStub())
-                    {
-                        JITDUMP("Restoring stub addr %p from guarded devirt candidate info\n",
-                                dspPtr(call->gtGuardedDevirtualizationCandidateInfo->stubAddr));
-
-                        call->gtStubCallStubAddr = call->gtGuardedDevirtualizationCandidateInfo->stubAddr;
-                    }
                 }
             }
 
@@ -6572,18 +6564,11 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 else
                 {
                     // The stub address is known at compile time
-                    call                     = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
-                    call->gtStubCallStubAddr = callInfo->stubLookup.constLookup.addr;
+                    call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                     call->gtFlags |= GTF_CALL_VIRT_STUB;
-
-                    if (callInfo->stubLookup.constLookup.accessType == IAT_PVALUE)
-                    {
-                        call->gtCallMoreFlags |= GTF_CALL_M_VIRTSTUB_REL_INDIRECT;
-                    }
-                    else
-                    {
-                        assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
-                    }
+                    assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
+                    call->m_entryPointAddr       = callInfo->stubLookup.constLookup.addr;
+                    call->m_entryPointAccessType = callInfo->stubLookup.constLookup.accessType;
                 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -7351,7 +7336,7 @@ void Importer::SetupTailCall(GenTreeCall*            call,
         assert(isImplicitTailCall);
 
         // It is possible that a call node is both an inline candidate and marked
-        // for opportunistic tail calling. Inlining happens before morhphing of
+        // for opportunistic tail calling. Inlining happens before morphing of
         // trees. If inlining of an inline candidate gets aborted for whatever
         // reason, it will survive to the morphing stage at which point it will
         // be transformed into a tail call after performing additional checks.
@@ -14360,7 +14345,6 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
                 pInfo->guardedClassHandle              = nullptr;
                 pInfo->guardedMethodHandle             = nullptr;
                 pInfo->guardedMethodUnboxedEntryHandle = nullptr;
-                pInfo->stubAddr                        = nullptr;
                 pInfo->likelihood                      = 0;
                 pInfo->requiresInstMethodTableArg      = false;
             }
@@ -14503,15 +14487,6 @@ void Importer::impMarkInlineCandidate(GenTreeCall*           call,
             call->GetID());
 
     call->ClearGuardedDevirtualizationCandidate();
-
-    // If we have a stub address, restore it back into the union that it shares
-    // with the candidate info.
-    if (call->IsVirtualStub())
-    {
-        JITDUMP("Restoring stub addr %p from guarded devirt candidate info\n",
-                dspPtr(call->gtGuardedDevirtualizationCandidateInfo->stubAddr));
-        call->gtStubCallStubAddr = call->gtGuardedDevirtualizationCandidateInfo->stubAddr;
-    }
 }
 
 //------------------------------------------------------------------------
@@ -14915,12 +14890,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             //
             pInfo->ilOffset   = ilOffset;
             pInfo->probeIndex = info.compClassProbeCount++;
-            pInfo->stubAddr   = call->gtStubCallStubAddr;
 
-            // note this overwrites gtCallStubAddr, so it needs to be undone
-            // during the instrumentation phase, or we won't generate proper
-            // code for vsd calls.
-            //
             call->gtClassProfileCandidateInfo = pInfo;
 
             // Flag block as needing scrutiny
@@ -15172,7 +15142,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         }
 #endif
 
-        // Don't try guarded devirtualiztion if we're doing late devirtualization.
+        // Don't try guarded devirtualization if we're doing late devirtualization.
         //
         if (isLateDevirtualization)
         {
@@ -15189,7 +15159,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     //
     // We should always have an exact class context.
     //
-    // Note that wouldnt' be true if the runtime side supported array interface devirt,
+    // Note that wouldn't be true if the runtime side supported array interface devirt,
     // the resulting method would be a generic method of the non-generic SZArrayHelper class.
     //
     assert(canDevirtualize);
@@ -15202,6 +15172,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     call->gtCallType = CT_USER_FUNC;
     call->SetCallAddr(nullptr);
     call->SetMethodHandle(derivedMethod);
+    call->m_entryPointAddr       = nullptr;
+    call->m_entryPointAccessType = IAT_VALUE;
     call->gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
 
     // Virtual calls include an implicit null check, which we may
@@ -15571,7 +15543,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         CORINFO_CALL_INFO derivedCallInfo;
         eeGetCallInfo(pDerivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
 
-        call->gtCallMoreFlags &= ~GTF_CALL_M_VIRTSTUB_REL_INDIRECT;
 #ifdef TARGET_ARMARCH
         call->gtCallMoreFlags &= ~GTF_CALL_M_R2R_REL_INDIRECT;
 #endif
@@ -15995,18 +15966,6 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
             pInfo->guardedMethodUnboxedEntryHandle = unboxedEntryMethodHandle;
             pInfo->requiresInstMethodTableArg      = requiresInstMethodTableArg;
         }
-    }
-
-    // Save off the stub address since it shares a union with the candidate info.
-    //
-    if (call->IsVirtualStub())
-    {
-        JITDUMP("Saving stub addr %p in candidate info\n", dspPtr(call->gtStubCallStubAddr));
-        pInfo->stubAddr = call->gtStubCallStubAddr;
-    }
-    else
-    {
-        pInfo->stubAddr = nullptr;
     }
 
     call->gtGuardedDevirtualizationCandidateInfo = pInfo;

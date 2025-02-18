@@ -3747,7 +3747,6 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000040, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
-    GTF_CALL_M_VIRTSTUB_REL_INDIRECT   = 0x00000080, // the virtstub is indirected through a relative address (only for GTF_CALL_VIRT_STUB)
 #ifdef TARGET_X86
     GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
 #endif
@@ -3998,7 +3997,6 @@ struct GenTreeCall final : public GenTree
         InlineCandidateInfo*                  gtInlineCandidateInfo;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
         ClassProfileCandidateInfo*            gtClassProfileCandidateInfo;
-        void*                                 gtStubCallStubAddr; // GTF_CALL_VIRT_STUB - these are never inlined
         CORINFO_GENERIC_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
     };
 
@@ -4306,7 +4304,7 @@ public:
 
     bool IsVirtualStubRelativeIndir() const
     {
-        return (gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT) != 0;
+        return IsVirtualStub() && (m_entryPointAccessType == IAT_PVALUE);
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER

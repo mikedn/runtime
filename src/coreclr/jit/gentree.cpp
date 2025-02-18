@@ -4656,14 +4656,7 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
 
     if (!tree->IsIndirectCall())
     {
-        if (tree->IsVirtualStub())
-        {
-            copy->gtStubCallStubAddr = tree->gtStubCallStubAddr;
-        }
-        else
-        {
-            copy->gtInlineCandidateInfo = nullptr;
-        }
+        copy->gtInlineCandidateInfo = nullptr;
     }
 
     if (tree->gtCallThisArg != nullptr)

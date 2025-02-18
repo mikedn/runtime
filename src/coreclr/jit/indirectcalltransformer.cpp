@@ -645,17 +645,7 @@ private:
                 newStmt->SetRootNode(compiler->gtNewLclStore(returnTemp, call->GetType(), call));
             }
 
-            // For stub calls, restore the stub address. For everything else,
-            // null out the candidate info field.
-            if (call->IsVirtualStub())
-            {
-                JITDUMP("Restoring stub addr %p from node info\n", call->gtInlineCandidateInfo->stubAddr);
-                call->gtStubCallStubAddr = call->gtInlineCandidateInfo->stubAddr;
-            }
-            else
-            {
-                call->gtInlineCandidateInfo = nullptr;
-            }
+            call->gtInlineCandidateInfo = nullptr;
 
             compiler->fgInsertStmtAtEnd(elseBlock, newStmt);
 

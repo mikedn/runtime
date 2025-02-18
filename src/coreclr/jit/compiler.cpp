@@ -5043,14 +5043,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                             chars += printf("[CALL_M_UNMGD_THISCALL]");
                         }
                     }
-                    else if (call->IsVirtualStub())
-                    {
-                        if (call->gtCallMoreFlags & GTF_CALL_M_VIRTSTUB_REL_INDIRECT)
-                        {
-                            chars += printf("[CALL_M_VIRTSTUB_REL_INDIRECT]");
-                        }
-                    }
-
 #ifdef TARGET_X86
                     if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
                     {

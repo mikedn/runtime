@@ -105,7 +105,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
 #endif
     }
 #ifdef FEATURE_READYTORUN_COMPILER
-    else if (call->IsR2RRelativeIndir() || (call->IsVirtualStub() && call->IsVirtualStubRelativeIndir()))
+    else if (call->IsR2RRelativeIndir() || call->IsVirtualStubRelativeIndir())
     {
         BuildInternalIntDef(call);
     }

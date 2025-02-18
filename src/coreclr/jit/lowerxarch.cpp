@@ -634,13 +634,16 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     }
     else if (call->IsVirtualStub())
     {
-        noway_assert(call->gtStubCallStubAddr != nullptr);
-        noway_assert(call->IsVirtualStubRelativeIndir());
+        noway_assert(call->m_entryPointAddr != nullptr);
+        noway_assert(call->m_entryPointAccessType == IAT_PVALUE);
 
         // Normally we'd need an indirection to get the actual target address but
         // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-        target = comp->gtNewIconHandleNode(call->gtStubCallStubAddr, HandleKind::MethodAddr);
+        target = comp->gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
         BlockRange().InsertBefore(targetArg, target);
+
+        call->m_entryPointAddr       = nullptr;
+        call->m_entryPointAccessType = IAT_VALUE;
     }
     else
     {

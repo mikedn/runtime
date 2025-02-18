@@ -1363,10 +1363,6 @@ public:
         JITDUMP("Modified call is now\n");
         DISPTREE(call);
 
-        // Restore the stub address on the call
-        //
-        call->gtStubCallStubAddr = call->gtClassProfileCandidateInfo->stubAddr;
-
         m_instrCount++;
     }
 };
@@ -1387,10 +1383,6 @@ public:
 
     void operator()(Compiler* compiler, GenTreeCall* call)
     {
-        // Restore the stub address on the call
-        //
-        call->gtStubCallStubAddr = call->gtClassProfileCandidateInfo->stubAddr;
-
         m_cleanupCount++;
     }
 };
@@ -1502,13 +1494,6 @@ void ClassProbeInstrumentor::Instrument(BasicBlock* block, Schema& schema, BYTE*
 
 //------------------------------------------------------------------------
 // ClassProbeInstrumentor::SuppressProbes: clean up if we're not instrumenting
-//
-// Notes:
-//   Currently we're hijacking the gtCallStubAddr of the call node to hold
-//   a pointer to the profile candidate info.
-//
-//   We must undo this, if not instrumenting.
-//
 void ClassProbeInstrumentor::SuppressProbes()
 {
     unsigned                                 cleanupCount = 0;
