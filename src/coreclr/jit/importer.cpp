@@ -243,11 +243,6 @@ Importer::StackEntry& Importer::GetConvStackValue()
     return se;
 }
 
-unsigned Importer::impStackHeight()
-{
-    return verCurrentState.esStackDepth;
-}
-
 void Importer::impStmtListAppend(Statement* stmt)
 {
     if (impStmtList == nullptr)
@@ -1449,7 +1444,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     return comp->gtNewLclLoad(tmpLcl, TYP_I_IMPL);
 }
 
-void Importer::impImportDup()
+void Importer::ImportDup()
 {
     // If the expression to dup is simple, just clone it.
     // Otherwise spill it to a temp, and reload the temp twice.
@@ -1465,7 +1460,7 @@ void Importer::impImportDup()
     }
     else if (op1->IsIntegralConst(0) || op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
     {
-        if ((op1->gtFlags & GTF_GLOB_EFFECT) == 0)
+        if (!op1->HasAnySideEffect(GTF_GLOB_EFFECT))
         {
             op2 = comp->gtCloneSimple(op1);
         }
@@ -1481,8 +1476,8 @@ void Importer::impImportDup()
 
         if (!opts.compDbgCode && lcl->TypeIs(TYP_REF))
         {
-            assert(lcl->lvSingleDef == 0);
-            lcl->lvSingleDef = 1;
+            assert(!lcl->lvSingleDef);
+            lcl->lvSingleDef = true;
             JITDUMP("Marked V%02u as a single def local\n", lcl->GetLclNum());
             comp->lvaSetClass(lcl, op1, se.seTypeInfo.GetClassHandle());
         }
@@ -1938,7 +1933,7 @@ IL_OFFSETX Importer::GetCallILOffsetX(IL_OFFSET offs)
 bool Importer::impCanSpillNow(OPCODE prevOpcode)
 {
     // Don't spill after ldtoken, newarr and newobj, because it could be a part of the InitializeArray sequence.
-    // Avoid breaking up to guarantee that impInitializeArrayIntrinsic can succeed.
+    // Avoid breaking up to guarantee that ImportInitializeArrayIntrinsic can succeed.
     return (prevOpcode != CEE_LDTOKEN) && (prevOpcode != CEE_NEWARR) && (prevOpcode != CEE_NEWOBJ);
 }
 
@@ -2159,7 +2154,7 @@ GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 }
 
 //------------------------------------------------------------------------
-// impInitializeArrayIntrinsic: Attempts to replace a call to InitializeArray
+// ImportInitializeArrayIntrinsic: Attempts to replace a call to InitializeArray
 //    with a GT_COPYBLK node.
 //
 // Arguments:
@@ -2180,7 +2175,7 @@ GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 //    The function recognizes all kinds of arrays thus enabling a small runtime
 //    such as CoreRT to skip providing an implementation for InitializeArray.
 
-GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
+GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 {
     assert(sig->numArgs == 2);
 
@@ -2265,7 +2260,7 @@ GenTree* Importer::impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         isMDArray = true;
     }
 
-    CORINFO_CLASS_HANDLE arrayClsHnd = newArrayCall->compileTimeHelperArgumentHandle;
+    CORINFO_CLASS_HANDLE arrayClsHnd = newArrayCall->m_retClassHandle;
 
     if (arrayClsHnd == nullptr)
     {
@@ -2759,7 +2754,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             break;
 
         case NI_CORINFO_INTRINSIC_InitializeArray:
-            retNode = impInitializeArrayIntrinsic(sig);
+            retNode = ImportInitializeArrayIntrinsic(sig);
             break;
 
         case NI_CORINFO_INTRINSIC_Array_Address:
@@ -4381,9 +4376,9 @@ BoxPattern Compiler::impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEn
     return BoxPattern::None;
 }
 
-bool Importer::impImportBoxPattern(BoxPattern              pattern,
-                                   CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                   const BYTE* codeAddr DEBUGARG(const BYTE* codeEnd))
+bool Importer::ImportBoxPattern(BoxPattern              pattern,
+                                CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                const uint8_t* codeAddr DEBUGARG(const uint8_t* codeEnd))
 {
     assert(pattern != BoxPattern::None);
     assert(codeAddr < codeEnd);
@@ -4564,7 +4559,7 @@ bool Importer::impImportBoxPattern(BoxPattern              pattern,
 // strategy may need to peek ahead and see if it is easy to tell how
 // the box is being used. For now, we defer.
 
-void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
+void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 {
     StackEntry           se         = impPopStack();
     CORINFO_CLASS_HANDLE valueClass = se.seTypeInfo.GetClassHandle();
@@ -4586,7 +4581,7 @@ void Importer::impImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
     bool optForSize      = !value->IsCall() && (valueClass != nullptr) && opts.OptimizationDisabled();
     bool expandInline    = canExpandInline && !optForSize;
 
-    JITDUMP("\nCompiler::impImportAndPushBox -- handling BOX(value class) via");
+    JITDUMP("\nCompiler::ImportAndPushBox -- handling BOX(value class) via");
 
     GenTree* boxed;
 
@@ -4777,15 +4772,15 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
     assert(callInfo->sig.numArgs != 0);
 
     GenTree* classHandle = impParentClassTokenToHandle(resolvedToken);
+
     if (classHandle == nullptr)
     {
         assert(!compDonotInline());
         return;
     }
 
-    GenTree* node;
+    GenTreeCall* call;
 
-    //
     // There are two different JIT helpers that can be used to allocate
     // multi-dimensional arrays:
     //
@@ -4797,8 +4792,6 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
     //
     // The non-varargs helper is enabled for CoreRT only for now. Enabling this
     // unconditionally would require ReadyToRun version bump.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
     if (!opts.IsReadyToRun() || IsTargetAbi(CORINFO_CORERT_ABI))
     {
@@ -4838,7 +4831,7 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
         //  - Number of dimension arguments
         //  - Pointer to block of int32 dimensions - address  of lvaNewObjArrayArgs temp.
 
-        node = comp->gtNewLclAddr(argsLcl, TYP_I_IMPL);
+        GenTree* node = comp->gtNewLclAddr(argsLcl, TYP_I_IMPL);
 
         // Pop dimension arguments from the stack one at a time and store it
         // into lvaNewObjArrayArgs temp.
@@ -4854,7 +4847,7 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
 
         args = gtPrependNewCallArg(gtNewIconNode(callInfo->sig.numArgs), args);
         args = gtPrependNewCallArg(classHandle, args);
-        node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
+        call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
     }
     else
     {
@@ -4882,24 +4875,18 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
         args = gtPrependNewCallArg(classHandle, args);
 #endif
 
-        node = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
+        call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
 
 #ifdef TARGET_X86
-        node->gtFlags |= GTF_CALL_POP_ARGS;
+        call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif
     }
 
-    for (GenTreeCall::Use& use : node->AsCall()->Args())
-    {
-        node->gtFlags |= use.GetNode()->gtFlags & GTF_GLOB_EFFECT;
-    }
+    call->m_retClassHandle = resolvedToken->hClass;
 
-    node->AsCall()->compileTimeHelperArgumentHandle = resolvedToken->hClass;
-
-    // Remember that this basic block contains 'new' of a md array
     currentBlock->bbFlags |= BBF_HAS_NEWARRAY;
 
-    impPushOnStack(node, typeInfo(TI_REF, resolvedToken->hClass));
+    impPushOnStack(call, typeInfo(TI_REF, resolvedToken->hClass));
 }
 
 GenTree* Importer::impTransformThis(GenTree*                thisPtr,
@@ -4951,7 +4938,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
         // This pops off the byref-to-a-value-type remaining on the stack and
         // replaces it with a boxed object.
         // This is then used as the object to the virtual call immediately below.
-        impImportAndPushBox(constrainedResolvedToken);
+        ImportAndPushBox(constrainedResolvedToken);
         if (compDonotInline())
         {
             return nullptr;
@@ -10295,7 +10282,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_DUP:
-                impImportDup();
+                ImportDup();
                 break;
 
             case CEE_STIND_I1:
@@ -11738,12 +11725,12 @@ int Importer::ImportBox(const BYTE* codeAddr, const BYTE* codeEnd)
     unsigned   patternSize;
     BoxPattern pattern = comp->impBoxPatternMatch(codeAddr + 4, codeEnd, &patternSize);
 
-    if ((pattern != BoxPattern::None) && impImportBoxPattern(pattern, &resolvedToken, codeAddr + 4 DEBUGARG(codeEnd)))
+    if ((pattern != BoxPattern::None) && ImportBoxPattern(pattern, &resolvedToken, codeAddr + 4 DEBUGARG(codeEnd)))
     {
         return patternSize;
     }
 
-    impImportAndPushBox(&resolvedToken);
+    ImportAndPushBox(&resolvedToken);
 
     return 0;
 }
@@ -11931,14 +11918,14 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
     JITDUMP(" %08X", resolvedToken.token);
 
-    GenTree* op1 = nullptr;
-    GenTree* op2 = nullptr;
+    GenTree* handleOp = nullptr;
 
     if (!opts.IsReadyToRun())
     {
         // Need to restore array classes before creating array objects on the heap
-        op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-        if (op1 == nullptr)
+        handleOp = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+
+        if (handleOp == nullptr)
         {
             assert(compDonotInline());
             return;
@@ -11950,38 +11937,34 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
         info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    // Form the arglist: array class handle, size
-    op2 = impPopStack().val;
+    GenTree* lengthOp = impPopStack().val;
 
     // TODO-MIKE-Review: This should be BADCODE.
-    assert(varActualTypeIsIntOrI(op2->GetType()));
+    assert(varActualTypeIsIntOrI(lengthOp->GetType()));
 
 #ifdef TARGET_64BIT
-    // The array helper takes a native int for array length.
-    // So if we have an int, explicitly extend it to be a native int.
-    if (!op2->TypeIs(TYP_LONG))
+    if (!lengthOp->TypeIs(TYP_LONG))
     {
-        if (op2->IsIntCon())
+        if (lengthOp->IsIntCon())
         {
-            op2->SetType(TYP_LONG);
+            lengthOp->SetType(TYP_LONG);
         }
         else
         {
-            op2 = gtNewOperNode(GT_SXT, TYP_LONG, op2);
+            lengthOp = gtNewOperNode(GT_SXT, TYP_LONG, lengthOp);
         }
     }
 #endif // TARGET_64BIT
 
-    bool usingReadyToRunHelper = false;
+    GenTreeCall* call = nullptr;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        op1 = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
-                                            gtNewCallArgs(op2));
-        usingReadyToRunHelper = (op1 != nullptr);
+        call = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
+                                             gtNewCallArgs(lengthOp));
 
-        if (!usingReadyToRunHelper)
+        if (call == nullptr)
         {
             // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
             // and the newarr call with a single call to a dynamic R2R cell that will:
@@ -11991,8 +11974,9 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
             // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
             // Need to restore array classes before creating array objects on the heap
-            op1 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
-            if (op1 == nullptr)
+            handleOp = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
+
+            if (handleOp == nullptr)
             {
                 assert(compDonotInline());
                 return;
@@ -12000,26 +11984,22 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
         }
     }
 
-    if (!usingReadyToRunHelper)
+    if (call == nullptr)
 #endif
     {
-        GenTreeCall::Use* args = gtNewCallArgs(op1, op2);
+        CorInfoHelpFunc helper = info.compCompHnd->getNewArrHelper(resolvedToken.hClass);
 
-        // Create a call to 'new'
-
-        // Note that this only works for shared generic code because the same helper is used for all
-        // reference array types
-        op1 = gtNewHelperCallNode(info.compCompHnd->getNewArrHelper(resolvedToken.hClass), TYP_REF, args);
+        // Create a call to 'new'. Note that this only works for shared generic
+        // code because the same helper is used for all reference array types.
+        call = gtNewHelperCallNode(helper, TYP_REF, gtNewCallArgs(handleOp, lengthOp));
     }
 
-    op1->AsCall()->compileTimeHelperArgumentHandle = resolvedToken.hClass;
-
-    // Remember that this basic block contains 'new' of an sd array
+    call->m_retClassHandle = resolvedToken.hClass;
 
     block->bbFlags |= BBF_HAS_NEWARRAY;
     comp->optMethodFlags |= OMF_HAS_NEWARRAY;
 
-    impPushOnStack(op1, typeInfo(TI_REF, resolvedToken.hClass));
+    impPushOnStack(call, typeInfo(TI_REF, resolvedToken.hClass));
 }
 
 void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock* block)
@@ -12268,7 +12248,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         // dup; ldvirtftn; newobj; or ldftn; newobj.
         // IL test could contain unverifiable sequence, in this case optimization should not be done.
 
-        if (impStackHeight() > 0)
+        if (verCurrentState.esStackDepth > 0)
         {
             typeInfo delegateTypeInfo = impStackTop().seTypeInfo;
             if (delegateTypeInfo.IsMethod())

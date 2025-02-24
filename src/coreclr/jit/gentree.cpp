@@ -7861,7 +7861,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
 
     if (tree->OperIs(GT_IND_LOAD))
     {
-        // The handle indirs we are looking for will be marked as non-faulting.
+        // The handle loads we are looking for will be marked as non-faulting.
         // Certain others (eg from refanytype) may not be.
 
         if ((tree->gtFlags & GTF_IND_NONFAULTING) != 0)
@@ -8436,7 +8436,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         assert(boxTempLcl->lvClassHnd != nullptr);
 
         // Verify that the storeDst has the expected shape: STORE_OBJ|IND(ADD(boxTempLclNum, ptr-size), x).
-        // The shape here is constrained to the patterns we produce over in impImportAndPushBox for the
+        // The shape here is constrained to the patterns we produce over in ImportAndPushBox for the
         // inlined box case.
 
         GenTree*  storeAddr = store->AsIndir()->GetAddr();
@@ -10713,13 +10713,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
             //
             // But in those cases the types are also sealed, so there's no
             // need to claim exactness here.
-            const bool           helperResultNonNull = (helper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE);
-            CORINFO_CLASS_HANDLE runtimeType         = info.compCompHnd->getBuiltinClass(CLASSID_RUNTIME_TYPE);
-
-            assert(runtimeType != NO_CLASS_HANDLE);
-
-            objClass    = runtimeType;
-            *pIsNonNull = helperResultNonNull;
+            objClass = info.compCompHnd->getBuiltinClass(CLASSID_RUNTIME_TYPE);
+            assert(objClass != NO_CLASS_HANDLE);
+            *pIsNonNull = helper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE;
             break;
         }
 
@@ -10733,7 +10729,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
         case CORINFO_HELP_ISINSTANCEOFCLASS:
         case CORINFO_HELP_ISINSTANCEOFANY:
         {
-            // Fetch the class handle from the helper call arglist
+            // Fetch the class handle from the helper call args
             GenTreeCall::Use*    args    = call->gtCallArgs;
             GenTree*             typeArg = args->GetNode();
             CORINFO_CLASS_HANDLE castHnd = gtGetHelperArgClassHandle(typeArg);
@@ -10747,14 +10743,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
             // the more specific class. A similar issue arises when
             // typing the temp in impCastClassOrIsInstToTree, when we
             // expand the cast inline.
-            if (castHnd != nullptr)
+            if ((castHnd != nullptr) && ((info.compCompHnd->getClassAttribs(castHnd) & CORINFO_FLG_INTERFACE) != 0))
             {
-                DWORD attrs = info.compCompHnd->getClassAttribs(castHnd);
-
-                if ((attrs & CORINFO_FLG_INTERFACE) != 0)
-                {
-                    castHnd = nullptr;
-                }
+                castHnd = nullptr;
             }
 
             // If we don't have a good estimate for the type we can use the
@@ -10762,7 +10753,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
             if (castHnd == nullptr)
             {
                 GenTree* valueArg = args->GetNext()->GetNode();
-                castHnd           = gtGetClassHandle(valueArg, pIsExact, pIsNonNull);
+
+                castHnd = gtGetClassHandle(valueArg, pIsExact, pIsNonNull);
             }
 
             // We don't know at jit time if the cast will succeed or fail, but if it
@@ -10784,7 +10776,9 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
         case CORINFO_HELP_NEWARR_1_VC:
         case CORINFO_HELP_NEWARR_1_ALIGN8:
         case CORINFO_HELP_READYTORUN_NEWARR_1:
-            if (CORINFO_CLASS_HANDLE arrayHnd = call->compileTimeHelperArgumentHandle)
+        case CORINFO_HELP_NEW_MDARR_NONVARARG:
+            // TODO-MIKE-Review: Looks like this could handle CORINFO_HELP_BOX_NULLABLE too.
+            if (CORINFO_CLASS_HANDLE arrayHnd = call->m_retClassHandle)
             {
                 objClass    = arrayHnd;
                 *pIsExact   = true;

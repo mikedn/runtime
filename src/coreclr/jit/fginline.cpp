@@ -1746,7 +1746,7 @@ LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLoc
 
         if (lclInfo.lclType == TYP_REF)
         {
-            assert(lcl->lvSingleDef == 0);
+            assert(!lcl->lvSingleDef);
 
             lcl->lvSingleDef = !lclInfo.lclHasMultipleStlocOp && !lclInfo.lclHasLdlocaOp;
 
@@ -1910,8 +1910,8 @@ GenTree* Compiler::inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum)
                 // If the arg can't be modified in the method body, use the type of the value,
                 // if known. Otherwise, use the declared type.
 
-                assert(tmpLcl->lvSingleDef == 0);
-                tmpLcl->lvSingleDef = 1;
+                assert(!tmpLcl->lvSingleDef);
+                tmpLcl->lvSingleDef = true;
 
                 JITDUMP("Marked V%02u as a single def temp\n", tmpLcl->GetLclNum());
 

@@ -3997,7 +3997,11 @@ struct GenTreeCall final : public GenTree
         InlineCandidateInfo*                  gtInlineCandidateInfo;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
         ClassProfileCandidateInfo*            gtClassProfileCandidateInfo;
-        CORINFO_CLASS_HANDLE compileTimeHelperArgumentHandle; // Used to track type handle argument of dynamic helpers
+
+        // Used to track type handle argument of array allocation helpers
+        // TODO-MIKE-Review: This could probably be in an union with m_retLayout
+        // and set on any REF returning call, for gtGetClassHandle to use.
+        CORINFO_CLASS_HANDLE m_retClassHandle;
     };
 
     union {

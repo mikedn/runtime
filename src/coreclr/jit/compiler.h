@@ -1937,7 +1937,7 @@ struct Importer
 #endif // FEATURE_HW_INTRINSICS
     GenTree* impArrayAccessIntrinsic(
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
-    GenTree* impInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
+    GenTree* ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
     GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo);
 
@@ -1972,18 +1972,17 @@ struct Importer
     GenTree* impPopStackCoerceArg(var_types signatureType);
     StackEntry& impStackTop(unsigned n = 0);
     StackEntry& GetConvStackValue();
-    unsigned    impStackHeight();
 
     typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
 
-    GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+    GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
 
-    bool impImportBoxPattern(BoxPattern              pattern,
-                             CORINFO_RESOLVED_TOKEN* resolvedToken,
-                             const BYTE* codeAddr DEBUGARG(const BYTE* codeEnd));
-    void impImportAndPushBox(CORINFO_RESOLVED_TOKEN* pResolvedToken);
+    bool ImportBoxPattern(BoxPattern              pattern,
+                          CORINFO_RESOLVED_TOKEN* resolvedToken,
+                          const uint8_t* codeAddr DEBUGARG(const uint8_t* codeEnd));
+    void ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken);
 
-    void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* pResolvedToken, CORINFO_CALL_INFO* pCallInfo);
+    void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
 
     bool impCanPInvokeInline();
     bool impCanPInvokeInlineCallSite(BasicBlock* block);
@@ -2121,7 +2120,7 @@ struct Importer
 
     GenTree* impImportPop(BasicBlock* block);
 
-    void impImportDup();
+    void ImportDup();
 
     GenTree* CreateStaticFieldTlsAccess(OPCODE                    opcode,
                                         CORINFO_RESOLVED_TOKEN*   resolvedToken,
