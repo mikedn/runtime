@@ -3994,7 +3994,7 @@ struct GenTreeCall final : public GenTree
 
     union {
         // gtInlineCandidateInfo is only used when inlining methods
-        InlineCandidateInfo*                  gtInlineCandidateInfo;
+        InlineCandidateInfo*                  gtInlineCandidateInfo = nullptr;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
         ClassProfileCandidateInfo*            gtClassProfileCandidateInfo;
 
@@ -4005,14 +4005,14 @@ struct GenTreeCall final : public GenTree
     };
 
     union {
-        TailCallSiteInfo* tailCallInfo;
+        TailCallSiteInfo* tailCallInfo = nullptr;
         // Only used for unmanaged calls, which cannot be tail-called
         CorInfoCallConvExtension unmgdCallConv;
     };
 
-    ClassLayout* m_retLayout; // The layout of the return (struct) type.
+    ClassLayout* m_retLayout = nullptr; // The layout of the return (struct) type.
 
-    GenTreeCallFlags gtCallMoreFlags;
+    GenTreeCallFlags gtCallMoreFlags = GTF_CALL_M_EMPTY;
 
     // Call target lookup info for method call from a Ready To Run module
     // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and padding.
@@ -4027,9 +4027,9 @@ struct GenTreeCall final : public GenTree
 #if defined(DEBUG) || defined(INLINE_DATA)
     // For non-inline candidates, track the first observation
     // that blocks candidacy.
-    InlineObservation gtInlineObservation;
+    InlineObservation gtInlineObservation{};
     // IL offset of the call wrt its parent method.
-    IL_OFFSET gtRawILOffset;
+    IL_OFFSET gtRawILOffset = BAD_IL_OFFSET;
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
 #ifdef DEBUG
@@ -4041,13 +4041,10 @@ public:
     GenTreeCall(var_types type, CallKind kind, Use* args)
         : GenTree(GT_CALL, varActualType(type))
         , gtCallArgs(args)
-        , tailCallInfo(nullptr)
-        , m_retLayout(nullptr)
-        , gtCallMoreFlags(GTF_CALL_M_EMPTY)
         , gtCallType(static_cast<uint8_t>(kind))
         , m_retSigType(type)
     {
-        gtFlags |= (GTF_CALL | GTF_GLOB_REF);
+        gtFlags |= GTF_CALL | GTF_GLOB_REF;
 
         for (Use& use : UseList(args))
         {

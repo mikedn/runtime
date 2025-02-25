@@ -3795,13 +3795,15 @@ GenTreeCall* Compiler::gtNewCallNode(
     else
     {
         node->SetMethodHandle(static_cast<CORINFO_METHOD_HANDLE>(target));
-        node->gtInlineCandidateInfo = nullptr;
     }
 
-#if defined(DEBUG) || defined(INLINE_DATA)
-    // These get updated after call node is built.
-    node->gtInlineObservation = InlineObservation::CALLEE_UNUSED_INITIAL;
-    node->gtRawILOffset       = BAD_IL_OFFSET;
+    node->ClearOtherRegs();
+
+#ifndef TARGET_64BIT
+    if (type == TYP_LONG)
+    {
+        node->GetRetDesc()->InitializeLong();
+    }
 #endif
 
     // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
@@ -3822,16 +3824,6 @@ GenTreeCall* Compiler::gtNewCallNode(
 
         genCallSite2ILOffsetMap->Set(node, ilOffset, CallSiteILOffsetTable::None);
     }
-
-    // Initialize gtOtherRegs
-    node->ClearOtherRegs();
-
-#ifndef TARGET_64BIT
-    if (type == TYP_LONG)
-    {
-        node->GetRetDesc()->InitializeLong();
-    }
-#endif
 
     return node;
 }
@@ -4653,11 +4645,6 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
                                              const int        constVal)
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
-
-    if (!tree->IsIndirectCall())
-    {
-        copy->gtInlineCandidateInfo = nullptr;
-    }
 
     if (tree->gtCallThisArg != nullptr)
     {
