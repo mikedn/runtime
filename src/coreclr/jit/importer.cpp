@@ -14829,17 +14829,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     assert(method != nullptr);
     assert(methodFlags != nullptr);
     assert(pContextHandle != nullptr);
-
-    // This should be a virtual vtable or virtual stub call.
-    //
     assert(call->IsVirtual());
 
     // GDV can be done only while importing, it may need to append new statements and requires
     // the IndirectCallTransformer phase that runs only once when importing is complete.
     bool isLateDevirtualization = importer == nullptr;
 
-    // Possibly instrument, if not optimizing.
-    //
     if (opts.OptimizationDisabled())
     {
         // During importation, optionally flag this block as one that
@@ -14853,14 +14848,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         {
             JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", call->GetID(),
                     importer->currentBlock->bbNum);
-            ClassProfileCandidateInfo* pInfo = new (this, CMK_Inlining) ClassProfileCandidateInfo;
-
-            // Record some info needed for the class profiling probe.
-            //
-            pInfo->ilOffset   = ilOffset;
-            pInfo->probeIndex = info.compClassProbeCount++;
-
-            call->gtClassProfileCandidateInfo = pInfo;
+            call->m_classProfileCandidateInfo =
+                new (this, CMK_Inlining) ClassProfileCandidateInfo{static_cast<int32_t>(jitGetILoffs(ilOffset))};
+            info.compClassProbeCount++;
 
             // Flag block as needing scrutiny
             //
@@ -14871,13 +14861,11 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
 #ifdef DEBUG
-    // Bail if devirt is disabled.
     if (JitConfig.JitEnableDevirtualization() == 0)
     {
         return;
     }
 
-    // Optionally, print info on devirtualization
     Compiler* const rootCompiler = impInlineRoot();
     const bool      doPrint      = JitConfig.JitPrintDevirtualizedMethods().contains(rootCompiler->info.compMethodName,
                                                                            rootCompiler->info.compClassName,

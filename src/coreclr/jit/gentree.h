@@ -3996,7 +3996,7 @@ struct GenTreeCall final : public GenTree
         // gtInlineCandidateInfo is only used when inlining methods
         InlineCandidateInfo*                  gtInlineCandidateInfo = nullptr;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
-        ClassProfileCandidateInfo*            gtClassProfileCandidateInfo;
+        ClassProfileCandidateInfo*            m_classProfileCandidateInfo;
 
         // Used to track type handle argument of array allocation helpers
         // TODO-MIKE-Review: This could probably be in an union with m_retLayout

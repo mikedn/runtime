@@ -554,8 +554,7 @@ private:
 //
 struct ClassProfileCandidateInfo
 {
-    IL_OFFSET ilOffset;
-    unsigned  probeIndex;
+    int32_t ilOffset = 0;
 };
 
 // GuardedDevirtualizationCandidateInfo provides information about
