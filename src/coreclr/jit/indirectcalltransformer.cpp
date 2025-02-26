@@ -353,15 +353,17 @@ private:
             JITDUMP("\n----------------\n\n*** %s contemplating [%06u] in " FMT_BB " \n", name, origCall->GetID(),
                     currBlock->bbNum);
 
+            InlineCandidateInfo* inlineInfo = origCall->HasInlinedCandidateInfo();
+
             // We currently need inline candidate info to guarded devirtualization.
-            if (!origCall->IsInlineCandidate())
+            if (inlineInfo == nullptr)
             {
                 JITDUMP("*** %s Bailing on [%06u] -- not an inline node\n", name, origCall->GetID());
                 ClearFlag();
                 return;
             }
 
-            likelihood = origCall->gtGuardedDevirtualizationCandidateInfo->likelihood;
+            likelihood = inlineInfo->likelihood;
             assert((likelihood >= 0) && (likelihood <= 100));
             JITDUMP("Likelihood of correct guess is %u\n", likelihood);
 
@@ -571,14 +573,14 @@ private:
             // If the devirtualizer was unable to transform the call to invoke the unboxed entry, the inline info
             // we set up may be invalid. We won't be able to inline anyways. So demote the call as an inline candidate.
             CORINFO_METHOD_HANDLE unboxedMethodHnd = inlineInfo->guardedMethodUnboxedEntryHandle;
+
             if ((unboxedMethodHnd != nullptr) && (methodHnd != unboxedMethodHnd))
             {
                 // Demote this call to a non-inline candidate
                 JITDUMP("Devirtualization was unable to use the unboxed entry; so marking call (to boxed entry) as not "
                         "inlineable\n");
 
-                call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
-                call->gtInlineCandidateInfo = nullptr;
+                call->RemoveInlineCandidateInfo();
 
                 if (returnTemp != nullptr)
                 {
@@ -635,7 +637,7 @@ private:
             GenTreeCall* call    = origCall;
             Statement*   newStmt = compiler->gtNewStmt(call);
 
-            call->gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
+            call->RemoveInlineCandidateInfo();
             call->SetIsGuarded();
 
             JITDUMP("Residual call [%06u] moved to block " FMT_BB "\n", call->GetID(), elseBlock->bbNum);
@@ -644,8 +646,6 @@ private:
             {
                 newStmt->SetRootNode(compiler->gtNewLclStore(returnTemp, call->GetType(), call));
             }
-
-            call->gtInlineCandidateInfo = nullptr;
 
             compiler->fgInsertStmtAtEnd(elseBlock, newStmt);
 
@@ -800,19 +800,20 @@ private:
                 // These will be top-level trees.
                 GenTree* const root = nextStmt->GetRootNode();
 
-                if (root->IsCall())
+                if (GenTreeCall* call = root->IsCall())
                 {
-                    GenTreeCall* const call = root->AsCall();
-
-                    if (call->IsGuardedDevirtualizationCandidate() &&
-                        (call->gtGuardedDevirtualizationCandidateInfo->likelihood >= gdvChainLikelihood))
+                    if (GuardedDevirtualizationCandidateInfo* gdvInfo = call->HasGuardedDevirtualizationInfo())
                     {
-                        JITDUMP("GDV call at [%06u] has likelihood %u >= %u; chaining (%u stmts, %u nodes to dup).\n",
-                                call->GetID(), call->gtGuardedDevirtualizationCandidateInfo->likelihood,
-                                gdvChainLikelihood, chainStatementDup, chainNodeDup);
+                        if (gdvInfo->likelihood >= gdvChainLikelihood)
+                        {
+                            JITDUMP(
+                                "GDV call at [%06u] has likelihood %u >= %u; chaining (%u stmts, %u nodes to dup).\n",
+                                call->GetID(), gdvInfo->likelihood, gdvChainLikelihood, chainStatementDup,
+                                chainNodeDup);
 
-                        call->gtCallMoreFlags |= GTF_CALL_M_GUARDED_DEVIRT_CHAIN;
-                        break;
+                            call->gtCallMoreFlags |= GTF_CALL_M_GUARDED_DEVIRT_CHAIN;
+                            break;
+                        }
                     }
                 }
 

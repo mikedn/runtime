@@ -3322,7 +3322,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         prejitResult.NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, fgHaveSufficientProfileData());
 
         // Do the initial inline screen.
-        impCanInlineIL(methodHnd, info.compMethodInfo, (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0, &prejitResult);
+        impCanInlineIL(methodHnd, info.compMethodInfo, info.compFlags, &prejitResult);
 
         // Temporarily install the prejitResult as the
         // compInlineResult so it's available to fgFindJumpTargets

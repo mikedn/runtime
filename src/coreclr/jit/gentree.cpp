@@ -6964,11 +6964,13 @@ void Compiler::gtDispTreeRec(
                 separator = ", ";
             }
 
-            if (call->IsInlineCandidate() && (call->gtInlineCandidateInfo != nullptr) &&
-                (call->gtInlineCandidateInfo->exactContextHnd != nullptr))
+            if (InlineCandidateInfo* inlineInfo = call->HasInlinedCandidateInfo())
             {
-                printf("%sexactContextHnd=0x%p", separator, dspPtr(call->gtInlineCandidateInfo->exactContextHnd));
-                separator = ", ";
+                if (CORINFO_CONTEXT_HANDLE handle = inlineInfo->exactContextHnd)
+                {
+                    printf("%sexactContextHnd=0x%p", separator, dspPtr(handle));
+                    separator = ", ";
+                }
             }
 
             if (separator[0] == ',')

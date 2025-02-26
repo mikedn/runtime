@@ -1541,7 +1541,6 @@ struct Importer
     bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     void setMethodHasExpRuntimeLookup();
-    void setMethodHasGuardedDevirtualization();
     INDEBUG(bool compTailCallStress();)
 
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
@@ -2111,6 +2110,12 @@ struct Importer
                                       bool                   exactContextNeedsRuntimeLookup,
                                       CORINFO_CALL_INFO*     callInfo);
 
+    InlineCandidateInfo* CheckCanInline(GenTreeCall*           call,
+                                        CORINFO_METHOD_HANDLE  fncHandle,
+                                        unsigned               methAttr,
+                                        CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                        InlineResult*          inlineResult);
+
     bool impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array);
 
     void impImportInitObj(GenTree* dstAddr, ClassLayout* layout);
@@ -2224,7 +2229,6 @@ struct Importer
     GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
     GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
-    GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTree* gtNewGCBitcastNode(GenTree* op1);
@@ -2345,12 +2349,6 @@ struct Importer
                                                CORINFO_RESOLVED_TOKEN* ldftnToken);
     bool fgAddrCouldBeNull(GenTree* addr);
 
-    void impCheckCanInline(GenTreeCall*           call,
-                           CORINFO_METHOD_HANDLE  methodHandle,
-                           unsigned               methodAttrs,
-                           CORINFO_CONTEXT_HANDLE exactContextHnd,
-                           InlineCandidateInfo**  inlineCandidateInfo,
-                           InlineResult*          inlineResult);
     LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
     bool inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLASS_HANDLE retClsHnd);
@@ -3572,15 +3570,8 @@ private:
     // STATIC inlining decision based on the IL code.
     void impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
                         CORINFO_METHOD_INFO*  methInfo,
-                        bool                  forceInline,
+                        uint32_t              methAttr,
                         InlineResult*         inlineResult);
-
-    void impCheckCanInline(GenTreeCall*           call,
-                           CORINFO_METHOD_HANDLE  fncHandle,
-                           unsigned               methAttr,
-                           CORINFO_CONTEXT_HANDLE exactContextHnd,
-                           InlineCandidateInfo**  ppInlineCandidateInfo,
-                           InlineResult*          inlineResult);
 
     bool impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening);
 
@@ -4939,7 +4930,7 @@ public:
         return (optMethodFlags & OMF_HAS_GUARDEDDEVIRT) != 0;
     }
 
-    void setMethodHasGuardedDevirtualization()
+    void SetMethodHasGuardedDevirtualization()
     {
         optMethodFlags |= OMF_HAS_GUARDEDDEVIRT;
     }

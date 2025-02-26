@@ -6351,7 +6351,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         // This should be checked in impImportBlockCode.
         assert(!compIsForInlining() ||
-               ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) == 0));
+               ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_RESPECT_BOUNDARY) == 0));
     }
     else
     {
@@ -6389,7 +6389,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         if (compIsForInlining())
         {
             // Does this call site have security boundary restrictions?
-            if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY)
+            if ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
             {
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_SECURITY);
                 return nullptr;
@@ -6968,8 +6968,8 @@ PUSH_CALL:
         impSpillAllAppendTree(call);
 
         // TODO: Still using the widened type.
-        value                                           = gtNewRetExpr(call);
-        call->gtInlineCandidateInfo->retExprPlaceholder = value->AsRetExpr();
+        value                                                            = comp->gtNewRetExpr(call);
+        call->gtGuardedDevirtualizationCandidateInfo->retExprPlaceholder = value->AsRetExpr();
     }
     else
     {
@@ -8984,7 +8984,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDSTR:
                 if (compIsForInlining())
                 {
-                    if (impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_NO_CALLEE_LDSTR)
+                    if ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_NO_CALLEE_LDSTR) != 0)
                     {
                         compInlineResult->NoteFatal(InlineObservation::CALLSITE_HAS_LDSTR_RESTRICTION);
                         return;
@@ -12006,7 +12006,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 {
     if (compIsForInlining())
     {
-        if ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
+        if ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_SECURITY);
 
@@ -12515,7 +12515,7 @@ void Importer::ImportCallI(const uint8_t* codeAddr, int prefixFlags)
     if (compIsForInlining())
     {
         // CALLI doesn't have a method handle, so assume the worst.
-        if ((impInlineInfo->inlineCandidateInfo->dwRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
+        if ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_RESPECT_BOUNDARY) != 0)
         {
             compInlineResult->NoteFatal(InlineObservation::CALLSITE_CROSS_BOUNDARY_CALLI);
 
@@ -14085,7 +14085,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
 // performance heuristics (code size, etc.).
 void Compiler::impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
                               CORINFO_METHOD_INFO*  methInfo,
-                              bool                  forceInline,
+                              uint32_t              methAttr,
                               InlineResult*         inlineResult)
 {
     unsigned codeSize = methInfo->ILCodeSize;
@@ -14139,7 +14139,7 @@ void Compiler::impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
 
     // Note force inline state
 
-    inlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, forceInline);
+    inlineResult->NoteBool(InlineObservation::CALLEE_IS_FORCE_INLINE, (methAttr & CORINFO_FLG_FORCEINLINE) != 0);
 
     // Note IL code size
 
@@ -14160,48 +14160,44 @@ void Compiler::impCanInlineIL(CORINFO_METHOD_HANDLE fncHandle,
     }
 }
 
-void Compiler::impCheckCanInline(GenTreeCall*           call,
-                                 CORINFO_METHOD_HANDLE  fncHandle,
-                                 unsigned               methAttr,
-                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                 InlineCandidateInfo**  ppInlineCandidateInfo,
-                                 InlineResult*          inlineResult)
+InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
+                                              CORINFO_METHOD_HANDLE  fncHandle,
+                                              unsigned               methAttr,
+                                              CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                              InlineResult*          inlineResult)
 {
-    // Either EE or JIT might throw exceptions below.
-    // If that happens, just don't inline the method.
-
     struct Param
     {
-        Compiler*              pThis;
+        Compiler*              comp;
         GenTreeCall*           call;
         CORINFO_METHOD_HANDLE  fncHandle;
         unsigned               methAttr;
         CORINFO_CONTEXT_HANDLE exactContextHnd;
         InlineResult*          result;
-        InlineCandidateInfo**  ppInlineCandidateInfo;
+        InlineCandidateInfo*   inlineCandidateInfo;
     } param;
 
-    param.pThis                 = this;
-    param.call                  = call;
-    param.fncHandle             = fncHandle;
-    param.methAttr              = methAttr;
-    param.exactContextHnd       = (exactContextHnd != nullptr) ? exactContextHnd : MAKE_METHODCONTEXT(fncHandle);
-    param.result                = inlineResult;
-    param.ppInlineCandidateInfo = ppInlineCandidateInfo;
+    param.comp                = comp;
+    param.call                = call;
+    param.fncHandle           = fncHandle;
+    param.methAttr            = methAttr;
+    param.exactContextHnd     = exactContextHnd != nullptr ? exactContextHnd : MAKE_METHODCONTEXT(fncHandle);
+    param.result              = inlineResult;
+    param.inlineCandidateInfo = nullptr;
 
-    bool success = eeRunWithErrorTrap<Param>(
-        [](Param* pParam) {
-            uint32_t               dwRestrictions = 0;
-            CorInfoInitClassResult initClassResult;
+    // Either EE or JIT might throw exceptions below.
+    // If that happens, just don't inline the method.
+    bool success = comp->eeRunWithErrorTrap<Param>(
+        [](Param* param) {
+            Compiler* comp = param->comp;
 
 #ifdef DEBUG
-            const char* methodName;
             const char* className;
-            methodName = pParam->pThis->eeGetMethodName(pParam->fncHandle, &className);
+            const char* methodName = comp->eeGetMethodName(param->fncHandle, &className);
 
             if (JitConfig.JitNoInline())
             {
-                pParam->result->NoteFatal(InlineObservation::CALLEE_IS_JIT_NOINLINE);
+                param->result->NoteFatal(InlineObservation::CALLEE_IS_JIT_NOINLINE);
                 return;
             }
 #endif
@@ -14209,83 +14205,72 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
             // Try to get the code address/size for the method
 
             CORINFO_METHOD_INFO methInfo;
-            if (!pParam->pThis->info.compCompHnd->getMethodInfo(pParam->fncHandle, &methInfo))
+            if (!comp->info.compCompHnd->getMethodInfo(param->fncHandle, &methInfo))
             {
-                pParam->result->NoteFatal(InlineObservation::CALLEE_NO_METHOD_INFO);
+                param->result->NoteFatal(InlineObservation::CALLEE_NO_METHOD_INFO);
                 return;
             }
 
             // Profile data allows us to avoid early "too many IL bytes" outs.
-            pParam->result->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE,
-                                     pParam->pThis->fgHaveSufficientProfileData());
+            param->result->NoteBool(InlineObservation::CALLSITE_HAS_PROFILE, comp->fgHaveSufficientProfileData());
 
-            bool forceInline;
-            forceInline = !!(pParam->methAttr & CORINFO_FLG_FORCEINLINE);
+            comp->impCanInlineIL(param->fncHandle, &methInfo, param->methAttr, param->result);
 
-            pParam->pThis->impCanInlineIL(pParam->fncHandle, &methInfo, forceInline, pParam->result);
-
-            if (pParam->result->IsFailure())
+            if (param->result->IsFailure())
             {
-                assert(pParam->result->IsNever());
+                assert(param->result->IsNever());
                 return;
             }
 
             // Speculatively check if initClass() can be done.
             // If it can be done, we will try to inline the method.
-            initClassResult =
-                pParam->pThis->info.compCompHnd->initClass(nullptr /* field */, pParam->fncHandle /* method */,
-                                                           pParam->exactContextHnd /* context */);
+            CorInfoInitClassResult initClassResult =
+                comp->info.compCompHnd->initClass(nullptr, param->fncHandle, param->exactContextHnd);
 
-            if (initClassResult & CORINFO_INITCLASS_DONT_INLINE)
+            if ((initClassResult & CORINFO_INITCLASS_DONT_INLINE) != 0)
             {
-                pParam->result->NoteFatal(InlineObservation::CALLSITE_CANT_CLASS_INIT);
+                param->result->NoteFatal(InlineObservation::CALLSITE_CANT_CLASS_INIT);
                 return;
             }
 
-            CorInfoInline vmResult;
-            vmResult = pParam->pThis->info.compCompHnd->canInline(pParam->pThis->info.compMethodHnd, pParam->fncHandle,
-                                                                  &dwRestrictions);
+            uint32_t      vmRestrictions = 0;
+            CorInfoInline vmResult =
+                comp->info.compCompHnd->canInline(comp->info.compMethodHnd, param->fncHandle, &vmRestrictions);
 
             if (vmResult == INLINE_FAIL)
             {
-                pParam->result->NoteFatal(InlineObservation::CALLSITE_IS_VM_NOINLINE);
+                param->result->NoteFatal(InlineObservation::CALLSITE_IS_VM_NOINLINE);
             }
             else if (vmResult == INLINE_NEVER)
             {
-                pParam->result->NoteFatal(InlineObservation::CALLEE_IS_VM_NOINLINE);
+                param->result->NoteFatal(InlineObservation::CALLEE_IS_VM_NOINLINE);
             }
 
-            if (pParam->result->IsFailure())
+            if (param->result->IsFailure())
             {
-                // Make sure not to report this one.  It was already reported by the VM.
-                pParam->result->SetReported();
+                // Make sure not to report this one. It was already reported by the VM.
+                param->result->SetReported();
                 return;
             }
 
-            // check for unsupported inlining restrictions
-            assert((dwRestrictions & ~(INLINE_RESPECT_BOUNDARY | INLINE_NO_CALLEE_LDSTR | INLINE_SAME_THIS)) == 0);
+            assert((vmRestrictions & ~(INLINE_RESPECT_BOUNDARY | INLINE_NO_CALLEE_LDSTR | INLINE_SAME_THIS)) == 0);
 
-            if (dwRestrictions & INLINE_SAME_THIS)
+            if ((vmRestrictions & INLINE_SAME_THIS) != 0)
             {
-                GenTree* thisArg = pParam->call->gtCallThisArg->GetNode();
-                assert(thisArg);
+                GenTree* thisArg = param->call->gtCallThisArg->GetNode();
 
-                if (!pParam->pThis->impIsThis(thisArg))
+                if (!comp->impIsThis(thisArg))
                 {
-                    pParam->result->NoteFatal(InlineObservation::CALLSITE_REQUIRES_SAME_THIS);
+                    param->result->NoteFatal(InlineObservation::CALLSITE_REQUIRES_SAME_THIS);
                     return;
                 }
             }
 
-            // Get the method properties
-
-            CORINFO_CLASS_HANDLE clsHandle;
-            clsHandle = pParam->pThis->info.compCompHnd->getMethodClass(pParam->fncHandle);
-            unsigned clsAttr;
-            clsAttr = pParam->pThis->info.compCompHnd->getClassAttribs(clsHandle);
+            CORINFO_CLASS_HANDLE clsHandle = comp->info.compCompHnd->getMethodClass(param->fncHandle);
+            uint32_t             clsAttr   = comp->info.compCompHnd->getClassAttribs(clsHandle);
 
 #ifdef DEBUG
-            var_types fncRetType     = pParam->call->GetType();
+            var_types fncRetType     = param->call->GetType();
             var_types fncRealRetType = CorTypeToVarType(methInfo.args.retType);
 
             assert((varActualType(fncRealRetType) == varActualType(fncRetType)) ||
@@ -14296,50 +14281,39 @@ void Compiler::impCheckCanInline(GenTreeCall*           call,
 #endif
 
             // Allocate an InlineCandidateInfo structure,
-            //
             // Or, reuse the existing GuardedDevirtualizationCandidateInfo,
             // which was pre-allocated to have extra room.
-            //
-            InlineCandidateInfo* pInfo;
 
-            if (pParam->call->IsGuardedDevirtualizationCandidate())
+            InlineCandidateInfo* info;
+
+            if (param->call->IsGuardedDevirtualizationCandidate())
             {
-                pInfo = pParam->call->gtInlineCandidateInfo;
+                info = param->call->gtInlineCandidateInfo;
             }
             else
             {
-                pInfo = new (pParam->pThis, CMK_Inlining) InlineCandidateInfo;
-
-                // Null out bits we don't use when we're just inlining
-                pInfo->guardedClassHandle              = nullptr;
-                pInfo->guardedMethodHandle             = nullptr;
-                pInfo->guardedMethodUnboxedEntryHandle = nullptr;
-                pInfo->likelihood                      = 0;
-                pInfo->requiresInstMethodTableArg      = false;
+                info = new (comp, CMK_Inlining) InlineCandidateInfo;
             }
 
-            pInfo->methInfo                       = methInfo;
-            pInfo->ilCallerHandle                 = pParam->pThis->info.compMethodHnd;
-            pInfo->clsHandle                      = clsHandle;
-            pInfo->exactContextHnd                = pParam->exactContextHnd;
-            pInfo->retExprPlaceholder             = nullptr;
-            pInfo->dwRestrictions                 = dwRestrictions;
-            pInfo->preexistingSpillTemp           = nullptr;
-            pInfo->clsAttr                        = clsAttr;
-            pInfo->methAttr                       = pParam->methAttr;
-            pInfo->initClassResult                = initClassResult;
-            pInfo->exactContextNeedsRuntimeLookup = false;
+            info->methInfo        = methInfo;
+            info->ilCallerHandle  = comp->info.compMethodHnd;
+            info->clsHandle       = clsHandle;
+            info->exactContextHnd = param->exactContextHnd;
+            info->vmRestrictions  = vmRestrictions;
+            info->clsAttr         = clsAttr;
+            info->methAttr        = param->methAttr;
+            info->initClassResult = initClassResult;
 
-            // Note exactContextNeedsRuntimeLookup is reset later on,
-            // over in impMarkInlineCandidate.
-
-            *(pParam->ppInlineCandidateInfo) = pInfo;
+            param->inlineCandidateInfo = info;
         },
         &param);
+
     if (!success)
     {
         param.result->NoteFatal(InlineObservation::CALLSITE_COMPILATION_ERROR);
     }
+
+    return param.inlineCandidateInfo;
 }
 
 //-----------------------------------------------------------------------------
@@ -14569,16 +14543,17 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     CORINFO_METHOD_HANDLE fncHandle;
     unsigned              methAttr;
 
-    if (call->IsGuardedDevirtualizationCandidate())
+    if (GuardedDevirtualizationCandidateInfo* gdvInfo = call->HasGuardedDevirtualizationInfo())
     {
-        if (call->gtGuardedDevirtualizationCandidateInfo->guardedMethodUnboxedEntryHandle != nullptr)
+        if (gdvInfo->guardedMethodUnboxedEntryHandle != nullptr)
         {
-            fncHandle = call->gtGuardedDevirtualizationCandidateInfo->guardedMethodUnboxedEntryHandle;
+            fncHandle = gdvInfo->guardedMethodUnboxedEntryHandle;
         }
         else
         {
-            fncHandle = call->gtGuardedDevirtualizationCandidateInfo->guardedMethodHandle;
+            fncHandle = gdvInfo->guardedMethodHandle;
         }
+
         methAttr = info.compCompHnd->getMethodAttribs(fncHandle);
     }
     else
@@ -14658,19 +14633,19 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
         }
     }
 
-    InlineCandidateInfo* inlineCandidateInfo = nullptr;
-    impCheckCanInline(call, fncHandle, methAttr, exactContextHnd, &inlineCandidateInfo, &inlineResult);
+    InlineCandidateInfo* inlineCandidateInfo =
+        CheckCanInline(call, fncHandle, methAttr, exactContextHnd, &inlineResult);
 
     if (inlineResult.IsFailure())
     {
         return;
     }
 
+    // The new value should not be null.
+    assert(inlineCandidateInfo != nullptr);
     // The old value should be null OR this call should be a guarded devirtualization candidate.
     assert((call->gtInlineCandidateInfo == nullptr) || call->IsGuardedDevirtualizationCandidate());
 
-    // The new value should not be null.
-    assert(inlineCandidateInfo != nullptr);
     inlineCandidateInfo->exactContextNeedsRuntimeLookup = exactContextNeedsRuntimeLookup;
     call->gtInlineCandidateInfo                         = inlineCandidateInfo;
 
@@ -15129,6 +15104,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     call->gtCallType = CT_USER_FUNC;
     call->SetCallAddr(nullptr);
     call->SetMethodHandle(derivedMethod);
+    call->gtInlineCandidateInfo  = nullptr;
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
     call->gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
@@ -15139,11 +15115,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     {
         call->gtFlags |= GTF_CALL_NULLCHECK;
     }
-
-    // Clear the inline candidate info (may be non-null since
-    // it's a union field used for other things by virtual
-    // stubs)
-    call->gtInlineCandidateInfo = nullptr;
 
 #ifdef DEBUG
     JITDUMPTREE(call, "... after devirt...\n");
@@ -15886,46 +15857,39 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
 #endif
 
     // We're all set, proceed with candidate creation.
-    //
     JITDUMP("Marking call [%06u] as guarded devirtualization candidate; will guess for class %s\n", call->GetID(),
             eeGetClassName(classHandle));
-    setMethodHasGuardedDevirtualization();
-    call->SetGuardedDevirtualizationCandidate();
 
     // Spill off any GT_RET_EXPR subtrees so we can clone the call.
-    //
     SpillRetExprHelper helper(this);
     helper.StoreRetExprResultsInArgs(call);
 
     // Gather some information for later. Note we actually allocate InlineCandidateInfo
     // here, as the devirtualized half of this call will likely become an inline candidate.
-    //
-    GuardedDevirtualizationCandidateInfo* pInfo = new (comp, CMK_Inlining) InlineCandidateInfo;
+    GuardedDevirtualizationCandidateInfo* gdvInfo = new (comp, CMK_Inlining) InlineCandidateInfo;
 
-    pInfo->guardedMethodHandle             = methodHandle;
-    pInfo->guardedMethodUnboxedEntryHandle = nullptr;
-    pInfo->guardedClassHandle              = classHandle;
-    pInfo->likelihood                      = likelihood;
-    pInfo->requiresInstMethodTableArg      = false;
+    gdvInfo->guardedMethodHandle = methodHandle;
+    gdvInfo->guardedClassHandle  = classHandle;
+    gdvInfo->likelihood          = likelihood;
 
     // If the guarded class is a value class, look for an unboxed entry point.
-    //
     if ((classAttr & CORINFO_FLG_VALUECLASS) != 0)
     {
         JITDUMP("    ... class is a value class, looking for unboxed entry\n");
-        bool                  requiresInstMethodTableArg = false;
-        CORINFO_METHOD_HANDLE unboxedEntryMethodHandle =
-            info.compCompHnd->getUnboxedEntry(methodHandle, &requiresInstMethodTableArg);
+        bool requiresInstMethodTableArg = false;
 
-        if (unboxedEntryMethodHandle != nullptr)
+        if (CORINFO_METHOD_HANDLE unboxedEntryMethodHandle =
+                info.compCompHnd->getUnboxedEntry(methodHandle, &requiresInstMethodTableArg))
         {
             JITDUMP("    ... updating GDV candidate with unboxed entry info\n");
-            pInfo->guardedMethodUnboxedEntryHandle = unboxedEntryMethodHandle;
-            pInfo->requiresInstMethodTableArg      = requiresInstMethodTableArg;
+
+            gdvInfo->guardedMethodUnboxedEntryHandle = unboxedEntryMethodHandle;
+            gdvInfo->requiresInstMethodTableArg      = requiresInstMethodTableArg;
         }
     }
 
-    call->gtGuardedDevirtualizationCandidateInfo = pInfo;
+    call->SetGuardedDevirtualizationInfo(gdvInfo);
+    comp->SetMethodHasGuardedDevirtualization();
 }
 
 void Importer::addExpRuntimeLookupCandidate(GenTreeCall* call)
@@ -16727,11 +16691,6 @@ void Importer::setMethodHasExpRuntimeLookup()
     comp->setMethodHasExpRuntimeLookup();
 }
 
-void Importer::setMethodHasGuardedDevirtualization()
-{
-    comp->setMethodHasGuardedDevirtualization();
-}
-
 #ifdef DEBUG
 bool Importer::compTailCallStress()
 {
@@ -17213,11 +17172,6 @@ GenTree* Importer::gtUnusedValNode(GenTree* expr)
     return comp->gtUnusedValNode(expr);
 }
 
-GenTreeRetExpr* Importer::gtNewRetExpr(GenTreeCall* call)
-{
-    return comp->gtNewRetExpr(call);
-}
-
 GenTreeUnOp* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
 {
     return comp->gtNewOperNode(oper, type, op1);
@@ -17551,16 +17505,6 @@ CORINFO_CLASS_HANDLE Importer::gtGetHelperArgClassHandle(GenTree* array)
 bool Importer::fgAddrCouldBeNull(GenTree* addr)
 {
     return comp->fgAddrCouldBeNull(addr);
-}
-
-void Importer::impCheckCanInline(GenTreeCall*           call,
-                                 CORINFO_METHOD_HANDLE  methodHandle,
-                                 unsigned               methodAttrs,
-                                 CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                 InlineCandidateInfo**  inlineCandidateInfo,
-                                 InlineResult*          inlineResult)
-{
-    comp->impCheckCanInline(call, methodHandle, methodAttrs, exactContextHnd, inlineCandidateInfo, inlineResult);
 }
 
 LclVarDsc* Importer::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)

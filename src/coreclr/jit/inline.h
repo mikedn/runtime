@@ -562,11 +562,12 @@ struct ClassProfileCandidateInfo
 //
 struct GuardedDevirtualizationCandidateInfo : ClassProfileCandidateInfo
 {
-    CORINFO_CLASS_HANDLE  guardedClassHandle;
-    CORINFO_METHOD_HANDLE guardedMethodHandle;
-    CORINFO_METHOD_HANDLE guardedMethodUnboxedEntryHandle;
-    unsigned              likelihood;
-    bool                  requiresInstMethodTableArg;
+    GenTreeRetExpr*       retExprPlaceholder              = nullptr;
+    CORINFO_CLASS_HANDLE  guardedClassHandle              = nullptr;
+    CORINFO_METHOD_HANDLE guardedMethodHandle             = nullptr;
+    CORINFO_METHOD_HANDLE guardedMethodUnboxedEntryHandle = nullptr;
+    unsigned              likelihood                      = 0;
+    bool                  requiresInstMethodTableArg      = false;
 };
 
 // InlineCandidateInfo provides basic information about a particular
@@ -581,13 +582,12 @@ struct InlineCandidateInfo : public GuardedDevirtualizationCandidateInfo
     CORINFO_METHOD_HANDLE  ilCallerHandle; // the logical IL caller of this inlinee.
     CORINFO_CLASS_HANDLE   clsHandle;
     CORINFO_CONTEXT_HANDLE exactContextHnd;
-    GenTreeRetExpr*        retExprPlaceholder;
-    LclVarDsc*             preexistingSpillTemp;
-    DWORD                  dwRestrictions;
+    LclVarDsc*             preexistingSpillTemp = nullptr;
+    uint32_t               vmRestrictions;
     unsigned               clsAttr;
     unsigned               methAttr;
     CorInfoInitClassResult initClassResult;
-    bool                   exactContextNeedsRuntimeLookup;
+    bool                   exactContextNeedsRuntimeLookup = false;
 };
 
 // InlArgInfo describes inline candidate IL argument properties.

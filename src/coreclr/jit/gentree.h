@@ -3993,7 +3993,6 @@ struct GenTreeCall final : public GenTree
     CallInfo*             fgArgInfo      = nullptr;
 
     union {
-        // gtInlineCandidateInfo is only used when inlining methods
         InlineCandidateInfo*                  gtInlineCandidateInfo = nullptr;
         GuardedDevirtualizationCandidateInfo* gtGuardedDevirtualizationCandidateInfo;
         ClassProfileCandidateInfo*            m_classProfileCandidateInfo;
@@ -4185,9 +4184,26 @@ public:
         return (gtFlags & GTF_CALL_INLINE_CANDIDATE) != 0;
     }
 
+    InlineCandidateInfo* HasInlinedCandidateInfo() const
+    {
+        return IsInlineCandidate() ? gtInlineCandidateInfo : nullptr;
+    }
+
+    InlineCandidateInfo* GetInlineCandidateInfo() const
+    {
+        assert(IsInlineCandidate());
+        return gtInlineCandidateInfo;
+    }
+
     void ClearInlineCandidate()
     {
         gtFlags &= ~GTF_CALL_INLINE_CANDIDATE;
+    }
+
+    void RemoveInlineCandidateInfo()
+    {
+        ClearInlineCandidate();
+        gtInlineCandidateInfo = nullptr;
     }
 
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
@@ -4389,14 +4405,23 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_GUARDED_DEVIRT) != 0;
     }
 
+    GuardedDevirtualizationCandidateInfo* HasGuardedDevirtualizationInfo() const
+    {
+        return IsGuardedDevirtualizationCandidate() ? gtGuardedDevirtualizationCandidateInfo : nullptr;
+    }
+
     void ClearGuardedDevirtualizationCandidate()
     {
         gtCallMoreFlags &= ~GTF_CALL_M_GUARDED_DEVIRT;
     }
 
-    void SetGuardedDevirtualizationCandidate()
+    void SetGuardedDevirtualizationInfo(GuardedDevirtualizationCandidateInfo* info)
     {
+        assert(!IsHelperCall());
+        assert(gtGuardedDevirtualizationCandidateInfo == nullptr);
+
         gtCallMoreFlags |= GTF_CALL_M_GUARDED_DEVIRT;
+        gtGuardedDevirtualizationCandidateInfo = info;
     }
 
     void SetIsGuarded()
@@ -4482,12 +4507,6 @@ public:
     {
         assert(IsUserCall() || IsHelperCall() || (handle == nullptr));
         m_methodHandle = handle;
-    }
-
-    InlineCandidateInfo* GetInlineCandidateInfo() const
-    {
-        assert(IsInlineCandidate());
-        return gtInlineCandidateInfo;
     }
 
     bool IsTypeHandleToRuntimeTypeHelperCall() const;

@@ -2008,10 +2008,10 @@ void Compiler::inlInsertInlineeCode(InlineInfo* inlineInfo)
     {
         noway_assert(inlineInfo->retExpr != nullptr);
 
+        GenTreeRetExpr* retExpr = call->gtInlineCandidateInfo->retExprPlaceholder;
         JITDUMPTREE(inlineInfo->retExpr, "---- Return expression for placeholder " FMT_TREEID " ----\n",
-                    call->gtInlineCandidateInfo->retExprPlaceholder->GetID());
-
-        call->gtInlineCandidateInfo->retExprPlaceholder->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBlockIRSummary);
+                    retExpr->GetID());
+        retExpr->SetRetExpr(inlineInfo->retExpr, inlineInfo->retBlockIRSummary);
     }
 }
 
