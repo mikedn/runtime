@@ -1909,7 +1909,8 @@ void CodeGen::GenCall(GenTreeCall* call)
             regReg1Attr = emitTypeSize(call->GetRegType(1));
         }
 #else
-        assert(call->GetRegCount() == 1);
+        assert((call->GetRegCount() == 1) || call->TypeIs(TYP_LONG) ||
+               varTypeIsFloating(call->GetRetDesc()->GetRegType(1)));
 #endif
     }
     else if (call->TypeIs(TYP_REF))

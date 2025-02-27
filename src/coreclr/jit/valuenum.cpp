@@ -5302,8 +5302,9 @@ void ValueNumStore::DumpPhi(const VNFuncApp& phi)
 
     while ((argsVN != NoVN) && (GetVNFunc(argsVN, &arg) == VNF_PhiArgs))
     {
-        argsVN = arg[1];
-        Print(arg[0], GetVNFunc(arg[0], &arg) == VNF_PhiArgDef);
+        argsVN         = arg[1];
+        ValueNum valVN = arg[0];
+        Print(valVN, GetVNFunc(valVN, &arg) == VNF_PhiArgDef);
         printf(", ");
     }
 
