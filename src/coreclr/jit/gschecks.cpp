@@ -228,7 +228,7 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
                 }
             }
 
-            if (call->IsIndirectCall())
+            if (call->GetCallAddr() != nullptr)
             {
                 // A function pointer is treated like a write-through pointer since
                 // it controls what code gets executed, and so indirectly can cause

@@ -619,24 +619,13 @@ void InlineContext::DumpXml(InlineStrategy* strategy, FILE* file, unsigned inden
 //   description   - string describing the context of the decision
 
 InlineResult::InlineResult(Compiler* compiler, GenTreeCall* call, Statement* stmt, const char* description)
-    : m_RootCompiler(nullptr)
-    , m_Policy(nullptr)
+    : m_RootCompiler(compiler->impInlineRoot())
+    , m_Policy(InlinePolicy::GetPolicy(m_RootCompiler, /*isPrejitRoot*/ false))
     , m_Call(call)
-    , m_InlineContext(nullptr)
-    , m_Caller(nullptr)
-    , m_Callee(nullptr)
-    , m_ImportedILSize(0)
+    , m_Caller(compiler->info.compMethodHnd)
+    , m_Callee(call->AsCall()->IsUserCall() ? call->AsCall()->GetMethodHandle() : nullptr)
     , m_Description(description)
-    , m_Reported(false)
 {
-    // Set the compiler instance
-    m_RootCompiler = compiler->impInlineRoot();
-
-    // Set the policy
-    const bool isPrejitRoot = false;
-    m_Policy                = InlinePolicy::GetPolicy(m_RootCompiler, isPrejitRoot);
-
-    // Pass along some optional information to the policy.
     if (stmt != nullptr)
     {
         m_InlineContext = stmt->GetInlineContext();
@@ -652,17 +641,7 @@ InlineResult::InlineResult(Compiler* compiler, GenTreeCall* call, Statement* stm
         m_Policy->NoteOffset(call->gtRawILOffset);
 #else
         m_Policy->NoteOffset(stmt->GetILOffsetX());
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-    }
-
-    // Get method handle for caller. Note we use the
-    // handle for the "immediate" caller here.
-    m_Caller = compiler->info.compMethodHnd;
-
-    // Get method handle for callee, if known
-    if (m_Call->AsCall()->IsUserCall())
-    {
-        m_Callee = m_Call->AsCall()->GetMethodHandle();
+#endif
     }
 }
 
@@ -683,21 +662,11 @@ InlineResult::InlineResult(Compiler* compiler, GenTreeCall* call, Statement* stm
 //    it is the callee here.
 
 InlineResult::InlineResult(Compiler* compiler, CORINFO_METHOD_HANDLE method, const char* description)
-    : m_RootCompiler(nullptr)
-    , m_Policy(nullptr)
-    , m_Call(nullptr)
-    , m_InlineContext(nullptr)
-    , m_Caller(nullptr)
+    : m_RootCompiler(compiler->impInlineRoot())
+    , m_Policy(InlinePolicy::GetPolicy(m_RootCompiler, /*isPrejitRoot*/ true))
     , m_Callee(method)
     , m_Description(description)
-    , m_Reported(false)
 {
-    // Set the compiler instance
-    m_RootCompiler = compiler->impInlineRoot();
-
-    // Set the policy
-    const bool isPrejitRoot = true;
-    m_Policy                = InlinePolicy::GetPolicy(m_RootCompiler, isPrejitRoot);
 }
 
 //------------------------------------------------------------------------

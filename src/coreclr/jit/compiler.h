@@ -2100,15 +2100,15 @@ struct Importer
                                                             GenTreeCall::Use* additionalCallArgs,
                                                             GenTree*          dereferencedAddress);
 
-    void impMarkInlineCandidate(GenTreeCall*           call,
-                                CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                bool                   exactContextNeedsRuntimeLookup,
-                                CORINFO_CALL_INFO*     callInfo);
+    void MarkInlineCandidate(GenTreeCall*           call,
+                             CORINFO_CONTEXT_HANDLE exactContextHnd,
+                             bool                   exactContextNeedsRuntimeLookup,
+                             CORINFO_CALL_INFO*     callInfo);
 
-    void impMarkInlineCandidateHelper(GenTreeCall*           call,
-                                      CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                      bool                   exactContextNeedsRuntimeLookup,
-                                      CORINFO_CALL_INFO*     callInfo);
+    void MarkInlineCandidateHelper(GenTreeCall*           call,
+                                   CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                   bool                   exactContextNeedsRuntimeLookup,
+                                   CORINFO_CALL_INFO*     callInfo);
 
     InlineCandidateInfo* CheckCanInline(GenTreeCall*           call,
                                         CORINFO_METHOD_HANDLE  fncHandle,

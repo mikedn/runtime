@@ -2471,12 +2471,12 @@ public:
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    const CORINFO_CONST_LOOKUP& GetEntryPoint() const
+    CORINFO_CONST_LOOKUP GetR2REntryPoint() const
     {
         return entryPoint;
     }
 
-    void SetEntryPoint(const CORINFO_CONST_LOOKUP& value)
+    void SetR2REntryPoint(CORINFO_CONST_LOOKUP value)
     {
         entryPoint = value;
     }
@@ -4332,7 +4332,7 @@ public:
     }
 #endif
 
-    void setEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
+    void SetR2REntryPoint(CORINFO_CONST_LOOKUP entryPoint)
     {
         m_entryPointAddr       = entryPoint.addr;
         m_entryPointAccessType = entryPoint.accessType;
@@ -5135,28 +5135,28 @@ public:
         return m_methodHandle != nullptr;
     }
 
+    CORINFO_METHOD_HANDLE GetMethodHandle() const
+    {
+        return m_methodHandle;
+    }
+
 #ifdef FEATURE_READYTORUN_COMPILER
-    void ClearEntryPoint()
+    void ClearR2REntryPoint()
     {
         m_entryPoint.addr       = nullptr;
         m_entryPoint.accessType = IAT_VALUE;
     }
 
-    void SetEntryPoint(const CORINFO_CONST_LOOKUP& entryPoint)
+    void SetR2REntryPoint(CORINFO_CONST_LOOKUP entryPoint)
     {
         m_entryPoint = entryPoint;
     }
 
-    const CORINFO_CONST_LOOKUP& GetEntryPoint()
+    CORINFO_CONST_LOOKUP GetR2REntryPoint() const
     {
         return m_entryPoint;
     }
 #endif
-
-    CORINFO_METHOD_HANDLE GetMethodHandle2() const
-    {
-        return m_methodHandle;
-    }
 
     bool IsCommutative() = delete;
 
@@ -6881,12 +6881,12 @@ struct GenTreeAllocObj final : public GenTreeUnOp
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    CORINFO_CONST_LOOKUP GetEntryPoint() const
+    CORINFO_CONST_LOOKUP GetR2REntryPoint() const
     {
         return entryPoint;
     }
 
-    void SetEntryPoint(CORINFO_CONST_LOOKUP lookup)
+    void SetR2REntryPoint(CORINFO_CONST_LOOKUP lookup)
     {
         entryPoint = lookup;
     }

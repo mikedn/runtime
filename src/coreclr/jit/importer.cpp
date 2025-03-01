@@ -1245,7 +1245,7 @@ GenTree* Importer::impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORIN
 #ifdef FEATURE_READYTORUN_COMPILER
         if (opts.IsReadyToRun())
         {
-            addr->SetEntryPoint(callInfo.codePointerLookup.constLookup);
+            addr->SetR2REntryPoint(callInfo.codePointerLookup.constLookup);
         }
 #endif
         return addr;
@@ -4272,7 +4272,7 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
             GenTreeCall* call =
                 gtNewHelperCallNode(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR, TYP_I_IMPL, gtNewCallArgs(thisPtr));
 
-            call->setEntryPoint(callInfo->codePointerLookup.constLookup);
+            call->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
 
             return call;
         }
@@ -5520,7 +5520,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
                 uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
 
                 addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-                addr->AsCall()->setEntryPoint(fieldInfo.fieldLookup);
+                addr->AsCall()->SetR2REntryPoint(fieldInfo.fieldLookup);
 
                 if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
                 {
@@ -5549,7 +5549,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
             GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
             addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF, gtNewCallArgs(ctxTree));
-            addr->AsCall()->setEntryPoint(fieldInfo.fieldLookup);
+            addr->AsCall()->SetR2REntryPoint(fieldInfo.fieldLookup);
 
             if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
             {
@@ -6445,11 +6445,11 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     if (opts.IsReadyToRun())
                     {
                         noway_assert(callInfo->kind == CORINFO_CALL);
-                        intrinsic->SetEntryPoint(callInfo->codePointerLookup.constLookup);
+                        intrinsic->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
                     }
                     else
                     {
-                        intrinsic->ClearEntryPoint();
+                        intrinsic->ClearR2REntryPoint();
                     }
                 }
 #endif
@@ -6493,11 +6493,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             BADCODE("Bad calling convention");
         }
 
-        //-------------------------------------------------------------------------
-        //  Construct the call node
-        //
-        // Work out what sort of call we're making.
-        // Dispense with virtual calls implemented via LDVIRTFTN immediately.
+        // Construct the call node
 
         constraintCallThisTransform    = callInfo->thisTransform;
         exactContextHnd                = callInfo->contextHandle;
@@ -6533,29 +6529,27 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, stubAddr));
 
                     call = gtNewIndCallNode(comp->gtNewLclLoad(lcl, TYP_I_IMPL), callRetTyp, nullptr);
-                    call->gtFlags |= GTF_CALL_VIRT_STUB;
 
                     X86_ONLY(tailCallFailReason = "VirtualCall with runtime lookup");
                 }
                 else
                 {
-                    // The stub address is known at compile time
-                    call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
-                    call->gtFlags |= GTF_CALL_VIRT_STUB;
                     assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
+
+                    call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+
                     call->m_entryPointAddr       = callInfo->stubLookup.constLookup.addr;
                     call->m_entryPointAccessType = callInfo->stubLookup.constLookup.accessType;
                 }
 
+                call->gtFlags |= GTF_CALL_VIRT_STUB;
+
 #ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
+                // Null check is sometimes needed for ready to run to handle
+                // non-virtual <-> virtual changes between versions
+                if (opts.IsReadyToRun() && callInfo->nullInstanceCheck)
                 {
-                    // Null check is sometimes needed for ready to run to handle
-                    // non-virtual <-> virtual changes between versions
-                    if (callInfo->nullInstanceCheck)
-                    {
-                        call->gtFlags |= GTF_CALL_NULLCHECK;
-                    }
+                    call->gtFlags |= GTF_CALL_NULLCHECK;
                 }
 #endif
 
@@ -6564,16 +6558,14 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             case CORINFO_VIRTUALCALL_VTABLE:
             {
-                assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+                assert((mflags & CORINFO_FLG_STATIC) == 0);
                 assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
 
                 call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                 call->gtFlags |= GTF_CALL_VIRT_VTABLE;
 
-                // Should we expand virtual call targets early for this method?
                 if (opts.compExpandCallsEarly)
                 {
-                    // Mark this method to expand the virtual call target early in fgMorphCall
                     call->SetExpandedEarly();
                 }
                 break;
@@ -6587,10 +6579,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     return nullptr;
                 }
 
-                assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+                assert((mflags & CORINFO_FLG_STATIC) == 0);
                 assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
-
-                // OK, We've been told to call via LDVIRTFTN, so just take the call now....
 
                 GenTreeCall::Use* args = PopCallArgs(sig);
 
@@ -6604,9 +6594,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 GenTree* fptr = impImportLdvirtftn(thisPtrUses[0], pResolvedToken, callInfo);
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
-                // Now make an indirect call through the function pointer
-
                 SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
+
                 LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
                 impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
                 fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
@@ -6616,7 +6605,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
-                    // CoreRT generic virtual method: need to handle potential fat function pointers
                     addFatPointerCandidate(call);
                 }
 
@@ -6652,7 +6640,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 #ifdef FEATURE_READYTORUN_COMPILER
                 if (opts.IsReadyToRun())
                 {
-                    call->setEntryPoint(callInfo->codePointerLookup.constLookup);
+                    call->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
                 }
 #endif
                 break;
@@ -6929,7 +6917,7 @@ DONE:
     call->gtRawILOffset = rawILOffset;
 #endif
 
-    impMarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+    MarkInlineCandidate(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
     if ((sig->flags & CORINFO_SIGFLAG_FAT_CALL) != 0)
     {
@@ -12298,7 +12286,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         call = fgOptimizeDelegateConstructor(call, &exactContextHnd, ldftnToken);
     }
 
-    impMarkInlineCandidate(call, exactContextHnd, callInfo.exactContextNeedsRuntimeLookup, &callInfo);
+    MarkInlineCandidate(call, exactContextHnd, callInfo.exactContextNeedsRuntimeLookup, &callInfo);
     impSpillAllAppendTree(call);
 
     if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
@@ -12402,7 +12390,11 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     {
         if (IsTargetAbi(CORINFO_CORERT_ABI))
         {
-            if (ldftnToken != nullptr)
+            if (ldftnToken == nullptr)
+            {
+                JITDUMP("not optimized, CORERT no ldftnToken\n");
+            }
+            else
             {
                 JITDUMP("optimized\n");
 
@@ -12428,12 +12420,9 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                     helperArgs       = gtNewCallArgs(thisPointer, targetObjPointers, ctxTree);
                     entryPoint       = genericLookup;
                 }
+
                 call = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, TYP_VOID, helperArgs);
-                call->setEntryPoint(entryPoint);
-            }
-            else
-            {
-                JITDUMP("not optimized, CORERT no ldftnToken\n");
+                call->SetR2REntryPoint(entryPoint);
             }
         }
         // ReadyToRun has this optimization for a non-virtual function pointers only for now.
@@ -12450,7 +12439,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             CORINFO_LOOKUP entryPoint;
             info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
             assert(!entryPoint.lookupKind.needsRuntimeLookup);
-            call->setEntryPoint(entryPoint.constLookup);
+            call->SetR2REntryPoint(entryPoint.constLookup);
         }
         else
         {
@@ -12716,7 +12705,7 @@ GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedTok
 #ifdef FEATURE_READYTORUN_COMPILER
     if (isReadyToRunHelper)
     {
-        allocObj->SetEntryPoint(entryPoint);
+        allocObj->SetR2REntryPoint(entryPoint);
     }
 #endif
 
@@ -14390,27 +14379,18 @@ bool Importer::impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*      
     return true;
 }
 
-//------------------------------------------------------------------------
-// impMarkInlineCandidate: determine if this call can be subsequently inlined
-//
-// Arguments:
-//    call -- call under scrutiny
-//    exactContextHnd -- context handle for inlining
-//    exactContextNeedsRuntimeLookup -- true if context required runtime lookup
-//    callInfo -- call info from VM
-//
-// Notes:
-//    Mostly a wrapper for impMarkInlineCandidateHelper that also undoes
-//    guarded devirtualization for virtual calls where the method we'd
-//    devirtualize to cannot be inlined.
-
-void Importer::impMarkInlineCandidate(GenTreeCall*           call,
-                                      CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                      bool                   exactContextNeedsRuntimeLookup,
-                                      CORINFO_CALL_INFO*     callInfo)
+// Determine if this call can be subsequently inlined.
+// Mostly a wrapper for MarkInlineCandidateHelper that also undoes
+// guarded devirtualization for virtual calls where the method we'd
+// devirtualize to cannot be inlined.
+void Importer::MarkInlineCandidate(GenTreeCall*           call,
+                                   CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                   bool                   exactContextNeedsRuntimeLookup,
+                                   CORINFO_CALL_INFO*     callInfo)
 {
-    // Do the actual evaluation
-    impMarkInlineCandidateHelper(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
+    assert(!call->IsHelperCall());
+
+    MarkInlineCandidateHelper(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
     // If this call is an inline candidate or is not a guarded devirtualization
     // candidate, we're done.
@@ -14432,30 +14412,20 @@ void Importer::impMarkInlineCandidate(GenTreeCall*           call,
     call->ClearGuardedDevirtualizationCandidate();
 }
 
-//------------------------------------------------------------------------
-// impMarkInlineCandidateHelper: determine if this call can be subsequently
-//     inlined
+// Determine if this call can be subsequently inlined
 //
-// Arguments:
-//    callNode -- call under scrutiny
-//    exactContextHnd -- context handle for inlining
-//    exactContextNeedsRuntimeLookup -- true if context required runtime lookup
-//    callInfo -- call info from VM
+// If callNode is an inline candidate, this method sets the flag
+// GTF_CALL_INLINE_CANDIDATE, and ensures that helper methods have
+// filled in the associated InlineCandidateInfo.
 //
-// Notes:
-//    If callNode is an inline candidate, this method sets the flag
-//    GTF_CALL_INLINE_CANDIDATE, and ensures that helper methods have
-//    filled in the associated InlineCandidateInfo.
-//
-//    If callNode is not an inline candidate, and the reason is
-//    something that is inherent to the method being called, the
-//    method may be marked as "noinline" to short-circuit any
-//    future assessments of calls to this method.
-
-void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
-                                            CORINFO_CONTEXT_HANDLE exactContextHnd,
-                                            bool                   exactContextNeedsRuntimeLookup,
-                                            CORINFO_CALL_INFO*     callInfo)
+// If callNode is not an inline candidate, and the reason is
+// something that is inherent to the method being called, the
+// method may be marked as "noinline" to short-circuit any
+// future assessments of calls to this method.
+void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
+                                         CORINFO_CONTEXT_HANDLE exactContextHnd,
+                                         bool                   exactContextNeedsRuntimeLookup,
+                                         CORINFO_CALL_INFO*     callInfo)
 {
     // Let the strategy know there's another call
     impInlineRoot()->m_inlineStrategy->NoteCall();
@@ -14540,51 +14510,51 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     // restricts the inliner to non-expanding inlines. I removed the check to allow for non-expanding
     // inlining in throw blocks. I should consider the same thing for catch and filter regions.
 
-    CORINFO_METHOD_HANDLE fncHandle;
-    unsigned              methAttr;
+    CORINFO_METHOD_HANDLE methodHandle;
+    unsigned              methodAttr;
 
     if (GuardedDevirtualizationCandidateInfo* gdvInfo = call->HasGuardedDevirtualizationInfo())
     {
         if (gdvInfo->guardedMethodUnboxedEntryHandle != nullptr)
         {
-            fncHandle = gdvInfo->guardedMethodUnboxedEntryHandle;
+            methodHandle = gdvInfo->guardedMethodUnboxedEntryHandle;
         }
         else
         {
-            fncHandle = gdvInfo->guardedMethodHandle;
+            methodHandle = gdvInfo->guardedMethodHandle;
         }
 
-        methAttr = info.compCompHnd->getMethodAttribs(fncHandle);
+        methodAttr = info.compCompHnd->getMethodAttribs(methodHandle);
     }
     else
     {
-        fncHandle = call->GetMethodHandle();
+        methodHandle = call->GetMethodHandle();
 
         // Reuse method flags from the original callInfo if possible
-        if (fncHandle == callInfo->hMethod)
+        if (methodHandle == callInfo->hMethod)
         {
-            methAttr = callInfo->methodFlags;
+            methodAttr = callInfo->methodFlags;
         }
         else
         {
-            methAttr = info.compCompHnd->getMethodAttribs(fncHandle);
+            methodAttr = info.compCompHnd->getMethodAttribs(methodHandle);
         }
     }
 
 #ifdef DEBUG
     if (comp->compStressCompile(Compiler::STRESS_FORCE_INLINE, 0))
     {
-        methAttr |= CORINFO_FLG_FORCEINLINE;
+        methodAttr |= CORINFO_FLG_FORCEINLINE;
     }
 #endif
 
     // Check for COMPlus_AggressiveInlining
     if (comp->compDoAggressiveInlining)
     {
-        methAttr |= CORINFO_FLG_FORCEINLINE;
+        methodAttr |= CORINFO_FLG_FORCEINLINE;
     }
 
-    if (!(methAttr & CORINFO_FLG_FORCEINLINE))
+    if ((methodAttr & CORINFO_FLG_FORCEINLINE) == 0)
     {
         // Don't bother inline blocks that are in the filter region
         if (bbInCatchHandlerILRange(currentBlock))
@@ -14606,7 +14576,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 
     // Check if we tried to inline this method before
 
-    if (methAttr & CORINFO_FLG_DONT_INLINE)
+    if ((methodAttr & CORINFO_FLG_DONT_INLINE) != 0)
     {
         inlineResult.NoteFatal(InlineObservation::CALLEE_IS_NOINLINE);
         return;
@@ -14614,7 +14584,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 
     // Cannot inline synchronized methods
 
-    if (methAttr & CORINFO_FLG_SYNCH)
+    if ((methodAttr & CORINFO_FLG_SYNCH) != 0)
     {
         inlineResult.NoteFatal(InlineObservation::CALLEE_IS_SYNCHRONIZED);
         return;
@@ -14622,7 +14592,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
 
     // Check legality of PInvoke callsite (for inlining of marshalling code)
 
-    if (methAttr & CORINFO_FLG_PINVOKE)
+    if ((methodAttr & CORINFO_FLG_PINVOKE) != 0)
     {
         // See comment in impCheckForPInvokeCall
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
@@ -14634,7 +14604,7 @@ void Importer::impMarkInlineCandidateHelper(GenTreeCall*           call,
     }
 
     InlineCandidateInfo* inlineCandidateInfo =
-        CheckCanInline(call, fncHandle, methAttr, exactContextHnd, &inlineResult);
+        CheckCanInline(call, methodHandle, methodAttr, exactContextHnd, &inlineResult);
 
     if (inlineResult.IsFailure())
     {
@@ -15098,9 +15068,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
     JITDUMP("    %s; can devirtualize\n", note);
 
-    // Make the updates.
-    call->gtFlags &= ~GTF_CALL_VIRT_VTABLE;
-    call->gtFlags &= ~GTF_CALL_VIRT_STUB;
+    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
     call->gtCallType = CT_USER_FUNC;
     call->SetCallAddr(nullptr);
     call->SetMethodHandle(derivedMethod);
@@ -15474,7 +15442,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #ifdef TARGET_ARMARCH
         call->gtCallMoreFlags &= ~GTF_CALL_M_R2R_REL_INDIRECT;
 #endif
-        call->setEntryPoint(derivedCallInfo.codePointerLookup.constLookup);
+        call->SetR2REntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER
 }

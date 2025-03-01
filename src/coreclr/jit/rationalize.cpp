@@ -57,7 +57,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 
     GenTreeCall* call = comp->gtNewUserCallNode(callHnd, tree->GetType(), args);
 #ifdef FEATURE_READYTORUN_COMPILER
-    call->setEntryPoint(entryPoint);
+    call->SetR2REntryPoint(entryPoint);
 #endif
     comp->fgMorphBlock = m_block;
     comp->fgInitArgInfo(call);
@@ -87,9 +87,9 @@ void Rationalizer::RewriteIntrinsicAsUserCall(GenTree** use)
         args = comp->gtNewCallArgs(intrinsic->GetOp(0), intrinsic->GetOp(1));
     }
 
-    RewriteNodeAsCall(use, intrinsic->GetMethodHandle2(),
+    RewriteNodeAsCall(use, intrinsic->GetMethodHandle(),
 #ifdef FEATURE_READYTORUN_COMPILER
-                      intrinsic->GetEntryPoint(),
+                      intrinsic->GetR2REntryPoint(),
 #endif
                       args);
 }

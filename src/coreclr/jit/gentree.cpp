@@ -3707,7 +3707,7 @@ GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* res
     }
 
     GenTreeCall* call = gtNewHelperCallNode(helper, type, args);
-    call->setEntryPoint(lookup);
+    call->SetR2REntryPoint(lookup);
     return call;
 }
 #endif
@@ -3723,10 +3723,10 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
 
     call->gtCallType = CT_HELPER;
     call->SetMethodHandle(eeFindHelper(helper));
-    call->gtCallThisArg  = nullptr;
-    call->gtCallArgs     = args;
-    call->gtCallLateArgs = nullptr;
     call->SetCallAddr(nullptr);
+    call->gtCallThisArg          = nullptr;
+    call->gtCallArgs             = args;
+    call->gtCallLateArgs         = nullptr;
     call->fgArgInfo              = nullptr;
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
@@ -6878,13 +6878,10 @@ void Compiler::gtDispTreeRec(
         {
             GenTreeCall* call = tree->AsCall();
 
-            if (!call->IsIndirectCall())
+            if (CORINFO_METHOD_HANDLE methodHandle = call->GetMethodHandle())
             {
-                const char* methodName;
                 const char* className;
-
-                methodName = eeGetMethodName(call->GetMethodHandle(), &className);
-
+                const char* methodName = eeGetMethodName(methodHandle, &className);
                 printf(" %s.%s", className, methodName);
             }
 

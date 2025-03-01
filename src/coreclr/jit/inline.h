@@ -335,10 +335,19 @@ protected:
 };
 
 // InlineResult summarizes what is known about the viability of a
-// particular inline candiate.
-
+// particular inline candidate.
 class InlineResult
 {
+    Compiler*             m_RootCompiler   = nullptr;
+    InlinePolicy*         m_Policy         = nullptr;
+    GenTreeCall*          m_Call           = nullptr;
+    InlineContext*        m_InlineContext  = nullptr;
+    CORINFO_METHOD_HANDLE m_Caller         = nullptr; // immediate caller's handle
+    CORINFO_METHOD_HANDLE m_Callee         = nullptr;
+    unsigned              m_ImportedILSize = 0; // estimated size of imported IL
+    const char*           m_Description    = nullptr;
+    bool                  m_Reported       = false;
+
 public:
     // Construct a new InlineResult to help evaluate a
     // particular call for inlining.
@@ -347,6 +356,9 @@ public:
     // Construct a new InlineResult to evaluate a particular
     // method to see if it is inlineable.
     InlineResult(Compiler* compiler, CORINFO_METHOD_HANDLE method, const char* description);
+
+    InlineResult(const InlineResult&) = delete;
+    InlineResult& operator=(const InlineResult&) = delete;
 
     // Has the policy determined this inline should fail?
     bool IsFailure() const
@@ -437,14 +449,12 @@ public:
     }
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-
     // Record observation from an earlier failure.
     void NotePriorFailure(InlineObservation obs)
     {
         m_Policy->NotePriorFailure(obs);
         assert(IsFailure());
     }
-
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
     // Determine if this inline is profitable
@@ -532,21 +542,8 @@ public:
     }
 
 private:
-    InlineResult(const InlineResult&) = delete;
-    InlineResult& operator=(const InlineResult&) = delete;
-
     // Report/log/dump decision as appropriate
     void Report();
-
-    Compiler*             m_RootCompiler;
-    InlinePolicy*         m_Policy;
-    GenTreeCall*          m_Call;
-    InlineContext*        m_InlineContext;
-    CORINFO_METHOD_HANDLE m_Caller; // immediate caller's handle
-    CORINFO_METHOD_HANDLE m_Callee;
-    unsigned              m_ImportedILSize; // estimated size of imported IL
-    const char*           m_Description;
-    bool                  m_Reported;
 };
 
 // ClassProfileCandidateInfo provides information about

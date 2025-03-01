@@ -7436,9 +7436,9 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
         CORINFO_CONST_LOOKUP entry;
 
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (method->GetEntryPoint().addr != nullptr)
+        if (method->GetR2REntryPoint().addr != nullptr)
         {
-            entry = method->GetEntryPoint();
+            entry = method->GetR2REntryPoint();
         }
         else
 #endif
