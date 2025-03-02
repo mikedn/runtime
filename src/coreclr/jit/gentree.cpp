@@ -556,7 +556,7 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
 
 bool GenTreeCall::IsHelperCall(CorInfoHelpFunc helper) const
 {
-    return IsHelperCall() && (m_methodHandle == Compiler::eeFindHelper(helper));
+    return m_methodHandle == Compiler::eeFindHelper(helper);
 }
 
 bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
@@ -564,11 +564,6 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
     assert(c1->GetOper() == c2->GetOper());
 
     if (c1->GetType() != c2->GetType())
-    {
-        return false;
-    }
-
-    if (c1->gtCallType != c2->gtCallType)
     {
         return false;
     }
@@ -3687,7 +3682,7 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
 
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
-    GenTreeCall* call = gtNewCallNode(CT_HELPER, eeFindHelper(helper), type, args);
+    GenTreeCall* call = gtNewCallNode(CT_DIRECT, eeFindHelper(helper), type, args);
     call->gtFlags |= s_helperCallProperties.NoThrow(helper) ? GTF_NONE : GTF_EXCEPT;
     INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
     return call;
@@ -3721,7 +3716,6 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->SetRetSigType(node->GetType());
     call->SetRetLayout(nullptr);
 
-    call->gtCallType = CT_HELPER;
     call->SetMethodHandle(eeFindHelper(helper));
     call->SetCallAddr(nullptr);
     call->gtCallThisArg          = nullptr;
@@ -3777,13 +3771,13 @@ GenTreeCall* Compiler::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
                                          GenTreeCall::Use*     args,
                                          IL_OFFSETX            ilOffset)
 {
-    return gtNewCallNode(CT_USER_FUNC, handle, type, args, ilOffset);
+    return gtNewCallNode(CT_DIRECT, handle, type, args, ilOffset);
 }
 
 GenTreeCall* Compiler::gtNewCallNode(
     CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
-    GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, kind, args);
+    GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, args);
 #ifdef UNIX_X86_ABI
     node->gtFlags |= GTF_CALL_POP_ARGS;
 #endif

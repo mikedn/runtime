@@ -2469,7 +2469,7 @@ GenTree* Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
 
 GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-    noway_assert((call->IsUserCall() || call->IsHelperCall()) && !call->IsUnmanaged());
+    assert(!call->IsIndirectCall() && !call->IsUnmanaged());
 
     // Don't support tail calling helper methods.
     // But we might encounter tail calls dispatched via JIT helper appear as a tail call to helper.
@@ -2615,8 +2615,7 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
 
 GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-    noway_assert(call->IsUserCall() && call->IsDelegateInvoke());
-
+    assert(call->IsUserCall() && call->IsDelegateInvoke());
     assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
 
@@ -2686,7 +2685,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
 
 GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-    noway_assert(call->IsUserCall());
+    assert(call->IsUserCall());
     assert(!call->IsExpandedEarly() && (call->GetCallAddr() == nullptr));
 
     // Get hold of the vtable offset (note: this might be expensive)

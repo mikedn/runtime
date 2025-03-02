@@ -6933,9 +6933,8 @@ DONE:
 
         comp->gtAppendCallArgs(call->gtCallArgs, comp->gtNewCallArgs(pInvokeCalliCookie, call->GetCallAddr()));
 
-        call->gtCallType = CT_HELPER;
-        call->SetCallAddr(nullptr);
         call->SetMethodHandle(eeFindHelper(CORINFO_HELP_PINVOKE_CALLI));
+        call->SetCallAddr(nullptr);
     }
 
     if (callRetTyp == TYP_VOID)
@@ -14388,8 +14387,6 @@ void Importer::MarkInlineCandidate(GenTreeCall*           call,
                                    bool                   exactContextNeedsRuntimeLookup,
                                    CORINFO_CALL_INFO*     callInfo)
 {
-    assert(!call->IsHelperCall());
-
     MarkInlineCandidateHelper(call, exactContextHnd, exactContextNeedsRuntimeLookup, callInfo);
 
     // If this call is an inline candidate or is not a guarded devirtualization
@@ -15069,9 +15066,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     JITDUMP("    %s; can devirtualize\n", note);
 
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
-    call->gtCallType = CT_USER_FUNC;
-    call->SetCallAddr(nullptr);
     call->SetMethodHandle(derivedMethod);
+    call->SetCallAddr(nullptr);
     call->gtInlineCandidateInfo  = nullptr;
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;

@@ -1662,7 +1662,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     if (call->gtCallThisArg != nullptr)
     {
         var_types argType = call->gtCallThisArg->GetNode()->GetType();
-        assert(call->IsUserCall() || call->IsIndirectCall());
+        assert(!call->IsHelperCall());
         assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
 
         CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
@@ -6234,7 +6234,6 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     }
 
     // This is now a direct call to the store args stub and not a tailcall.
-    call->gtCallType = CT_USER_FUNC;
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
@@ -12112,7 +12111,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else
         {
-            copy = new (this, GT_CALL) GenTreeCall(TYP_VOID, CT_HELPER, nullptr);
+            copy = new (this, GT_CALL) GenTreeCall(TYP_VOID, nullptr);
         }
 
         copy->ReplaceWith(tree);

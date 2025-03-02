@@ -61,8 +61,7 @@ enum GenTreeKinds
 
 enum CallKind
 {
-    CT_USER_FUNC,
-    CT_HELPER,
+    CT_DIRECT,
     CT_INDIRECT
 };
 
@@ -3989,7 +3988,7 @@ struct GenTreeCall final : public GenTree
                                    //             - that were evaluated into a temp LclVar
     GenTree* m_callAddr = nullptr;
 
-    CORINFO_METHOD_HANDLE m_methodHandle = nullptr; // For CT_USER_FUNC/CT_HELPER, null for CT_INDIRECT
+    CORINFO_METHOD_HANDLE m_methodHandle = nullptr;
     CallInfo*             fgArgInfo      = nullptr;
 
     union {
@@ -4018,8 +4017,7 @@ struct GenTreeCall final : public GenTree
     void*          m_entryPointAddr       = nullptr;
     InfoAccessType m_entryPointAccessType = IAT_VALUE;
 
-    uint8_t gtCallType : 3;   // value from the CallKind enumeration
-    uint8_t m_retSigType : 5; // Signature return type
+    uint8_t m_retSigType; // Signature return type
 
     ReturnTypeDesc m_retDesc;
 
@@ -4037,11 +4035,7 @@ struct GenTreeCall final : public GenTree
 #endif
 
 public:
-    GenTreeCall(var_types type, CallKind kind, Use* args)
-        : GenTree(GT_CALL, varActualType(type))
-        , gtCallArgs(args)
-        , gtCallType(static_cast<uint8_t>(kind))
-        , m_retSigType(type)
+    GenTreeCall(var_types type, Use* args) : GenTree(GT_CALL, varActualType(type)), gtCallArgs(args), m_retSigType(type)
     {
         gtFlags |= GTF_CALL | GTF_GLOB_REF;
 
@@ -4061,7 +4055,6 @@ public:
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , m_entryPointAddr(copyFrom->m_entryPointAddr)
         , m_entryPointAccessType(copyFrom->m_entryPointAccessType)
-        , gtCallType(copyFrom->gtCallType)
         , m_retSigType(copyFrom->m_retSigType)
         , m_retDesc(copyFrom->m_retDesc)
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -4461,17 +4454,17 @@ public:
 
     bool IsUserCall() const
     {
-        return gtCallType == CT_USER_FUNC;
+        return (m_methodHandle != nullptr) && ((reinterpret_cast<uintptr_t>(m_methodHandle) & 1) == 0);
     }
 
     bool IsHelperCall() const
     {
-        return gtCallType == CT_HELPER;
+        return (reinterpret_cast<uintptr_t>(m_methodHandle) & 1) != 0;
     }
 
     bool IsIndirectCall() const
     {
-        return gtCallType == CT_INDIRECT;
+        return m_methodHandle == nullptr;
     }
 
     bool IsHelperCall(CorInfoHelpFunc helper) const;
@@ -4494,7 +4487,6 @@ public:
     void SetCallAddr(GenTree* addr)
     {
         assert((addr == nullptr) || addr->TypeIs(TYP_I_IMPL));
-        assert((addr != nullptr) || !IsIndirectCall());
         m_callAddr = addr;
     }
 
@@ -4505,7 +4497,6 @@ public:
 
     void SetMethodHandle(CORINFO_METHOD_HANDLE handle)
     {
-        assert(IsUserCall() || IsHelperCall() || (handle == nullptr));
         m_methodHandle = handle;
     }
 

@@ -670,7 +670,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
 
     // Transform this call node into a call to CORINFO_HELP_TAILCALL.
-    call->gtCallType = CT_HELPER;
     call->SetMethodHandle(Compiler::eeFindHelper(CORINFO_HELP_TAILCALL));
     call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
 
