@@ -174,7 +174,7 @@ void LinearScan::BuildNode(GenTree* tree)
             assert(tree->AsUnOp()->GetOp(0)->isContained());
             BuildAddrUses(tree->AsUnOp()->GetOp(0)->AsIndir()->GetAddr());
             BuildInternalUses();
-            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+            BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_MOD:
@@ -1080,7 +1080,7 @@ void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLa
 
     assert(value->GetRegCount() == 2);
 
-    regMaskTP killSet     = compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
+    regMaskTP killSet     = Compiler::compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
     regMaskTP addrRegMask = RBM_NONE;
 
     if (layout->IsGCRef(0))

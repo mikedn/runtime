@@ -371,7 +371,7 @@ regMaskTP LinearScan::getKillSetForStoreInd(GenTreeIndStore* store)
     }
 
     // Figure out which helper we're going to use, and then get the kill set for that helper.
-    return compiler->compHelperCallKillSet(GCInfo::GetWriteBarrierHelperCall(writeBarrierForm));
+    return Compiler::compHelperCallKillSet(GCInfo::GetWriteBarrierHelperCall(writeBarrierForm));
 }
 
 #ifdef TARGET_XARCH
@@ -420,7 +420,7 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 #if defined(TARGET_X86) || defined(TARGET_ARM)
     if (call->IsHelperCall())
     {
-        return compiler->compHelperCallKillSet(compiler->eeGetHelperNum(call->GetMethodHandle()));
+        return Compiler::compHelperCallKillSet(Compiler::eeGetHelperNum(call->GetMethodHandle()));
     }
 #endif
 
@@ -449,14 +449,14 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
     {
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARM64)
         case StructStoreKind::UnrollRegsWB:
-            return compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
+            return Compiler::compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF);
 #endif
 
         case StructStoreKind::UnrollCopyWB:
 #ifdef TARGET_XARCH
         case StructStoreKind::UnrollCopyWBRepMovs:
 #endif
-            return compiler->compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
+            return Compiler::compHelperCallKillSet(CORINFO_HELP_ASSIGN_BYREF);
 
         case StructStoreKind::UnrollInit:
         case StructStoreKind::UnrollCopy:
@@ -467,9 +467,9 @@ regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)
 
 #ifndef TARGET_X86
         case StructStoreKind::MemSet:
-            return compiler->compHelperCallKillSet(CORINFO_HELP_MEMSET);
+            return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMSET);
         case StructStoreKind::MemCpy:
-            return compiler->compHelperCallKillSet(CORINFO_HELP_MEMCPY);
+            return Compiler::compHelperCallKillSet(CORINFO_HELP_MEMCPY);
 #endif
 
 #ifdef TARGET_XARCH
@@ -513,13 +513,13 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 
 regMaskTP LinearScan::getKillSetForReturn()
 {
-    return compiler->compIsProfilerHookNeeded() ? compiler->compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
+    return compiler->compIsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
                                                 : RBM_NONE;
 }
 
 regMaskTP LinearScan::getKillSetForProfilerHook()
 {
-    return compiler->compIsProfilerHookNeeded() ? compiler->compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
+    return compiler->compIsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
                                                 : RBM_NONE;
 }
 
@@ -574,7 +574,7 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
         case GT_INIT_BLK:
             return getKillSetForStructStore(node->AsDynBlk()->GetKind());
         case GT_RETURNTRAP:
-            return compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
+            return Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC);
         case GT_CALL:
             return getKillSetForCall(node->AsCall());
         case GT_IND_STORE:

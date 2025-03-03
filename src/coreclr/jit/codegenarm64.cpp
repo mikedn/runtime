@@ -3386,7 +3386,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
         }
 
         regMaskTP callTargetMask = genRegMask(tempReg);
-        regMaskTP callKillSet    = compiler->compHelperCallKillSet(helper);
+        regMaskTP callKillSet    = Compiler::compHelperCallKillSet(helper);
 
         // assert that all registers in callTargetMask are in the callKillSet
         noway_assert((callTargetMask & callKillSet) == callTargetMask);

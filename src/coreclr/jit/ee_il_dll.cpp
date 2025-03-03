@@ -894,23 +894,24 @@ const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
 #include "jithelpers.h"
     };
 
-    if (eeGetHelperNum(method) != CORINFO_HELP_UNDEF)
+    if (CorInfoHelpFunc ftnNum = eeGetHelperNum(method))
     {
         if (classNamePtr != nullptr)
         {
             *classNamePtr = "HELPER";
         }
-        CorInfoHelpFunc ftnNum = eeGetHelperNum(method);
-        const char*     name   = info.compCompHnd->getHelperName(ftnNum);
+
+        const char* name = info.compCompHnd->getHelperName(ftnNum);
 
         // If it's something unknown from a RET VM, or from SuperPMI, then use our own helper name table.
         if ((strcmp(name, "AnyJITHelper") == 0) || (strcmp(name, "Yickish helper name") == 0))
         {
-            if ((unsigned)ftnNum < CORINFO_HELP_COUNT)
+            if (ftnNum < CORINFO_HELP_COUNT)
             {
                 name = jitHelperName[ftnNum];
             }
         }
+
         return name;
     }
 
@@ -1028,6 +1029,7 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
 {
     const char* className;
     const char* methodName = eeGetMethodName(hnd, &className);
+
     if ((eeGetHelperNum(hnd) != CORINFO_HELP_UNDEF) || eeIsNativeMethod(hnd))
     {
         return methodName;

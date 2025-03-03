@@ -436,20 +436,10 @@ bool GenTreeCall::IsPure() const
     return IsHelperCall() && Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(m_methodHandle));
 }
 
-//-------------------------------------------------------------------------
-// HasSideEffects:
-//    Returns true if this call has any side effects. All non-helpers are considered to have side-effects. Only helpers
-//    that do not mutate the heap, do not run constructors, may not throw, and are either a) pure or b) non-finalizing
-//    allocation functions are considered side-effect-free.
-//
-// Arguments:
-//     compiler         - the compiler instance
-//     ignoreExceptions - when `true`, ignores exception side effects
-//     ignoreCctors     - when `true`, ignores class constructor side effects
-//
-// Return Value:
-//      true if this call has any side-effects; false otherwise.
-bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool ignoreCctors) const
+// Returns true if this call has any side effects. All non-helpers are considered to have side-effects. Only helpers
+// that do not mutate the heap, do not run constructors, may not throw, and are either a) pure or b) non-finalizing
+// allocation functions are considered side-effect-free.
+bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
 {
     // Generally all GT_CALL nodes are considered to have side-effects, but we may have extra information about helper
     // calls that can prove them side-effect-free.
@@ -458,7 +448,7 @@ bool GenTreeCall::HasSideEffects(Compiler* compiler, bool ignoreExceptions, bool
         return true;
     }
 
-    CorInfoHelpFunc             helper           = compiler->eeGetHelperNum(m_methodHandle);
+    CorInfoHelpFunc             helper           = Compiler::eeGetHelperNum(m_methodHandle);
     const HelperCallProperties& helperProperties = Compiler::s_helperCallProperties;
 
     // We definitely care about the side effects if MutatesHeap is true
@@ -9884,7 +9874,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
     {
         if (GenTreeCall* call = node->IsCall())
         {
-            if (call->HasSideEffects(this, (flags & GTF_EXCEPT) == 0, ignoreCctors))
+            if (call->HasSideEffects((flags & GTF_EXCEPT) == 0, ignoreCctors))
             {
                 return true;
             }

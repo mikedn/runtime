@@ -4056,7 +4056,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
                 tempReg = REG_DEFAULT_HELPER_CALL_TARGET;
 
                 regMaskTP callTargetMask = genRegMask(tempReg);
-                noway_assert((callTargetMask & compiler->compHelperCallKillSet(helper)) == callTargetMask);
+                noway_assert((callTargetMask & Compiler::compHelperCallKillSet(helper)) == callTargetMask);
             }
             else
             {
@@ -4233,8 +4233,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
     {
         fPossibleSyncHelperCall = true;
-        helperNum               = compiler->eeGetHelperNum(methHnd);
-        noway_assert(helperNum != CORINFO_HELP_UNDEF);
+        helperNum               = Compiler::eeGetHelperNum(methHnd);
+        assert(helperNum != CORINFO_HELP_UNDEF);
     }
 
     insFormat format;

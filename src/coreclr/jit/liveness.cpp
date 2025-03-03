@@ -1067,7 +1067,8 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_CALL:
             {
                 GenTreeCall* const call = node->AsCall();
-                if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(this))
+
+                if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(false, false))
                 {
                     JITDUMP("Removing dead call:\n");
                     DISPNODE(call);

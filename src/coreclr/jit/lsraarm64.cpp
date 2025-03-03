@@ -141,7 +141,7 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_RETURNTRAP:
             BuildUse(tree->AsUnOp()->GetOp(0));
-            BuildKills(tree, compiler->compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
+            BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
         case GT_OVF_SMUL:

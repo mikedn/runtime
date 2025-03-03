@@ -4356,7 +4356,7 @@ public:
 
     bool IsPure() const;
 
-    bool HasSideEffects(Compiler* compiler, bool ignoreExceptions = false, bool ignoreCctors = false) const;
+    bool HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const;
 
     void ClearFatPointerCandidate()
     {

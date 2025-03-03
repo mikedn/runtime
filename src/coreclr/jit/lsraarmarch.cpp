@@ -533,7 +533,7 @@ void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLa
     BuildUse(value, RBM_NONE, 0);
     BuildUse(value, RBM_NONE, 1);
     BuildInternalUses();
-    BuildKills(store, compiler->compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF));
+    BuildKills(store, Compiler::compHelperCallKillSet(CORINFO_HELP_CHECKED_ASSIGN_REF));
 #endif
 }
 
