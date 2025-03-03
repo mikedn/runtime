@@ -4246,20 +4246,18 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
 }
 #endif // DEBUG
 
-GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
-                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                      CORINFO_CALL_INFO*      callInfo)
+GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo)
 {
-    if ((callInfo->methodFlags & CORINFO_FLG_EnC) && !(callInfo->classFlags & CORINFO_FLG_INTERFACE))
+    if (((callInfo->methodFlags & CORINFO_FLG_EnC) != 0) && ((callInfo->classFlags & CORINFO_FLG_INTERFACE) == 0))
     {
         NO_WAY("Virtual call to a function added via EnC is not supported");
     }
 
-    // CoreRT generic virtual method
     if ((callInfo->sig.sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
     {
         GenTree* runtimeMethodHandle =
             impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::Method, callInfo->hMethod);
+
         return gtNewHelperCallNode(CORINFO_HELP_GVMLOOKUP_FOR_SLOT, TYP_I_IMPL,
                                    gtNewCallArgs(thisPtr, runtimeMethodHandle));
     }
@@ -4288,28 +4286,24 @@ GenTree* Importer::impImportLdvirtftn(GenTree*                thisPtr,
     }
 #endif
 
-    // Get the exact descriptor for the static callsite
     GenTree* exactTypeDesc = impParentClassTokenToHandle(resolvedToken);
+
     if (exactTypeDesc == nullptr)
-    { // compDonotInline()
+    {
+        assert(compDonotInline());
         return nullptr;
     }
 
     GenTree* exactMethodDesc = impTokenToHandle(resolvedToken);
+
     if (exactMethodDesc == nullptr)
-    { // compDonotInline()
+    {
+        assert(compDonotInline());
         return nullptr;
     }
 
-    GenTreeCall::Use* helpArgs = gtNewCallArgs(exactMethodDesc);
-
-    helpArgs = gtPrependNewCallArg(exactTypeDesc, helpArgs);
-
-    helpArgs = gtPrependNewCallArg(thisPtr, helpArgs);
-
-    // Call helper function.  This gets the target address of the final destination callsite.
-
-    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL, helpArgs);
+    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL,
+                               gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
 }
 
 BoxPattern Compiler::impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize)
@@ -6589,14 +6583,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert(thisPtr != nullptr);
 
                 GenTree* thisPtrUses[2];
-                impMakeMultiUse(thisPtr, 2, thisPtrUses, CHECK_SPILL_ALL DEBUGARG("LDVIRTFTN this pointer"));
+                impMakeMultiUse(thisPtr, thisPtrUses, CHECK_SPILL_ALL DEBUGARG("LDVIRTFTN this pointer"));
 
-                GenTree* fptr = impImportLdvirtftn(thisPtrUses[0], pResolvedToken, callInfo);
+                GenTree* fptr = ImportLdVirtFtn(thisPtrUses[0], pResolvedToken, callInfo);
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
-                SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
+                // TODO-MIKE-Review: This basically ignores exception side effects, causing a NullRefException
+                // from LdVirtFtn to be thrown before any other exceptions arguments may throw. Normally the
+                // NullRefException would be thrown by the call itself, after arguments have been evaluated.
+                SpillStackCheck(fptr, CHECK_SPILL_ALL);
 
-                LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall through function pointer"));
+                LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("LDVIRTFTN function pointer"));
                 impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
                 fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
@@ -6663,8 +6660,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     return nullptr;
                 }
 
-                // Now make an indirect call through the function pointer
-
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
                 SpillStackCheck(fptr, CHECK_SPILL_ALL); // TODO-MIKE-Review: Can fptr really interfere with anything?
@@ -6697,10 +6692,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if ((mflags & CORINFO_FLG_DELEGATE_INVOKE) != 0)
         {
-            assert((mflags & CORINFO_FLG_STATIC) == 0); // can't call a static method
+            assert((mflags & CORINFO_FLG_STATIC) == 0);
             assert((mflags & CORINFO_FLG_FINAL) != 0);
 
-            // Set the delegate flag
             call->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
 
             if (callInfo->wrapperDelegateInvoke)
@@ -11840,7 +11834,7 @@ void Importer::ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constra
     impPushOnStack(result, typeInfo(token));
 }
 
-void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
+void Importer::ImportLdVirtFtn(const uint8_t* codeAddr)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
     impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
@@ -11883,7 +11877,7 @@ void Importer::ImportLdVirtFtn(const BYTE* codeAddr)
     }
     else
     {
-        result                  = impImportLdvirtftn(obj, &resolvedToken, &callInfo);
+        result                  = ImportLdVirtFtn(obj, &resolvedToken, &callInfo);
         resolvedToken.tokenType = CORINFO_TOKENKIND_Ldvirtftn;
     }
 

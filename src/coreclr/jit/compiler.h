@@ -1974,7 +1974,7 @@ struct Importer
 
     typeInfo impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classHandle);
 
-    GenTree* impImportLdvirtftn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
+    GenTree* ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
 
     bool ImportBoxPattern(BoxPattern              pattern,
                           CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -1994,18 +1994,18 @@ struct Importer
     void impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const CORINFO_HELPER_DESC& helperCall);
 
     void ImportArgList();
-    void ImportMkRefAny(const BYTE* codeAddr);
+    void ImportMkRefAny(const uint8_t* codeAddr);
     void ImportRefAnyType();
-    void ImportRefAnyVal(const BYTE* codeAddr);
+    void ImportRefAnyVal(const uint8_t* codeAddr);
     void ImportLocAlloc(BasicBlock* block);
-    void ImportIsInst(const BYTE* codeAddr);
+    void ImportIsInst(const uint8_t* codeAddr);
     void ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny);
     void ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny);
-    int ImportBox(const BYTE* codeAddr, const BYTE* codeEnd);
-    void ImportLdToken(const BYTE* codeAddr);
-    void ImportJmp(const BYTE* codeAddr, BasicBlock* block);
-    void ImportLdFtn(const BYTE* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
-    void ImportLdVirtFtn(const BYTE* codeAddr);
+    int ImportBox(const uint8_t* codeAddr, const BYTE* codeEnd);
+    void ImportLdToken(const uint8_t* codeAddr);
+    void ImportJmp(const uint8_t* codeAddr, BasicBlock* block);
+    void ImportLdFtn(const uint8_t* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags);
+    void ImportLdVirtFtn(const uint8_t* codeAddr);
     void ImportNewArr(const BYTE* codeAddr, BasicBlock* block);
     void ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock* block);
     void ImportCallI(const uint8_t* codeAddr, int prefixFlags);
