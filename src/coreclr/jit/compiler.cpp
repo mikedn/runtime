@@ -4966,6 +4966,8 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 break;
 
             case GT_CALL:
+            {
+                GenTreeCall* call = tree->AsCall();
 
                 if (tree->gtFlags & GTF_CALL_UNMANAGED)
                 {
@@ -4975,17 +4977,21 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[CALL_INLINE_CANDIDATE]");
                 }
-                if (!tree->AsCall()->IsVirtual())
+                if (!call->IsVirtual())
                 {
                     chars += printf("[CALL_NONVIRT]");
                 }
-                if (tree->AsCall()->IsVirtualVtable())
+                if (call->IsVirtualVtable())
                 {
                     chars += printf("[CALL_VIRT_VTABLE]");
                 }
-                if (tree->AsCall()->IsVirtualStub())
+                if (call->IsVirtualStub())
                 {
                     chars += printf("[CALL_VIRT_STUB]");
+                }
+                if (call->IsDelegateInvoke())
+                {
+                    chars += printf("[CALL_DELEGATE_INVOKE]");
                 }
                 if (tree->gtFlags & GTF_CALL_NULLCHECK)
                 {
@@ -5004,78 +5010,71 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
 
                 // More flags associated with calls.
 
+                if (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
                 {
-                    GenTreeCall* call = tree->AsCall();
+                    chars += printf("[CALL_M_EXPLICIT_TAILCALL]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL)
+                {
+                    chars += printf("[CALL_M_TAILCALL]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_VARARGS)
+                {
+                    chars += printf("[CALL_M_VARARGS]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
+                {
+                    chars += printf("[CALL_M_RETBUFFARG]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK)
+                {
+                    chars += printf("[CALL_M_NOGCCHECK]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+                {
+                    chars += printf("[CALL_M_SPECIAL_INTRINSIC]");
+                }
 
-                    if (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
+                if (call->IsUnmanaged())
+                {
+                    if (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
                     {
-                        chars += printf("[CALL_M_EXPLICIT_TAILCALL]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL)
-                    {
-                        chars += printf("[CALL_M_TAILCALL]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_VARARGS)
-                    {
-                        chars += printf("[CALL_M_VARARGS]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
-                    {
-                        chars += printf("[CALL_M_RETBUFFARG]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_DELEGATE_INV)
-                    {
-                        chars += printf("[CALL_M_DELEGATE_INV]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK)
-                    {
-                        chars += printf("[CALL_M_NOGCCHECK]");
-                    }
-                    if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
-                    {
-                        chars += printf("[CALL_M_SPECIAL_INTRINSIC]");
-                    }
-
-                    if (call->IsUnmanaged())
-                    {
-                        if (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL)
-                        {
-                            chars += printf("[CALL_M_UNMGD_THISCALL]");
-                        }
-                    }
-#ifdef TARGET_X86
-                    if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
-                    {
-                        chars += printf("[CALL_M_TAILCALL_VIA_JIT_HELPER]");
-                    }
-#endif
-#if FEATURE_TAILCALL_OPT
-                    if (call->gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
-                    {
-                        chars += printf("[CALL_M_IMPLICIT_TAILCALL]");
-                    }
-#endif
-                    if (call->gtCallMoreFlags & GTF_CALL_M_PINVOKE)
-                    {
-                        chars += printf("[CALL_M_PINVOKE]");
-                    }
-
-                    if (call->IsFatPointerCandidate())
-                    {
-                        chars += printf("[CALL_FAT_POINTER_CANDIDATE]");
-                    }
-
-                    if (call->IsGuarded())
-                    {
-                        chars += printf("[CALL_GUARDED]");
-                    }
-
-                    if (call->IsExpRuntimeLookup())
-                    {
-                        chars += printf("[CALL_EXP_RUNTIME_LOOKUP]");
+                        chars += printf("[CALL_M_UNMGD_THISCALL]");
                     }
                 }
-                break;
+#ifdef TARGET_X86
+                if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
+                {
+                    chars += printf("[CALL_M_TAILCALL_VIA_JIT_HELPER]");
+                }
+#endif
+#if FEATURE_TAILCALL_OPT
+                if (call->gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
+                {
+                    chars += printf("[CALL_M_IMPLICIT_TAILCALL]");
+                }
+#endif
+                if (call->gtCallMoreFlags & GTF_CALL_M_PINVOKE)
+                {
+                    chars += printf("[CALL_M_PINVOKE]");
+                }
+
+                if (call->IsFatPointerCandidate())
+                {
+                    chars += printf("[CALL_FAT_POINTER_CANDIDATE]");
+                }
+
+                if (call->IsGuarded())
+                {
+                    chars += printf("[CALL_GUARDED]");
+                }
+
+                if (call->IsExpRuntimeLookup())
+                {
+                    chars += printf("[CALL_EXP_RUNTIME_LOOKUP]");
+                }
+            }
+            break;
 
             default:
                 if (GenTreeFlags flags = (tree->gtFlags & ~GTF_COMMON_MASK))
@@ -5157,7 +5156,7 @@ bool Compiler::killGCRefs(GenTree* tree) const
             return true;
         }
 
-        if (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_JIT_PINVOKE_BEGIN))
+        if (call->IsHelperCall(CORINFO_HELP_JIT_PINVOKE_BEGIN))
         {
             assert(opts.ShouldUsePInvokeHelpers());
             return true;

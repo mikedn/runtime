@@ -827,11 +827,6 @@ void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
 }
 #endif // FEATURE_HW_INTRINSICS
 
-void Lowering::ContainCheckCallOperands(GenTreeCall* call)
-{
-    // There are no contained operands for arm.
-}
-
 void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
 {
     ContainCheckIndir(store);

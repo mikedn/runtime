@@ -1230,11 +1230,12 @@ public:
     ClassProbeVisitor(Compiler* compiler, TFunctor& functor) : m_functor(functor), m_compiler(compiler)
     {
     }
+
     GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
     {
         if (GenTreeCall* const call = (*use)->IsCall())
         {
-            if (call->IsVirtual() && !call->IsIndirectCall())
+            if (call->IsVirtualVtable() || call->IsVirtualStubDirect())
             {
                 m_functor(m_compiler, call);
             }
@@ -1263,6 +1264,7 @@ public:
         ICorJitInfo::PgoInstrumentationSchema schemaElem;
         schemaElem.Count = 1;
         schemaElem.Other = ICorJitInfo::ClassProfile32::CLASS_FLAG;
+
         if (call->IsVirtualStub())
         {
             schemaElem.Other |= ICorJitInfo::ClassProfile32::INTERFACE_FLAG;

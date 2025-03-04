@@ -1377,44 +1377,39 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else
 #endif
-        if (call->IsIndirectCall())
-    {
-        if (call->IsVirtualStub())
-        {
-            call->SetCallAddr(LowerIndirectVirtualStubCall(call));
-        }
-        else if (call->IsUnmanaged())
-        {
-            InsertPInvokeCallPrologAndEpilog(call);
-        }
-    }
-    else if (call->IsDelegateInvoke())
-    {
-        call->SetCallAddr(LowerDelegateInvoke(call));
-    }
-    else if (call->IsVirtualVtable())
+        if (call->IsVirtualVtable())
     {
         if (!call->IsExpandedEarly())
         {
             call->SetCallAddr(LowerVirtualVtableCall(call));
         }
     }
-    else if (call->IsVirtualStub())
+    else if (call->IsVirtualStubIndirect())
+    {
+        call->SetCallAddr(LowerIndirectVirtualStubCall(call));
+    }
+    else if (call->IsVirtualStubDirect())
     {
         call->SetCallAddr(LowerVirtualStubCall(call));
     }
-    else
+    else if (call->IsDelegateInvoke())
     {
-        noway_assert(!call->IsVirtual());
+        call->SetCallAddr(LowerDelegateInvoke(call));
+    }
+    else if (call->IsUnmanaged())
+    {
+        InsertPInvokeCallPrologAndEpilog(call);
 
-        if (call->IsUnmanaged())
+        if (!call->IsIndirectCall())
         {
             call->SetCallAddr(LowerDirectPInvokeCall(call));
         }
-        else
-        {
-            call->SetCallAddr(LowerDirectCall(call));
-        }
+    }
+    else if (!call->IsIndirectCall())
+    {
+        assert(!call->IsVirtual());
+
+        call->SetCallAddr(LowerDirectCall(call));
     }
 
 #if FEATURE_FASTTAILCALL
@@ -1458,7 +1453,9 @@ void Lowering::LowerCall(GenTreeCall* call)
         }
     }
 
-    ContainCheckCallOperands(call);
+#ifdef TARGET_XARCH
+    ContainCheckCallAddr(call);
+#endif
 
     JITDUMP("lowering call (after):\n");
     DISPTREERANGE(BlockRange(), call);
@@ -2449,7 +2446,7 @@ GenTree* Lowering::SpillStructCall(GenTreeCall* call, GenTree* user)
 
 GenTree* Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
 {
-    assert(call->IsVirtualStub() && call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
+    assert(call->IsVirtualStubIndirect() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
     // The importer decided we needed a stub call via a computed
     // stub dispatch address, i.e. an address which came from a dictionary lookup.
@@ -2488,7 +2485,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
         if (call->IsHelperCall())
     {
         CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
-        noway_assert(helperNum != CORINFO_HELP_UNDEF);
+        assert(helperNum != CORINFO_HELP_UNDEF);
         void* pAddr;
         entryPoint.addr = comp->info.compCompHnd->getHelperFtn(helperNum, &pAddr);
 
@@ -2506,7 +2503,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
     }
     else
     {
-        noway_assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
+        assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
 
         CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_ANY;
 
@@ -2549,8 +2546,6 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
 GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
 {
     assert(call->IsUserCall());
-
-    InsertPInvokeCallPrologAndEpilog(call);
 
     CORINFO_CONST_LOOKUP entryPoint;
     comp->info.compCompHnd->getAddressOfPInvokeTarget(call->GetMethodHandle(), &entryPoint);
@@ -2619,7 +2614,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
 
-    call->gtCallMoreFlags &= ~GTF_CALL_M_DELEGATE_INV;
+    call->gtFlags &= ~GTF_CALL_DELEGATE_INV;
 
     GenTree* thisArgNode;
 
@@ -2793,7 +2788,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
 GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
 {
-    assert(call->IsVirtualStub() && !call->IsIndirectCall() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
+    assert(call->IsVirtualStubDirect() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
     // An x86 JIT which uses full stub dispatch must generate only
     // the following stub dispatch calls:
@@ -3139,16 +3134,8 @@ void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
     }
 }
 
-//------------------------------------------------------------------------
-// InsertPInvokeCallProlog: Emit the call-site prolog for direct calls to unmanaged code.
+// Emit the call-site prolog for direct calls to unmanaged code.
 // It does all the necessary call-site setup of the InlinedCallFrame.
-//
-// Arguments:
-//    call - the call for which we are inserting the PInvoke prolog.
-//
-// Return Value:
-//    None.
-//
 void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 {
     JITDUMP("======= Inserting PInvoke call prolog\n");
@@ -3229,7 +3216,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         CORINFO_METHOD_HANDLE embedMethodHandle =
             comp->info.compCompHnd->embedMethodHandle(call->GetMethodHandle(), &pEmbedMethodHandle);
 
-        noway_assert((!embedMethodHandle) != (!pEmbedMethodHandle));
+        noway_assert((embedMethodHandle == nullptr) != (pEmbedMethodHandle == nullptr));
 
         if (embedMethodHandle != nullptr)
         {
@@ -3297,15 +3284,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     BlockRange().InsertBefore(insertBefore, preemptiveGCNode);
 }
 
-//------------------------------------------------------------------------
-// InsertPInvokeCallEpilog: Insert the code that goes after every inlined pinvoke call.
-//
-// Arguments:
-//    call - the call for which we are inserting the PInvoke epilog.
-//
-// Return Value:
-//    None.
-//
+// Insert the code that goes after every inlined pinvoke call.
 void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 {
     JITDUMP("======= Inserting PInvoke call epilog\n");

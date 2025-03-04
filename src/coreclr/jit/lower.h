@@ -50,7 +50,6 @@ private:
     void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
-    void ContainCheckCallOperands(GenTreeCall* call);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckIndStore(GenTreeIndStore* store);
     void ContainCheckMul(GenTreeOp* node);
@@ -60,6 +59,7 @@ private:
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
+    void ContainCheckCallAddr(GenTreeCall* call);
     void ContainCheckIntToFloat(GenTreeUnOp* node);
     void ContainCheckFloatToInt(GenTreeUnOp* node);
     void ContainCheckFloatBinary(GenTreeOp* node);

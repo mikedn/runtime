@@ -4158,8 +4158,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, REG_ARG_0, REG_ARG_0, 0);
     }
 
-    CORINFO_METHOD_HANDLE methHnd = call->GetMethodHandle();
-    GenTree*              target  = call->GetCallAddr();
+    GenTree* target = call->GetCallAddr();
 
 #if FEATURE_FASTTAILCALL
     // If fast tail call, then we are done.  In this case we setup the args (both reg args
@@ -4233,7 +4232,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
     {
         fPossibleSyncHelperCall = true;
-        helperNum               = Compiler::eeGetHelperNum(methHnd);
+        helperNum               = Compiler::eeGetHelperNum(call->GetMethodHandle());
         assert(helperNum != CORINFO_HELP_UNDEF);
     }
 
@@ -4247,7 +4246,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     if (target != nullptr)
     {
 #ifdef TARGET_X86
-        if (call->IsVirtualStub() && call->IsIndirectCall())
+        if (call->IsVirtualStubIndirect())
         {
             // On x86, we need to generate a very specific pattern for indirect VSD calls:
             //
@@ -4379,7 +4378,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 #ifdef TARGET_X86
         argSizeForEmitter,
 #endif
-        methHnd
+        call->GetMethodHandle()
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig));
     // clang-format on
 

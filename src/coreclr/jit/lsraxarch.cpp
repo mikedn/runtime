@@ -748,7 +748,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
             addrCandidates = RBM_RAX;
         }
 #ifdef TARGET_X86
-        else if (call->IsVirtualStub() && call->IsIndirectCall())
+        else if (call->IsVirtualStubIndirect())
         {
             // On x86, we need to generate a very specific pattern for indirect VSD calls:
             //

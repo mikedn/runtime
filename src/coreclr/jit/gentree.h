@@ -400,18 +400,19 @@ enum GenTreeFlags : unsigned
     // CALL specific flags
 
     GTF_CALL_UNMANAGED        = 0x80000000, // Call to unmanaged code
-    GTF_CALL_INLINE_CANDIDATE = 0x40000000, // Inline candidate
 
     GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the below call kinds
-    GTF_CALL_NONVIRT          = 0x00000000, // Non virtual call
-    GTF_CALL_VIRT_STUB        = 0x10000000, // Stub-dispatch virtual call
-    GTF_CALL_VIRT_VTABLE      = 0x20000000, // Vtable-based virtual call
+    GTF_CALL_VIRT_VTABLE      = 0x10000000, // Vtable-based virtual call
+    GTF_CALL_VSTUB_DIRECT     = 0x20000000, // Direct Stub-dispatch virtual call
+    GTF_CALL_VSTUB_INDIRECT   = 0x30000000, // Indirect Stub-dispatch virtual call
+    GTF_CALL_DELEGATE_INV     = 0x40000000, // call to Delegate.Invoke
 
     GTF_CALL_NULLCHECK        = 0x08000000, // Null check `this`
 #ifdef TARGET_X86
     GTF_CALL_POP_ARGS         = 0x04000000, // Caller pops arguments
 #endif
     GTF_CALL_HOISTABLE        = 0x02000000, // Hoistable call (known helper calls)
+    GTF_CALL_INLINE_CANDIDATE = 0x01000000, // Inline candidate
 
     // MEMORYBARRIER specific flags
 
@@ -3741,7 +3742,6 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_TAILCALL                = 0x00000002, // the call is a tailcall
     GTF_CALL_M_VARARGS                 = 0x00000004, // the call uses varargs ABI
     GTF_CALL_M_RETBUFFARG              = 0x00000008, // call has a return buffer argument
-    GTF_CALL_M_DELEGATE_INV            = 0x00000010, // call to Delegate.Invoke
     GTF_CALL_M_NOGCCHECK               = 0x00000020, // not a call for computing full interruptability and therefore no GC check is required.
     GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000040, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
@@ -4159,12 +4159,22 @@ public:
 
     bool IsVirtual() const
     {
-        return (gtFlags & GTF_CALL_VIRT_KIND_MASK) != GTF_CALL_NONVIRT;
+        return (gtFlags & GTF_CALL_VIRT_KIND_MASK) != 0;
+    }
+
+    bool IsVirtualStubDirect() const
+    {
+        return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VSTUB_DIRECT;
+    }
+
+    bool IsVirtualStubIndirect() const
+    {
+        return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VSTUB_INDIRECT;
     }
 
     bool IsVirtualStub() const
     {
-        return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_STUB;
+        return IsVirtualStubDirect() || IsVirtualStubIndirect();
     }
 
     bool IsVirtualVtable() const
@@ -4309,7 +4319,7 @@ public:
 
     bool IsDelegateInvoke() const
     {
-        return (gtCallMoreFlags & GTF_CALL_M_DELEGATE_INV) != 0;
+        return (gtFlags & GTF_CALL_DELEGATE_INV) != 0;
     }
 
     bool IsVirtualStubRelativeIndir() const

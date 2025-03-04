@@ -558,17 +558,14 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         return false;
     }
 
-    if (!c1->IsIndirectCall())
+    if (c1->GetMethodHandle() != c2->GetMethodHandle())
     {
-        if (c1->GetMethodHandle() != c2->GetMethodHandle())
-        {
-            return false;
-        }
+        return false;
+    }
 
-        if (c1->m_entryPointAddr != c2->m_entryPointAddr)
-        {
-            return false;
-        }
+    if (c1->m_entryPointAddr != c2->m_entryPointAddr)
+    {
+        return false;
     }
 
     if (!Compare(c1->GetCallAddr(), c2->GetCallAddr()))
@@ -1100,9 +1097,9 @@ AGAIN:
                 hash = genTreeHashAdd(hash, gtHashValue(addr));
             }
 
-            if (!tree->AsCall()->IsIndirectCall())
+            if (CORINFO_METHOD_HANDLE handle = tree->AsCall()->GetMethodHandle())
             {
-                hash = genTreeHashAdd(hash, tree->AsCall()->GetMethodHandle());
+                hash = genTreeHashAdd(hash, handle);
             }
 
             for (GenTreeCall::Use& use : tree->AsCall()->LateArgs())
@@ -6871,25 +6868,19 @@ void Compiler::gtDispTreeRec(
 
             const char* separator = " (";
 
-            if (call->IsHelperCall())
-            {
-                printf("%shelper", separator);
-                separator = ", ";
-            }
-            else if (call->IsIndirectCall())
-            {
-                printf("%sindirect", separator);
-                separator = ", ";
-            }
-
             if (call->IsVirtualVtable())
             {
                 printf("%svtable", separator);
                 separator = ", ";
             }
-            else if (call->IsVirtualStub())
+            else if (call->IsVirtualStubDirect())
             {
-                printf("%svstub", separator);
+                printf("%svstub-direct", separator);
+                separator = ", ";
+            }
+            else if (call->IsVirtualStubIndirect())
+            {
+                printf("%svstub-indirect", separator);
                 separator = ", ";
             }
 

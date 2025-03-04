@@ -1590,20 +1590,21 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     else
 #endif // TARGET_ARM
 #ifndef TARGET_X86
-        if (call->IsVirtualStub())
+        if (call->IsVirtualStubIndirect())
     {
-        GenTree* stubAddrArg;
+        GenTree* stubAddrArg = gtCloneComplex(call->GetCallAddr());
 
-        if (call->IsIndirectCall())
-        {
-            stubAddrArg = gtCloneComplex(call->GetCallAddr());
-        }
-        else
-        {
-            assert(call->m_entryPointAccessType == IAT_PVALUE);
-            stubAddrArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-            stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
-        }
+        gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
+
+        nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
+        numArgs++;
+    }
+    else if (call->IsVirtualStubDirect())
+    {
+        assert(call->m_entryPointAccessType == IAT_PVALUE);
+
+        GenTree* stubAddrArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+        stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
 
         gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
 
@@ -5031,24 +5032,21 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    callee(int, int) -- 2 int registers
 
 #if FEATURE_FASTTAILCALL
-bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
+bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 {
     // To reach here means that the return types of the caller and callee are tail call compatible.
-    if (callee->IsTailPrefixedCall())
-    {
-        assert(impTailCallRetTypeCompatible(callee, false));
-    }
+    assert(!call->IsTailPrefixedCall() || impTailCallRetTypeCompatible(call, false));
 
-    fgInitArgInfo(callee);
+    fgInitArgInfo(call);
 
     unsigned calleeArgStackSize = 0;
     unsigned callerArgStackSize = codeGen->paramsStackSize;
 
     // TODO-MIKE-Cleanup: This can probably be replaced with callee->GetInfo()->GetNextSlotNum().
 
-    for (unsigned index = 0; index < callee->GetInfo()->GetArgCount(); ++index)
+    for (unsigned index = 0; index < call->GetInfo()->GetArgCount(); ++index)
     {
-        CallArgInfo* arg = callee->GetArgInfoByArgNum(index);
+        CallArgInfo* arg = call->GetArgInfoByArgNum(index);
 
         if (arg->GetSlotCount() != 0)
         {
@@ -5070,12 +5068,12 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         }
 
 #ifdef DEBUG
-        if ((JitConfig.JitReportFastTailCallDecisions()) == 1)
+        if (JitConfig.JitReportFastTailCallDecisions() == 1)
         {
-            if (!callee->IsIndirectCall())
+            if (CORINFO_METHOD_HANDLE handle = call->GetMethodHandle())
             {
                 printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: %s -- Decision: ",
-                       info.compFullName, eeGetMethodFullName(callee->GetMethodHandle()));
+                       info.compFullName, eeGetMethodFullName(handle));
             }
             else
             {
@@ -5115,7 +5113,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         return false;
     }
 
-    if (callee->IsStressTailCall())
+    if (call->IsStressTailCall())
     {
         reportFastTailCallDecision("Fast tail calls are not performed under tail call stress");
         return false;
@@ -5135,7 +5133,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #if (defined(TARGET_WINDOWS) && defined(TARGET_ARM)) || (defined(TARGET_WINDOWS) && defined(TARGET_ARM64))
-    if (info.compIsVarArgs || callee->IsVarargs())
+    if (info.compIsVarArgs || call->IsVarargs())
     {
         reportFastTailCallDecision("Fast tail calls with varargs not supported on Windows ARM/ARM64");
         return false;
@@ -5167,7 +5165,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
         return false;
     }
 
-    if (callee->HasRetBufArg()) // RetBuf
+    if (call->HasRetBufArg()) // RetBuf
     {
         // If callee has RetBuf param, caller too must have it.
         // Otherwise go the slow route.
@@ -5193,7 +5191,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee, const char** failReason)
     // For Windows some struct parameters are copied on the local frame
     // and then passed by reference. We cannot fast tail call in these situation
     // as we need to keep our frame around.
-    if (fgCallHasMustCopyByrefParameter(callee->GetInfo()))
+    if (fgCallHasMustCopyByrefParameter(call->GetInfo()))
     {
         reportFastTailCallDecision("Callee has a byref parameter");
         return false;
@@ -6075,7 +6073,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         call->ResetArgInfo();
 #endif
 
-        call->gtFlags &= ~GTF_CALL_VIRT_STUB;
+        call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
         call->m_entryPointAddr       = nullptr;
         call->m_entryPointAccessType = IAT_VALUE;
     }
@@ -6236,8 +6234,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
     // This is now a direct call to the store args stub and not a tailcall.
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
-    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_DELEGATE_INV | GTF_CALL_M_WRAPPER_DELEGATE_INV);
+    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_WRAPPER_DELEGATE_INV);
 
     // The store-args stub returns no value.
     call->SetType(TYP_VOID);
@@ -7027,12 +7025,17 @@ bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
         return false;
     }
 
-    if (call->IsIndirectCall() || call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
+    if (call->IsIndirectCall())
     {
         return true;
     }
 
-    if (call->IsUserCall() && ((call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0))
+    if (call->IsUserCall())
+    {
+        return (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0;
+    }
+
+    if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
     {
         return true;
     }
@@ -7262,7 +7265,7 @@ GenTree* Compiler::fgExpandVirtualVtableCallTarget(GenTreeCall* call)
 {
     JITDUMP("Expanding virtual call target for %d.%s:\n", call->GetID(), GenTree::OpName(call->GetOper()));
 
-    noway_assert(call->IsUserCall());
+    assert(call->IsUserCall());
 
     GenTree* thisPtr = call->GetArgInfoByArgNum(0)->GetNode();
 

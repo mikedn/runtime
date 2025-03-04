@@ -2022,9 +2022,6 @@ PhaseStatus Compiler::fgTailMergeThrows()
             continue;
         }
 
-        // Sanity check -- only user funcs should be marked do not return
-        assert(call->IsUserCall());
-
         // Ok, we've found a suitable call. See if this is one we know
         // about already, or something new.
         BasicBlock* canonicalBlock = nullptr;

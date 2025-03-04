@@ -632,7 +632,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     {
         target = LowerVirtualVtableCall(call, targetArg);
     }
-    else if (call->IsVirtualStub())
+    else if (call->IsVirtualStubDirect())
     {
         noway_assert(call->m_entryPointAddr != nullptr);
         noway_assert(call->m_entryPointAccessType == IAT_PVALUE);
@@ -3289,7 +3289,7 @@ GenTree* Lowering::PreferredRegOptionalOperand(GenTreeOp* tree)
     return preferredOp;
 }
 
-void Lowering::ContainCheckCallOperands(GenTreeCall* call)
+void Lowering::ContainCheckCallAddr(GenTreeCall* call)
 {
 #ifdef TARGET_X86
     // Fast tail calls aren't currently supported on x86, but if they ever are, the code
@@ -3297,33 +3297,20 @@ void Lowering::ContainCheckCallOperands(GenTreeCall* call)
     assert(!call->IsIndirectCall() || !call->IsFastTailCall() || !call->IsVirtualStub());
 #endif
 
-    if (GenTree* ctrlExpr = call->GetCallAddr())
+    if (GenTree* addr = call->GetCallAddr())
     {
-        assert(ctrlExpr->TypeIs(TYP_I_IMPL));
+        assert(addr->TypeIs(TYP_I_IMPL));
 
-        // In case of fast tail implemented as jmp, make sure that gtControlExpr is
-        // computed into a register.
-        if (!call->IsFastTailCall())
+        if (call->IsFastTailCall())
         {
-#ifdef TARGET_X86
-            // On x86, we need to generate a very specific pattern for indirect VSD calls,
-            // where EAX is also used as an argument to the stub dispatch helper:
-            //    3-byte nop
-            //    call dword ptr [eax]
-            if (call->IsVirtualStub() && call->IsIndirectCall())
-            {
-                assert(ctrlExpr->OperIs(GT_IND_LOAD));
-                ctrlExpr->SetContained();
-            }
-            else
-#endif
-                if (ctrlExpr->OperIs(GT_IND_LOAD))
-            {
-                // We may have cases where we have set a register target on the ctrlExpr,
-                // but if it is contained we must clear it.
-                ctrlExpr->ClearRegNum();
-                ctrlExpr->SetContained();
-            }
+            // For fast tail calls the address has to be computed into a register,
+            // to be used by the jmp instruction in the epilog.
+            return;
+        }
+
+        if (addr->OperIs(GT_IND_LOAD))
+        {
+            addr->SetContained();
         }
     }
 }

@@ -2188,7 +2188,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     // see an example of this in bvt\DynIL\initarray2.exe (in Main).
 
     if ((fieldTokenCall == nullptr) || !fieldTokenCall->IsHelperCall() ||
-        (Compiler::eeGetHelperNum(fieldTokenCall->GetMethodHandle()) != CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD))
+        !fieldTokenCall->IsHelperCall(CORINFO_HELP_FIELDDESC_TO_STUBRUNTIMEFIELD))
     {
         return nullptr;
     }
@@ -2404,7 +2404,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         GenTreeCall::Use* args = newArrayCall->AsCall()->gtCallArgs;
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (newArrayCall->AsCall()->GetMethodHandle() == eeFindHelper(CORINFO_HELP_READYTORUN_NEWARR_1))
+        if (newArrayCall->AsCall()->IsHelperCall(CORINFO_HELP_READYTORUN_NEWARR_1))
         {
             // Array length is 1st argument for readytorun helper
             arrayLengthNode = args->GetNode();
@@ -3132,7 +3132,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             if (impStackTop().val->IsCall())
             {
                 GenTreeCall* call = impStackTop().val->AsCall();
-                if (call->GetMethodHandle() == eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
+
+                if (call->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
                 {
                     if (CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->gtCallArgs->GetNode()))
                     {
@@ -3331,35 +3332,30 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     //
     // to true/false
 
-    if (typeTo->IsCall() && typeFrom->IsCall())
+    if (typeTo->IsCall() && typeTo->AsCall()->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE) &&
+        typeFrom->IsCall() && typeFrom->AsCall()->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
     {
-        // make sure both arguments are `typeof()`
-        CORINFO_METHOD_HANDLE hTypeof = eeFindHelper(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE);
+        CORINFO_CLASS_HANDLE hClassTo   = gtGetHelperArgClassHandle(typeTo->AsCall()->gtCallArgs->GetNode());
+        CORINFO_CLASS_HANDLE hClassFrom = gtGetHelperArgClassHandle(typeFrom->AsCall()->gtCallArgs->GetNode());
 
-        if ((typeTo->AsCall()->GetMethodHandle() == hTypeof) && (typeFrom->AsCall()->GetMethodHandle() == hTypeof))
+        if (hClassTo == NO_CLASS_HANDLE || hClassFrom == NO_CLASS_HANDLE)
         {
-            CORINFO_CLASS_HANDLE hClassTo   = gtGetHelperArgClassHandle(typeTo->AsCall()->gtCallArgs->GetNode());
-            CORINFO_CLASS_HANDLE hClassFrom = gtGetHelperArgClassHandle(typeFrom->AsCall()->gtCallArgs->GetNode());
-
-            if (hClassTo == NO_CLASS_HANDLE || hClassFrom == NO_CLASS_HANDLE)
-            {
-                return nullptr;
-            }
-
-            TypeCompareState castResult = info.compCompHnd->compareTypesForCast(hClassFrom, hClassTo);
-            if (castResult == TypeCompareState::May)
-            {
-                // requires runtime check
-                // e.g. __Canon, COMObjects, Nullable
-                return nullptr;
-            }
-
-            GenTreeIntCon* retNode = gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0);
-            impPopStack(); // drop both CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE calls
-            impPopStack();
-
-            return retNode;
+            return nullptr;
         }
+
+        TypeCompareState castResult = info.compCompHnd->compareTypesForCast(hClassFrom, hClassTo);
+        if (castResult == TypeCompareState::May)
+        {
+            // requires runtime check
+            // e.g. __Canon, COMObjects, Nullable
+            return nullptr;
+        }
+
+        GenTreeIntCon* retNode = gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0);
+        impPopStack(); // drop both CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE calls
+        impPopStack();
+
+        return retNode;
     }
 
     return nullptr;
@@ -6555,11 +6551,13 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                     // The stubAddr may be a complex expression. As it is evaluated after
                     // the args, it may cause registered args to be spilled. Simply spill it.
+                    // TODO-MIKE-Review: impRuntimeLookupToTree already spills in most cases...
 
                     LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("VirtualCall with runtime lookup"));
                     impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, stubAddr));
 
                     call = gtNewIndCallNode(comp->gtNewLclLoad(lcl, TYP_I_IMPL), callRetTyp, nullptr);
+                    call->gtFlags |= GTF_CALL_VSTUB_INDIRECT;
 
                     X86_ONLY(tailCallFailReason = "VirtualCall with runtime lookup");
                 }
@@ -6568,12 +6566,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                     noway_assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
 
                     call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
-
+                    call->gtFlags |= GTF_CALL_VSTUB_DIRECT;
                     call->m_entryPointAddr       = callInfo->stubLookup.constLookup.addr;
                     call->m_entryPointAccessType = IAT_PVALUE;
                 }
-
-                call->gtFlags |= GTF_CALL_VIRT_STUB;
 
 #ifdef FEATURE_READYTORUN_COMPILER
                 // Null check is sometimes needed for ready to run to handle
@@ -6693,8 +6689,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             assert((mflags & CORINFO_FLG_STATIC) == 0);
             assert((mflags & CORINFO_FLG_FINAL) != 0);
+            assert(!call->IsVirtual() && call->IsUserCall());
 
-            call->gtCallMoreFlags |= GTF_CALL_M_DELEGATE_INV;
+            call->gtFlags |= GTF_CALL_DELEGATE_INV;
 
             if (callInfo->wrapperDelegateInvoke)
             {
@@ -12313,7 +12310,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     }
     else if (GenTreeCall* call = targetMethod->IsCall())
     {
-        if (Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_VIRTUAL_FUNC_PTR)
+        if (call->IsHelperCall(CORINFO_HELP_VIRTUAL_FUNC_PTR))
         {
             GenTree* handleNode = call->gtCallArgs->GetNext()->GetNext()->GetNode();
 
@@ -14776,10 +14773,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         // contains calls requiring class profiling. Ideally perhaps
         // we'd just keep track of the calls themselves, so we don't
         // have to search for them later.
-        //
-        if (!call->IsIndirectCall() && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR) &&
-            !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && (JitConfig.JitClassProfiling() > 0) &&
-            !isLateDevirtualization)
+        if ((call->IsVirtualVtable() || call->IsVirtualStubDirect()) &&
+            opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+            (JitConfig.JitClassProfiling() > 0) && !isLateDevirtualization)
         {
             JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", call->GetID(),
                     importer->currentBlock->bbNum);
@@ -14788,7 +14784,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
             info.compClassProbeCount++;
 
             // Flag block as needing scrutiny
-            //
             importer->currentBlock->bbFlags |= BBF_HAS_CLASS_PROFILE;
         }
 
