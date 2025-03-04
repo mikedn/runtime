@@ -6495,6 +6495,43 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         switch (callInfo->kind)
         {
+            case CORINFO_CALL:
+            {
+                // This is for a non-virtual, non-interface etc. call
+                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+
+                // We remove the null check for the GetType call intrinsic.
+                // TODO-CQ: JIT64 does not introduce the null check for many more helper calls and intrinsics.
+                if (callInfo->nullInstanceCheck &&
+                    (((mflags & CORINFO_FLG_INTRINSIC) == 0) || (intrinsicID != CORINFO_INTRINSIC_Object_GetType)))
+                {
+                    call->gtFlags |= GTF_CALL_NULLCHECK;
+                }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+                if (opts.IsReadyToRun())
+                {
+                    call->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
+                }
+#endif
+                break;
+            }
+
+            case CORINFO_VIRTUALCALL_VTABLE:
+            {
+                assert((mflags & CORINFO_FLG_STATIC) == 0);
+                assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
+
+                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
+                call->gtFlags |= GTF_CALL_VIRT_VTABLE;
+
+                if (opts.compExpandCallsEarly)
+                {
+                    call->SetExpandedEarly();
+                }
+                break;
+            }
+
             case CORINFO_VIRTUALCALL_STUB:
             {
                 assert((mflags & CORINFO_FLG_STATIC) == 0);
@@ -6528,12 +6565,12 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 }
                 else
                 {
-                    assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
+                    noway_assert(callInfo->stubLookup.constLookup.accessType == IAT_PVALUE);
 
                     call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
 
                     call->m_entryPointAddr       = callInfo->stubLookup.constLookup.addr;
-                    call->m_entryPointAccessType = callInfo->stubLookup.constLookup.accessType;
+                    call->m_entryPointAccessType = IAT_PVALUE;
                 }
 
                 call->gtFlags |= GTF_CALL_VIRT_STUB;
@@ -6547,21 +6584,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 }
 #endif
 
-                break;
-            }
-
-            case CORINFO_VIRTUALCALL_VTABLE:
-            {
-                assert((mflags & CORINFO_FLG_STATIC) == 0);
-                assert((clsFlags & CORINFO_FLG_VALUECLASS) == 0);
-
-                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
-                call->gtFlags |= GTF_CALL_VIRT_VTABLE;
-
-                if (opts.compExpandCallsEarly)
-                {
-                    call->SetExpandedEarly();
-                }
                 break;
             }
 
@@ -6620,33 +6642,10 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 goto DONE;
             }
 
-            case CORINFO_CALL:
-            {
-                // This is for a non-virtual, non-interface etc. call
-                call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
-
-                // We remove the nullcheck for the GetType call intrinsic.
-                // TODO-CQ: JIT64 does not introduce the null check for many more helper calls
-                // and intrinsics.
-                if (callInfo->nullInstanceCheck &&
-                    (((mflags & CORINFO_FLG_INTRINSIC) == 0) || (intrinsicID != CORINFO_INTRINSIC_Object_GetType)))
-                {
-                    call->gtFlags |= GTF_CALL_NULLCHECK;
-                }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (opts.IsReadyToRun())
-                {
-                    call->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
-                }
-#endif
-                break;
-            }
-
             case CORINFO_CALL_CODE_POINTER:
             {
-                // The EE has asked us to call by computing a code pointer and then doing an
-                // indirect call.  This is because a runtime lookup is required to get the code entry point.
+                // The EE has asked us to call by computing a code pointer and then doing an indirect
+                // call. This is because a runtime lookup is required to get the code entry point.
 
                 // These calls always follow a uniform calling convention, i.e. no extra hidden params
                 assert(!sig->hasTypeArg());
