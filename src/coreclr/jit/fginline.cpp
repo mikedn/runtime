@@ -2311,30 +2311,25 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
 
         if (argInfo.paramHasLcl)
         {
-            GenTree* store = nullptr;
-
             if (varTypeIsStruct(argInfo.paramType))
             {
                 // TODO-MIKE-Review: This looks like dead code. The importer always spills
                 // struct calls that require a return buffer. And it looks like this results
                 // in unnecessary struct copying.
-                store = inlStoreCallWithRetBuf(argInfo.paramLcl, argInfo.paramType, argNode);
+                inlStoreStructArgValue(argInfo.paramLcl, argInfo.paramType, argNode);
             }
 
-            if (store == nullptr)
-            {
 #ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(argInfo.paramType))
+            if (varTypeIsSIMD(argInfo.paramType))
+            {
+                if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
                 {
-                    if (GenTreeHWIntrinsic* hwi = argNode->IsHWIntrinsic())
-                    {
-                        lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
-                    }
+                    lvaRecordSimdIntrinsicDef(argInfo.paramLcl, hwi);
                 }
+            }
 #endif
 
-                store = gtNewLclStore(argInfo.paramLcl, argInfo.paramType, argNode);
-            }
+            GenTreeLclStore* store = gtNewLclStore(argInfo.paramLcl, argInfo.paramType, argNode);
 
             Statement* stmt = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
             stmt->SetInlineContext(inlineInfo->iciStmt->GetInlineContext());
@@ -2472,30 +2467,15 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* value)
+void Compiler::inlStoreStructArgValue(LclVarDsc* dest, var_types type, GenTree* value)
 {
     assert((value->TypeIs(TYP_STRUCT) &&
             value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||
            varTypeIsSIMD(value->GetType()));
 
-    // TODO-MIKE-Cleanup: Share code with impAssignStruct, the main difference is that
-    // impAssignStruct supports MKREFANY by appending a separate store statement for
-    // one of refany's field. We could probably just generate a COMMA with the 2 stores
-    // instead.
-    // On the other hand, can we get calls with return buffer here? If not, then there's
-    // not much left in this function, only the lvIsMultiRegRet that may be also redundant.
-
-    // Handle calls that return structs by reference - the destination address is
-    // passed to the call as the return buffer address and no store is generated.
-
     if (GenTreeCall* call = value->IsCall())
     {
-        if (call->TreatAsHasRetBufArg())
-        {
-            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
-
-            return call;
-        }
+        assert(!call->TreatAsHasRetBufArg());
 
 #if FEATURE_MULTIREG_RET
 #ifndef UNIX_AMD64_ABI
@@ -2530,17 +2510,8 @@ GenTree* Compiler::inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTr
         GenTreeCall* call = retExpr->GetCall();
 
         assert(retExpr->GetRetExpr() == call);
-
-        if (call->TreatAsHasRetBufArg())
-        {
-            impAddCallRetBufAddrArg(call, gtNewLclAddr(dest, TYP_I_IMPL));
-            retExpr->SetType(TYP_VOID);
-
-            return retExpr;
-        }
+        assert(!call->TreatAsHasRetBufArg());
     }
-
-    return nullptr;
 }
 
 bool Compiler::inlCanDiscardArgSideEffects(GenTree* argNode)

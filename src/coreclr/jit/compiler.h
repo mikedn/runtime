@@ -4533,14 +4533,16 @@ public:
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
-    GenTree* inlStoreCallWithRetBuf(LclVarDsc* dest, var_types type, GenTree* src);
+    void inlStoreStructArgValue(LclVarDsc* dest, var_types type, GenTree* src);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);
     BasicBlock* inlSplitInlinerBlock(const InlineInfo* inlineInfo, Statement* stmtAfter);
     void inlInsertInlineeBlocks(const InlineInfo* inlineInfo, Statement* stmtAfter);
     void inlPropagateInlineeCompilerState();
-    INDEBUG(void inlDebugCheckInlineCandidates();)
+#ifdef DEBUG
+    void inlDebugCheckInlineCandidates();
+#endif
 
 private:
     void phPromoteStructs();
