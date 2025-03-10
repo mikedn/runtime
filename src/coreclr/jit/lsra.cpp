@@ -5881,7 +5881,7 @@ void LinearScan::resolveEdge(BasicBlock* fromBlock, BasicBlock* toBlock, Resolve
     {
         GenTree* lastNode = LIR::AsRange(block).LastNode();
         assert((lastNode == nullptr) ||
-               (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN, GT_RETFILT)));
+               (!lastNode->OperIsConditionalJump() && !lastNode->OperIs(GT_SWITCH_TABLE, GT_RETURN)));
     }
 
     // If this is an edge between EH regions, we may have "extra" live-out EH vars.
