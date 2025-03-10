@@ -2303,12 +2303,15 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
 
             if (arg0VN == zeroVN)
             {
-                return arg1VN;
+                // TODO-MIKE-Cleanup: We get OR(I_IMPL, REF) from phOptimizeBools, so we need to bitcast
+                // the arg to I_IMPL for the result to match the OR type. We should probably just insert
+                // a BITCAST node into the IR. Also, this might happen with ADD/SUB as well.
+                return varActualType(TypeOfVN(arg1VN)) == type ? arg1VN : VNForBitCast(arg1VN, type);
             }
 
             if (arg1VN == zeroVN)
             {
-                return arg0VN;
+                return varActualType(TypeOfVN(arg0VN)) == type ? arg0VN : VNForBitCast(arg0VN, type);
             }
             break;
 
