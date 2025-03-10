@@ -3746,9 +3746,6 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000040, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
     GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
-#ifdef TARGET_X86
-    GTF_CALL_M_TAILCALL_VIA_JIT_HELPER = 0x00000200, // call is a tail call dispatched via tail call JIT helper.
-#endif
 
 #if FEATURE_TAILCALL_OPT
     GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000400, // call is an opportunistic tail call and importer has performed tail call checks
@@ -4279,7 +4276,7 @@ public:
     // tailcall mechanism.
     bool IsTailCallViaJitHelper() const
     {
-        return IsTailCall() && ((gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER) != 0);
+        return IsHelperCall(CORINFO_HELP_TAILCALL);
     }
 
     bool IsFastTailCall() const

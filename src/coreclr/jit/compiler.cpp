@@ -5042,12 +5042,6 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                         chars += printf("[CALL_M_UNMGD_THISCALL]");
                     }
                 }
-#ifdef TARGET_X86
-                if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL_VIA_JIT_HELPER)
-                {
-                    chars += printf("[CALL_M_TAILCALL_VIA_JIT_HELPER]");
-                }
-#endif
 #if FEATURE_TAILCALL_OPT
                 if (call->gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
                 {

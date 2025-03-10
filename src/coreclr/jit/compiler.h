@@ -4405,8 +4405,10 @@ private:
     bool fgCheckStmtAfterTailCall(Statement* callStmt);
     GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
 #ifdef TARGET_X86
-    bool fgCanTailCallViaJitHelper();
-    void fgMorphTailCallViaJitHelper(GenTreeCall* call);
+    bool     fgCanTailCallViaJitHelper();
+    GenTree* fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call);
+    GenTree* fgExpandDirectTailCallViaJitHelper(GenTreeCall* call);
+    GenTreeLclStore* fgMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt);
 #endif
     GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
                                                 CORINFO_METHOD_HANDLE callTargetStubHnd,
@@ -4432,6 +4434,7 @@ private:
     GenTree* fgMorphCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
+    GenTree* fgExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr);
     GenTree* fgMorphLeaf(GenTree* tree);
     GenTree* fgMorphInitStruct(GenTree* store, GenTree* value);
     GenTree* fgMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* value);

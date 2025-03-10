@@ -103,8 +103,8 @@ private:
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
-    GenTree* LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
-    GenTree* LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    GenTree* LowerDelegateInvoke(GenTreeCall* call);
+    GenTree* LowerDirectCall(GenTreeCall* call);
     GenTree* LowerDirectPInvokeCall(GenTreeCall* call);
     GenTree* ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
                                          GenTree* insertBefore DEBUGARG(GenTreeCall* call));
@@ -118,7 +118,7 @@ private:
                                     GenTree*   insertTempBefore,
                                     GenTree*   rangeStart,
                                     GenTree*   rangeEnd);
-    void InsertProfTailCallHook(GenTreeCall* callNode, GenTree* insertionPoint);
+    void InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCall* call));
     GenTree* LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
     GenTree* LowerIndirectVirtualStubCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));

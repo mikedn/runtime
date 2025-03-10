@@ -607,80 +607,24 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     numNewStackSlots -= 4;
 
     unsigned          numArgs             = callInfo->GetArgCount();
-    GenTreePutArgStk* targetArg           = call->GetArgNodeByArgNum(numArgs - 1)->AsPutArgStk();
     GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
     GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
-
-    GenTree* target = nullptr;
-
-    if (call->IsIndirectCall())
-    {
-        // Indirect VSD calls are not supported (the importer blocks such tail calls).
-        noway_assert(!call->IsVirtualStub());
-
-        // Indirect calls already have the correct target arg, we just need to remove
-        // the dummy call address added during morph.
-        assert(call->GetCallAddr()->IsIntegralConst(0));
-        BlockRange().Unlink(call->GetCallAddr());
-    }
-    else if (call->IsDelegateInvoke())
-    {
-        target = LowerDelegateInvoke(call, targetArg);
-    }
-    else if (call->IsVirtualVtable())
-    {
-        target = LowerVirtualVtableCall(call, targetArg);
-    }
-    else if (call->IsVirtualStubDirect())
-    {
-        noway_assert(call->m_entryPointAddr != nullptr);
-        noway_assert(call->m_entryPointAccessType == IAT_PVALUE);
-
-        // Normally we'd need an indirection to get the actual target address but
-        // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-        target = comp->gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-        BlockRange().InsertBefore(targetArg, target);
-
-        call->m_entryPointAddr       = nullptr;
-        call->m_entryPointAccessType = IAT_VALUE;
-    }
-    else
-    {
-        noway_assert(!call->IsVirtual());
-
-        target = LowerDirectCall(call, targetArg);
-    }
 
     if (comp->compMethodRequiresPInvokeFrame())
     {
         InsertPInvokeMethodEpilog(INDEBUG(call));
     }
 
-    if (target != nullptr)
-    {
-        assert(targetArg->GetOp(0)->IsIntCon());
-        BlockRange().Unlink(targetArg->GetOp(0));
-        targetArg->SetOp(0, target);
-    }
-
     numNewStackSlotsArg->GetOp(0)->AsIntCon()->SetValue(numNewStackSlots);
-    assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
+    assert(numOldStackSlotsArg->GetOp(0)->AsIntCon()->GetValue() ==
+           static_cast<int>(comp->codeGen->paramsStackSize / REGSIZE_BYTES));
 
-    // Transform this call node into a call to CORINFO_HELP_TAILCALL.
-    call->SetMethodHandle(Compiler::eeFindHelper(CORINFO_HELP_TAILCALL));
-    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
-
-    // Lower this as if it were a normal helper call.
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER);
     call->SetCallAddr(LowerDirectCall(call));
-    // Now add back tail call flags for identifying this node as tail call dispatched via helper.
-    // CodeGen needs checks this in order to insert the GS cookie check (if required).
-    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL | GTF_CALL_M_TAILCALL_VIA_JIT_HELPER;
 
 #ifdef PROFILING_SUPPORTED
     if (comp->compIsProfilerHookNeeded())
     {
-        InsertProfTailCallHook(call, call);
+        InsertProfTailCallHook(call DEBUGARG(call));
     }
 #endif
 }

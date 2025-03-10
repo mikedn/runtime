@@ -1473,13 +1473,7 @@ void Lowering::LowerCall(GenTreeCall* call)
 // Insert the profiler hook immediately before the call. The profiler hook will preserve
 // all argument registers (ECX, EDX), but nothing else.
 //
-// Params:
-//    rangeEnd        - tail call node
-//    insertionPoint  - if non-null, insert the profiler hook before this point.
-//                      If null, insert the profiler hook before args are setup
-//                      but after all arg side effects are computed.
-//
-void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* insertionPoint)
+void Lowering::InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCall* call))
 {
     assert(call->IsTailCall());
     assert(insertionPoint != nullptr);
@@ -1703,7 +1697,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
             }
         }
 
-        InsertProfTailCallHook(call, insertionPoint);
+        InsertProfTailCallHook(insertionPoint DEBUGARG(call));
     }
 }
 #endif // FEATURE_FASTTAILCALL
@@ -2464,7 +2458,7 @@ GenTree* Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     return ind;
 }
 
-GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 {
     assert(!call->IsIndirectCall() && !call->IsUnmanaged());
 
@@ -2515,8 +2509,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
         comp->info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, accessFlags);
     }
 
-    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr)
-                                                    X86_ONLY(&&!call->IsTailCallViaJitHelper()))
+    if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr))
     {
         call->m_entryPointAccessType = IAT_VALUE;
         call->m_entryPointAddr       = entryPoint.addr;
@@ -2534,13 +2527,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call X86_ARG(GenTree* insertBefo
     }
 #endif
 
-#ifndef TARGET_X86
-    GenTree* insertBefore = call;
-#else
-    insertBefore               = insertBefore == nullptr ? call : insertBefore;
-#endif
-
-    return ExpandConstLookupCallTarget(entryPoint, insertBefore DEBUGARG(call));
+    return ExpandConstLookupCallTarget(entryPoint, call DEBUGARG(call));
 }
 
 GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
@@ -2608,52 +2595,28 @@ GenTree* Lowering::ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entry
     return target;
 }
 
-GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 {
     assert(call->IsUserCall() && call->IsDelegateInvoke());
     assert((comp->info.compCompHnd->getMethodAttribs(call->GetMethodHandle()) &
             (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL)) == (CORINFO_FLG_DELEGATE_INVOKE | CORINFO_FLG_FINAL));
+#ifdef TARGET_X86
+    assert(!call->IsTailCallViaJitHelper());
+#endif
 
     call->gtFlags &= ~GTF_CALL_DELEGATE_INV;
 
-    GenTree* thisArgNode;
-
-#ifdef TARGET_X86
-    if (call->IsTailCallViaJitHelper())
-    {
-        thisArgNode = call->GetArgNodeByArgNum(0);
-    }
-    else
-#endif
-    {
-        thisArgNode = call->GetThisArg();
-    }
+    GenTree* thisArgNode = call->GetThisArg();
 
     assert(thisArgNode->OperIs(GT_PUTARG_REG));
 
     GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);
     assert(delegateThis->TypeIs(TYP_REF));
 
-    LclVarDsc* lcl;
+    LclVarDsc* lcl = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
 
-#ifdef TARGET_X86
-    if (call->IsTailCallViaJitHelper() && delegateThis->OperIs(GT_LCL_LOAD))
-    {
-        // For ordering purposes for the special tailcall arguments on x86, we forced the
-        // 'this' pointer to a local in fgMorphTailCallViaJitHelper.
-
-        // TODO-MIKE-Review: Should the LCL_LOAD be an assert instead?
-        // OLD code had an assert but also checked for IsLocal, go figure...
-        lcl = delegateThis->AsLclLoad()->GetLcl();
-    }
-    else
-#endif
-    {
-        lcl = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
-
-        LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
-        delegateThis = ReplaceWithLclLoad(use, lcl);
-    }
+    LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
+    delegateThis = ReplaceWithLclLoad(use, lcl);
 
     const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
 
@@ -2663,16 +2626,10 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call X86_ARG(GenTree* insert
     thisArgNode->AsUnOp()->SetOp(0, targetThis);
     ContainCheckIndir(targetThis);
 
-#ifndef TARGET_X86
-    GenTree* insertBefore = call;
-#else
-    insertBefore               = insertBefore == nullptr ? call : insertBefore;
-#endif
-
     delegateThis                = comp->gtNewLclLoad(lcl, TYP_REF);
     GenTreeAddrMode* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
     GenTreeIndLoad*  target     = comp->gtNewIndLoad(TYP_I_IMPL, targetAddr);
-    BlockRange().InsertBefore(insertBefore, delegateThis, targetAddr, target);
+    BlockRange().InsertBefore(call, delegateThis, targetAddr, target);
     ContainCheckIndir(target);
 
     return target;
