@@ -608,7 +608,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
     unsigned          numArgs             = callInfo->GetArgCount();
     GenTreePutArgStk* targetArg           = call->GetArgNodeByArgNum(numArgs - 1)->AsPutArgStk();
-    GenTreePutArgStk* flagsArg            = call->GetArgNodeByArgNum(numArgs - 2)->AsPutArgStk();
     GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
     GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
 
@@ -664,8 +663,6 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
         targetArg->SetOp(0, target);
     }
 
-    // Always restore EDI, ESI, EBX & Stub Dispatch flags
-    flagsArg->GetOp(0)->AsIntCon()->SetValue(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));
     numNewStackSlotsArg->GetOp(0)->AsIntCon()->SetValue(numNewStackSlots);
     assert(numOldStackSlotsArg->GetOp(0)->IsIntCon());
 
