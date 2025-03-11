@@ -116,7 +116,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
         BuildInternalIntDef(call);
     }
 
-    if (call->NeedsNullCheck())
+    if (call->HasNullCheck())
     {
         BuildInternalIntDef(call);
     }

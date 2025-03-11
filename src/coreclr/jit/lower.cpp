@@ -2501,7 +2501,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 
         CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_ANY;
 
-        if (!call->NeedsNullCheck())
+        if (!call->HasNullCheck())
         {
             accessFlags = static_cast<CORINFO_ACCESS_FLAGS>(accessFlags | CORINFO_ACCESS_NONNULL);
         }

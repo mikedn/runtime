@@ -6884,7 +6884,7 @@ void Compiler::gtDispTreeRec(
                 separator = ", ";
             }
 
-            if (call->NeedsNullCheck())
+            if (call->HasNullCheck())
             {
                 printf("%snullcheck", separator);
                 separator = ", ";

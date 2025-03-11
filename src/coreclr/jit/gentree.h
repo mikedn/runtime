@@ -4142,7 +4142,17 @@ public:
         return (gtFlags & GTF_CALL_UNMANAGED) != 0;
     }
 
-    bool NeedsNullCheck() const
+    void AddNullCheck()
+    {
+        gtFlags |= GTF_CALL_NULLCHECK;
+    }
+
+    void RemoveNullCheck()
+    {
+        gtFlags &= ~GTF_CALL_NULLCHECK;
+    }
+
+    bool HasNullCheck() const
     {
         return (gtFlags & GTF_CALL_NULLCHECK) != 0;
     }

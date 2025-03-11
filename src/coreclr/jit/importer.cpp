@@ -6501,7 +6501,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 if (callInfo->nullInstanceCheck &&
                     (((mflags & CORINFO_FLG_INTRINSIC) == 0) || (intrinsicID != CORINFO_INTRINSIC_Object_GetType)))
                 {
-                    call->gtFlags |= GTF_CALL_NULLCHECK;
+                    call->AddNullCheck();
                 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -6576,7 +6576,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // non-virtual <-> virtual changes between versions
                 if (opts.IsReadyToRun() && callInfo->nullInstanceCheck)
                 {
-                    call->gtFlags |= GTF_CALL_NULLCHECK;
+                    call->AddNullCheck();
                 }
 #endif
 
@@ -6628,7 +6628,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 {
                     // Null check is needed for ready to run to handle
                     // non-virtual <-> virtual changes between versions
-                    call->gtFlags |= GTF_CALL_NULLCHECK;
+                    call->AddNullCheck();
                 }
 #endif
 
@@ -6664,7 +6664,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 if (callInfo->nullInstanceCheck)
                 {
-                    call->gtFlags |= GTF_CALL_NULLCHECK;
+                    call->AddNullCheck();
                 }
 
                 break;
@@ -6703,8 +6703,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert((mflags & CORINFO_FLG_FINAL) != 0);
 
                 // It should have the GTF_CALL_NULLCHECK flag set. Reset it.
-                assert((call->gtFlags & GTF_CALL_NULLCHECK) != 0);
-                call->gtFlags &= ~GTF_CALL_NULLCHECK;
+                assert(call->HasNullCheck());
+                call->RemoveNullCheck();
             }
         }
     }
@@ -6896,7 +6896,7 @@ DONE:
     {
         GenTree* callObj = call->gtCallThisArg->GetNode();
 
-        if ((call->IsVirtual() || (call->gtFlags & GTF_CALL_NULLCHECK)) &&
+        if ((call->IsVirtual() || call->HasNullCheck()) &&
             impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->gtCallArgs, callObj))
         {
             impInlineInfo->thisDereferencedFirst = true;
@@ -15065,7 +15065,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // now need to make explicit.
     if (!objIsNonNull)
     {
-        call->gtFlags |= GTF_CALL_NULLCHECK;
+        call->AddNullCheck();
     }
 
 #ifdef DEBUG

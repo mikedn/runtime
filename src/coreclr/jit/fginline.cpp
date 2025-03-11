@@ -2210,7 +2210,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 {
     GenTree* nullCheckThisArg = nullptr;
 
-    if (((inlineInfo->iciCall->gtFlags & GTF_CALL_NULLCHECK) != 0) && !inlineInfo->thisDereferencedFirst)
+    if (inlineInfo->iciCall->HasNullCheck() && !inlineInfo->thisDereferencedFirst)
     {
         // We'll have to null check the "this" arg after inlinee args are initialized.
         // But args initialization needs to know about arg uses so we have to get the

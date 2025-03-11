@@ -745,7 +745,7 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
             // with a GTF_CALL_NULLCHECK flag set.
             // Ignore tail calls because they have 'this` pointer in the regular arg list and an implicit null check.
             GenTreeCall* const call = tree->AsCall();
-            if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
+            if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
                 morphAssertionGenerateNotNull(call->GetThisArg());
             }
@@ -1368,7 +1368,7 @@ bool Compiler::morphAssertionIsNotNull(GenTreeLclLoad* load)
 
 GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
 {
-    if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
+    if (!call->HasNullCheck())
     {
         return nullptr;
     }
@@ -1386,10 +1386,10 @@ GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
         return nullptr;
     }
 
-    call->gtFlags &= ~GTF_CALL_NULLCHECK;
-    call->gtFlags &= ~GTF_EXCEPT;
+    call->RemoveNullCheck();
+    call->RemoveSideEffects(GTF_EXCEPT);
 
-    noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
+    noway_assert(call->HasAnySideEffect(GTF_SIDE_EFFECT));
 
     return call;
 }

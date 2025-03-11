@@ -1807,7 +1807,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(argNode->GetRegNum() == argInfo->GetRegNum());
     }
 
-    if (call->NeedsNullCheck())
+    if (call->HasNullCheck())
     {
         assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_R0);
 

@@ -4993,7 +4993,7 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[CALL_DELEGATE_INVOKE]");
                 }
-                if (tree->gtFlags & GTF_CALL_NULLCHECK)
+                if (tree->AsCall()->HasNullCheck())
                 {
                     chars += printf("[CALL_NULLCHECK]");
                 }

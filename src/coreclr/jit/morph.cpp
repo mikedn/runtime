@@ -6115,7 +6115,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
         //   2) StoreArgs stub needs the target function pointer address and if the call is virtual
         //      the stub also needs "this" in order to evaluate the target.
 
-        const bool callNeedsNullCheck = call->NeedsNullCheck();
+        const bool callNeedsNullCheck = call->HasNullCheck();
         const bool stubNeedsThisPtr   = stubNeedsTargetFnPtr && virtualCall;
 
         // TODO-Review: The following transformation is implemented under assumption that
@@ -6176,7 +6176,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
                 }
             }
 
-            call->gtFlags &= ~GTF_CALL_NULLCHECK;
+            call->RemoveNullCheck();
 
             assert((thisPtrStubArg != nullptr) == stubNeedsThisPtr);
         }
@@ -6622,7 +6622,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         // calling to a virtual dispatch stub. This requirement is a consequence of limitations
         // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
         // in a dispatch stub that has unmanaged caller.
-        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->NeedsNullCheck() || call->IsVirtualStub())
+        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->HasNullCheck() || call->IsVirtualStub())
         {
             // TODO-MIKE-Review: Not adding a temp if `this` is LCL_LOAD is dubious, what if some
             // other argument expression modifies it?
@@ -6695,7 +6695,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         targetArg = fgExpandDirectTailCallViaJitHelper(call);
     }
 
-    if (call->NeedsNullCheck())
+    if (call->HasNullCheck())
     {
         targetArg = gtNewCommaNode(gtNewNullCheck(gtNewLclLoad(thisLcl, thisLcl->GetType())), targetArg);
     }
@@ -6704,7 +6704,8 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     call->SetCallAddr(nullptr);
     call->m_entryPointAccessType = IAT_VALUE;
     call->m_entryPointAddr       = nullptr;
-    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV | GTF_CALL_NULLCHECK | GTF_CALL_POP_ARGS);
+    call->RemoveNullCheck();
+    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV | GTF_CALL_POP_ARGS);
     // Technically this call does not return but some other code expects "no return" only on "user" calls.
     call->gtCallMoreFlags &=
         ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY | GTF_CALL_M_WRAPPER_DELEGATE_INV);

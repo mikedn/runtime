@@ -1251,7 +1251,7 @@ private:
                 {
                     GenTreeCall* call = node->AsCall();
 
-                    if (call->NeedsNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
+                    if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
                     {
                         assertionInfo = CreateNotNullAssertion(call->GetThisArg());
                     }
@@ -2065,7 +2065,7 @@ private:
 
     GenTree* PropagateCallNotNull(const ASSERT_TP assertions, GenTreeCall* call)
     {
-        if ((call->gtFlags & GTF_CALL_NULLCHECK) == 0)
+        if (!call->HasNullCheck())
         {
             return nullptr;
         }
@@ -2087,9 +2087,9 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        call->gtFlags &= ~GTF_CALL_NULLCHECK;
-        call->gtFlags &= ~GTF_EXCEPT;
-        noway_assert(call->gtFlags & GTF_SIDE_EFFECT);
+        call->RemoveNullCheck();
+        call->RemoveSideEffects(GTF_EXCEPT);
+        noway_assert(call->HasAnySideEffect(GTF_SIDE_EFFECT));
         return call;
     }
 
@@ -2965,7 +2965,7 @@ private:
 
         void PropagateNonNullThisArg(GenTreeCall* call)
         {
-            if (!call->NeedsNullCheck())
+            if (!call->HasNullCheck())
             {
                 return;
             }
@@ -2981,8 +2981,9 @@ private:
             JITDUMP("\nCall " FMT_TREEID " has non-null this arg, removing GTF_CALL_NULLCHECK and GTF_EXCEPT\n",
                     call->GetID());
 
-            call->gtFlags &= ~(GTF_CALL_NULLCHECK | GTF_EXCEPT);
-            noway_assert((call->gtFlags & GTF_SIDE_EFFECT) != 0);
+            call->RemoveInlineCandidateInfo();
+            call->RemoveSideEffects(GTF_EXCEPT);
+            noway_assert(call->HasAnySideEffect(GTF_SIDE_EFFECT));
 
             m_stmtMorphPending = true;
         }
