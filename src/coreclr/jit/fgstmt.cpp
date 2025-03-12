@@ -316,6 +316,13 @@ void Compiler::fgInsertStmtBefore(BasicBlock* block, Statement* insertionPoint, 
     }
 }
 
+Statement* Compiler::fgInsertStmtBefore(BasicBlock* block, Statement* insertionPoint, GenTree* expr)
+{
+    Statement* newStmt = gtNewStmt(expr, insertionPoint->GetILOffsetX());
+    fgInsertStmtBefore(block, insertionPoint, newStmt);
+    return newStmt;
+}
+
 //------------------------------------------------------------------------
 // fgInsertStmtListAfter: Insert the list of statements stmtList after the stmtAfter in block.
 //

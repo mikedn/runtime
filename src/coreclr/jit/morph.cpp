@@ -5949,9 +5949,11 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         newCallBlock = fgCreateGCPoll(GCPOLL_INLINE, callBlock);
     }
 
+    Statement* thisTempStmt = nullptr;
+
     if (thisTempStore != nullptr)
     {
-        fgInsertStmtBefore(newCallBlock, stmt, gtNewStmt(thisTempStore, stmt->GetILOffsetX()));
+        thisTempStmt = fgInsertStmtBefore(newCallBlock, stmt, thisTempStore);
     }
 
     if (newCallBlock == callBlock)
@@ -5965,9 +5967,11 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // it being removed if the value becomes a COMMA throw.
             // TODO-MIKE-Cleanup: Would be nice to handle this properly.
             // Can we just morph the call args before doing the tail call transform?
+            fgGlobalMorphStmt  = thisTempStmt;
             GenTree* thisValue = fgMorphTree(thisTempStore->GetValue());
             thisTempStore->SetValue(thisValue);
             thisTempStore->SetSideEffects(thisValue->GetSideEffects() | GTF_ASG);
+            fgGlobalMorphStmt = stmt;
         }
 
         GenTree* temp = fgMorphCall(call, stmt);
@@ -6016,205 +6020,113 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     return call;
 }
 
-//------------------------------------------------------------------------
-// fgMorphTailCallViaHelpers: Transform the given GT_CALL tree for tailcall code
-// generation.
-//
-// Arguments:
-//     call - The call to transform
-//     helpers - The tailcall helpers provided by the runtime.
-//
-// Return Value:
-//    Returns the transformed node.
-//
-// Notes:
-//   This transforms
-//     GT_CALL
+// This transforms
+//     CALL
 //         {callTarget}
 //         {this}
 //         {args}
 //   into
-//     GT_COMMA
-//       GT_CALL StoreArgsStub
+//     stmt CALL StoreArgsStub
 //         {callTarget}         (depending on flags provided by the runtime)
 //         {this}               (as a regular arg)
 //         {args}
-//       GT_COMMA
-//         GT_CALL Dispatcher
-//           ReturnAddress address
-//           {CallTargetStub}
-//           ReturnValue address
-//         GT_LCL ReturnValue
-// whenever the call node returns a value. If the call node does not return a
-// value the last comma will not be there.
+//     stmt CALL Dispatcher
+//         ReturnAddress address
+//         {CallTargetStub}
+//         ReturnValue address
+//     LCL_LOAD ReturnValue
+// whenever the call node returns a value. If the call node does not return
+// a value the last LCL_LOAD will not be there.
 //
-GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
+GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
 {
+    JITDUMPTREE(call, "fgMorphTailCallViaHelpers (before):\n");
+
     // R2R requires different handling but we don't support tailcall via
     // helpers in R2R yet, so just leave it for now.
     // TODO: R2R: TailCallViaHelper
     assert(!opts.IsReadyToRun());
-
-    JITDUMPTREE(call, "fgMorphTailCallViaHelpers (before):\n");
-
     assert(!call->IsHelperCall());
-
     // We come this route only for tail prefixed calls that cannot be dispatched as
     // fast tail calls
     assert(!call->IsImplicitTailCall());
 
-    // We want to use the following assert, but it can modify the IR in some cases, so we
-    // can't do that in an assert.
-    // assert(!fgCanFastTailCall(call, nullptr));
+    Statement* newStmt             = nullptr;
+    const bool isVirtual           = call->IsVirtual();
+    const bool stubNeedsTargetAddr = (help.flags & CORINFO_TAILCALL_STORE_TARGET) != 0;
+    const bool hasNullCheck        = call->HasNullCheck();
+    const bool stubNeedsThisLcl    = stubNeedsTargetAddr && isVirtual;
+    LclVarDsc* thisLcl             = nullptr;
 
-    bool virtualCall = call->IsVirtual();
+    if ((call->gtCallThisArg != nullptr) && (hasNullCheck || stubNeedsThisLcl))
+    {
+        GenTree* thisArg = call->gtCallThisArg->GetNode();
 
-    // If VSD then get rid of arg to VSD since we turn this into a direct call.
-    // The extra arg will be the first arg so this needs to be done before we
-    // handle the retbuf below.
+        // TODO-MIKE-Review: Reusing an existing local isn't correct if the
+        // subsequent args are modifying that local. Old code did it like this.
+        if (GenTreeLclLoad* thisLoad = thisArg->IsLclLoad())
+        {
+            thisLcl = thisLoad->GetLcl();
+        }
+        else
+        {
+            thisLcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call thisptr"));
+            newStmt = fgInsertStmtBefore(fgMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
+            call->gtCallThisArg->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
+        }
+    }
+
+    Statement* storeArgsStmt = fgInsertStmtBefore(fgMorphBlock, stmt, call);
+
+    if (newStmt == nullptr)
+    {
+        newStmt = storeArgsStmt;
+    }
+
+    if (hasNullCheck)
+    {
+        GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
+        fgInsertStmtBefore(fgMorphBlock, stmt, gtNewNullCheck(thisLoad));
+    }
+
+    GenTree* result = fgCreateCallDispatcherAndGetResult(call, help, stmt);
+
     if (call->IsVirtualStub())
     {
-        JITDUMP("This is a VSD\n");
 #if FEATURE_FASTTAILCALL
+        // Remove the VSD hidden arg since we turn this into a direct call.
+        // The extra arg will be the first arg so this needs to be done before
+        // we handle the return buffer below. This arg is only added when fast
+        // tail calls are supported, because in that case we call fgInitArgInfo.
         call->ResetArgInfo();
 #endif
-
         call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
         call->m_entryPointAddr       = nullptr;
         call->m_entryPointAccessType = IAT_VALUE;
     }
 
-    GenTree* callDispatcherAndGetResult =
-        fgCreateCallDispatcherAndGetResult(call, help.hCallTarget, help.hDispatcher, stmt);
-
-    // Change the call to a call to the StoreArgs stub.
     if (call->HasRetBufArg())
     {
-        JITDUMP("Removing retbuf");
+        assert(call->gtCallArgs->GetNode()->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
+
         call->gtCallArgs = call->gtCallArgs->GetNext();
         call->gtCallMoreFlags &= ~GTF_CALL_M_RETBUFFARG;
-
-        // We changed args so recompute info.
         call->fgArgInfo = nullptr;
     }
 
-    const bool stubNeedsTargetFnPtr = (help.flags & CORINFO_TAILCALL_STORE_TARGET) != 0;
-
-    GenTree* doBeforeStoreArgsStub = nullptr;
-    GenTree* thisPtrStubArg        = nullptr;
-
-    // Put 'this' in normal param list
-    if (call->gtCallThisArg != nullptr)
+    if (GenTreeCall::Use* thisUse = call->gtCallThisArg)
     {
-        JITDUMP("Moving this pointer into arg list\n");
-        GenTree* objp       = call->gtCallThisArg->GetNode();
         call->gtCallThisArg = nullptr;
-
-        // JIT will need one or two copies of "this" in the following cases:
-        //   1) the call needs null check;
-        //   2) StoreArgs stub needs the target function pointer address and if the call is virtual
-        //      the stub also needs "this" in order to evaluate the target.
-
-        const bool callNeedsNullCheck = call->HasNullCheck();
-        const bool stubNeedsThisPtr   = stubNeedsTargetFnPtr && virtualCall;
-
-        // TODO-Review: The following transformation is implemented under assumption that
-        // both conditions can be true. However, I could not construct such example
-        // where a virtual tail call would require null check. In case, if the conditions
-        // are mutually exclusive the following could be simplified.
-
-        GenTree* thisPtr = nullptr;
-
-        if (callNeedsNullCheck || stubNeedsThisPtr)
-        {
-            // Clone "this" if "this" has no side effects.
-            if (!objp->HasAnySideEffect(GTF_SIDE_EFFECT))
-            {
-                thisPtr = gtCloneComplex(objp);
-            }
-
-            // Create a temp and spill "this" to the temp if "this" has side effects or "this" was too complex to clone.
-            if (thisPtr == nullptr)
-            {
-                LclVarDsc* lcl = lvaNewTemp(objp->GetType(), true DEBUGARG("tail call thisptr"));
-
-                // tmp = "this"
-                doBeforeStoreArgsStub = gtNewLclStore(lcl, objp->GetType(), objp);
-
-                if (callNeedsNullCheck)
-                {
-                    // COMMA(tmp = "this", deref(tmp))
-                    GenTree* tmp          = gtNewLclLoad(lcl, objp->GetType());
-                    GenTree* nullcheck    = gtNewNullCheck(tmp);
-                    doBeforeStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, nullcheck);
-                }
-
-                thisPtr = gtNewLclLoad(lcl, objp->GetType());
-
-                if (stubNeedsThisPtr)
-                {
-                    thisPtrStubArg = gtNewLclLoad(lcl, objp->GetType());
-                }
-            }
-            else
-            {
-                if (callNeedsNullCheck)
-                {
-                    // deref("this")
-                    doBeforeStoreArgsStub = gtNewNullCheck(objp);
-
-                    if (stubNeedsThisPtr)
-                    {
-                        thisPtrStubArg = gtCloneComplex(objp);
-                    }
-                }
-                else
-                {
-                    assert(stubNeedsThisPtr);
-
-                    thisPtrStubArg = objp;
-                }
-            }
-
-            call->RemoveNullCheck();
-
-            assert((thisPtrStubArg != nullptr) == stubNeedsThisPtr);
-        }
-        else
-        {
-            thisPtr = objp;
-        }
-
-        // During rationalization tmp="this" and null check will be materialized
-        // in the right execution order.
-        assert(thisPtr != nullptr);
-        call->gtCallArgs = gtPrependNewCallArg(thisPtr, call->gtCallArgs);
+        thisUse->SetNext(call->gtCallArgs);
+        call->gtCallArgs = thisUse;
         call->fgArgInfo  = nullptr;
     }
 
-    // We may need to pass the target, for instance for calli or generic methods
-    // where we pass instantiating stub.
-    if (stubNeedsTargetFnPtr)
+    if (stubNeedsTargetAddr)
     {
-        JITDUMP("Adding target since VM requested it\n");
-        GenTree* target;
+        GenTree* addr;
 
-        if (!virtualCall)
-        {
-            if (call->IsIndirectCall())
-            {
-                target = call->GetCallAddr();
-
-                noway_assert(target != nullptr);
-            }
-            else
-            {
-                CORINFO_CONST_LOOKUP lookup;
-                info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
-                target = gtNewConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
-            }
-        }
-        else
+        if (isVirtual)
         {
             TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
 
@@ -6229,194 +6141,150 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL
 
             CORINFO_CALL_INFO callInfo;
             eeGetCallInfo(tailCallInfo->GetToken(), nullptr, flags, &callInfo);
-            target = getVirtMethodPointerTree(thisPtrStubArg, tailCallInfo->GetToken(), &callInfo);
+            GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
+
+            addr = getVirtMethodPointerTree(thisLoad, tailCallInfo->GetToken(), &callInfo);
+        }
+        else if (!call->IsIndirectCall())
+        {
+            CORINFO_CONST_LOOKUP lookup;
+            info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
+
+            addr = gtNewConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
+        }
+        else
+        {
+            addr = call->GetCallAddr();
         }
 
-        gtAppendNewCallArg(call->gtCallArgs, target);
-
+        gtAppendNewCallArg(call->gtCallArgs, addr);
         call->fgArgInfo = nullptr;
     }
 
-    // This is now a direct call to the store args stub and not a tailcall.
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
+    call->RemoveNullCheck();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_WRAPPER_DELEGATE_INV);
-
-    // The store-args stub returns no value.
     call->SetType(TYP_VOID);
     call->SetRetSigType(TYP_VOID);
     call->SetRetLayout(nullptr);
     call->GetRetDesc()->Reset();
 
-    GenTree* callStoreArgsStub = call;
-
-    if (doBeforeStoreArgsStub != nullptr)
+    for (Statement* s = newStmt; s != stmt; s = s->GetNextStmt())
     {
-        callStoreArgsStub = gtNewCommaNode(doBeforeStoreArgsStub, callStoreArgsStub);
+        fgGlobalMorphStmt = s;
+        s->SetRootNode(fgMorphTree(s->GetRootNode()));
+        fgGlobalMorphStmt = stmt;
     }
 
-    GenTree* finalTree = gtNewCommaNode(callStoreArgsStub, callDispatcherAndGetResult);
-    finalTree          = fgMorphTree(finalTree);
-    JITDUMPTREE(finalTree, "fgMorphTailCallViaHelpers (after):\n");
-    return finalTree;
+    return fgMorphTree(result);
 }
 
-//------------------------------------------------------------------------
-// fgCreateCallDispatcherAndGetResult: Given a call
-// CALL
-//   {callTarget}
-//   {retbuf}
-//   {this}
-//   {args}
-// create a similarly typed node that calls the tailcall dispatcher and returns
-// the result, as in the following:
-// COMMA
-//   CALL TailCallDispatcher
-//     ADDR ReturnAddress
-//     &CallTargetFunc
-//     ADDR RetValue
-//   RetValue
-// If the call has type TYP_VOID, only create the CALL node.
-//
-// Arguments:
-//    origCall - the call
-//    callTargetStubHnd - the handle of the CallTarget function (this is a special
-//    IL stub created by the runtime)
-//    dispatcherHnd - the handle of the tailcall dispatcher function
-//
-// Return Value:
-//    A node that can be used in place of the original call.
-//
-GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
-                                                      CORINFO_METHOD_HANDLE callTargetStubHnd,
-                                                      CORINFO_METHOD_HANDLE dispatcherHnd,
-                                                      Statement*            stmt)
+GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
+                                                      const CORINFO_TAILCALL_HELPERS& helpers,
+                                                      Statement*                      stmt)
 {
-    GenTreeCall* callDispatcherNode = gtNewUserCallNode(dispatcherHnd, TYP_VOID, nullptr, stmt->GetILOffsetX());
-    // The dispatcher has signature
-    // void DispatchTailCalls(void* callersRetAddrSlot, void* callTarget, void* retValue)
+    GenTree*   retVal         = nullptr;
+    GenTree*   retBuffStore   = nullptr;
+    LclVarDsc* dispRetBuffLcl = nullptr;
 
-    // Add return value arg.
-    GenTree* retValArg;
-    GenTree* retVal           = nullptr;
-    GenTree* copyToRetBufNode = nullptr;
-
-    if (origCall->HasRetBufArg())
+    if (call->HasRetBufArg())
     {
-        JITDUMP("Transferring retbuf\n");
-        GenTree* retBufArg = origCall->gtCallArgs->GetNode();
+        // Caller return buffer address may point to GC heap while the dispatcher expects the return value
+        // address to point to the stack. We use a temporary stack allocated return buffer to hold the
+        // value during the dispatcher call and copy the value back to the caller return buffer after that.
+        dispRetBuffLcl = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
 
-        assert(info.compRetBuffArg != BAD_VAR_NUM);
+        LclVarDsc* retBuffLcl = lvaGetDesc(info.compRetBuffArg);
 
-        assert(retBufArg->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
+        GenTree* src     = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
+        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
+        retBuffStore     = gtNewIndStoreObj(dispRetBuffLcl->GetLayout(), dstAddr, src);
 
-        // Caller return buffer argument retBufArg can point to GC heap while the dispatcher expects
-        // the return value argument retValArg to point to the stack.
-        // We use a temporary stack allocated return buffer to hold the value during the dispatcher call
-        // and copy the value back to the caller return buffer after that.
-        LclVarDsc* tmpRetBufLcl =
-            lvaNewTemp(origCall->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
-        lvaSetAddressExposed(tmpRetBufLcl);
-
-        var_types tmpRetBufType = tmpRetBufLcl->GetType();
-
-        retValArg = gtNewLclAddr(tmpRetBufLcl);
-
-        LclVarDsc* retBuffLcl       = lvaGetDesc(info.compRetBuffArg);
-        var_types  callerRetBufType = retBuffLcl->GetType();
-
-        GenTree* src     = gtNewLclLoad(tmpRetBufLcl, tmpRetBufType);
-        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, callerRetBufType);
-        copyToRetBufNode = gtNewIndStoreObj(origCall->GetRetLayout(), dstAddr, src);
-
-        if (!origCall->TypeIs(TYP_VOID))
+        if (!call->TypeIs(TYP_VOID))
         {
-            retVal = gtCloneSimple(retBufArg);
+            retVal = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
         }
     }
-    else if (!origCall->TypeIs(TYP_VOID))
+    else if (!call->TypeIs(TYP_VOID))
     {
-        JITDUMP("Creating a new temp for the return value\n");
+        dispRetBuffLcl = lvaAllocTemp(false DEBUGARG("Return value for tail call dispatcher"));
 
-        LclVarDsc* newRetLcl = lvaAllocTemp(false DEBUGARG("Return value for tail call dispatcher"));
-
-        if (varTypeIsStruct(origCall->GetType()))
+        if (varTypeIsStruct(call->GetType()))
         {
-            lvaSetStruct(newRetLcl, origCall->GetRetLayout(), false);
+            lvaSetStruct(dispRetBuffLcl, call->GetRetLayout(), false);
         }
         else
         {
-            newRetLcl->SetType(origCall->GetType());
+            dispRetBuffLcl->SetType(call->GetType());
         }
 
-        lvaSetAddressExposed(newRetLcl);
-
-        if (varTypeIsSmall(origCall->GetRetSigType()))
+        if (varTypeIsSmall(call->GetRetSigType()))
         {
             // Use a LCL_FLD to widen small int return, the local is already address exposed
             // so it's not worth adding an extra cast by relying on "normalize on load".
-            retVal = gtNewLclLoadFld(origCall->GetRetSigType(), newRetLcl, 0);
+            retVal = gtNewLclLoadFld(call->GetRetSigType(), dispRetBuffLcl, 0);
         }
         else
         {
-            retVal = gtNewLclLoad(newRetLcl, newRetLcl->GetType());
+            retVal = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
         }
 
-        if (varTypeIsStruct(origCall->GetType()) && (info.retDesc.GetRegCount() > 1))
+        if (varTypeIsStruct(call->GetType()) && (info.retDesc.GetRegCount() > 1))
         {
             retVal->gtFlags |= GTF_DONT_CSE;
         }
+    }
 
-        retValArg = gtNewLclAddr(newRetLcl);
+    LclVarDsc* retAddrLcl;
+
+    if (lvaRetAddrVar == BAD_VAR_NUM)
+    {
+        retAddrLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
+        lvaSetAddressExposed(retAddrLcl);
+        lvaRetAddrVar = retAddrLcl->GetLclNum();
     }
     else
     {
-        JITDUMP("No return value so using null pointer as arg\n");
-        retValArg = gtNewZeroConNode(TYP_I_IMPL);
+        retAddrLcl = lvaGetDesc(lvaRetAddrVar);
     }
 
-    callDispatcherNode->gtCallArgs = gtPrependNewCallArg(retValArg, callDispatcherNode->gtCallArgs);
+    GenTree* retAddrSlot = gtNewLclAddr(retAddrLcl);
+    GenTree* calleeAddr  = new (this, GT_METHOD_ADDR) GenTreeMethodAddr(helpers.hCallTarget);
+    GenTree* retBufAddr;
 
-    // Add callTarget
-    callDispatcherNode->gtCallArgs =
-        gtPrependNewCallArg(new (this, GT_METHOD_ADDR) GenTreeMethodAddr(callTargetStubHnd),
-                            callDispatcherNode->gtCallArgs);
-
-    // Add the caller's return address slot.
-    if (lvaRetAddrVar == BAD_VAR_NUM)
+    if (dispRetBuffLcl == nullptr)
     {
-        LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
-        lvaSetAddressExposed(lcl);
-        lvaRetAddrVar = lcl->GetLclNum();
+        retBufAddr = gtNewZeroConNode(TYP_I_IMPL);
     }
-
-    GenTree* retAddrSlot           = gtNewLclAddr(lvaGetDesc(lvaRetAddrVar));
-    callDispatcherNode->gtCallArgs = gtPrependNewCallArg(retAddrSlot, callDispatcherNode->gtCallArgs);
-
-    GenTree* finalTree = callDispatcherNode;
-
-    if (copyToRetBufNode != nullptr)
+    else
     {
-        finalTree = gtNewCommaNode(callDispatcherNode, copyToRetBufNode);
+        lvaSetAddressExposed(dispRetBuffLcl);
+        retBufAddr = gtNewLclAddr(dispRetBuffLcl);
     }
 
-    if (origCall->TypeIs(TYP_VOID))
+    GenTreeCall::Use* dispatcherArgs = gtNewCallArgs(retAddrSlot, calleeAddr, retBufAddr);
+    GenTree* dispatcherCall = gtNewUserCallNode(helpers.hDispatcher, TYP_VOID, dispatcherArgs, stmt->GetILOffsetX());
+
+    if ((retVal == nullptr) && (retBuffStore == nullptr))
     {
-        return finalTree;
+        return dispatcherCall;
     }
 
-    finalTree = gtNewCommaNode(finalTree, retVal, origCall->GetType());
+    fgInsertStmtBefore(fgMorphBlock, stmt, dispatcherCall);
 
-    // The JIT seems to want to CSE this comma and messes up multi-reg ret
-    // values in the process. Just avoid CSE'ing this tree entirely in that
-    // case.
-    if (origCall->HasMultiRegRetVal())
+    if (retVal == nullptr)
     {
-        finalTree->gtFlags |= GTF_DONT_CSE;
+        return retBuffStore;
     }
 
-    return finalTree;
+    if (retBuffStore != nullptr)
+    {
+        fgInsertStmtBefore(fgMorphBlock, stmt, retBuffStore);
+    }
+
+    return retVal;
 }
 
 GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
@@ -8784,8 +8652,7 @@ GenTree* Compiler::fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
 
         if (isStmtRoot)
         {
-            Statement* stmt = gtNewStmt(tree, fgGlobalMorphStmt->GetILOffsetX());
-            fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, stmt);
+            Statement* stmt = fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, tree);
             JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
 
 #if LOCAL_ASSERTION_PROP

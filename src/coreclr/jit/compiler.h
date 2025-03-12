@@ -4332,6 +4332,7 @@ private:
 
 public:
     void fgInsertStmtBefore(BasicBlock* block, Statement* insertionPoint, Statement* stmt);
+    Statement* fgInsertStmtBefore(BasicBlock* block, Statement* insertionPoint, GenTree* expr);
 
 private:
     Statement* fgInsertStmtListAfter(BasicBlock* block, Statement* stmtAfter, Statement* stmtList);
@@ -4403,17 +4404,16 @@ private:
 #endif
 #endif
     bool fgCheckStmtAfterTailCall(Statement* callStmt);
-    GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
+    GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
 #ifdef TARGET_X86
     bool     fgCanTailCallViaJitHelper();
     GenTree* fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call);
     GenTree* fgExpandDirectTailCallViaJitHelper(GenTreeCall* call);
     GenTreeLclStore* fgMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt);
 #endif
-    GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*          origCall,
-                                                CORINFO_METHOD_HANDLE callTargetStubHnd,
-                                                CORINFO_METHOD_HANDLE dispatcherHnd,
-                                                Statement*            stmt);
+    GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
+                                                const CORINFO_TAILCALL_HELPERS& helpers,
+                                                Statement*                      stmt);
     GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
                                   CORINFO_RUNTIME_LOOKUP&     lookup,
                                   void*                       compileTimeHandle);
