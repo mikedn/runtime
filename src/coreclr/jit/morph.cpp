@@ -6054,11 +6054,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     Statement* newStmt             = nullptr;
     const bool isVirtual           = call->IsVirtual();
     const bool stubNeedsTargetAddr = (help.flags & CORINFO_TAILCALL_STORE_TARGET) != 0;
-    const bool hasNullCheck        = call->HasNullCheck();
     const bool stubNeedsThisLcl    = stubNeedsTargetAddr && isVirtual;
     LclVarDsc* thisLcl             = nullptr;
 
-    if ((call->gtCallThisArg != nullptr) && (hasNullCheck || stubNeedsThisLcl))
+    if (stubNeedsThisLcl)
     {
         GenTree* thisArg = call->gtCallThisArg->GetNode();
 
@@ -6081,12 +6080,6 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     if (newStmt == nullptr)
     {
         newStmt = storeArgsStmt;
-    }
-
-    if (hasNullCheck)
-    {
-        GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
-        fgInsertStmtBefore(fgMorphBlock, stmt, gtNewNullCheck(thisLoad));
     }
 
     GenTree* result = fgCreateCallDispatcherAndGetResult(call, help, stmt);
@@ -6163,7 +6156,6 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
-    call->RemoveNullCheck();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_WRAPPER_DELEGATE_INV);
     call->SetType(TYP_VOID);
@@ -6490,7 +6482,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         // calling to a virtual dispatch stub. This requirement is a consequence of limitations
         // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
         // in a dispatch stub that has unmanaged caller.
-        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->HasNullCheck() || call->IsVirtualStub())
+        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->IsVirtualStub())
         {
             // TODO-MIKE-Review: Not adding a temp if `this` is LCL_LOAD is dubious, what if some
             // other argument expression modifies it?
@@ -6563,16 +6555,10 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         targetArg = fgExpandDirectTailCallViaJitHelper(call);
     }
 
-    if (call->HasNullCheck())
-    {
-        targetArg = gtNewCommaNode(gtNewNullCheck(gtNewLclLoad(thisLcl, thisLcl->GetType())), targetArg);
-    }
-
     call->SetMethodHandle(Compiler::eeFindHelper(CORINFO_HELP_TAILCALL));
     call->SetCallAddr(nullptr);
     call->m_entryPointAccessType = IAT_VALUE;
     call->m_entryPointAddr       = nullptr;
-    call->RemoveNullCheck();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV | GTF_CALL_POP_ARGS);
     // Technically this call does not return but some other code expects "no return" only on "user" calls.
     call->gtCallMoreFlags &=
