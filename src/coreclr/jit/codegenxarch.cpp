@@ -4150,7 +4150,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif
 
-    // Insert a null check on "this" pointer if asked.
     if (call->HasNullCheck())
     {
         assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_ARG_0);

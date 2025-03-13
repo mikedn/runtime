@@ -1253,7 +1253,7 @@ private:
 
                     if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
                     {
-                        assertionInfo = CreateNotNullAssertion(call->GetThisArg());
+                        assertionInfo = CreateNotNullAssertion(call->GetArgNodeByArgNum(0));
                     }
                 }
                 break;
@@ -2070,7 +2070,7 @@ private:
             return nullptr;
         }
 
-        GenTree* thisArg = call->GetThisArg();
+        GenTree* thisArg = call->GetArgNodeByArgNum(0);
         noway_assert(thisArg != nullptr);
 
         if (!thisArg->OperIs(GT_LCL_LOAD, GT_LCL_USE))
@@ -2970,7 +2970,7 @@ private:
                 return;
             }
 
-            GenTree* thisArg = call->GetThisArg();
+            GenTree* thisArg = call->GetArgNodeByArgNum(0);
             noway_assert(thisArg != nullptr);
 
             if (!m_vnStore->IsKnownNonNull(thisArg->GetConservativeVN()))
@@ -2981,7 +2981,7 @@ private:
             JITDUMP("\nCall " FMT_TREEID " has non-null this arg, removing GTF_CALL_NULLCHECK and GTF_EXCEPT\n",
                     call->GetID());
 
-            call->RemoveInlineCandidateInfo();
+            call->RemoveNullCheck();
             call->RemoveSideEffects(GTF_EXCEPT);
             noway_assert(call->HasAnySideEffect(GTF_SIDE_EFFECT));
 

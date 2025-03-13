@@ -2606,8 +2606,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 
     call->gtFlags &= ~GTF_CALL_DELEGATE_INV;
 
-    GenTree* thisArgNode = call->GetThisArg();
-
+    GenTree* thisArgNode = call->GetArgNodeByArgNum(0);
     assert(thisArgNode->OperIs(GT_PUTARG_REG));
 
     GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);

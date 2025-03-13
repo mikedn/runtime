@@ -747,7 +747,7 @@ void Compiler::morphAssertionGenerate(GenTree* tree)
             GenTreeCall* const call = tree->AsCall();
             if (call->HasNullCheck() || (call->IsVirtual() && !call->IsTailCall()))
             {
-                morphAssertionGenerateNotNull(call->GetThisArg());
+                morphAssertionGenerateNotNull(call->GetFirstArg());
             }
         }
         break;
@@ -1373,7 +1373,7 @@ GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
         return nullptr;
     }
 
-    GenTree* op1 = call->GetThisArg();
+    GenTree* op1 = call->GetFirstArg();
     noway_assert(op1 != nullptr);
 
     if (!op1->OperIs(GT_LCL_LOAD))

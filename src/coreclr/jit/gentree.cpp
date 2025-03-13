@@ -3941,18 +3941,14 @@ GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTre
     return new (this, CMK_ASTNode) GenTreeCall::Use(node1, gtNewCallArgs(node2, node3, node4));
 }
 
-GenTree* GenTreeCall::GetThisArg() const
+GenTree* GenTreeCall::GetFirstArg() const
 {
-    assert(gtCallThisArg != nullptr);
-
     if (fgArgInfo == nullptr)
     {
-        return gtCallThisArg->GetNode();
+        return (gtCallThisArg == nullptr ? gtCallArgs : gtCallThisArg)->GetNode();
     }
 
-    CallArgInfo* argInfo = GetArgInfoByArgNum(0);
-    assert(argInfo->use == gtCallThisArg);
-    return argInfo->GetNode();
+    return GetArgNodeByArgNum(0);
 }
 
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const

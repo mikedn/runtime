@@ -4088,7 +4088,7 @@ public:
         return UseList(gtCallLateArgs);
     }
 
-    GenTree* GetThisArg() const;
+    GenTree* GetFirstArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
