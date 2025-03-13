@@ -5165,15 +5165,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
         return false;
     }
 
-    if (call->HasRetBufArg()) // RetBuf
+    if (call->HasRetBufArg() && (info.compRetBuffArg == BAD_VAR_NUM))
     {
-        // If callee has RetBuf param, caller too must have it.
-        // Otherwise go the slow route.
-        if (info.compRetBuffArg == BAD_VAR_NUM)
-        {
-            reportFastTailCallDecision("Callee has RetBuf but caller does not.");
-            return false;
-        }
+        reportFastTailCallDecision("Callee has RetBuf but caller does not.");
+        return false;
     }
 
     // For a fast tail call the caller will use its incoming arg stack space to place

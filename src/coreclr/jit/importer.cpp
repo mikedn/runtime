@@ -765,78 +765,50 @@ void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
         retBufAddr = dest->AsIndir()->GetAddr();
     }
 
-    comp->impAddCallRetBufAddrArg(call, retBufAddr);
+    impAddCallRetBufAddrArg(call, retBufAddr);
 }
 
-void Compiler::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
+void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 {
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (call->IsUnmanaged())
     {
-        if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()))
+        if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()) &&
+            (call->GetUnmanagedCallConv() != CorInfoCallConvExtension::Thiscall))
         {
-#ifdef TARGET_X86
-            // The argument list has already been reversed.
-            // Insert the return buffer as the second-to-last node
-            // so it will be pushed on to the stack after the user args but before the native this arg
-            // as required by the native ABI.
-            GenTreeCall::Use* lastArg = call->gtCallArgs;
-            if (lastArg == nullptr)
+#ifndef TARGET_X86
+            if (call->gtCallArgs == nullptr)
             {
-                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
-            }
-            else if (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Thiscall)
-            {
-                // For thiscall, the "this" parameter is not included in the argument list reversal,
-                // so we need to put the return buffer as the last parameter.
-                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                    ;
-                gtInsertNewCallArgAfter(retBufAddr, lastArg);
-            }
-            else if (lastArg->GetNext() == nullptr)
-            {
-                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, lastArg);
+                call->gtCallArgs = gtNewCallArgs(retBufAddr);
             }
             else
             {
-                assert(lastArg != nullptr && lastArg->GetNext() != nullptr);
-                GenTreeCall::Use* secondLastArg = lastArg;
-                lastArg                         = lastArg->GetNext();
-                for (; lastArg->GetNext() != nullptr; secondLastArg = lastArg, lastArg = lastArg->GetNext())
-                    ;
-                assert(secondLastArg->GetNext() != nullptr);
-                gtInsertNewCallArgAfter(retBufAddr, secondLastArg);
+                comp->gtInsertNewCallArgAfter(retBufAddr, call->gtCallArgs);
             }
 #else
-            gtInsertNewCallArgAfter(retBufAddr, call->gtCallArgs);
+            GenTreeCall::Use** lastRef = &call->gtCallArgs;
+
+            while ((*lastRef != nullptr) && ((*lastRef)->GetNext() != nullptr))
+            {
+                lastRef = &(*lastRef)->NextRef();
+            }
+
+            *lastRef = new (comp, CMK_ASTNode) GenTreeCall::Use(retBufAddr, *lastRef);
 #endif
         }
         else
         {
 #ifndef TARGET_X86
-            call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            call->gtCallArgs = comp->gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
 #else
-            // The argument list has already been reversed.
-            // Insert the return buffer as the last node so it will be pushed on to the stack last
-            // as required by the native ABI.
-            GenTreeCall::Use* lastArg = call->gtCallArgs;
-            if (lastArg == nullptr)
-            {
-                call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
-            }
-            else
-            {
-                for (; lastArg->GetNext() != nullptr; lastArg = lastArg->GetNext())
-                    ;
-                gtInsertNewCallArgAfter(retBufAddr, lastArg);
-            }
+            comp->gtAppendNewCallArg(call->gtCallArgs, retBufAddr);
 #endif
         }
     }
     else
 #endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     {
-        call->gtCallArgs = gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+        call->gtCallArgs = comp->gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
     }
 
     call->SetType(TYP_VOID);
