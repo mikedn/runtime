@@ -4098,6 +4098,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif
 
+    Emitter& emit = *GetEmitter();
+
     for (GenTreeCall::Use& use : call->LateArgs())
     {
         GenTree* argNode = use.GetNode();
@@ -4133,8 +4135,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))
         {
             RegNum intArgReg = MapVarargsParamFloatRegToIntReg(argReg);
-            GetEmitter()->emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, argReg,
-                                      /* canSkip */ false);
+            emit.emitIns_Mov(INS_movd, emitTypeSize(argNode->GetType()), intArgReg, argReg,
+                             /* canSkip */ false);
         }
 #endif
     }
@@ -4143,14 +4145,14 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_ARG_0);
 
-        GetEmitter()->emitIns_AR_R(INS_cmp, EA_4BYTE, REG_ARG_0, REG_ARG_0, 0);
+        emit.emitIns_AR_R(INS_cmp, EA_4BYTE, REG_ARG_0, REG_ARG_0, 0);
     }
 
     GenTree* target = call->GetCallAddr();
 
 #if FEATURE_FASTTAILCALL
-    // If fast tail call, then we are done.  In this case we setup the args (both reg args
-    // and stack args in incoming arg area) and call target in rax.  Epilog sequence would
+    // If fast tail call, then we are done. In this case we setup the args (both reg args
+    // and stack args in incoming arg area) and call target in rax. Epilog sequence would
     // generate "jmp rax".
     if (call->IsFastTailCall())
     {
@@ -4161,8 +4163,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         // rip-relative jump.
         if (target != nullptr)
         {
-            UseReg(target);
-            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, target->GetRegNum(), /*canSkip*/ true);
+            RegNum targetReg = UseReg(target);
+            emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, targetReg, /*canSkip*/ true);
         }
 
         return;
@@ -4173,7 +4175,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     // We can't utilize the typical lazy killing of GC pointers at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
-        GetEmitter()->DefineTempLabel();
+        emit.DefineTempLabel();
     }
 
 #ifdef TARGET_X86
@@ -4183,7 +4185,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         LclVarDsc* lcl = compiler->lvaCallSpCheckLcl;
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, GetStackAddrMode(lcl, 0));
+        emit.emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -4216,7 +4218,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     if (call->IsPInvoke() && call->IsUserCall() && contains256bitAVXInstructions)
     {
         assert(compiler->canUseVexEncoding());
-        GetEmitter()->emitIns(INS_vzeroupper);
+        emit.emitIns(INS_vzeroupper);
     }
 
     insFormat format;
@@ -4226,91 +4228,82 @@ void CodeGen::GenCall(GenTreeCall* call)
     unsigned  amIndexScale = 0;
     int32_t   amOffset     = 0;
 
-    if (target != nullptr)
-    {
 #ifdef TARGET_X86
-        if (call->IsVirtualStubIndirect())
-        {
-            // On x86, we need to generate a very specific pattern for indirect VSD calls:
-            //
-            //    3-byte nop
-            //    call dword ptr [eax]
-            //
-            // Where EAX is also used as an argument to the stub dispatch helper. Make
-            // sure that the call target address is computed into EAX in this case.
+    if (call->IsVirtualStubIndirect())
+    {
+        assert(target != nullptr);
+        assert(compiler->info.virtualStubParamRegNum == REG_VIRTUAL_STUB_TARGET);
+        assert(target->isContained());
 
-            assert(compiler->info.virtualStubParamRegNum == REG_VIRTUAL_STUB_TARGET);
-            assert(target->isContained());
+        // On x86, we need to generate a very specific pattern for indirect VSD calls:
+        //
+        //    3-byte nop
+        //    call dword ptr [eax]
+        //
+        // Where EAX is also used as an argument to the stub dispatch helper. Make
+        // sure that the call target address is computed into EAX in this case.
 
-            GenTree* addr = target->AsIndLoad()->GetAddr();
-            assert(addr->isUsedFromReg());
+        RegNum addrReg = UseReg(target->AsIndLoad()->GetAddr());
+        emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_VIRTUAL_STUB_TARGET, addrReg,
+                         /*canSkip*/ true);
+        emit.emitIns_Nop(3);
 
-            RegNum addrReg = UseReg(addr);
-            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_VIRTUAL_STUB_TARGET, addrReg,
-                                      /*canSkip*/ true);
-            GetEmitter()->emitIns_Nop(3);
-
-            format       = IF_ARD;
-            amBaseReg    = REG_VIRTUAL_STUB_TARGET;
-            amIndexScale = 1;
-        }
-        else
-#endif
-            if (target->isContained())
-        {
-            GenTree* addr = target->AsIndir()->GetAddr();
-
-            if (GenTreeIntCon* intConAddr = addr->IsContainedIntCon())
-            {
-                // Note that if gtControlExpr is an indir of an absolute address, we mark it as
-                // contained only if it can be encoded as PC-relative offset.
-                AMD64_ONLY(assert(compiler->IsRIPRelativeAddress(intConAddr)));
-
-                format   = IF_METHPTR;
-                callAddr = reinterpret_cast<void*>(intConAddr->GetValue());
-            }
-            else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
-            {
-                format = IF_ARD;
-
-                if (GenTree* base = addrMode->GetBase())
-                {
-                    amBaseReg = UseReg(base);
-                }
-
-                if (GenTree* index = addrMode->GetIndex())
-                {
-                    amIndexReg   = UseReg(index);
-                    amIndexScale = addrMode->GetScale();
-                }
-
-                amOffset = addrMode->GetOffset();
-            }
-            else
-            {
-                // TODO-MIKE-Review: It looks like there's no way to have a contained CLS_VAR_ADDR
-                // addr here because the importer spills the target to a local. Maybe it shouldn't.
-
-                format    = IF_ARD;
-                amBaseReg = UseReg(addr);
-            }
-        }
-        else
-        {
-            // We have already generated code for gtControlExpr evaluating it into a register.
-            // We just need to emit "call reg" in this case.
-            assert(genIsValidIntReg(target->GetRegNum()));
-
-            format    = IF_RRD;
-            amBaseReg = UseReg(target);
-        }
+        format       = IF_ARD;
+        amBaseReg    = REG_VIRTUAL_STUB_TARGET;
+        amIndexScale = 1;
     }
     else
+#endif
+        if (target == nullptr)
     {
         assert(call->m_entryPointAddr != nullptr);
 
         format   = call->m_entryPointAccessType == IAT_VALUE ? IF_METHOD : IF_METHPTR;
         callAddr = call->m_entryPointAddr;
+    }
+    else if (target->isUsedFromReg())
+    {
+        format    = IF_RRD;
+        amBaseReg = UseReg(target);
+    }
+    else
+    {
+        GenTree* addr = target->AsIndLoad()->GetAddr();
+
+        if (GenTreeIntCon* intConAddr = addr->IsContainedIntCon())
+        {
+            // Note that if gtControlExpr is an indir of an absolute address, we mark it as
+            // contained only if it can be encoded as PC-relative offset.
+            AMD64_ONLY(assert(compiler->IsRIPRelativeAddress(intConAddr)));
+
+            format   = IF_METHPTR;
+            callAddr = reinterpret_cast<void*>(intConAddr->GetValue());
+        }
+        else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
+        {
+            format = IF_ARD;
+
+            if (GenTree* base = addrMode->GetBase())
+            {
+                amBaseReg = UseReg(base);
+            }
+
+            if (GenTree* index = addrMode->GetIndex())
+            {
+                amIndexReg   = UseReg(index);
+                amIndexScale = addrMode->GetScale();
+            }
+
+            amOffset = addrMode->GetOffset();
+        }
+        else
+        {
+            // TODO-MIKE-Review: It looks like there's no way to have a contained CLS_VAR_ADDR
+            // addr here because the importer spills the target to a local. Maybe it shouldn't.
+
+            format    = IF_ARD;
+            amBaseReg = UseReg(addr);
+        }
     }
 
     emitAttr retReg0Attr = EA_PTRSIZE;
@@ -4351,7 +4344,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         }
     }
 
-    GetEmitter()->emitIns_Call(
+    // clang-format off
+    emit.emitIns_Call(
         format,
         callAddr,
         amBaseReg, amIndexReg, amIndexScale, amOffset,
@@ -4362,10 +4356,11 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif
         call->GetMethodHandle()
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig));
+    // clang-format on
 
     if (genPendingCallLabel != nullptr)
     {
-        GetEmitter()->DefineInlineTempLabel(genPendingCallLabel);
+        emit.DefineInlineTempLabel(genPendingCallLabel);
         genPendingCallLabel = nullptr;
     }
 
@@ -4406,8 +4401,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                     RegNum    returnReg    = call->GetRetDesc()->GetRegNum(i);
                     RegNum    allocatedReg = call->GetRegNum(i);
 
-                    GetEmitter()->emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg,
-                                              returnReg, /* canSkip */ true);
+                    emit.emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg, returnReg,
+                                     /* canSkip */ true);
                 }
 
 #ifdef FEATURE_SIMD
@@ -4420,8 +4415,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                     // Clear the upper 32 bits by two shift instructions.
                     // retReg = retReg << 96
                     // retReg = retReg >> 96
-                    GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, returnReg, 12);
-                    GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, returnReg, 12);
+                    emit.emitIns_R_I(INS_pslldq, EA_16BYTE, returnReg, 12);
+                    emit.emitIns_R_I(INS_psrldq, EA_16BYTE, returnReg, 12);
                 }
 #endif // FEATURE_SIMD
             }
@@ -4445,8 +4440,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                     returnReg = REG_INTRET;
                 }
 
-                GetEmitter()->emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType),
-                                          call->GetRegNum(), returnReg, /* canSkip */ true);
+                emit.emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType), call->GetRegNum(),
+                                 returnReg, /* canSkip */ true);
             }
 
             DefCallRegs(call);
@@ -4464,8 +4459,6 @@ void CodeGen::GenCall(GenTreeCall* call)
 #ifdef DEBUG
     if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
-        Emitter& emit = *GetEmitter();
-
         RegNum spRegCheck = REG_SPBASE;
 
         if (!call->CallerPop() && (stackArgBytes != 0))
