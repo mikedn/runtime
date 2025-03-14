@@ -2174,11 +2174,11 @@ struct Importer
                                          bool*                   runtimeLookup     = nullptr);
 
 #ifdef FEATURE_READYTORUN_COMPILER
-    GenTreeCall* gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                               CorInfoHelpFunc         helper,
-                                               var_types               type,
-                                               GenTreeCall::Use*       args              = nullptr,
-                                               CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
+    GenTreeCall* gtNewR2RHelperCallNode(CorInfoHelpFunc         helper,
+                                        CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                        var_types               type,
+                                        GenTreeCall::Use*       args              = nullptr,
+                                        CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
 #endif
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
@@ -3538,11 +3538,16 @@ public:
 
     GenTree* gtNewRuntimeContextTree(CORINFO_RUNTIME_LOOKUP_KIND kind);
 
-    GenTreeCall* gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                               CorInfoHelpFunc         helper,
-                                               var_types               type,
-                                               GenTreeCall::Use*       args               = nullptr,
-                                               CORINFO_LOOKUP_KIND*    pGenericLookupKind = nullptr);
+    GenTreeCall* gtNewR2RHelperCallNode(CorInfoHelpFunc         helper,
+                                        CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                        var_types               type,
+                                        GenTreeCall::Use*       args              = nullptr,
+                                        CORINFO_LOOKUP_KIND*    genericLookupKind = nullptr);
+
+    GenTreeCall* gtNewR2RHelperCallNode(CorInfoHelpFunc      helper,
+                                        CORINFO_CONST_LOOKUP entryPoint,
+                                        var_types            type,
+                                        GenTreeCall::Use*    args = nullptr);
 
     bool IsTargetIntrinsic(NamedIntrinsic intrinsic);
     static bool IsMathIntrinsic(NamedIntrinsic intrinsic);

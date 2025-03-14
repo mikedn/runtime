@@ -3676,20 +3676,29 @@ GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types typ
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-GenTreeCall* Compiler::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                                     CorInfoHelpFunc         helper,
-                                                     var_types               type,
-                                                     GenTreeCall::Use*       args,
-                                                     CORINFO_LOOKUP_KIND*    genericLookupKind)
+GenTreeCall* Compiler::gtNewR2RHelperCallNode(CorInfoHelpFunc         helper,
+                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                              var_types               type,
+                                              GenTreeCall::Use*       args,
+                                              CORINFO_LOOKUP_KIND*    genericLookupKind)
 {
-    CORINFO_CONST_LOOKUP lookup;
-    if (!info.compCompHnd->getReadyToRunHelper(resolvedToken, genericLookupKind, helper, &lookup))
+    CORINFO_CONST_LOOKUP entryPoint;
+
+    if (!info.compCompHnd->getReadyToRunHelper(resolvedToken, genericLookupKind, helper, &entryPoint))
     {
         return nullptr;
     }
 
+    return gtNewR2RHelperCallNode(helper, entryPoint, type, args);
+}
+
+GenTreeCall* Compiler::gtNewR2RHelperCallNode(CorInfoHelpFunc      helper,
+                                              CORINFO_CONST_LOOKUP entryPoint,
+                                              var_types            type,
+                                              GenTreeCall::Use*    args)
+{
     GenTreeCall* call = gtNewHelperCallNode(helper, type, args);
-    call->SetR2REntryPoint(lookup);
+    call->SetR2REntryPoint(entryPoint);
     return call;
 }
 #endif
@@ -11887,15 +11896,15 @@ GenTreeCall* Compiler::gtNewInitThisClassHelperCall()
         {
             resolvedToken.hClass = info.compClassHnd;
 
-            return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+            return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, &resolvedToken, TYP_BYREF);
         }
 
         GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
         // CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE with a zeroed out resolvedToken means
         // "get the static base of the class that owns the method being compiled". If we're
         // in this method, it means we're not inlining and there's no ambiguity.
-        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF,
-                                             gtNewCallArgs(ctxTree), &kind);
+        return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, &resolvedToken, TYP_BYREF,
+                                      gtNewCallArgs(ctxTree), &kind);
     }
 #endif
 
@@ -11948,7 +11957,7 @@ GenTreeCall* Compiler::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
         CORINFO_RESOLVED_TOKEN resolvedToken{};
         resolvedToken.hClass = cls;
 
-        return gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
+        return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, &resolvedToken, TYP_BYREF);
     }
 #endif
 

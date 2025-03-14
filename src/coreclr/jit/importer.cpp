@@ -1256,8 +1256,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 #ifdef FEATURE_READYTORUN_COMPILER
         if (opts.IsReadyToRun())
         {
-            return gtNewReadyToRunHelperCallNode(resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                                 gtNewCallArgs(ctxTree), &lookup->lookupKind);
+            return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_HANDLE, resolvedToken, TYP_I_IMPL,
+                                          gtNewCallArgs(ctxTree), &lookup->lookupKind);
         }
 #endif
         return gtNewRuntimeLookupHelperCallNode(&runtimeLookup, ctxTree, compileTimeHandle);
@@ -4235,12 +4235,9 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
     {
         if (!callInfo->exactContextNeedsRuntimeLookup)
         {
-            GenTreeCall* call =
-                gtNewHelperCallNode(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR, TYP_I_IMPL, gtNewCallArgs(thisPtr));
-
-            call->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
-
-            return call;
+            return comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR,
+                                                callInfo->codePointerLookup.constLookup, TYP_I_IMPL,
+                                                gtNewCallArgs(thisPtr));
         }
 
         // We need a runtime lookup. CoreRT has a ReadyToRun helper for that too.
@@ -4248,8 +4245,8 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
         {
             GenTree* ctxTree = gtNewRuntimeContextTree(callInfo->codePointerLookup.lookupKind.runtimeLookupKind);
 
-            return gtNewReadyToRunHelperCallNode(resolvedToken, CORINFO_HELP_READYTORUN_GENERIC_HANDLE, TYP_I_IMPL,
-                                                 gtNewCallArgs(ctxTree), &callInfo->codePointerLookup.lookupKind);
+            return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_HANDLE, resolvedToken, TYP_I_IMPL,
+                                          gtNewCallArgs(ctxTree), &callInfo->codePointerLookup.lookupKind);
         }
     }
 #endif
@@ -5481,8 +5478,8 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
             {
                 uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
 
-                addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, TYP_BYREF);
-                addr->AsCall()->SetR2REntryPoint(fieldInfo.fieldLookup);
+                addr =
+                    comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, fieldInfo.fieldLookup, TYP_BYREF);
 
                 if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
                 {
@@ -5510,8 +5507,8 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
             uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
 
             GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
-            addr = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, TYP_BYREF, gtNewCallArgs(ctxTree));
-            addr->AsCall()->SetR2REntryPoint(fieldInfo.fieldLookup);
+            addr = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, fieldInfo.fieldLookup,
+                                                TYP_BYREF, gtNewCallArgs(ctxTree));
 
             if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
             {
@@ -11303,8 +11300,8 @@ void Importer::ImportIsInst(const BYTE* codeAddr)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        GenTreeCall* opLookup = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_ISINSTANCEOF,
-                                                              TYP_REF, gtNewCallArgs(op1));
+        GenTreeCall* opLookup =
+            gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_ISINSTANCEOF, &resolvedToken, TYP_REF, gtNewCallArgs(op1));
         usingReadyToRunHelper = (opLookup != nullptr);
         op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -11375,8 +11372,8 @@ void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnb
 
         if (opts.IsReadyToRun())
         {
-            GenTreeCall* opLookup = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_CHKCAST,
-                                                                  TYP_REF, gtNewCallArgs(op1));
+            GenTreeCall* opLookup =
+                gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_CHKCAST, &resolvedToken, TYP_REF, gtNewCallArgs(op1));
             usingReadyToRunHelper = (opLookup != nullptr);
             op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -11910,8 +11907,8 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        call = gtNewReadyToRunHelperCallNode(&resolvedToken, CORINFO_HELP_READYTORUN_NEWARR_1, TYP_REF,
-                                             gtNewCallArgs(lengthOp));
+        call =
+            gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_NEWARR_1, &resolvedToken, TYP_REF, gtNewCallArgs(lengthOp));
 
         if (call == nullptr)
         {
@@ -12364,7 +12361,9 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                 GenTreeCall::Use*    helperArgs        = nullptr;
                 CORINFO_LOOKUP       pLookup;
                 CORINFO_CONST_LOOKUP entryPoint;
+
                 info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &pLookup);
+
                 if (!pLookup.lookupKind.needsRuntimeLookup)
                 {
                     helperArgs = gtNewCallArgs(thisPointer, targetObjPointers);
@@ -12382,8 +12381,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                     entryPoint       = genericLookup;
                 }
 
-                call = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, TYP_VOID, helperArgs);
-                call->SetR2REntryPoint(entryPoint);
+                call = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, entryPoint, TYP_VOID,
+                                                    helperArgs);
             }
         }
         // ReadyToRun has this optimization for a non-virtual function pointers only for now.
@@ -12391,16 +12390,16 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
         {
             JITDUMP("optimized\n");
 
+            CORINFO_LOOKUP entryPoint;
+            info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
+            assert(!entryPoint.lookupKind.needsRuntimeLookup);
+
             GenTree*          thisPointer       = call->gtCallThisArg->GetNode();
             GenTree*          targetObjPointers = call->gtCallArgs->GetNode();
             GenTreeCall::Use* helperArgs        = gtNewCallArgs(thisPointer, targetObjPointers);
 
-            call = gtNewHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, TYP_VOID, helperArgs);
-
-            CORINFO_LOOKUP entryPoint;
-            info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
-            assert(!entryPoint.lookupKind.needsRuntimeLookup);
-            call->SetR2REntryPoint(entryPoint.constLookup);
+            call = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, entryPoint.constLookup, TYP_VOID,
+                                                helperArgs);
         }
         else
         {
@@ -16878,13 +16877,13 @@ GenTree* Importer::impParentClassTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedT
 }
 
 #ifdef FEATURE_READYTORUN_COMPILER
-GenTreeCall* Importer::gtNewReadyToRunHelperCallNode(CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                                     CorInfoHelpFunc         helper,
-                                                     var_types               type,
-                                                     GenTreeCall::Use*       args,
-                                                     CORINFO_LOOKUP_KIND*    genericLookupKind)
+GenTreeCall* Importer::gtNewR2RHelperCallNode(CorInfoHelpFunc         helper,
+                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                              var_types               type,
+                                              GenTreeCall::Use*       args,
+                                              CORINFO_LOOKUP_KIND*    genericLookupKind)
 {
-    return comp->gtNewReadyToRunHelperCallNode(resolvedToken, helper, type, args, genericLookupKind);
+    return comp->gtNewR2RHelperCallNode(helper, resolvedToken, type, args, genericLookupKind);
 }
 #endif
 
