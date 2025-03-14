@@ -5136,32 +5136,6 @@ void dTreeFlags(GenTree* tree)
 
 const HelperCallProperties Compiler::s_helperCallProperties;
 
-// Given some tree node return does it need all GC refs to be spilled from
-// callee save registers.
-// Return Value:
-//    true       - tree kills GC refs on callee save registers
-//    false      - tree doesn't affect GC refs on callee save registers
-bool Compiler::killGCRefs(GenTree* tree) const
-{
-    if (GenTreeCall* call = tree->IsCall())
-    {
-        if (call->IsUnmanaged())
-        {
-            return true;
-        }
-
-        if (call->IsHelperCall(CORINFO_HELP_JIT_PINVOKE_BEGIN))
-        {
-            assert(opts.ShouldUsePInvokeHelpers());
-            return true;
-        }
-
-        return false;
-    }
-
-    return tree->OperIs(GT_START_PREEMPTGC);
-}
-
 //------------------------------------------------------------------------
 // lvaIsOSRLocal: check if this local var is one that requires special
 //     treatment for OSR compilations.

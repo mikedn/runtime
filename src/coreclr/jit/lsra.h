@@ -695,6 +695,7 @@ private:
 
     // Given some node add refpositions for all the registers this node kills
     bool buildKillPositionsForNode(GenTree* node, LsraLocation location, regMaskTP killMask);
+    bool KillGCRefs(GenTree* tree) const;
 
     regMaskTP allRegs(RegisterType rt) const;
     regMaskTP allIntRegs() const;

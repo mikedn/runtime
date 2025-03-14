@@ -5976,8 +5976,6 @@ public:
     void abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     void abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val);
-
-    bool killGCRefs(GenTree* tree) const;
 }; // end of class Compiler
 
 template <typename T>

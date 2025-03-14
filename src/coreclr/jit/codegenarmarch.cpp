@@ -1725,6 +1725,8 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 
 void CodeGen::GenCall(GenTreeCall* call)
 {
+    Emitter& emit = *GetEmitter();
+
     for (GenTreeCall::Use& use : call->LateArgs())
     {
         GenTree* argNode = use.GetNode();
@@ -1813,9 +1815,9 @@ void CodeGen::GenCall(GenTreeCall* call)
 
 #ifdef TARGET_ARM
         RegNum tmpReg = call->ExtractTempReg();
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, REG_R0, 0);
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, REG_R0, 0);
 #else
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_R0, 0);
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_R0, 0);
 #endif
     }
 
@@ -1832,7 +1834,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         if (target != nullptr)
         {
             RegNum targetReg = UseReg(target);
-            GetEmitter()->emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FASTTAILCALL_TARGET, targetReg, /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_FASTTAILCALL_TARGET, targetReg, /* canSkip */ true);
         }
 
         return;
@@ -1841,9 +1843,9 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     // For a call to unmanaged code we emit a label to clear the GC pointer state before the callsite.
     // We can't utilize the typical lazy killing of GC pointers at (or inside) the callsite.
-    if (compiler->killGCRefs(call))
+    if (call->KillGCRefs())
     {
-        GetEmitter()->DefineTempLabel();
+        emit.DefineTempLabel();
     }
 
     void*  callAddr = nullptr;
@@ -1860,7 +1862,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert((call->IsHelperCall() || call->IsUserCall()) && !call->IsTailCall());
 
         callReg = call->GetSingleTempReg();
-        GetEmitter()->emitIns_R_R(INS_ldr, EA_PTRSIZE, callReg, REG_R2R_INDIRECT_PARAM);
+        emit.emitIns_R_R(INS_ldr, EA_PTRSIZE, callReg, REG_R2R_INDIRECT_PARAM);
     }
 #endif // FEATURE_READYTORUN_COMPILER
     else
@@ -1931,7 +1933,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(
+    emit.emitIns_Call(
         callReg, callAddr,
 #ifdef TARGET_ARM64
         { retReg0Attr, regReg1Attr },
@@ -1945,7 +1947,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     if (genPendingCallLabel != nullptr)
     {
-        GetEmitter()->DefineInlineTempLabel(genPendingCallLabel);
+        emit.DefineInlineTempLabel(genPendingCallLabel);
         genPendingCallLabel = nullptr;
     }
 
@@ -1974,8 +1976,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                 RegNum    returnReg    = call->GetRetDesc()->GetRegNum(i);
                 RegNum    allocatedReg = call->GetRegNum(i);
 
-                GetEmitter()->emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg,
-                                          returnReg, /* canSkip */ true);
+                emit.emitIns_Mov(ins_Copy(returnReg, regType), emitActualTypeSize(regType), allocatedReg, returnReg,
+                                 /* canSkip */ true);
             }
         }
         else
@@ -2006,19 +2008,19 @@ void CodeGen::GenCall(GenTreeCall* call)
 #ifdef TARGET_ARM
             if (compiler->opts.compUseSoftFP && (returnType == TYP_DOUBLE))
             {
-                GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, call->GetRegNum(), REG_R0, REG_R1);
+                emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, call->GetRegNum(), REG_R0, REG_R1);
             }
             else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
             {
-                GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, call->GetRegNum(), REG_R0, /* canSkip */ false);
+                emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, call->GetRegNum(), REG_R0, /* canSkip */ false);
             }
             else
 #endif
                 if (call->GetRegNum() != returnReg)
             {
                 {
-                    GetEmitter()->emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType),
-                                              call->GetRegNum(), returnReg, /* canSkip */ false);
+                    emit.emitIns_Mov(ins_Copy(returnReg, returnType), emitActualTypeSize(returnType), call->GetRegNum(),
+                                     returnReg, /* canSkip */ false);
                 }
             }
         }

@@ -693,13 +693,28 @@ bool LinearScan::buildKillPositionsForNode(GenTree* node, LsraLocation location,
         insertedKills = true;
     }
 
-    if (compiler->killGCRefs(node))
+    if (KillGCRefs(node))
     {
         newKillGCRegsRefPosition(location, node, allIntRegs() & ~RBM_ARG_REGS);
         insertedKills = true;
     }
 
     return insertedKills;
+}
+
+// Given some tree node return does it need all GC refs to be spilled from
+// callee save registers.
+// Return Value:
+//    true       - tree kills GC refs on callee save registers
+//    false      - tree doesn't affect GC refs on callee save registers
+bool LinearScan::KillGCRefs(GenTree* tree) const
+{
+    if (GenTreeCall* call = tree->IsCall())
+    {
+        return call->KillGCRefs();
+    }
+
+    return tree->OperIs(GT_START_PREEMPTGC);
 }
 
 // Check whether a MultiReg node should remain a candidate MultiReg

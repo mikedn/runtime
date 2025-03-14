@@ -4517,6 +4517,11 @@ public:
         m_methodHandle = handle;
     }
 
+    bool KillGCRefs() const
+    {
+        return IsUnmanaged() || IsHelperCall(CORINFO_HELP_JIT_PINVOKE_BEGIN);
+    }
+
     bool IsTypeHandleToRuntimeTypeHelperCall() const;
     bool IsTypeHandleToRuntimeTypeHandleHelperCall() const;
 

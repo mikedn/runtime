@@ -4173,7 +4173,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     // For a call to unmanaged code we emit a label to clear the GC pointer state before the callsite.
     // We can't utilize the typical lazy killing of GC pointers at (or inside) the callsite.
-    if (compiler->killGCRefs(call))
+    if (call->KillGCRefs())
     {
         emit.DefineTempLabel();
     }
