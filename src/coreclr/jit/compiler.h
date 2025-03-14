@@ -1110,6 +1110,11 @@ struct CompiledMethodInfo
         return (compMethodInfo->options & CORINFO_GENERICS_CTXT_FROM_THIS) != 0;
     }
 
+    bool IsSynchronized() const
+    {
+        return (compFlags & CORINFO_FLG_SYNCH) != 0;
+    }
+
     INDEBUG(bool SkipMethod() const;)
 
     CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);

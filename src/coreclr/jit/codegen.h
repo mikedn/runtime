@@ -707,10 +707,10 @@ protected:
     void GenMemoryBarrier(GenTree* barrier);
     void GenInstr(GenTreeInstr* instr);
 
-    void genAlignStackBeforeCall(GenTreePutArgStk* putArgStk);
-    void genAlignStackBeforeCall(GenTreeCall* call);
 #ifdef TARGET_X86
-    void genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias);
+    void AlignStackBeforeCall(GenTreePutArgStk* putArgStk);
+    void AlignStackBeforeCall(GenTreeCall* call);
+    void RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias);
 #endif
 
 #if defined(UNIX_X86_ABI)

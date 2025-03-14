@@ -1658,11 +1658,11 @@ size_t GCEncoder::InfoBlockHdrSave(BYTE* dest, int mask, regMaskTP savedRegs, In
     // JIT is responsible for synchronization on funclet-based EH model that x86/Linux uses.
     if (compiler->info.compFlags & CORINFO_FLG_SYNCH)
     {
-        assert(codeGen->syncStartEmitCookie != NULL);
+        assert(codeGen->syncStartEmitCookie != nullptr);
         header->syncStartOffset = codeGen->syncStartEmitCookie->GetCodeOffset();
         assert(header->syncStartOffset != INVALID_SYNC_OFFSET);
 
-        assert(codeGen->syncEndEmitCookie != NULL);
+        assert(codeGen->syncEndEmitCookie != nullptr);
         header->syncEndOffset = codeGen->syncEndEmitCookie->GetCodeOffset();
         assert(header->syncEndOffset != INVALID_SYNC_OFFSET);
 

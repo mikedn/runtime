@@ -4087,19 +4087,17 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
 
 void CodeGen::GenCall(GenTreeCall* call)
 {
-    // All virtuals should have been expanded into a control expression
     assert(!call->IsVirtual() || (call->GetCallAddr() != nullptr));
 
-    genAlignStackBeforeCall(call);
-
 #ifdef TARGET_X86
+    AlignStackBeforeCall(call);
+
     if (call->IsTailCallViaJitHelper() && compiler->getNeedsGSSecurityCookie())
     {
         EpilogGSCookieCheck(true);
     }
 #endif
 
-    // Consume all the arg regs
     for (GenTreeCall::Use& use : call->LateArgs())
     {
         GenTree* argNode = use.GetNode();
@@ -4141,15 +4139,6 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif
     }
 
-#ifdef TARGET_X86
-    // TODO-MIKE-Cleanup: This can probably just use CallInfo::nextSlotNum instead of going through all args.
-    int32_t stackArgBytes = 0;
-    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
-    {
-        stackArgBytes += call->GetInfo()->GetArgInfo(i)->GetSlotCount() * REGSIZE_BYTES;
-    }
-#endif
-
     if (call->HasNullCheck())
     {
         assert(call->GetArgInfoByArgNum(0)->GetRegNum() == REG_ARG_0);
@@ -4180,16 +4169,15 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif
 
-    // For a pinvoke to unmanaged code we emit a label to clear
-    // the GC pointer state before the callsite.
-    // We can't utilize the typical lazy killing of GC pointers
-    // at (or inside) the callsite.
+    // For a call to unmanaged code we emit a label to clear the GC pointer state before the callsite.
+    // We can't utilize the typical lazy killing of GC pointers at (or inside) the callsite.
     if (compiler->killGCRefs(call))
     {
         GetEmitter()->DefineTempLabel();
     }
 
-#if defined(DEBUG) && defined(TARGET_X86)
+#ifdef TARGET_X86
+#ifdef DEBUG
     // Store the stack pointer so we can check it after the call.
     if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
@@ -4197,20 +4185,23 @@ void CodeGen::GenCall(GenTreeCall* call)
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
         GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
-#endif // defined(DEBUG) && defined(TARGET_X86)
+#endif
 
-    bool            fPossibleSyncHelperCall = false;
-    CorInfoHelpFunc helperNum               = CORINFO_HELP_UNDEF;
+    // TODO-MIKE-Cleanup: This can probably just use CallInfo::nextSlotNum instead of going through all args.
+    int32_t stackArgBytes = 0;
 
-#ifdef TARGET_X86
-    bool fCallerPop = call->CallerPop();
+    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
+    {
+        stackArgBytes += call->GetInfo()->GetArgInfo(i)->GetSlotCount() * REGSIZE_BYTES;
+    }
 
     // If the callee pops the arguments, we pass a positive shift as the argSize, and the emitter will
     // adjust its stack level accordingly.
     // If the caller needs to explicitly pop its arguments, we must pass a negative shift, and then do the
     // pop when we're done.
     int32_t argSizeForEmitter = stackArgBytes;
-    if (fCallerPop)
+
+    if (call->CallerPop())
     {
         argSizeForEmitter = -stackArgBytes;
     }
@@ -4226,13 +4217,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         assert(compiler->canUseVexEncoding());
         GetEmitter()->emitIns(INS_vzeroupper);
-    }
-
-    if (call->IsHelperCall() && ((compiler->info.compFlags & CORINFO_FLG_SYNCH) != 0))
-    {
-        fPossibleSyncHelperCall = true;
-        helperNum               = Compiler::eeGetHelperNum(call->GetMethodHandle());
-        assert(helperNum != CORINFO_HELP_UNDEF);
     }
 
     insFormat format;
@@ -4367,7 +4351,6 @@ void CodeGen::GenCall(GenTreeCall* call)
         }
     }
 
-    // clang-format off
     GetEmitter()->emitIns_Call(
         format,
         callAddr,
@@ -4379,7 +4362,6 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif
         call->GetMethodHandle()
         DEBUGARG(call->IsHelperCall() ? nullptr : call->callSig));
-    // clang-format on
 
     if (genPendingCallLabel != nullptr)
     {
@@ -4471,21 +4453,22 @@ void CodeGen::GenCall(GenTreeCall* call)
         }
     }
 
-    // If there is nothing next, that means the result is thrown away, so this shift is not live.
+    // If there is nothing next, that means the result is thrown away, so this value is not live.
     // However, for minopts or debuggable code, we keep it live to support managed return shift debugging.
     if ((call->gtNext == nullptr) && compiler->opts.OptimizationEnabled())
     {
         liveness.RemoveGCRegs(RBM_INTRET);
     }
 
-#if defined(DEBUG) && defined(TARGET_X86)
+#ifdef TARGET_X86
+#ifdef DEBUG
     if ((compiler->lvaCallSpCheckLcl != nullptr) && call->IsUserCall())
     {
         Emitter& emit = *GetEmitter();
 
         RegNum spRegCheck = REG_SPBASE;
 
-        if (!fCallerPop && (stackArgBytes != 0))
+        if (!call->CallerPop() && (stackArgBytes != 0))
         {
             // ECX is trashed, so can be used to compute the expected SP. We saved the shift of SP
             // after pushing all the stack arguments, but the caller popped the arguments, so we need
@@ -4502,17 +4485,15 @@ void CodeGen::GenCall(GenTreeCall* call)
         emit.emitIns(INS_BREAKPOINT);
         emit.DefineTempLabel(spCheckEndLabel);
     }
-#endif // defined(DEBUG) && defined(TARGET_X86)
+#endif // DEBUG
 
 #ifndef FEATURE_EH_FUNCLETS
-    //-------------------------------------------------------------------------
-    // Create a label for tracking of region protected by the monitor in synchronized methods.
-    // This needs to be here, rather than above where fPossibleSyncHelperCall is set,
-    // so the GC state vars have been updated before creating the label.
-
-    if (fPossibleSyncHelperCall)
+    if (call->IsHelperCall() && compiler->info.IsSynchronized())
     {
-        switch (helperNum)
+        // Create labels for tracking the region protected by the monitor in synchronized methods.
+        // This needs to be here, rather than above where possibleSyncHelperCall is set, so the
+        // GC state vars have been updated before creating the label.
+        switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
         {
             case CORINFO_HELP_MON_ENTER:
             case CORINFO_HELP_MON_ENTER_STATIC:
@@ -4530,16 +4511,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif // !FEATURE_EH_FUNCLETS
 
-#ifdef TARGET_X86
-    unsigned stackAdjustBias = 0;
-
-    if (fCallerPop && (stackArgBytes != 0))
-    {
-        stackAdjustBias = stackArgBytes;
-    }
-
-    SubtractStackLevel(stackArgBytes);
-
     // TODO-MIKE-Consider: Emit a breakpoint after CORINFO_HELP_TAILCALL since it never returns.
     // if (call->IsTailCallViaJitHelper())
     // {
@@ -4547,7 +4518,15 @@ void CodeGen::GenCall(GenTreeCall* call)
     //     return;
     // }
 
-    genRemoveAlignmentAfterCall(call, stackAdjustBias);
+    unsigned stackAdjustBias = 0;
+
+    if (call->CallerPop() && (stackArgBytes != 0))
+    {
+        stackAdjustBias = stackArgBytes;
+    }
+
+    SubtractStackLevel(stackArgBytes);
+    RemoveStackAlignmentAfterCall(call, stackAdjustBias);
 #endif
 }
 
@@ -5692,20 +5671,15 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
     genProduceReg(bitcast);
 }
 
-void CodeGen::genAlignStackBeforeCall(GenTreePutArgStk* putArgStk)
+#ifdef TARGET_X86
+void CodeGen::AlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 {
-#if defined(UNIX_X86_ABI)
-
-    genAlignStackBeforeCall(putArgStk->GetCall());
-
-#endif // UNIX_X86_ABI
+    AlignStackBeforeCall(putArgStk->GetCall());
 }
 
-void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
+void CodeGen::AlignStackBeforeCall(GenTreeCall* call)
 {
-#if defined(UNIX_X86_ABI)
-
-    // Have we aligned the stack yet?
+#ifdef UNIX_X86_ABI
     if (!call->GetInfo()->IsStkAlignmentDone())
     {
         // We haven't done any stack alignment yet for this call.  We might need to create
@@ -5727,12 +5701,10 @@ void CodeGen::genAlignStackBeforeCall(GenTreeCall* call)
 
         call->GetInfo()->SetStkAlignmentDone();
     }
-
 #endif // UNIX_X86_ABI
 }
 
-#ifdef TARGET_X86
-void CodeGen::genRemoveAlignmentAfterCall(GenTreeCall* call, unsigned bias)
+void CodeGen::RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 {
 #ifdef UNIX_X86_ABI
     // Put back the stack pointer if there was any padding for stack alignment
@@ -6037,7 +6009,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
     assert(srcType != TYP_LONG);
 
-    genAlignStackBeforeCall(putArgStk);
+    AlignStackBeforeCall(putArgStk);
 #endif
 
     if (src->OperIs(GT_FIELD_LIST))
@@ -6837,7 +6809,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 // for x86 stack unwinding
 
 #ifdef UNIX_X86_ABI
-    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::genAlignStackBeforeCall()
+    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::AlignStackBeforeCall
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
 #endif
 
@@ -6898,12 +6870,12 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // Need to save on to the stack level, since the helper call will pop the argument
     unsigned saveStackLvl2 = genStackLevel;
 
-#if defined(UNIX_X86_ABI)
-    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::genAlignStackBeforeCall()
+#ifdef UNIX_X86_ABI
+    // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::AlignStackBeforeCall
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
     AddStackLevel(0xC);
     AddNestedAlignment(0xC);
-#endif // UNIX_X86_ABI
+#endif
 
     if (compiler->compProfilerMethHndIndirected)
     {
