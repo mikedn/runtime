@@ -15368,17 +15368,10 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         }
     }
 
-    // Need to update call info too.
-    //
-    *method      = derivedMethod;
-    *methodFlags = derivedMethodAttribs;
-
-    // Update context handle
-    //
+    *method         = derivedMethod;
+    *methodFlags    = derivedMethodAttribs;
     *pContextHandle = MAKE_METHODCONTEXT(derivedMethod);
 
-    // Update exact context handle.
-    //
     if (pExactContextHandle != nullptr)
     {
         *pExactContextHandle = MAKE_CLASSCONTEXT(derivedClass);
@@ -15389,14 +15382,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     {
         // For R2R, getCallInfo triggers bookkeeping on the zap
         // side and acquires the actual symbol to call so we need to call it here.
-
-        // Look up the new call info.
         CORINFO_CALL_INFO derivedCallInfo;
         eeGetCallInfo(pDerivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
 
-#ifdef TARGET_ARMARCH
-        call->gtCallMoreFlags &= ~GTF_CALL_M_R2R_REL_INDIRECT;
-#endif
         call->SetR2REntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER

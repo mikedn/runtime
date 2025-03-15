@@ -3759,7 +3759,7 @@ enum GenTreeCallFlags : unsigned
                                                      // know when these flags are set.
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    GTF_CALL_M_R2R_REL_INDIRECT        = 0x00002000, // ready to run call is indirected through a relative address
+    GTF_CALL_M_HAS_R2R_ENTRYPOINT      = 0x00002000,
 #endif
     GTF_CALL_M_DOES_NOT_RETURN         = 0x00004000, // call does not return
     GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00008000, // call is in wrapper delegate
@@ -4336,9 +4336,14 @@ public:
 
 #ifdef FEATURE_READYTORUN_COMPILER
 #ifdef TARGET_ARMARCH
+    bool HasR2REntryPoint() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_HAS_R2R_ENTRYPOINT) != 0;
+    }
+
     bool IsR2RRelativeIndir() const
     {
-        return (gtCallMoreFlags & GTF_CALL_M_R2R_REL_INDIRECT) != 0;
+        return HasR2REntryPoint() && (m_entryPointAccessType == IAT_PVALUE);
     }
 #endif
 
@@ -4346,12 +4351,8 @@ public:
     {
         m_entryPointAddr       = entryPoint.addr;
         m_entryPointAccessType = entryPoint.accessType;
-
 #ifdef TARGET_ARMARCH
-        if (entryPoint.accessType == IAT_PVALUE)
-        {
-            gtCallMoreFlags |= GTF_CALL_M_R2R_REL_INDIRECT;
-        }
+        gtCallMoreFlags |= GTF_CALL_M_HAS_R2R_ENTRYPOINT;
 #endif
     }
 #endif // FEATURE_READYTORUN_COMPILER

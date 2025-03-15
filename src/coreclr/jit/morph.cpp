@@ -6089,8 +6089,6 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         call->ResetArgInfo();
 #endif
         call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
-        call->m_entryPointAddr       = nullptr;
-        call->m_entryPointAccessType = IAT_VALUE;
     }
 
     if (call->HasRetBufArg())
@@ -6151,6 +6149,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
+    call->m_entryPointAddr       = nullptr;
+    call->m_entryPointAccessType = IAT_VALUE;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
     call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_WRAPPER_DELEGATE_INV);
     call->SetType(TYP_VOID);
