@@ -6662,10 +6662,14 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             call->gtFlags |= GTF_CALL_DELEGATE_INV;
 
+#ifdef TARGET_ARM
             if (callInfo->wrapperDelegateInvoke)
             {
                 call->gtCallMoreFlags |= GTF_CALL_M_WRAPPER_DELEGATE_INV;
             }
+#else
+            assert(!callInfo->wrapperDelegateInvoke);
+#endif
 
             if (opcode == CEE_CALLVIRT)
             {

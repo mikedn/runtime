@@ -3774,7 +3774,9 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_HAS_R2R_ENTRYPOINT      = 0x00002000,
 #endif
     GTF_CALL_M_DOES_NOT_RETURN         = 0x00004000, // call does not return
+#ifdef TARGET_ARM
     GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00008000, // call is in wrapper delegate
+#endif
     GTF_CALL_M_FAT_POINTER_CHECK       = 0x00010000, // CoreRT managed calli needs transformation, that checks
                                                      // special bit in calli address. If it is set, then it is necessary
                                                      // to restore real function address and load hidden argument
@@ -4200,6 +4202,13 @@ public:
     {
         return (gtFlags & GTF_CALL_VIRT_KIND_MASK) == GTF_CALL_VIRT_VTABLE;
     }
+
+#ifdef TARGET_ARM
+    bool IsWrapperDelegateInvoke() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV) != 0;
+    }
+#endif
 
     bool IsInlineCandidate() const
     {

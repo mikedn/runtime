@@ -1554,7 +1554,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #endif
 
 #ifdef TARGET_ARM
-    if ((call->gtCallMoreFlags & GTF_CALL_M_WRAPPER_DELEGATE_INV) != 0)
+    if (call->IsWrapperDelegateInvoke())
     {
         // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
         // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
@@ -1592,7 +1592,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifndef TARGET_X86
         if (call->IsVirtualStubIndirect())
     {
-        GenTree* stubAddrArg = gtCloneComplex(call->GetCallAddr());
+        GenTree* stubAddrArg = gtCloneSimple(call->GetCallAddr());
 
         gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
 
@@ -1601,14 +1601,15 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     }
     else if (call->IsVirtualStubDirect())
     {
+        assert(call->m_entryPointAddr != nullptr);
         assert(call->m_entryPointAccessType == IAT_PVALUE);
 
-        GenTree* stubAddrArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-        stubAddrArg->AsIntCon()->SetDumpHandle(call->GetMethodHandle());
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+        cellAddress->SetDumpHandle(call->GetMethodHandle());
 
-        gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
+        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
 
-        nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
+        nonStandardArgs.Add(cellAddress, info.virtualStubParamRegNum);
         numArgs++;
     }
     else
@@ -1620,15 +1621,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // for indirection cell address, which ZapIndirectHelperThunk expects.
 
         assert(call->m_entryPointAddr != nullptr);
+        assert(call->m_entryPointAccessType == IAT_PVALUE);
 
         GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
         cellAddress->SetDumpHandle(call->GetMethodHandle());
+
+        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
         // Don't attempt to CSE this constant on ARM32.
         // This constant has specific register requirements, and LSRA doesn't
         // currently correctly handle them when the value is in a CSE'd local.
         ARM_ONLY(cellAddress->SetDoNotCSE());
-
-        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
 
         nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
         numArgs++;
@@ -6117,7 +6119,9 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
+#ifdef TARGET_ARM
     call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
+#endif
     call->SetType(TYP_VOID);
     call->SetRetSigType(TYP_VOID);
     call->SetRetLayout(nullptr);
@@ -6521,8 +6525,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     call->m_entryPointAddr       = nullptr;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV | GTF_CALL_POP_ARGS);
     // Technically this call does not return but some other code expects "no return" only on "user" calls.
-    call->gtCallMoreFlags &=
-        ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY | GTF_CALL_M_WRAPPER_DELEGATE_INV);
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY);
     call->fgArgInfo = nullptr;
 
     GenTreeCall::Use* newArgs = gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg);
