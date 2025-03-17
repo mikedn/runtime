@@ -2425,19 +2425,31 @@ struct GenTreeJmp : public GenTree
 {
 private:
     CORINFO_METHOD_HANDLE handle;
+    CORINFO_CONST_LOOKUP  entryPoint{};
 
 public:
     GenTreeJmp(CORINFO_METHOD_HANDLE handle) : GenTree(GT_JMP, TYP_VOID), handle(handle)
     {
     }
 
-    GenTreeJmp(const GenTreeJmp* copyFrom) : GenTree(GT_JMP, TYP_VOID), handle(copyFrom->handle)
+    GenTreeJmp(const GenTreeJmp* copyFrom)
+        : GenTree(GT_JMP, TYP_VOID), handle(copyFrom->handle), entryPoint(copyFrom->entryPoint)
     {
     }
 
     CORINFO_METHOD_HANDLE GetMethodHandle() const
     {
         return handle;
+    }
+
+    void SetEntryPoint(CORINFO_CONST_LOOKUP value)
+    {
+        entryPoint = value;
+    }
+
+    CORINFO_CONST_LOOKUP GetEntryPoint() const
+    {
+        return entryPoint;
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeJmp, GenTree)
@@ -4254,55 +4266,10 @@ public:
     // Note that the distinction of whether tail prefixed or an implicit tail call
     // is maintained on a call node till fgMorphCall() after which it will be
     // either a tail call (i.e. IsTailCall() is true) or a non-tail call.
-    bool IsTailPrefixedCall() const
+    bool IsExplicitTailCall() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
     }
-
-    // Returns true if this call didn't have an explicit tail. prefix in the IL
-    // but was marked as an explicit tail call because of tail call stress mode.
-    bool IsStressTailCall() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_STRESS_TAILCALL) != 0;
-    }
-
-    // This method returning "true" implies that tail call flowgraph morhphing has
-    // performed final checks and committed to making a tail call.
-    bool IsTailCall() const
-    {
-        return (gtCallMoreFlags & GTF_CALL_M_TAILCALL) != 0;
-    }
-
-    // This method returning "true" implies that importer has performed tail call checks
-    // and providing a hint that this can be converted to a tail call.
-    bool IsTailCallCandidate() const
-    {
-        return IsTailPrefixedCall() || IsImplicitTailCall();
-    }
-
-#ifdef TARGET_X86
-    // Check whether this is a tailcall dispatched via JIT helper. We only use
-    // this mechanism on x86 as it is faster than our other more general
-    // tailcall mechanism.
-    bool IsTailCallViaJitHelper() const
-    {
-        return IsHelperCall(CORINFO_HELP_TAILCALL);
-    }
-
-    bool IsFastTailCall() const
-    {
-        return false;
-    }
-#else
-    bool    IsFastTailCall() const
-    {
-#if FEATURE_FASTTAILCALL
-        return IsTailCall();
-#else
-        return false;
-#endif
-    }
-#endif
 
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.
@@ -4315,10 +4282,50 @@ public:
 #endif
     }
 
+    // Returns true if this call didn't have an explicit tail. prefix in the IL
+    // but was marked as an explicit tail call because of tail call stress mode.
+    bool IsStressTailCall() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_STRESS_TAILCALL) != 0;
+    }
+
+    // This method returning "true" implies that importer has performed tail call checks
+    // and providing a hint that this can be converted to a tail call.
+    bool IsTailCallCandidate() const
+    {
+        return IsExplicitTailCall() || IsImplicitTailCall();
+    }
+
     bool IsTailCallConvertibleToLoop() const
     {
 #if FEATURE_TAILCALL_OPT
         return (gtCallMoreFlags & GTF_CALL_M_TAILCALL_TO_LOOP) != 0;
+#else
+        return false;
+#endif
+    }
+
+    // This method returning "true" implies that tail call flowgraph morphing has
+    // performed final checks and committed to making a tail call.
+    bool IsTailCall() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_TAILCALL) != 0;
+    }
+
+#ifdef TARGET_X86
+    // Check whether this is a tailcall dispatched via JIT helper. We only use
+    // this mechanism on x86 as it is faster than our other more general
+    // tailcall mechanism.
+    bool IsTailCallViaJitHelper() const
+    {
+        return IsHelperCall(CORINFO_HELP_TAILCALL);
+    }
+#endif
+
+    bool IsFastTailCall() const
+    {
+#if FEATURE_FASTTAILCALL
+        return IsTailCall();
 #else
         return false;
 #endif

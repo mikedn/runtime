@@ -2604,19 +2604,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-    GenTree* lastNode  = block->lastNode();
-
-    // Method handle and address info used in case of jump epilog
-    CORINFO_METHOD_HANDLE methHnd = nullptr;
-    CORINFO_CONST_LOOKUP  addrInfo;
-    addrInfo.addr       = nullptr;
-    addrInfo.accessType = IAT_VALUE;
-
-    if (jmpEpilog && lastNode->IsJmp())
-    {
-        methHnd = lastNode->AsJmp()->GetMethodHandle();
-        compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
-    }
+    GenTree* lastNode  = block->GetLastLIRNode();
 
     // We delay starting the unwind codes until we have an instruction which we know
     // needs an unwind code. In particular, for large stack frames in methods without
@@ -2658,28 +2646,31 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         unwindStarted = true;
     }
 
-    if (jmpEpilog && lastNode->OperIs(GT_JMP) && (addrInfo.accessType == IAT_RELPVALUE))
+    if (GenTreeJmp* jmp = lastNode->IsJmp())
     {
-        // IAT_RELPVALUE jump at the end is done using relative indirection, so,
-        // additional helper register is required.
-        // We use LR just before it is going to be restored from stack, i.e.
-        //
-        //     movw r12, laddr
-        //     movt r12, haddr
-        //     mov lr, r12
-        //     ldr r12, [r12]
-        //     add r12, r12, lr
-        //     pop {lr}
-        //     ...
-        //     bx r12
+        if (jmp->GetEntryPoint().accessType == IAT_RELPVALUE)
+        {
+            // IAT_RELPVALUE jump at the end is done using relative indirection, so,
+            // additional helper register is required.
+            // We use LR just before it is going to be restored from stack, i.e.
+            //
+            //     movw r12, laddr
+            //     movt r12, haddr
+            //     mov lr, r12
+            //     ldr r12, [r12]
+            //     add r12, r12, lr
+            //     pop {lr}
+            //     ...
+            //     bx r12
 
-        regNumber indCallReg = REG_R12;
-        regNumber vptrReg1   = REG_LR;
+            RegNum indCallReg = REG_R12;
+            RegNum vptrReg1   = REG_LR;
 
-        instGen_Set_Reg_To_Addr(indCallReg, addrInfo.addr);
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, vptrReg1, indCallReg, /* canSkip */ false);
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, indCallReg, indCallReg, 0);
-        GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, indCallReg, vptrReg1);
+            instGen_Set_Reg_To_Addr(indCallReg, jmp->GetEntryPoint().addr);
+            GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, vptrReg1, indCallReg, /* canSkip */ false);
+            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, indCallReg, indCallReg, 0);
+            GetEmitter()->emitIns_R_R(INS_add, EA_4BYTE, indCallReg, vptrReg1);
+        }
     }
 
     genPopCalleeSavedRegisters(jmpEpilog);
@@ -2697,11 +2688,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     {
         // We better not have used a pop PC to return otherwise this will be unreachable code
         noway_assert(!genUsedPopToReturn);
-    }
 
-    if (jmpEpilog)
-    {
-        GenJmpEpilog(block, methHnd, addrInfo);
+        GenJmpEpilog(block);
     }
     else if (!genUsedPopToReturn)
     {

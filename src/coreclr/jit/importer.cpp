@@ -11755,7 +11755,6 @@ void Importer::ImportJmp(const BYTE* codeAddr, BasicBlock* block)
         BADCODE("Incompatible target for CEE_JMPs");
     }
 
-    // Mark the basic block as being a JUMP instead of RETURN
     block->bbFlags |= BBF_HAS_JMP;
     // Set this flag to make sure register arguments have a location assigned
     // even if we don't use them inside the method
@@ -14423,7 +14422,7 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
 
     // Inlining candidate determination needs to honor only IL tail prefix.
     // Inlining takes precedence over implicit tail call optimization (if the call is not directly recursive).
-    if (call->IsTailPrefixedCall())
+    if (call->IsExplicitTailCall())
     {
         inlineResult.NoteFatal(InlineObservation::CALLSITE_EXPLICIT_TAIL_PREFIX);
         return;

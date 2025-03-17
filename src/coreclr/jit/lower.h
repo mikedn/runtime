@@ -92,7 +92,7 @@ private:
 #ifdef TARGET_XARCH
     GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
 #endif
-    void LowerJmpMethod(GenTree* jmp);
+    void LowerJmpMethod(GenTreeJmp* jmp);
     void LowerReturn(GenTreeUnOp* ret);
     void LowerLclLoad(GenTreeLclLoad* load);
     void LowerLclStore(GenTreeLclStore* store);
@@ -119,9 +119,9 @@ private:
                                     GenTree*   rangeStart,
                                     GenTree*   rangeEnd);
     void InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCall* call));
-    GenTree* LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    GenTree* LowerVirtualVtableCall(GenTreeCall* call);
     GenTree* LowerIndirectVirtualStubCall(GenTreeCall* call);
-    GenTree* LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore = nullptr));
+    GenTree* LowerVirtualStubCall(GenTreeCall* call);
     void LowerCallArgs(GenTreeCall* call);
     GenTree* InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);

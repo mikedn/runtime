@@ -9681,19 +9681,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
     bool     jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-    GenTree* lastNode  = block->lastNode();
-
-    // Method handle and address info used in case of jump epilog
-    CORINFO_METHOD_HANDLE methHnd = nullptr;
-    CORINFO_CONST_LOOKUP  addrInfo;
-    addrInfo.addr       = nullptr;
-    addrInfo.accessType = IAT_VALUE;
-
-    if (jmpEpilog && lastNode->IsJmp())
-    {
-        methHnd = lastNode->AsJmp()->GetMethodHandle();
-        compiler->info.compCompHnd->getFunctionEntryPoint(methHnd, &addrInfo);
-    }
+    GenTree* lastNode  = block->GetLastLIRNode();
 
     unwindBegEpilog();
 
@@ -9701,7 +9689,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     if (jmpEpilog)
     {
-        GenJmpEpilog(block, methHnd, addrInfo);
+        GenJmpEpilog(block);
     }
     else
     {

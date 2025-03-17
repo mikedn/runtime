@@ -39,7 +39,7 @@ void Lowering::Run()
     // If we have any PInvoke calls, insert the one-time prolog code. We'll inserted the epilog code in the
     // appropriate spots later. NOTE: there is a minor optimization opportunity here, as we still create p/invoke
     // data structures and setup/teardown even if we've eliminated all p/invoke calls due to dead code elimination.
-    if (comp->compMethodRequiresPInvokeFrame())
+    if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodProlog();
     }
@@ -64,7 +64,7 @@ void Lowering::Run()
         LowerBlock(block);
     }
 
-    if (comp->fgHasEH() || comp->compMethodRequiresPInvokeFrame() || comp->compIsProfilerHookNeeded() ||
+    if (comp->fgHasEH() || comp->info.IsPInvokeFrameRequired() || comp->compIsProfilerHookNeeded() ||
         comp->compLocallocUsed
 #ifdef TARGET_X86
         || comp->compTailCallUsed
@@ -393,7 +393,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerJTrue(node->AsUnOp());
 
         case GT_JMP:
-            LowerJmpMethod(node);
+            LowerJmpMethod(node->AsJmp());
             break;
 
         case GT_RETURN:
@@ -1542,7 +1542,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
     // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
     // a method returns.  This is a case of caller method has both PInvokes and tail calls.
-    if (comp->compMethodRequiresPInvokeFrame())
+    if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodEpilog(INDEBUG(call));
     }
@@ -1995,21 +1995,18 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 }
 #endif // !TARGET_64BIT
 
-// Lower "jmp <method>" tail call to insert PInvoke method epilog if required.
-void Lowering::LowerJmpMethod(GenTree* jmp)
+void Lowering::LowerJmpMethod(GenTreeJmp* jmp)
 {
-    assert(jmp->OperIs(GT_JMP));
-
-    JITDUMP("lowering GT_JMP\n");
-    DISPNODE(jmp);
-    JITDUMP("============");
-
-    // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
-    // a method returns.
-    if (comp->compMethodRequiresPInvokeFrame())
+    // If PInvokes are inlined, we have to remember to execute PInvoke method
+    // epilog anywhere that a method returns.
+    if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodEpilog(INDEBUG(jmp));
     }
+
+    CORINFO_CONST_LOOKUP entryPoint;
+    comp->info.compCompHnd->getFunctionEntryPoint(jmp->GetMethodHandle(), &entryPoint);
+    jmp->SetEntryPoint(entryPoint);
 }
 
 void Lowering::LowerReturn(GenTreeUnOp* ret)
@@ -2024,7 +2021,7 @@ void Lowering::LowerReturn(GenTreeUnOp* ret)
     }
 
     // Method doing PInvokes has exactly one return block unless it has tail calls.
-    if (comp->compMethodRequiresPInvokeFrame() && (m_block == comp->genReturnBB))
+    if (comp->info.IsPInvokeFrameRequired() && (m_block == comp->genReturnBB))
     {
         InsertPInvokeMethodEpilog(INDEBUG(ret));
     }
@@ -2619,14 +2616,14 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 
     const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
 
-    GenTree*        targetThisAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateInstance);
+    GenTree*        targetThisAddr = comp->gtNewAddrMode(delegateThis, eeInfo->offsetOfDelegateInstance);
     GenTreeIndLoad* targetThis     = comp->gtNewIndLoad(TYP_REF, targetThisAddr);
     BlockRange().InsertAfter(delegateThis, targetThisAddr, targetThis);
     thisArgNode->AsUnOp()->SetOp(0, targetThis);
     ContainCheckIndir(targetThis);
 
     delegateThis                = comp->gtNewLclLoad(lcl, TYP_REF);
-    GenTreeAddrMode* targetAddr = new (comp, GT_LEA) GenTreeAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
+    GenTreeAddrMode* targetAddr = comp->gtNewAddrMode(delegateThis, eeInfo->offsetOfDelegateFirstTarget);
     GenTreeIndLoad*  target     = comp->gtNewIndLoad(TYP_I_IMPL, targetAddr);
     BlockRange().InsertBefore(call, delegateThis, targetAddr, target);
     ContainCheckIndir(target);
@@ -2634,7 +2631,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     return target;
 }
 
-GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
 {
     assert(call->IsUserCall());
     assert(!call->IsExpandedEarly() && (call->GetCallAddr() == nullptr));
@@ -2674,15 +2671,9 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
         thisUse = comp->gtNewLclLoad(vtableCallTempLcl, thisPtr->GetType());
     }
 
-#ifndef TARGET_X86
-    GenTree* insertBefore = call;
-#else
-    insertBefore               = insertBefore == nullptr ? call : insertBefore;
-#endif
-
-    GenTree* mtAddr = new (comp, GT_LEA) GenTreeAddrMode(thisUse, VPTR_OFFS);
+    GenTree* mtAddr = comp->gtNewAddrMode(thisUse, VPTR_OFFS);
     GenTree* mt     = comp->gtNewIndLoad(TYP_I_IMPL, mtAddr);
-    BlockRange().InsertBefore(insertBefore, thisUse, mtAddr, mt);
+    BlockRange().InsertBefore(call, thisUse, mtAddr, mt);
     ContainCheckIndir(mt->AsIndLoad());
 
     // TODO-MIKE-Cleanup: This is dead code.
@@ -2692,29 +2683,29 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
 
         LclVarDsc*       mtTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call MT"));
         GenTreeLclStore* mtTempStore = comp->gtNewLclStore(mtTempLcl, TYP_I_IMPL, mt);
-        BlockRange().InsertBefore(insertBefore, mtTempStore);
+        BlockRange().InsertBefore(call, mtTempStore);
 
         GenTree* mtTempUse1    = comp->gtNewLclLoad(mtTempLcl, TYP_I_IMPL);
-        GenTree* chunkOffsAddr = new (comp, GT_LEA) GenTreeAddrMode(mtTempUse1, vtabOffsOfIndirection);
+        GenTree* chunkOffsAddr = comp->gtNewAddrMode(mtTempUse1, vtabOffsOfIndirection);
         GenTree* chunkOffs     = comp->gtNewIndLoad(TYP_I_IMPL, chunkOffsAddr);
-        BlockRange().InsertBefore(insertBefore, mtTempUse1, chunkOffsAddr, chunkOffs);
+        BlockRange().InsertBefore(call, mtTempUse1, chunkOffsAddr, chunkOffs);
         ContainCheckIndir(chunkOffs->AsIndLoad());
 
         GenTree* mtTempUse2    = comp->gtNewLclLoad(mtTempLcl, TYP_I_IMPL);
         GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
         GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
         GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
-        BlockRange().InsertBefore(insertBefore, mtTempUse2, offs, chunkBaseAddr, slotAddr);
+        BlockRange().InsertBefore(call, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
         LclVarDsc*       slotAddrTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
         GenTreeLclStore* slotAddrTempStore = comp->gtNewLclStore(slotAddrTempLcl, TYP_I_IMPL, slotAddr);
-        BlockRange().InsertBefore(insertBefore, slotAddrTempStore);
+        BlockRange().InsertBefore(call, slotAddrTempStore);
 
         GenTree* slotAddrTempUse1 = comp->gtNewLclLoad(slotAddrTempLcl, TYP_I_IMPL);
         GenTree* codeOffs         = comp->gtNewIndLoad(TYP_I_IMPL, slotAddrTempUse1);
         GenTree* slotAddrTempUse2 = comp->gtNewLclLoad(slotAddrTempLcl, TYP_I_IMPL);
         GenTree* target           = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, codeOffs, slotAddrTempUse2);
-        BlockRange().InsertBefore(insertBefore, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
+        BlockRange().InsertBefore(call, slotAddrTempUse1, codeOffs, slotAddrTempUse2, target);
         ContainCheckIndir(codeOffs->AsIndLoad());
 
         return target;
@@ -2728,21 +2719,21 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call X86_ARG(GenTree* ins
     }
     else
     {
-        GenTree* chunkAddrAddr = new (comp, GT_LEA) GenTreeAddrMode(mt, vtabOffsOfIndirection);
+        GenTree* chunkAddrAddr = comp->gtNewAddrMode(mt, vtabOffsOfIndirection);
         chunkAddr              = comp->gtNewIndLoad(TYP_I_IMPL, chunkAddrAddr);
-        BlockRange().InsertBefore(insertBefore, chunkAddrAddr, chunkAddr);
+        BlockRange().InsertBefore(call, chunkAddrAddr, chunkAddr);
         ContainCheckIndir(chunkAddr->AsIndLoad());
     }
 
-    GenTree*        slotAddr = new (comp, GT_LEA) GenTreeAddrMode(chunkAddr, vtabOffsAfterIndirection);
+    GenTree*        slotAddr = comp->gtNewAddrMode(chunkAddr, vtabOffsAfterIndirection);
     GenTreeIndLoad* target   = comp->gtNewIndLoad(TYP_I_IMPL, slotAddr);
-    BlockRange().InsertBefore(insertBefore, slotAddr, target);
+    BlockRange().InsertBefore(call, slotAddr, target);
     ContainCheckIndir(target);
 
     return target;
 }
 
-GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* insertBefore))
+GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
 {
     assert(call->IsVirtualStubDirect() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
@@ -2776,17 +2767,11 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call X86_ARG(GenTree* inser
     }
 #endif
 
-// TODO-Cleanup: start emitting random NOPS
-
-#ifndef TARGET_X86
-    GenTree* insertBefore = call;
-#else
-    insertBefore               = insertBefore == nullptr ? call : insertBefore;
-#endif
+    // TODO-Cleanup: start emitting random NOPS
 
     GenTreeIntCon*  addr   = comp->gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
     GenTreeIndLoad* target = comp->gtNewIndLoad(TYP_I_IMPL, addr);
-    BlockRange().InsertBefore(insertBefore, addr, target);
+    BlockRange().InsertBefore(call, addr, target);
     ContainCheckIndir(target);
 
     return target;
@@ -2861,7 +2846,7 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
     LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
 
     GenTreeLclLoad*  base      = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
-    GenTreeAddrMode* addr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, base, nullptr, 1, info.offsetOfGCState);
+    GenTreeAddrMode* addr      = comp->gtNewAddrMode(base, info.offsetOfGCState);
     GenTreeIntCon*   stateNode = comp->gtNewIconNode(state);
     GenTreeIndStore* store     = comp->gtNewIndStore(TYP_BYTE, addr, stateNode);
 
@@ -2890,7 +2875,7 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     LclVarDsc* pInvokeFrameListLcl = comp->lvaGetDesc(comp->lvaPInvokeFrameListVar);
 
     GenTree* tcb  = comp->gtNewLclLoad(pInvokeFrameListLcl, TYP_I_IMPL);
-    GenTree* addr = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, tcb, nullptr, 1, info.offsetOfThreadFrame);
+    GenTree* addr = comp->gtNewAddrMode(tcb, info.offsetOfThreadFrame);
     GenTree* data = nullptr;
 
     if (action == PushFrame)

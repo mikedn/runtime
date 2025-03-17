@@ -5035,7 +5035,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 {
     // To reach here means that the return types of the caller and callee are tail call compatible.
-    assert(!call->IsTailPrefixedCall() || impTailCallRetTypeCompatible(call, false));
+    assert(!call->IsExplicitTailCall() || impTailCallRetTypeCompatible(call, false));
 
     fgInitArgInfo(call);
 
@@ -5380,11 +5380,7 @@ bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 //
 GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 {
-    // It should either be an explicit (i.e. tail prefixed) or an implicit tail call
-    assert(call->IsTailPrefixedCall() ^ call->IsImplicitTailCall());
-
-    // It cannot be an inline candidate
-    assert(!call->IsInlineCandidate());
+    assert(call->IsExplicitTailCall() ^ call->IsImplicitTailCall());
 
     auto failTailCall = [&](const char* reason, LclVarDsc* lcl = nullptr) {
 #ifdef DEBUG
@@ -5399,11 +5395,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         }
 #endif
 
-        // for non user funcs, we have no handles to report
         info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
-                                                 call->IsTailPrefixedCall(), TAILCALL_FAIL, reason);
+                                                 call->IsExplicitTailCall(), TAILCALL_FAIL, reason);
 
-        // We have checked the candidate so demote.
         call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
 #if FEATURE_TAILCALL_OPT
         call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
@@ -5418,10 +5412,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
     // Heuristic: regular calls to noreturn methods can sometimes be
     // merged, so if we have multiple such calls, we defer tail calling.
-    //
     // TODO: re-examine this; now that we're merging before morph we
     // don't need to worry about interfering with merges.
-    //
     if (call->IsNoReturn() && (optNoReturnCallCount > 1))
     {
         failTailCall("Defer tail calling throw helper; anticipating merge");
@@ -5448,7 +5440,8 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         noway_assert(call->TypeIs(TYP_VOID));
 
         GenTree* retValBuf = call->gtCallArgs->GetNode();
-        if (!retValBuf->OperIs(GT_LCL_LOAD) || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
+
+        if (!retValBuf->IsLclLoad() || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
         {
             failTailCall("Need to copy return buffer");
             return nullptr;
@@ -5476,6 +5469,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // method to set lvHasLdAddrOp and lvAddrExposed flags.
 
     bool isImplicitOrStressTailCall = call->IsImplicitTailCall() || call->IsStressTailCall();
+
     if (isImplicitOrStressTailCall && compLocallocUsed)
     {
         failTailCall("Localloc used");
@@ -5483,6 +5477,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     }
 
     bool hasStructParam = false;
+
     for (LclVarDsc* lcl : Locals())
     {
         if (lcl->IsPromotedField() && lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
@@ -5530,10 +5525,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
         if (varTypeIsStruct(lcl->GetType()) && lcl->IsParam())
         {
-            hasStructParam = true;
             // This prevents transforming a recursive tail call into a loop
             // but doesn't prevent tail call optimization so we need to
             // look at the rest of parameters.
+            hasStructParam = true;
         }
     }
 
@@ -5555,6 +5550,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 #ifdef TARGET_X86
     bool tailCallViaJitHelper = false;
 #endif
+    bool fastTailCallToLoop = false;
 
     if (!canFastTailCall)
     {
@@ -5568,7 +5564,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
         TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
 
-        assert(call->IsTailPrefixedCall());
+        assert(call->IsExplicitTailCall());
         assert(tailCallInfo != nullptr);
 
         // We do not currently handle non-standard args except for VSD stubs.
@@ -5615,28 +5611,27 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             }
         }
     }
-
-    // Check if we can make the tailcall a loop.
-    bool fastTailCallToLoop = false;
-#if FEATURE_TAILCALL_OPT
-    // TODO-CQ: enable the transformation when the method has a struct parameter that can be passed in a register
-    // or return type is a struct that can be passed in a register.
-    //
-    // TODO-CQ: if the method being compiled requires generic context reported in gc-info (either through
-    // hidden generic context param or through keep alive thisptr), then while transforming a recursive
-    // call to such a method requires that the generic context stored on stack slot be updated.  Right now,
-    // fgMorphRecursiveFastTailCallIntoLoop() is not handling update of generic context while transforming
-    // a recursive call into a loop.  Another option is to modify gtIsRecursiveCall() to check that the
-    // generic type parameters of both caller and callee generic method are the same.
-    if (opts.compTailCallLoopOpt && canFastTailCall && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
-        !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam && !varTypeIsStruct(call->GetType()))
+    else
     {
-        fastTailCallToLoop = true;
-    }
+#if FEATURE_TAILCALL_OPT
+        // TODO-CQ: enable the transformation when the method has a struct parameter that can be passed in a register
+        // or return type is a struct that can be passed in a register.
+        //
+        // TODO-CQ: if the method being compiled requires generic context reported in gc-info (either through
+        // hidden generic context param or through keep alive thisptr), then while transforming a recursive
+        // call to such a method requires that the generic context stored on stack slot be updated.  Right now,
+        // fgMorphRecursiveFastTailCallIntoLoop() is not handling update of generic context while transforming
+        // a recursive call into a loop.  Another option is to modify gtIsRecursiveCall() to check that the
+        // generic type parameters of both caller and callee generic method are the same.
+        fastTailCallToLoop = opts.compTailCallLoopOpt && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
+                             !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam &&
+                             !varTypeIsStruct(call->GetType());
 #endif
+    }
 
-    // Ok -- now we are committed to performing a tailcall. Report the decision.
+    // We are now committed to performing a tailcall. Report the decision.
     CorInfoTailCall tailCallResult;
+
     if (fastTailCallToLoop)
     {
         tailCallResult = TAILCALL_RECURSIVE;
@@ -5651,46 +5646,27 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     }
 
     info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
-                                             call->IsTailPrefixedCall(), tailCallResult, nullptr);
+                                             call->IsExplicitTailCall(), tailCallResult, nullptr);
 
-    // Are we currently planning to expand the gtControlExpr as an early virtual call target?
-    //
     if (call->IsExpandedEarly() && call->IsVirtualVtable())
     {
-        // It isn't alway profitable to expand a virtual call early
-        //
-        // We alway expand the TAILCALL_HELPER type late.
-        // And we exapnd late when we have an optimized tail call
-        // and the this pointer needs to be evaluated into a temp.
-        //
         if (tailCallResult == TAILCALL_HELPER)
         {
-            // We will alway expand this late in lower instead.
+            // We will always expand this late in lower instead.
             // (see LowerTailCallViaJitHelper as it needs some work
             // for us to be able to expand this earlier in morph)
-            //
             call->ClearExpandedEarly();
         }
         else if ((tailCallResult == TAILCALL_OPTIMIZED) &&
                  ((call->gtCallThisArg->GetNode()->gtFlags & GTF_SIDE_EFFECT) != 0))
         {
             // We generate better code when we expand this late in lower instead.
-            //
             call->ClearExpandedEarly();
         }
     }
 
     // Now actually morph the call.
     compTailCallUsed = true;
-    // This will prevent inlining this call.
-    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
-
-#if FEATURE_TAILCALL_OPT
-    if (fastTailCallToLoop)
-    {
-        call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_TO_LOOP;
-    }
-#endif
 
     // Mark that this is no longer a pending tailcall. We need to do this before
     // we call fgMorphCall again (which happens in the fast tailcall case) to
@@ -5700,12 +5676,13 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
 #endif
 
-    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
-
+#if FEATURE_TAILCALL_OPT
     if (fastTailCallToLoop)
     {
+        call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_TO_LOOP;
         JITDUMP("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call [%06u]\n", call->GetID());
     }
+#endif
 
     // If this block has a flow successor, make suitable updates.
     BasicBlock*       callBlock = fgMorphBlock;
@@ -5718,30 +5695,24 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     else
     {
         // Flow no longer reaches nextBlock from here.
-        //
         fgRemoveRefPred(nextBlock, callBlock);
 
         // Adjust profile weights.
-        //
         // Note if this is a tail call to loop, further updates
         // are needed once we install the loop edge.
-        //
         if (callBlock->hasProfileWeight() && nextBlock->hasProfileWeight())
         {
             // Since we have linear flow we can update the next block weight.
-            //
             BasicBlock::weight_t const blockWeight   = callBlock->bbWeight;
             BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
             BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
 
             // If the math would result in a negative weight then there's
             // no local repair we can do; just leave things inconsistent.
-            //
             if (newNextWeight >= 0)
             {
                 // Note if we'd already morphed the IR in nextblock we might
                 // have done something profile sensitive that we should arguably reconsider.
-                //
                 JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n", nextBlock->bbNum,
                         nextWeight, newNextWeight);
 
@@ -5796,14 +5767,11 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 
                 if (nextNextBlock->hasProfileWeight())
                 {
-                    // Do similar updates here.
-                    //
                     BasicBlock::weight_t const nextNextWeight    = nextNextBlock->bbWeight;
                     BasicBlock::weight_t const newNextNextWeight = nextNextWeight - blockWeight;
 
                     // If the math would result in an negative weight then there's
                     // no local repair we can do; just leave things inconsistent.
-                    //
                     if (newNextNextWeight >= 0)
                     {
                         JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n",
@@ -5884,10 +5852,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         return fgMorphTailCallViaHelpers(call, tailCallHelpers, stmt);
     }
 
-    // Otherwise we will transform into something that does not return. For
-    // fast tailcalls a "jump" and for tailcall via JIT helper a call to a
-    // JIT helper that does not return. So peel off everything after the
-    // call.
+    // Otherwise we will transform into something that does not return. For fast tailcalls
+    // a "jump" and for tailcall via JIT helper a call to a JIT helper that does not return.
+    // So peel off everything after the call.
     Statement* nextMorphStmt = stmt->GetNextStmt();
     JITDUMP("Remove all stmts after the call.\n");
     while (nextMorphStmt != nullptr)
@@ -5914,6 +5881,9 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     call->SetRetSigType(TYP_VOID);
     call->SetRetLayout(nullptr);
     call->GetRetDesc()->Reset();
+    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
+
+    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
 
 #ifdef TARGET_X86
     static_assert_no_msg(!canFastTailCall);
@@ -6004,12 +5974,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         // Return a zero con node to exit morphing of the old trees without asserts
         // and forbid POST_ORDER morphing doing something wrong with our call.
 
-        if (varTypeIsStruct(retType))
-        {
-            retType = TYP_INT;
-        }
-
-        return fgMorphTree(gtNewZeroConNode(retType));
+        return fgMorphTree(gtNewZeroConNode(varTypeIsStruct(retType) ? TYP_INT : retType));
     }
 
     return call;
@@ -6152,7 +6117,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_TAILCALL | GTF_CALL_M_WRAPPER_DELEGATE_INV);
+    call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
     call->SetType(TYP_VOID);
     call->SetRetSigType(TYP_VOID);
     call->SetRetLayout(nullptr);

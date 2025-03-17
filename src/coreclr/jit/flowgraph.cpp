@@ -1384,7 +1384,7 @@ void Compiler::fgAddInternal()
 
     // The backend requires a scratch BB into which it can safely insert a P/Invoke method prolog if one is
     // required. Similarly, we need a scratch BB for poisoning. Create it here.
-    if (compMethodRequiresPInvokeFrame() || compShouldPoisonFrame())
+    if (info.IsPInvokeFrameRequired() || compShouldPoisonFrame())
     {
         fgEnsureFirstBBisScratch();
         fgFirstBB->bbFlags |= BBF_DONT_REMOVE;
@@ -1461,7 +1461,7 @@ void Compiler::fgAddInternal()
     //   or for synchronized methods.
     //
     BasicBlock* lastBlockBeforeGenReturns = fgLastBB;
-    if (compIsProfilerHookNeeded() || compMethodRequiresPInvokeFrame() || opts.IsReversePInvoke() ||
+    if (compIsProfilerHookNeeded() || info.IsPInvokeFrameRequired() || opts.IsReversePInvoke() ||
         ((info.compFlags & CORINFO_FLG_SYNCH) != 0))
     {
         // We will generate only one return block
@@ -1509,7 +1509,7 @@ void Compiler::fgAddInternal()
 
     merger.PlaceReturns();
 
-    if (compMethodRequiresPInvokeFrame())
+    if (info.IsPInvokeFrameRequired())
     {
         // The P/Invoke helpers only require a frame variable, so only allocate the
         // TCB variable if we're not using them.

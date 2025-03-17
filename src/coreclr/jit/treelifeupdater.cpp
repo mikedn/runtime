@@ -1014,7 +1014,7 @@ void CodeGenLivenessUpdater::VerifyLiveGCRegs(BasicBlock* block)
     regMaskTP nonLclGCRegs = gcRegs & ~lclRegs;
 
     // Remove return registers.
-    if ((block->lastNode() != nullptr) && block->lastNode()->OperIs(GT_RETURN))
+    if ((block->GetLastLIRNode() != nullptr) && block->GetLastLIRNode()->OperIs(GT_RETURN))
     {
         const ReturnTypeDesc& retDesc = compiler->info.retDesc;
 

@@ -3480,7 +3480,7 @@ void CodeGen::genFinalizeFrame()
     }
 #endif
 
-    if (compiler->compMethodRequiresPInvokeFrame())
+    if (compiler->info.IsPInvokeFrameRequired())
     {
         noway_assert(isFramePointerUsed());
 
@@ -3636,7 +3636,7 @@ regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
     // TODO-MIKE-Cleanup: This is bogus, the P/Invoke frame helper call is
     // in the first block, not in prolog. Removing this causes some diffs
     // but no CQ improvements (e.g. prolog just uses ebx instead of esi).
-    if (compiler->compMethodRequiresPInvokeFrame())
+    if (compiler->info.IsPInvokeFrameRequired())
     {
         excludeRegs |= RBM_PINVOKE_FRAME;
 

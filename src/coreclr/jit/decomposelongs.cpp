@@ -505,7 +505,7 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
 
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
     GenTree* addrBaseHigh = m_compiler->gtNewLclLoad(addrBase->GetLcl(), addrBase->GetType());
-    GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
+    GenTree* addrHigh     = m_compiler->gtNewAddrMode(addrBaseHigh, 4);
     GenTree* storeIndHigh = m_compiler->gtNewIndStore(TYP_INT, addrHigh, dataHigh);
     storeIndHigh->gtFlags = (storeIndLow->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
 
@@ -531,7 +531,7 @@ GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
     GenTree* addrBaseHigh = m_compiler->gtNewLclLoad(addrBase->GetLcl(), addrBase->GetType());
-    GenTree* addrHigh     = new (m_compiler, GT_LEA) GenTreeAddrMode(addrBase->GetType(), addrBaseHigh, nullptr, 0, 4);
+    GenTree* addrHigh     = m_compiler->gtNewAddrMode(addrBaseHigh, 4);
     GenTree* indHigh      = m_compiler->gtNewIndLoad(TYP_INT, addrHigh);
     indHigh->gtFlags |= (indLow->gtFlags & (GTF_GLOB_REF | GTF_EXCEPT | GTF_SPECIFIC_MASK));
 

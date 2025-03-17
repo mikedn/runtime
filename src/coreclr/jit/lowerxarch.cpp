@@ -610,7 +610,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
     GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
 
-    if (comp->compMethodRequiresPInvokeFrame())
+    if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodEpilog(INDEBUG(call));
     }

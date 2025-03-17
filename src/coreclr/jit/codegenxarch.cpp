@@ -405,12 +405,13 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
 void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
 {
     // The last statement of the block must be a GT_RETFILT, which has already been generated.
-    assert(block->lastNode() != nullptr);
-    assert(block->lastNode()->OperIs(GT_RETFILT));
+    GenTree* lastNode = block->GetLastLIRNode();
 
-    if (block->bbJumpKind == BBJ_EHFINALLYRET)
+    assert((lastNode != nullptr) && lastNode->OperIs(GT_RETFILT));
+
+    if (block->KindIs(BBJ_EHFINALLYRET))
     {
-        assert(block->lastNode()->AsOp()->gtOp1 == nullptr); // op1 == nullptr means endfinally
+        assert(lastNode->AsOp()->gtOp1 == nullptr); // op1 == nullptr means endfinally
         noway_assert(isFramePointerUsed());
 
         // Return using a pop-jmp sequence. As the "try" block calls
@@ -422,7 +423,7 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
     }
     else
     {
-        assert(block->bbJumpKind == BBJ_EHFILTERRET);
+        assert(block->KindIs(BBJ_EHFILTERRET));
 
         GetEmitter()->emitIns(INS_ret);
     }
@@ -4158,9 +4159,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         assert(!call->IsHelperCall());
 
-        // If this is indirect then we go through RAX with epilog sequence
-        // generating "jmp rax". Otherwise epilog will try to generate a
-        // rip-relative jump.
         if (target != nullptr)
         {
             RegNum targetReg = UseReg(target);
@@ -4587,7 +4585,7 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
 #ifdef TARGET_X86
             type = TYP_INT;
 #else
-            type = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
+            type          = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
 #endif
         }
 
@@ -4658,25 +4656,15 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
 
 void CodeGen::GenJmpEpilog(BasicBlock* block)
 {
-    noway_assert(block->bbJumpKind == BBJ_RETURN);
+    noway_assert(block->KindIs(BBJ_RETURN));
     noway_assert(block->GetFirstLIRNode());
 
-    GenTree* jmpNode = block->lastNode();
+    GenTree* lastNode = block->GetLastLIRNode();
 
-#if !FEATURE_FASTTAILCALL
-    GenTreeJmp* jmp = jmpNode->IsJmp();
-    noway_assert(jmp != nullptr);
-#else
-    // If jmpNode is GT_JMP then gtNext must be null.
-    // If jmpNode is a fast tail call, gtNext need not be null since it could have embedded stmts.
-    noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
-    // Could either be a "jmp method" or "fast tail call" implemented as epilog+jmp
-    noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
-
-    // The next block is associated with this "if" stmt
-    if (GenTreeJmp* jmp = jmpNode->IsJmp())
-#endif
+    if (GenTreeJmp* jmp = lastNode->IsJmp())
     {
+        noway_assert(jmp->gtNext == nullptr);
+
         CORINFO_CONST_LOOKUP addrInfo;
         compiler->info.compCompHnd->getFunctionEntryPoint(jmp->GetMethodHandle(), &addrInfo);
 
@@ -4716,13 +4704,14 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             jmp->GetMethodHandle());
         // clang-format on
     }
-#if FEATURE_FASTTAILCALL
     else
     {
-#ifdef TARGET_AMD64
-        // Fast tail call.
-        GenTreeCall* call = jmpNode->AsCall();
+#ifndef TARGET_AMD64
+        unreached();
+#else
+        GenTreeCall* call = lastNode->AsCall();
 
+        noway_assert(call->IsFastTailCall());
         assert(!call->IsHelperCall());
 
         // Calls to a user func can be dispatched as an RIP-relative jump when they are
@@ -4751,18 +4740,10 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         }
         else
         {
-            // Target requires indirection to obtain. GenCall will have materialized
-            // it into RAX already, so just jump to it. The stack walker requires that a register
-            // indirect tail call be rex.w prefixed.
             GetEmitter()->emitIns_R(INS_rex_jmp, EA_PTRSIZE, REG_RAX);
         }
-
-#else
-        assert(!"Fast tail call as epilog+jmp");
-        unreached();
 #endif // TARGET_AMD64
     }
-#endif // FEATURE_FASTTAILCALL
 }
 
 void CodeGen::GenLea(GenTreeAddrMode* lea)
@@ -8105,8 +8086,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     ScopedSetVariable<bool> _setGeneratingEpilog(&generatingEpilog, true);
 
-    bool jmpEpilog = ((block->bbFlags & BBF_HAS_JMP) != 0);
-
     // Restore float registers that were saved to stack before SP is modified.
     genRestoreCalleeSavedFltRegs(lclFrameSize);
 
@@ -8123,8 +8102,6 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     // we will need to rethink this.
     GetEmitter()->MarkGCEpilogStart();
 #endif
-
-    /* Compute the size in bytes we've pushed/popped */
 
     bool removeEbpFrame = IsFramePointerRequired();
 
@@ -8324,7 +8301,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     GetEmitter()->MarkGCEpilogExit();
 #endif
 
-    if (jmpEpilog)
+    if ((block->bbFlags & BBF_HAS_JMP) != 0)
     {
         GenJmpEpilog(block);
 

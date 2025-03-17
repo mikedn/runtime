@@ -1115,6 +1115,11 @@ struct CompiledMethodInfo
         return (compFlags & CORINFO_FLG_SYNCH) != 0;
     }
 
+    bool IsPInvokeFrameRequired() const
+    {
+        return compUnmanagedCallCountWithGCTransition > 0;
+    }
+
     INDEBUG(bool SkipMethod() const;)
 
     CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);
@@ -5592,12 +5597,6 @@ public:
     bool compObjectStackAllocation()
     {
         return (JitConfig.JitObjectStackAllocation() != 0);
-    }
-
-    // Returns true if the method requires a PInvoke prolog and epilog
-    bool compMethodRequiresPInvokeFrame()
-    {
-        return (info.compUnmanagedCallCountWithGCTransition > 0);
     }
 
     // Returns true if address-exposed user variables should be poisoned with a recognizable value

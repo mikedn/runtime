@@ -2059,9 +2059,9 @@ private:
         {
             // Need to reconnect the flow from `block` to `oldNext`.
 
-            if ((block->bbJumpKind == BBJ_COND) && (block->bbJumpDest == newNext))
+            if (block->KindIs(BBJ_COND) && (block->bbJumpDest == newNext))
             {
-                GenTree* test = block->lastNode();
+                GenTree* test = block->GetLastStatement()->GetRootNode();
                 noway_assert(test->OperIsConditionalJump());
 
                 if (test->OperIs(GT_JTRUE))
@@ -5797,10 +5797,10 @@ void Compiler::phRemoveRedundantZeroInits()
 
                         if (!removedExplicitZeroInit && totalOverlap && (!canThrow || !lcl->lvLiveInOutOfHndlr))
                         {
-                            // If compMethodRequiresPInvokeFrame() returns true, lower may later
+                            // If IsPInvokeFrameRequired returns true, lower may later
                             // insert a call to CORINFO_HELP_INIT_PINVOKE_FRAME which is a gc-safe point.
                             if (!lcl->HasGCPtr() ||
-                                (!codeGen->GetInterruptible() && !hasGCSafePoint && !compMethodRequiresPInvokeFrame()))
+                                (!codeGen->GetInterruptible() && !hasGCSafePoint && !info.IsPInvokeFrameRequired()))
                             {
                                 // The local hasn't been used and won't be reported to the gc between
                                 // the prolog and this explicit initialization. Therefore, it doesn't

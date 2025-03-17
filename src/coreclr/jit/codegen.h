@@ -786,13 +786,7 @@ protected:
     bool genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarrierForm, GenTree* addr, GenTree* data);
     void GenCall(GenTreeCall* call);
     void GenJmp(GenTreeJmp* jmp);
-    void GenJmpEpilog(BasicBlock* block
-#ifdef TARGET_ARMARCH
-                      ,
-                      CORINFO_METHOD_HANDLE       methHnd,
-                      const CORINFO_CONST_LOOKUP& addrInfo
-#endif
-                      );
+    void GenJmpEpilog(BasicBlock* block);
     void GenCallFinally(BasicBlock* block);
     void GenJTrue(GenTreeUnOp* jtrue, BasicBlock* block);
     void GenJCC(GenTreeCC* jcc, BasicBlock* block);

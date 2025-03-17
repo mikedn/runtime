@@ -806,6 +806,12 @@ struct BasicBlock : private LIR::Range
         m_firstNode = tree;
     }
 
+    GenTree* GetLastLIRNode() const
+    {
+        assert(IsLIR());
+        return m_lastNode;
+    }
+
     union {
         ImportSpillCliqueState* bbEntryState; // import state at the start of the block
         flowList*               bbLastPred;   // last pred list entry

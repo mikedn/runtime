@@ -541,7 +541,7 @@ void CodeGen::genCodeForBBlist()
                 // in fully-interruptible mode.
                 else
                 {
-                    GenTree* call = block->lastNode();
+                    GenTree* call = block->GetLastLIRNode();
 
                     if ((call != nullptr) && call->IsCall() && call->AsCall()->IsNoReturn())
                     {

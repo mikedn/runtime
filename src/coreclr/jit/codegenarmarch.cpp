@@ -2189,42 +2189,33 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
     GetEmitter()->EnableGC();
 }
 
-void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, const CORINFO_CONST_LOOKUP& addrInfo)
+void CodeGen::GenJmpEpilog(BasicBlock* block)
 {
-    SetHasTailCalls(true);
-
     noway_assert(block->KindIs(BBJ_RETURN));
     noway_assert(block->GetFirstLIRNode() != nullptr);
 
-    GenTree* jmpNode = block->lastNode();
-#if !FEATURE_FASTTAILCALL
-    noway_assert(jmpNode->OperIs(GT_JMP));
-#else
-    noway_assert(!jmpNode->OperIs(GT_JMP) || (jmpNode->gtNext == nullptr));
-    noway_assert(jmpNode->OperIs(GT_JMP) || (jmpNode->OperIs(GT_CALL) && jmpNode->AsCall()->IsFastTailCall()));
+    SetHasTailCalls(true);
 
-    if (jmpNode->OperIs(GT_JMP))
-#endif // FEATURE_FASTTAILCALL
+    GenTree* lastNode = block->GetLastLIRNode();
+
+    if (GenTreeJmp* jmp = lastNode->IsJmp())
     {
-        // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-        // the same descriptor with some minor adjustments.
-        assert(methHnd != nullptr);
-        assert(addrInfo.addr != nullptr);
+        noway_assert(jmp->gtNext == nullptr);
 
-#ifdef TARGET_ARMARCH
-        void*  addr    = nullptr;
-        RegNum addrReg = REG_NA;
+        CORINFO_CONST_LOOKUP entryPoint = jmp->GetEntryPoint();
+        void*                addr       = nullptr;
+        RegNum               addrReg    = REG_NA;
 
-        switch (addrInfo.accessType)
+        switch (entryPoint.accessType)
         {
             case IAT_VALUE:
 #ifdef TARGET_ARM64
-                if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+                if (Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
 #else
-                if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(addrInfo.addr), compiler))
+                if (ArmImm::IsBlImm(reinterpret_cast<ssize_t>(entryPoint.addr), compiler))
 #endif
                 {
-                    addr = addrInfo.addr;
+                    addr = entryPoint.addr;
                     break;
                 }
 
@@ -2237,12 +2228,8 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 // We have to use R12 since we assume the argument registers are in use
                 addrReg = REG_INDIRECT_CALL_TARGET_REG;
 
-                instGen_Set_Reg_To_Addr(addrReg, addrInfo.addr);
-
-                if (addrInfo.accessType == IAT_PVALUE)
-                {
-                    GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, addrReg, addrReg, 0);
-                }
+                instGen_Set_Reg_To_Addr(addrReg, entryPoint.addr);
+                GetEmitter()->emitIns_R_R_I(INS_ldr, EA_PTRSIZE, addrReg, addrReg, 0);
                 break;
 
             case IAT_RELPVALUE:
@@ -2253,13 +2240,9 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
                 addrReg = REG_R12;
                 break;
 
-            case IAT_PPVALUE:
             default:
                 unreached();
         }
-
-        // Simply emit a jump to the methodHnd. This is similar to a call so we can use
-        // the same descriptor with some minor adjustments.
 
         // clang-format off
         GetEmitter()->emitIns_Call(
@@ -2270,17 +2253,17 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             EA_UNKNOWN,
 #endif
             true,
-            methHnd);
+            jmp->GetMethodHandle());
         // clang-format on
-        CLANG_FORMAT_COMMENT_ANCHOR;
-#endif // TARGET_ARMARCH
     }
-#if FEATURE_FASTTAILCALL
     else
     {
-        // Fast tail call.
-        GenTreeCall* call = jmpNode->AsCall();
+#ifndef TARGET_ARM64
+        unreached();
+#else
+        GenTreeCall* call = lastNode->AsCall();
 
+        noway_assert(call->IsFastTailCall());
         assert(!call->IsHelperCall());
 
         // Try to dispatch this as a direct branch; this is possible when the call is
@@ -2296,23 +2279,17 @@ void CodeGen::GenJmpEpilog(BasicBlock* block, CORINFO_METHOD_HANDLE methHnd, con
             // clang-format off
             GetEmitter()->emitIns_Call(
                 REG_NA, call->m_entryPointAddr,
-#ifdef TARGET_ARM64
                 { EA_UNKNOWN, EA_UNKNOWN },
-#else
-                EA_UNKNOWN
-#endif
                 true,
                 call->GetMethodHandle());
             // clang-format on
         }
         else
         {
-            // Target requires indirection to obtain. GenCall will have materialized
-            // it into REG_FASTTAILCALL_TARGET already, so just branch to it.
             GetEmitter()->emitIns_R(INS_br, EA_PTRSIZE, REG_FASTTAILCALL_TARGET);
         }
+#endif // TARGET_ARM64
     }
-#endif // FEATURE_FASTTAILCALL
 }
 
 void CodeGen::GenOvfConv(GenTreeUnOp* conv)

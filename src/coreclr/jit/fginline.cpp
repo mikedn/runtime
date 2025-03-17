@@ -431,7 +431,7 @@ bool Compiler::inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* ca
     }
 
     // impMarkInlineCandidate is expected not to mark tail prefixed calls as inline candidates.
-    noway_assert(!call->IsTailPrefixedCall());
+    noway_assert(!call->IsExplicitTailCall());
 
     JITDUMPTREE(call, "Expanding inline candidate " FMT_TREEID " in " FMT_BB ":\n%s", call->GetID(), block->bbNum,
                 call->IsImplicitTailCall() ? "Note: candidate is implicit tail call\n" : "");
