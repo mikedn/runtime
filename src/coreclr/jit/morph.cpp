@@ -1499,32 +1499,31 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     // non-standard arguments into the argument list, below.
     class NonStandardArgs
     {
-        struct NonStandardArg
-        {
-            GenTree* node;
-            RegNum   reg;
-        };
-
-        ArrayStack<NonStandardArg> args;
+        GenTree* args[4];
+        RegNum   regs[4];
+        unsigned count = 0;
 
     public:
-        NonStandardArgs(CompAllocator alloc) : args(alloc)
+        NonStandardArgs(CompAllocator alloc)
         {
         }
 
         void Add(GenTree* node, RegNum reg)
         {
             assert((node != nullptr) && (reg != REG_NA));
-            args.Push({node, reg});
+            noway_assert(count < _countof(args));
+            args[count] = node;
+            regs[count] = reg;
+            count++;
         }
 
-        RegNum FindReg(GenTree* node)
+        RegNum FindReg(GenTree* node) const
         {
-            for (const NonStandardArg& nsa : args)
+            for (unsigned i = 0; i < count; i++)
             {
-                if (node == nsa.node)
+                if (node == args[i])
                 {
-                    return nsa.reg;
+                    return regs[i];
                 }
             }
 
@@ -1747,15 +1746,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     bool anyFloatStackArgs = false;
 
-    regMaskTP argSkippedRegMask    = RBM_NONE;
+    regMaskTP intArgSkippedRegMask = RBM_NONE;
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
 
     for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
     {
-        GenTree* const  argNode      = args->GetNode();
-        var_types const argType      = argNode->GetType();
-        RegNum const    nonStdRegNum = nonStandardArgs.FindReg(argNode);
+        GenTree* const  argNode = args->GetNode();
+        var_types const argType = argNode->GetType();
 
         // We should not have setup the arguments yet
         assert(!argNode->OperIs(GT_ARGPLACE, GT_FIELD_LIST, GT_LCL_STORE));
@@ -1803,7 +1801,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #if defined(WINDOWS_AMD64_ABI)
             size = 1;
 #elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
-            size                          = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
 #elif defined(TARGET_ARM64)
             if (hfaType != TYP_UNDEF)
             {
@@ -1848,7 +1846,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef TARGET_64BIT
             size = 1;
 #else
-            size                          = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
+            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
 #endif
         }
 
@@ -1870,13 +1868,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             {
                 if (intArgRegNum % 2 == 1)
                 {
-                    argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
+                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
                     intArgRegNum++;
                 }
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool     passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
+        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
 #elif defined(TARGET_X86)
@@ -1893,14 +1891,16 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 #ifdef OSX_ARM64_ABI
         unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
-#ifdef TARGET_X86
-        const bool isRegCandidate =
-            !isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout);
-#else
-        constexpr bool isRegCandidate     = true;
-#endif
+        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
 
-        if (isRegCandidate)
+        if (nonStdRegNum != REG_NA)
+        {
+            assert(!passUsingFloatRegs);
+            assert(size == 1);
+
+            isRegArg = nonStdRegNum != REG_STK;
+        }
+        else
         {
 #if defined(TARGET_ARM)
             if (passUsingFloatRegs)
@@ -1999,76 +1999,66 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                                (intArgRegNum + structIntRegs <= MAX_REG_ARG);
                 }
             }
+            else if (passUsingFloatRegs)
+            {
+                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
+            }
             else
             {
-                if (passUsingFloatRegs)
-                {
-                    isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-                }
-                else
-                {
-                    isRegArg = intArgRegNum < MAX_REG_ARG;
-                }
+                isRegArg = intArgRegNum < MAX_REG_ARG;
             }
 #elif defined(WINDOWS_AMD64_ABI)
             assert(size == 1);
             isRegArg = intArgRegNum < MAX_REG_ARG;
 #elif defined(TARGET_X86)
-            assert(size == 1);
-            isRegArg = intArgRegNum < maxRegArgs;
+            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
+            {
+                assert(size == 1);
+                isRegArg = intArgRegNum < maxRegArgs;
+            }
+
+            if (call->IsTailCallViaJitHelper())
+            {
+                // The last 4 args of the tail call helper are always passed on the stack.
+                assert(numArgs >= 4);
+                assert(!passUsingFloatRegs);
+
+                if (argIndex >= numArgs - 4)
+                {
+                    isRegArg = false;
+                }
+            }
 #else
 #error Unknown target
 #endif
         }
 
-        // If there are nonstandard args (outside the calling convention) they were inserted above
-        // and noted them in a table so we can recognize them here and build their argInfo.
-        // They should not affect the placement of any other args or stack space required.
-        // Example: on AMD64 R10 and R11 are used for indirect VSD (generic interface) and cookie calls.
-
-        if (nonStdRegNum != REG_NA)
+#ifdef TARGET_ARM
+        if (passUsingFloatRegs)
         {
-            isRegArg = nonStdRegNum != REG_STK;
+            // If we ever allocate a floating point argument to the stack, then
+            // all subsequent HFA/float/double arguments go on the stack.
+            if (!isRegArg)
+            {
+                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
+                {
+                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
+                }
+            }
         }
-#ifdef TARGET_X86
-        else if (call->IsTailCallViaJitHelper())
+        else
         {
-            // We have already (before calling fgSetupArgs) appended the 4 special args
-            // required by the x86 tailcall helper. These args are required to go on the
-            // stack. Force them to the stack here.
-            assert(numArgs >= 4);
-
-            if (argIndex >= numArgs - 4)
+            // If we're going to split a struct between integer registers and the stack, check to
+            // see if we've already assigned a floating-point arg to the stack.
+            if (isRegArg && (intArgRegNum + size > MAX_REG_ARG) && anyFloatStackArgs)
             {
                 isRegArg = false;
-            }
-        }
-#endif
 
-#ifdef TARGET_ARM
-        // If we ever allocate a floating point argument to the stack, then
-        // all subsequent HFA/float/double arguments go on the stack.
-        if (!isRegArg && passUsingFloatRegs)
-        {
-            for (; fltArgRegNum < MAX_FLOAT_REG_ARG; ++fltArgRegNum)
-            {
-                fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-            }
-        }
-
-        // If we think we're going to split a struct between integer registers and the stack, check to
-        // see if we've already assigned a floating-point arg to the stack.
-        if (isRegArg &&                            // We decided above to use a register for the argument
-            !passUsingFloatRegs &&                 // We're using integer registers
-            (intArgRegNum + size > MAX_REG_ARG) && // We're going to split a struct type onto registers and stack
-            anyFloatStackArgs)                     // We've already used the stack for a floating-point argument
-        {
-            isRegArg = false;
-
-            // Skip the rest of the integer argument registers
-            for (; intArgRegNum < MAX_REG_ARG; ++intArgRegNum)
-            {
-                argSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
+                // Skip the rest of the integer argument registers
+                for (; intArgRegNum < MAX_REG_ARG; intArgRegNum++)
+                {
+                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
+                }
             }
         }
 #endif // TARGET_ARM
