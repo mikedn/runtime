@@ -1085,6 +1085,11 @@ struct CompiledMethodInfo
         return retLayout;
     }
 
+    CorInfoCallConvExtension GetCallConv() const
+    {
+        return compCallConv;
+    }
+
     unsigned GetILArgCount() const
     {
         return compILArgsCount;

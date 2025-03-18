@@ -6917,7 +6917,7 @@ void Compiler::gtDispTreeRec(
                 }
 #endif
 
-                if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
+                if (call->GetCallConv() == CorInfoCallConvExtension::Thiscall)
                 {
                     printf("%sthiscall", separator);
                     separator = ", ";

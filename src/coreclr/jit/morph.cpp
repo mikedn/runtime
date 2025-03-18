@@ -1699,7 +1699,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     {
         noway_assert(intArgRegNum == 0);
 
-        maxRegArgs = (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0 ? 1 : 0;
+        maxRegArgs = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
 
 #ifdef UNIX_X86_ABI
         if (call->HasRetBufArg())

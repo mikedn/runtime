@@ -399,8 +399,6 @@ enum GenTreeFlags : unsigned
                               
     // CALL specific flags
 
-    GTF_CALL_UNMANAGED        = 0x80000000, // Call to unmanaged code
-
     GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the below call kinds
     GTF_CALL_VIRT_VTABLE      = 0x10000000, // Vtable-based virtual call
     GTF_CALL_VSTUB_DIRECT     = 0x20000000, // Direct Stub-dispatch virtual call
@@ -3757,8 +3755,6 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_NOGCCHECK               = 0x00000020, // not a call for computing full interruptability and therefore no GC check is required.
     GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000040, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
-    GTF_CALL_M_UNMGD_THISCALL          = 0x00000080, // "this" pointer (first argument) should be enregistered (only for GTF_CALL_UNMANAGED)
-
 #if FEATURE_TAILCALL_OPT
     GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000400, // call is an opportunistic tail call and importer has performed tail call checks
     GTF_CALL_M_TAILCALL_TO_LOOP        = 0x00000800, // call is a fast recursive tail call that can be converted into a loop
@@ -4109,6 +4105,7 @@ public:
 
     void SetCallConv(CorInfoCallConvExtension callConv)
     {
+        assert(!IsHelperCall() || (callConv == CorInfoCallConvExtension::Managed));
         unsigned bits = static_cast<unsigned>(callConv);
         assert((0 <= bits) && (bits < UINT8_MAX));
         m_callConv = bits;
@@ -4117,6 +4114,11 @@ public:
     CorInfoCallConvExtension GetCallConv() const
     {
         return static_cast<CorInfoCallConvExtension>(m_callConv);
+    }
+
+    bool IsUnmanaged() const
+    {
+        return GetCallConv() != CorInfoCallConvExtension::Managed;
     }
 
     void SetIntrinsic(NamedIntrinsic intrinsic)
@@ -4170,11 +4172,6 @@ public:
     const ReturnTypeDesc* GetRetDesc() const
     {
         return &m_retDesc;
-    }
-
-    bool IsUnmanaged() const
-    {
-        return (gtFlags & GTF_CALL_UNMANAGED) != 0;
     }
 
     void AddNullCheck()
@@ -4276,7 +4273,7 @@ public:
     {
         return HasRetBufArg()
 #ifdef TARGET_WINDOWS
-               && !callConvIsInstanceMethodCallConv(GetUnmanagedCallConv())
+               && !callConvIsInstanceMethodCallConv(GetCallConv())
 #endif
             ;
     }
@@ -4555,11 +4552,6 @@ public:
     bool IsSpecialIntrinsic() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC) != 0;
-    }
-
-    CorInfoCallConvExtension GetUnmanagedCallConv() const
-    {
-        return IsUnmanaged() ? GetCallConv() : CorInfoCallConvExtension::Managed;
     }
 
     GenTree* GetCallAddr() const

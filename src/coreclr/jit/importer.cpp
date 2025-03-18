@@ -773,8 +773,8 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (call->IsUnmanaged())
     {
-        if (callConvIsInstanceMethodCallConv(call->GetUnmanagedCallConv()) &&
-            (call->GetUnmanagedCallConv() != CorInfoCallConvExtension::Thiscall))
+        if (callConvIsInstanceMethodCallConv(call->GetCallConv()) &&
+            (call->GetCallConv() != CorInfoCallConvExtension::Thiscall))
         {
 #ifndef TARGET_X86
             if (call->gtCallArgs == nullptr)
@@ -5011,32 +5011,11 @@ bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
 #endif
 }
 
-//------------------------------------------------------------------------
-// impCheckForPInvokeCall examine call to see if it is a pinvoke and if so
-// if it can be expressed as an inline pinvoke.
-//
-// Arguments:
-//    call       - tree for the call
-//    methHnd    - handle for the method being called (may be null)
-//    sig        - signature of the method being called
-//    mflags     - method flags for the method being called
-//    block      - block containing the call, or for inlinees, block
-//                 containing the call being inlined
-//
-// Notes:
-//   Sets GTF_CALL_M_PINVOKE on the call for pinvokes.
-//
-//   Also sets GTF_CALL_UNMANAGED on call for inline pinvokes if the
-//   call passes a combination of legality and profitability checks.
-//
-//   If GTF_CALL_UNMANAGED is set, increments info.compUnmanagedCallCountWithGCTransition
-
 void Importer::impCheckForPInvokeCall(
     GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block)
 {
-    CorInfoCallConvExtension unmanagedCallConv;
+    CorInfoCallConvExtension callConv;
 
-    // If VM flagged it as Pinvoke, flag the call node accordingly
     if ((mflags & CORINFO_FLG_PINVOKE) != 0)
     {
         call->gtCallMoreFlags |= GTF_CALL_M_PINVOKE;
@@ -5051,7 +5030,7 @@ void Importer::impCheckForPInvokeCall(
             return;
         }
 
-        unmanagedCallConv = info.compCompHnd->getUnmanagedCallConv(methHnd, nullptr, &suppressGCTransition);
+        callConv = info.compCompHnd->getUnmanagedCallConv(methHnd, nullptr, &suppressGCTransition);
     }
     else
     {
@@ -5060,7 +5039,7 @@ void Importer::impCheckForPInvokeCall(
             return;
         }
 
-        unmanagedCallConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
+        callConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
     }
 
     if (suppressGCTransition)
@@ -5070,9 +5049,8 @@ void Importer::impCheckForPInvokeCall(
 
     // If we can't get the unmanaged calling convention or the calling convention is unsupported in the JIT,
     // return here without inlining the native call.
-    if (unmanagedCallConv == CorInfoCallConvExtension::Managed ||
-        unmanagedCallConv == CorInfoCallConvExtension::Fastcall ||
-        unmanagedCallConv == CorInfoCallConvExtension::FastcallMemberFunction)
+    if ((callConv == CorInfoCallConvExtension::Managed) || (callConv == CorInfoCallConvExtension::Fastcall) ||
+        (callConv == CorInfoCallConvExtension::FastcallMemberFunction))
     {
         return;
     }
@@ -5110,9 +5088,8 @@ void Importer::impCheckForPInvokeCall(
                     return;
                 }
 
-                // Size-speed tradeoff: don't use inline pinvoke at rarely
-                // executed call sites.  The non-inline version is more
-                // compact.
+                // Size-speed tradeoff: don't use inline PInvoke at rarely executed call sites.
+                // The non-inline version is more compact.
                 if (block->isRunRarely())
                 {
                     return;
@@ -5129,31 +5106,26 @@ void Importer::impCheckForPInvokeCall(
 
     JITLOG(LL_INFO1000000, "\nInline a CALLI PINVOKE call from method %s", info.compFullName);
 
-    call->gtFlags |= GTF_CALL_UNMANAGED;
-    call->SetCallConv(unmanagedCallConv);
+    call->SetCallConv(callConv);
 
     if (!call->IsSuppressGCTransition())
     {
         info.compUnmanagedCallCountWithGCTransition++;
     }
 
-#ifdef TARGET_X86
-    if (unmanagedCallConv == CorInfoCallConvExtension::C ||
-        unmanagedCallConv == CorInfoCallConvExtension::CMemberFunction)
-    {
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-    }
-#endif
-
-    if (unmanagedCallConv == CorInfoCallConvExtension::Thiscall)
+    if (callConv == CorInfoCallConvExtension::Thiscall)
     {
         if (sig->numArgs == 0)
         {
             BADCODE("Instance method without 'this' param");
         }
-
-        call->gtCallMoreFlags |= GTF_CALL_M_UNMGD_THISCALL;
     }
+#ifdef TARGET_X86
+    else if ((callConv == CorInfoCallConvExtension::C) || (callConv == CorInfoCallConvExtension::CMemberFunction))
+    {
+        call->gtFlags |= GTF_CALL_POP_ARGS;
+    }
+#endif
 }
 
 GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
@@ -5200,7 +5172,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     // For "thiscall", the first argument goes in a register. Since its
     // order does not need to be changed, we do not need to spill it
 
-    if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
+    if (call->GetCallConv() == CorInfoCallConvExtension::Thiscall)
     {
         assert(argsToReverse >= 1);
         argsToReverse--;
@@ -5238,12 +5210,12 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     GenTreeCall::Use* args = PopCallArgs(sig);
 
 #ifdef TARGET_X86
-    args = ReverseCallArgs(args, (call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0);
+    args = ReverseCallArgs(args, call->GetCallConv() == CorInfoCallConvExtension::Thiscall);
 #endif
 
     call->gtCallArgs = args;
 
-    if ((call->gtCallMoreFlags & GTF_CALL_M_UNMGD_THISCALL) != 0)
+    if (call->GetCallConv() == CorInfoCallConvExtension::Thiscall)
     {
         GenTree* thisArg = args->GetNode();
         assert(thisArg->TypeIs(TYP_I_IMPL, TYP_BYREF));
@@ -6192,8 +6164,8 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
         // will widen the return value to 4 bytes, so we can allow implicit widening
         // in managed to managed tailcalls when dealing with <= 4 bytes.
 
-        return allowWidening && (call->GetUnmanagedCallConv() == CorInfoCallConvExtension::Managed) &&
-               (info.compCallConv == CorInfoCallConvExtension::Managed) && (varTypeSize(callerRetType) <= 4) &&
+        return allowWidening && (call->GetCallConv() == CorInfoCallConvExtension::Managed) &&
+               (info.GetCallConv() == CorInfoCallConvExtension::Managed) && (varTypeSize(callerRetType) <= 4) &&
                (varTypeSize(calleeRetType) <= varTypeSize(callerRetType));
     }
 
@@ -7336,7 +7308,7 @@ void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
     call->SetRetSigType(type);
     call->SetRetLayout(layout);
 
-    StructPassing   retKind = abiGetStructReturnType(layout, call->GetUnmanagedCallConv(), call->IsVarargs());
+    StructPassing   retKind = abiGetStructReturnType(layout, call->GetCallConv(), call->IsVarargs());
     ReturnTypeDesc* retDesc = call->GetRetDesc();
 
     if (retKind.kind == SPK_PrimitiveType)
