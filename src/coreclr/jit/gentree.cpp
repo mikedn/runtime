@@ -3714,14 +3714,15 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
 
     call->SetMethodHandle(eeFindHelper(helper));
     call->SetCallAddr(nullptr);
-    call->gtCallThisArg          = nullptr;
-    call->gtCallArgs             = args;
-    call->gtCallLateArgs         = nullptr;
-    call->fgArgInfo              = nullptr;
-    call->m_entryPointAddr       = nullptr;
-    call->m_entryPointAccessType = IAT_VALUE;
-    call->gtCallMoreFlags        = GTF_CALL_M_EMPTY;
-    call->gtInlineCandidateInfo  = nullptr;
+    call->gtCallThisArg  = nullptr;
+    call->gtCallArgs     = args;
+    call->gtCallLateArgs = nullptr;
+    call->fgArgInfo      = nullptr;
+    call->ClearEntryPoint();
+    call->SetCallConv(CorInfoCallConvExtension::Managed);
+    call->SetIntrinsic(NI_Illegal);
+    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
+    call->gtInlineCandidateInfo = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;
 #endif

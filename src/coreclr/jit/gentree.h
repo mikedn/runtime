@@ -3912,12 +3912,12 @@ public:
     {
     }
 
-    bool IsCallvirt()
+    bool IsCallvirt() const
     {
         return m_isCallvirt;
     }
 
-    bool IsCalli()
+    bool IsCalli() const
     {
         return m_isCalli;
     }
@@ -4013,24 +4013,15 @@ struct GenTreeCall final : public GenTree
         CORINFO_CLASS_HANDLE m_retClassHandle;
     };
 
-    union {
-        TailCallSiteInfo* tailCallInfo = nullptr;
-        // Only used for unmanaged calls, which cannot be tail-called
-        CorInfoCallConvExtension unmgdCallConv;
-    };
-
-    ClassLayout* m_retLayout = nullptr; // The layout of the return (struct) type.
-
-    GenTreeCallFlags gtCallMoreFlags = GTF_CALL_M_EMPTY;
-
-    // Call target lookup info for method call from a Ready To Run module
-    // TODO-MIKE-Cleanup: This wastes 3/7 bytes due to useless enum bits and padding.
-    void*          m_entryPointAddr       = nullptr;
-    InfoAccessType m_entryPointAccessType = IAT_VALUE;
-
-    uint8_t m_retSigType; // Signature return type
-
-    ReturnTypeDesc m_retDesc;
+    TailCallSiteInfo* m_tailCallInfo  = nullptr;
+    ClassLayout*      m_retLayout     = nullptr;
+    GenTreeCallFlags  gtCallMoreFlags = GTF_CALL_M_EMPTY;
+    unsigned          m_intrinsic : 16;
+    unsigned          m_callConv : 8;
+    unsigned          m_entryPointAccessType : 8;
+    void*             m_entryPointAddr = nullptr;
+    var_types         m_retSigType;
+    ReturnTypeDesc    m_retDesc;
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // For non-inline candidates, track the first observation
@@ -4046,7 +4037,13 @@ struct GenTreeCall final : public GenTree
 #endif
 
 public:
-    GenTreeCall(var_types type, Use* args) : GenTree(GT_CALL, varActualType(type)), gtCallArgs(args), m_retSigType(type)
+    GenTreeCall(var_types type, Use* args)
+        : GenTree(GT_CALL, varActualType(type))
+        , gtCallArgs(args)
+        , m_intrinsic(NI_Illegal)
+        , m_callConv(static_cast<unsigned>(CorInfoCallConvExtension::Managed))
+        , m_entryPointAccessType(IAT_VALUE)
+        , m_retSigType(type)
     {
         gtFlags |= GTF_CALL | GTF_GLOB_REF;
 
@@ -4061,11 +4058,13 @@ public:
         , m_methodHandle(copyFrom->m_methodHandle)
         // The tail call info does not change after it is allocated, so a shallow copy suffices.
         // Note that this also copies unmgdCallConv...
-        , tailCallInfo(copyFrom->tailCallInfo)
+        , m_tailCallInfo(copyFrom->m_tailCallInfo)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
-        , m_entryPointAddr(copyFrom->m_entryPointAddr)
+        , m_intrinsic(copyFrom->m_intrinsic)
+        , m_callConv(copyFrom->m_callConv)
         , m_entryPointAccessType(copyFrom->m_entryPointAccessType)
+        , m_entryPointAddr(copyFrom->m_entryPointAddr)
         , m_retSigType(copyFrom->m_retSigType)
         , m_retDesc(copyFrom->m_retDesc)
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -4108,9 +4107,31 @@ public:
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
     CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
+    void SetCallConv(CorInfoCallConvExtension callConv)
+    {
+        unsigned bits = static_cast<unsigned>(callConv);
+        assert((0 <= bits) && (bits < UINT8_MAX));
+        m_callConv = bits;
+    }
+
+    CorInfoCallConvExtension GetCallConv() const
+    {
+        return static_cast<CorInfoCallConvExtension>(m_callConv);
+    }
+
+    void SetIntrinsic(NamedIntrinsic intrinsic)
+    {
+        m_intrinsic = intrinsic;
+    }
+
+    NamedIntrinsic GetIntrinsic() const
+    {
+        return static_cast<NamedIntrinsic>(m_intrinsic);
+    }
+
     var_types GetRetSigType() const
     {
-        return static_cast<var_types>(m_retSigType);
+        return m_retSigType;
     }
 
     void SetRetSigType(var_types type)
@@ -4280,6 +4301,19 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
     }
 
+    TailCallSiteInfo* GetExplicitTailCallInfo() const
+    {
+        assert(IsExplicitTailCall() && (m_tailCallInfo != nullptr));
+        return m_tailCallInfo;
+    }
+
+    void SetExplicitTailCallInfo(TailCallSiteInfo* info)
+    {
+        assert(!IsHelperCall());
+        gtCallMoreFlags |= GTF_CALL_M_EXPLICIT_TAILCALL;
+        m_tailCallInfo = info;
+    }
+
     // Returns true if this is marked for opportunistic tail calling.
     // That is, can be tail called though not explicitly prefixed with "tail" prefix.
     bool IsImplicitTailCall() const
@@ -4365,13 +4399,28 @@ public:
 
     void SetR2REntryPoint(CORINFO_CONST_LOOKUP entryPoint)
     {
+        assert((0 <= entryPoint.accessType) && (entryPoint.accessType < UINT8_MAX));
+        m_entryPointAccessType = static_cast<unsigned>(entryPoint.accessType);
         m_entryPointAddr       = entryPoint.addr;
-        m_entryPointAccessType = entryPoint.accessType;
 #ifdef TARGET_ARMARCH
         gtCallMoreFlags |= GTF_CALL_M_HAS_R2R_ENTRYPOINT;
 #endif
     }
 #endif // FEATURE_READYTORUN_COMPILER
+
+    CORINFO_CONST_LOOKUP GetEntryPoint() const
+    {
+        CORINFO_CONST_LOOKUP lookup;
+        lookup.accessType = static_cast<InfoAccessType>(m_entryPointAccessType);
+        lookup.addr       = m_entryPointAddr;
+        return lookup;
+    }
+
+    void ClearEntryPoint()
+    {
+        m_entryPointAccessType = IAT_VALUE;
+        m_entryPointAddr       = nullptr;
+    }
 
     bool IsVarargs() const
     {
@@ -4510,7 +4559,7 @@ public:
 
     CorInfoCallConvExtension GetUnmanagedCallConv() const
     {
-        return IsUnmanaged() ? unmgdCallConv : CorInfoCallConvExtension::Managed;
+        return IsUnmanaged() ? GetCallConv() : CorInfoCallConvExtension::Managed;
     }
 
     GenTree* GetCallAddr() const

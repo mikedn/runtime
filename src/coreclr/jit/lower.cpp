@@ -2468,8 +2468,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (call->m_entryPointAddr != nullptr)
     {
-        entryPoint.accessType = call->m_entryPointAccessType;
-        entryPoint.addr       = call->m_entryPointAddr;
+        entryPoint = call->GetEntryPoint();
     }
     else
 #endif

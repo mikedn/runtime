@@ -5130,7 +5130,7 @@ void Importer::impCheckForPInvokeCall(
     JITLOG(LL_INFO1000000, "\nInline a CALLI PINVOKE call from method %s", info.compFullName);
 
     call->gtFlags |= GTF_CALL_UNMANAGED;
-    call->unmgdCallConv = unmanagedCallConv;
+    call->SetCallConv(unmanagedCallConv);
 
     if (!call->IsSuppressGCTransition())
     {
@@ -7241,9 +7241,25 @@ void Importer::SetupTailCall(GenTreeCall*            call,
 
     if (isExplicitTailCall)
     {
-        // In case of explicit tail calls, mark it so that it is not considered for inlining.
-        call->gtCallMoreFlags |= GTF_CALL_M_EXPLICIT_TAILCALL;
+        // This might or might not turn into a tailcall. We do more checks in morph.
+        // For explicit tailcalls we need more information in morph in case it turns
+        // out to be a helper-based tailcall.
+        TailCallSiteInfo* tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo(sig);
 
+        switch (opcode)
+        {
+            case CEE_CALLI:
+                tailCallInfo->SetCalli();
+                break;
+            case CEE_CALLVIRT:
+                tailCallInfo->SetCallvirt(resolvedToken);
+                break;
+            default:
+                tailCallInfo->SetCall(resolvedToken);
+                break;
+        }
+
+        call->SetExplicitTailCallInfo(tailCallInfo);
         JITDUMP("\nGTF_CALL_M_EXPLICIT_TAILCALL set for call [%06u]\n", call->GetID());
 
         if ((prefixFlags & PREFIX_TAILCALL_STRESS) != 0)
@@ -7270,27 +7286,6 @@ void Importer::SetupTailCall(GenTreeCall*            call,
 
         JITDUMP("\nGTF_CALL_M_IMPLICIT_TAILCALL set for call [%06u]\n", call->GetID());
 #endif
-    }
-
-    // This might or might not turn into a tailcall. We do more checks in morph.
-    // For explicit tailcalls we need more information in morph in case it turns
-    // out to be a helper-based tailcall.
-    if (isExplicitTailCall)
-    {
-        call->tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo(sig);
-
-        switch (opcode)
-        {
-            case CEE_CALLI:
-                call->tailCallInfo->SetCalli();
-                break;
-            case CEE_CALLVIRT:
-                call->tailCallInfo->SetCallvirt(resolvedToken);
-                break;
-            default:
-                call->tailCallInfo->SetCall(resolvedToken);
-                break;
-        }
     }
 
     // A tail recursive call is a potential loop from the current block to the start of the method.

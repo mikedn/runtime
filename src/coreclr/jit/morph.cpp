@@ -5554,10 +5554,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             return nullptr;
         }
 
-        TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
-
         assert(call->IsExplicitTailCall());
-        assert(tailCallInfo != nullptr);
 
         // We do not currently handle non-standard args except for VSD stubs.
         if (!call->IsVirtualStub() && call->HasNonStandardAddedArgs(this))
@@ -5577,26 +5574,27 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         {
             // Make sure we can get the helpers. We do this last as the runtime
             // will likely be required to generate these.
-            CORINFO_RESOLVED_TOKEN* token = nullptr;
-            CORINFO_SIG_INFO*       sig   = tailCallInfo->GetSig();
-            unsigned                flags = 0;
+
+            TailCallSiteInfo* const            tailCallInfo = call->GetExplicitTailCallInfo();
+            CORINFO_RESOLVED_TOKEN*            token        = nullptr;
+            CORINFO_GET_TAILCALL_HELPERS_FLAGS flags        = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(0);
 
             if (!tailCallInfo->IsCalli())
             {
                 token = tailCallInfo->GetToken();
+
                 if (tailCallInfo->IsCallvirt())
                 {
-                    flags |= CORINFO_TAILCALL_IS_CALLVIRT;
+                    flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_IS_CALLVIRT);
                 }
             }
 
             if ((call->gtCallThisArg != nullptr) && !call->gtCallThisArg->GetNode()->TypeIs(TYP_REF))
             {
-                flags |= CORINFO_TAILCALL_THIS_ARG_IS_BYREF;
+                flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_THIS_ARG_IS_BYREF);
             }
 
-            if (!info.compCompHnd->getTailCallHelpers(token, sig, (CORINFO_GET_TAILCALL_HELPERS_FLAGS)flags,
-                                                      &tailCallHelpers))
+            if (!info.compCompHnd->getTailCallHelpers(token, tailCallInfo->GetSig(), flags, &tailCallHelpers))
             {
                 failTailCall("Tail call help not available");
                 return nullptr;
@@ -6071,7 +6069,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
         if (isVirtual)
         {
-            TailCallSiteInfo* const tailCallInfo = call->tailCallInfo;
+            TailCallSiteInfo* const tailCallInfo = call->GetExplicitTailCallInfo();
 
             assert(!tailCallInfo->GetSig()->hasTypeArg());
 
@@ -6106,8 +6104,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     call->SetMethodHandle(help.hStoreArgs);
     call->SetCallAddr(nullptr);
-    call->m_entryPointAddr       = nullptr;
-    call->m_entryPointAccessType = IAT_VALUE;
+    call->SetIntrinsic(NI_Illegal);
+    call->ClearEntryPoint();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
 #ifdef TARGET_ARM
     call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
@@ -6391,8 +6389,7 @@ GenTree* Compiler::fgExpandDirectTailCallViaJitHelper(GenTreeCall* call)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (call->m_entryPointAddr != nullptr)
     {
-        entryPoint.accessType = call->m_entryPointAccessType;
-        entryPoint.addr       = call->m_entryPointAddr;
+        entryPoint = call->GetEntryPoint();
     }
     else
 #endif
