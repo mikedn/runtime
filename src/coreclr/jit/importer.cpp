@@ -2519,6 +2519,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                                 bool*                   isSpecialIntrinsic)
 {
     assert((methodFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0);
+    assert(*pIntrinsicId == NI_Illegal);
+    assert(!*isSpecialIntrinsic);
 
     CORINFO_CLASS_HANDLE  clsHnd      = resolvedToken->hClass;
     CORINFO_METHOD_HANDLE method      = callInfo->hMethod;
@@ -2632,14 +2634,14 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         *pIntrinsicId = ni;
     }
 
-    var_types callType  = CorTypeToVarType(sig->retType);
-    GenTree*  retNode   = nullptr;
-    bool      isSpecial = false;
+    var_types callType = CorTypeToVarType(sig->retType);
+    GenTree*  retNode  = nullptr;
 
     switch (ni)
     {
         GenTree* op1;
         GenTree* op2;
+        GenTree* op3;
 #ifndef TARGET_ARM
         genTreeOps interlockedOperator;
 #endif
@@ -2671,57 +2673,39 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             op2 = impPopStack().val;
             op1 = impPopStack().val;
 
-            // This creates:
-            //   val
-            // XAdd
-            //   addr
-            //     field (for example)
-            //
-            // In the case where the first argument is the address of a local, we might
-            // want to make this *not* make the var address-taken -- but atomic instructions
-            // on a local are probably pretty useless anyway, so we probably don't care.
-
-            op1 = gtNewOperNode(interlockedOperator, varActualType(callType), op1, op2);
-            op1->gtFlags |= GTF_GLOB_REF | GTF_ASG;
-            retNode = op1;
-            break;
+            retNode = gtNewOperNode(interlockedOperator, varActualType(callType), op1, op2);
+            retNode->AddSideEffects(GTF_GLOB_REF | GTF_ASG);
+            return retNode;
 
         case NI_CORINFO_INTRINSIC_InterlockedCmpXchg32:
 #ifdef TARGET_64BIT
         case NI_CORINFO_INTRINSIC_InterlockedCmpXchg64:
 #endif
-        {
             assert(callType != TYP_STRUCT);
             assert(sig->numArgs == 3);
-            GenTree* op2;
-            GenTree* op3;
 
             op3 = impPopStack().val; // comparand
             op2 = impPopStack().val; // value
             op1 = impPopStack().val; // location address
 
-            retNode = new (comp, GT_CMPXCHG) GenTreeCmpXchg(varActualType(callType), op1, op2, op3);
-            break;
-        }
+            return new (comp, GT_CMPXCHG) GenTreeCmpXchg(varActualType(callType), op1, op2, op3);
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 
         case NI_CORINFO_INTRINSIC_MemoryBarrier:
         case NI_CORINFO_INTRINSIC_MemoryBarrierLoad:
-
             assert(sig->numArgs == 0);
 
-            op1 = new (comp, GT_MEMORYBARRIER) GenTree(GT_MEMORYBARRIER, TYP_VOID);
-            op1->gtFlags |= GTF_GLOB_REF | GTF_ASG;
+            retNode = new (comp, GT_MEMORYBARRIER) GenTree(GT_MEMORYBARRIER, TYP_VOID);
+            retNode->AddSideEffects(GTF_GLOB_REF | GTF_ASG);
 
-            // On XARCH `CORINFO_INTRINSIC_MemoryBarrierLoad` fences need not be emitted.
+            // On XARCH load fences need not be emitted.
             // However, we still need to capture the effect on reordering.
             if (ni == NI_CORINFO_INTRINSIC_MemoryBarrierLoad)
             {
-                op1->gtFlags |= GTF_MEMORYBARRIER_LOAD;
+                retNode->gtFlags |= GTF_MEMORYBARRIER_LOAD;
             }
 
-            retNode = op1;
-            break;
+            return retNode;
 
         case NI_CORINFO_INTRINSIC_InitializeArray:
             retNode = ImportInitializeArrayIntrinsic(sig);
@@ -2730,36 +2714,22 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         case NI_CORINFO_INTRINSIC_Array_Address:
         case NI_CORINFO_INTRINSIC_Array_Get:
         case NI_CORINFO_INTRINSIC_Array_Set:
-            retNode = impArrayAccessIntrinsic(clsHnd, sig, resolvedToken->token, readonlyCall, ni);
+            retNode = ImportArrayAccessIntrinsic(clsHnd, sig, resolvedToken->token, readonlyCall, ni);
             break;
 
         case NI_CORINFO_INTRINSIC_RTH_GetValueInternal:
-            op1 = impStackTop(0).val;
-            if (op1->IsHelperCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
+            if (GenTreeCall* call = impStackTop(0).val->IsCall())
             {
-                // Old tree
-                // Helper-RuntimeTypeHandle -> TreeToGetNativeTypeHandle
-                //
-                // New tree
-                // TreeToGetNativeTypeHandle
+                if (call->IsTypeHandleToRuntimeTypeHandleHelperCall())
+                {
+                    impPopStack();
 
-                // Remove call to helper and return the native TypeHandle pointer that was the parameter
-                // to that helper.
-
-                op1 = impPopStack().val;
-
-                // Get native TypeHandle argument to old helper
-                GenTreeCall::Use* arg = op1->AsCall()->gtCallArgs;
-                assert(arg->GetNext() == nullptr);
-                op1     = arg->GetNode();
-                retNode = op1;
+                    return call->gtCallArgs->GetNode();
+                }
             }
-            // Call the regular function.
             break;
 
         case NI_CORINFO_INTRINSIC_Object_GetType:
-        {
-            JITDUMP("\n impIntrinsic: call to Object.GetType\n");
             op1 = impStackTop(0).val;
 
             // If we're calling GetType on a boxed value, just get the type directly.
@@ -2770,10 +2740,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 {
                     impPopStack();
 
-                    retNode =
-                        gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
-
-                    break;
+                    return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF,
+                                               gtNewCallArgs(typeHandle));
                 }
             }
 
@@ -2781,11 +2749,12 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 impPopStack();
 
+                *isSpecialIntrinsic = true;
+
                 retNode = comp->gtNewIntrinsic(TYP_REF, NI_CORINFO_INTRINSIC_Object_GetType, callInfo, op1);
                 retNode->AddSideEffects(GTF_EXCEPT);
-                isSpecial = true;
 
-                break;
+                return retNode;
             }
 
             // If we have a constrained callvirt with a "box this" transform
@@ -2805,17 +2774,11 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     return nullptr;
                 }
 
-                retNode =
-                    gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
-
-                break;
+                return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
             }
 
-            // Allow impImportCall do the special constraint processing.
-            isSpecial = true;
-
+            *isSpecialIntrinsic = true;
             break;
-        }
 
         // Implement ByReference Ctor. This wraps the store of the ref into a byref-like field
         // in a value type. The canonical example of this is Span<T>. In effect this is just
@@ -2826,29 +2789,30 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 
             // Remove call to constructor and directly assign the byref passed
             // to the call to the first slot of the ByReference struct.
-            op1                         = impPopStack().val;
+            op1 = impPopStack().val;
+
             CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
             GenTreeIndir* store = comp->gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
             GenTree*      byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
             byReferenceStruct->SetOper(GT_LCL_LOAD);
             byReferenceStruct->SetType(TYP_STRUCT);
+
             // TODO-MIKE-Cleanup: This isn't needed, it's here only because previously we had
             // ADDR(LCL_VAR) and returned only the LCL_VAR node, without clearing GTF_DONT_CSE.
             byReferenceStruct->SetDoNotCSE();
+
             impPushOnStack(byReferenceStruct, typeInfo(TI_STRUCT, clsHnd));
-            retNode = store;
-            break;
+
+            return store;
         }
+
         // Implement ptr value getter for ByReference struct.
         case NI_CORINFO_INTRINSIC_ByReference_Value:
-        {
-            op1                         = impPopStack().val;
-            CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            GenTree*             field  = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(op1, fldHnd, 0));
-            retNode                     = field;
-            break;
-        }
+            op1 = impPopStack().val;
+
+            return comp->gtNewFieldLoad(TYP_BYREF,
+                                        gtNewFieldAddr(op1, info.compCompHnd->getFieldInClass(clsHnd, 0), 0));
 
         case NI_CORINFO_INTRINSIC_GetRawHandle:
         {
@@ -2874,22 +2838,19 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             noway_assert(rawHandle->TypeIs(TYP_I_IMPL));
 
             LclVarDsc* rawHandleSlotLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("rawHandle"));
-            GenTree*   store            = comp->gtNewLclStore(rawHandleSlotLcl, TYP_I_IMPL, rawHandle);
+
+            GenTree* store = comp->gtNewLclStore(rawHandleSlotLcl, TYP_I_IMPL, rawHandle);
             store->AddSideEffects(GTF_GLOB_REF);
             impSpillNoneAppendTree(store);
 
-            retNode = comp->gtNewIndLoad(callType, comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
-
-            break;
+            return comp->gtNewIndLoad(callType, comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
         }
 
         case NI_System_String_get_Chars:
-        {
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impPopStack().val;
-            retNode      = comp->gtNewIndexLoad(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
-            break;
-        }
+            op2 = impPopStack().val;
+            op1 = impPopStack().val;
+
+            return comp->gtNewIndexLoad(TYP_USHORT, gtNewStringIndexAddr(op1, op2));
 
         case NI_System_String_get_Length:
             op1 = impPopStack().val;
@@ -2902,25 +2863,21 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                 {
                     if (GenTreeIntCon* constLength = gtNewStringLiteralLength(constStr))
                     {
-                        retNode = constLength;
-                        break;
+                        return constLength;
                     }
 
                     flags = GTF_IND_NONFAULTING;
                 }
 
-                op1 = comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, flags);
-            }
-            else
-            {
-                op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
-                op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
-                op1 = comp->gtNewIndLoad(TYP_INT, op1);
-                op1->gtFlags |= GTF_EXCEPT;
+                return comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, flags);
             }
 
-            retNode = op1;
-            break;
+            op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
+            op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
+
+            retNode = comp->gtNewIndLoad(TYP_INT, op1);
+            retNode->AddSideEffects(GTF_EXCEPT);
+            return retNode;
 
         case NI_System_Span_get_Item:
         case NI_System_ReadOnlySpan_get_Item:
@@ -2987,15 +2944,13 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             GenTree* pointer = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
             GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
-            retNode = gtNewCommaNode(boundsCheck, result);
-
-            break;
+            return gtNewCommaNode(boundsCheck, result);
         }
 
         case NI_System_Type_GetTypeFromHandle:
-        {
-            GenTree* op1 = impStackTop(0).val;
-            if (op1->IsHelperCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
+            op1 = impStackTop(0).val;
+
+            if (op1->IsCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
             {
                 assert(op1->AsCall()->gtCallArgs->GetNext() == nullptr);
 
@@ -3014,69 +2969,53 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL;
                 }
 
-                retNode = gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->gtCallArgs);
+                return gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->gtCallArgs);
             }
+
             break;
-        }
 
         case NI_System_Type_op_Equality:
         case NI_System_Type_op_Inequality:
-        {
             JITDUMP("Importing Type.op_*Equality intrinsic\n");
-            GenTree* op1     = impStackTop(1).val;
-            GenTree* op2     = impStackTop(0).val;
-            GenTree* optTree = gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, op1, op2);
-            if (optTree != nullptr)
+
+            op1 = impStackTop(1).val;
+            op2 = impStackTop(0).val;
+
+            if (GenTree* optTree = gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, op1, op2))
             {
-                // Success, clean up the evaluation stack.
                 impPopStack();
                 impPopStack();
 
-                // See if we can optimize even further, to a handle compare.
                 optTree = gtFoldTypeCompare(optTree);
-
-                // See if we can now fold a handle compare to a constant.
                 optTree = gtFoldExpr(optTree);
 
-                retNode = optTree;
+                return optTree;
             }
-            else
-            {
-                // Retry optimizing these later
-                isSpecial = true;
-            }
+
+            *isSpecialIntrinsic = true;
             break;
-        }
 
         case NI_System_Enum_HasFlag:
-        {
-            GenTree* thisOp  = impStackTop(1).val;
-            GenTree* flagOp  = impStackTop(0).val;
-            GenTree* optTree = gtOptimizeEnumHasFlag(thisOp, flagOp);
+            op1 = impStackTop(1).val;
+            op2 = impStackTop(0).val;
 
-            if (optTree != nullptr)
+            if (GenTree* optTree = gtOptimizeEnumHasFlag(op1, op2))
             {
-                // Optimization successful. Pop the stack for real.
                 impPopStack();
                 impPopStack();
-                retNode = optTree;
-            }
-            else
-            {
-                // Retry optimizing this during morph.
-                isSpecial = true;
+
+                return optTree;
             }
 
+            *isSpecialIntrinsic = true;
             break;
-        }
 
         case NI_System_Type_IsAssignableFrom:
         {
             GenTree* typeTo   = impStackTop(1).val;
             GenTree* typeFrom = impStackTop(0).val;
 
-            retNode = impTypeIsAssignable(typeTo, typeFrom);
-            break;
+            return impTypeIsAssignable(typeTo, typeFrom);
         }
 
         case NI_System_Type_IsAssignableTo:
@@ -3084,8 +3023,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             GenTree* typeTo   = impStackTop(0).val;
             GenTree* typeFrom = impStackTop(1).val;
 
-            retNode = impTypeIsAssignable(typeTo, typeFrom);
-            break;
+            return impTypeIsAssignable(typeTo, typeFrom);
         }
 
         case NI_System_Type_get_IsValueType:
@@ -3097,18 +3035,18 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             //
             // to `true` or `false`
             // e.g. `typeof(int).IsValueType` => `true`
-            if (impStackTop().val->IsCall())
-            {
-                GenTreeCall* call = impStackTop().val->AsCall();
 
+            if (GenTreeCall* call = impStackTop().val->IsCall())
+            {
                 if (call->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
                 {
                     if (CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->gtCallArgs->GetNode()))
                     {
-                        retNode = gtNewIconNode(info.compCompHnd->isValueClass(hClass) &&
-                                                // pointers are not value types (e.g. typeof(int*).IsValueType is false)
-                                                info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
                         impPopStack(); // drop CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE call
+
+                        return gtNewIconNode(info.compCompHnd->isValueClass(hClass) &&
+                                             // pointers are not value types (e.g. typeof(int*).IsValueType is false)
+                                             info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
                     }
                 }
             }
@@ -3126,10 +3064,9 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     if (call->IsSpecialIntrinsic() &&
                         (lookupNamedIntrinsic(call->GetMethodHandle()) == NI_System_Threading_Thread_get_CurrentThread))
                     {
-                        // drop get_CurrentThread() call
-                        impPopStack();
+                        impPopStack(); // drop get_CurrentThread() call
                         call->ChangeToNothingNode();
-                        retNode = gtNewHelperCallNode(CORINFO_HELP_GETCURRENTMANAGEDTHREADID, TYP_INT);
+                        return gtNewHelperCallNode(CORINFO_HELP_GETCURRENTMANAGEDTHREADID, TYP_INT);
                     }
                 }
             }
@@ -3140,18 +3077,20 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         // TODO-CQ: Implement for XArch (https://github.com/dotnet/runtime/issues/32239).
         case NI_System_Threading_Interlocked_Or:
         case NI_System_Threading_Interlocked_And:
-        {
+            assert(sig->numArgs == 2);
+
             if (opts.OptimizationEnabled() && compOpportunisticallyDependsOn(InstructionSet_Atomics))
             {
-                assert(sig->numArgs == 2);
-                GenTree*   op2 = impPopStack().val;
-                GenTree*   op1 = impPopStack().val;
-                genTreeOps op  = (ni == NI_System_Threading_Interlocked_Or) ? GT_XORR : GT_XAND;
-                retNode        = gtNewOperNode(op, varActualType(callType), op1, op2);
-                retNode->gtFlags |= GTF_GLOB_REF | GTF_ASG;
+                op2 = impPopStack().val;
+                op1 = impPopStack().val;
+
+                genTreeOps op = ni == NI_System_Threading_Interlocked_Or ? GT_XORR : GT_XAND;
+
+                retNode = gtNewOperNode(op, varActualType(callType), op1, op2);
+                retNode->AddSideEffects(GTF_GLOB_REF | GTF_ASG);
+                return retNode;
             }
             break;
-        }
 #endif // TARGET_ARM64
 
         case NI_System_Math_Abs:
@@ -3191,14 +3130,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         case NI_System_Collections_Generic_EqualityComparer_get_Default:
         case NI_System_Object_MemberwiseClone:
         case NI_System_Threading_Thread_get_CurrentThread:
-        {
-            // Flag for later handling.
-            isSpecial = true;
+            *isSpecialIntrinsic = true;
             break;
-        }
 
         case NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness:
-        {
             assert(sig->numArgs == 1);
 
             // We expect the return type of the ReverseEndianness routine to match the type of the
@@ -3211,33 +3146,29 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 case CorInfoType::CORINFO_TYPE_SHORT:
                 case CorInfoType::CORINFO_TYPE_USHORT:
-                    retNode = gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
-                    retNode = gtNewOperNode(GT_CONV, callType, retNode);
-                    break;
+                    op1 = gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
+                    return gtNewOperNode(GT_CONV, callType, op1);
 
                 case CorInfoType::CORINFO_TYPE_INT:
                 case CorInfoType::CORINFO_TYPE_UINT:
                 case CorInfoType::CORINFO_TYPE_LONG:
                 case CorInfoType::CORINFO_TYPE_ULONG:
-                    retNode = gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
-                    break;
+                    return gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
 
                 default:
-                    // This default case gets hit on 32-bit archs when a call to a 64-bit overload
-                    // of ReverseEndianness is encountered. In that case we'll let JIT treat this as a standard
-                    // method call, where the implementation decomposes the operation into two 32-bit
-                    // bswap routines. If the input to the 64-bit function is a constant, then we rely
-                    // on inlining + constant folding of 32-bit bswaps to effectively constant fold
-                    // the 64-bit call site.
+                    // This default case gets hit on 32-bit when a call to a 64-bit overload of ReverseEndianness
+                    // is encountered. In that case we'll let JIT treat this as a standard method call, where the
+                    // implementation decomposes the operation into two 32-bit bswap routines. If the input to the
+                    // 64-bit function is a constant, then we rely on inlining + constant folding of 32-bit bswaps
+                    // to effectively constant fold the 64-bit call site.
                     break;
             }
 
             break;
-        }
 
-        // Fold PopCount for constant input
         case NI_System_Numerics_BitOperations_PopCount:
             assert(sig->numArgs == 1);
+
             if (GenTreeIntConCommon* intCon = impStackTop().val->IsIntConCommon())
             {
                 impPopStack();
@@ -3256,23 +3187,19 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     popCount = genCountBits(intCon->AsIntCon()->GetUInt32Value());
                 }
 
-                retNode = gtNewIconNode(popCount, callType);
+                return gtNewIconNode(popCount, callType);
             }
             break;
 
         case NI_System_GC_KeepAlive:
-        {
             retNode = gtNewOperNode(GT_KEEPALIVE, TYP_VOID, impPopStack().val);
-
             // Prevent both reordering and removal. Invalid optimizations of GC.KeepAlive are
             // very subtle and hard to observe. Thus we are conservatively marking it with both
             // GTF_CALL and GTF_GLOB_REF side-effects even though it may be more than strictly
             // necessary. The conservative side-effects are unlikely to have negative impact
             // on code quality in this case.
-            retNode->gtFlags |= (GTF_CALL | GTF_GLOB_REF);
-
-            break;
-        }
+            retNode->AddSideEffects(GTF_CALL | GTF_GLOB_REF);
+            return retNode;
 
         default:
             break;
@@ -3283,8 +3210,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         assert(!"Unhandled must expand intrinsic, throwing PlatformNotSupportedException");
         return impUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig, mustExpand);
     }
-
-    *isSpecialIntrinsic = isSpecial;
 
     return retNode;
 }
@@ -3932,7 +3857,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
     return comp->gtNewLclLoad(tempLcl, TYP_STRUCT);
 }
 
-GenTree* Importer::impArrayAccessIntrinsic(
+GenTree* Importer::ImportArrayAccessIntrinsic(
     CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name)
 {
     // If we are generating SMALL_CODE, we don't want to use intrinsics for

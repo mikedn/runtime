@@ -1950,7 +1950,7 @@ struct Importer
     GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
-    GenTree* impArrayAccessIntrinsic(
+    GenTree* ImportArrayAccessIntrinsic(
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
     GenTree* ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
