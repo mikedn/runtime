@@ -5658,14 +5658,6 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     // Now actually morph the call.
     compTailCallUsed = true;
 
-    // Mark that this is no longer a pending tailcall. We need to do this before
-    // we call fgMorphCall again (which happens in the fast tailcall case) to
-    // avoid recursing back into this method.
-    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#if FEATURE_TAILCALL_OPT
-    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
-#endif
-
 #if FEATURE_TAILCALL_OPT
     if (fastTailCallToLoop)
     {
@@ -5872,6 +5864,10 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     call->SetRetLayout(nullptr);
     call->GetRetDesc()->Reset();
     call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
+    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+#if FEATURE_TAILCALL_OPT
+    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+#endif
 
     JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
 
@@ -6107,6 +6103,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     call->SetIntrinsic(NI_Illegal);
     call->ClearEntryPoint();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
+    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+#if FEATURE_TAILCALL_OPT
+    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+#endif
 #ifdef TARGET_ARM
     call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
 #endif
