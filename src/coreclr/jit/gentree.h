@@ -5169,18 +5169,13 @@ private:
 #endif
 
 public:
-    GenTreeIntrinsic(var_types type, GenTree* op1, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeIntrinsic(type, op1, nullptr, intrinsicName, methodHandle)
-    {
-    }
-
     GenTreeIntrinsic(
-        var_types type, GenTree* op1, GenTree* op2, NamedIntrinsic intrinsicName, CORINFO_METHOD_HANDLE methodHandle)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsicName), m_methodHandle(methodHandle)
+        var_types type, NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, GenTree* op1, GenTree* op2 = nullptr)
+        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsic), m_methodHandle(method)
     {
-        assert(intrinsicName != NI_Illegal);
+        assert(intrinsic != NI_Illegal);
 
-        if (methodHandle != nullptr)
+        if (method != nullptr)
         {
             gtFlags |= GTF_CALL;
         }

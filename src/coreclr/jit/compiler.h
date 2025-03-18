@@ -1971,11 +1971,11 @@ struct Importer
                           CORINFO_CALL_INFO*      callInfo,
                           CorInfoIntrinsics*      pIntrinsicId,
                           bool*                   isSpecialIntrinsic);
-    GenTree* impMathIntrinsic(CORINFO_METHOD_HANDLE method,
-                              CORINFO_SIG_INFO*     sig,
-                              var_types             callType,
-                              NamedIntrinsic        intrinsicName,
-                              bool                  tailCall);
+    GenTree* impMathIntrinsic(CORINFO_CALL_INFO* callInfo,
+                              CORINFO_SIG_INFO*  sig,
+                              var_types          callType,
+                              NamedIntrinsic     intrinsicName,
+                              bool               tailCall);
 
     bool impIsPrimitive(CorInfoType type);
 
@@ -2891,6 +2891,9 @@ public:
     GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
                                                   GenTree*                ctxTree,
                                                   void*                   compileTimeHandle);
+
+    GenTreeIntrinsic* gtNewIntrinsic(
+        var_types type, NamedIntrinsic intrinsic, CORINFO_CALL_INFO* callInfo, GenTree* op1, GenTree* op2 = nullptr);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);

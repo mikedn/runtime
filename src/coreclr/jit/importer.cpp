@@ -2783,9 +2783,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             {
                 impPopStack();
 
-                retNode = new (comp, GT_INTRINSIC) GenTreeIntrinsic(TYP_REF, op1, ni, method);
-                // This intrinsic gets lowered to a call and may throw NullReferenceException.
-                retNode->AddSideEffects(GTF_CALL | GTF_EXCEPT);
+                retNode = comp->gtNewIntrinsic(TYP_REF, NI_CORINFO_INTRINSIC_Object_GetType, callInfo, op1);
+                retNode->AddSideEffects(GTF_EXCEPT);
                 isSpecial = true;
 
                 break;
@@ -3187,7 +3186,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
 #ifdef FEATURE_HW_INTRINSICS
         case NI_System_Math_FusedMultiplyAdd:
 #endif
-            retNode = impMathIntrinsic(method, sig, callType, ni, tailCall);
+            retNode = impMathIntrinsic(callInfo, sig, callType, ni, tailCall);
             break;
 
         case NI_System_Array_Clone:
@@ -3333,11 +3332,8 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     return nullptr;
 }
 
-GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
-                                    CORINFO_SIG_INFO*     sig,
-                                    var_types             callType,
-                                    NamedIntrinsic        intrinsicName,
-                                    bool                  tailCall)
+GenTree* Importer::impMathIntrinsic(
+    CORINFO_CALL_INFO* callInfo, CORINFO_SIG_INFO* sig, var_types callType, NamedIntrinsic intrinsicName, bool tailCall)
 {
     assert(callType != TYP_STRUCT);
     assert(Compiler::IsMathIntrinsic(intrinsicName));
@@ -3397,91 +3393,90 @@ GenTree* Importer::impMathIntrinsic(CORINFO_METHOD_HANDLE method,
         }
 #endif
 
-        // TODO-CQ-XArch: Ideally we would create a GT_INTRINSIC node for fma, however, that currently
-        // requires more extensive changes to valuenum to support methods with 3 operands
+        // TODO-CQ-XArch: Ideally we would create a INTRINSIC node for fma, however, that
+        // currently requires more extensive changes to VN to support methods with 3 operands.
 
-        // We want to generate a GT_INTRINSIC node in the case the call can't be treated as
+        // We want to generate a INTRINSIC node in the case the call can't be treated as
         // a target intrinsic so that we can still benefit from CSE and constant folding.
 
         return nullptr;
     }
 #endif // FEATURE_HW_INTRINSICS
 
+    const bool isCall = IsIntrinsicImplementedByUserCall(intrinsicName);
+
+    // Intrinsics that are not implemented directly by target instructions will
+    // be re-materialized as users calls in rationalizer.
+    //
+    // For prefixed tail calls, don't do this optimization, because it will be
+    // non-trivial task or too late to re-materialize a surviving tail prefixed
+    // INTRINSIC as tail call in rationalizer.
+    //
+    // On x86 RyuJIT, importing intrinsics that are implemented as user calls can
+    // cause incorrect calculation of the depth of the stack if these intrinsics are
+    // used as arguments to another call. This causes bad code generation for certain
+    // EH constructs.
+
+    if (isCall NOT_X86(&&tailCall))
+    {
+        return nullptr;
+    }
+
     GenTree* op1 = nullptr;
     GenTree* op2 = nullptr;
 
-#ifndef TARGET_X86
-    // Intrinsics that are not implemented directly by target instructions will
-    // be re-materialized as users calls in rationalizer. For prefixed tail calls,
-    // don't do this optimization, because
-    //  a) For back compatibility reasons on desktop .NET Framework 4.6 / 4.6.1
-    //  b) It will be non-trivial task or too late to re-materialize a surviving
-    //     tail prefixed GT_INTRINSIC as tail call in rationalizer.
-    if (!IsIntrinsicImplementedByUserCall(intrinsicName) || !tailCall)
-#else
-    // On x86 RyuJIT, importing intrinsics that are implemented as user calls can cause incorrect calculation
-    // of the depth of the stack if these intrinsics are used as arguments to another call. This causes bad
-    // code generation for certain EH constructs.
-    if (!IsIntrinsicImplementedByUserCall(intrinsicName))
-#endif
+    switch (sig->numArgs)
     {
-        switch (sig->numArgs)
-        {
-            CORINFO_CLASS_HANDLE    tmpClass;
-            CORINFO_ARG_LIST_HANDLE param;
-            var_types               paramType;
+        CORINFO_CLASS_HANDLE    tmpClass;
+        CORINFO_ARG_LIST_HANDLE param;
+        var_types               paramType;
 
-            case 1:
-                op1 = impPopStack().val;
+        case 1:
+            op1 = impPopStack().val;
 
-                param     = sig->args;
-                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            param     = sig->args;
+            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op1->GetType() != paramType)
-                {
-                    assert(varTypeIsFloating(op1->GetType()));
-                    // TODO-MIKE-Review: This is messed up, it casts to the method's
-                    // return type instead of casting to the parameter type. This
-                    // would probably blow in some cases involving ILogB.
-                    op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
-                }
+            if (op1->GetType() != paramType)
+            {
+                assert(varTypeIsFloating(op1->GetType()));
+                // TODO-MIKE-Review: This is messed up, it casts to the method's
+                // return type instead of casting to the parameter type. This
+                // would probably blow in some cases involving ILogB.
+                op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
+            }
 
-                break;
+            break;
 
-            case 2:
-                op2 = impPopStack().val;
-                op1 = impPopStack().val;
+        case 2:
+            op2 = impPopStack().val;
+            op1 = impPopStack().val;
 
-                param     = sig->args;
-                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            param     = sig->args;
+            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op1->GetType() != paramType)
-                {
-                    assert(varTypeIsFloating(op1->GetType()));
-                    op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
-                }
+            if (op1->GetType() != paramType)
+            {
+                assert(varTypeIsFloating(op1->GetType()));
+                op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
+            }
 
-                param     = info.compCompHnd->getArgNext(param);
-                paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            param     = info.compCompHnd->getArgNext(param);
+            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
 
-                if (op2->GetType() != paramType)
-                {
-                    assert(varTypeIsFloating(op2->GetType()));
-                    op2 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op2);
-                }
+            if (op2->GetType() != paramType)
+            {
+                assert(varTypeIsFloating(op2->GetType()));
+                op2 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op2);
+            }
 
-                break;
+            break;
 
-            default:
-                NO_WAY("Unsupported number of args for Math Intrinsic");
-        }
-
-        op1 = new (comp, GT_INTRINSIC)
-            GenTreeIntrinsic(varActualType(callType), op1, op2, intrinsicName,
-                             IsIntrinsicImplementedByUserCall(intrinsicName) ? method : nullptr);
+        default:
+            NO_WAY("Unsupported number of args for Math Intrinsic");
     }
 
-    return op1;
+    return comp->gtNewIntrinsic(varActualType(callType), intrinsicName, isCall ? callInfo : nullptr, op1, op2);
 }
 
 //------------------------------------------------------------------------
@@ -4830,8 +4825,8 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_
         lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
         lastArg = gtInsertNewCallArgAfter(classHandle, lastArg);
 #else
-        args = gtPrependNewCallArg(numArgsNode, args);
-        args = gtPrependNewCallArg(classHandle, args);
+        args                       = gtPrependNewCallArg(numArgsNode, args);
+        args                       = gtPrependNewCallArg(classHandle, args);
 #endif
 
         call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
@@ -6370,21 +6365,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
             if (value != nullptr)
             {
-#ifdef FEATURE_READYTORUN_COMPILER
-                if (GenTreeIntrinsic* intrinsic = value->IsIntrinsic())
-                {
-                    if (opts.IsReadyToRun())
-                    {
-                        noway_assert(callInfo->kind == CORINFO_CALL);
-                        intrinsic->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
-                    }
-                    else
-                    {
-                        intrinsic->ClearR2REntryPoint();
-                    }
-                }
-#endif
-
                 if (callRetTyp == TYP_VOID)
                 {
                     unsigned spillDepth = verCurrentState.esStackDepth;

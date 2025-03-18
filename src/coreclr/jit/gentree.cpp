@@ -3819,6 +3819,27 @@ GenTreeCall* Compiler::gtNewCallNode(
     return node;
 }
 
+GenTreeIntrinsic* Compiler::gtNewIntrinsic(
+    var_types type, NamedIntrinsic intrinsic, CORINFO_CALL_INFO* callInfo, GenTree* op1, GenTree* op2)
+{
+    GenTreeIntrinsic* node = new (this, GT_INTRINSIC)
+        GenTreeIntrinsic(type, intrinsic, callInfo == nullptr ? nullptr : callInfo->hMethod, op1, op2);
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun() && (callInfo != nullptr))
+    {
+        noway_assert(callInfo->kind == CORINFO_CALL);
+        node->SetR2REntryPoint(callInfo->codePointerLookup.constLookup);
+    }
+    else
+    {
+        node->ClearR2REntryPoint();
+    }
+#endif
+
+    return node;
+}
+
 GenTreeLclLoad* Compiler::gtNewLclLoad(LclVarDsc* lcl, var_types type)
 {
 #ifdef DEBUG
