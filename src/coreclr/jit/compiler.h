@@ -1969,7 +1969,7 @@ struct Importer
                           bool                    tailCall,
                           CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
                           CORINFO_CALL_INFO*      callInfo,
-                          CorInfoIntrinsics*      pIntrinsicId,
+                          NamedIntrinsic*         pIntrinsicId,
                           bool*                   isSpecialIntrinsic);
     GenTree* impMathIntrinsic(CORINFO_CALL_INFO* callInfo,
                               CORINFO_SIG_INFO*  sig,

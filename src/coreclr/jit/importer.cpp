@@ -2515,7 +2515,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                                 bool                    tailCall,
                                 CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                 CORINFO_CALL_INFO*      callInfo,
-                                CorInfoIntrinsics*      pIntrinsicId,
+                                NamedIntrinsic*         pIntrinsicId,
                                 bool*                   isSpecialIntrinsic)
 {
     assert((methodFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0);
@@ -2619,11 +2619,8 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     // the NextCallReturnAddress intrinsic.
     if (!mustExpand && (opts.OptimizationDisabled() || info.compHasNextCallRetAddr))
     {
-        *pIntrinsicId = CORINFO_INTRINSIC_Illegal;
         return nullptr;
     }
-
-    *pIntrinsicId = intrinsicId;
 
     if (intrinsicId != CORINFO_INTRINSIC_Illegal)
     {
@@ -2631,20 +2628,21 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         static_assert_no_msg(CORINFO_INTRINSIC_Array_Get == 0);
         static_assert_no_msg(NI_CORINFO_INTRINSIC_END - NI_CORINFO_INTRINSIC_START - 1 == CORINFO_INTRINSIC_Count);
 
-        ni = static_cast<NamedIntrinsic>(intrinsicId + NI_CORINFO_INTRINSIC_Array_Get);
+        ni            = static_cast<NamedIntrinsic>(intrinsicId + NI_CORINFO_INTRINSIC_Array_Get);
+        *pIntrinsicId = ni;
     }
 
     var_types callType  = CorTypeToVarType(sig->retType);
     GenTree*  retNode   = nullptr;
     bool      isSpecial = false;
-#ifndef TARGET_ARM
-    genTreeOps interlockedOperator;
-#endif
 
     switch (ni)
     {
         GenTree* op1;
         GenTree* op2;
+#ifndef TARGET_ARM
+        genTreeOps interlockedOperator;
+#endif
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
         // TODO-ARM-CQ: reenable treating Interlocked operation as intrinsic
@@ -2880,8 +2878,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             store->AddSideEffects(GTF_GLOB_REF);
             impSpillNoneAppendTree(store);
 
-            retNode =
-                comp->gtNewIndLoad(CorTypeToVarType(sig->retType), comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
+            retNode = comp->gtNewIndLoad(callType, comp->gtNewLclAddr(rawHandleSlotLcl, TYP_I_IMPL));
 
             break;
         }
@@ -6310,8 +6307,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 callInfo->kind, varTypeName(callRetTyp),
                 callRetTyp == TYP_STRUCT ? info.compCompHnd->getClassSize(sig->retTypeSigClass) : 0);
 
-        CorInfoIntrinsics intrinsicID = CORINFO_INTRINSIC_Count;
-
         if (compIsForInlining())
         {
             // Does this call site have security boundary restrictions?
@@ -6348,8 +6343,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
         }
 
-        // <NICE> Factor this into getCallInfo </NICE>
-        bool isSpecialIntrinsic = false;
+        NamedIntrinsic intrinsicID        = NI_Illegal;
+        bool           isSpecialIntrinsic = false;
 
         if ((mflags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
         {
@@ -6419,8 +6414,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                 // We remove the null check for the GetType call intrinsic.
                 // TODO-CQ: JIT64 does not introduce the null check for many more helper calls and intrinsics.
-                if (callInfo->nullInstanceCheck &&
-                    (((mflags & CORINFO_FLG_INTRINSIC) == 0) || (intrinsicID != CORINFO_INTRINSIC_Object_GetType)))
+                if (callInfo->nullInstanceCheck && (intrinsicID != NI_CORINFO_INTRINSIC_Object_GetType))
                 {
                     call->AddNullCheck();
                 }
