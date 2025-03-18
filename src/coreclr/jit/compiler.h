@@ -1558,7 +1558,6 @@ struct Importer
     void setMethodHasExpRuntimeLookup();
     INDEBUG(bool compTailCallStress();)
 
-    NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
 #ifdef FEATURE_HW_INTRINSICS
     NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
                                               const char*           className,
@@ -3540,7 +3539,7 @@ public:
     //=========================================================================
 
 protected:
-    CORINFO_CLASS_HANDLE impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE specialIntrinsicHandle);
+    CORINFO_CLASS_HANDLE gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call);
 
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
 

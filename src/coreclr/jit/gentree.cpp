@@ -7443,7 +7443,7 @@ GenTree* Compiler::gtFoldExprCall(GenTreeCall* call)
 {
     assert(call->IsSpecialIntrinsic());
 
-    NamedIntrinsic ni = lookupNamedIntrinsic(call->GetMethodHandle());
+    NamedIntrinsic ni = call->GetIntrinsic();
 
     if (ni == NI_System_Enum_HasFlag)
     {
@@ -10194,19 +10194,14 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
 {
     if (GenTreeCall* call = tree->IsCall())
     {
-        if (call->IsHelperCall())
+        if (call->IsTypeHandleToRuntimeTypeHelperCall())
         {
-            if (call->IsTypeHandleToRuntimeTypeHelperCall())
-            {
-                return TPK_Handle;
-            }
+            return TPK_Handle;
         }
-        else if (call->IsSpecialIntrinsic())
+
+        if (call->IsSpecialIntrinsic() && (call->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType))
         {
-            if (info.compCompHnd->getIntrinsicID(call->GetMethodHandle()) == CORINFO_INTRINSIC_Object_GetType)
-            {
-                return TPK_GetType;
-            }
+            return TPK_GetType;
         }
     }
     else if (tree->IsIntrinsic() && (tree->AsIntrinsic()->GetIntrinsic() == NI_CORINFO_INTRINSIC_Object_GetType))
@@ -10442,8 +10437,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
 
             if (call->IsSpecialIntrinsic())
             {
-                CORINFO_METHOD_HANDLE method = call->GetMethodHandle();
-                NamedIntrinsic        ni     = lookupNamedIntrinsic(method);
+                NamedIntrinsic ni = call->GetIntrinsic();
 
                 if ((ni == NI_System_Array_Clone) || (ni == NI_System_Object_MemberwiseClone))
                 {
@@ -10451,7 +10445,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                     break;
                 }
 
-                if (CORINFO_CLASS_HANDLE specialObjClass = impGetSpecialIntrinsicExactReturnType(method))
+                if (CORINFO_CLASS_HANDLE specialObjClass = gtGetSpecialIntrinsicExactReturnType(call))
                 {
                     objClass    = specialObjClass;
                     *pIsExact   = true;

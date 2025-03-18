@@ -2563,11 +2563,11 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     if ((methodFlags & CORINFO_FLG_JIT_INTRINSIC) != 0)
     {
         // The recursive non-virtual calls to Jit intrinsics are must-expand by convention.
-        mustExpand = mustExpand || (gtIsRecursiveCall(method) && !(methodFlags & CORINFO_FLG_VIRTUAL));
+        mustExpand = mustExpand || (gtIsRecursiveCall(method) && ((methodFlags & CORINFO_FLG_VIRTUAL) == 0));
 
         if (intrinsicId == CORINFO_INTRINSIC_Illegal)
         {
-            ni = lookupNamedIntrinsic(method);
+            ni = comp->lookupNamedIntrinsic(method);
 
             // We specially support the following on all platforms to allow for dead
             // code optimization and to more generally support recursive intrinsics.
@@ -2630,9 +2630,10 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
         static_assert_no_msg(CORINFO_INTRINSIC_Array_Get == 0);
         static_assert_no_msg(NI_CORINFO_INTRINSIC_END - NI_CORINFO_INTRINSIC_START - 1 == CORINFO_INTRINSIC_Count);
 
-        ni            = static_cast<NamedIntrinsic>(intrinsicId + NI_CORINFO_INTRINSIC_Array_Get);
-        *pIntrinsicId = ni;
+        ni = static_cast<NamedIntrinsic>(intrinsicId + NI_CORINFO_INTRINSIC_Array_Get);
     }
+
+    *pIntrinsicId = ni;
 
     var_types callType = CorTypeToVarType(sig->retType);
     GenTree*  retNode  = nullptr;
@@ -3062,7 +3063,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
                     assert(retExpr->GetRetExpr() == call);
 
                     if (call->IsSpecialIntrinsic() &&
-                        (lookupNamedIntrinsic(call->GetMethodHandle()) == NI_System_Threading_Thread_get_CurrentThread))
+                        (call->GetIntrinsic() == NI_System_Threading_Thread_get_CurrentThread))
                     {
                         impPopStack(); // drop get_CurrentThread() call
                         call->ChangeToNothingNode();
@@ -3255,13 +3256,13 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
 }
 
 GenTree* Importer::impMathIntrinsic(
-    CORINFO_CALL_INFO* callInfo, CORINFO_SIG_INFO* sig, var_types callType, NamedIntrinsic intrinsicName, bool tailCall)
+    CORINFO_CALL_INFO* callInfo, CORINFO_SIG_INFO* sig, var_types callType, NamedIntrinsic intrinsic, bool tailCall)
 {
     assert(callType != TYP_STRUCT);
-    assert(Compiler::IsMathIntrinsic(intrinsicName));
+    assert(Compiler::IsMathIntrinsic(intrinsic));
 
 #ifdef FEATURE_HW_INTRINSICS
-    if (intrinsicName == NI_System_Math_FusedMultiplyAdd)
+    if (intrinsic == NI_System_Math_FusedMultiplyAdd)
     {
         assert(sig->numArgs == 3);
         assert(varTypeIsFloating(callType));
@@ -3269,55 +3270,39 @@ GenTree* Importer::impMathIntrinsic(
 #ifdef TARGET_XARCH
         if (compExactlyDependsOn(InstructionSet_FMA) && supportSIMDTypes())
         {
-            // We are constructing a chain of intrinsics similar to:
-            //    return FMA.MultiplyAddScalar(
-            //        Vector128.CreateScalarUnsafe(x),
-            //        Vector128.CreateScalarUnsafe(y),
-            //        Vector128.CreateScalarUnsafe(z)
-            //    ).ToScalar();
+            GenTree* op3 = impPopStack().val;
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = impPopStack().val;
 
-            GenTree* op3 =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
-            GenTree* op2 =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
-            GenTree* op1 =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, impPopStack().val);
+            op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op3);
+            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op2);
+            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op1);
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
 
             return gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, op1, gtNewIconNode(0));
         }
-#elif defined(TARGET_ARM64)
+#endif
+
+#ifdef TARGET_ARM64
         if (compExactlyDependsOn(InstructionSet_AdvSimd))
         {
-            // We are constructing a chain of intrinsics similar to:
-            //    return AdvSimd.FusedMultiplyAddScalar(
-            //        Vector64.Create{ScalarUnsafe}(z),
-            //        Vector64.Create{ScalarUnsafe}(y),
-            //        Vector64.Create{ScalarUnsafe}(x)
-            //    ).ToScalar();
+            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
 
-            NamedIntrinsic createVector64 =
-                (callType == TYP_DOUBLE) ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
+            GenTree* op3 = impPopStack().val;
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = impPopStack().val;
 
-            constexpr unsigned int simdSize = 8;
+            op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op3);
+            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op2);
+            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op1);
+            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, 8, op3, op2, op1);
 
-            GenTree* op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-            GenTree* op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-            GenTree* op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, createVector64, callType, simdSize, impPopStack().val);
-
-            // Note that AdvSimd.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 + op2 * op3
-            // while Math{F}.FusedMultiplyAddScalar(op1,op2,op3) corresponds to op1 * op2 + op3
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, simdSize, op3, op2,
-                                           op1);
-
-            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, simdSize, op1,
-                                            gtNewIconNode(0));
+            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, 8, op1, gtNewIconNode(0));
         }
 #endif
 
         // TODO-CQ-XArch: Ideally we would create a INTRINSIC node for fma, however, that
         // currently requires more extensive changes to VN to support methods with 3 operands.
-
         // We want to generate a INTRINSIC node in the case the call can't be treated as
         // a target intrinsic so that we can still benefit from CSE and constant folding.
 
@@ -3325,7 +3310,7 @@ GenTree* Importer::impMathIntrinsic(
     }
 #endif // FEATURE_HW_INTRINSICS
 
-    const bool isCall = IsIntrinsicImplementedByUserCall(intrinsicName);
+    const bool isCall = IsIntrinsicImplementedByUserCall(intrinsic);
 
     // Intrinsics that are not implemented directly by target instructions will
     // be re-materialized as users calls in rationalizer.
@@ -3395,10 +3380,10 @@ GenTree* Importer::impMathIntrinsic(
             break;
 
         default:
-            NO_WAY("Unsupported number of args for Math Intrinsic");
+            unreached();
     }
 
-    return comp->gtNewIntrinsic(varActualType(callType), intrinsicName, isCall ? callInfo : nullptr, op1, op2);
+    return comp->gtNewIntrinsic(varActualType(callType), intrinsic, isCall ? callInfo : nullptr, op1, op2);
 }
 
 //------------------------------------------------------------------------
@@ -6522,7 +6507,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if (isSpecialIntrinsic)
         {
+            assert(intrinsicID != NI_Illegal);
             call->gtCallMoreFlags |= GTF_CALL_M_SPECIAL_INTRINSIC;
+            call->SetIntrinsic(intrinsicID);
         }
 
         if ((mflags & CORINFO_FLG_DELEGATE_INVOKE) != 0)
@@ -15285,7 +15272,7 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
 }
 
 //------------------------------------------------------------------------
-// impGetSpecialIntrinsicExactReturnType: Look for special cases where a call
+// gtGetSpecialIntrinsicExactReturnType: Look for special cases where a call
 //   to an intrinsic returns an exact type
 //
 // Arguments:
@@ -15295,66 +15282,56 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
 //     Exact class handle returned by the intrinsic call, if known.
 //     Nullptr if not known, or not likely to lead to beneficial optimization.
 
-CORINFO_CLASS_HANDLE Compiler::impGetSpecialIntrinsicExactReturnType(CORINFO_METHOD_HANDLE methodHnd)
+CORINFO_CLASS_HANDLE Compiler::gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call)
 {
-    JITDUMP("Special intrinsic: looking for exact type returned by %s\n", eeGetMethodFullName(methodHnd));
+    JITDUMP("Special intrinsic: looking for exact type returned by %s\n", eeGetMethodFullName(call->GetMethodHandle()));
 
-    CORINFO_CLASS_HANDLE result = nullptr;
+    const NamedIntrinsic ni = call->GetIntrinsic();
 
-    // See what intrinisc we have...
-    const NamedIntrinsic ni = lookupNamedIntrinsic(methodHnd);
-    switch (ni)
+    if ((ni == NI_System_Collections_Generic_Comparer_get_Default) ||
+        (ni == NI_System_Collections_Generic_EqualityComparer_get_Default))
     {
-        case NI_System_Collections_Generic_Comparer_get_Default:
-        case NI_System_Collections_Generic_EqualityComparer_get_Default:
+        // Expect one class generic parameter; figure out which it is.
+        CORINFO_SIG_INFO sig;
+        info.compCompHnd->getMethodSig(call->GetMethodHandle(), &sig);
+        assert(sig.sigInst.classInstCount == 1);
+        CORINFO_CLASS_HANDLE typeHnd = sig.sigInst.classInst[0];
+        assert(typeHnd != nullptr);
+
+        // Lookup can incorrect when we have __Canon as it won't appear
+        // to implement any interface types.
+        // And if we do not have a final type, devirt & inlining is
+        // unlikely to result in much simplification.
+        // We can use CORINFO_FLG_FINAL to screen out both of these cases.
+
+        const bool isFinalType = (info.compCompHnd->getClassAttribs(typeHnd) & CORINFO_FLG_FINAL) != 0;
+
+        if (!isFinalType)
         {
-            // Expect one class generic parameter; figure out which it is.
-            CORINFO_SIG_INFO sig;
-            info.compCompHnd->getMethodSig(methodHnd, &sig);
-            assert(sig.sigInst.classInstCount == 1);
-            CORINFO_CLASS_HANDLE typeHnd = sig.sigInst.classInst[0];
-            assert(typeHnd != nullptr);
+            JITDUMP("Special intrinsic for type %s: type not final, so deferring opt\n", eeGetClassName(typeHnd));
 
-            // Lookup can incorrect when we have __Canon as it won't appear
-            // to implement any interface types.
-            //
-            // And if we do not have a final type, devirt & inlining is
-            // unlikely to result in much simplification.
-            //
-            // We can use CORINFO_FLG_FINAL to screen out both of these cases.
-            const DWORD typeAttribs = info.compCompHnd->getClassAttribs(typeHnd);
-            const bool  isFinalType = ((typeAttribs & CORINFO_FLG_FINAL) != 0);
-
-            if (isFinalType)
-            {
-                if (ni == NI_System_Collections_Generic_EqualityComparer_get_Default)
-                {
-                    result = info.compCompHnd->getDefaultEqualityComparerClass(typeHnd);
-                }
-                else
-                {
-                    assert(ni == NI_System_Collections_Generic_Comparer_get_Default);
-                    result = info.compCompHnd->getDefaultComparerClass(typeHnd);
-                }
-                JITDUMP("Special intrinsic for type %s: return type is %s\n", eeGetClassName(typeHnd),
-                        result != nullptr ? eeGetClassName(result) : "unknown");
-            }
-            else
-            {
-                JITDUMP("Special intrinsic for type %s: type not final, so deferring opt\n", eeGetClassName(typeHnd));
-            }
-
-            break;
+            return nullptr;
         }
 
-        default:
+        CORINFO_CLASS_HANDLE result;
+
+        if (ni == NI_System_Collections_Generic_EqualityComparer_get_Default)
         {
-            JITDUMP("This special intrinsic not handled, sorry...\n");
-            break;
+            result = info.compCompHnd->getDefaultEqualityComparerClass(typeHnd);
         }
+        else
+        {
+            assert(ni == NI_System_Collections_Generic_Comparer_get_Default);
+            result = info.compCompHnd->getDefaultComparerClass(typeHnd);
+        }
+
+        JITDUMP("Special intrinsic for type %s: return type is %s\n", eeGetClassName(typeHnd),
+                result != nullptr ? eeGetClassName(result) : "unknown");
+
+        return result;
     }
 
-    return result;
+    return nullptr;
 }
 
 // Iterate through call arguments and spill RET_EXPR to local variables.
@@ -16477,11 +16454,6 @@ bool Importer::compTailCallStress()
     return comp->compTailCallStress();
 }
 #endif
-
-NamedIntrinsic Importer::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
-{
-    return comp->lookupNamedIntrinsic(method);
-}
 
 #ifdef FEATURE_HW_INTRINSICS
 NamedIntrinsic Importer::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
