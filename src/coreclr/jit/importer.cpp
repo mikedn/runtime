@@ -1367,16 +1367,12 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
     // Call the helper
     // - Setup argValue with the pointer to the signature returned by the lookup
-    GenTree* argNode = gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
-    argNode->AsIntCon()->SetCompileTimeHandle(compileTimeHandle);
-
-    GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
-    GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+    GenTreeIntCon* argNode = gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
+    argNode->SetCompileTimeHandle(compileTimeHandle);
 
     // Check for null and possibly call helper
     GenTree* handleForResult = gtCloneExpr(handleForNullCheck);
-
-    GenTree* result = nullptr;
+    GenTree* result          = nullptr;
 
     if (runtimeLookup.sizeOffset != CORINFO_NO_SIZE_CHECK)
     {
@@ -1397,22 +1393,26 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.
-        helperCall->gtCallArgs = gtPrependNewCallArg(handleForResult, helperCall->gtCallArgs);
-        helperCall->gtCallArgs = gtPrependNewCallArg(sizeCheck, helperCall->gtCallArgs);
-        helperCall->gtCallArgs = gtPrependNewCallArg(nullCheck, helperCall->gtCallArgs);
-        result                 = helperCall;
+        GenTreeCall::Use* helperArgs = gtNewCallArgs(sizeCheck, handleForResult, ctxTree, argNode);
+        helperArgs                   = gtPrependNewCallArg(nullCheck, helperArgs);
+        GenTreeCall* helperCall      = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+
         addExpRuntimeLookupCandidate(helperCall);
+
+        result = helperCall;
     }
     else
     {
-        GenTree* nullCheck = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
+        GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
+        GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+        GenTree*          nullCheck  = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
 
         result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
     LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
-    GenTree*   asg    = comp->gtNewLclStore(tmpLcl, TYP_I_IMPL, result);
-    impSpillNoneAppendTree(asg);
+    impSpillNoneAppendTree(comp->gtNewLclStore(tmpLcl, TYP_I_IMPL, result));
+
     return comp->gtNewLclLoad(tmpLcl, TYP_I_IMPL);
 }
 
