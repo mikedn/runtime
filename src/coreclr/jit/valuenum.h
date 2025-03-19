@@ -788,19 +788,20 @@ public:
     // If "vn" is checked bound arith, then populate the "info" fields for cmpOp, cmpOper.
     void GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, CompareCheckedBoundArithInfo* info);
 
-    ValueNum EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN);
-    ValueNum EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN);
+    ValueNum EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNum argVN);
 
-    ValueNumPair EvalMathFuncUnary(var_types type, NamedIntrinsic func, ValueNumPair arg0VNP)
+    ValueNumPair EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNumPair arg0VNP)
     {
-        return {EvalMathFuncUnary(type, func, arg0VNP.GetLiberal()),
-                EvalMathFuncUnary(type, func, arg0VNP.GetConservative())};
+        return {EvalUnaryMathIntrinsic(intrinsic, arg0VNP.GetLiberal()),
+                EvalUnaryMathIntrinsic(intrinsic, arg0VNP.GetConservative())};
     }
 
-    ValueNumPair EvalMathFuncBinary(var_types type, NamedIntrinsic func, ValueNumPair arg0VNP, ValueNumPair arg1VNP)
+    ValueNum EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNum arg0VN, ValueNum arg1VN);
+
+    ValueNumPair EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNumPair arg0VNP, ValueNumPair arg1VNP)
     {
-        return {EvalMathFuncBinary(type, func, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
-                EvalMathFuncBinary(type, func, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
+        return {EvalBinaryMathIntrinsic(intrinsic, arg0VNP.GetLiberal(), arg1VNP.GetLiberal()),
+                EvalBinaryMathIntrinsic(intrinsic, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
     }
 
     // If "vn" represents a function application, returns "true" and set "*funcApp" to

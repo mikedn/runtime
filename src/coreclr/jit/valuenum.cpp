@@ -4527,8 +4527,11 @@ void ValueNumStore::SetVNIsCheckedBound(ValueNum vn)
     m_checkedBoundVNs.AddOrUpdate(vn, true);
 }
 
-ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin, ValueNum argVN)
+ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNum argVN)
 {
+    var_types      type   = intrinsic->GetType();
+    NamedIntrinsic intrin = intrinsic->GetIntrinsic();
+
     assert(Compiler::IsMathIntrinsic(intrin));
     assert((type == TYP_DOUBLE) || (type == TYP_FLOAT) ||
            ((type == TYP_INT) && ((intrin == NI_System_Math_ILogB) || (intrin == NI_System_Math_Round))));
@@ -4536,7 +4539,7 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin,
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
-    if (IsConst(argVN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(intrin)))
+    if (IsConst(argVN) && !(intrinsic->IsUserCall() && compiler->opts.IsReadyToRun()))
     {
         if (type == TYP_DOUBLE)
         {
@@ -4699,37 +4702,20 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin,
         }
 
         assert(type == TYP_INT);
+        assert(intrin == NI_System_Math_ILogB);
+
         int32_t res;
 
-        if (intrin == NI_System_Math_ILogB)
+        switch (TypeOfVN(argVN))
         {
-            switch (TypeOfVN(argVN))
-            {
-                case TYP_DOUBLE:
-                    res = ilogb(GetConstDouble(argVN));
-                    break;
-                case TYP_FLOAT:
-                    res = ilogbf(GetConstFloat(argVN));
-                    break;
-                default:
-                    unreached();
-            }
-        }
-        else
-        {
-            assert(intrin == NI_System_Math_Round);
-
-            switch (TypeOfVN(argVN))
-            {
-                case TYP_DOUBLE:
-                    res = static_cast<int32_t>(FloatingPointUtils::round(GetConstDouble(argVN)));
-                    break;
-                case TYP_FLOAT:
-                    res = static_cast<int32_t>(FloatingPointUtils::round(GetConstFloat(argVN)));
-                    break;
-                default:
-                    unreached();
-            }
+            case TYP_DOUBLE:
+                res = ilogb(GetConstDouble(argVN));
+                break;
+            case TYP_FLOAT:
+                res = ilogbf(GetConstFloat(argVN));
+                break;
+            default:
+                unreached();
         }
 
         return VNForIntCon(res);
@@ -4791,22 +4777,7 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin,
             vnf = VNF_Log10;
             break;
         case NI_System_Math_Round:
-            if (type == TYP_DOUBLE)
-            {
-                vnf = VNF_RoundDouble;
-            }
-            else if (type == TYP_FLOAT)
-            {
-                vnf = VNF_RoundSingle;
-            }
-            else if (type == TYP_INT)
-            {
-                vnf = VNF_RoundInt32;
-            }
-            else
-            {
-                unreached();
-            }
+            vnf = VNF_Round;
             break;
         case NI_System_Math_Sin:
             vnf = VNF_Sin;
@@ -4830,15 +4801,18 @@ ValueNum ValueNumStore::EvalMathFuncUnary(var_types type, NamedIntrinsic intrin,
     return VNForFunc(type, vnf, argVN);
 }
 
-ValueNum ValueNumStore::EvalMathFuncBinary(var_types type, NamedIntrinsic intrin, ValueNum arg0VN, ValueNum arg1VN)
+ValueNum ValueNumStore::EvalBinaryMathIntrinsic(GenTreeIntrinsic* intrinsic, ValueNum arg0VN, ValueNum arg1VN)
 {
+    var_types      type   = intrinsic->GetType();
+    NamedIntrinsic intrin = intrinsic->GetIntrinsic();
+
     assert(varTypeIsFloating(type));
     assert(Compiler::IsMathIntrinsic(intrin));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.
 
-    if (IsConst(arg0VN) && IsConst(arg1VN) && (!compiler->opts.IsReadyToRun() || compiler->IsTargetIntrinsic(intrin)))
+    if (IsConst(arg0VN) && IsConst(arg1VN) && !(intrinsic->IsUserCall() && compiler->opts.IsReadyToRun()))
     {
         if (type == TYP_DOUBLE)
         {
@@ -6838,7 +6812,7 @@ void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* node)
     }
     else if (node->gtOp2 == nullptr)
     {
-        vnp1 = vnStore->EvalMathFuncUnary(node->GetType(), node->GetIntrinsic(), vnp1);
+        vnp1 = vnStore->EvalUnaryMathIntrinsic(node, vnp1);
         node->SetVNP(vnStore->PackExset(vnp1, exset1));
     }
     else
@@ -6846,7 +6820,7 @@ void ValueNumbering::NumberIntrinsic(GenTreeIntrinsic* node)
         ValueNumPair exset2 = ValueNumStore::EmptyExsetVNP();
         ValueNumPair vnp2   = vnStore->UnpackExset(node->GetOp(1)->GetVNP(), &exset2);
 
-        ValueNumPair vnp = vnStore->EvalMathFuncBinary(node->GetType(), node->GetIntrinsic(), vnp1, vnp2);
+        ValueNumPair vnp = vnStore->EvalBinaryMathIntrinsic(node, vnp1, vnp2);
         node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
     }
 }
