@@ -554,8 +554,8 @@ private:
             compiler->fgNewStmtAtEnd(thenBlock, clonedStore);
 
             // Clone call. Note we must use the special candidate helper.
-            GenTreeCall* call   = compiler->gtCloneCandidateCall(origCall);
-            call->gtCallThisArg = compiler->gtNewCallArgs(compiler->gtNewLclLoad(thisTempLcl, TYP_REF));
+            GenTreeCall* call = compiler->gtCloneCandidateCall(origCall);
+            call->gtCallThisArg->SetNode(compiler->gtNewLclLoad(thisTempLcl, TYP_REF));
             call->SetIsGuarded();
 
             JITDUMP("Direct call [%06u] in block " FMT_BB "\n", call->GetID(), thenBlock->bbNum);

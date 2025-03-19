@@ -3983,6 +3983,16 @@ struct GenTreeCall final : public GenTree
         {
             m_sigTypeNum = typeNum;
         }
+
+        using GenTreeUseLink<Use>::SetNode;
+
+        void SetNode(GenTree* node, var_types type)
+        {
+            assert(varActualType(node->GetType()) == type);
+
+            SetNode(node);
+            m_sigTypeNum = static_cast<unsigned>(type);
+        }
     };
 
     using UseIterator = GenTreeUseLinkIterator<Use>;

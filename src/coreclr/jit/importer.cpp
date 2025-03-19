@@ -15018,7 +15018,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                         if (methodTableArg != nullptr)
                         {
                             // If that worked, turn the box into a copy to a local var
-                            //
                             JITDUMP("Found suitable method table arg tree [%06u]\n", methodTableArg->GetID());
                             GenTree* localCopyThis =
                                 gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
@@ -15026,10 +15025,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             if (localCopyThis != nullptr)
                             {
                                 // Pass the local var as this and the type handle as a new arg
-                                //
-                                JITDUMP("Success! invoking unboxed entry point on local copy, and passing method table "
-                                        "arg\n");
-                                call->gtCallThisArg = gtNewCallArgs(localCopyThis);
+                                JITDUMP("Invoking unboxed entry point on local copy\n");
+
+                                call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
                                 call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
 
                                 if (call->gtCallArgs == nullptr)
@@ -15066,7 +15064,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
                                 // Method attributes will differ because unboxed entry point is shared
                                 //
-                                const DWORD unboxedMethodAttribs =
+                                const uint32_t unboxedMethodAttribs =
                                     info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
                                 JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs,
                                         unboxedMethodAttribs);
@@ -15086,18 +15084,19 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                     else
                     {
                         JITDUMP("Found unboxed entry point, trying to simplify box to a local copy\n");
-                        GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
 
-                        if (localCopyThis != nullptr)
+                        if (GenTree* localCopyThis =
+                                gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY))
                         {
-                            JITDUMP("Success! invoking unboxed entry point on local copy\n");
-                            call->gtCallThisArg = gtNewCallArgs(localCopyThis);
+                            JITDUMP("Invoking unboxed entry point on local copy\n");
+
+                            call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
                             call->SetMethodHandle(unboxedEntryMethod);
                             call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+
                             derivedMethod         = unboxedEntryMethod;
                             pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
-
-                            optimizedTheBox = true;
+                            optimizedTheBox       = true;
                         }
                         else
                         {
@@ -15127,15 +15126,13 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                     // If we get here, we have a boxed value class that either wasn't boxed
                     // locally, or was boxed locally but we were unable to remove the box for
                     // various reasons.
-                    //
                     // We can still update the call to invoke the unboxed entry, if the
                     // boxed value is simple.
-                    //
+
+                    GenTree* const thisArg = call->gtCallThisArg->GetNode();
+
                     if (requiresInstMethodTableArg)
                     {
-                        // Get the method table from the boxed object.
-                        //
-                        GenTree* const thisArg       = call->gtCallThisArg->GetNode();
                         GenTree* const clonedThisArg = gtCloneSimple(thisArg);
 
                         if (clonedThisArg == nullptr)
@@ -15154,7 +15151,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                             GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
-                            call->gtCallThisArg = gtNewCallArgs(boxPayload);
+                            call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
                             call->SetMethodHandle(unboxedEntryMethod);
                             call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
 
@@ -15200,13 +15197,13 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                     {
                         JITDUMP("revising call to invoke unboxed entry\n");
 
-                        GenTree* const thisArg       = call->gtCallThisArg->GetNode();
                         GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                         GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
-                        call->gtCallThisArg = gtNewCallArgs(boxPayload);
+                        call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
                         call->SetMethodHandle(unboxedEntryMethod);
                         call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+
                         derivedMethod         = unboxedEntryMethod;
                         pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
                     }
