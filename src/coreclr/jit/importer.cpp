@@ -1370,9 +1370,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     GenTreeIntCon* argNode = gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
     argNode->SetCompileTimeHandle(compileTimeHandle);
 
-    // Check for null and possibly call helper
-    GenTree* handleForResult = gtCloneExpr(handleForNullCheck);
-    GenTree* result          = nullptr;
+    LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
+    GenTree*   result = nullptr;
 
     if (runtimeLookup.sizeOffset != CORINFO_NO_SIZE_CHECK)
     {
@@ -1383,19 +1382,19 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         // sizeValue = dictionary[pRuntimeLookup->sizeOffset]
         GenTreeIntCon* sizeOffset      = gtNewIconNode(runtimeLookup.sizeOffset, TYP_I_IMPL);
         GenTree*       sizeValueOffset = gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
-        GenTree*       sizeValue       = comp->gtNewIndLoad(TYP_I_IMPL, sizeValueOffset);
+        // TODO-MIKE-Review: Is this really I_IMPL? It looks like the runtime only stores an INT32 here.
+        // And the value is unsigned so the LE compare below should also be unsigned.
+        GenTree* sizeValue = comp->gtNewIndLoad(TYP_I_IMPL, sizeValueOffset);
         sizeValue->gtFlags |= GTF_IND_NONFAULTING;
 
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
         GenTree* offsetValue = gtNewIconNode(runtimeLookup.offsets[runtimeLookup.indirections - 1], TYP_I_IMPL);
         GenTree* sizeCheck   = gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
-        GenTree* nullCheck   = gtNewOperNode(GT_EQ, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.
-        GenTreeCall::Use* helperArgs = gtNewCallArgs(sizeCheck, handleForResult, ctxTree, argNode);
-        helperArgs                   = gtPrependNewCallArg(nullCheck, helperArgs);
-        GenTreeCall* helperCall      = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+        GenTreeCall::Use* helperArgs = gtNewCallArgs(handleForNullCheck, sizeCheck, ctxTree, argNode);
+        GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
 
         addExpRuntimeLookupCandidate(helperCall);
 
@@ -1406,11 +1405,11 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
         GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
         GenTree*          nullCheck  = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
+        GenTree*          handleForResult = gtCloneExpr(handleForNullCheck);
 
         result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
-    LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
     impSpillNoneAppendTree(comp->gtNewLclStore(tmpLcl, TYP_I_IMPL, result));
 
     return comp->gtNewLclLoad(tmpLcl, TYP_I_IMPL);

@@ -98,6 +98,7 @@ private:
             , name(name)
 #endif
         {
+            assert(!compiler->fgComputePredsDone);
         }
 
         virtual void Run()
@@ -152,7 +153,6 @@ private:
 
         virtual void ChainFlow()
         {
-            assert(!compiler->fgComputePredsDone);
             checkBlock->bbJumpDest = elseBlock;
             thenBlock->bbJumpDest  = remainderBlock;
         }
@@ -842,50 +842,11 @@ private:
         }
     };
 
-    // Runtime lookup with dynamic dictionary expansion transformer,
-    // it expects helper runtime lookup call with additional arguments that are:
-    // result handle, nullCheck tree, sizeCheck tree.
-    // before:
-    //   current block
-    //   {
-    //     previous statements
-    //     transforming statement
-    //     {
-    //       STORE_LCL_VAR call with GTF_CALL_M_EXP_RUNTIME_LOOKUP flag set and additional arguments.
-    //     }
-    //     subsequent statements
-    //   }
-    //
-    // after:
-    //   current block
-    //   {
-    //     previous statements
-    //   } BBJ_NONE check block
-    //   check block
-    //   {
-    //     jump to else if the handle fails size check
-    //   } BBJ_COND check block2, else block
-    //   check block2
-    //   {
-    //     jump to else if the handle fails null check
-    //   } BBJ_COND then block, else block
-    //   then block
-    //   {
-    //     return handle
-    //   } BBJ_ALWAYS remainder block
-    //   else block
-    //   {
-    //     do a helper call
-    //   } BBJ_NONE remainder block
-    //   remainder block
-    //   {
-    //     subsequent statements
-    //   }
-    //
+    // Runtime lookup with dynamic dictionary expansion transformer, it expects helper
+    // runtime lookup call with 2 additional arguments: handle & sizeCheck test.
     class ExpRuntimeLookupTransformer final : public Transformer
     {
-        BasicBlock* checkBlock2 = nullptr;
-        LclVarDsc*  resultLcl;
+        LclVarDsc* resultLcl;
 
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
@@ -895,22 +856,14 @@ private:
             assert(resultLcl->TypeIs(TYP_I_IMPL));
         }
 
-    private:
-        void ClearFlag() override
+        void Run() override
         {
-            origCall->ClearExpRuntimeLookup();
-        }
+            JITDUMP("*** %s: transforming " FMT_STMT "\n", name, stmt->GetID());
 
-        void FixupRetExpr() override
-        {
-        }
-
-        void CreateCheck() override
-        {
             GenTreeCall::Use* args = origCall->gtCallArgs;
 
-            GenTree* nullCheck = args->GetNode();
-            assert(nullCheck->OperIs(GT_EQ));
+            GenTree* nullCheckHandle = args->GetNode();
+            assert(nullCheckHandle->TypeIs(TYP_I_IMPL) && nullCheckHandle->IsIndLoad());
             args = args->GetNext();
 
             GenTree* sizeCheck = args->GetNode();
@@ -919,57 +872,64 @@ private:
 
             // The first argument is the handle now.
             origCall->gtCallArgs = args;
+            origCall->ClearExpRuntimeLookup();
 
-            checkBlock             = CreateBasicBlock(BBJ_COND, currBlock);
-            GenTree*   sizeJmpTree = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, sizeCheck);
-            Statement* sizeJmpStmt = compiler->gtNewStmt(sizeJmpTree, stmt->GetILOffsetX());
-            compiler->fgInsertStmtAtEnd(checkBlock, sizeJmpStmt);
+            BasicBlock* resultBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
+            resultBlock->bbFlags |= BBF_INTERNAL;
+            resultBlock->inheritWeight(currBlock);
+            compiler->fgRemoveStmt(currBlock, stmt);
 
-            checkBlock2            = CreateBasicBlock(BBJ_COND, checkBlock);
-            GenTree*   nullJmpTree = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, nullCheck);
-            Statement* nullJmpStmt = compiler->gtNewStmt(nullJmpTree, stmt->GetILOffsetX());
-            compiler->fgInsertStmtAtEnd(checkBlock2, nullJmpStmt);
+            GenTree* callBlockJmp = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, sizeCheck);
+            compiler->fgInsertStmtAtEnd(currBlock, compiler->gtNewStmt(callBlockJmp, stmt->GetILOffsetX()));
+            currBlock->bbJumpKind = BBJ_COND;
+
+            BasicBlock* nullCheckBlock = CreateBasicBlock(BBJ_COND, currBlock);
+            nullCheckBlock->inheritWeightPercentage(currBlock, HIGH_PROBABILITY);
+
+            GenTree* handleStore = compiler->gtNewLclStore(resultLcl, TYP_I_IMPL, nullCheckHandle);
+            compiler->fgInsertStmtAtEnd(nullCheckBlock, compiler->gtNewStmt(handleStore, stmt->GetILOffsetX()));
+
+            GenTree* handleLoad     = compiler->gtNewLclLoad(resultLcl, TYP_I_IMPL);
+            GenTree* nullConst      = compiler->gtNewIconNode(0, TYP_I_IMPL);
+            GenTree* notNullCheck   = compiler->gtNewOperNode(GT_NE, TYP_INT, handleLoad, nullConst);
+            GenTree* resultBlockJmp = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, notNullCheck);
+            compiler->fgInsertStmtAtEnd(nullCheckBlock, compiler->gtNewStmt(resultBlockJmp, stmt->GetILOffsetX()));
+            nullCheckBlock->bbJumpDest = resultBlock;
+
+            BasicBlock* callBlock = CreateBasicBlock(BBJ_NONE, nullCheckBlock);
+            callBlock->inheritWeightPercentage(currBlock, 100 - HIGH_PROBABILITY);
+            currBlock->bbJumpDest = callBlock;
+
+            compiler->fgInsertStmtAtEnd(callBlock, stmt);
+        }
+
+    private:
+        void ClearFlag() override
+        {
+        }
+
+        void FixupRetExpr() override
+        {
+        }
+
+        void CreateCheck() override
+        {
         }
 
         void CreateThen() override
         {
-            thenBlock = CreateBasicBlock(BBJ_ALWAYS, checkBlock2);
-
-            GenTree* resultHandle = origCall->gtCallArgs->GetNode();
-            // The first argument is the real first argument for the call now.
-            origCall->gtCallArgs = origCall->gtCallArgs->GetNext();
-
-            StoreResult(thenBlock, resultHandle);
         }
 
         void CreateElse() override
         {
-            elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
-
-            StoreResult(elseBlock, origCall);
-        }
-
-        void StoreResult(BasicBlock* block, GenTree* result)
-        {
-            GenTree* store = compiler->gtNewLclStore(resultLcl, TYP_I_IMPL, result);
-            compiler->fgInsertStmtAtEnd(block, compiler->gtNewStmt(store, stmt->GetILOffsetX()));
         }
 
         void SetWeights() override
         {
-            remainderBlock->inheritWeight(currBlock);
-            checkBlock->inheritWeight(currBlock);
-            checkBlock2->inheritWeightPercentage(checkBlock, HIGH_PROBABILITY);
-            thenBlock->inheritWeightPercentage(currBlock, HIGH_PROBABILITY);
-            elseBlock->inheritWeightPercentage(currBlock, 100 - HIGH_PROBABILITY);
         }
 
         void ChainFlow() override
         {
-            assert(!compiler->fgComputePredsDone);
-            checkBlock->bbJumpDest  = elseBlock;
-            checkBlock2->bbJumpDest = elseBlock;
-            thenBlock->bbJumpDest   = remainderBlock;
         }
     };
 };
