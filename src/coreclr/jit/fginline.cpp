@@ -829,7 +829,7 @@ void Compiler::inlImportInlinee()
 
     DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
     DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
-    DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
+    DoPhase(this, PHASE_INDXCALL, &Compiler::phTransformIndirectCalls);
 
     if (!compInlineResult->IsFailure())
     {

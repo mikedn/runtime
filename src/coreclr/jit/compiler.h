@@ -3785,7 +3785,7 @@ public:
                                                          // BB_UNITY_WEIGHT when we don't have profile data
 
     PhaseStatus fgImport();
-    PhaseStatus fgTransformIndirectCalls();
+    PhaseStatus phTransformIndirectCalls();
     PhaseStatus fgTransformPatchpoints();
     PhaseStatus fgInline();
     PhaseStatus fgRemoveEmptyTry();

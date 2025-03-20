@@ -76,62 +76,25 @@ private:
         BasicBlock*  currBlock;
         Statement*   stmt;
         GenTreeCall* origCall;
-#ifdef DEBUG
-        const char* name;
-#endif
-        BasicBlock* remainderBlock = nullptr;
-        BasicBlock* checkBlock     = nullptr;
-        BasicBlock* thenBlock      = nullptr;
-        BasicBlock* elseBlock      = nullptr;
-        unsigned    likelihood     = HIGH_PROBABILITY;
+        BasicBlock*  remainderBlock = nullptr;
+        BasicBlock*  checkBlock     = nullptr;
+        BasicBlock*  thenBlock      = nullptr;
+        BasicBlock*  elseBlock      = nullptr;
+        unsigned     likelihood     = HIGH_PROBABILITY;
 
     public:
-        Transformer(Compiler*    compiler,
-                    BasicBlock*  block,
-                    Statement*   stmt,
-                    GenTreeCall* call DEBUGARG(const char* name))
-            : compiler(compiler)
-            , currBlock(block)
-            , stmt(stmt)
-            , origCall(call)
-#ifdef DEBUG
-            , name(name)
-#endif
+        Transformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
+            : compiler(compiler), currBlock(block), stmt(stmt), origCall(call)
         {
             assert(!compiler->fgComputePredsDone);
         }
 
-        virtual void Run()
-        {
-            Transform();
-        }
-
-        void Transform()
-        {
-            JITDUMP("*** %s: transforming " FMT_STMT "\n", name, stmt->GetID());
-
-            FixupRetExpr();
-            ClearFlag();
-            SplitBlock();
-            CreateCheck();
-            CreateThen();
-            CreateElse();
-            compiler->fgRemoveStmt(currBlock, stmt);
-            SetWeights();
-            ChainFlow();
-        }
-
     protected:
-        virtual void ClearFlag()    = 0;
-        virtual void FixupRetExpr() = 0;
-
         void SplitBlock()
         {
             remainderBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
             remainderBlock->bbFlags |= BBF_INTERNAL;
         }
-
-        virtual void CreateCheck() = 0;
 
         BasicBlock* CreateBasicBlock(BBjumpKinds jumpKind, BasicBlock* insertAfter)
         {
@@ -140,10 +103,7 @@ private:
             return block;
         }
 
-        virtual void CreateThen() = 0;
-        virtual void CreateElse() = 0;
-
-        virtual void SetWeights()
+        void SetWeights()
         {
             remainderBlock->inheritWeight(currBlock);
             checkBlock->inheritWeight(currBlock);
@@ -151,7 +111,7 @@ private:
             elseBlock->inheritWeightPercentage(currBlock, 100 - likelihood);
         }
 
-        virtual void ChainFlow()
+        void ChainFlow()
         {
             checkBlock->bbJumpDest = elseBlock;
             thenBlock->bbJumpDest  = remainderBlock;
@@ -221,23 +181,33 @@ private:
 
     public:
         FatPointerCallTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
-            : Transformer(compiler, block, stmt, call DEBUGARG("FatPointerCall"))
+            : Transformer(compiler, block, stmt, call)
             , fptrAddress(origCall->GetCallAddr())
             , pointerType(fptrAddress->GetType())
         {
         }
 
+        void Run()
+        {
+            JITDUMP("*** FatPointerCall: transforming " FMT_TREEID "\n", origCall->GetID());
+
+            ClearFlag();
+            SplitBlock();
+            CreateCheck();
+            CreateThen();
+            CreateElse();
+            compiler->fgRemoveStmt(currBlock, stmt);
+            SetWeights();
+            ChainFlow();
+        }
+
     private:
-        void ClearFlag() override
+        void ClearFlag()
         {
             origCall->ClearFatPointerCandidate();
         }
 
-        void FixupRetExpr() override
-        {
-        }
-
-        void CreateCheck() override
+        void CreateCheck()
         {
             checkBlock                 = CreateBasicBlock(BBJ_COND, currBlock);
             GenTree*   fatPointerMask  = compiler->gtNewIconNode(FAT_POINTER_MASK, TYP_I_IMPL);
@@ -250,14 +220,14 @@ private:
             compiler->fgInsertStmtAtEnd(checkBlock, jmpStmt);
         }
 
-        void CreateThen() override
+        void CreateThen()
         {
             thenBlock                     = CreateBasicBlock(BBJ_ALWAYS, checkBlock);
             Statement* copyOfOriginalStmt = compiler->gtCloneStmt(stmt);
             compiler->fgInsertStmtAtEnd(thenBlock, copyOfOriginalStmt);
         }
 
-        void CreateElse() override
+        void CreateElse()
         {
             elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
 
@@ -344,21 +314,21 @@ private:
 
     public:
         GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
-            : Transformer(compiler, block, stmt, call DEBUGARG("GuardedDevirtualization"))
+            : Transformer(compiler, block, stmt, call)
         {
         }
 
-        void Run() override
+        void Run()
         {
-            JITDUMP("\n----------------\n\n*** %s contemplating [%06u] in " FMT_BB " \n", name, origCall->GetID(),
-                    currBlock->bbNum);
+            JITDUMP("\n----------------\n\n*** GuardedDevirtualization contemplating [%06u] in " FMT_BB " \n",
+                    origCall->GetID(), currBlock->bbNum);
 
             InlineCandidateInfo* inlineInfo = origCall->HasInlinedCandidateInfo();
 
             // We currently need inline candidate info to guarded devirtualization.
             if (inlineInfo == nullptr)
             {
-                JITDUMP("*** %s Bailing on [%06u] -- not an inline node\n", name, origCall->GetID());
+                JITDUMP("*** Bailing on [%06u] -- not an inline node\n", origCall->GetID());
                 ClearFlag();
                 return;
             }
@@ -385,13 +355,26 @@ private:
             ScoutForChainedGdv();
         }
 
+        void Transform()
+        {
+            FixupRetExpr();
+            ClearFlag();
+            SplitBlock();
+            CreateCheck();
+            CreateThen();
+            CreateElse();
+            compiler->fgRemoveStmt(currBlock, stmt);
+            SetWeights();
+            ChainFlow();
+        }
+
     private:
-        void ClearFlag() override
+        void ClearFlag()
         {
             origCall->ClearGuardedDevirtualizationCandidate();
         }
 
-        void CreateCheck() override
+        void CreateCheck()
         {
             // There's no need for a new block here. We can just append to currBlock.
             checkBlock             = currBlock;
@@ -440,7 +423,7 @@ private:
             compiler->fgInsertStmtAtEnd(checkBlock, jmpStmt);
         }
 
-        void FixupRetExpr() override
+        void FixupRetExpr()
         {
             // If call returns a value, we need to copy it to a temp, and
             // bash the associated GT_RET_EXPR to refer to the temp instead
@@ -538,7 +521,7 @@ private:
             }
         }
 
-        void CreateThen() override
+        void CreateThen()
         {
             thenBlock = CreateBasicBlock(BBJ_ALWAYS, checkBlock);
             thenBlock->bbFlags |= currBlock->bbFlags & BBF_SPLIT_GAINED;
@@ -630,7 +613,7 @@ private:
             }
         }
 
-        void CreateElse() override
+        void CreateElse()
         {
             elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
             elseBlock->bbFlags |= currBlock->bbFlags & BBF_SPLIT_GAINED;
@@ -850,20 +833,19 @@ private:
 
     public:
         ExpRuntimeLookupTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
-            : Transformer(compiler, block, stmt, call DEBUGARG("ExpRuntimeLookup"))
-            , resultLcl(stmt->GetRootNode()->AsLclStore()->GetLcl())
+            : Transformer(compiler, block, stmt, call), resultLcl(stmt->GetRootNode()->AsLclStore()->GetLcl())
         {
             assert(resultLcl->TypeIs(TYP_I_IMPL));
         }
 
-        void Run() override
+        void Run()
         {
-            JITDUMP("*** %s: transforming " FMT_STMT "\n", name, stmt->GetID());
+            JITDUMP("*** ExpRuntimeLookup: transforming " FMT_TREEID "\n", origCall->GetID());
 
             GenTreeCall::Use* args = origCall->gtCallArgs;
 
-            GenTree* nullCheckHandle = args->GetNode();
-            assert(nullCheckHandle->TypeIs(TYP_I_IMPL) && nullCheckHandle->IsIndLoad());
+            GenTree* handle = args->GetNode();
+            assert(handle->TypeIs(TYP_I_IMPL) && handle->IsIndLoad());
             args = args->GetNext();
 
             GenTree* sizeCheck = args->GetNode();
@@ -874,6 +856,12 @@ private:
             origCall->gtCallArgs = args;
             origCall->ClearExpRuntimeLookup();
 
+            Transform(handle, sizeCheck);
+        }
+
+    private:
+        void Transform(GenTree* handle, GenTree* sizeCheck)
+        {
             BasicBlock* resultBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
             resultBlock->bbFlags |= BBF_INTERNAL;
             resultBlock->inheritWeight(currBlock);
@@ -886,7 +874,7 @@ private:
             BasicBlock* nullCheckBlock = CreateBasicBlock(BBJ_COND, currBlock);
             nullCheckBlock->inheritWeightPercentage(currBlock, HIGH_PROBABILITY);
 
-            GenTree* handleStore = compiler->gtNewLclStore(resultLcl, TYP_I_IMPL, nullCheckHandle);
+            GenTree* handleStore = compiler->gtNewLclStore(resultLcl, TYP_I_IMPL, handle);
             compiler->fgInsertStmtAtEnd(nullCheckBlock, compiler->gtNewStmt(handleStore, stmt->GetILOffsetX()));
 
             GenTree* handleLoad     = compiler->gtNewLclLoad(resultLcl, TYP_I_IMPL);
@@ -902,41 +890,12 @@ private:
 
             compiler->fgInsertStmtAtEnd(callBlock, stmt);
         }
-
-    private:
-        void ClearFlag() override
-        {
-        }
-
-        void FixupRetExpr() override
-        {
-        }
-
-        void CreateCheck() override
-        {
-        }
-
-        void CreateThen() override
-        {
-        }
-
-        void CreateElse() override
-        {
-        }
-
-        void SetWeights() override
-        {
-        }
-
-        void ChainFlow() override
-        {
-        }
     };
 };
 
 // Find and transform various indirect calls.
 // These transformations happen post-import because they may introduce control flow.
-PhaseStatus Compiler::fgTransformIndirectCalls()
+PhaseStatus Compiler::phTransformIndirectCalls()
 {
     unsigned count = 0;
 

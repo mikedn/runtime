@@ -2390,7 +2390,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_IBCINSTR, &Compiler::fgInstrumentMethod);
     }
 
-    DoPhase(this, PHASE_INDXCALL, &Compiler::fgTransformIndirectCalls);
+    DoPhase(this, PHASE_INDXCALL, &Compiler::phTransformIndirectCalls);
     DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
 
 #if !FEATURE_EH
