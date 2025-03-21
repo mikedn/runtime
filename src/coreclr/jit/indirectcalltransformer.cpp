@@ -76,11 +76,6 @@ private:
         BasicBlock*  currBlock;
         Statement*   stmt;
         GenTreeCall* origCall;
-        BasicBlock*  remainderBlock = nullptr;
-        BasicBlock*  checkBlock     = nullptr;
-        BasicBlock*  thenBlock      = nullptr;
-        BasicBlock*  elseBlock      = nullptr;
-        unsigned     likelihood     = HIGH_PROBABILITY;
 
     public:
         Transformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
@@ -90,31 +85,11 @@ private:
         }
 
     protected:
-        void SplitBlock()
-        {
-            remainderBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
-            remainderBlock->bbFlags |= BBF_INTERNAL;
-        }
-
         BasicBlock* CreateBasicBlock(BBjumpKinds jumpKind, BasicBlock* insertAfter)
         {
             BasicBlock* block = compiler->fgNewBBafter(jumpKind, insertAfter, true);
             block->bbFlags |= BBF_IMPORTED;
             return block;
-        }
-
-        void SetWeights()
-        {
-            remainderBlock->inheritWeight(currBlock);
-            checkBlock->inheritWeight(currBlock);
-            thenBlock->inheritWeightPercentage(currBlock, likelihood);
-            elseBlock->inheritWeightPercentage(currBlock, 100 - likelihood);
-        }
-
-        void ChainFlow()
-        {
-            checkBlock->bbJumpDest = elseBlock;
-            thenBlock->bbJumpDest  = remainderBlock;
         }
     };
 
@@ -135,55 +110,17 @@ private:
     // to load the real target address and the extra argument, and then call indirect
     // via the target, passing the extra argument.
     //
-    // before:
-    //   current block
-    //   {
-    //     previous statements
-    //     transforming statement
-    //     {
-    //       call with GTF_CALL_M_FAT_POINTER_CHECK flag set in function ptr
-    //     }
-    //     subsequent statements
-    //   }
-    //
-    // after:
-    //   current block
-    //   {
-    //     previous statements
-    //   } BBJ_NONE check block
-    //   check block
-    //   {
-    //     jump to else if function ptr has the FAT_POINTER_MASK bit set.
-    //   } BBJ_COND then block, else block
-    //   then block
-    //   {
-    //     original statement
-    //   } BBJ_ALWAYS remainder block
-    //   else block
-    //   {
-    //     clear FAT_POINTER_MASK bit
-    //     load actual function pointer
-    //     load instantiation argument
-    //     create newArgList = (instantiation argument, original argList)
-    //     call (actual function pointer, newArgList)
-    //   } BBJ_NONE remainder block
-    //   remainder block
-    //   {
-    //     subsequent statements
-    //   }
-    //
     class FatPointerCallTransformer final : public Transformer
     {
-        static constexpr int FAT_POINTER_MASK = 0x2;
+        static constexpr ssize_t FAT_POINTER_MASK = 0x2;
 
-        GenTree*  fptrAddress;
-        var_types pointerType;
+        BasicBlock* callBlock;
+        BasicBlock* fatCallBlock;
+        BasicBlock* remainderBlock;
 
     public:
         FatPointerCallTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
             : Transformer(compiler, block, stmt, call)
-            , fptrAddress(origCall->GetCallAddr())
-            , pointerType(fptrAddress->GetType())
         {
         }
 
@@ -191,99 +128,81 @@ private:
         {
             JITDUMP("*** FatPointerCall: transforming " FMT_TREEID "\n", origCall->GetID());
 
-            ClearFlag();
-            SplitBlock();
-            CreateCheck();
-            CreateThen();
-            CreateElse();
+            origCall->ClearFatPointerCandidate();
+
+            remainderBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
+            remainderBlock->bbFlags |= BBF_INTERNAL;
+            remainderBlock->inheritWeight(currBlock);
+
             compiler->fgRemoveStmt(currBlock, stmt);
-            SetWeights();
-            ChainFlow();
+            currBlock->bbJumpKind = BBJ_COND;
+            compiler->fgInsertStmtAtEnd(currBlock, CreateFatAddrCheck());
+
+            callBlock = CreateBasicBlock(BBJ_ALWAYS, currBlock);
+            callBlock->inheritWeightPercentage(currBlock, HIGH_PROBABILITY);
+            callBlock->bbJumpDest = remainderBlock;
+            compiler->fgInsertStmtAtEnd(callBlock, stmt);
+
+            fatCallBlock = CreateBasicBlock(BBJ_NONE, callBlock);
+            fatCallBlock->inheritWeightPercentage(currBlock, 100 - HIGH_PROBABILITY);
+            compiler->fgInsertStmtAtEnd(fatCallBlock, CreateFatCall());
+            currBlock->bbJumpDest = fatCallBlock;
         }
 
     private:
-        void ClearFlag()
+        Statement* CreateFatAddrCheck() const
         {
-            origCall->ClearFatPointerCandidate();
+            GenTree* fatAddr = compiler->gtCloneExpr(origCall->GetCallAddr());
+            GenTree* fatMask = compiler->gtNewIconNode(FAT_POINTER_MASK, TYP_I_IMPL);
+            GenTree* fatTest = compiler->gtNewOperNode(GT_AND, TYP_I_IMPL, fatAddr, fatMask);
+            GenTree* zero    = compiler->gtNewIconNode(0, TYP_I_IMPL);
+            GenTree* fatCmp  = compiler->gtNewOperNode(GT_NE, TYP_INT, fatTest, zero);
+            GenTree* fatJump = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, fatCmp);
+
+            return compiler->gtNewStmt(fatJump, stmt->GetILOffsetX());
         }
 
-        void CreateCheck()
+        Statement* CreateFatCall() const
         {
-            checkBlock                 = CreateBasicBlock(BBJ_COND, currBlock);
-            GenTree*   fatPointerMask  = compiler->gtNewIconNode(FAT_POINTER_MASK, TYP_I_IMPL);
-            GenTree*   fptrAddressCopy = compiler->gtCloneExpr(fptrAddress);
-            GenTree*   fatPointerAnd   = compiler->gtNewOperNode(GT_AND, TYP_I_IMPL, fptrAddressCopy, fatPointerMask);
-            GenTree*   zero            = compiler->gtNewIconNode(0, TYP_I_IMPL);
-            GenTree*   fatPointerCmp   = compiler->gtNewOperNode(GT_NE, TYP_INT, fatPointerAnd, zero);
-            GenTree*   jmpTree         = compiler->gtNewOperNode(GT_JTRUE, TYP_VOID, fatPointerCmp);
-            Statement* jmpStmt         = compiler->gtNewStmt(jmpTree, stmt->GetILOffsetX());
-            compiler->fgInsertStmtAtEnd(checkBlock, jmpStmt);
-        }
+            GenTree* fatAddr      = compiler->gtCloneExpr(origCall->GetCallAddr());
+            GenTree* fatMask      = compiler->gtNewIconNode(FAT_POINTER_MASK, TYP_I_IMPL);
+            GenTree* realAddr     = compiler->gtNewOperNode(GT_SUB, TYP_I_IMPL, fatAddr, fatMask);
+            GenTree* realCallAddr = compiler->gtNewIndLoad(TYP_I_IMPL, realAddr);
+            realAddr              = compiler->gtCloneExpr(realAddr);
 
-        void CreateThen()
-        {
-            thenBlock                     = CreateBasicBlock(BBJ_ALWAYS, checkBlock);
-            Statement* copyOfOriginalStmt = compiler->gtCloneStmt(stmt);
-            compiler->fgInsertStmtAtEnd(thenBlock, copyOfOriginalStmt);
-        }
+            GenTree* pointerSize    = compiler->gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+            GenTree* hiddenArgument = compiler->gtNewOperNode(GT_ADD, TYP_I_IMPL, realAddr, pointerSize);
+            hiddenArgument          = compiler->gtNewIndLoad(TYP_I_IMPL, hiddenArgument);
+            hiddenArgument          = compiler->gtNewIndLoad(TYP_I_IMPL, hiddenArgument);
 
-        void CreateElse()
-        {
-            elseBlock = CreateBasicBlock(BBJ_NONE, thenBlock);
-
-            GenTree* fixedFptrAddress  = GetFixedFptrAddress();
-            GenTree* actualCallAddress = compiler->gtNewIndLoad(pointerType, fixedFptrAddress);
-            GenTree* hiddenArgument    = GetHiddenArgument(compiler->gtCloneExpr(fixedFptrAddress));
-
-            Statement* fatStmt = CreateFatCallStmt(actualCallAddress, hiddenArgument);
-            compiler->fgInsertStmtAtEnd(elseBlock, fatStmt);
-        }
-
-        GenTree* GetFixedFptrAddress() const
-        {
-            GenTree* fptrAddressCopy = compiler->gtCloneExpr(fptrAddress);
-            GenTree* fatPointerMask  = compiler->gtNewIconNode(FAT_POINTER_MASK, TYP_I_IMPL);
-            return compiler->gtNewOperNode(GT_SUB, pointerType, fptrAddressCopy, fatPointerMask);
-        }
-
-        GenTree* GetHiddenArgument(GenTree* fixedFptrAddress) const
-        {
-            GenTree* wordSize             = compiler->gtNewIconNode(varTypeSize(TYP_I_IMPL), TYP_I_IMPL);
-            GenTree* hiddenArgumentPtrPtr = compiler->gtNewOperNode(GT_ADD, pointerType, fixedFptrAddress, wordSize);
-            GenTree* hiddenArgumentPtr    = compiler->gtNewIndLoad(pointerType, hiddenArgumentPtrPtr);
-            return compiler->gtNewIndLoad(fixedFptrAddress->GetType(), hiddenArgumentPtr);
-        }
-
-        Statement* CreateFatCallStmt(GenTree* actualCallAddress, GenTree* hiddenArgument) const
-        {
-            Statement*   fatStmt = compiler->gtCloneStmt(stmt);
-            GenTreeCall* fatCall = GetCall(fatStmt);
-            fatCall->SetCallAddr(actualCallAddress);
+            // TODO-MIKE-Review: This is cloning arbitratily large trees. And CSE can't even
+            // eliminating this redundancy, this requires hositing, that the JIT doesn't have.
+            GenTreeCall* fatCall = compiler->gtCloneExpr(origCall)->AsCall();
+            fatCall->SetCallAddr(realCallAddr);
             AddHiddenArgument(fatCall, hiddenArgument);
-            return fatStmt;
-        }
 
-        GenTreeCall* GetCall(Statement* callStmt) const
-        {
-            return callStmt->GetRootNode()->AsLclStore()->GetValue()->AsCall();
+            GenTree* fatTree = fatCall;
+
+            if (GenTreeLclStore* store = stmt->GetRootNode()->IsLclStore())
+            {
+                fatTree = compiler->gtNewLclStore(store->GetLcl(), store->GetType(), fatCall);
+            }
+            else
+            {
+                assert(stmt->GetRootNode() == origCall);
+            }
+
+            return compiler->gtNewStmt(fatTree, stmt->GetILOffsetX());
         }
 
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const
         {
 #ifdef TARGET_X86
-            if (fatCall->gtCallArgs == nullptr)
-            {
-                fatCall->gtCallArgs = compiler->gtNewCallArgs(hiddenArgument);
-            }
-            else
-            {
-                AppendCallArg(fatCall->gtCallArgs, hiddenArgument);
-            }
+            compiler->gtAppendNewCallArg(fatCall->gtCallArgs, hiddenArgument);
 #else
             if (fatCall->HasRetBufArg())
             {
-                GenTreeCall::Use* retBufArg = fatCall->gtCallArgs;
-                compiler->gtInsertNewCallArgAfter(hiddenArgument, retBufArg);
+                compiler->gtInsertNewCallArgAfter(hiddenArgument, fatCall->gtCallArgs);
             }
             else
             {
@@ -291,26 +210,17 @@ private:
             }
 #endif
         }
-
-#ifdef TARGET_X86
-        void AppendCallArg(GenTreeCall::Use* argList, GenTree* arg) const
-        {
-            GenTreeCall::Use* lastArg = argList;
-
-            while (lastArg->GetNext() != nullptr)
-            {
-                lastArg = lastArg->GetNext();
-            }
-
-            lastArg->SetNext(compiler->gtNewCallArgs(arg));
-        }
-#endif
     };
 
     class GuardedDevirtualizationTransformer final : public Transformer
     {
-        LclVarDsc* returnTemp = nullptr;
-        Statement* lastStmt;
+        LclVarDsc*  returnTemp = nullptr;
+        Statement*  lastStmt;
+        BasicBlock* remainderBlock = nullptr;
+        BasicBlock* checkBlock     = nullptr;
+        BasicBlock* thenBlock      = nullptr;
+        BasicBlock* elseBlock      = nullptr;
+        unsigned    likelihood     = HIGH_PROBABILITY;
 
     public:
         GuardedDevirtualizationTransformer(Compiler* compiler, BasicBlock* block, Statement* stmt, GenTreeCall* call)
@@ -369,6 +279,26 @@ private:
         }
 
     private:
+        void SplitBlock()
+        {
+            remainderBlock = compiler->fgSplitBlockAfterStatement(currBlock, stmt);
+            remainderBlock->bbFlags |= BBF_INTERNAL;
+        }
+
+        void SetWeights()
+        {
+            remainderBlock->inheritWeight(currBlock);
+            checkBlock->inheritWeight(currBlock);
+            thenBlock->inheritWeightPercentage(currBlock, likelihood);
+            elseBlock->inheritWeightPercentage(currBlock, 100 - likelihood);
+        }
+
+        void ChainFlow()
+        {
+            checkBlock->bbJumpDest = elseBlock;
+            thenBlock->bbJumpDest  = remainderBlock;
+        }
+
         void ClearFlag()
         {
             origCall->ClearGuardedDevirtualizationCandidate();

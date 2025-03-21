@@ -2641,7 +2641,6 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
     {
         GenTree* op1;
         GenTree* op2;
-        GenTree* op3;
 #ifndef TARGET_ARM
         genTreeOps interlockedOperator;
 #endif
@@ -2684,6 +2683,7 @@ GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
             assert(callType != TYP_STRUCT);
             assert(sig->numArgs == 3);
 
+            GenTree* op3;
             op3 = impPopStack().val; // comparand
             op2 = impPopStack().val; // value
             op1 = impPopStack().val; // location address
