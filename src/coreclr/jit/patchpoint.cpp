@@ -188,18 +188,10 @@ private:
     }
 };
 
-//------------------------------------------------------------------------
-// fgTransformPatchpoints: expansion of patchpoints into control flow.
-//
-// Notes:
-//
+// Expand patchpoints into control flow.
 // Patchpoints are placed in the JIT IR during importation, and get expanded
 // here into normal JIT IR.
-//
-// Returns:
-//   phase status indicating if changes were made
-//
-PhaseStatus Compiler::fgTransformPatchpoints()
+PhaseStatus Compiler::phTransformPatchpoints()
 {
     if (!doesMethodHavePatchpoints())
     {

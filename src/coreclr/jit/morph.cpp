@@ -4401,7 +4401,7 @@ void Compiler::fgMoveOpsLeft(GenTreeOp* tree)
 
     if (varTypeIsGC(op2->GetType()) != varTypeIsGC(tree2->GetType()))
     {
-        // optOptimizeBools can create OR of two GC pointers yielding a I_IMPL.
+        // phOptimizeBools can create OR of two GC pointers yielding a I_IMPL.
         // We can not reorder such OR trees.
 
         return;
@@ -12750,7 +12750,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
     fgRemoveRestOfBlock = false;
 }
 
-void Compiler::phMorph()
+void Compiler::phGlobalMorph()
 {
     unsigned prevBBCount = fgBBcount;
 

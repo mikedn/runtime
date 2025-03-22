@@ -3,35 +3,30 @@
 
 #include "jitpch.h"
 
-//------------------------------------------------------------------------
-// fgInline - expand inline candidates
+// Expand inline candidates
 //
-// Returns:
-//   phase status indicating if anything was modified
+// Inline candidates are identified during importation and candidate calls
+// must be top-level expressions. In input IR, the result of the call (if any)
+// is consumed elsewhere by a GT_RET_EXPR node.
 //
-// Notes:
-//   Inline candidates are identified during importation and candidate calls
-//   must be top-level expressions. In input IR, the result of the call (if any)
-//   is consumed elsewhere by a GT_RET_EXPR node.
+// For successful inlines, calls are replaced by a sequence of argument setup
+// instructions, the inlined method body, and return value cleanup. Note
+// Inlining may introduce new inline candidates. These are processed in a
+// depth-first fashion, as the inliner walks the IR in statement order.
 //
-//   For successful inlines, calls are replaced by a sequence of argument setup
-//   instructions, the inlined method body, and return value cleanup. Note
-//   Inlining may introduce new inline candidates. These are processed in a
-//   depth-first fashion, as the inliner walks the IR in statement order.
+// After inline expansion in a statement, the statement tree
+// is walked to locate GT_RET_EXPR nodes. These are replaced by either
+// * the original call tree, if the inline failed
+// * the return value tree from the inlinee, if the inline succeeded
 //
-//   After inline expansion in a statement, the statement tree
-//   is walked to locate GT_RET_EXPR nodes. These are replaced by either
-//   * the original call tree, if the inline failed
-//   * the return value tree from the inlinee, if the inline succeeded
+// This replacement happens in preorder; on the postorder side of the same
+// tree walk, we look for opportunities to devirtualize or optimize now that
+// we know the context for the newly supplied return value tree.
 //
-//   This replacement happens in preorder; on the postorder side of the same
-//   tree walk, we look for opportunities to devirtualize or optimize now that
-//   we know the context for the newly supplied return value tree.
+// Inline arguments may be directly substituted into the body of the inlinee
+// in some cases. See inlUseArg.
 //
-//   Inline arguments may be directly substituted into the body of the inlinee
-//   in some cases. See inlUseArg.
-//
-PhaseStatus Compiler::fgInline()
+PhaseStatus Compiler::phInline()
 {
     if (!opts.OptEnabled(CLFLG_INLINING))
     {
@@ -155,8 +150,8 @@ public:
             GenTree* value = retExpr->GetRetExpr();
 
             // We may get a chain of RET_EXPR, if inlinees return calls that are also inline
-            // candidates. fgInline replaces RET_EXPRs as it traverses the statements but the
-            // return expression of an inlinee isn't appended as a statement, it's referenced
+            // candidates. The inliner replaces RET_EXPRs as it traverses the statements but
+            // the return expression of an inlinee isn't appended as a statement, it's referenced
             // only from InlineInfo.
             //
             // We need to find the last RET_EXPR in the chain to get the block IR summary. The
@@ -827,8 +822,8 @@ void Compiler::inlImportInlinee()
 
     impInlineInfo->InlinerCompiler->m_inlineStrategy->NoteImport();
 
-    DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
-    DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
+    DoPhase(this, PHASE_INCPROFILE, &Compiler::phIncorporateProfileData);
+    DoPhase(this, PHASE_IMPORTATION, &Compiler::phImport);
     DoPhase(this, PHASE_INDXCALL, &Compiler::phTransformIndirectCalls);
 
     if (!compInlineResult->IsFailure())

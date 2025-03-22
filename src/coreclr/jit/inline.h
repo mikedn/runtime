@@ -41,12 +41,12 @@
 // imported as well as when prospective inlines are being imported.
 // Candidates are marked in the IL and given an InlineCandidateInfo.
 //
-// 2. Inlining Optimization Pass -- candidates (fgInline)
+// 2. Inlining Optimization Pass
 //
 // Creates / Uses: InlineContext
 // Creates: InlineInfo, InlArgInfo, InlLocalVarInfo
 //
-// During the inlining optimation pass, each candidate is further
+// During the inlining optimization pass, each candidate is further
 // analyzed. Viable candidates will eventually inspire creation of an
 // InlineInfo and a set of InlArgInfos (for call arguments) and
 // InlLocalVarInfos (for callee locals).

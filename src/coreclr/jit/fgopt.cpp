@@ -2460,9 +2460,8 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
                 fgLastBB = bPrev;
             }
 
-            // When using profile weights, fgComputeEdgeWeights expects the first non-internal block to have profile
-            // weight.
-            // Make sure we don't break that invariant.
+            // When using profile weights, phComputeEdgeWeights expects the first non-internal block
+            // to have profile weight. Make sure we don't break that invariant.
             if (fgIsUsingProfileWeights() && block->hasProfileWeight() && (block->bbFlags & BBF_INTERNAL) == 0)
             {
                 BasicBlock* bNext = block->bbNext;

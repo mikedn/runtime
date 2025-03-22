@@ -2376,45 +2376,45 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 {
     assert(!compIsForInlining());
 
-    DoPhase(this, PHASE_INCPROFILE, &Compiler::fgIncorporateProfileData);
+    DoPhase(this, PHASE_INCPROFILE, &Compiler::phIncorporateProfileData);
 
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
     }
 
-    DoPhase(this, PHASE_IMPORTATION, &Compiler::fgImport);
+    DoPhase(this, PHASE_IMPORTATION, &Compiler::phImport);
 
     if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
     {
-        DoPhase(this, PHASE_IBCINSTR, &Compiler::fgInstrumentMethod);
+        DoPhase(this, PHASE_IBCINSTR, &Compiler::phInstrumentMethod);
     }
 
     DoPhase(this, PHASE_INDXCALL, &Compiler::phTransformIndirectCalls);
-    DoPhase(this, PHASE_PATCHPOINTS, &Compiler::fgTransformPatchpoints);
+    DoPhase(this, PHASE_PATCHPOINTS, &Compiler::phTransformPatchpoints);
 
 #if !FEATURE_EH
     // If we aren't yet supporting EH in a compiler bring-up, remove as many EH handlers as possible,
     // so we can pass tests that contain try/catch EH, but don't actually throw any exceptions.
     fgRemoveEH();
-#endif // !FEATURE_EH
+#endif
 
     DoPhase(this, PHASE_REMOVE_NOT_IMPORTED, &Compiler::phRemoveNotImportedBlocks);
-    DoPhase(this, PHASE_MORPH_INLINE, &Compiler::fgInline);
+    DoPhase(this, PHASE_MORPH_INLINE, &Compiler::phInline);
 
     RecordStateAtEndOfInlining();
 
     DoPhase(this, PHASE_ALLOCATE_OBJECTS, &Compiler::phMorphAllocObj);
-    DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::fgAddInternal);
+    DoPhase(this, PHASE_MORPH_ADD_INTERNAL, &Compiler::phAddInternal);
 
     if (opts.OptimizationEnabled() && (compHndBBtabCount != 0))
     {
-        DoPhase(this, PHASE_EMPTY_TRY, &Compiler::fgRemoveEmptyTry);
-        DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::fgRemoveEmptyFinally);
-        DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::fgMergeFinallyChains);
-        DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::fgCloneFinally);
+        DoPhase(this, PHASE_EMPTY_TRY, &Compiler::phRemoveEmptyTry);
+        DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::phRemoveEmptyFinally);
+        DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::phMergeFinallyChains);
+        DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::phCloneFinally);
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-        DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::fgUpdateFinallyTargetFlags);
+        DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::phUpdateFinallyTargetFlags);
 #endif
     }
 
@@ -2422,28 +2422,29 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
 
     if (opts.OptimizationEnabled())
     {
-        DoPhase(this, PHASE_MERGE_THROWS, &Compiler::fgTailMergeThrows);
+        DoPhase(this, PHASE_MERGE_THROWS, &Compiler::phTailMergeThrows);
         DoPhase(this, PHASE_EARLY_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
     }
 
     DoPhase(this, PHASE_PROMOTE_STRUCTS, &Compiler::phPromoteStructs);
     DoPhase(this, PHASE_STR_ADRLCL, &Compiler::phMarkAddressExposedLocals);
-    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phMorph);
+    DoPhase(this, PHASE_MORPH_GLOBAL, &Compiler::phGlobalMorph);
 
     if (getNeedsGSSecurityCookie())
     {
         DoPhase(this, PHASE_GS_COOKIE, &Compiler::phGSCookie);
     }
 
-    DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS, &Compiler::fgComputeBlockAndEdgeWeights);
+    DoPhase(this, PHASE_COMPUTE_BLOCK_WEIGHTS, &Compiler::phComputeBlockWeights);
+    DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS1, &Compiler::phComputeEdgeWeights);
 #ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_RELOCATE_FUNCLETS, &Compiler::phRelocateFunclets);
 #endif
 
     if (opts.OptimizationEnabled())
     {
-        DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::optInvertLoops);
-        DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::optOptimizeLayout);
+        DoPhase(this, PHASE_INVERT_LOOPS, &Compiler::phInvertLoops);
+        DoPhase(this, PHASE_OPTIMIZE_LAYOUT, &Compiler::phOptimizeLayout);
         DoPhase(this, PHASE_COMPUTE_REACHABILITY, &Compiler::phComputeReachability);
         DoPhase(this, PHASE_COMPUTE_DOMINATORS, &Compiler::phComputeDoms);
         DoPhase(this, PHASE_FIND_LOOPS, &Compiler::phFindLoops);
@@ -2463,9 +2464,9 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     {
         DoPhase(this, PHASE_REF_COUNT_LOCAL_VARS, &Compiler::phRefCountLocals);
         DoPhase(this, PHASE_ADD_COPIES, &Compiler::optAddCopies);
-        DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::optOptimizeBools);
+        DoPhase(this, PHASE_OPTIMIZE_BOOLS, &Compiler::phOptimizeBools);
 
-        // optOptimizeBools() might have changed the number of blocks;
+        // phOptimizeBools might have changed the number of blocks;
         // the dominators/reachability might be bad.
         // TODO-MIKE-Review: So should fgDomsComputed be set to false?
     }
@@ -2489,7 +2490,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         if (fgModified)
         {
             DoPhase(this, PHASE_OPT_UPDATE_FLOW_GRAPH, &Compiler::phUpdateFlowGraph);
-            DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::fgComputeEdgeWeights);
+            DoPhase(this, PHASE_COMPUTE_EDGE_WEIGHTS2, &Compiler::phComputeEdgeWeights);
         }
 
         // TODO-MIKE-Cleanup: These should be inside phSsaOpt.

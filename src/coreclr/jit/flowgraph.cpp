@@ -410,13 +410,8 @@ bool Compiler::fgMayExplicitTailCall()
     return true;
 }
 
-//------------------------------------------------------------------------
-// fgImport: read the IL for the method and create jit IR
-//
-// Returns:
-//    phase status
-//
-PhaseStatus Compiler::fgImport()
+// Read the IL for the method and create jit IR
+PhaseStatus Compiler::phImport()
 {
     Importer importer(this);
     importer.Import();
@@ -1338,12 +1333,8 @@ private:
 };
 }
 
-/*****************************************************************************
-*
-*  Add any internal blocks/trees we may need
-*/
-
-void Compiler::fgAddInternal()
+// Add any internal blocks/trees we may need
+void Compiler::phAddInternal()
 {
     noway_assert(!compIsForInlining());
 
@@ -1617,7 +1608,7 @@ void Compiler::fgAddInternal()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\n*************** After fgAddInternal()\n");
+        printf("\n*************** After phAddInternal()\n");
         fgDispBasicBlocks();
         fgDispHandlerTab();
     }

@@ -47,7 +47,8 @@ CompPhaseNameMacro(PHASE_PROMOTE_STRUCTS,        "Morph - Promote Structs",     
 CompPhaseNameMacro(PHASE_MORPH_GLOBAL,           "Morph - Global",                 "MOR-GLOB", false, -1, false)
 CompPhaseNameMacro(PHASE_MORPH_END,              "Morph - Finish",                 "MOR-END",  false, -1, true)
 CompPhaseNameMacro(PHASE_GS_COOKIE,              "GS Cookie",                      "GS-COOK",  false, -1, false)
-CompPhaseNameMacro(PHASE_COMPUTE_EDGE_WEIGHTS,   "Compute edge weights (1, false)","EDG-WGT",  false, -1, false)
+CompPhaseNameMacro(PHASE_COMPUTE_BLOCK_WEIGHTS,  "Compute block weights",          "BLK-WGT",  false, -1, false)
+CompPhaseNameMacro(PHASE_COMPUTE_EDGE_WEIGHTS1,  "Compute edge weights (1, false)","EDG-WGT",  false, -1, false)
 #ifdef FEATURE_EH_FUNCLETS
 CompPhaseNameMacro(PHASE_RELOCATE_FUNCLETS,      "Relocate EH funclets",           "EH-FREL",  false, -1, false)
 #endif 

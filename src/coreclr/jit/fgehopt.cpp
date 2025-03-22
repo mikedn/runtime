@@ -5,34 +5,29 @@
 
 // Flowgraph EH Optimizations
 
-//------------------------------------------------------------------------
-// fgRemoveEmptyFinally: Remove try/finallys where the finally is empty
+// Remove try/finallys where the finally is empty
 //
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
+// Removes all try/finallys in the method with empty finallys.
+// These typically arise from inlining empty Dispose methods.
 //
-// Notes:
-//    Removes all try/finallys in the method with empty finallys.
-//    These typically arise from inlining empty Dispose methods.
+// Converts callfinally to a jump to the finally continuation.
+// Removes the finally, and reparents all blocks in the try to the
+// enclosing try or method region.
 //
-//    Converts callfinally to a jump to the finally continuation.
-//    Removes the finally, and reparents all blocks in the try to the
-//    enclosing try or method region.
+// Currently limited to trivially empty finallys: those with one basic
+// block containing only single RETFILT statement. It is possible but
+// not likely that more complex-looking finallys will eventually become
+// empty (from say subsequent optimization). An SPMI run with
+// just the "detection" part of this phase run after optimization
+// found only one example where a new empty finally was detected.
 //
-//    Currently limited to trivially empty finallys: those with one basic
-//    block containing only single RETFILT statement. It is possible but
-//    not likely that more complex-looking finallys will eventually become
-//    empty (from say subsequent optimization). An SPMI run with
-//    just the "detection" part of this phase run after optimization
-//    found only one example where a new empty finally was detected.
-//
-PhaseStatus Compiler::fgRemoveEmptyFinally()
+PhaseStatus Compiler::phRemoveEmptyFinally()
 {
     assert(opts.OptimizationEnabled());
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
@@ -46,7 +41,7 @@ PhaseStatus Compiler::fgRemoveEmptyFinally()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\n*************** Before fgRemoveEmptyFinally()\n");
+        printf("\n*************** Before phRemoveEmptyFinally()\n");
         fgDispBasicBlocks();
         fgDispHandlerTab();
         printf("\n");
@@ -221,13 +216,13 @@ PhaseStatus Compiler::fgRemoveEmptyFinally()
 
     if (emptyCount > 0)
     {
-        JITDUMP("fgRemoveEmptyFinally() removed %u try-finally clauses from %u finallys\n", emptyCount, finallyCount);
+        JITDUMP("phRemoveEmptyFinally() removed %u try-finally clauses from %u finallys\n", emptyCount, finallyCount);
         fgOptimizedFinally = true;
 
 #ifdef DEBUG
         if (verbose)
         {
-            printf("\n*************** After fgRemoveEmptyFinally()\n");
+            printf("\n*************** After phRemoveEmptyFinally()\n");
             fgDispBasicBlocks();
             fgDispHandlerTab();
             printf("\n");
@@ -239,34 +234,27 @@ PhaseStatus Compiler::fgRemoveEmptyFinally()
     return (emptyCount > 0) ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
-//------------------------------------------------------------------------
-// fgRemoveEmptyTry: Optimize try/finallys where the try is empty
+// Optimize try/finallys where the try is empty
 //
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
+// In runtimes where thread abort is not possible, `try {} finally {S}`
+// can be optimized to simply `S`. This method looks for such
+// cases and removes the try-finally from the EH table, making
+// suitable flow, block flag, statement, and region updates.
 //
-// Notes:
-//    In runtimes where thread abort is not possible, `try {} finally {S}`
-//    can be optimized to simply `S`. This method looks for such
-//    cases and removes the try-finally from the EH table, making
-//    suitable flow, block flag, statement, and region updates.
+// This optimization is not legal in runtimes that support thread
+// abort because those runtimes ensure that a finally is completely
+// executed before continuing to process the thread abort.  With
+// this optimization, the code block `S` can lose special
+// within-finally status and so complete execution is no longer
+// guaranteed.
 //
-//    This optimization is not legal in runtimes that support thread
-//    abort because those runtimes ensure that a finally is completely
-//    executed before continuing to process the thread abort.  With
-//    this optimization, the code block `S` can lose special
-//    within-finally status and so complete execution is no longer
-//    guaranteed.
-//
-PhaseStatus Compiler::fgRemoveEmptyTry()
+PhaseStatus Compiler::phRemoveEmptyTry()
 {
-    JITDUMP("\n*************** In fgRemoveEmptyTry()\n");
-
     assert(opts.OptimizationEnabled());
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
@@ -293,7 +281,7 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\n*************** Before fgRemoveEmptyTry()\n");
+        printf("\n*************** Before phRemoveEmptyTry()\n");
         fgDispBasicBlocks();
         fgDispHandlerTab();
         printf("\n");
@@ -538,7 +526,7 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
 
     if (emptyCount > 0)
     {
-        JITDUMP("fgRemoveEmptyTry() optimized %u empty-try try-finally clauses\n", emptyCount);
+        JITDUMP("phRemoveEmptyTry() optimized %u empty-try try-finally clauses\n", emptyCount);
         fgOptimizedFinally = true;
         return PhaseStatus::MODIFIED_EVERYTHING;
     }
@@ -546,53 +534,46 @@ PhaseStatus Compiler::fgRemoveEmptyTry()
     return PhaseStatus::MODIFIED_NOTHING;
 }
 
-//------------------------------------------------------------------------
-// fgCloneFinally: Optimize normal exit path from a try/finally
+// Optimize normal exit path from a try/finally
 //
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
+// Handles finallys that are not enclosed by or enclosing other
+// handler regions.
 //
-// Notes:
-//    Handles finallys that are not enclosed by or enclosing other
-//    handler regions.
+// Converts the "normal exit" callfinally to a jump to a cloned copy
+// of the finally, which in turn jumps to the finally continuation.
 //
-//    Converts the "normal exit" callfinally to a jump to a cloned copy
-//    of the finally, which in turn jumps to the finally continuation.
+// If all callfinallys for a given finally are converted to jump to
+// the clone, the try-finally is modified into a try-fault,
+// distinguishable from organic try-faults by handler type
+// EH_HANDLER_FAULT_WAS_FINALLY vs the organic EH_HANDLER_FAULT.
 //
-//    If all callfinallys for a given finally are converted to jump to
-//    the clone, the try-finally is modified into a try-fault,
-//    distingushable from organic try-faults by handler type
-//    EH_HANDLER_FAULT_WAS_FINALLY vs the organic EH_HANDLER_FAULT.
+// Does not yet handle thread abort. The open issues here are how
+// to maintain the proper description of the cloned finally blocks
+// as a handler (for thread abort purposes), how to prevent code
+// motion in or out of these blocks, and how to report this cloned
+// handler to the runtime. Some building blocks for thread abort
+// exist (see below) but more work needed.
 //
-//    Does not yet handle thread abort. The open issues here are how
-//    to maintain the proper description of the cloned finally blocks
-//    as a handler (for thread abort purposes), how to prevent code
-//    motion in or out of these blocks, and how to report this cloned
-//    handler to the runtime. Some building blocks for thread abort
-//    exist (see below) but more work needed.
+// The first and last blocks of the cloned finally are marked with
+// BBF_CLONED_FINALLY_BEGIN and BBF_CLONED_FINALLY_END. However
+// these markers currently can get lost during subsequent
+// optimizations.
 //
-//    The first and last blocks of the cloned finally are marked with
-//    BBF_CLONED_FINALLY_BEGIN and BBF_CLONED_FINALLY_END. However
-//    these markers currently can get lost during subsequent
-//    optimizations.
-//
-PhaseStatus Compiler::fgCloneFinally()
+PhaseStatus Compiler::phCloneFinally()
 {
     assert(opts.OptimizationEnabled());
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
 
     bool enableCloning = true;
-
 #ifdef DEBUG
-    // Allow override to enable/disable.
-    enableCloning = (JitConfig.JitEnableFinallyCloning() == 1);
-#endif // DEBUG
+    enableCloning = JitConfig.JitEnableFinallyCloning() == 1;
+#endif
 
     if (!enableCloning)
     {
@@ -1233,7 +1214,7 @@ PhaseStatus Compiler::fgCloneFinally()
 
     if (cloneCount > 0)
     {
-        JITDUMP("fgCloneFinally() cloned %u finally handlers\n", cloneCount);
+        JITDUMP("phCloneFinally() cloned %u finally handlers\n", cloneCount);
         fgOptimizedFinally = true;
 
 #ifdef DEBUG
@@ -1265,7 +1246,7 @@ PhaseStatus Compiler::fgCloneFinally()
 // looking at the control flow graph.
 //
 // Each path that exits the try of a try-finally (including try-faults
-// that were optimized into try-finallys by fgCloneFinally) should
+// that were optimized into try-finallys by phCloneFinally) should
 // thus either execute a callfinally to the associated finally or else
 // jump to a block with the BBF_CLONED_FINALLY_BEGIN flag set.
 //
@@ -1453,7 +1434,7 @@ void Compiler::fgDebugCheckTryFinallyExits()
 //
 //    BBF_FINALLY_TARGET bbFlag is left unchanged by this method
 //    since it cannot be incrementally updated. Proper updates happen
-//    when fgUpdateFinallyTargetFlags runs after all finally optimizations.
+//    when phUpdateFinallyTargetFlags runs after all finally optimizations.
 
 void Compiler::fgCleanupContinuation(BasicBlock* continuation)
 {
@@ -1481,14 +1462,8 @@ void Compiler::fgCleanupContinuation(BasicBlock* continuation)
 
 #if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
-//------------------------------------------------------------------------
-// fgUpdateFinallyTargetFlags: recompute BBF_FINALLY_TARGET bits
-//    after EH optimizations
-//
-// Returns:
-//   phase status indicating if anything was modified
-//
-PhaseStatus Compiler::fgUpdateFinallyTargetFlags()
+// Recompute BBF_FINALLY_TARGET bits after EH optimizations
+PhaseStatus Compiler::phUpdateFinallyTargetFlags()
 {
     assert(opts.OptimizationEnabled());
 
@@ -1558,26 +1533,20 @@ void Compiler::fgAddFinallyTargetFlags()
 
 #endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
 
-//------------------------------------------------------------------------
-// fgMergeFinallyChains: tail merge finally invocations
+// Tail merge finally invocations
 //
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
-//
-// Notes:
-//
-//    Looks for common suffixes in chains of finally invocations
-//    (callfinallys) and merges them. These typically arise from
-//    try-finallys where there are multiple exit points in the try
-//    that have the same target.
+// Looks for common suffixes in chains of finally invocations
+// (callfinallys) and merges them. These typically arise from
+// try-finallys where there are multiple exit points in the try
+// that have the same target.
 
-PhaseStatus Compiler::fgMergeFinallyChains()
+PhaseStatus Compiler::phMergeFinallyChains()
 {
     assert(opts.OptimizationEnabled());
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // We need to do this transformation before funclets are created.
     assert(!fgFuncletsCreated);
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
@@ -1609,7 +1578,7 @@ PhaseStatus Compiler::fgMergeFinallyChains()
 
     if (!enableMergeFinallyChains)
     {
-        JITDUMP("fgMergeFinallyChains disabled\n");
+        JITDUMP("phMergeFinallyChains disabled\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
@@ -1869,55 +1838,48 @@ bool Compiler::fgRetargetBranchesToCanonicalCallFinally(BasicBlock*      block,
     return true;
 }
 
-//------------------------------------------------------------------------
-// fgTailMergeThrows: Tail merge throw blocks and blocks with no return calls.
+// Tail merge throw blocks and blocks with no return calls.
 //
-// Returns:
-//    PhaseStatus indicating what, if anything, was changed.
+// Scans the flow graph for throw blocks and blocks with no return calls
+// that can be merged, and opportunistically merges them.
 //
-// Notes:
-//    Scans the flow graph for throw blocks and blocks with no return calls
-//    that can be merged, and opportunistically merges them.
+// Does not handle throws yet as the analysis is more costly and less
+// likely to pay off. So analysis is restricted to blocks with just one
+// statement.
 //
-//    Does not handle throws yet as the analysis is more costly and less
-//    likely to pay off. So analysis is restricted to blocks with just one
-//    statement.
+// For throw helper call merging, we are looking for examples like
+// the below. Here BB17 and BB21 have identical trees that call noreturn
+// methods, so we can modify BB16 to branch to BB21 and delete BB17.
 //
-//    For throw helper call merging, we are looking for examples like
-//    the below. Here BB17 and BB21 have identical trees that call noreturn
-//    methods, so we can modify BB16 to branch to BB21 and delete BB17.
+// Also note as a quirk of how we model flow that both BB17 and BB21
+// have successor blocks. We don't turn these into true throw blocks
+// until morph.
 //
-//    Also note as a quirk of how we model flow that both BB17 and BB21
-//    have successor blocks. We don't turn these into true throw blocks
-//    until morph.
+// BB16 [005..006) -> BB18 (cond), preds={} succs={BB17,BB18}
 //
-//    BB16 [005..006) -> BB18 (cond), preds={} succs={BB17,BB18}
+// *  JTRUE     void
+// \--*  NE        int
+//    ...
 //
-//    *  JTRUE     void
-//    \--*  NE        int
-//       ...
+// BB17 [005..006), preds={} succs={BB19}
 //
-//    BB17 [005..006), preds={} succs={BB19}
+// *  CALL      void   ThrowHelper.ThrowArgumentOutOfRangeException
+// \--*  CNS_INT   int    33
 //
-//    *  CALL      void   ThrowHelper.ThrowArgumentOutOfRangeException
-//    \--*  CNS_INT   int    33
+// BB20 [005..006) -> BB22 (cond), preds={} succs={BB21,BB22}
 //
-//    BB20 [005..006) -> BB22 (cond), preds={} succs={BB21,BB22}
+// *  JTRUE     void
+// \--*  LE        int
+//    ...
 //
-//    *  JTRUE     void
-//    \--*  LE        int
-//       ...
+// BB21 [005..006), preds={} succs={BB22}
 //
-//    BB21 [005..006), preds={} succs={BB22}
+// *  CALL      void   ThrowHelper.ThrowArgumentOutOfRangeException
+// \--*  CNS_INT   int    33
 //
-//    *  CALL      void   ThrowHelper.ThrowArgumentOutOfRangeException
-//    \--*  CNS_INT   int    33
-//
-PhaseStatus Compiler::fgTailMergeThrows()
+PhaseStatus Compiler::phTailMergeThrows()
 {
     noway_assert(opts.OptimizationEnabled());
-
-    JITDUMP("\n*************** In fgTailMergeThrows\n");
 
     // Early out case for most methods. Throw helpers are rare.
     if (optNoReturnCallCount < 2)

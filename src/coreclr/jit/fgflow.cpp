@@ -521,9 +521,9 @@ void Compiler::fgComputeCheapPreds()
 
             case BBJ_EHFILTERRET:
                 // Connect end of filter to catch handler.
-                // In a well-formed program, this cannot be null.  Tolerate here, so that we can call
-                // fgComputeCheapPreds before fgImport on an ill-formed program; the problem will be detected in
-                // fgImport.
+                // In a well-formed program, this cannot be null. Tolerate here, so that we can call
+                // fgComputeCheapPreds before import on an ill-formed program; the problem will be
+                // detected during import.
                 if (block->bbJumpDest != nullptr)
                 {
                     fgAddCheapPred(block->bbJumpDest, block);
@@ -760,10 +760,10 @@ void Compiler::fgComputePreds()
                 break;
 
             case BBJ_EHFILTERRET:
-
                 // Connect end of filter to catch handler.
-                // In a well-formed program, this cannot be null.  Tolerate here, so that we can call
-                // fgComputePreds before fgImport on an ill-formed program; the problem will be detected in fgImport.
+                // In a well-formed program, this cannot be null. Tolerate here, so that we can call
+                // fgComputePreds before import on an ill-formed program; the problem will be detected
+                // during import.
                 if (block->bbJumpDest != nullptr)
                 {
                     fgAddRefPred(block->bbJumpDest, block, nullptr, true);

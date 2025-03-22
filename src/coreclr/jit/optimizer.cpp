@@ -4021,13 +4021,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
     return true;
 }
 
-//-----------------------------------------------------------------------------
-// optInvertLoops: invert while loops in the method
-//
-// Returns:
-//   suitable phase status
-//
-PhaseStatus Compiler::optInvertLoops()
+PhaseStatus Compiler::phInvertLoops()
 {
     noway_assert(opts.OptimizationEnabled());
     noway_assert(fgModified == false);
@@ -4073,16 +4067,11 @@ PhaseStatus Compiler::optInvertLoops()
     return madeChanges ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
 }
 
-//-----------------------------------------------------------------------------
-// optOptimizeLayout: reorder blocks to reduce cost of control flow
-//
-// Returns:
-//   suitable phase status
-//
-PhaseStatus Compiler::optOptimizeLayout()
+// Reorder blocks to reduce cost of control flow
+PhaseStatus Compiler::phOptimizeLayout()
 {
     noway_assert(opts.OptimizationEnabled());
-    noway_assert(fgModified == false);
+    noway_assert(!fgModified);
 
     bool madeChanges = false;
 
@@ -5149,12 +5138,11 @@ GenTree* OptBoolsDsc::optIsBoolComp(OptTestInfo* pOptTest)
 //     - x == 1 || y == 1 ==> (x|y)!=0: Skip cases where either x or y is greater than 1, e.g., x=2, y=0
 //     - x == 0 || y == 0 ==> (x&y)==0: Skip cases where x and y have opposite bits set, e.g., x=2, y=1
 //
-void Compiler::optOptimizeBools()
+void Compiler::phOptimizeBools()
 {
 #ifdef DEBUG
     if (verbose)
     {
-        printf("*************** In optOptimizeBools()\n");
         if (verboseTrees)
         {
             printf("Blocks/Trees before phase\n");

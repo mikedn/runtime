@@ -1517,16 +1517,9 @@ void ClassProbeInstrumentor::SuppressProbes()
     assert(cleanupCount == m_comp->info.compClassProbeCount);
 }
 
-//------------------------------------------------------------------------
-// fgPrepareToInstrumentMethod: prepare for instrumentation
-//
-// Notes:
-//   Runs before importation, so instrumentation schemes can get a pure
-//   look at the flowgraph before any internal blocks are added.
-//
-// Returns:
-//   appropriate phase status
-//
+// Prepare for instrumentation.
+// Runs before importation, so instrumentation schemes can get a pure
+// look at the flowgraph before any internal blocks are added.
 PhaseStatus Compiler::fgPrepareToInstrumentMethod()
 {
     noway_assert(!compIsForInlining());
@@ -1587,34 +1580,26 @@ PhaseStatus Compiler::fgPrepareToInstrumentMethod()
     return PhaseStatus::MODIFIED_NOTHING;
 }
 
-//------------------------------------------------------------------------
-// fgInstrumentMethod: add instrumentation probes to the method
+// Add instrumentation probes to the method
 //
-// Returns:
-//   appropriate phase status
+// By default this instruments each non-internal block with
+// a counter probe.
 //
-// Note:
+// Optionally adds class probes to virtual and interface calls.
 //
-//   By default this instruments each non-internal block with
-//   a counter probe.
+// Probe structure is described by a schema array, which is created
+// here based on flowgraph and IR structure.
 //
-//   Optionally adds class probes to virtual and interface calls.
-//
-//   Probe structure is described by a schema array, which is created
-//   here based on flowgraph and IR structure.
-//
-PhaseStatus Compiler::fgInstrumentMethod()
+PhaseStatus Compiler::phInstrumentMethod()
 {
     noway_assert(!compIsForInlining());
 
-    // Make post-importpreparations.
-    //
+    // Make post-import preparations.
     const bool isPreImport = false;
     fgCountInstrumentor->Prepare(isPreImport);
     fgClassInstrumentor->Prepare(isPreImport);
 
     // Walk the flow graph to build up the instrumentation schema.
-    //
     Schema schema(getAllocator(CMK_Pgo));
     for (BasicBlock* const block : Blocks())
     {
@@ -1631,7 +1616,6 @@ PhaseStatus Compiler::fgInstrumentMethod()
 
     // Verify we created schema for the calls needing class probes.
     // (we counted those when importing)
-    //
     assert(fgClassInstrumentor->SchemaCount() == info.compClassProbeCount);
 
     // Optionally, when jitting, if there were no class probes and only one count probe,
@@ -1724,17 +1708,9 @@ PhaseStatus Compiler::fgInstrumentMethod()
     return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
-//------------------------------------------------------------------------
-// fgIncorporateProfileData: add block/edge profile data to the flowgraph
-//   and compute profile scale for inlinees
-//
-// Returns:
-//   appropriate phase status
-//
-PhaseStatus Compiler::fgIncorporateProfileData()
+// Add block/edge profile data to the flowgraph and compute profile scale for inlinees.
+PhaseStatus Compiler::phIncorporateProfileData()
 {
-    // Are we doing profile stress?
-    //
     if (fgStressBBProf() > 0)
     {
         JITDUMP("JitStress -- incorporating random profile data\n");
@@ -1743,12 +1719,8 @@ PhaseStatus Compiler::fgIncorporateProfileData()
         return PhaseStatus::MODIFIED_EVERYTHING;
     }
 
-    // Do we have profile data?
-    //
     if (!fgHaveProfileData())
     {
-        // No...
-        //
         if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
         {
             JITDUMP("BBOPT set, but no profile data available (hr=%08x)\n", fgPgoQueryResult);
@@ -1758,15 +1730,11 @@ PhaseStatus Compiler::fgIncorporateProfileData()
             JITDUMP("BBOPT not set\n");
         }
 
-        // Scale the "synthetic" block weights.
-        //
         fgApplyProfileScale();
 
         return compIsForInlining() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
     }
 
-    // Summarize profile data
-    //
     JITDUMP("Have %s profile data: %d schema records (schema at %p, data at %p)\n", pgoSourceToString(fgPgoSource),
             fgPgoSchemaCount, dspPtr(fgPgoSchema), dspPtr(fgPgoData));
 
@@ -3015,14 +2983,8 @@ void flowList::setEdgeWeights(BasicBlock::weight_t theMinWeight, BasicBlock::wei
     flEdgeWeightMax = theMaxWeight;
 }
 
-//-------------------------------------------------------------
-// fgComputeBlockAndEdgeWeights: determine weights for blocks
-//   and optionally for edges
-//
-void Compiler::fgComputeBlockAndEdgeWeights()
+void Compiler::phComputeBlockWeights()
 {
-    JITDUMP("*************** In fgComputeBlockAndEdgeWeights()\n");
-
     const bool usingProfileWeights = fgIsUsingProfileWeights();
 
     fgModified             = false;
@@ -3047,8 +3009,6 @@ void Compiler::fgComputeBlockAndEdgeWeights()
     {
         JITDUMP(" -- no profile data, so using default called count\n");
     }
-
-    fgComputeEdgeWeights();
 }
 
 //-------------------------------------------------------------
@@ -3233,10 +3193,8 @@ void Compiler::fgComputeCalledCount(BasicBlock::weight_t returnWeight)
     JITDUMP("We are using the Profile Weights and fgCalledCount is " FMT_WT "\n", fgCalledCount);
 }
 
-//-------------------------------------------------------------
-// fgComputeEdgeWeights: compute edge weights from block weights
-
-void Compiler::fgComputeEdgeWeights()
+// Compute edge weights from block weights
+void Compiler::phComputeEdgeWeights()
 {
     const bool isOptimizing        = opts.OptimizationEnabled();
     const bool usingProfileWeights = fgIsUsingProfileWeights();
@@ -3563,19 +3521,19 @@ EARLY_EXIT:;
     {
         if (inconsistentProfileData)
         {
-            printf("fgComputeEdgeWeights() found inconsistent profile data, not using the edge weights\n");
+            printf("ComputeEdgeWeights: found inconsistent profile data, not using the edge weights\n");
         }
         else
         {
             if (hasIncompleteEdgeWeights)
             {
-                printf("fgComputeEdgeWeights() was able to compute exact edge weights for %3d of the %3d edges, using "
+                printf("ComputeEdgeWeights: was able to compute exact edge weights for %3d of the %3d edges, using "
                        "%d passes.\n",
                        goodEdgeCountCurrent, numEdges, iterations);
             }
             else
             {
-                printf("fgComputeEdgeWeights() was able to compute exact edge weights for all of the %3d edges, using "
+                printf("ComputeEdgeWeights: was able to compute exact edge weights for all of the %3d edges, using "
                        "%d passes.\n",
                        numEdges, iterations);
             }

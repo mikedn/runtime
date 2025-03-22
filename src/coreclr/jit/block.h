@@ -1640,7 +1640,7 @@ inline BBArrayIterator BasicBlock::BBSuccList::end() const
 // The bbPreds list is initially created by Compiler::fgComputePreds()
 // and is incrementally kept up to date.
 //
-// The edge weight are computed by Compiler::fgComputeEdgeWeights()
+// The edge weight are computed by Compiler::phComputeEdgeWeights()
 // the edge weights are used to straighten conditional branches
 // by Compiler::fgReorderBlocks()
 //

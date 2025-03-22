@@ -3756,7 +3756,7 @@ public:
     // The following are boolean flags that keep track of the state of internal data structures
 
     bool fgStmtListThreaded       = false; // true if the node list is now threaded
-    bool fgEdgeWeightsComputed    = false; // true after we have called fgComputeEdgeWeights
+    bool fgEdgeWeightsComputed    = false; // true after we have called phComputeEdgeWeights
     bool fgHaveValidEdgeWeights   = false; // true if we were successful in computing all of the edge weights
     bool fgSlopUsedInEdgeWeights  = false; // true if their was some slop used when computing the edge weights
     bool fgRangeUsedInEdgeWeights = true;  // true if some of the edgeWeight are expressed in Min..Max form
@@ -3784,24 +3784,24 @@ public:
                                                          // This is derived from the profile data or is
                                                          // BB_UNITY_WEIGHT when we don't have profile data
 
-    PhaseStatus fgImport();
+    PhaseStatus phImport();
     PhaseStatus phTransformIndirectCalls();
-    PhaseStatus fgTransformPatchpoints();
-    PhaseStatus fgInline();
-    PhaseStatus fgRemoveEmptyTry();
-    PhaseStatus fgRemoveEmptyFinally();
-    PhaseStatus fgMergeFinallyChains();
-    PhaseStatus fgCloneFinally();
+    PhaseStatus phTransformPatchpoints();
+    PhaseStatus phInline();
+    PhaseStatus phRemoveEmptyTry();
+    PhaseStatus phRemoveEmptyFinally();
+    PhaseStatus phMergeFinallyChains();
+    PhaseStatus phCloneFinally();
 
     void fgCleanupContinuation(BasicBlock* continuation);
 
 #ifdef TARGET_ARM
-    PhaseStatus fgUpdateFinallyTargetFlags();
+    PhaseStatus phUpdateFinallyTargetFlags();
     void        fgClearAllFinallyTargetBits();
     void        fgAddFinallyTargetFlags();
 #endif
 
-    PhaseStatus fgTailMergeThrows();
+    PhaseStatus phTailMergeThrows();
     void fgTailMergeThrowsFallThroughHelper(BasicBlock* predBlock,
                                             BasicBlock* nonCanonicalBlock,
                                             BasicBlock* canonicalBlock,
@@ -3838,7 +3838,7 @@ public:
     // The number of separate return points in the method.
     unsigned fgReturnCount = 0;
 
-    void fgAddInternal();
+    void phAddInternal();
 
     bool fgFoldConditional(BasicBlock* block);
 
@@ -4169,10 +4169,10 @@ public:
 #ifdef DEBUG
     void fgPrintEdgeWeights();
 #endif
-    void                 fgComputeBlockAndEdgeWeights();
+    void                 phComputeBlockWeights();
     BasicBlock::weight_t fgComputeMissingBlockWeights();
     void fgComputeCalledCount(BasicBlock::weight_t returnWeight);
-    void fgComputeEdgeWeights();
+    void phComputeEdgeWeights();
     bool fgReorderBlocks();
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
     bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
@@ -4288,8 +4288,8 @@ protected:
     Instrumentor* fgClassInstrumentor = nullptr;
 
     PhaseStatus fgPrepareToInstrumentMethod();
-    PhaseStatus fgInstrumentMethod();
-    PhaseStatus fgIncorporateProfileData();
+    PhaseStatus phInstrumentMethod();
+    PhaseStatus phIncorporateProfileData();
     void        fgIncorporateBlockCounts();
     void        fgIncorporateEdgeCounts();
 
@@ -4627,12 +4627,12 @@ private:
     void optPerformHoistExpr(GenTree* expr, unsigned lnum);
 
 public:
-    void optOptimizeBools();
+    void phOptimizeBools();
 
 public:
-    PhaseStatus optInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
-    PhaseStatus optOptimizeLayout(); // Optimize the BasicBlock layout of the method
-    PhaseStatus phFindLoops();       // Finds loops and records them in the loop table
+    PhaseStatus phInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
+    PhaseStatus phOptimizeLayout(); // Optimize the BasicBlock layout of the method
+    PhaseStatus phFindLoops();      // Finds loops and records them in the loop table
 
     PhaseStatus phCloneLoops();
     void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
@@ -5714,7 +5714,7 @@ public:
     void        phRemoveNotImportedBlocks();
     PhaseStatus phMorphAllocObj();
     void        phComputePreds();
-    void        phMorph();
+    void        phGlobalMorph();
     void        phGSCookie();
     void        phAddSpecialLocals();
     void        phImplicitRefLocals();

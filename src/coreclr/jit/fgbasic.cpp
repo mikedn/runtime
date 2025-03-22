@@ -1821,7 +1821,7 @@ ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
 
 // Modifies lvaThisLclNum to refer to a temp if the value of 'this' can
 // change. The original this (info.compThisArg) then remains unmodified
-// in the method. fgAddInternal is responsible for adding the code to copy
+// in the method. phAddInternal is responsible for adding the code to copy
 // the initial this into the temp.
 void Compiler::fgAdjustForAddressTakenOrStoredThis()
 {
