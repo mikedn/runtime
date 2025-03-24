@@ -2259,13 +2259,9 @@ struct Importer
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
-    GenTreeCall::Use* gtNewCallArgs(GenTree* node);
-    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
-    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
-    GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4);
-    GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
-    GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
     GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
+    GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTree* arg1);
+    GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTree* arg1, GenTree* arg2);
     GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
                                    var_types             type,
                                    GenTreeCall::Use*     args,
@@ -2867,11 +2863,10 @@ public:
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4);
     GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
-    GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
-
     GenTreeCall::Use* gtPrependNewCallArg(GenTreeCall::Use*& args, GenTree* node);
-    void gtAppendCallArgs(GenTreeCall::Use*& list, GenTreeCall::Use* args);
     GenTreeCall::Use* gtAppendNewCallArg(GenTreeCall::Use*& list, GenTree* node);
+    GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
+    void gtAppendCallArgs(GenTreeCall::Use*& list, GenTreeCall::Use* args);
 
     GenTreeCall* gtNewCallNode(
         CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset = BAD_IL_OFFSET);

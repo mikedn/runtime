@@ -206,7 +206,7 @@ private:
             }
             else
             {
-                fatCall->gtCallArgs = compiler->gtPrependNewCallArg(hiddenArgument, fatCall->gtCallArgs);
+                compiler->gtPrependNewCallArg(fatCall->gtCallArgs, hiddenArgument);
             }
 #endif
         }

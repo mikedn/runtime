@@ -6449,7 +6449,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
             }
         }
 
-        call->gtCallArgs = gtPrependNewCallArg(thisArg, call->gtCallArgs);
+        gtPrependNewCallArg(call->gtCallArgs, thisArg);
     }
 
     // The tailcall helper has 4 extra arguments:

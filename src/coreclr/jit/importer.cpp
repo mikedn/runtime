@@ -545,7 +545,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
 #ifdef TARGET_X86
     if (extraArg != nullptr)
     {
-        args = gtNewCallArgs(extraArg);
+        args = comp->gtNewCallArgs(extraArg);
     }
 #endif
 
@@ -562,7 +562,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
             JITDUMPTREE(arg, "resulting tree:\n");
         }
 
-        args = gtPrependNewCallArg(arg, args);
+        comp->gtPrependNewCallArg(args, arg);
     }
 
     CORINFO_ARG_LIST_HANDLE param = sig->args;
@@ -626,7 +626,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
 #ifndef TARGET_X86
     if (extraArg != nullptr)
     {
-        args = gtPrependNewCallArg(extraArg, args);
+        comp->gtPrependNewCallArg(args, extraArg);
     }
 #endif
 
@@ -779,7 +779,7 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 #ifndef TARGET_X86
             if (call->gtCallArgs == nullptr)
             {
-                call->gtCallArgs = gtNewCallArgs(retBufAddr);
+                call->gtCallArgs = comp->gtNewCallArgs(retBufAddr);
             }
             else
             {
@@ -799,7 +799,7 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
         else
         {
 #ifndef TARGET_X86
-            call->gtCallArgs = comp->gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+            comp->gtPrependNewCallArg(call->gtCallArgs, retBufAddr);
 #else
             comp->gtAppendNewCallArg(call->gtCallArgs, retBufAddr);
 #endif
@@ -808,7 +808,7 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
     else
 #endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     {
-        call->gtCallArgs = comp->gtPrependNewCallArg(retBufAddr, call->gtCallArgs);
+        comp->gtPrependNewCallArg(call->gtCallArgs, retBufAddr);
     }
 
     call->SetType(TYP_VOID);
@@ -1257,7 +1257,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         if (opts.IsReadyToRun())
         {
             return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_HANDLE, resolvedToken, TYP_I_IMPL,
-                                          gtNewCallArgs(ctxTree), &lookup->lookupKind);
+                                          comp->gtNewCallArgs(ctxTree), &lookup->lookupKind);
         }
 #endif
         return comp->gtNewRuntimeLookupHelperCallNode(runtimeLookup, ctxTree, compileTimeHandle);
@@ -1393,7 +1393,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.
-        GenTreeCall::Use* helperArgs = gtNewCallArgs(handleForNullCheck, sizeCheck, ctxTree, argNode);
+        GenTreeCall::Use* helperArgs = comp->gtNewCallArgs(handleForNullCheck, sizeCheck, ctxTree, argNode);
         GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
 
         addExpRuntimeLookupCandidate(helperCall);
@@ -1402,7 +1402,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     }
     else
     {
-        GenTreeCall::Use* helperArgs = gtNewCallArgs(ctxTree, argNode);
+        GenTreeCall::Use* helperArgs = comp->gtNewCallArgs(ctxTree, argNode);
         GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
         GenTree*          nullCheck  = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
         GenTree*          handleForResult = gtCloneExpr(handleForNullCheck);
@@ -2740,8 +2740,7 @@ GenTree* Importer::impIntrinsic(GenTree*                 newobjThis,
                 {
                     impPopStack();
 
-                    return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF,
-                                               gtNewCallArgs(typeHandle));
+                    return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, typeHandle);
                 }
             }
 
@@ -2774,7 +2773,7 @@ GenTree* Importer::impIntrinsic(GenTree*                 newobjThis,
                     return nullptr;
                 }
 
-                return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, gtNewCallArgs(typeHandle));
+                return gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE, TYP_REF, typeHandle);
             }
 
             *isSpecialIntrinsic = true;
@@ -4130,8 +4129,7 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
         GenTree* runtimeMethodHandle =
             impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::Method, callInfo->hMethod);
 
-        return gtNewHelperCallNode(CORINFO_HELP_GVMLOOKUP_FOR_SLOT, TYP_I_IMPL,
-                                   gtNewCallArgs(thisPtr, runtimeMethodHandle));
+        return gtNewHelperCallNode(CORINFO_HELP_GVMLOOKUP_FOR_SLOT, TYP_I_IMPL, thisPtr, runtimeMethodHandle);
     }
 
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -4141,7 +4139,7 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
         {
             return comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR,
                                                 callInfo->codePointerLookup.constLookup, TYP_I_IMPL,
-                                                gtNewCallArgs(thisPtr));
+                                                comp->gtNewCallArgs(thisPtr));
         }
 
         // We need a runtime lookup. CoreRT has a ReadyToRun helper for that too.
@@ -4150,7 +4148,7 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
             GenTree* ctxTree = gtNewRuntimeContextTree(callInfo->codePointerLookup.lookupKind.runtimeLookupKind);
 
             return gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_HANDLE, resolvedToken, TYP_I_IMPL,
-                                          gtNewCallArgs(ctxTree), &callInfo->codePointerLookup.lookupKind);
+                                          comp->gtNewCallArgs(ctxTree), &callInfo->codePointerLookup.lookupKind);
         }
     }
 #endif
@@ -4172,7 +4170,7 @@ GenTree* Importer::ImportLdVirtFtn(GenTree* thisPtr, CORINFO_RESOLVED_TOKEN* res
     }
 
     return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL,
-                               gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
+                               comp->gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
 }
 
 BoxPattern Compiler::impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize)
@@ -4617,7 +4615,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
         GenTree* addr = impGetStructAddr(value, valueClass, CHECK_SPILL_ALL, true);
 
-        boxed = gtNewHelperCallNode(boxHelper, TYP_REF, gtNewCallArgs(handle, addr));
+        boxed = gtNewHelperCallNode(boxHelper, TYP_REF, handle, addr);
     }
 
     impPushOnStack(boxed, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(resolvedToken->hClass)));
@@ -4706,10 +4704,10 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
             node = gtNewCommaNode(store, node);
         }
 
-        GenTreeCall::Use* args = gtNewCallArgs(node);
+        GenTreeCall::Use* args = comp->gtNewCallArgs(node);
+        comp->gtPrependNewCallArg(args, gtNewIconNode(callInfo->sig.numArgs));
+        comp->gtPrependNewCallArg(args, classHandle);
 
-        args = gtPrependNewCallArg(gtNewIconNode(callInfo->sig.numArgs), args);
-        args = gtPrependNewCallArg(classHandle, args);
         call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
     }
     else
@@ -4720,7 +4718,7 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
         for (int i = callInfo->sig.numArgs - 1; i >= 0; i--)
         {
             GenTree* dim = impImplicitIorI4Cast(impPopStack().val, TYP_INT);
-            args         = gtPrependNewCallArg(dim, args);
+            comp->gtPrependNewCallArg(args, dim);
 
             if (lastArg == nullptr)
             {
@@ -4731,11 +4729,11 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
         GenTreeIntCon* numArgsNode = gtNewIconNode(callInfo->sig.numArgs);
 
 #ifdef TARGET_X86
-        lastArg = gtInsertNewCallArgAfter(numArgsNode, lastArg);
-        lastArg = gtInsertNewCallArgAfter(classHandle, lastArg);
+        lastArg = comp->gtInsertNewCallArgAfter(numArgsNode, lastArg);
+        lastArg = comp->gtInsertNewCallArgAfter(classHandle, lastArg);
 #else
-        args                       = gtPrependNewCallArg(numArgsNode, args);
-        args                       = gtPrependNewCallArg(classHandle, args);
+        comp->gtPrependNewCallArg(args, numArgsNode);
+        comp->gtPrependNewCallArg(args, classHandle);
 #endif
 
         call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
@@ -5156,7 +5154,7 @@ GenTree* Importer::CreateClassInitTree(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
     if (runtimeLookup)
     {
-        return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, gtNewCallArgs(node));
+        return gtNewHelperCallNode(CORINFO_HELP_INITCLASS, TYP_VOID, node);
     }
 
     // Call the shared non gc static helper, as its the fastest
@@ -5285,7 +5283,7 @@ GenTree* Importer::impImportFieldInstanceAddrHelper(OPCODE                    op
     assert(objPtr != nullptr);
 
     GenTree* fieldHnd = impTokenToHandle(resolvedToken);
-    GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(objPtr, fieldHnd));
+    GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, objPtr, fieldHnd);
 
     if (opcode == CEE_LDFLDA)
     {
@@ -5340,7 +5338,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
                     break;
             }
 
-            addr = gtNewHelperCallNode(fieldInfo.helper, type, gtNewCallArgs(addr));
+            addr = gtNewHelperCallNode(fieldInfo.helper, type, addr);
         }
         break;
 
@@ -5381,7 +5379,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 
             GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
             addr = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, fieldInfo.fieldLookup,
-                                                TYP_BYREF, gtNewCallArgs(ctxTree));
+                                                TYP_BYREF, comp->gtNewCallArgs(ctxTree));
 
             if ((classAttribs & CORINFO_FLG_BEFOREFIELDINIT) != 0)
             {
@@ -5996,44 +5994,46 @@ void Importer::impHandleAccessAllowed(CorInfoIsAccessAllowedResult result, const
 
 void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
 {
-    // Construct the argument list
-    GenTreeCall::Use* args = nullptr;
     assert(helperInfo.helperNum != CORINFO_HELP_UNDEF);
+
+    GenTreeCall::Use* args = nullptr;
+
     for (unsigned i = helperInfo.numArgs; i > 0; --i)
     {
-        const CORINFO_HELPER_ARG& helperArg  = helperInfo.args[i - 1];
-        GenTree*                  currentArg = nullptr;
-        switch (helperArg.argType)
+        const CORINFO_HELPER_ARG& argInfo  = helperInfo.args[i - 1];
+        GenTree*                  argValue = nullptr;
+
+        switch (argInfo.argType)
         {
             case CORINFO_HELPER_ARG_TYPE_Field:
                 info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(
-                    info.compCompHnd->getFieldClass(helperArg.fieldHandle));
-                currentArg = gtNewIconEmbFldHndNode(helperArg.fieldHandle);
+                    info.compCompHnd->getFieldClass(argInfo.fieldHandle));
+                argValue = gtNewIconEmbFldHndNode(argInfo.fieldHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Method:
-                info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(helperArg.methodHandle);
-                currentArg = gtNewIconEmbMethHndNode(helperArg.methodHandle);
+                info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(argInfo.methodHandle);
+                argValue = gtNewIconEmbMethHndNode(argInfo.methodHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Class:
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(helperArg.classHandle);
-                currentArg = gtNewIconEmbClsHndNode(helperArg.classHandle);
+                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(argInfo.classHandle);
+                argValue = gtNewIconEmbClsHndNode(argInfo.classHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Module:
-                currentArg = gtNewIconEmbModHndNode(helperArg.moduleHandle);
+                argValue = gtNewIconEmbModHndNode(argInfo.moduleHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Const:
-                currentArg = gtNewIconNode(helperArg.constant);
+                argValue = gtNewIconNode(argInfo.constant);
                 break;
             default:
                 NO_WAY("Illegal helper arg type");
         }
-        args = gtPrependNewCallArg(currentArg, args);
+
+        comp->gtPrependNewCallArg(args, argValue);
     }
 
     // TODO-Review: Mark as CSE'able, and hoistable. Consider marking hoistable unless
     // you're in the inlinee. Also, consider sticking this in the first basic block.
-    GenTree* callout = gtNewHelperCallNode(helperInfo.helperNum, TYP_VOID, args);
-    impSpillNoneAppendTree(callout);
+    impSpillNoneAppendTree(gtNewHelperCallNode(helperInfo.helperNum, TYP_VOID, args));
 }
 
 // Checks whether the return types of caller and callee are compatible
@@ -6444,7 +6444,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
                 call                = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
-                call->gtCallThisArg = gtNewCallArgs(thisPtrUses[1]);
+                call->gtCallThisArg = comp->gtNewCallArgs(thisPtrUses[1]);
 
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
@@ -6700,7 +6700,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
 
             call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
-            call->gtCallThisArg = gtNewCallArgs(obj);
+            call->gtCallThisArg = comp->gtNewCallArgs(obj);
 
             if (call->IsVirtual())
             {
@@ -8445,7 +8445,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
         // so instead we force the CSE logic to not consider CSE-ing this class handle.
         op2->gtFlags |= GTF_DONT_CSE;
 
-        return gtNewHelperCallNode(helper, TYP_REF, gtNewCallArgs(op2, op1));
+        return gtNewHelperCallNode(helper, TYP_REF, op2, op1);
     }
 
     JITDUMP("\nExpanding %s inline\n", isCastClass ? "castclass" : "isinst");
@@ -8475,7 +8475,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     if (isCastClass)
     {
-        condTrue = gtNewHelperCallNode(CORINFO_HELP_CHKCASTCLASS_SPECIAL, TYP_REF, gtNewCallArgs(op2Use, op1Uses[4]));
+        condTrue = gtNewHelperCallNode(CORINFO_HELP_CHKCASTCLASS_SPECIAL, TYP_REF, op2Use, op1Uses[4]);
 
         if (impIsClassExact(resolvedToken->hClass))
         {
@@ -9280,16 +9280,19 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 // Otherwise we need the full helper function with run-time type check
                 op1 = impTokenToHandle(&resolvedToken);
+
                 if (op1 == nullptr)
                 {
+                    assert(compDonotInline());
                     return;
                 }
 
                 {
-                    GenTreeCall::Use* args = gtNewCallArgs(op1);                           // Type
-                    args                   = gtPrependNewCallArg(impPopStack().val, args); // index
-                    args                   = gtPrependNewCallArg(impPopStack().val, args); // array
-                    op1                    = gtNewHelperCallNode(CORINFO_HELP_LDELEMA_REF, TYP_BYREF, args);
+                    GenTree*          index = impPopStack().val;
+                    GenTree*          array = impPopStack().val;
+                    GenTreeCall::Use* args  = comp->gtNewCallArgs(array, index, op1);
+
+                    op1 = gtNewHelperCallNode(CORINFO_HELP_LDELEMA_REF, TYP_BYREF, args);
                 }
 
                 impPushOnStack(op1);
@@ -9437,8 +9440,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(value->TypeIs(TYP_REF));
                     assert(varTypeIsIntegral(index->GetType()));
 
-                    impSpillAllAppendTree(
-                        gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID, gtNewCallArgs(array, index, value)));
+                    impSpillAllAppendTree(gtNewHelperCallNode(CORINFO_HELP_ARRADDR_ST, TYP_VOID,
+                                                              comp->gtNewCallArgs(array, index, value)));
                 }
                 break;
 
@@ -10636,7 +10639,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 block->bbSetRunRarely();
 
                 op1 = impPopStack().val;
-                op1 = gtNewHelperCallNode(CORINFO_HELP_THROW, TYP_VOID, gtNewCallArgs(op1));
+                op1 = gtNewHelperCallNode(CORINFO_HELP_THROW, TYP_VOID, op1);
                 goto POP_APPEND;
 
             case CEE_RETHROW:
@@ -10987,7 +10990,7 @@ void Importer::ImportRefAnyType()
     }
 
     // convert native TypeHandle to RuntimeTypeHandle
-    op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT, gtNewCallArgs(op1));
+    op1 = gtNewHelperCallNode(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL, TYP_STRUCT, op1);
     op1->AsCall()->SetRetLayout(typGetObjLayout(impGetTypeHandleClass()));
     op1->AsCall()->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
 
@@ -11022,8 +11025,8 @@ void Importer::ImportRefAnyVal(const BYTE* codeAddr)
     }
 
     {
-        GenTreeCall::Use* arg1 = gtNewCallArgs(op2);
-        GenTreeCall::Use* arg2 = gtNewCallArgs(op1);
+        GenTreeCall::Use* arg1 = comp->gtNewCallArgs(op2);
+        GenTreeCall::Use* arg2 = comp->gtNewCallArgs(op1);
         arg2->SetSigTypeNum(typGetObjLayoutNum(impGetRefAnyClass()));
         arg1->SetNext(arg2);
 
@@ -11164,8 +11167,8 @@ void Importer::ImportIsInst(const BYTE* codeAddr)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        GenTreeCall* opLookup =
-            gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_ISINSTANCEOF, &resolvedToken, TYP_REF, gtNewCallArgs(op1));
+        GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_ISINSTANCEOF, &resolvedToken, TYP_REF,
+                                                       comp->gtNewCallArgs(op1));
         usingReadyToRunHelper = (opLookup != nullptr);
         op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -11236,8 +11239,8 @@ void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnb
 
         if (opts.IsReadyToRun())
         {
-            GenTreeCall* opLookup =
-                gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_CHKCAST, &resolvedToken, TYP_REF, gtNewCallArgs(op1));
+            GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_CHKCAST, &resolvedToken, TYP_REF,
+                                                           comp->gtNewCallArgs(op1));
             usingReadyToRunHelper = (opLookup != nullptr);
             op1                   = (usingReadyToRunHelper ? opLookup : op1);
 
@@ -11370,7 +11373,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             return;
         }
 
-        op1 = gtNewHelperCallNode(helper, TYP_VOID, gtNewCallArgs(op2, op1Uses[1]));
+        op1 = gtNewHelperCallNode(helper, TYP_VOID, comp->gtNewCallArgs(op2, op1Uses[1]));
         op1 = gtNewQmarkNode(TYP_VOID, condBox, gtNewNothingNode(), op1);
 
         // QMARK nodes cannot reside on the evaluation stack. Because there
@@ -11394,13 +11397,13 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         // Don't optimize, just call the helper and be done with it
         if (helper == CORINFO_HELP_UNBOX)
         {
-            op1 = gtNewHelperCallNode(helper, TYP_BYREF, gtNewCallArgs(op2, op1));
+            op1 = gtNewHelperCallNode(helper, TYP_BYREF, op2, op1);
         }
         else
         {
             assert(helper == CORINFO_HELP_UNBOX_NULLABLE);
 
-            op1 = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(op2, op1));
+            op1 = gtNewHelperCallNode(helper, TYP_STRUCT, op2, op1);
             op1->AsCall()->SetRetLayout(typGetObjLayout(resolvedToken.hClass));
 
             // This helper always returns the nullable struct via an "out" parameter,
@@ -11576,7 +11579,7 @@ void Importer::ImportLdToken(const BYTE* codeAddr)
         helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE;
     }
 
-    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_STRUCT, gtNewCallArgs(token));
+    GenTreeCall* call = gtNewHelperCallNode(helper, TYP_STRUCT, token);
     call->GetRetDesc()->InitializePrimitive(GetRuntimeHandleUnderlyingType());
     call->SetRetLayout(typGetObjLayout(tokenType));
 
@@ -11770,8 +11773,8 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        call =
-            gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_NEWARR_1, &resolvedToken, TYP_REF, gtNewCallArgs(lengthOp));
+        call = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_NEWARR_1, &resolvedToken, TYP_REF,
+                                      comp->gtNewCallArgs(lengthOp));
 
         if (call == nullptr)
         {
@@ -11800,7 +11803,7 @@ void Importer::ImportNewArr(const BYTE* codeAddr, BasicBlock* block)
 
         // Create a call to 'new'. Note that this only works for shared generic
         // code because the same helper is used for all reference array types.
-        call = gtNewHelperCallNode(helper, TYP_REF, gtNewCallArgs(handleOp, lengthOp));
+        call = gtNewHelperCallNode(helper, TYP_REF, handleOp, lengthOp);
     }
 
     call->m_retClassHandle = resolvedToken.hClass;
@@ -12079,7 +12082,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     {
         assert(!call->IsVirtual());
 
-        call->gtCallThisArg = gtNewCallArgs(newObjThis);
+        call->gtCallThisArg = comp->gtNewCallArgs(newObjThis);
         call->AddSideEffects(newObjThis->GetSideEffects());
     }
 
@@ -12229,7 +12232,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 
                 if (!pLookup.lookupKind.needsRuntimeLookup)
                 {
-                    helperArgs = gtNewCallArgs(thisPointer, targetObjPointers);
+                    helperArgs = comp->gtNewCallArgs(thisPointer, targetObjPointers);
                     entryPoint = pLookup.constLookup;
                 }
                 else
@@ -12240,7 +12243,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                     info.compCompHnd->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind,
                                                           CORINFO_HELP_READYTORUN_GENERIC_HANDLE, &genericLookup);
                     GenTree* ctxTree = gtNewRuntimeContextTree(pLookup.lookupKind.runtimeLookupKind);
-                    helperArgs       = gtNewCallArgs(thisPointer, targetObjPointers, ctxTree);
+                    helperArgs       = comp->gtNewCallArgs(thisPointer, targetObjPointers, ctxTree);
                     entryPoint       = genericLookup;
                 }
 
@@ -12259,7 +12262,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 
             GenTree*          thisPointer       = call->gtCallThisArg->GetNode();
             GenTree*          targetObjPointers = call->gtCallArgs->GetNode();
-            GenTreeCall::Use* helperArgs        = gtNewCallArgs(thisPointer, targetObjPointers);
+            GenTreeCall::Use* helperArgs        = comp->gtNewCallArgs(thisPointer, targetObjPointers);
 
             call = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, entryPoint.constLookup, TYP_VOID,
                                                 helperArgs);
@@ -12290,19 +12293,19 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 
             GenTreeCall::Use* addArgs = nullptr;
 
-            if (ctorData.pArg5 != nullptr)
+            if (void* arg5 = ctorData.pArg5)
             {
-                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg5, HandleKind::MethodAddr), addArgs);
+                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg5, HandleKind::MethodAddr));
             }
 
-            if (ctorData.pArg4 != nullptr)
+            if (void* arg4 = ctorData.pArg4)
             {
-                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg4, HandleKind::MethodAddr), addArgs);
+                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg4, HandleKind::MethodAddr));
             }
 
-            if (ctorData.pArg3 != nullptr)
+            if (void* arg3 = ctorData.pArg3)
             {
-                addArgs = gtPrependNewCallArg(gtNewIconHandleNode(ctorData.pArg3, HandleKind::MethodAddr), addArgs);
+                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg3, HandleKind::MethodAddr));
             }
 
             call->gtCallArgs->GetNext()->SetNext(addArgs);
@@ -12681,7 +12684,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
             assert(value->TypeIs(TYP_REF));
 
             // confirm that the argument is a GC pointer (for debugging (GC stress))
-            value = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, gtNewCallArgs(value));
+            value = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, value);
 
             if (verbose)
             {
@@ -15060,7 +15063,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                     }
                                     else
                                     {
-                                        call->gtCallArgs = gtPrependNewCallArg(methodTableArg, call->gtCallArgs);
+                                        gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
                                     }
 #endif
                                 }
@@ -15178,23 +15181,15 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             else
                             {
 #ifdef TARGET_X86
-                                GenTreeCall::Use* beforeArg = call->gtCallArgs;
-
-                                while (beforeArg->GetNext() != nullptr)
-                                {
-                                    beforeArg = beforeArg->GetNext();
-                                }
-
-                                beforeArg->SetNext(gtNewCallArgs(methodTableArg));
+                                gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
 #else
-                                // If there's a ret buf, the method table is the second arg.
                                 if (call->HasRetBufArg())
                                 {
                                     gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
                                 }
                                 else
                                 {
-                                    call->gtCallArgs = gtPrependNewCallArg(methodTableArg, call->gtCallArgs);
+                                    gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
                                 }
 #endif
                             }
@@ -16066,7 +16061,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     assert(fieldInfo.helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS);
 
     GenTree* fieldHnd = impTokenToHandle(resolvedToken);
-    GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, gtNewCallArgs(fieldHnd));
+    GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, fieldHnd);
 #else
     void**   pIdAddr = nullptr;
     unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken->hField, (void**)&pIdAddr);
@@ -17009,39 +17004,19 @@ GenTreeIndexAddr* Importer::gtNewStringIndexAddr(GenTree* arr, GenTree* ind)
     return comp->gtNewStringIndexAddr(arr, ind);
 }
 
-GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node)
-{
-    return comp->gtNewCallArgs(node);
-}
-
-GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2)
-{
-    return comp->gtNewCallArgs(node1, node2);
-}
-
-GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3)
-{
-    return comp->gtNewCallArgs(node1, node2, node3);
-}
-
-GenTreeCall::Use* Importer::gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4)
-{
-    return comp->gtNewCallArgs(node1, node2, node3, node4);
-}
-
-GenTreeCall::Use* Importer::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
-{
-    return comp->gtPrependNewCallArg(node, args);
-}
-
-GenTreeCall::Use* Importer::gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after)
-{
-    return comp->gtInsertNewCallArgAfter(node, after);
-}
-
 GenTreeCall* Importer::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
     return comp->gtNewHelperCallNode(helper, type, args);
+}
+
+GenTreeCall* Importer::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTree* arg)
+{
+    return comp->gtNewHelperCallNode(helper, type, comp->gtNewCallArgs(arg));
+}
+
+GenTreeCall* Importer::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTree* arg1, GenTree* arg2)
+{
+    return comp->gtNewHelperCallNode(helper, type, comp->gtNewCallArgs(arg1, arg2));
 }
 
 GenTreeCall* Importer::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,

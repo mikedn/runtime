@@ -3915,15 +3915,15 @@ GenTreeRetExpr* Compiler::gtNewRetExpr(GenTreeCall* call)
     return new (this, GT_RET_EXPR) GenTreeRetExpr(call);
 }
 
-GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
-{
-    return new (this, CMK_ASTNode) GenTreeCall::Use(node, args);
-}
-
 GenTreeCall::Use* Compiler::gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after)
 {
     after->SetNext(new (this, CMK_ASTNode) GenTreeCall::Use(node, after->GetNext()));
     return after->GetNext();
+}
+
+GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args)
+{
+    return new (this, CMK_ASTNode) GenTreeCall::Use(node, args);
 }
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTreeCall::Use*& head, GenTree* node)
