@@ -1960,21 +1960,21 @@ struct Importer
                               CORINFO_THIS_TRANSFORM  transform);
 
     GenTree* impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom);
-    GenTree* impIntrinsic(GenTree*                newobjThis,
-                          CORINFO_SIG_INFO*       sig,
-                          unsigned                methodFlags,
-                          CORINFO_RESOLVED_TOKEN* resolvedToken,
-                          bool                    readonlyCall,
-                          bool                    tailCall,
-                          CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
-                          CORINFO_CALL_INFO*      callInfo,
-                          NamedIntrinsic*         pIntrinsicId,
-                          bool*                   isSpecialIntrinsic);
-    GenTree* impMathIntrinsic(CORINFO_CALL_INFO* callInfo,
-                              CORINFO_SIG_INFO*  sig,
-                              var_types          callType,
-                              NamedIntrinsic     intrinsicName,
-                              bool               tailCall);
+    GenTree* impIntrinsic(GenTree*                 newobjThis,
+                          CORINFO_SIG_INFO*        sig,
+                          unsigned                 methodFlags,
+                          CORINFO_RESOLVED_TOKEN*  resolvedToken,
+                          bool                     readonlyCall,
+                          bool                     tailCall,
+                          CORINFO_RESOLVED_TOKEN*  contstrainedResolvedToken,
+                          const CORINFO_CALL_INFO* callInfo,
+                          NamedIntrinsic*          pIntrinsicId,
+                          bool*                    isSpecialIntrinsic);
+    GenTree* impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
+                              CORINFO_SIG_INFO*        sig,
+                              var_types                callType,
+                              NamedIntrinsic           intrinsicName,
+                              bool                     tailCall);
 
     bool impIsPrimitive(CorInfoType type);
 
@@ -1996,7 +1996,7 @@ struct Importer
                           const uint8_t* codeAddr DEBUGARG(const uint8_t* codeEnd));
     void ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken);
 
-    void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo);
+    void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CORINFO_CALL_INFO* callInfo);
 
     bool impCanPInvokeInline();
     bool impCanPInvokeInlineCallSite(BasicBlock* block);
@@ -2037,10 +2037,10 @@ struct Importer
     GenTreeCall* impImportCall(OPCODE                  opcode,
                                CORINFO_RESOLVED_TOKEN* resolvedToken,
                                CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                               GenTree*                newObjThis,
                                int                     prefixFlags,
                                CORINFO_CALL_INFO*      callInfo,
-                               const uint8_t*          ilAddr);
+                               const uint8_t*          ilAddr,
+                               GenTree*                newObjThis);
     GenTree* CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig);
     GenTree* CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INFO* sig);
     GenTree* CreateGenericCallTypeArg(GenTreeCall*            call,
@@ -2266,9 +2266,6 @@ struct Importer
     GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
     GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
-    GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* runtimeLookup,
-                                                  GenTree*                context,
-                                                  void*                   compileTimeHandle);
     GenTreeCall* gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
                                    var_types             type,
                                    GenTreeCall::Use*     args,
@@ -2887,12 +2884,15 @@ public:
     GenTreeCall* gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args = nullptr);
     GenTreeCall* gtChangeToHelperCall(GenTree* tree, CorInfoHelpFunc helper, GenTreeCall::Use* args);
 
-    GenTreeCall* gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* pRuntimeLookup,
-                                                  GenTree*                ctxTree,
-                                                  void*                   compileTimeHandle);
+    GenTreeCall* gtNewRuntimeLookupHelperCallNode(const CORINFO_RUNTIME_LOOKUP& runtimeLookup,
+                                                  GenTree*                      ctxTree,
+                                                  void*                         compileTimeHandle);
 
-    GenTreeIntrinsic* gtNewIntrinsic(
-        var_types type, NamedIntrinsic intrinsic, CORINFO_CALL_INFO* callInfo, GenTree* op1, GenTree* op2 = nullptr);
+    GenTreeIntrinsic* gtNewIntrinsic(var_types                type,
+                                     NamedIntrinsic           intrinsic,
+                                     const CORINFO_CALL_INFO* callInfo,
+                                     GenTree*                 op1,
+                                     GenTree*                 op2 = nullptr);
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
@@ -4435,9 +4435,9 @@ private:
     GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
                                                 const CORINFO_TAILCALL_HELPERS& helpers,
                                                 Statement*                      stmt);
-    GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
-                                  CORINFO_RUNTIME_LOOKUP&     lookup,
-                                  void*                       compileTimeHandle);
+    GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
+                                  const CORINFO_RUNTIME_LOOKUP& lookup,
+                                  void*                         compileTimeHandle);
     GenTree* getVirtMethodPointerTree(GenTree*                thisPtr,
                                       CORINFO_RESOLVED_TOKEN* resolvedToken,
                                       CORINFO_CALL_INFO*      callInfo);

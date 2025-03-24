@@ -228,13 +228,13 @@ inline GenTree* Compiler::gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd)
     return gtNewConstLookupTree(handle, handleAddr, HandleKind::Field, fldHnd);
 }
 
-inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* lookup,
-                                                               GenTree*                ctxTree,
-                                                               void*                   compileTimeHandle)
+inline GenTreeCall* Compiler::gtNewRuntimeLookupHelperCallNode(const CORINFO_RUNTIME_LOOKUP& lookup,
+                                                               GenTree*                      ctxTree,
+                                                               void*                         compileTimeHandle)
 {
-    GenTreeIntCon* argNode = gtNewIconHandleNode(lookup->signature, HandleKind::MutableData);
+    GenTreeIntCon* argNode = gtNewIconHandleNode(lookup.signature, HandleKind::MutableData);
     argNode->SetCompileTimeHandle(compileTimeHandle);
-    return gtNewHelperCallNode(lookup->helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
+    return gtNewHelperCallNode(lookup.helper, TYP_I_IMPL, gtNewCallArgs(ctxTree, argNode));
 }
 
 inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfoGenericHandleType hndTyp, GenTree* tree)

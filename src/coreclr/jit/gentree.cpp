@@ -3820,7 +3820,7 @@ GenTreeCall* Compiler::gtNewCallNode(
 }
 
 GenTreeIntrinsic* Compiler::gtNewIntrinsic(
-    var_types type, NamedIntrinsic intrinsic, CORINFO_CALL_INFO* callInfo, GenTree* op1, GenTree* op2)
+    var_types type, NamedIntrinsic intrinsic, const CORINFO_CALL_INFO* callInfo, GenTree* op1, GenTree* op2)
 {
     GenTreeIntrinsic* node = new (this, GT_INTRINSIC)
         GenTreeIntrinsic(type, intrinsic, callInfo == nullptr ? nullptr : callInfo->hMethod, op1, op2);

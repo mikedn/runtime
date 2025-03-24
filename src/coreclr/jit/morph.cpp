@@ -6231,9 +6231,9 @@ GenTree* Compiler::fgCreateCallDispatcherAndGetResult(GenTreeCall*              
     return retVal;
 }
 
-GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
-                                        CORINFO_RUNTIME_LOOKUP&     lookup,
-                                        void*                       compileTimeHandle)
+GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
+                                        const CORINFO_RUNTIME_LOOKUP& lookup,
+                                        void*                         compileTimeHandle)
 {
     assert(!compIsForInlining());
 
@@ -6247,7 +6247,7 @@ GenTree* Compiler::getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND kind,
         // The long-term solution is to introduce a new node representing a runtime lookup, create instances
         // of that node both in the importer and here, and expand the node in lower (introducing control flow if
         // necessary).
-        return gtNewRuntimeLookupHelperCallNode(&lookup, gtNewRuntimeContextTree(kind), compileTimeHandle);
+        return gtNewRuntimeLookupHelperCallNode(lookup, gtNewRuntimeContextTree(kind), compileTimeHandle);
     }
 
     GenTree* result = gtNewRuntimeContextTree(kind);

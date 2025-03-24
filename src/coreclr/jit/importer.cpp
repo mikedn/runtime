@@ -1248,7 +1248,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 {
     GenTree* ctxTree = gtNewRuntimeContextTree(lookup->lookupKind.runtimeLookupKind);
 
-    CORINFO_RUNTIME_LOOKUP& runtimeLookup = lookup->runtimeLookup;
+    const CORINFO_RUNTIME_LOOKUP& runtimeLookup = lookup->runtimeLookup;
 
     // It's available only via the run-time helper function
     if (runtimeLookup.indirections == CORINFO_USEHELPER)
@@ -1260,7 +1260,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                           gtNewCallArgs(ctxTree), &lookup->lookupKind);
         }
 #endif
-        return gtNewRuntimeLookupHelperCallNode(&runtimeLookup, ctxTree, compileTimeHandle);
+        return comp->gtNewRuntimeLookupHelperCallNode(runtimeLookup, ctxTree, compileTimeHandle);
     }
 
     if (!runtimeLookup.testForNull && (runtimeLookup.indirections == 0))
@@ -2506,16 +2506,16 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 //    own method bodies.
 //
 
-GenTree* Importer::impIntrinsic(GenTree*                newobjThis,
-                                CORINFO_SIG_INFO*       sig,
-                                unsigned                methodFlags,
-                                CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                bool                    readonlyCall,
-                                bool                    tailCall,
-                                CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                                CORINFO_CALL_INFO*      callInfo,
-                                NamedIntrinsic*         pIntrinsicId,
-                                bool*                   isSpecialIntrinsic)
+GenTree* Importer::impIntrinsic(GenTree*                 newobjThis,
+                                CORINFO_SIG_INFO*        sig,
+                                unsigned                 methodFlags,
+                                CORINFO_RESOLVED_TOKEN*  resolvedToken,
+                                bool                     readonlyCall,
+                                bool                     tailCall,
+                                CORINFO_RESOLVED_TOKEN*  constrainedResolvedToken,
+                                const CORINFO_CALL_INFO* callInfo,
+                                NamedIntrinsic*          pIntrinsicId,
+                                bool*                    isSpecialIntrinsic)
 {
     assert((methodFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0);
     assert(*pIntrinsicId == NI_Illegal);
@@ -3254,8 +3254,11 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     return nullptr;
 }
 
-GenTree* Importer::impMathIntrinsic(
-    CORINFO_CALL_INFO* callInfo, CORINFO_SIG_INFO* sig, var_types callType, NamedIntrinsic intrinsic, bool tailCall)
+GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
+                                    CORINFO_SIG_INFO*        sig,
+                                    var_types                callType,
+                                    NamedIntrinsic           intrinsic,
+                                    bool                     tailCall)
 {
     assert(callType != TYP_STRUCT);
     assert(Compiler::IsMathIntrinsic(intrinsic));
@@ -4627,7 +4630,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 //
 // Multi-dimensional array constructors are imported as calls to a JIT
 // helper, not as regular calls.
-void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_CALL_INFO* callInfo)
+void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CORINFO_CALL_INFO* callInfo)
 {
     assert(callInfo->sig.numArgs != 0);
 
@@ -4763,52 +4766,49 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
         return load;
     }
 
-    if (transform == CORINFO_BOX_THIS)
+    noway_assert(transform == CORINFO_BOX_THIS);
+
+    // Constraint calls where there might be no unboxed entry point require us to
+    // implement the call via helper. These only occur when a possible target of
+    // the call may have inherited an implementation of an interface method from
+    // System.Object or System.ValueType. The EE does not provide us with unboxed
+    // versions of these methods.
+    //
+    // TODO-MIKE-Review: Object/ValueType do not implement any interfaces. Is this
+    // dead code?
+
+    var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
+    GenTree*  load;
+
+    if (type == TYP_STRUCT)
     {
-        // Constraint calls where there might be no unboxed entry point require us to
-        // implement the call via helper. These only occur when a possible target of
-        // the call may have inherited an implementation of an interface method from
-        // System.Object or System.ValueType. The EE does not provide us with unboxed
-        // versions of these methods.
-
-        var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
-        GenTree*  indir;
-
-        if (type == TYP_STRUCT)
-        {
-            indir = comp->gtNewIndLoadObj(typGetObjLayout(constrainedResolvedToken->hClass), thisPtr);
-        }
-        else
-        {
-            indir = comp->gtNewIndLoad(type, thisPtr);
-        }
-
-        indir->gtFlags |= GTF_EXCEPT;
-
-        if ((type == TYP_STRUCT) ||
-            (info.compCompHnd->getTypeForPrimitiveValueClass(constrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
-        {
-            impPushOnStack(indir, typeInfo(TI_STRUCT, constrainedResolvedToken->hClass));
-        }
-        else
-        {
-            impPushOnStack(indir);
-        }
-
-        // This pops off the byref-to-a-value-type remaining on the stack and
-        // replaces it with a boxed object.
-        // This is then used as the object to the virtual call immediately below.
-        ImportAndPushBox(constrainedResolvedToken);
-        if (compDonotInline())
-        {
-            return nullptr;
-        }
-
-        return impPopStack().val;
+        load = comp->gtNewIndLoadObj(typGetObjLayout(constrainedResolvedToken->hClass), thisPtr);
+    }
+    else
+    {
+        load = comp->gtNewIndLoad(type, thisPtr);
     }
 
-    assert(transform == CORINFO_NO_THIS_TRANSFORM);
-    return thisPtr;
+    load->AddSideEffects(GTF_EXCEPT);
+
+    if ((type == TYP_STRUCT) ||
+        (info.compCompHnd->getTypeForPrimitiveValueClass(constrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
+    {
+        impPushOnStack(load, typeInfo(TI_STRUCT, constrainedResolvedToken->hClass));
+    }
+    else
+    {
+        impPushOnStack(load);
+    }
+
+    ImportAndPushBox(constrainedResolvedToken);
+
+    if (compDonotInline())
+    {
+        return nullptr;
+    }
+
+    return impPopStack().val;
 }
 
 static bool getInlinePInvokeEnabled()
@@ -6097,7 +6097,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 // Arguments:
 //    opcode                    - opcode that inspires the call
 //    resolvedToken            - resolved token for the call target
-//    pConstrainedResolvedToken - resolved constraint token (or nullptr)
+//    constrainedResolvedToken - resolved constraint token (or nullptr)
 //    newObjThis                - tree for this pointer or uninitalized newobj temp (or nullptr)
 //    prefixFlags               - IL prefix flags for the call
 //    callInfo                  - EE supplied info for the call
@@ -6110,12 +6110,12 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 //    uninitalized object.
 
 GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
-                                     CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                     CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken,
-                                     GenTree*                newobjThis,
+                                     CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                     CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                      int                     prefixFlags,
                                      CORINFO_CALL_INFO*      callInfo,
-                                     const uint8_t*          ilAddr)
+                                     const uint8_t*          ilAddr,
+                                     GenTree*                newobjThis)
 {
     assert(opcode == CEE_CALL || opcode == CEE_CALLVIRT || opcode == CEE_NEWOBJ || opcode == CEE_CALLI);
 
@@ -6165,7 +6165,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if (opcode == CEE_CALLI)
     {
-        eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &calliSig);
+        eeGetSig(resolvedToken->token, resolvedToken->tokenScope, resolvedToken->tokenContext, &calliSig);
 
         sig        = &calliSig;
         methHnd    = nullptr;
@@ -6190,7 +6190,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         sig        = &callInfo->sig;
         methHnd    = callInfo->hMethod;
         mflags     = callInfo->methodFlags;
-        clsHnd     = pResolvedToken->hClass;
+        clsHnd     = resolvedToken->hClass;
         clsFlags   = callInfo->classFlags;
         callRetTyp = CorTypeToVarType(sig->retType);
 
@@ -6202,7 +6202,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (sig->retType != CORINFO_TYPE_VOID)) || sig->isVarArg())
         {
-            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext,
+            eeGetCallSiteSig(resolvedToken->token, resolvedToken->tokenScope, resolvedToken->tokenContext,
                              &callSiteSig);
 
             retTypeSig = &callSiteSig;
@@ -6259,8 +6259,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             const bool isTailCall = (tailCallFailReason == nullptr) && ((prefixFlags & PREFIX_TAILCALL) != 0);
 
-            value = impIntrinsic(newobjThis, sig, mflags, pResolvedToken, isReadonlyCall, isTailCall,
-                                 pConstrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
+            value = impIntrinsic(newobjThis, sig, mflags, resolvedToken, isReadonlyCall, isTailCall,
+                                 constrainedResolvedToken, callInfo, &intrinsicID, &isSpecialIntrinsic);
 
             if (compDonotInline())
             {
@@ -6369,7 +6369,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                     assert(!sig->isVarArg());
 
-                    GenTree* stubAddr = impRuntimeLookupToTree(pResolvedToken, &callInfo->stubLookup, methHnd);
+                    GenTree* stubAddr = impRuntimeLookupToTree(resolvedToken, &callInfo->stubLookup, methHnd);
                     assert(!compDonotInline());
                     assert(stubAddr->TypeIs(TYP_I_IMPL));
 
@@ -6421,13 +6421,17 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 GenTreeCall::Use* args = PopCallArgs(sig);
 
                 GenTree* thisPtr = impPopStack().val;
-                thisPtr          = impTransformThis(thisPtr, pConstrainedResolvedToken, callInfo->thisTransform);
-                assert(thisPtr != nullptr);
+
+                if (callInfo->thisTransform != CORINFO_NO_THIS_TRANSFORM)
+                {
+                    thisPtr = impTransformThis(thisPtr, constrainedResolvedToken, callInfo->thisTransform);
+                    assert(thisPtr != nullptr);
+                }
 
                 GenTree* thisPtrUses[2];
                 impMakeMultiUse(thisPtr, thisPtrUses, CHECK_SPILL_ALL DEBUGARG("LDVIRTFTN this pointer"));
 
-                GenTree* fptr = ImportLdVirtFtn(thisPtrUses[0], pResolvedToken, callInfo);
+                GenTree* fptr = ImportLdVirtFtn(thisPtrUses[0], resolvedToken, callInfo);
                 assert(fptr->TypeIs(TYP_I_IMPL));
 
                 // TODO-MIKE-Review: This basically ignores exception side effects, causing a NullRefException
@@ -6471,7 +6475,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert(!sig->hasTypeArg());
                 assert(!sig->isVarArg());
 
-                GenTree* fptr = impLookupToTree(pResolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
+                GenTree* fptr = impLookupToTree(resolvedToken, &callInfo->codePointerLookup, HandleKind::MethodAddr,
                                                 callInfo->hMethod);
 
                 if (compDonotInline())
@@ -6628,7 +6632,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             assert(extraArg == nullptr);
 
             extraArg =
-                CreateGenericCallTypeArg(call, callInfo, pResolvedToken, pConstrainedResolvedToken, isReadonlyCall);
+                CreateGenericCallTypeArg(call, callInfo, resolvedToken, constrainedResolvedToken, isReadonlyCall);
 
             if (extraArg == nullptr)
             {
@@ -6684,11 +6688,15 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         {
             GenTree* obj = impPopStack().val;
 
-            obj = impTransformThis(obj, pConstrainedResolvedToken, constraintCallThisTransform);
-
-            if (compDonotInline())
+            if (constraintCallThisTransform != CORINFO_NO_THIS_TRANSFORM)
             {
-                return nullptr;
+                obj = impTransformThis(obj, constrainedResolvedToken, constraintCallThisTransform);
+
+                if (obj == nullptr)
+                {
+                    assert(compDonotInline());
+                    return nullptr;
+                }
             }
 
             call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
@@ -6699,7 +6707,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert(obj->TypeIs(TYP_REF));
 
                 const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
-                impDevirtualizeCall(call, pResolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
+                impDevirtualizeCall(call, resolvedToken, &callInfo->hMethod, &callInfo->methodFlags,
                                     &callInfo->contextHandle, &exactContextHnd, isExplicitTailCall, rawILOffset);
             }
         }
@@ -6716,7 +6724,7 @@ DONE:
 
     if ((prefixFlags & PREFIX_TAILCALL) != 0)
     {
-        SetupTailCall(call, opcode, prefixFlags, sig, pResolvedToken, methHnd, tailCallFailReason);
+        SetupTailCall(call, opcode, prefixFlags, sig, resolvedToken, methHnd, tailCallFailReason);
     }
 
     // Note: we assume that small int return types are already widened by the managed callee
@@ -12060,7 +12068,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     }
 
     GenTreeCall* call =
-        impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, newObjThis, prefixFlags, &callInfo, codeAddr);
+        impImportCall(CEE_NEWOBJ, &resolvedToken, nullptr, prefixFlags, &callInfo, codeAddr, newObjThis);
 
     if (call == nullptr)
     {
@@ -12449,8 +12457,8 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
         }
     }
 
-    impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, nullptr, prefixFlags,
-                  &callInfo, codeAddr);
+    impImportCall(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr, prefixFlags, &callInfo,
+                  codeAddr, nullptr);
 
     if (compDonotInline())
     {
@@ -17034,13 +17042,6 @@ GenTreeCall::Use* Importer::gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::
 GenTreeCall* Importer::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
     return comp->gtNewHelperCallNode(helper, type, args);
-}
-
-GenTreeCall* Importer::gtNewRuntimeLookupHelperCallNode(CORINFO_RUNTIME_LOOKUP* runtimeLookup,
-                                                        GenTree*                context,
-                                                        void*                   compileTimeHandle)
-{
-    return comp->gtNewRuntimeLookupHelperCallNode(runtimeLookup, context, compileTimeHandle);
 }
 
 GenTreeCall* Importer::gtNewUserCallNode(CORINFO_METHOD_HANDLE handle,
