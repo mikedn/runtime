@@ -7128,6 +7128,8 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         }
         else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->gtCallArgs->GetNode()))
         {
+            // TODO-MIKE-Review: This and the similar code below gets it wrong then the vstub
+            // arg is present, because that one gets inserted in front of the return buffer arg.
             sprintf_s(buf, bufLength, "retbuf");
         }
         else
@@ -7583,37 +7585,23 @@ GenTree* Compiler::gtCreateHandleCompare(genTreeOps             oper,
     return gtNewOperNode(oper == GT_EQ ? GT_NE : GT_EQ, TYP_INT, ret, gtNewIconNode(0, TYP_INT));
 }
 
-//------------------------------------------------------------------------
-// gtFoldTypeCompare: see if a type comparison can be further simplified
-//
-// Arguments:
-//    tree -- tree possibly comparing types
-//
-// Returns:
-//    An alternative tree if folding happens.
-//    Original tree otherwise.
-//
-// Notes:
-//    Checks for
-//        typeof(...) == obj.GetType()
-//        typeof(...) == typeof(...)
-//        obj1.GetType() == obj2.GetType()
-//
-//    And potentially optimizes away the need to obtain actual
-//    RuntimeType objects to do the comparison.
+// Checks for
+//    typeof(...) == obj.GetType()
+//    typeof(...) == typeof(...)
+//    obj1.GetType() == obj2.GetType()
+// And potentially optimizes away the need to obtain actual RuntimeType objects
+// to do the comparison.
+// Returns an alternative tree if folding happens, original tree otherwise.
 
 GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
 {
     const genTreeOps oper = tree->GetOper();
 
-    // Only handle EQ and NE
-    // (maybe relop vs null someday)
     if ((oper != GT_EQ) && (oper != GT_NE))
     {
         return tree;
     }
 
-    // Screen for the right kinds of operands
     GenTree* const         op1     = tree->AsOp()->GetOp(0);
     const TypeProducerKind op1Kind = gtGetTypeProducerKind(op1);
     if (op1Kind == TPK_Unknown)
@@ -7633,48 +7621,35 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     if ((op1Kind == TPK_Handle) && (op2Kind == TPK_Handle))
     {
         JITDUMP("Optimizing compare of types-from-handles to instead compare handles\n");
-        GenTree*             op1ClassFromHandle = tree->AsOp()->GetOp(0)->AsCall()->gtCallArgs->GetNode();
-        GenTree*             op2ClassFromHandle = tree->AsOp()->GetOp(1)->AsCall()->gtCallArgs->GetNode();
-        CORINFO_CLASS_HANDLE cls1Hnd            = NO_CLASS_HANDLE;
-        CORINFO_CLASS_HANDLE cls2Hnd            = NO_CLASS_HANDLE;
+        GenTree* op1ClassFromHandle = tree->AsOp()->GetOp(0)->AsCall()->gtCallArgs->GetNode();
+        GenTree* op2ClassFromHandle = tree->AsOp()->GetOp(1)->AsCall()->gtCallArgs->GetNode();
 
-        // Try and find class handles from op1 and op2
-        cls1Hnd = gtGetHelperArgClassHandle(op1ClassFromHandle);
-        cls2Hnd = gtGetHelperArgClassHandle(op2ClassFromHandle);
-
-        // If we have both class handles, try and resolve the type equality test completely.
-        bool resolveFailed = false;
+        CORINFO_CLASS_HANDLE cls1Hnd = gtGetHelperArgClassHandle(op1ClassFromHandle);
+        CORINFO_CLASS_HANDLE cls2Hnd = gtGetHelperArgClassHandle(op2ClassFromHandle);
 
         if ((cls1Hnd != NO_CLASS_HANDLE) && (cls2Hnd != NO_CLASS_HANDLE))
         {
             JITDUMP("Asking runtime to compare %p (%s) and %p (%s) for equality\n", dspPtr(cls1Hnd),
                     info.compCompHnd->getClassName(cls1Hnd), dspPtr(cls2Hnd), info.compCompHnd->getClassName(cls2Hnd));
+
             TypeCompareState s = info.compCompHnd->compareTypesForEquality(cls1Hnd, cls2Hnd);
 
             if (s != TypeCompareState::May)
             {
-                // Type comparison result is known.
-                const bool typesAreEqual = (s == TypeCompareState::Must);
-                const bool operatorIsEQ  = (oper == GT_EQ);
+                const bool typesAreEqual = s == TypeCompareState::Must;
+                const bool operatorIsEQ  = oper == GT_EQ;
                 const int  compareResult = operatorIsEQ ^ typesAreEqual ? 0 : 1;
                 JITDUMP("Runtime reports comparison is known at jit time: %u\n", compareResult);
-                GenTree* result = gtNewIconNode(compareResult);
-                return result;
-            }
-            else
-            {
-                resolveFailed = true;
-            }
-        }
 
-        if (resolveFailed)
-        {
+                return gtNewIconNode(compareResult);
+            }
+
             JITDUMP("Runtime reports comparison is NOT known at jit time\n");
         }
         else
         {
-            JITDUMP("Could not find handle for %s%s\n", (cls1Hnd == NO_CLASS_HANDLE) ? " cls1" : "",
-                    (cls2Hnd == NO_CLASS_HANDLE) ? " cls2" : "");
+            JITDUMP("Could not find handle for %s%s\n", cls1Hnd == NO_CLASS_HANDLE ? " cls1" : "",
+                    cls2Hnd == NO_CLASS_HANDLE ? " cls2" : "");
         }
 
         // We can't answer the equality comparison definitively at jit

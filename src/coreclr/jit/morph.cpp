@@ -6364,15 +6364,16 @@ bool Compiler::fgCanTailCallViaJitHelper()
 
 GenTree* Compiler::fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call)
 {
-    GenTreeLclLoad* delegateThis   = call->gtCallArgs->GetNode()->AsLclLoad();
-    GenTree*        thisOffset     = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
-    GenTree*        targetThisAddr = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);
-    GenTree*        targetThis     = gtNewIndLoad(TYP_REF, targetThisAddr);
+    GenTreeCall::Use* delegateThisUse = call->gtCallArgs;
+    GenTreeLclLoad*   delegateThis    = delegateThisUse->GetNode()->AsLclLoad();
+    GenTree*          thisOffset      = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
+    GenTree*          targetThisAddr  = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);
+    GenTree*          targetThis      = gtNewIndLoad(TYP_REF, targetThisAddr);
     // Make this load non-faulting, this prevents fgSetupArgs from adding an
     // unnecessary temp due to exception interference with the load below.
     targetThis->gtFlags |= GTF_IND_NONFAULTING;
     targetThis->RemoveSideEffects(GTF_EXCEPT);
-    call->gtCallArgs->SetNode(targetThis);
+    delegateThisUse->SetNode(targetThis);
 
     delegateThis          = gtNewLclLoad(delegateThis->GetLcl(), delegateThis->GetType());
     GenTree* targetOffset = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateFirstTarget, TYP_I_IMPL);
@@ -6515,22 +6516,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY);
     call->fgArgInfo = nullptr;
 
-    GenTreeCall::Use* newArgs = gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg);
-    GenTreeCall::Use* lastArg = nullptr;
-
-    for (GenTreeCall::Use& use : call->Args())
-    {
-        lastArg = &use;
-    }
-
-    if (lastArg == nullptr)
-    {
-        call->gtCallArgs = newArgs;
-    }
-    else
-    {
-        lastArg->SetNext(newArgs);
-    }
+    gtAppendCallArgs(call->gtCallArgs, gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg));
 
     JITDUMPTREE(call, "fgMorphTailCallViaJitHelper (after):\n");
 
