@@ -4552,7 +4552,7 @@ public:
     Statement* inlInsertSingleBlockInlineeStatements(const InlineInfo* inlineInfo, Statement* stmtAfter);
     Statement* inlPrependStatements(InlineInfo* inlineInfo);
     Statement* inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement* afterStmt);
-    void inlStoreStructArgValue(LclVarDsc* dest, var_types type, GenTree* src);
+    void inlSetStructArgMultiRegRet(LclVarDsc* dest, GenTree* src);
     bool inlCanDiscardArgSideEffects(GenTree* argNode);
     Statement* inlInitInlineeLocals(const InlineInfo* inlineInfo, Statement* afterStmt);
     void inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement* stmt);

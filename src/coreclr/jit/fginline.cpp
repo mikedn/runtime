@@ -2308,10 +2308,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             if (varTypeIsStruct(argInfo.paramType))
             {
-                // TODO-MIKE-Review: This looks like dead code. The importer always spills
-                // struct calls that require a return buffer. And it looks like this results
-                // in unnecessary struct copying.
-                inlStoreStructArgValue(argInfo.paramLcl, argInfo.paramType, argNode);
+                inlSetStructArgMultiRegRet(argInfo.paramLcl, argNode);
             }
 
 #ifdef FEATURE_SIMD
@@ -2462,7 +2459,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
     return afterStmt;
 }
 
-void Compiler::inlStoreStructArgValue(LclVarDsc* dest, var_types type, GenTree* value)
+void Compiler::inlSetStructArgMultiRegRet(LclVarDsc* dest, GenTree* value)
 {
     assert((value->TypeIs(TYP_STRUCT) &&
             value->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ, GT_CALL, GT_RET_EXPR)) ||

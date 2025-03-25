@@ -8172,7 +8172,6 @@ DONE_FOLD:
 //
 GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 {
-    assert(tree->OperKind() & GTK_BINOP);
     assert(tree->OperIs(GT_GT, GT_EQ, GT_NE));
 
     genTreeOps const oper = tree->GetOper();
