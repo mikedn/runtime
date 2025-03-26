@@ -853,7 +853,7 @@ void Compiler::inlCreateBasicBlocks()
 
     // If fgFindJumpTargets marked the call as "no return" there
     // really should be no BBJ_RETURN blocks in the method.
-    bool markedNoReturn = (impInlineInfo->iciCall->gtCallMoreFlags & GTF_CALL_M_DOES_NOT_RETURN) != 0;
+    bool markedNoReturn = impInlineInfo->iciCall->IsNoReturn();
     assert((markedNoReturn && (retBlocks == 0)) || (!markedNoReturn && (retBlocks >= 1)));
 
     if (compInlineResult->IsFailure())

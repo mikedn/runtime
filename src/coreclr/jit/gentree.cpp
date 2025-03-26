@@ -3721,7 +3721,7 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->ClearEntryPoint();
     call->SetCallConv(CorInfoCallConvExtension::Managed);
     call->SetIntrinsic(NI_Illegal);
-    call->gtCallMoreFlags       = GTF_CALL_M_EMPTY;
+    call->gtCallMoreFlags       = GTF_CALL_M_NONE;
     call->gtInlineCandidateInfo = nullptr;
 #ifdef UNIX_X86_ABI
     call->gtFlags |= GTF_CALL_POP_ARGS;

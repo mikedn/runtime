@@ -314,33 +314,6 @@ bool InlDecisionIsDecided(InlineDecision d)
     }
 }
 
-//------------------------------------------------------------------------
-// InlineContext: default constructor
-
-InlineContext::InlineContext(InlineStrategy* strategy)
-    : m_Parent(nullptr)
-    , m_Child(nullptr)
-    , m_Sibling(nullptr)
-    , m_Code(nullptr)
-    , m_ILSize(0)
-    , m_ImportedILSize(0)
-    , m_Offset(BAD_IL_OFFSET)
-    , m_Observation(InlineObservation::CALLEE_UNUSED_INITIAL)
-    , m_CodeSizeEstimate(0)
-    , m_Success(true)
-    , m_Devirtualized(false)
-    , m_Guarded(false)
-    , m_Unboxed(false)
-#if defined(DEBUG) || defined(INLINE_DATA)
-    , m_Policy(nullptr)
-    , m_Callee(nullptr)
-    , m_TreeID(0)
-    , m_Ordinal(0)
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-{
-    // Empty
-}
-
 void InlineContext::AddChild(InlineContext* child)
 {
     assert(child->m_Parent == nullptr);
@@ -1181,16 +1154,14 @@ bool InlineStrategy::BudgetCheck(unsigned ilSize)
 
 InlineContext* InlineStrategy::NewRoot()
 {
-    InlineContext* rootContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
+    InlineContext* rootContext = new (m_Compiler, CMK_Inlining) InlineContext();
 
     rootContext->m_ILSize = m_Compiler->info.compILCodeSize;
     rootContext->m_Code   = m_Compiler->info.compCode;
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-
     rootContext->m_Callee = m_Compiler->info.compMethodHnd;
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
     return rootContext;
 }
@@ -1208,7 +1179,7 @@ InlineContext* InlineStrategy::NewRoot()
 
 InlineContext* InlineStrategy::NewSuccess(const InlineInfo* inlineInfo)
 {
-    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext(this);
+    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext();
 
     InlineContext* callerContext = inlineInfo->iciStmt->GetInlineContext();
     if (callerContext == nullptr)
@@ -1221,15 +1192,15 @@ InlineContext* InlineStrategy::NewSuccess(const InlineInfo* inlineInfo)
 
     context->m_Code           = inlineInfo->inlineCandidateInfo->methInfo.ILCode;
     context->m_ILSize         = inlineInfo->inlineCandidateInfo->methInfo.ILCodeSize;
+    context->m_ImportedILSize = inlineInfo->inlineResult->GetImportedILSize();
     context->m_Offset         = inlineInfo->iciStmt->GetILOffsetX();
     context->m_Observation    = inlineInfo->inlineResult->GetObservation();
     context->m_Success        = true;
-    context->m_Devirtualized  = call->IsDevirtualized();
-    context->m_Guarded        = call->IsGuarded();
-    context->m_Unboxed        = call->IsUnboxed();
-    context->m_ImportedILSize = inlineInfo->inlineResult->GetImportedILSize();
 
 #if defined(DEBUG) || defined(INLINE_DATA)
+    context->m_Devirtualized = call->IsDevirtualized();
+    context->m_Guarded       = call->IsGuarded();
+    context->m_Unboxed       = call->IsUnboxed();
 
     InlinePolicy* policy = inlineInfo->inlineResult->GetPolicy();
 
@@ -1240,8 +1211,7 @@ InlineContext* InlineStrategy::NewSuccess(const InlineInfo* inlineInfo)
     context->m_Ordinal = m_InlineCount + 1;
     // Update offset with more accurate info
     context->m_Offset = call->gtRawILOffset;
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
     INDEBUG(context->m_TreeID = call->GetID();)
 
@@ -1265,7 +1235,7 @@ InlineContext* InlineStrategy::NewSuccess(const InlineInfo* inlineInfo)
 
 InlineContext* InlineStrategy::NewFailure(Statement* stmt, const InlineResult& inlineResult)
 {
-    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext(this);
+    InlineContext* context = new (m_Compiler, CMK_Inlining) InlineContext();
 
     // TODO-MIKE-Cleanup: This isn't always correct - a failed candidate that is part
     // of a return expression will end up in some ancestor's statement instead of the
@@ -1280,24 +1250,21 @@ InlineContext* InlineStrategy::NewFailure(Statement* stmt, const InlineResult& i
 
     GenTreeCall* call = inlineResult.GetCall();
 
-    context->m_Offset        = stmt->GetILOffsetX();
-    context->m_Observation   = inlineResult.GetObservation();
-    context->m_Callee        = inlineResult.GetCallee();
-    context->m_Success       = false;
+    context->m_Offset      = stmt->GetILOffsetX();
+    context->m_Observation = inlineResult.GetObservation();
+    context->m_Callee      = inlineResult.GetCallee();
+    context->m_Success     = false;
+
+#if defined(DEBUG) || defined(INLINE_DATA)
     context->m_Devirtualized = call->IsDevirtualized();
     context->m_Guarded       = call->IsGuarded();
     context->m_Unboxed       = call->IsUnboxed();
-
-    assert(InlIsValidObservation(context->m_Observation));
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-
-    // Update offset with more accurate info
-    context->m_Offset = call->gtRawILOffset;
-
-#endif // #if defined(DEBUG) || defined(INLINE_DATA)
+    context->m_Offset        = call->gtRawILOffset;
+#endif
 
     INDEBUG(context->m_TreeID = call->GetID();)
+
+    assert(InlIsValidObservation(context->m_Observation));
 
     NoteOutcome(context);
 

@@ -714,7 +714,7 @@ struct InlineInfo
 // Notes:
 //
 // InlineContexts form a tree with the root method as the root and
-// inlines as children. Nested inlines are represented as granchildren
+// inlines as children. Nested inlines are represented as grandchildren
 // and so on.
 //
 // Leaves in the tree represent successful inlines of leaf methods.
@@ -731,24 +731,7 @@ class InlineContext
     friend class InlineStrategy;
 
 public:
-#if defined(DEBUG) || defined(INLINE_DATA)
-
-    // Dump the full subtree, including failures
-    void Dump(InlineStrategy* strategy, unsigned indent = 0);
-
-    // Dump only the success subtree, with rich data
-    void DumpData(InlineStrategy* strategy, unsigned indent = 0);
-
-    // Dump full subtree in xml format
-    void DumpXml(InlineStrategy* strategy, FILE* file = stderr, unsigned indent = 0);
-
-    // Get callee handle
-    CORINFO_METHOD_HANDLE GetCallee() const
-    {
-        return m_Callee;
-    }
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+    void AddChild(InlineContext* child);
 
     // Get the parent context for this context.
     InlineContext* GetParent() const
@@ -757,7 +740,7 @@ public:
     }
 
     // Get the code pointer for this context.
-    const BYTE* GetCode() const
+    const uint8_t* GetCode() const
     {
         return m_Code;
     }
@@ -780,6 +763,11 @@ public:
         return m_ILSize;
     }
 
+    unsigned GetImportedILSize() const
+    {
+        return m_ImportedILSize;
+    }
+
     // Get the native code size estimate for this inline.
     unsigned GetCodeSizeEstimate() const
     {
@@ -798,6 +786,12 @@ public:
         return m_Parent == nullptr;
     }
 
+#if defined(DEBUG) || defined(INLINE_DATA)
+    CORINFO_METHOD_HANDLE GetCallee() const
+    {
+        return m_Callee;
+    }
+
     bool IsDevirtualized() const
     {
         return m_Devirtualized;
@@ -813,39 +807,34 @@ public:
         return m_Unboxed;
     }
 
-    unsigned GetImportedILSize() const
-    {
-        return m_ImportedILSize;
-    }
-
-    void AddChild(InlineContext* child);
+    void Dump(InlineStrategy* strategy, unsigned indent = 0);
+    void DumpData(InlineStrategy* strategy, unsigned indent = 0);
+    void DumpXml(InlineStrategy* strategy, FILE* file = stderr, unsigned indent = 0);
+#endif
 
 private:
-    InlineContext(InlineStrategy* strategy);
+    InlineContext() = default;
 
-private:
-    InlineContext*    m_Parent;            // logical caller (parent)
-    InlineContext*    m_Child;             // first child
-    InlineContext*    m_Sibling;           // next child of the parent
-    const BYTE*       m_Code;              // address of IL buffer for the method
-    unsigned          m_ILSize;            // size of IL buffer for the method
-    unsigned          m_ImportedILSize;    // estimated size of imported IL
-    IL_OFFSETX        m_Offset;            // call site location within parent
-    InlineObservation m_Observation;       // what lead to this inline
-    int               m_CodeSizeEstimate;  // in bytes * 10
-    bool              m_Success : 1;       // true if this was a successful inline
-    bool              m_Devirtualized : 1; // true if this was a devirtualized call
-    bool              m_Guarded : 1;       // true if this was a guarded call
-    bool              m_Unboxed : 1;       // true if this call now invokes the unboxed entry
+    InlineContext*    m_Parent           = nullptr;       // logical caller (parent)
+    InlineContext*    m_Child            = nullptr;       // first child
+    InlineContext*    m_Sibling          = nullptr;       // next child of the parent
+    const uint8_t*    m_Code             = nullptr;       // address of IL buffer for the method
+    unsigned          m_ILSize           = 0;             // size of IL buffer for the method
+    unsigned          m_ImportedILSize   = 0;             // estimated size of imported IL
+    IL_OFFSETX        m_Offset           = BAD_IL_OFFSET; // call site location within parent
+    InlineObservation m_Observation      = InlineObservation::CALLEE_UNUSED_INITIAL; // what lead to this inline
+    int               m_CodeSizeEstimate = 0;                                        // in bytes * 10
+    bool              m_Success          = true; // true if this was a successful inline
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-
-    InlinePolicy*         m_Policy;  // policy that evaluated this inline
-    CORINFO_METHOD_HANDLE m_Callee;  // handle to the method
-    unsigned              m_TreeID;  // ID of the GenTreeCall
-    unsigned              m_Ordinal; // Ordinal number of this inline
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+    bool                  m_Devirtualized = false;   // true if this was a devirtualized call
+    bool                  m_Guarded       = false;   // true if this was a guarded call
+    bool                  m_Unboxed       = false;   // true if this call now invokes the unboxed entry
+    InlinePolicy*         m_Policy        = nullptr; // policy that evaluated this inline
+    CORINFO_METHOD_HANDLE m_Callee        = nullptr; // handle to the method
+    unsigned              m_TreeID        = 0;       // ID of the GenTreeCall
+    unsigned              m_Ordinal       = 0;       // Ordinal number of this inline
+#endif
 };
 
 // The InlineStrategy holds the per-method persistent inline state.
@@ -854,9 +843,7 @@ private:
 
 class InlineStrategy
 {
-
 public:
-    // Construct a new inline strategy.
     InlineStrategy(Compiler* compiler);
 
     void BeginInlining();

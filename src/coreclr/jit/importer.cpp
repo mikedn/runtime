@@ -14890,13 +14890,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
     JITDUMP("    %s; can devirtualize\n", note);
 
-    call->gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
     call->SetMethodHandle(derivedMethod);
     call->SetCallAddr(nullptr);
+    call->SetIsDevirtualized();
     call->gtInlineCandidateInfo  = nullptr;
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
-    call->gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
 
     // Virtual calls include an implicit null check, which we may
     // now need to make explicit.
@@ -15038,7 +15037,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                                 JITDUMP("Invoking unboxed entry point on local copy\n");
 
                                 call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
-                                call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+                                call->SetIsUnboxed();
 
                                 if (call->gtCallArgs == nullptr)
                                 {
@@ -15102,7 +15101,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
                             call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
                             call->SetMethodHandle(unboxedEntryMethod);
-                            call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+                            call->SetIsUnboxed();
 
                             derivedMethod         = unboxedEntryMethod;
                             pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
@@ -15157,17 +15156,16 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             GenTree* const methodTableArg = gtNewMethodTableLookup(clonedThisArg);
 
                             // Update the 'this' pointer to refer to the box payload
-                            //
                             GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
                             GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
                             call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
                             call->SetMethodHandle(unboxedEntryMethod);
-                            call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+                            call->SetIsUnboxed();
 
                             // Method attributes will differ because unboxed entry point is shared
-                            //
-                            const DWORD unboxedMethodAttribs = info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
+                            const uint32_t unboxedMethodAttribs =
+                                info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
                             JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs,
                                     unboxedMethodAttribs);
                             derivedMethod         = unboxedEntryMethod;
@@ -15204,7 +15202,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
                         call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
                         call->SetMethodHandle(unboxedEntryMethod);
-                        call->gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+                        call->SetIsUnboxed();
 
                         derivedMethod         = unboxedEntryMethod;
                         pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
@@ -15252,7 +15250,7 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
     CORINFO_METHOD_HANDLE  method           = call->GetMethodHandle();
     unsigned               methodFlags      = 0;
     CORINFO_CONTEXT_HANDLE context          = nullptr;
-    bool                   explicitTailCall = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+    bool                   explicitTailCall = call->IsExplicitTailCall();
 
     impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, nullptr, nullptr, explicitTailCall);
 }
@@ -15265,7 +15263,7 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
     *methodHnd                  = call->GetMethodHandle();
     unsigned methodFlags        = info.compCompHnd->getMethodAttribs(*methodHnd);
     *context                    = inlineInfo->exactContextHnd;
-    const bool explicitTailCall = (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;
+    const bool explicitTailCall = call->IsExplicitTailCall();
 
     impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, nullptr, nullptr, explicitTailCall);
 }

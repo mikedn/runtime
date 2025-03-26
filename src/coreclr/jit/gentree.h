@@ -3746,50 +3746,52 @@ enum class InlineObservation;
 // clang-format off
 enum GenTreeCallFlags : unsigned
 {
-    GTF_CALL_M_EMPTY                   = 0,
+    GTF_CALL_M_NONE                    = 0,
 
     GTF_CALL_M_EXPLICIT_TAILCALL       = 0x00000001, // the call is "tail" prefixed and importer has performed tail call checks
     GTF_CALL_M_TAILCALL                = 0x00000002, // the call is a tailcall
     GTF_CALL_M_VARARGS                 = 0x00000004, // the call uses varargs ABI
     GTF_CALL_M_RETBUFFARG              = 0x00000008, // call has a return buffer argument
-    GTF_CALL_M_NOGCCHECK               = 0x00000020, // not a call for computing full interruptability and therefore no GC check is required.
-    GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000040, // function that could be optimized as an intrinsic
+    GTF_CALL_M_NOGCCHECK               = 0x00000010, // not a call for computing full interruptability and therefore no GC check is required.
+    GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000020, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
 #if FEATURE_TAILCALL_OPT
-    GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000400, // call is an opportunistic tail call and importer has performed tail call checks
-    GTF_CALL_M_TAILCALL_TO_LOOP        = 0x00000800, // call is a fast recursive tail call that can be converted into a loop
+    GTF_CALL_M_IMPLICIT_TAILCALL       = 0x00000040, // call is an opportunistic tail call and importer has performed tail call checks
+    GTF_CALL_M_TAILCALL_TO_LOOP        = 0x00000080, // call is a fast recursive tail call that can be converted into a loop
 #endif
 
-    GTF_CALL_M_PINVOKE                 = 0x00001000, // call is a pinvoke.  This mirrors VM flag CORINFO_FLG_PINVOKE.
-                                                     // A call marked as Pinvoke is not necessarily a GT_CALL_UNMANAGED. For e.g.
+    GTF_CALL_M_PINVOKE                 = 0x00000100, // call is a PInvoke.  This mirrors VM flag CORINFO_FLG_PINVOKE.
+                                                     // A call marked as PInvoke is not necessarily a GT_CALL_UNMANAGED. For e.g.
                                                      // an IL Stub dynamically generated for a PInvoke declaration is flagged as
-                                                     // a Pinvoke but not as an unmanaged call. See impCheckForPInvokeCall() to
+                                                     // a PInvoke but not as an unmanaged call. See impCheckForPInvokeCall() to
                                                      // know when these flags are set.
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-    GTF_CALL_M_HAS_R2R_ENTRYPOINT      = 0x00002000,
+    GTF_CALL_M_HAS_R2R_ENTRYPOINT      = 0x00000200,
 #endif
-    GTF_CALL_M_DOES_NOT_RETURN         = 0x00004000, // call does not return
+    GTF_CALL_M_DOES_NOT_RETURN         = 0x00000400, // call does not return
 #ifdef TARGET_ARM
-    GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00008000, // call is in wrapper delegate
+    GTF_CALL_M_WRAPPER_DELEGATE_INV    = 0x00000800, // call is in wrapper delegate
 #endif
-    GTF_CALL_M_FAT_POINTER_CHECK       = 0x00010000, // CoreRT managed calli needs transformation, that checks
+    GTF_CALL_M_FAT_POINTER_CHECK       = 0x00001000, // CoreRT managed calli needs transformation, that checks
                                                      // special bit in calli address. If it is set, then it is necessary
                                                      // to restore real function address and load hidden argument
                                                      // as the first argument for calli. It is CoreRT replacement for instantiating
                                                      // stubs, because executable code cannot be generated at runtime.
-    GTF_CALL_M_HELPER_SPECIAL_DCE      = 0x00020000, // this helper call can be removed if it is part of a comma and
+    GTF_CALL_M_HELPER_SPECIAL_DCE      = 0x00002000, // this helper call can be removed if it is part of a comma and
                                                      // the comma result is unused.
-    GTF_CALL_M_DEVIRTUALIZED           = 0x00040000, // this call was devirtualized
-    GTF_CALL_M_UNBOXED                 = 0x00080000, // this call was optimized to use the unboxed entry point
-    GTF_CALL_M_GUARDED_DEVIRT          = 0x00100000, // this call is a candidate for guarded devirtualization
-    GTF_CALL_M_GUARDED_DEVIRT_CHAIN    = 0x00200000, // this call is a candidate for chained guarded devirtualization
-    GTF_CALL_M_GUARDED                 = 0x00400000, // this call was transformed by guarded devirtualization
-    GTF_CALL_M_ALLOC_SIDE_EFFECTS      = 0x00800000, // this is a call to an allocator with side effects
-    GTF_CALL_M_SUPPRESS_GC_TRANSITION  = 0x01000000, // suppress the GC transition (i.e. during a pinvoke) but a separate GC safe point is required.
-    GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x02000000, // this call needs to be tranformed into CFG for the dynamic dictionary expansion feature.
-    GTF_CALL_M_STRESS_TAILCALL         = 0x04000000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
-    GTF_CALL_M_EXPANDED_EARLY          = 0x08000000, // the Virtual Call target address is expanded in Morph rather than in Lower
+#if defined(DEBUG) || defined(INLINE_DATA)
+    GTF_CALL_M_DEVIRTUALIZED           = 0x00004000, // this call was devirtualized
+    GTF_CALL_M_GUARDED                 = 0x00008000, // this call was transformed by guarded devirtualization
+    GTF_CALL_M_UNBOXED                 = 0x00010000, // this call was optimized to use the unboxed entry point
+#endif
+    GTF_CALL_M_GUARDED_DEVIRT          = 0x00020000, // this call is a candidate for guarded devirtualization
+    GTF_CALL_M_GUARDED_DEVIRT_CHAIN    = 0x00040000, // this call is a candidate for chained guarded devirtualization
+    GTF_CALL_M_ALLOC_SIDE_EFFECTS      = 0x00080000, // this is a call to an allocator with side effects
+    GTF_CALL_M_SUPPRESS_GC_TRANSITION  = 0x00100000, // suppress the GC transition (i.e. during a PInvoke) but a separate GC safe point is required.
+    GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x00200000, // this call needs to be transformed into CFG for the dynamic dictionary expansion feature.
+    GTF_CALL_M_STRESS_TAILCALL         = 0x00400000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
+    GTF_CALL_M_EXPANDED_EARLY          = 0x00800000, // the Virtual Call target address is expanded in Morph rather than in Lower
 };
 // clang-format on
 
@@ -4021,7 +4023,7 @@ struct GenTreeCall final : public GenTree
 
     TailCallSiteInfo* m_tailCallInfo  = nullptr;
     ClassLayout*      m_retLayout     = nullptr;
-    GenTreeCallFlags  gtCallMoreFlags = GTF_CALL_M_EMPTY;
+    GenTreeCallFlags  gtCallMoreFlags = GTF_CALL_M_NONE;
     unsigned          m_intrinsic : 16;
     unsigned          m_callConv : 8;
     unsigned          m_entryPointAccessType : 8;
@@ -4458,6 +4460,7 @@ public:
         gtCallMoreFlags |= GTF_CALL_M_FAT_POINTER_CHECK;
     }
 
+#if defined(DEBUG) || defined(INLINE_DATA)
     bool IsDevirtualized() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_DEVIRTUALIZED) != 0;
@@ -4471,6 +4474,29 @@ public:
     bool IsUnboxed() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_UNBOXED) != 0;
+    }
+#endif
+
+    void SetIsDevirtualized()
+    {
+        gtFlags &= ~GTF_CALL_VIRT_KIND_MASK;
+#if defined(DEBUG) || defined(INLINE_DATA)
+        gtCallMoreFlags |= GTF_CALL_M_DEVIRTUALIZED;
+#endif
+    }
+
+    void SetIsGuarded()
+    {
+#if defined(DEBUG) || defined(INLINE_DATA)
+        gtCallMoreFlags |= GTF_CALL_M_GUARDED;
+#endif
+    }
+
+    void SetIsUnboxed()
+    {
+#if defined(DEBUG) || defined(INLINE_DATA)
+        gtCallMoreFlags |= GTF_CALL_M_UNBOXED;
+#endif
     }
 
     bool IsSuppressGCTransition() const
@@ -4505,11 +4531,6 @@ public:
 
         gtCallMoreFlags |= GTF_CALL_M_GUARDED_DEVIRT;
         gtGuardedDevirtualizationCandidateInfo = info;
-    }
-
-    void SetIsGuarded()
-    {
-        gtCallMoreFlags |= GTF_CALL_M_GUARDED;
     }
 
     void SetExpRuntimeLookup()
