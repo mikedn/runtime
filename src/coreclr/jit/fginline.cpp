@@ -1229,7 +1229,13 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
         new (&argInfo[argNum++]) InlArgInfo(thisArg->GetNode(), true);
     }
 
+    unsigned retBufArgNum   = UINT32_MAX;
     unsigned typeCtxtArgNum = UINT32_MAX;
+
+    if (call->HasRetBufArg())
+    {
+        retBufArgNum = argNum;
+    }
 
     if (argsSig.hasTypeArg())
     {
@@ -1242,8 +1248,9 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     for (GenTreeCall::Use& use : call->Args())
     {
-        if (call->HasRetBufArg() && (&use == call->gtCallArgs))
+        if (argNum == retBufArgNum)
         {
+            retBufArgNum = UINT32_MAX;
             continue;
         }
 
