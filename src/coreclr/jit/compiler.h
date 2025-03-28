@@ -1627,12 +1627,7 @@ struct Importer
 #ifdef DEBUG
     typeInfo verMakeTypeInfo(CORINFO_CLASS_HANDLE clsHnd);
     typeInfo verMakeTypeInfo(CorInfoType ciType, CORINFO_CLASS_HANDLE clsHnd);
-
-    bool verCheckTailCallConstraint(OPCODE                  opcode,
-                                    CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained." call
-                                    // on a type parameter?
-                                    );
+    bool verCheckTailCallConstraint(OPCODE opcode, const CORINFO_RESOLVED_TOKEN& resolvedToken, bool isConstrained);
 #endif
 
     void Import();

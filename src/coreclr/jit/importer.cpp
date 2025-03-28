@@ -3979,11 +3979,9 @@ GenTree* Importer::ImportArrayAccessIntrinsic(
 
 #ifdef DEBUG
 
-bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
-                                          CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                          CORINFO_RESOLVED_TOKEN* pConstrainedResolvedToken // Is this a "constrained."
-                                                                                            // call on a type parameter?
-                                          )
+bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
+                                          const CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                          bool                          isConstrained)
 {
     assert(impOpcodeIsCallOpcode(opcode));
     assert(!compIsForInlining());
@@ -3994,41 +3992,40 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
                                    // this counter is used to keep track of how many items have been
                                    // virtually popped
 
-    CORINFO_METHOD_HANDLE methodHnd       = nullptr;
-    CORINFO_CLASS_HANDLE  methodClassHnd  = nullptr;
-    uint32_t              methodClassFlgs = 0;
+    CORINFO_METHOD_HANDLE methodHnd        = nullptr;
+    CORINFO_CLASS_HANDLE  methodClassHnd   = nullptr;
+    uint32_t              methodClassAttrs = 0;
 
     // for calli, VerifyOrReturn that this is not a virtual method
     if (opcode == CEE_CALLI)
     {
-        eeGetSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
+        eeGetSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
 
         // We don't know the target method, so we have to infer the flags, or assume the worst-case.
         mflags = sig.hasThis() ? 0 : CORINFO_FLG_STATIC;
     }
     else
     {
-        methodHnd = pResolvedToken->hMethod;
+        methodHnd = resolvedToken.hMethod;
 
         mflags = info.compCompHnd->getMethodAttribs(methodHnd);
 
         // When verifying generic code we pair the method handle with its
         // owning class to get the exact method signature.
-        methodClassHnd = pResolvedToken->hClass;
+        methodClassHnd = resolvedToken.hClass;
         assert(methodClassHnd);
 
         eeGetMethodSig(methodHnd, &sig, methodClassHnd);
 
-        // opcode specific check
-        methodClassFlgs = info.compCompHnd->getClassAttribs(methodClassHnd);
+        methodClassAttrs = info.compCompHnd->getClassAttribs(methodClassHnd);
     }
 
     // We must have got the methodClassHnd if opcode is not CEE_CALLI
-    assert((methodHnd != nullptr && methodClassHnd != nullptr) || opcode == CEE_CALLI);
+    assert((methodHnd != nullptr && methodClassHnd != nullptr) || (opcode == CEE_CALLI));
 
     if (sig.getCallConv() == CORINFO_CALLCONV_VARARG)
     {
-        eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
+        eeGetCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
     }
 
     // check compatibility of the arguments
@@ -4080,12 +4077,11 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
 
     // Tail calls on constrained calls should be illegal too:
     // when instantiated at a value type, a constrained call may pass the address of a stack allocated value
-    if (pConstrainedResolvedToken)
+    if (isConstrained)
     {
         return false;
     }
 
-    // void return type gets morphed into the error type, so we have to treat them specially here
     if (sig.retType == CORINFO_TYPE_VOID)
     {
         if (info.compMethodInfo->args.retType != CORINFO_TYPE_VOID)
@@ -4096,17 +4092,17 @@ bool Importer::verCheckTailCallConstraint(OPCODE                  opcode,
     else
     {
         // Get the exact view of the signature for an array method
-        if ((methodClassFlgs & CORINFO_FLG_ARRAY) != 0)
+        if ((methodClassAttrs & CORINFO_FLG_ARRAY) != 0)
         {
             assert(opcode != CEE_CALLI);
-            eeGetCallSiteSig(pResolvedToken->token, pResolvedToken->tokenScope, pResolvedToken->tokenContext, &sig);
+            eeGetCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
         }
 
-        typeInfo tiCalleeRetType = verMakeTypeInfo(sig.retType, sig.retTypeClass);
-        typeInfo tiCallerRetType =
+        typeInfo calleeRetType = verMakeTypeInfo(sig.retType, sig.retTypeClass);
+        typeInfo callerRetType =
             verMakeTypeInfo(info.compMethodInfo->args.retType, info.compMethodInfo->args.retTypeClass);
 
-        if (!tiCompatibleWith(tiCalleeRetType, tiCallerRetType))
+        if (!tiCompatibleWith(calleeRetType, callerRetType))
         {
             return false;
         }
@@ -6090,24 +6086,6 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
 
     return true;
 }
-
-//------------------------------------------------------------------------
-// impImportCall: import a call-inspiring opcode
-//
-// Arguments:
-//    opcode                    - opcode that inspires the call
-//    resolvedToken            - resolved token for the call target
-//    constrainedResolvedToken - resolved constraint token (or nullptr)
-//    newObjThis                - tree for this pointer or uninitalized newobj temp (or nullptr)
-//    prefixFlags               - IL prefix flags for the call
-//    callInfo                  - EE supplied info for the call
-//    rawILOffset               - IL offset of the opcode
-//
-// Notes:
-//    opcode can be CEE_CALL, CEE_CALLI, CEE_CALLVIRT, or CEE_NEWOBJ.
-//
-//    For CEE_NEWOBJ, newobjThis should be the temp grabbed for the allocated
-//    uninitalized object.
 
 GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -12403,7 +12381,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 
         if (isInTailcallReturnBlock && allowImplicitTailcall)
         {
-            if (verCheckTailCallConstraint(opcode, &resolvedToken, isConstrained ? constrainedResolvedToken : nullptr))
+            if (verCheckTailCallConstraint(opcode, resolvedToken, isConstrained))
             {
                 CORINFO_METHOD_HANDLE exactMethod =
                     ((callInfo.kind == CORINFO_VIRTUALCALL_STUB) || (callInfo.kind == CORINFO_VIRTUALCALL_VTABLE))
@@ -14542,53 +14520,41 @@ bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsic)
 
 // Attempt to change a virtual vtable call into a normal call
 //
-// Arguments:
-//     call -- the call node to examine/modify
-//     resolvedToken -- [IN] the resolved token used to create the call. Used for R2R.
-//     method   -- [IN/OUT] the method handle for call. Updated iff call devirtualized.
-//     methodFlags -- [IN/OUT] flags for the method to call. Updated iff call devirtualized.
-//     pContextHandle -- [IN/OUT] context handle for the call. Updated iff call devirtualized.
-//     pExactContextHandle -- [OUT] updated context handle iff call devirtualized
-//     isLateDevirtualization -- if devirtualization is happening after importation
-//     isExplicitTailCalll -- [IN] true if we plan on using an explicit tail call
-//     ilOffset -- IL offset of the call
+// Virtual calls in IL will always "invoke" the base class method.
 //
-// Notes:
-//     Virtual calls in IL will always "invoke" the base class method.
+// This transformation looks for evidence that the type of 'this'
+// in the call is exactly known, is a final class or would invoke
+// a final method, and if that and other safety checks pan out,
+// modifies the call and the call info to create a direct call.
 //
-//     This transformation looks for evidence that the type of 'this'
-//     in the call is exactly known, is a final class or would invoke
-//     a final method, and if that and other safety checks pan out,
-//     modifies the call and the call info to create a direct call.
+// This transformation is initially done in the importer and not
+// in some subsequent optimization pass because we want it to be
+// upstream of inline candidate identification.
 //
-//     This transformation is initially done in the importer and not
-//     in some subsequent optimization pass because we want it to be
-//     upstream of inline candidate identification.
+// However, later phases may supply improved type information that
+// can enable further devirtualization. We currently reinvoke this
+// code after inlining, if the return value of the inlined call is
+// the 'this obj' of a subsequent virtual call.
 //
-//     However, later phases may supply improved type information that
-//     can enable further devirtualization. We currently reinvoke this
-//     code after inlining, if the return value of the inlined call is
-//     the 'this obj' of a subsequent virtual call.
+// If devirtualization succeeds and the call's this object is a
+// (boxed) value type, the jit will ask the EE for the unboxed entry
+// point. If this exists, the jit will invoke the unboxed entry
+// on the box payload. In addition if the boxing operation is
+// visible to the jit and the call is the only consumer of the box,
+// the jit will try analyze the box to see if the call can be instead
+// instead made on a local copy. If that is doable, the call is
+// updated to invoke the unboxed entry on the local copy and the
+// boxing operation is removed.
 //
-//     If devirtualization succeeds and the call's this object is a
-//     (boxed) value type, the jit will ask the EE for the unboxed entry
-//     point. If this exists, the jit will invoke the unboxed entry
-//     on the box payload. In addition if the boxing operation is
-//     visible to the jit and the call is the only consmer of the box,
-//     the jit will try analyze the box to see if the call can be instead
-//     instead made on a local copy. If that is doable, the call is
-//     updated to invoke the unboxed entry on the local copy and the
-//     boxing operation is removed.
-//
-//     When guarded devirtualization is enabled, this method will mark
-//     calls as guarded devirtualization candidates, if the type of `this`
-//     is not exactly known, and there is a plausible guess for the type.
+// When guarded devirtualization is enabled, this method will mark
+// calls as guarded devirtualization candidates, if the type of `this`
+// is not exactly known, and there is a plausible guess for the type.
 void Compiler::impDevirtualizeCall(GenTreeCall*            call,
-                                   CORINFO_RESOLVED_TOKEN* pResolvedToken,
+                                   CORINFO_RESOLVED_TOKEN* resolvedToken,
                                    CORINFO_METHOD_HANDLE*  method,
                                    unsigned*               methodFlags,
-                                   CORINFO_CONTEXT_HANDLE* pContextHandle,
-                                   CORINFO_CONTEXT_HANDLE* pExactContextHandle,
+                                   CORINFO_CONTEXT_HANDLE* contextHandle,
+                                   CORINFO_CONTEXT_HANDLE* exactContextHandle,
                                    Importer*               importer,
                                    bool                    isExplicitTailCall,
                                    IL_OFFSETX              ilOffset)
@@ -14596,7 +14562,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     assert(call != nullptr);
     assert(method != nullptr);
     assert(methodFlags != nullptr);
-    assert(pContextHandle != nullptr);
+    assert(contextHandle != nullptr);
     assert(call->IsVirtual());
 
     // GDV can be done only while importing, it may need to append new statements and requires
@@ -14689,9 +14655,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // Fetch information about the class that introduced the virtual method.
     CORINFO_CLASS_HANDLE baseClass        = info.compCompHnd->getMethodClass(baseMethod);
     const uint32_t       baseClassAttribs = info.compCompHnd->getClassAttribs(baseClass);
-
-    // Is the call an interface call?
-    const bool isInterface = (baseClassAttribs & CORINFO_FLG_INTERFACE) != 0;
+    const bool           isInterface      = (baseClassAttribs & CORINFO_FLG_INTERFACE) != 0;
 
     // See what we know about the type of 'this' in the call.
     GenTree*             thisObj      = call->gtCallThisArg->GetNode()->gtEffectiveVal();
@@ -14699,12 +14663,11 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     bool                 objIsNonNull = false;
     CORINFO_CLASS_HANDLE objClass     = gtGetClassHandle(thisObj, &isExact, &objIsNonNull);
 
-    // Bail if we know nothing.
     if (objClass == NO_CLASS_HANDLE)
     {
         JITDUMP("\nimpDevirtualizeCall: no type available (op=%s)\n", GenTree::OpName(thisObj->GetOper()));
 
-        // Don't try guarded devirtualiztion when we're doing late devirtualization.
+        // Don't try guarded devirtualization when we're doing late devirtualization.
         if (isLateDevirtualization)
         {
             JITDUMP("No guarded devirt during late devirtualization\n");
@@ -14712,7 +14675,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         }
 
         importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                  pContextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
+                                                  contextHandle DEBUGARG(objClass) DEBUGARG("unknown"));
 
         return;
     }
@@ -14758,7 +14721,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         }
 
         importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                  pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+                                                  contextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
@@ -14775,22 +14738,24 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     CORINFO_DEVIRTUALIZATION_INFO dvInfo;
     dvInfo.virtualMethod               = baseMethod;
     dvInfo.objClass                    = objClass;
-    dvInfo.context                     = *pContextHandle;
+    dvInfo.context                     = *contextHandle;
     dvInfo.detail                      = CORINFO_DEVIRTUALIZATION_UNKNOWN;
-    dvInfo.pResolvedTokenVirtualMethod = pResolvedToken;
+    dvInfo.pResolvedTokenVirtualMethod = resolvedToken;
 
     info.compCompHnd->resolveVirtualMethod(&dvInfo);
 
-    CORINFO_METHOD_HANDLE   derivedMethod         = dvInfo.devirtualizedMethod;
-    CORINFO_CONTEXT_HANDLE  exactContext          = dvInfo.exactContext;
-    CORINFO_CLASS_HANDLE    derivedClass          = NO_CLASS_HANDLE;
-    CORINFO_RESOLVED_TOKEN* pDerivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedMethod;
+    CORINFO_METHOD_HANDLE   derivedMethod        = dvInfo.devirtualizedMethod;
+    CORINFO_CONTEXT_HANDLE  exactContext         = dvInfo.exactContext;
+    CORINFO_RESOLVED_TOKEN* derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedMethod;
+    CORINFO_CLASS_HANDLE    derivedClass         = NO_CLASS_HANDLE;
 
     if (derivedMethod != nullptr)
     {
         assert(exactContext != nullptr);
-        assert(((size_t)exactContext & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS);
-        derivedClass = (CORINFO_CLASS_HANDLE)((size_t)exactContext & ~CORINFO_CONTEXTFLAGS_MASK);
+        uintptr_t exactContextBits = reinterpret_cast<uintptr_t>(exactContext);
+        assert((exactContextBits & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS);
+
+        derivedClass = reinterpret_cast<CORINFO_CLASS_HANDLE>(exactContextBits & ~CORINFO_CONTEXTFLAGS_MASK);
     }
 
     uint32_t derivedMethodAttribs = 0;
@@ -14804,10 +14769,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif
 
     // If we failed to get a method handle, we can't directly devirtualize.
-    //
     // This can happen when prejitting, if the devirtualization crosses
     // servicing bubble boundaries, or if objClass is a shared class.
-    //
+
     if (derivedMethod == nullptr)
     {
         JITDUMP("--- no derived method: %s\n", devirtualizationDetailToString(dvInfo.detail));
@@ -14816,7 +14780,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     {
         // Fetch method attributes to see if method is marked final.
         derivedMethodAttribs = info.compCompHnd->getMethodAttribs(derivedMethod);
-        derivedMethodIsFinal = ((derivedMethodAttribs & CORINFO_FLG_FINAL) != 0);
+        derivedMethodIsFinal = (derivedMethodAttribs & CORINFO_FLG_FINAL) != 0;
 
 #ifdef DEBUG
         if (isExact)
@@ -14845,7 +14809,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
     // We still might be able to do a guarded devirtualization.
     // Note the call might be an interface call or a virtual call.
-    //
     if (!canDevirtualize)
     {
         JITDUMP("    Class not final or exact%s\n", isInterface ? "" : ", and method not final");
@@ -14853,7 +14816,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #ifdef DEBUG
         // If we know the object type exactly, we generally expect we can devirtualize.
         // (don't when doing late devirt as we won't have an owner type (yet))
-        //
         if (!isLateDevirtualization && (isExact || objClassIsFinal) && JitConfig.JitNoteFailedExactDevirtualization())
         {
             printf("@@@ Exact/Final devirt failure in %s at [%06u] $ %s\n", info.compFullName, call->GetID(),
@@ -14862,7 +14824,6 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #endif
 
         // Don't try guarded devirtualization if we're doing late devirtualization.
-        //
         if (isLateDevirtualization)
         {
             JITDUMP("No guarded devirt during late devirtualization\n");
@@ -14870,14 +14831,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         }
 
         importer->considerGuardedDevirtualization(call, ilOffset, isInterface, baseMethod, baseClass,
-                                                  pContextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
+                                                  contextHandle DEBUGARG(objClass) DEBUGARG(objClassName));
         return;
     }
 
     // All checks done. Time to transform the call.
-    //
     // We should always have an exact class context.
-    //
     // Note that wouldn't be true if the runtime side supported array interface devirt,
     // the resulting method would be a generic method of the non-generic SZArrayHelper class.
     assert(canDevirtualize);
@@ -14891,8 +14850,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     call->m_entryPointAddr       = nullptr;
     call->m_entryPointAccessType = IAT_VALUE;
 
-    // Virtual calls include an implicit null check, which we may
-    // now need to make explicit.
+    // Virtual calls include an implicit null check, which we may now need to make explicit.
     if (!objIsNonNull)
     {
         call->AddNullCheck();
@@ -14907,13 +14865,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                baseMethodName, derivedClassName, derivedMethodName, note);
     }
 
-    // If we successfully devirtualized based on an exact or final class,
-    // and we have dynamic PGO data describing the likely class, make sure they agree.
-    //
-    // If pgo source is not dynamic we may see likely classes from other versions of this code
+    // If we successfully devirtualized based on an exact or final class, and we have dynamic PGO
+    // data describing the likely class, make sure they agree.
+    // If PGO source is not dynamic we may see likely classes from other versions of this code
     // where types had different properties.
-    //
     // If method is an inlinee we may be specializing to a class that wasn't seen at runtime.
+
     const bool canSensiblyCheck =
         (isExact || objClassIsFinal) && (fgPgoSource == ICorJitInfo::PgoSource::Dynamic) && !compIsForInlining();
 
@@ -14971,26 +14928,17 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // If the 'this' object is a value class, see if we can rework the call to invoke the
     // unboxed entry. This effectively inlines the normally un-inlineable wrapper stub
     // and exposes the potentially inlinable unboxed entry method.
-    //
-    // We won't optimize explicit tail calls, as ensuring we get the right tail call info
-    // is tricky (we'd need to pass an updated sig and resolved token back to some callers).
-    //
-    // Note we may not have a derived class in some cases (eg interface call on an array)
 
     if (info.compCompHnd->isValueClass(derivedClass))
     {
-        impUnboxCall(call, thisObj, isExplicitTailCall, dvInfo, derivedMethod, pDerivedResolvedToken,
+        impUnboxCall(call, thisObj, isExplicitTailCall, dvInfo, derivedMethod, derivedResolvedToken,
                      derivedMethodAttribs);
     }
 
-    *method         = derivedMethod;
-    *methodFlags    = derivedMethodAttribs;
-    *pContextHandle = MAKE_METHODCONTEXT(derivedMethod);
-
-    if (pExactContextHandle != nullptr)
-    {
-        *pExactContextHandle = MAKE_CLASSCONTEXT(derivedClass);
-    }
+    *method             = derivedMethod;
+    *methodFlags        = derivedMethodAttribs;
+    *contextHandle      = MAKE_METHODCONTEXT(derivedMethod);
+    *exactContextHandle = MAKE_CLASSCONTEXT(derivedClass);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
@@ -14998,7 +14946,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         // For R2R, getCallInfo triggers bookkeeping on the zap
         // side and acquires the actual symbol to call so we need to call it here.
         CORINFO_CALL_INFO derivedCallInfo;
-        eeGetCallInfo(pDerivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
+        eeGetCallInfo(derivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
         call->SetR2REntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
 #endif // FEATURE_READYTORUN_COMPILER
@@ -15014,220 +14962,226 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
 {
     if (isExplicitTailCall)
     {
+        // We won't optimize explicit tail calls, as ensuring we get the right tail call info
+        // is tricky (we'd need to pass an updated sig and resolved token back to some callers).
         JITDUMP("Have a direct explicit tail call to boxed entry point; can't optimize further\n");
+        return;
     }
-    else
+
+    JITDUMP("Have a direct call to boxed entry point. Trying to optimize to call an unboxed entry point\n");
+
+    // Note for some shared methods the unboxed entry point requires an extra parameter.
+    bool                  requiresInstMethodTableArg = false;
+    CORINFO_METHOD_HANDLE unboxedEntryMethod =
+        info.compCompHnd->getUnboxedEntry(derivedMethod, &requiresInstMethodTableArg);
+
+    if (unboxedEntryMethod == nullptr)
     {
-        JITDUMP("Have a direct call to boxed entry point. Trying to optimize to call an unboxed entry point\n");
+        // Many of the low-level methods on value classes won't have unboxed entries,
+        // as they need access to the type of the object.
+        // Note this may be a cue for us to stack allocate the boxed object, since
+        // we probably know that these objects don't escape.
+        JITDUMP("Sorry, failed to find unboxed entry point\n");
+        return;
+    }
 
-        // Note for some shared methods the unboxed entry point requires an extra parameter.
-        bool                  requiresInstMethodTableArg = false;
-        CORINFO_METHOD_HANDLE unboxedEntryMethod =
-            info.compCompHnd->getUnboxedEntry(derivedMethod, &requiresInstMethodTableArg);
+    // If the 'this' object is a local box, see if we can revise things to not require boxing.
+    if (thisObj->IsBox() && !isExplicitTailCall)
+    {
+        bool optimizedTheBox = false;
 
-        if (unboxedEntryMethod != nullptr)
+        // Since the call is the only consumer of the box, we know the box can't escape
+        // since it is being passed an interior pointer.
+        //
+        // So, revise the box to simply create a local copy, use the address of that copy
+        // as the this pointer, and update the entry point to the unboxed entry.
+        //
+        // Ideally, we then inline the boxed method and and if it turns out not to modify
+        // the copy, we can undo the copy too.
+
+        if (requiresInstMethodTableArg)
         {
-            bool optimizedTheBox = false;
+            // Perform a trial box removal and ask for the type handle tree that fed the box.
+            JITDUMP("Unboxed entry needs method table arg...\n");
 
-            // If the 'this' object is a local box, see if we can revise things to not require boxing.
-            if (thisObj->IsBox() && !isExplicitTailCall)
+            GenTree* methodTableArg = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_DONT_REMOVE_WANT_TYPE_HANDLE);
+
+            if (methodTableArg != nullptr)
             {
-                // Since the call is the only consumer of the box, we know the box can't escape
-                // since it is being passed an interior pointer.
-                //
-                // So, revise the box to simply create a local copy, use the address of that copy
-                // as the this pointer, and update the entry point to the unboxed entry.
-                //
-                // Ideally, we then inline the boxed method and and if it turns out not to modify
-                // the copy, we can undo the copy too.
+                // If that worked, turn the box into a copy to a local var
+                JITDUMP("Found suitable method table arg tree [%06u]\n", methodTableArg->GetID());
 
-                if (requiresInstMethodTableArg)
+                GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
+
+                if (localCopyThis != nullptr)
                 {
-                    // Perform a trial box removal and ask for the type handle tree that fed the box.
-                    JITDUMP("Unboxed entry needs method table arg...\n");
+                    // Pass the local var as this and the type handle as a new arg
+                    JITDUMP("Invoking unboxed entry point on local copy\n");
 
-                    GenTree* methodTableArg =
-                        gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_DONT_REMOVE_WANT_TYPE_HANDLE);
-
-                    if (methodTableArg != nullptr)
-                    {
-                        // If that worked, turn the box into a copy to a local var
-                        JITDUMP("Found suitable method table arg tree [%06u]\n", methodTableArg->GetID());
-
-                        GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY);
-
-                        if (localCopyThis != nullptr)
-                        {
-                            // Pass the local var as this and the type handle as a new arg
-                            JITDUMP("Invoking unboxed entry point on local copy\n");
-
-                            call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
-                            call->SetIsUnboxed();
-
-#ifdef TARGET_X86
-                            gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
-#else
-                            if (call->gtCallArgs == nullptr)
-                            {
-                                call->gtCallArgs = gtNewCallArgs(methodTableArg);
-                            }
-                            else
-                            {
-                                // If there's a ret buf, the method table is the second arg.
-                                if (call->HasRetBufArg())
-                                {
-                                    gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
-                                }
-                                else
-                                {
-                                    gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
-                                }
-                            }
-#endif
-
-                            call->SetMethodHandle(unboxedEntryMethod);
-
-                            derivedMethod        = unboxedEntryMethod;
-                            derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
-
-                            // Method attributes will differ because unboxed entry point is shared
-                            const uint32_t unboxedMethodAttribs =
-                                info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
-                            JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs,
-                                    unboxedMethodAttribs);
-                            derivedMethodAttribs = unboxedMethodAttribs;
-                            optimizedTheBox      = true;
-                        }
-                        else
-                        {
-                            JITDUMP("Sorry, failed to undo the box -- can't convert to local copy\n");
-                        }
-                    }
-                    else
-                    {
-                        JITDUMP("Sorry, failed to undo the box -- can't find method table arg\n");
-                    }
-                }
-                else
-                {
-                    JITDUMP("Found unboxed entry point, trying to simplify box to a local copy\n");
-
-                    if (GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY))
-                    {
-                        JITDUMP("Invoking unboxed entry point on local copy\n");
-
-                        call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
-                        call->SetMethodHandle(unboxedEntryMethod);
-                        call->SetIsUnboxed();
-
-                        derivedMethod        = unboxedEntryMethod;
-                        derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
-                        optimizedTheBox      = true;
-                    }
-                    else
-                    {
-                        JITDUMP("Sorry, failed to undo the box\n");
-                    }
-                }
-
-#if FEATURE_TAILCALL_OPT
-                if (optimizedTheBox && call->IsImplicitTailCall())
-                {
-                    JITDUMP("Clearing the implicit tail call flag\n");
-
-                    // If set, we clear the implicit tail call flag as we just
-                    // introduced a new address taken local variable.
-                    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
-                }
-#endif
-            }
-
-            if (!optimizedTheBox)
-            {
-                // If we get here, we have a boxed value class that either wasn't boxed
-                // locally, or was boxed locally but we were unable to remove the box for
-                // various reasons.
-                // We can still update the call to invoke the unboxed entry, if the
-                // boxed value is simple.
-
-                GenTree* const thisArg = call->gtCallThisArg->GetNode();
-
-                if (requiresInstMethodTableArg)
-                {
-                    GenTree* const clonedThisArg = gtCloneSimple(thisArg);
-
-                    if (clonedThisArg == nullptr)
-                    {
-                        JITDUMP("unboxed entry needs MT arg, but `this` was too complex to clone. Deferring update.\n");
-                    }
-                    else
-                    {
-                        JITDUMP("revising call to invoke unboxed entry with additional method table arg\n");
-
-                        GenTree* const methodTableArg = gtNewMethodTableLookup(clonedThisArg);
-
-                        // Update the 'this' pointer to refer to the box payload
-                        GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                        GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
-
-                        call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
-                        call->SetMethodHandle(unboxedEntryMethod);
-                        call->SetIsUnboxed();
-
-                        // Method attributes will differ because unboxed entry point is shared
-                        const uint32_t unboxedMethodAttribs = info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
-                        JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs,
-                                unboxedMethodAttribs);
-                        derivedMethod        = unboxedEntryMethod;
-                        derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
-                        derivedMethodAttribs = unboxedMethodAttribs;
-
-                        if (call->gtCallArgs == nullptr)
-                        {
-                            call->gtCallArgs = gtNewCallArgs(methodTableArg);
-                        }
-                        else
-                        {
-#ifdef TARGET_X86
-                            gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
-#else
-                            if (call->HasRetBufArg())
-                            {
-                                gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
-                            }
-                            else
-                            {
-                                gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
-                            }
-#endif
-                        }
-                    }
-                }
-                else
-                {
-                    JITDUMP("revising call to invoke unboxed entry\n");
-
-                    GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                    GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
-
-                    call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
+                    call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
                     call->SetMethodHandle(unboxedEntryMethod);
                     call->SetIsUnboxed();
 
+#ifdef TARGET_X86
+                    gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
+#else
+                    if (call->gtCallArgs == nullptr)
+                    {
+                        call->gtCallArgs = gtNewCallArgs(methodTableArg);
+                    }
+                    else
+                    {
+                        if (call->HasRetBufArg())
+                        {
+                            gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
+                        }
+                        else
+                        {
+                            gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
+                        }
+                    }
+#endif
+
                     derivedMethod        = unboxedEntryMethod;
                     derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
+
+                    // Method attributes will differ because unboxed entry point is shared
+                    uint32_t unboxedMethodAttribs = info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
+
+                    if (unboxedMethodAttribs != derivedMethodAttribs)
+                    {
+                        JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs,
+                                unboxedMethodAttribs);
+                        derivedMethodAttribs = unboxedMethodAttribs;
+                    }
+
+                    optimizedTheBox = true;
                 }
+                else
+                {
+                    JITDUMP("Sorry, failed to undo the box -- can't convert to local copy\n");
+                }
+            }
+            else
+            {
+                JITDUMP("Sorry, failed to undo the box -- can't find method table arg\n");
             }
         }
         else
         {
-            // Many of the low-level methods on value classes won't have unboxed entries,
-            // as they need access to the type of the object.
-            //
-            // Note this may be a cue for us to stack allocate the boxed object, since
-            // we probably know that these objects don't escape.
-            JITDUMP("Sorry, failed to find unboxed entry point\n");
+            JITDUMP("Found unboxed entry point, trying to simplify box to a local copy\n");
+
+            if (GenTree* localCopyThis = gtTryRemoveBoxUpstreamEffects(thisObj->AsBox(), BR_MAKE_LOCAL_COPY))
+            {
+                JITDUMP("Invoking unboxed entry point on local copy\n");
+
+                call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
+                call->SetMethodHandle(unboxedEntryMethod);
+                call->SetIsUnboxed();
+
+                derivedMethod        = unboxedEntryMethod;
+                derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
+
+                optimizedTheBox = true;
+            }
+            else
+            {
+                JITDUMP("Sorry, failed to undo the box\n");
+            }
         }
+
+        if (optimizedTheBox)
+        {
+#if FEATURE_TAILCALL_OPT
+            if (call->IsImplicitTailCall())
+            {
+                JITDUMP("Clearing the implicit tail call flag\n");
+
+                // If set, we clear the implicit tail call flag as we just introduced
+                // a new address taken local variable.
+                call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+            }
+#endif
+
+            return;
+        }
+    }
+
+    // If we get here, we have a boxed value class that either wasn't boxed
+    // locally, or was boxed locally but we were unable to remove the box for
+    // various reasons.
+    // We can still update the call to invoke the unboxed entry, if the
+    // boxed value is simple.
+
+    GenTree* const thisArg = call->gtCallThisArg->GetNode();
+
+    if (!requiresInstMethodTableArg)
+    {
+        JITDUMP("revising call to invoke unboxed entry\n");
+
+        GenTree* payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+        GenTree* boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
+
+        call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
+        call->SetMethodHandle(unboxedEntryMethod);
+        call->SetIsUnboxed();
+
+        derivedMethod        = unboxedEntryMethod;
+        derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
+
+        return;
+    }
+
+    GenTree* const clonedThisArg = gtCloneSimple(thisArg);
+
+    if (clonedThisArg == nullptr)
+    {
+        JITDUMP("unboxed entry needs MT arg, but `this` was too complex to clone. Deferring update.\n");
+        return;
+    }
+
+    JITDUMP("revising call to invoke unboxed entry with additional method table arg\n");
+
+    GenTree* const methodTableArg = gtNewMethodTableLookup(clonedThisArg);
+
+    // Update the 'this' pointer to refer to the box payload
+    GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+    GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
+
+    call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
+    call->SetMethodHandle(unboxedEntryMethod);
+    call->SetIsUnboxed();
+
+#ifdef TARGET_X86
+    gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
+#else
+    if (call->gtCallArgs == nullptr)
+    {
+        call->gtCallArgs = gtNewCallArgs(methodTableArg);
+    }
+    else
+    {
+        if (call->HasRetBufArg())
+        {
+            gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
+        }
+        else
+        {
+            gtPrependNewCallArg(call->gtCallArgs, methodTableArg);
+        }
+    }
+#endif
+
+    derivedMethod        = unboxedEntryMethod;
+    derivedResolvedToken = &dvInfo.resolvedTokenDevirtualizedUnboxedMethod;
+
+    // Method attributes will differ because unboxed entry point is shared
+    uint32_t unboxedMethodAttribs = info.compCompHnd->getMethodAttribs(unboxedEntryMethod);
+
+    if (unboxedMethodAttribs != derivedMethodAttribs)
+    {
+        JITDUMP("Updating method attribs from 0x%08x to 0x%08x\n", derivedMethodAttribs, unboxedMethodAttribs);
+        derivedMethodAttribs = unboxedMethodAttribs;
     }
 }
 
@@ -15235,12 +15189,13 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall* call)
 {
     JITDUMPTREE(call, "**** Late devirt opportunity\n");
 
-    CORINFO_METHOD_HANDLE  method           = call->GetMethodHandle();
-    unsigned               methodFlags      = 0;
-    CORINFO_CONTEXT_HANDLE context          = nullptr;
-    bool                   explicitTailCall = call->IsExplicitTailCall();
+    CORINFO_METHOD_HANDLE  method             = call->GetMethodHandle();
+    unsigned               methodFlags        = 0;
+    CORINFO_CONTEXT_HANDLE context            = nullptr;
+    CORINFO_CONTEXT_HANDLE exactContentHandle = nullptr;
+    bool                   explicitTailCall   = call->IsExplicitTailCall();
 
-    impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, nullptr, nullptr, explicitTailCall);
+    impDevirtualizeCall(call, nullptr, &method, &methodFlags, &context, &exactContentHandle, nullptr, explicitTailCall);
 }
 
 void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
@@ -15248,12 +15203,14 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
                                        CORINFO_METHOD_HANDLE*  methodHnd,
                                        CORINFO_CONTEXT_HANDLE* context)
 {
-    *methodHnd                  = call->GetMethodHandle();
-    unsigned methodFlags        = info.compCompHnd->getMethodAttribs(*methodHnd);
-    *context                    = inlineInfo->exactContextHnd;
-    const bool explicitTailCall = call->IsExplicitTailCall();
+    *methodHnd                                = call->GetMethodHandle();
+    unsigned methodFlags                      = info.compCompHnd->getMethodAttribs(*methodHnd);
+    *context                                  = inlineInfo->exactContextHnd;
+    CORINFO_CONTEXT_HANDLE exactContentHandle = nullptr;
+    const bool             explicitTailCall   = call->IsExplicitTailCall();
 
-    impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, nullptr, nullptr, explicitTailCall);
+    impDevirtualizeCall(call, nullptr, methodHnd, &methodFlags, context, &exactContentHandle, nullptr,
+                        explicitTailCall);
 }
 
 //------------------------------------------------------------------------
