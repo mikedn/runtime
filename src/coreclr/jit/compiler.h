@@ -3514,6 +3514,14 @@ public:
                              bool                    isExplicitTailCall,
                              IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
 
+    void impUnboxCall(GenTreeCall*                   call,
+                      GenTree*                       thisObj,
+                      bool                           isExplicitTailCall,
+                      CORINFO_DEVIRTUALIZATION_INFO& dvInfo,
+                      CORINFO_METHOD_HANDLE&         derivedMethod,
+                      CORINFO_RESOLVED_TOKEN*&       derivedResolvedToken,
+                      uint32_t&                      derivedMethodAttribs);
+
     void impLateDevirtualizeCall(GenTreeCall* call);
     void impLateDevirtualizeCall(GenTreeCall*            call,
                                  InlineCandidateInfo*    inlineInfo,
