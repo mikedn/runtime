@@ -2332,15 +2332,6 @@ struct Importer
     bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 
-    void impDevirtualizeCall(GenTreeCall*            call,
-                             CORINFO_RESOLVED_TOKEN* resolvedToken,
-                             CORINFO_METHOD_HANDLE*  method,
-                             unsigned*               methodFlags,
-                             CORINFO_CONTEXT_HANDLE* contextHandle,
-                             CORINFO_CONTEXT_HANDLE* exactContextHandle,
-                             bool                    isExplicitTailCall,
-                             IL_OFFSETX              ilOffset = BAD_IL_OFFSET);
-
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
     GenTree* gtFoldExpr(GenTree* tree);
