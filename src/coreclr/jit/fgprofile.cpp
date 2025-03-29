@@ -1337,16 +1337,12 @@ public:
         assert(is32 || is64);
 
         // Figure out where the table is located.
-        //
-        BYTE* classProfile = m_schema[*m_currentSchemaIndex].Offset + m_profileMemory;
+        uint8_t* classProfile = m_schema[*m_currentSchemaIndex].Offset + m_profileMemory;
         *m_currentSchemaIndex += 2; // There are 2 schema entries per class probe
 
         // Grab a temp to hold the 'this' object as it will be used three times
-        //
         LclVarDsc* tmpLcl = compiler->lvaNewTemp(TYP_REF, true DEBUGARG("class profile tmp"));
 
-        // Generate the IR...
-        //
         CorInfoHelpFunc   helper           = is32 ? CORINFO_HELP_CLASSPROFILE32 : CORINFO_HELP_CLASSPROFILE64;
         GenTree*          classProfileAddr = compiler->gtNewIconNode((ssize_t)classProfile, TYP_I_IMPL);
         GenTree*          tmpLoad1         = compiler->gtNewLclLoad(tmpLcl, TYP_REF);
@@ -1357,8 +1353,6 @@ public:
         GenTree*          store            = compiler->gtNewLclStore(tmpLcl, TYP_REF, call->gtCallThisArg->GetNode());
         GenTree*          storeComma       = compiler->gtNewCommaNode(store, callComma);
 
-        // Update the call
-        //
         call->gtCallThisArg->SetNode(storeComma);
 
         JITDUMP("Modified call is now\n");

@@ -6436,8 +6436,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_I_IMPL, fptr));
                 fptr = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
 
-                call                = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
-                call->gtCallThisArg = comp->gtNewCallArgs(thisPtrUses[1]);
+                call = gtNewIndCallNode(fptr, callRetTyp, args, ilOffset);
+                call->AddThisArg(comp->gtNewCallArgs(thisPtrUses[1]));
 
                 if ((sig->sigInst.methInstCount != 0) && IsTargetAbi(CORINFO_CORERT_ABI))
                 {
@@ -6692,8 +6692,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 }
             }
 
-            call->gtFlags |= obj->gtFlags & GTF_GLOB_EFFECT;
-            call->gtCallThisArg = comp->gtNewCallArgs(obj);
+            call->AddSideEffects(obj->gtFlags & GTF_GLOB_EFFECT);
+            call->AddThisArg(comp->gtNewCallArgs(obj));
 
             if (call->IsVirtual())
             {
@@ -12070,8 +12070,8 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     {
         assert(!call->IsVirtual());
 
-        call->gtCallThisArg = comp->gtNewCallArgs(newObjThis);
         call->AddSideEffects(newObjThis->GetSideEffects());
+        call->AddThisArg(comp->gtNewCallArgs(newObjThis));
     }
 
     if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)

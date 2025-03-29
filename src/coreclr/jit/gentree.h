@@ -3794,6 +3794,7 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_EXPANDED_EARLY          = 0x00800000, // the Virtual Call target address is expanded in Morph rather than in Lower
 
     GTF_CALL_M_HAS_RETBUFF_ARG         = 0x01000000, // call has a return buffer arg
+    GTF_CALL_M_HAS_THIS_ARG            = 0x02000000  // call has a (managed) "this" arg
 };
 // clang-format on
 
@@ -4109,6 +4110,24 @@ public:
     UseList LateArgs()
     {
         return UseList(gtCallLateArgs);
+    }
+
+    void AddThisArg(GenTreeCall::Use* arg)
+    {
+        assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) == 0);
+        assert(gtCallThisArg == nullptr);
+
+        gtCallThisArg = arg;
+        gtCallMoreFlags |= GTF_CALL_M_HAS_THIS_ARG;
+    }
+
+    void RemoveThisArg()
+    {
+        assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
+        assert(gtCallThisArg != nullptr);
+
+        gtCallThisArg = nullptr;
+        gtCallMoreFlags &= ~GTF_CALL_M_HAS_THIS_ARG;
     }
 
     GenTree* GetFirstArg() const;

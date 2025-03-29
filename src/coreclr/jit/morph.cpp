@@ -6054,7 +6054,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     if (GenTreeCall::Use* thisUse = call->gtCallThisArg)
     {
-        call->gtCallThisArg = nullptr;
+        call->RemoveThisArg();
         thisUse->SetNext(call->gtCallArgs);
         call->gtCallArgs = thisUse;
         call->fgArgInfo  = nullptr;
@@ -6426,10 +6426,11 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     //   - the target expression may depend on `this` (e.g. virtual vtable call)
     // So we need to ensure that the value of `this` is available for target's expression.
     // We do this by spilling `this` to a temp, if it's not already a local.
-    if (call->gtCallThisArg != nullptr)
+    if (GenTreeCall::Use* thisUse = call->gtCallThisArg)
     {
-        GenTree* thisArg    = call->gtCallThisArg->GetNode();
-        call->gtCallThisArg = nullptr;
+        call->RemoveThisArg();
+
+        GenTree* thisArg = thisUse->GetNode();
 
         // The runtime requires that we perform a null check on the `this` argument before tail
         // calling to a virtual dispatch stub. This requirement is a consequence of limitations
@@ -6448,10 +6449,13 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
                 thisLcl       = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call this temp"));
                 thisTempStore = gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg);
                 thisArg       = gtNewLclLoad(thisLcl, thisLcl->GetType());
+
+                thisUse->SetNode(thisArg);
             }
         }
 
-        gtPrependNewCallArg(call->gtCallArgs, thisArg);
+        thisUse->SetNext(call->gtCallArgs);
+        call->gtCallArgs = thisUse;
     }
 
     // The tailcall helper has 4 extra arguments:
@@ -6546,13 +6550,18 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
 
     Statement* earlyArgInsertionPoint = lastStmt;
     IL_OFFSETX callILOffset           = lastStmt->GetILOffsetX();
+    unsigned   earlyArgIndex          = 0;
 
     // Hoist arg setup statement for the 'this' argument.
-    GenTreeCall::Use* thisArg = recursiveTailCall->gtCallThisArg;
-    if ((thisArg != nullptr) && !thisArg->GetNode()->IsNothingNode() && !thisArg->GetNode()->OperIs(GT_ARGPLACE))
+    if (GenTreeCall::Use* thisUse = recursiveTailCall->gtCallThisArg)
     {
-        Statement* thisArgStmt = gtNewStmt(thisArg->GetNode(), callILOffset);
-        fgInsertStmtBefore(block, earlyArgInsertionPoint, thisArgStmt);
+        earlyArgIndex++;
+
+        if (!thisUse->GetNode()->IsNothingNode() && !thisUse->GetNode()->OperIs(GT_ARGPLACE))
+        {
+            Statement* thisArgStmt = gtNewStmt(thisUse->GetNode(), callILOffset);
+            fgInsertStmtBefore(block, earlyArgInsertionPoint, thisArgStmt);
+        }
     }
 
     // All arguments whose trees may involve caller parameter local variables need to be assigned to temps first;
@@ -6600,7 +6609,6 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     // Process early args. They may contain both setup statements for late args and actual args.
     // Early args don't include 'this' arg. We need to account for that so that the call to gtArgEntryByArgNum
     // below has the correct second argument.
-    int earlyArgIndex = (thisArg == nullptr) ? 0 : 1;
     for (GenTreeCall::Use& use : recursiveTailCall->Args())
     {
         GenTree* earlyArg = use.GetNode();
