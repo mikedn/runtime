@@ -4143,7 +4143,23 @@ public:
         return gtCallThisArg;
     }
 
+    void PrependArg(GenTreeCall::Use* arg)
+    {
+        arg->SetNext(gtCallArgs);
+        gtCallArgs = arg;
+    }
+
+    GenTreeCall::Use* RemoveFirstArg()
+    {
+        // TODO-MIKE-Cleanup: This is inconsistent with GetFirstArg which treats
+        // the this arg as first, if present.
+        GenTreeCall::Use* first = gtCallArgs;
+        gtCallArgs              = first->GetNext();
+        return first;
+    }
+
     GenTree* GetFirstArg() const;
+    GenTree* GetSecondArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
@@ -4330,6 +4346,24 @@ public:
             ;
     }
 #endif
+
+    GenTreeCall::Use* GetRetBufArg() const
+    {
+        assert(HasRetBufArg());
+        // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
+        // see impAddCallRetBufAddrArg.
+        return gtCallArgs;
+    }
+
+    void RemoveRetBufArg()
+    {
+        assert(HasRetBufArg());
+        // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
+        // see impAddCallRetBufAddrArg. It should not be needed but it should assert
+        // for other cases.
+        gtCallArgs = gtCallArgs->GetNext();
+        gtCallMoreFlags &= ~(GTF_CALL_M_REQUIRES_RETBUFF_ARG | GTF_CALL_M_HAS_RETBUFF_ARG);
+    }
 
     bool HasMultiRegRetVal() const
     {
@@ -4662,10 +4696,10 @@ public:
 class CallArgInfo
 {
 public:
-    GenTreeCall::Use* use; // Points to the argument's GenTreeCall::Use in gtCallArgs or gtCallThisArg.
+    GenTreeCall::Use* use;
 
 private:
-    GenTreeCall::Use* m_lateUse; // Points to the argument's GenTreeCall::Use in gtCallLateArgs, if any.
+    GenTreeCall::Use* m_lateUse;
 
     unsigned m_argNum; // The original argument number, also specifies the IL argument evaluation order
 

@@ -802,7 +802,7 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 #ifndef TARGET_X86
             comp->gtPrependNewCallArg(call->gtCallArgs, retBufAddr);
 #else
-            comp->gtAppendNewCallArg(call->gtCallArgs, retBufAddr);
+            comp->gtAppendNewCallArg(call, retBufAddr);
 #endif
         }
     }
@@ -812,10 +812,10 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
         comp->gtPrependNewCallArg(call->gtCallArgs, retBufAddr);
     }
 
-    // TODO-MIKE-Fix: GTF_CALL_M_HAS_RETBUFF_ARG shouldn't probably be set on unmanaged
+    // TODO-MIKE-Call: GTF_CALL_M_HAS_RETBUFF_ARG shouldn't probably be set on unmanaged
     // calls that append it to the arg list (x86). The JIT doesn't care much about such
     // calls and the code that does care currently assumes that the ret buf arg is the
-    // first arg in gtCallArgs, even if it may be second, last or second to last...
+    // first arg in the arg list, even if it may be second, last or second to last...
     // Or we can set the flag and add a GetRetBufArg function to GenTreeCall that mirrors
     // the above logic to retrieve the correct arg, which would probably be needed only
     // in DEBUG builds, for dumps call arg naming.
@@ -2179,7 +2179,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         return nullptr;
     }
 
-    GenTree* fieldTokenNode = fieldTokenCall->gtCallArgs->GetNode();
+    GenTree* fieldTokenNode = fieldTokenCall->GetFirstArg();
 
     if (fieldTokenNode->OperIs(GT_IND_LOAD))
     {
@@ -2265,7 +2265,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             return nullptr;
         }
 
-        GenTreeCall::Use* tokenArg = newArrayCall->AsCall()->gtCallArgs;
+        GenTreeCall::Use* tokenArg = newArrayCall->gtCallArgs;
         assert(tokenArg != nullptr);
         GenTreeCall::Use* numArgsArg = tokenArg->GetNext();
         assert(numArgsArg != nullptr);
@@ -2388,9 +2388,9 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         GenTree* arrayLengthNode;
 
-        GenTreeCall::Use* args = newArrayCall->AsCall()->gtCallArgs;
+        GenTreeCall::Use* args = newArrayCall->gtCallArgs;
 #ifdef FEATURE_READYTORUN_COMPILER
-        if (newArrayCall->AsCall()->IsHelperCall(CORINFO_HELP_READYTORUN_NEWARR_1))
+        if (newArrayCall->IsHelperCall(CORINFO_HELP_READYTORUN_NEWARR_1))
         {
             // Array length is 1st argument for readytorun helper
             arrayLengthNode = args->GetNode();
@@ -2739,7 +2739,7 @@ GenTree* Importer::impIntrinsic(GenTree*                 newobjThis,
                 {
                     impPopStack();
 
-                    return call->gtCallArgs->GetNode();
+                    return call->GetFirstArg();
                 }
             }
             break;
@@ -3054,7 +3054,7 @@ GenTree* Importer::impIntrinsic(GenTree*                 newobjThis,
             {
                 if (call->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
                 {
-                    if (CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->gtCallArgs->GetNode()))
+                    if (CORINFO_CLASS_HANDLE hClass = gtGetHelperArgClassHandle(call->GetFirstArg()))
                     {
                         impPopStack(); // drop CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE call
 
@@ -3242,8 +3242,8 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
     if (typeTo->IsCall() && typeTo->AsCall()->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE) &&
         typeFrom->IsCall() && typeFrom->AsCall()->IsHelperCall(CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE))
     {
-        CORINFO_CLASS_HANDLE hClassTo   = gtGetHelperArgClassHandle(typeTo->AsCall()->gtCallArgs->GetNode());
-        CORINFO_CLASS_HANDLE hClassFrom = gtGetHelperArgClassHandle(typeFrom->AsCall()->gtCallArgs->GetNode());
+        CORINFO_CLASS_HANDLE hClassTo   = gtGetHelperArgClassHandle(typeTo->AsCall()->GetFirstArg());
+        CORINFO_CLASS_HANDLE hClassFrom = gtGetHelperArgClassHandle(typeFrom->AsCall()->GetFirstArg());
 
         if (hClassTo == NO_CLASS_HANDLE || hClassFrom == NO_CLASS_HANDLE)
         {
@@ -6753,7 +6753,7 @@ DONE:
     {
         assert(!call->IsUnmanaged());
 
-        comp->gtAppendCallArgs(call->gtCallArgs, comp->gtNewCallArgs(pInvokeCalliCookie, call->GetCallAddr()));
+        comp->gtAppendCallArgs(call, comp->gtNewCallArgs(pInvokeCalliCookie, call->GetCallAddr()));
 
         call->SetMethodHandle(eeFindHelper(CORINFO_HELP_PINVOKE_CALLI));
         call->SetCallAddr(nullptr);
@@ -12210,8 +12210,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             {
                 JITDUMP("optimized\n");
 
-                GenTree*             thisPointer       = call->GetThisArg()->GetNode();
-                GenTree*             targetObjPointers = call->gtCallArgs->GetNode();
+                GenTree*             thisPointer       = call->GetFirstArg();
+                GenTree*             targetObjPointers = call->GetSecondArg();
                 GenTreeCall::Use*    helperArgs        = nullptr;
                 CORINFO_LOOKUP       pLookup;
                 CORINFO_CONST_LOOKUP entryPoint;
@@ -12248,8 +12248,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
             assert(!entryPoint.lookupKind.needsRuntimeLookup);
 
-            GenTree*          thisPointer       = call->GetThisArg()->GetNode();
-            GenTree*          targetObjPointers = call->gtCallArgs->GetNode();
+            GenTree*          thisPointer       = call->GetFirstArg();
+            GenTree*          targetObjPointers = call->GetSecondArg();
             GenTreeCall::Use* helperArgs        = comp->gtNewCallArgs(thisPointer, targetObjPointers);
 
             call = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_DELEGATE_CTOR, entryPoint.constLookup, TYP_VOID,
@@ -15032,7 +15032,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
                     call->SetIsUnboxed();
 
 #ifdef TARGET_X86
-                    gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
+                    gtAppendNewCallArg(call, methodTableArg);
 #else
                     if (call->gtCallArgs == nullptr)
                     {
@@ -15162,7 +15162,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
     call->SetIsUnboxed();
 
 #ifdef TARGET_X86
-    gtAppendNewCallArg(call->gtCallArgs, methodTableArg);
+    gtAppendNewCallArg(call, methodTableArg);
 #else
     if (call->gtCallArgs == nullptr)
     {
@@ -15172,7 +15172,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
     {
         if (call->HasRetBufArg())
         {
-            gtInsertNewCallArgAfter(methodTableArg, call->gtCallArgs);
+            gtInsertNewCallArgAfter(methodTableArg, call->GetRetBufArg());
         }
         else
         {

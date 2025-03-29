@@ -3942,11 +3942,21 @@ void Compiler::gtAppendCallArgs(GenTreeCall::Use*& head, GenTreeCall::Use* args)
     *last = args;
 }
 
+void Compiler::gtAppendCallArgs(GenTreeCall* call, GenTreeCall::Use* args)
+{
+    gtAppendCallArgs(call->gtCallArgs, args);
+}
+
 GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree* node)
 {
     GenTreeCall::Use* arg = gtNewCallArgs(node);
     gtAppendCallArgs(head, arg);
     return arg;
+}
+
+GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall* call, GenTree* node)
+{
+    return gtAppendNewCallArg(call->gtCallArgs, node);
 }
 
 GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node)
@@ -3977,6 +3987,16 @@ GenTree* GenTreeCall::GetFirstArg() const
     }
 
     return GetArgNodeByArgNum(0);
+}
+
+GenTree* GenTreeCall::GetSecondArg() const
+{
+    if (fgArgInfo == nullptr)
+    {
+        return (gtCallThisArg == nullptr ? gtCallArgs->GetNext() : gtCallArgs)->GetNode();
+    }
+
+    return GetArgNodeByArgNum(1);
 }
 
 CallArgInfo* GenTreeCall::GetArgInfoByArgNum(unsigned argNum) const
@@ -7120,7 +7140,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         {
             sprintf_s(buf, bufLength, "this");
         }
-        else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->gtCallArgs->GetNode()))
+        else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->GetRetBufArg()->GetNode()))
         {
             // TODO-MIKE-Review: This and the similar code below gets it wrong then the vstub
             // arg is present, because that one gets inserted in front of the return buffer arg.
@@ -7145,7 +7165,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
         buf += len;
         bufLength -= len;
     }
-    else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (argInfo->use == call->gtCallArgs))
+    else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (argInfo->use == call->GetRetBufArg()))
     {
         int len = sprintf_s(buf, bufLength, "retbuf");
         buf += len;
@@ -7443,15 +7463,14 @@ GenTree* Compiler::gtFoldExprCall(GenTreeCall* call)
 
     if (ni == NI_System_Enum_HasFlag)
     {
-        return gtOptimizeEnumHasFlag(call->GetThisArg()->GetNode(), call->gtCallArgs->GetNode());
+        return gtOptimizeEnumHasFlag(call->GetFirstArg(), call->GetSecondArg());
     }
 
     if ((ni == NI_System_Type_op_Equality) || (ni == NI_System_Type_op_Inequality))
     {
         assert(call->TypeIs(TYP_INT));
 
-        return gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, call->gtCallArgs->GetNode(),
-                                      call->gtCallArgs->GetNext()->GetNode());
+        return gtFoldTypeEqualityCall(ni == NI_System_Type_op_Equality, call->GetFirstArg(), call->GetSecondArg());
     }
 
     return nullptr;
@@ -7615,8 +7634,8 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     if ((op1Kind == TPK_Handle) && (op2Kind == TPK_Handle))
     {
         JITDUMP("Optimizing compare of types-from-handles to instead compare handles\n");
-        GenTree* op1ClassFromHandle = tree->AsOp()->GetOp(0)->AsCall()->gtCallArgs->GetNode();
-        GenTree* op2ClassFromHandle = tree->AsOp()->GetOp(1)->AsCall()->gtCallArgs->GetNode();
+        GenTree* op1ClassFromHandle = tree->AsOp()->GetOp(0)->AsCall()->GetFirstArg();
+        GenTree* op2ClassFromHandle = tree->AsOp()->GetOp(1)->AsCall()->GetFirstArg();
 
         CORINFO_CLASS_HANDLE cls1Hnd = gtGetHelperArgClassHandle(op1ClassFromHandle);
         CORINFO_CLASS_HANDLE cls2Hnd = gtGetHelperArgClassHandle(op2ClassFromHandle);
@@ -7715,11 +7734,11 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
         return tree;
     }
 
-    GenTree* const opHandle = (op1Kind == TPK_Handle) ? op1 : op2;
-    GenTree* const opOther  = (op1Kind == TPK_Handle) ? op2 : op1;
+    GenTree* const opHandle = op1Kind == TPK_Handle ? op1 : op2;
+    GenTree* const opOther  = op1Kind == TPK_Handle ? op2 : op1;
 
     // Tunnel through the handle operand to get at the class handle involved.
-    GenTree* const       opHandleArgument = opHandle->AsCall()->gtCallArgs->GetNode();
+    GenTree* const       opHandleArgument = opHandle->AsCall()->GetFirstArg();
     CORINFO_CLASS_HANDLE clsHnd           = gtGetHelperArgClassHandle(opHandleArgument);
 
     // If we couldn't find the class handle, give up.
@@ -7754,7 +7773,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
     }
     else
     {
-        objOp = opOther->AsCall()->GetThisArg()->GetNode();
+        objOp = opOther->AsCall()->GetFirstArg();
     }
 
     bool                 pIsExact   = false;
@@ -8192,17 +8211,7 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
     JITDUMP("\nAttempting to optimize BOX_NULLABLE(&x) %s null [%06u]\n", GenTree::OpName(oper), tree->GetID());
 
     // Get the address of the struct being boxed
-    GenTree* arg;
-
-    if (call->GetInfo() == nullptr)
-    {
-        arg = call->gtCallArgs->GetNext()->GetNode();
-    }
-    else
-    {
-        arg = call->GetArgNodeByArgNum(1);
-    }
-
+    GenTree*     arg            = call->GetSecondArg();
     ClassLayout* nullableLayout = nullptr;
 
     if (GenTreeFieldAddr* fieldAddr = arg->IsFieldAddr())
@@ -10606,10 +10615,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
         case CORINFO_HELP_ISINSTANCEOFCLASS:
         case CORINFO_HELP_ISINSTANCEOFANY:
         {
-            GenTreeCall::Use* args    = call->gtCallArgs;
-            GenTree*          typeArg = args->GetNode();
-
-            CORINFO_CLASS_HANDLE castHnd = gtGetHelperArgClassHandle(typeArg);
+            CORINFO_CLASS_HANDLE castHnd = gtGetHelperArgClassHandle(call->GetFirstArg());
 
             // We generally assume the type being cast to is the best type
             // for the result, unless it is an interface type.
@@ -10630,9 +10636,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
             // type from the value being cast instead.
             if (castHnd == nullptr)
             {
-                GenTree* valueArg = args->GetNext()->GetNode();
-
-                castHnd = gtGetClassHandle(valueArg, isExact, isNonNull);
+                castHnd = gtGetClassHandle(call->GetSecondArg(), isExact, isNonNull);
             }
 
             // We don't know at JIT time if the cast will succeed or fail, but if it

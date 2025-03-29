@@ -198,11 +198,11 @@ private:
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const
         {
 #ifdef TARGET_X86
-            compiler->gtAppendNewCallArg(fatCall->gtCallArgs, hiddenArgument);
+            compiler->gtAppendNewCallArg(fatCall, hiddenArgument);
 #else
             if (fatCall->HasRetBufArg())
             {
-                compiler->gtInsertNewCallArgAfter(hiddenArgument, fatCall->gtCallArgs);
+                compiler->gtInsertNewCallArgAfter(hiddenArgument, fatCall->GetRetBufArg());
             }
             else
             {
@@ -772,19 +772,15 @@ private:
         {
             JITDUMP("*** ExpRuntimeLookup: transforming " FMT_TREEID "\n", origCall->GetID());
 
-            GenTreeCall::Use* args = origCall->gtCallArgs;
-
-            GenTree* handle = args->GetNode();
-            assert(handle->TypeIs(TYP_I_IMPL) && handle->IsIndLoad());
-            args = args->GetNext();
-
-            GenTree* sizeCheck = args->GetNode();
-            assert(sizeCheck->OperIs(GT_LE));
-            args = args->GetNext();
-
-            // The first argument is the handle now.
-            origCall->gtCallArgs = args;
+            GenTreeUse* handleArg    = origCall->RemoveFirstArg();
+            GenTreeUse* sizeCheckArg = origCall->RemoveFirstArg();
             origCall->ClearExpRuntimeLookup();
+
+            GenTree* handle = handleArg->GetNode();
+            assert(handle->TypeIs(TYP_I_IMPL) && handle->IsIndLoad());
+
+            GenTree* sizeCheck = sizeCheckArg->GetNode();
+            assert(sizeCheck->OperIs(GT_LE));
 
             Transform(handle, sizeCheck);
         }
