@@ -6726,7 +6726,7 @@ DONE:
 
     if (compIsForInlining() && (opcode == CEE_CALLVIRT))
     {
-        GenTree* callObj = call->gtCallThisArg->GetNode();
+        GenTree* callObj = call->GetThisArg()->GetNode();
 
         if ((call->IsVirtual() || call->HasNullCheck()) &&
             impInlineIsGuaranteedThisDerefBeforeAnySideEffects(nullptr, call->gtCallArgs, callObj))
@@ -12070,8 +12070,8 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     {
         assert(!call->IsVirtual());
 
-        call->AddSideEffects(newObjThis->GetSideEffects());
         call->AddThisArg(comp->gtNewCallArgs(newObjThis));
+        call->AddSideEffects(newObjThis->GetSideEffects());
     }
 
     if ((classFlags & CORINFO_FLG_VAROBJSIZE) != 0)
@@ -12210,7 +12210,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             {
                 JITDUMP("optimized\n");
 
-                GenTree*             thisPointer       = call->gtCallThisArg->GetNode();
+                GenTree*             thisPointer       = call->GetThisArg()->GetNode();
                 GenTree*             targetObjPointers = call->gtCallArgs->GetNode();
                 GenTreeCall::Use*    helperArgs        = nullptr;
                 CORINFO_LOOKUP       pLookup;
@@ -12248,7 +12248,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
             assert(!entryPoint.lookupKind.needsRuntimeLookup);
 
-            GenTree*          thisPointer       = call->gtCallThisArg->GetNode();
+            GenTree*          thisPointer       = call->GetThisArg()->GetNode();
             GenTree*          targetObjPointers = call->gtCallArgs->GetNode();
             GenTreeCall::Use* helperArgs        = comp->gtNewCallArgs(thisPointer, targetObjPointers);
 
@@ -13677,8 +13677,8 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         // Check if the callee has the same 'this' as the root.
         if (pInlineInfo != nullptr)
         {
-            GenTree* thisArg = pInlineInfo->iciCall->AsCall()->gtCallThisArg->GetNode();
-            assert(thisArg);
+            GenTree* thisArg = pInlineInfo->iciCall->AsCall()->GetThisArg()->GetNode();
+            assert(thisArg != nullptr);
             bool isSameThis = impIsThis(thisArg);
             inlineResult->NoteBool(InlineObservation::CALLSITE_IS_SAME_THIS, isSameThis);
         }
@@ -14060,7 +14060,7 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
 
             if ((vmRestrictions & INLINE_SAME_THIS) != 0)
             {
-                GenTree* thisArg = param->call->gtCallThisArg->GetNode();
+                GenTree* thisArg = param->call->GetThisArg()->GetNode();
 
                 if (!comp->impIsThis(thisArg))
                 {
@@ -14667,7 +14667,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     const bool           isInterface      = (baseClassAttribs & CORINFO_FLG_INTERFACE) != 0;
 
     // See what we know about the type of 'this' in the call.
-    GenTree*             thisObj      = call->gtCallThisArg->GetNode()->gtEffectiveVal();
+    GenTree*             thisObj      = call->GetThisArg()->GetNode()->gtEffectiveVal();
     bool                 isExact      = false;
     bool                 objIsNonNull = false;
     CORINFO_CLASS_HANDLE objClass     = gtGetClassHandle(thisObj, &isExact, &objIsNonNull);
@@ -15027,7 +15027,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
                     // Pass the local var as this and the type handle as a new arg
                     JITDUMP("Invoking unboxed entry point on local copy\n");
 
-                    call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
+                    call->GetThisArg()->SetNode(localCopyThis, TYP_BYREF);
                     call->SetMethodHandle(unboxedEntryMethod);
                     call->SetIsUnboxed();
 
@@ -15084,7 +15084,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
             {
                 JITDUMP("Invoking unboxed entry point on local copy\n");
 
-                call->gtCallThisArg->SetNode(localCopyThis, TYP_BYREF);
+                call->GetThisArg()->SetNode(localCopyThis, TYP_BYREF);
                 call->SetMethodHandle(unboxedEntryMethod);
                 call->SetIsUnboxed();
 
@@ -15122,7 +15122,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
     // We can still update the call to invoke the unboxed entry, if the
     // boxed value is simple.
 
-    GenTree* const thisArg = call->gtCallThisArg->GetNode();
+    GenTree* const thisArg = call->GetThisArg()->GetNode();
 
     if (!requiresInstMethodTableArg)
     {
@@ -15131,7 +15131,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
         GenTree* payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
         GenTree* boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
-        call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
+        call->GetThisArg()->SetNode(boxPayload, TYP_BYREF);
         call->SetMethodHandle(unboxedEntryMethod);
         call->SetIsUnboxed();
 
@@ -15157,7 +15157,7 @@ void Compiler::impUnboxCall(GenTreeCall*                   call,
     GenTree* const payloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
     GenTree* const boxPayload    = gtNewOperNode(GT_ADD, TYP_BYREF, thisArg, payloadOffset);
 
-    call->gtCallThisArg->SetNode(boxPayload, TYP_BYREF);
+    call->GetThisArg()->SetNode(boxPayload, TYP_BYREF);
     call->SetMethodHandle(unboxedEntryMethod);
     call->SetIsUnboxed();
 
@@ -15246,9 +15246,9 @@ public:
             WalkTree(&use.NodeRef(), call);
         }
 
-        if (call->gtCallThisArg != nullptr)
+        if (GenTreeUse* use = call->HasThisArg())
         {
-            WalkTree(&call->gtCallThisArg->NodeRef(), call);
+            WalkTree(&use->NodeRef(), call);
         }
     }
 
@@ -16092,15 +16092,15 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
         // We haven't morphed calls yet.
         assert(call->gtCallLateArgs == nullptr);
 
-        if (call->gtCallThisArg != nullptr)
+        if (GenTreeUse* use = call->HasThisArg())
         {
-            if (impHasLclRef(call->gtCallThisArg->GetNode(), lcl))
+            if (impHasLclRef(use->GetNode(), lcl))
             {
                 return true;
             }
         }
 
-        for (GenTreeCall::Use& use : call->Args())
+        for (GenTreeUse& use : call->Args())
         {
             if (impHasLclRef(use.GetNode(), lcl))
             {

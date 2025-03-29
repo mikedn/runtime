@@ -4130,6 +4130,19 @@ public:
         gtCallMoreFlags &= ~GTF_CALL_M_HAS_THIS_ARG;
     }
 
+    GenTreeCall::Use* GetThisArg() const
+    {
+        assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
+        assert(gtCallThisArg != nullptr);
+
+        return gtCallThisArg;
+    }
+
+    GenTreeCall::Use* HasThisArg() const
+    {
+        return gtCallThisArg;
+    }
+
     GenTree* GetFirstArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;

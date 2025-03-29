@@ -2831,17 +2831,17 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
                     // for GTF_ASG instead of a store node.
 
-                    if (GenTreeCall::Use* thisArg = node->AsCall()->gtCallThisArg)
+                    if (GenTreeUse* use = node->AsCall()->HasThisArg())
                     {
-                        if (thisArg->GetNode()->OperIs(GT_LCL_STORE, GT_LCL_DEF))
+                        if (use->GetNode()->OperIs(GT_LCL_STORE, GT_LCL_DEF))
                         {
                             actualFlags |= GTF_ASG;
                         }
                     }
 
-                    for (GenTreeCall::Use& arg : node->AsCall()->Args())
+                    for (GenTreeUse& use : node->AsCall()->Args())
                     {
-                        if (arg.GetNode()->HasAnySideEffect(GTF_ASG))
+                        if (use.GetNode()->HasAnySideEffect(GTF_ASG))
                         {
                             actualFlags |= GTF_ASG;
                         }

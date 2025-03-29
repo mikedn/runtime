@@ -603,7 +603,7 @@ private:
                 // "this" instance. And calling struct member methods is common enough that attempting
                 // to mark the entire struct as address exposed results in CQ regressions.
 
-                if ((call->gtCallThisArg != nullptr) && (addrVal.Node() == call->gtCallThisArg->GetNode()))
+                if (call->HasThisArg() && (addrVal.Node() == call->GetThisArg()->GetNode()))
                 {
                     exposeParentLcl = false;
                 }

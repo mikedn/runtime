@@ -310,7 +310,7 @@ private:
             checkBlock             = currBlock;
             checkBlock->bbJumpKind = BBJ_COND;
 
-            GenTree*   thisTree = origCall->gtCallThisArg->GetNode();
+            GenTree*   thisTree = origCall->GetThisArg()->GetNode();
             LclVarDsc* thisLcl;
 
             if (thisTree->OperIs(GT_LCL_LOAD))
@@ -328,7 +328,7 @@ private:
 
                 GenTree* thisStore = compiler->gtNewLclStore(thisLcl, TYP_REF, thisTree);
                 compiler->fgInsertStmtAtEnd(checkBlock, compiler->gtNewStmt(thisStore, stmt->GetILOffsetX()));
-                origCall->gtCallThisArg->SetNode(compiler->gtNewLclLoad(thisLcl, TYP_REF));
+                origCall->GetThisArg()->SetNode(compiler->gtNewLclLoad(thisLcl, TYP_REF));
             }
 
             thisTree = compiler->gtNewLclLoad(thisLcl, TYP_REF);
@@ -461,14 +461,14 @@ private:
 
             // copy 'this' to temp with exact type.
             LclVarDsc* thisTempLcl = compiler->lvaNewTemp(TYP_REF, false DEBUGARG("guarded devirt this exact temp"));
-            GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->gtCallThisArg->GetNode());
+            GenTree*   clonedObj   = compiler->gtCloneExpr(origCall->GetThisArg()->GetNode());
             GenTree*   clonedStore = compiler->gtNewLclStore(thisTempLcl, TYP_REF, clonedObj);
             compiler->lvaSetClass(thisTempLcl, clsHnd, true);
             compiler->fgNewStmtAtEnd(thenBlock, clonedStore);
 
             // Clone call. Note we must use the special candidate helper.
             GenTreeCall* call = compiler->gtCloneCandidateCall(origCall);
-            call->gtCallThisArg->SetNode(compiler->gtNewLclLoad(thisTempLcl, TYP_REF));
+            call->GetThisArg()->SetNode(compiler->gtNewLclLoad(thisTempLcl, TYP_REF));
             call->SetIsGuarded();
 
             JITDUMP("Direct call [%06u] in block " FMT_BB "\n", call->GetID(), thenBlock->bbNum);

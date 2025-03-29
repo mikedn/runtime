@@ -200,10 +200,10 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
 
             GenTreeCall* call = tree->AsCall();
 
-            if (call->gtCallThisArg != nullptr)
+            if (GenTreeUse* use = call->HasThisArg())
             {
                 state->isUnderIndir = true;
-                comp->fgWalkTreePre(&call->gtCallThisArg->NodeRef(), MarkPtrsAndAssignGroups, state);
+                comp->fgWalkTreePre(&use->NodeRef(), MarkPtrsAndAssignGroups, state);
                 // TODO-MIKE-Review: This should reset isUnderIndir probably...
             }
 

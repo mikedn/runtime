@@ -4575,17 +4575,17 @@ void Lowering::VerifyCallArg(GenTree* arg)
 
 void Lowering::VerifyCall(GenTreeCall* call)
 {
-    if (call->gtCallThisArg != nullptr)
+    if (GenTreeUse* use = call->HasThisArg())
     {
-        VerifyCallArg(call->gtCallThisArg->GetNode());
+        VerifyCallArg(use->GetNode());
     }
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeUse& use : call->Args())
     {
         VerifyCallArg(use.GetNode());
     }
 
-    for (GenTreeCall::Use& use : call->LateArgs())
+    for (GenTreeUse& use : call->LateArgs())
     {
         VerifyCallArg(use.GetNode());
     }

@@ -1328,7 +1328,7 @@ public:
         //         ... args ...)
         //
 
-        assert(call->gtCallThisArg->GetNode()->TypeIs(TYP_REF));
+        assert(call->GetThisArg()->GetNode()->TypeIs(TYP_REF));
 
         bool is32 = m_schema[*m_currentSchemaIndex].InstrumentationKind ==
                     ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramIntCount;
@@ -1350,10 +1350,10 @@ public:
         GenTree*          helperCall       = compiler->gtNewHelperCallNode(helper, TYP_VOID, args);
         GenTree*          tmpLoad2         = compiler->gtNewLclLoad(tmpLcl, TYP_REF);
         GenTree*          callComma        = compiler->gtNewCommaNode(helperCall, tmpLoad2);
-        GenTree*          store            = compiler->gtNewLclStore(tmpLcl, TYP_REF, call->gtCallThisArg->GetNode());
+        GenTree*          store            = compiler->gtNewLclStore(tmpLcl, TYP_REF, call->GetThisArg()->GetNode());
         GenTree*          storeComma       = compiler->gtNewCommaNode(store, callComma);
 
-        call->gtCallThisArg->SetNode(storeComma);
+        call->GetThisArg()->SetNode(storeComma);
 
         JITDUMP("Modified call is now\n");
         DISPTREE(call);

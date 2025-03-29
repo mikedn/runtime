@@ -6520,12 +6520,16 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_CALL:
         {
             GenTreeCall* const call = this->AsCall();
-            if ((call->gtCallThisArg != nullptr) && (visitor(call->gtCallThisArg->NodeRef()) == VisitResult::Abort))
+
+            if (GenTreeUse* use = call->HasThisArg())
             {
-                return;
+                if (visitor(use->NodeRef()) == VisitResult::Abort)
+                {
+                    return;
+                }
             }
 
-            for (GenTreeCall::Use& use : call->Args())
+            for (GenTreeUse& use : call->Args())
             {
                 if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
@@ -6533,7 +6537,7 @@ void GenTree::VisitOperands(TVisitor visitor)
                 }
             }
 
-            for (GenTreeCall::Use& use : call->LateArgs())
+            for (GenTreeUse& use : call->LateArgs())
             {
                 if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
@@ -6898,16 +6902,16 @@ public:
             {
                 GenTreeCall* const call = node->AsCall();
 
-                if (call->gtCallThisArg != nullptr)
+                if (GenTreeUse* use = call->HasThisArg())
                 {
-                    result = WalkTree(&call->gtCallThisArg->NodeRef(), call);
+                    result = WalkTree(&use->NodeRef(), call);
                     if (result == GenTreeWalkResult::Abort)
                     {
                         return result;
                     }
                 }
 
-                for (GenTreeCall::Use& use : call->Args())
+                for (GenTreeUse& use : call->Args())
                 {
                     result = WalkTree(&use.NodeRef(), call);
                     if (result == GenTreeWalkResult::Abort)
@@ -6916,7 +6920,7 @@ public:
                     }
                 }
 
-                for (GenTreeCall::Use& use : call->LateArgs())
+                for (GenTreeUse& use : call->LateArgs())
                 {
                     result = WalkTree(&use.NodeRef(), call);
                     if (result == GenTreeWalkResult::Abort)

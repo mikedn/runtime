@@ -1217,9 +1217,9 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     inlineInfo->ilArgCount = argsSig.totalILArgs();
 
-    GenTreeCall::Use* thisArg = inlineInfo->iciCall->gtCallThisArg;
-    InlArgInfo*       argInfo = inlineInfo->ilArgInfo;
-    unsigned          argNum  = 0;
+    GenTreeUse* thisArg = inlineInfo->iciCall->HasThisArg();
+    InlArgInfo* argInfo = inlineInfo->ilArgInfo;
+    unsigned    argNum  = 0;
 
     assert((argsSig.hasThis()) == (thisArg != nullptr));
 
@@ -1245,7 +1245,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 #endif
     }
 
-    for (GenTreeCall::Use& use : inlineInfo->iciCall->Args())
+    for (GenTreeUse& use : inlineInfo->iciCall->Args())
     {
         if (argNum == retBufArgNum)
         {

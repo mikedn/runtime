@@ -717,13 +717,13 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 
         // The copied arg entries contain pointers to old uses, they need
         // to be updated to point to new uses.
-        if (newCall->gtCallThisArg != nullptr)
+        if (GenTreeCall::Use* newThisUse = newCall->HasThisArg())
         {
             for (unsigned i = 0; i < argCount; i++)
             {
-                if (argTable[i]->use == oldCall->gtCallThisArg)
+                if (argTable[i]->use == oldCall->GetThisArg())
                 {
-                    argTable[i]->use = newCall->gtCallThisArg;
+                    argTable[i]->use = newThisUse;
                     break;
                 }
             }
@@ -877,7 +877,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         {
             needsTemps = true;
         }
-        else if ((argInfo->use == call->gtCallThisArg) && call->IsExpandedEarly() && call->IsVirtualVtable() &&
+        else if (call->IsExpandedEarly() && call->IsVirtualVtable() && (argInfo->use == call->GetThisArg()) &&
                  !arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             argInfo->SetTempNeeded();
@@ -1532,7 +1532,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
     } nonStandardArgs(getAllocator(CMK_ArrayStack));
 
-    unsigned numArgs = call->gtCallThisArg == nullptr ? 0 : 1;
+    unsigned numArgs = call->HasThisArg() ? 1 : 0;
 
     for (GenTreeCall::Use& use : call->Args())
     {
@@ -1563,7 +1563,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
         // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
 
-        GenTree* arg = call->gtCallThisArg->GetNode();
+        GenTree* arg = call->GetThisArg()->GetNode();
 
         // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_LOAD_FLD
         // is bad for CQ, especially on ARM where we don't have memory operands.
@@ -1574,7 +1574,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         else
         {
             GenTreeLclLoad* tmp = fgInsertCommaFormTemp(&arg);
-            call->gtCallThisArg->SetNode(arg);
+            call->GetThisArg()->SetNode(arg);
             call->gtFlags |= GTF_ASG;
             arg = tmp;
         }
@@ -1662,13 +1662,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned intArgRegNum = 0;
     unsigned fltArgRegNum = 0;
 
-    if (call->gtCallThisArg != nullptr)
+    if (GenTreeCall::Use* thisUse = call->HasThisArg())
     {
-        var_types argType = call->gtCallThisArg->GetNode()->GetType();
+        var_types argType = thisUse->GetNode()->GetType();
         assert(!call->IsHelperCall());
         assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
 
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, call->gtCallThisArg, 1);
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, thisUse, 1);
         argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
         argInfo->SetArgType(argType);
         call->fgArgInfo->AddArg(argInfo);
@@ -2237,19 +2237,19 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
     GenTreeFlags argsSideEffects = GTF_NONE;
 
-    if (GenTreeCall::Use* use = call->gtCallThisArg)
+    if (GenTreeUse* use = call->HasThisArg())
     {
         use->SetNode(fgMorphTree(use->GetNode()));
         argsSideEffects |= use->GetNode()->gtFlags;
     }
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeUse& use : call->Args())
     {
         use.SetNode(fgMorphTree(use.GetNode()));
         argsSideEffects |= use.GetNode()->gtFlags;
     }
 
-    for (GenTreeCall::Use& use : call->LateArgs())
+    for (GenTreeUse& use : call->LateArgs())
     {
         use.SetNode(fgMorphTree(use.GetNode()));
         argsSideEffects |= use.GetNode()->gtFlags;
@@ -2261,14 +2261,14 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
         argsSideEffects |= call->GetCallAddr()->gtFlags;
     }
 
-    call->gtFlags &= ~GTF_ASG;
+    call->RemoveSideEffects(GTF_ASG);
 
     if (!call->CallMayThrow(this))
     {
-        call->gtFlags &= ~GTF_EXCEPT;
+        call->RemoveSideEffects(GTF_EXCEPT);
     }
 
-    call->gtFlags |= argsSideEffects & GTF_ALL_EFFECT;
+    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
 }
 
 // Walk and transform (morph) the arguments of a call
@@ -2302,7 +2302,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     JITDUMP("Setting up call [%06u] args\n", call->GetID());
 
     GenTreeFlags argsSideEffects = GTF_NONE;
-    unsigned     argNum          = call->gtCallThisArg != nullptr;
+    unsigned     argNum          = call->HasThisArg() ? 1 : 0;
 
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
@@ -5590,7 +5590,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
                 }
             }
 
-            if ((call->gtCallThisArg != nullptr) && !call->gtCallThisArg->GetNode()->TypeIs(TYP_REF))
+            if (call->HasThisArg() && !call->GetThisArg()->GetNode()->TypeIs(TYP_REF))
             {
                 flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_THIS_ARG_IS_BYREF);
             }
@@ -5649,7 +5649,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             call->ClearExpandedEarly();
         }
         else if ((tailCallResult == TAILCALL_OPTIMIZED) &&
-                 ((call->gtCallThisArg->GetNode()->gtFlags & GTF_SIDE_EFFECT) != 0))
+                 call->GetThisArg()->GetNode()->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             // We generate better code when we expand this late in lower instead.
             call->ClearExpandedEarly();
@@ -6006,7 +6006,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     if (stubNeedsThisLcl)
     {
-        GenTree* thisArg = call->gtCallThisArg->GetNode();
+        GenTree* thisArg = call->GetThisArg()->GetNode();
 
         // TODO-MIKE-Review: Reusing an existing local isn't correct if the
         // subsequent args are modifying that local. Old code did it like this.
@@ -6018,7 +6018,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         {
             thisLcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call thisptr"));
             newStmt = fgInsertStmtBefore(fgMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
-            call->gtCallThisArg->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
+            call->GetThisArg()->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
         }
     }
 
@@ -6052,7 +6052,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         call->fgArgInfo = nullptr;
     }
 
-    if (GenTreeCall::Use* thisUse = call->gtCallThisArg)
+    if (GenTreeCall::Use* thisUse = call->HasThisArg())
     {
         call->RemoveThisArg();
         thisUse->SetNext(call->gtCallArgs);
@@ -6426,7 +6426,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     //   - the target expression may depend on `this` (e.g. virtual vtable call)
     // So we need to ensure that the value of `this` is available for target's expression.
     // We do this by spilling `this` to a temp, if it's not already a local.
-    if (GenTreeCall::Use* thisUse = call->gtCallThisArg)
+    if (GenTreeCall::Use* thisUse = call->HasThisArg())
     {
         call->RemoveThisArg();
 
@@ -6553,7 +6553,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     unsigned   earlyArgIndex          = 0;
 
     // Hoist arg setup statement for the 'this' argument.
-    if (GenTreeCall::Use* thisUse = recursiveTailCall->gtCallThisArg)
+    if (GenTreeCall::Use* thisUse = recursiveTailCall->HasThisArg())
     {
         earlyArgIndex++;
 
