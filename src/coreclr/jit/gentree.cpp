@@ -499,27 +499,21 @@ bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const
     return false;
 }
 
-//-------------------------------------------------------------------------
-// TreatAsHasRetBufArg:
+// Returns true if we treat the call as if it has a retBuf argument.
+// This method may actually have a retBuf argument or it could be a JIT
+// helper that we are still transforming during the importer phase.
 //
-// Return Value:
-//     Returns true if we treat the call as if it has a retBuf argument
-//     This method may actually have a retBuf argument
-//     or it could be a JIT helper that we are still transforming during
-//     the importer phase.
+// On ARM64 marking the method with the GTF_CALL_M_REQUIRES_RETBUFF_ARG
+// flag will make RequiresRetBufArg return true, but will also force
+// the use of register x8 to pass the RetBuf argument.
 //
-// Notes:
-//     On ARM64 marking the method with the GTF_CALL_M_RETBUFFARG flag
-//     will make HasRetBufArg() return true, but will also force the
-//     use of register x8 to pass the RetBuf argument.
+// These JIT helpers that we handle here by returning true aren't
+// actually defined to return a struct, so they don't expect their
+// RetBuf to be passed in x8, instead they  expect it in x0.
 //
-//     These Jit Helpers that we handle here by returning true aren't
-//     actually defined to return a struct, so they don't expect their
-//     RetBuf to be passed in x8, instead they  expect it in x0.
-//
-bool GenTreeCall::TreatAsHasRetBufArg() const
+bool GenTreeCall::TreatAsRequiresRetBufArg() const
 {
-    if (HasRetBufArg())
+    if (RequiresRetBufArg())
     {
         return true;
     }
@@ -539,7 +533,7 @@ bool GenTreeCall::TreatAsHasRetBufArg() const
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
             return false;
         default:
-            assert(!"Unexpected JIT helper in TreatAsHasRetBufArg");
+            assert(!"Unexpected JIT helper");
             return false;
     }
 }
@@ -5583,10 +5577,6 @@ int Compiler::dmpNodeFlags(GenTree* tree)
             else if (tree->AsCall()->IsGuardedDevirtualizationCandidate())
             {
                 operFlag = 'G';
-            }
-            else if (tree->AsCall()->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
-            {
-                operFlag = 'S';
             }
             else if (flags & GTF_CALL_HOISTABLE)
             {

@@ -1061,7 +1061,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
         }
     }
 
-    if (retExpr->IsCall() && retExpr->AsCall()->TreatAsHasRetBufArg() && (info.retDesc.GetRegCount() >= 1))
+    if (retExpr->IsCall() && retExpr->AsCall()->TreatAsRequiresRetBufArg() && (info.retDesc.GetRegCount() >= 1))
     {
         // The multi reg case is currently handled during unbox import.
         assert(info.retDesc.GetRegCount() == 1);
@@ -1217,8 +1217,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     inlineInfo->ilArgCount = argsSig.totalILArgs();
 
-    GenTreeCall*      call    = inlineInfo->iciCall;
-    GenTreeCall::Use* thisArg = call->gtCallThisArg;
+    GenTreeCall::Use* thisArg = inlineInfo->iciCall->gtCallThisArg;
     InlArgInfo*       argInfo = inlineInfo->ilArgInfo;
     unsigned          argNum  = 0;
 
@@ -1232,7 +1231,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
     unsigned retBufArgNum   = UINT32_MAX;
     unsigned typeCtxtArgNum = UINT32_MAX;
 
-    if (call->HasRetBufArg())
+    if (inlineInfo->iciCall->HasRetBufArg())
     {
         retBufArgNum = argNum;
     }
@@ -1246,7 +1245,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 #endif
     }
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeCall::Use& use : inlineInfo->iciCall->Args())
     {
         if (argNum == retBufArgNum)
         {
@@ -2474,7 +2473,7 @@ void Compiler::inlSetStructArgMultiRegRet(LclVarDsc* dest, GenTree* value)
 
     if (GenTreeCall* call = value->IsCall())
     {
-        assert(!call->TreatAsHasRetBufArg());
+        assert(!call->TreatAsRequiresRetBufArg());
 
 #if FEATURE_MULTIREG_RET
 #ifndef UNIX_AMD64_ABI
@@ -2509,7 +2508,7 @@ void Compiler::inlSetStructArgMultiRegRet(LclVarDsc* dest, GenTree* value)
         GenTreeCall* call = retExpr->GetCall();
 
         assert(retExpr->GetRetExpr() == call);
-        assert(!call->TreatAsHasRetBufArg());
+        assert(!call->TreatAsRequiresRetBufArg());
     }
 }
 

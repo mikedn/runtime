@@ -1472,6 +1472,7 @@ GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
 void Compiler::fgInitArgInfo(GenTreeCall* call)
 {
     assert(call->GetInfo() == nullptr);
+    assert(call->RequiresRetBufArg() == call->HasRetBufArg());
 
     JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
 
@@ -6047,7 +6048,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         assert(call->gtCallArgs->GetNode()->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
 
         call->gtCallArgs = call->gtCallArgs->GetNext();
-        call->gtCallMoreFlags &= ~GTF_CALL_M_RETBUFFARG;
+        call->gtCallMoreFlags &= ~(GTF_CALL_M_REQUIRES_RETBUFF_ARG | GTF_CALL_M_HAS_RETBUFF_ARG);
         call->fgArgInfo = nullptr;
     }
 

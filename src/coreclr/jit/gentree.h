@@ -3751,7 +3751,7 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_EXPLICIT_TAILCALL       = 0x00000001, // the call is "tail" prefixed and importer has performed tail call checks
     GTF_CALL_M_TAILCALL                = 0x00000002, // the call is a tailcall
     GTF_CALL_M_VARARGS                 = 0x00000004, // the call uses varargs ABI
-    GTF_CALL_M_RETBUFFARG              = 0x00000008, // call has a return buffer argument
+    GTF_CALL_M_REQUIRES_RETBUFF_ARG    = 0x00000008, // call requires a return buffer argument
     GTF_CALL_M_NOGCCHECK               = 0x00000010, // not a call for computing full interruptability and therefore no GC check is required.
     GTF_CALL_M_SPECIAL_INTRINSIC       = 0x00000020, // function that could be optimized as an intrinsic
                                                      // in special cases. Used to optimize fast way out in morphing
@@ -3792,6 +3792,8 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_EXP_RUNTIME_LOOKUP      = 0x00200000, // this call needs to be transformed into CFG for the dynamic dictionary expansion feature.
     GTF_CALL_M_STRESS_TAILCALL         = 0x00400000, // the call is NOT "tail" prefixed but GTF_CALL_M_EXPLICIT_TAILCALL was added because of tail call stress mode
     GTF_CALL_M_EXPANDED_EARLY          = 0x00800000, // the Virtual Call target address is expanded in Morph rather than in Lower
+
+    GTF_CALL_M_HAS_RETBUFF_ARG         = 0x01000000, // call has a return buffer arg
 };
 // clang-format on
 
@@ -4269,16 +4271,22 @@ public:
 
     bool HasNonStandardAddedArgs(Compiler* compiler) const;
 
-    // Returns true if this call uses a return buffer argument.
-    bool HasRetBufArg() const
+    // Returns true if this call requires a return buffer argument (which may have not been added yet).
+    bool RequiresRetBufArg() const
     {
-        return (gtCallMoreFlags & GTF_CALL_M_RETBUFFARG) != 0;
+        return (gtCallMoreFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG) != 0;
     }
 
     // Returns true if this call must be transformed as if having a return buffer
     // arg even if the actual signature and ABI conventions indicates otherwise
-    // (HasRetBufArg == false).
-    bool TreatAsHasRetBufArg() const;
+    // (RequiresRetBufArg == false).
+    bool TreatAsRequiresRetBufArg() const;
+
+    // Returns true if this call has a return buffer argument.
+    bool HasRetBufArg() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_HAS_RETBUFF_ARG) != 0;
+    }
 
 #ifdef TARGET_ARM64
     bool HasFixedRetBufArg() const

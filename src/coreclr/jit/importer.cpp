@@ -752,7 +752,6 @@ GenTreeCall::Use* Importer::ReverseCallArgs(GenTreeCall::Use* args, bool skipFir
 void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
     assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_IND_STORE));
-    assert(call->TreatAsHasRetBufArg());
 
     GenTree* retBufAddr;
 
@@ -770,6 +769,8 @@ void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 
 void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 {
+    assert(call->TreatAsRequiresRetBufArg());
+
 #if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     if (call->IsUnmanaged())
     {
@@ -809,6 +810,21 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
 #endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
     {
         comp->gtPrependNewCallArg(call->gtCallArgs, retBufAddr);
+    }
+
+    // TODO-MIKE-Fix: GTF_CALL_M_HAS_RETBUFF_ARG shouldn't probably be set on unmanaged
+    // calls that append it to the arg list (x86). The JIT doesn't care much about such
+    // calls and the code that does care currently assumes that the ret buf arg is the
+    // first arg in gtCallArgs, even if it may be second, last or second to last...
+    // Or we can set the flag and add a GetRetBufArg function to GenTreeCall that mirrors
+    // the above logic to retrieve the correct arg, which would probably be needed only
+    // in DEBUG builds, for dumps call arg naming.
+    // Note that on x86, fgInitArgInfo does depend on knowing that a ret buf arg is present
+    // (for register requirements) but it does not need to get the arg.
+
+    if (call->RequiresRetBufArg())
+    {
+        call->gtCallMoreFlags |= GTF_CALL_M_HAS_RETBUFF_ARG;
     }
 
     call->SetType(TYP_VOID);
@@ -866,7 +882,7 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
 
     if (GenTreeCall* call = value->IsCall())
     {
-        if (call->TreatAsHasRetBufArg())
+        if (call->TreatAsRequiresRetBufArg())
         {
             impAssignCallWithRetBuf(store, call);
 
@@ -910,7 +926,7 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
 
         assert(retExpr->GetRetExpr() == call);
 
-        if (call->TreatAsHasRetBufArg())
+        if (call->TreatAsRequiresRetBufArg())
         {
             impAssignCallWithRetBuf(store, call);
             retExpr->SetType(TYP_VOID);
@@ -4516,7 +4532,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
             {
                 GenTreeCall* call = retExpr->GetCall();
 
-                if (call->IsGuardedDevirtualizationCandidate() && call->HasRetBufArg())
+                if (call->IsGuardedDevirtualizationCandidate() && call->RequiresRetBufArg())
                 {
                     JITDUMP("Disabling GDV for [%06u] because of in-box struct return\n", call->GetID());
 
@@ -6065,7 +6081,7 @@ bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidenin
                (varTypeSize(calleeRetType) <= varTypeSize(callerRetType));
     }
 
-    if (call->HasRetBufArg())
+    if (call->RequiresRetBufArg())
     {
         return info.compRetBuffArg != BAD_VAR_NUM;
     }
@@ -7197,7 +7213,7 @@ void Importer::impInitializeStructCall(GenTreeCall* call, CORINFO_CLASS_HANDLE r
         // return registers in this case.
         assert(retDesc->GetRegCount() == 0);
 
-        call->gtCallMoreFlags |= GTF_CALL_M_RETBUFFARG;
+        call->gtCallMoreFlags |= GTF_CALL_M_REQUIRES_RETBUFF_ARG;
     }
 }
 
@@ -7267,7 +7283,7 @@ GenTree* Importer::impCanonicalizeMultiRegReturnValue(GenTree* value, CORINFO_CL
 
 GenTree* Importer::impSpillPseudoReturnBufferCall(GenTreeCall* call)
 {
-    assert(call->TreatAsHasRetBufArg());
+    assert(call->TreatAsRequiresRetBufArg());
     assert(call->TypeIs(TYP_STRUCT));
 
     // This must be one of those 'special' helpers that don't
@@ -11380,7 +11396,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
 
             // This helper always returns the nullable struct via an "out" parameter,
             // similar to a return buffer. We do not need to initialize reg types.
-            assert(op1->AsCall()->TreatAsHasRetBufArg());
+            assert(op1->AsCall()->TreatAsRequiresRetBufArg());
         }
     }
 
@@ -11423,8 +11439,8 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         // the same helper is used for all struct types.
         // Doing this here is bad for CQ when the destination is a memory location,
         // because we introduce a temp instead of just passing in the address of
-        // that location. impAssignStruct (TreatAsHasRetBufArg) already handles
-        // this case so there's no real need to do this here.
+        // that location. impAssignStruct already handles this case so there's no real
+        // need to do this here.
         // Adding a temp when the destination is a promotable struct local might
         // be useful because it avoids dependent promotion. But's probably something
         // that impAssignStruct could handle as well.
@@ -12693,7 +12709,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
         {
             assert(info.retDesc.GetRegCount() >= 1);
 
-            if (value->IsCall() && value->AsCall()->TreatAsHasRetBufArg())
+            if (value->IsCall() && value->AsCall()->TreatAsRequiresRetBufArg())
             {
                 value = impSpillPseudoReturnBufferCall(value->AsCall());
             }

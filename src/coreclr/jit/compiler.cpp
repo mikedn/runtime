@@ -5019,9 +5019,13 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
                 {
                     chars += printf("[CALL_M_VARARGS]");
                 }
-                if (call->gtCallMoreFlags & GTF_CALL_M_RETBUFFARG)
+                if (call->gtCallMoreFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG)
                 {
-                    chars += printf("[CALL_M_RETBUFFARG]");
+                    chars += printf("[CALL_M_REQUIRES_RETBUFFARG]");
+                }
+                if (call->gtCallMoreFlags & GTF_CALL_M_HAS_RETBUFF_ARG)
+                {
+                    chars += printf("[CALL_M_HAS_RETBUFFARG]");
                 }
                 if (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK)
                 {
