@@ -15207,69 +15207,6 @@ void Compiler::impLateDevirtualizeCall(GenTreeCall*            call,
                         explicitTailCall);
 }
 
-//------------------------------------------------------------------------
-// gtGetSpecialIntrinsicExactReturnType: Look for special cases where a call
-//   to an intrinsic returns an exact type
-//
-// Arguments:
-//     methodHnd -- handle for the special intrinsic method
-//
-// Returns:
-//     Exact class handle returned by the intrinsic call, if known.
-//     Nullptr if not known, or not likely to lead to beneficial optimization.
-
-CORINFO_CLASS_HANDLE Compiler::gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call)
-{
-    JITDUMP("Special intrinsic: looking for exact type returned by %s\n", eeGetMethodFullName(call->GetMethodHandle()));
-
-    const NamedIntrinsic ni = call->GetIntrinsic();
-
-    if ((ni == NI_System_Collections_Generic_Comparer_get_Default) ||
-        (ni == NI_System_Collections_Generic_EqualityComparer_get_Default))
-    {
-        // Expect one class generic parameter; figure out which it is.
-        CORINFO_SIG_INFO sig;
-        info.compCompHnd->getMethodSig(call->GetMethodHandle(), &sig);
-        assert(sig.sigInst.classInstCount == 1);
-        CORINFO_CLASS_HANDLE typeHnd = sig.sigInst.classInst[0];
-        assert(typeHnd != nullptr);
-
-        // Lookup can incorrect when we have __Canon as it won't appear
-        // to implement any interface types.
-        // And if we do not have a final type, devirt & inlining is
-        // unlikely to result in much simplification.
-        // We can use CORINFO_FLG_FINAL to screen out both of these cases.
-
-        const bool isFinalType = (info.compCompHnd->getClassAttribs(typeHnd) & CORINFO_FLG_FINAL) != 0;
-
-        if (!isFinalType)
-        {
-            JITDUMP("Special intrinsic for type %s: type not final, so deferring opt\n", eeGetClassName(typeHnd));
-
-            return nullptr;
-        }
-
-        CORINFO_CLASS_HANDLE result;
-
-        if (ni == NI_System_Collections_Generic_EqualityComparer_get_Default)
-        {
-            result = info.compCompHnd->getDefaultEqualityComparerClass(typeHnd);
-        }
-        else
-        {
-            assert(ni == NI_System_Collections_Generic_Comparer_get_Default);
-            result = info.compCompHnd->getDefaultComparerClass(typeHnd);
-        }
-
-        JITDUMP("Special intrinsic for type %s: return type is %s\n", eeGetClassName(typeHnd),
-                result != nullptr ? eeGetClassName(result) : "unknown");
-
-        return result;
-    }
-
-    return nullptr;
-}
-
 // Iterate through call arguments and spill RET_EXPR to local variables.
 class SpillRetExprHelper final : public GenTreeVisitor<SpillRetExprHelper>
 {
