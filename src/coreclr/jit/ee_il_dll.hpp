@@ -54,27 +54,6 @@ void Compiler::eeGetCallSiteSig(unsigned               sigTok,
     assert(!varTypeIsComposite(CorTypeToVarType(sigRet->retType)) || sigRet->retTypeClass != nullptr);
 }
 
-inline var_types Compiler::eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig)
-{
-    CORINFO_CLASS_HANDLE argClass;
-    return CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, list, &argClass)));
-}
-
-inline var_types Compiler::eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig, bool* isPinned)
-{
-    CORINFO_CLASS_HANDLE argClass;
-    CorInfoTypeWithMod   type = info.compCompHnd->getArgType(sig, list, &argClass);
-
-    *isPinned = (type & ~CORINFO_TYPE_MASK) != 0;
-    return CorTypeToVarType(strip(type));
-}
-
-inline CORINFO_CLASS_HANDLE Compiler::eeGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE list)
-{
-    CORINFO_CLASS_HANDLE argClass = info.compCompHnd->getArgClass(sig, list);
-    return argClass;
-}
-
 inline CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context)
 {
     if (context == METHOD_BEING_COMPILED_CONTEXT())

@@ -1025,51 +1025,42 @@ const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
     return param.fieldOrMethodOrClassNamePtr;
 }
 
-const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
+const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
 {
     const char* className;
-    const char* methodName = eeGetMethodName(hnd, &className);
+    const char* methodName = eeGetMethodName(method, &className);
 
-    if ((eeGetHelperNum(hnd) != CORINFO_HELP_UNDEF) || eeIsNativeMethod(hnd))
+    if ((eeGetHelperNum(method) != CORINFO_HELP_UNDEF) || eeIsNativeMethod(method))
     {
         return methodName;
     }
 
-    struct FilterSuperPMIExceptionsParam_eeinterface
+    struct Params
     {
-        Compiler*               pThis;
-        CompiledMethodInfo*     pJitInfo;
-        bool                    hasThis;
-        size_t                  siglength;
+        Compiler*               comp;
+        CORINFO_METHOD_HANDLE   method;
+        bool                    hasThis   = false;
+        size_t                  sigLength = 0;
         CORINFO_SIG_INFO        sig;
         CORINFO_ARG_LIST_HANDLE argLst;
-        CORINFO_METHOD_HANDLE   hnd;
-        const char*             returnType;
-        const char**            pArgNames;
-        EXCEPTION_POINTERS      exceptionPointers;
-    };
+        const char*             returnType = nullptr;
+        const char**            argNames;
+    } params;
 
-    FilterSuperPMIExceptionsParam_eeinterface param;
-    param.returnType = nullptr;
-    param.pThis      = this;
-    param.hasThis    = false;
-    param.siglength  = 0;
-    param.hnd        = hnd;
-    param.pJitInfo   = &info;
+    params.comp   = this;
+    params.method = method;
 
-    size_t   length = 0;
-    unsigned i;
+    // Generating the full signature is a two-pass process. First we have to walk
+    // the components in order to assess the total size, then we allocate the buffer
+    // and copy the elements into it.
 
-    /* Generating the full signature is a two-pass process. First we have to walk
-       the components in order to assess the total size, then we allocate the buffer
-       and copy the elements into it.
-     */
+    // Right now there is a race-condition in the EE, className can be nullptr.
 
-    /* Right now there is a race-condition in the EE, className can be nullptr */
+    // Initialize length with length of className and '.'
 
-    /* initialize length with length of className and '.' */
+    size_t length = 0;
 
-    if (className)
+    if (className != nullptr)
     {
         length = strlen(className) + 1;
     }
@@ -1079,117 +1070,112 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
         length = 7;
     }
 
-    /* add length of methodName and opening bracket */
+    // Add length of methodName and opening bracket
     length += strlen(methodName) + 1;
 
-    bool success = eeRunWithSPMIErrorTrap<FilterSuperPMIExceptionsParam_eeinterface>(
-        [](FilterSuperPMIExceptionsParam_eeinterface* pParam) {
+    bool success = eeRunWithSPMIErrorTrap<Params>(
+        [](Params* params) {
 
-            /* figure out the signature */
+            Compiler*    comp = params->comp;
+            ICorJitInfo* vm   = comp->info.compCompHnd;
 
-            pParam->pThis->eeGetMethodSig(pParam->hnd, &pParam->sig);
+            vm->getMethodSig(params->method, &params->sig, nullptr);
 
             // allocate space to hold the class names for each of the parameters
 
-            if (pParam->sig.numArgs > 0)
+            if (params->sig.numArgs > 0)
             {
-                pParam->pArgNames =
-                    pParam->pThis->getAllocator(CMK_DebugOnly).allocate<const char*>(pParam->sig.numArgs);
+                params->argNames = comp->getAllocator(CMK_DebugOnly).allocate<const char*>(params->sig.numArgs);
             }
             else
             {
-                pParam->pArgNames = nullptr;
+                params->argNames = nullptr;
             }
 
-            unsigned i;
-            pParam->argLst = pParam->sig.args;
+            params->argLst = params->sig.args;
 
-            for (i = 0; i < pParam->sig.numArgs; i++)
+            for (unsigned i = 0; i < params->sig.numArgs; i++)
             {
-                var_types type = pParam->pThis->eeGetArgType(pParam->argLst, &pParam->sig);
+                CORINFO_CLASS_HANDLE argClass;
+                var_types type = CorTypeToVarType(strip(vm->getArgType(&params->sig, params->argLst, &argClass)));
+
                 switch (type)
                 {
                     case TYP_REF:
                     case TYP_STRUCT:
-                    {
-                        CORINFO_CLASS_HANDLE clsHnd = pParam->pThis->eeGetArgClass(&pParam->sig, pParam->argLst);
                         // For some SIMD struct types we can get a nullptr back from eeGetArgClass on Linux/X64
-                        if (clsHnd != NO_CLASS_HANDLE)
+                        if (CORINFO_CLASS_HANDLE clsHnd = vm->getArgClass(&params->sig, params->argLst))
                         {
-                            const char* clsName = pParam->pThis->eeGetClassName(clsHnd);
-                            if (clsName != nullptr)
+                            if (const char* clsName = comp->eeGetClassName(clsHnd))
                             {
-                                pParam->pArgNames[i] = clsName;
+                                params->argNames[i] = clsName;
                                 break;
                             }
                         }
-                    }
                         FALLTHROUGH;
                     default:
-                        pParam->pArgNames[i] = varTypeName(type);
+                        params->argNames[i] = varTypeName(type);
                         break;
                 }
-                pParam->siglength += strlen(pParam->pArgNames[i]);
-                pParam->argLst = pParam->pJitInfo->compCompHnd->getArgNext(pParam->argLst);
+
+                params->sigLength += strlen(params->argNames[i]);
+                params->argLst = vm->getArgNext(params->argLst);
             }
 
-            /* add ',' if there is more than one argument */
+            // Add ',' if there is more than one argument
 
-            if (pParam->sig.numArgs > 1)
+            if (params->sig.numArgs > 1)
             {
-                pParam->siglength += (pParam->sig.numArgs - 1);
+                params->sigLength += params->sig.numArgs - 1;
             }
 
-            var_types retType = CorTypeToVarType(pParam->sig.retType);
+            var_types retType = CorTypeToVarType(params->sig.retType);
+
             if (retType != TYP_VOID)
             {
                 switch (retType)
                 {
                     case TYP_REF:
                     case TYP_STRUCT:
-                    {
-                        CORINFO_CLASS_HANDLE clsHnd = pParam->sig.retTypeClass;
-                        if (clsHnd != NO_CLASS_HANDLE)
+                        if (CORINFO_CLASS_HANDLE clsHnd = params->sig.retTypeClass)
                         {
-                            const char* clsName = pParam->pThis->eeGetClassName(clsHnd);
-                            if (clsName != nullptr)
+                            if (const char* clsName = comp->eeGetClassName(clsHnd))
                             {
-                                pParam->returnType = clsName;
+                                params->returnType = clsName;
                                 break;
                             }
                         }
-                    }
                         FALLTHROUGH;
                     default:
-                        pParam->returnType = varTypeName(retType);
+                        params->returnType = varTypeName(retType);
                         break;
                 }
-                pParam->siglength += strlen(pParam->returnType) + 1; // don't forget the delimiter ':'
+
+                params->sigLength += strlen(params->returnType) + 1; // don't forget the delimiter ':'
             }
 
-            // Does it have a 'this' pointer? Don't count explicit this, which has the this pointer type as the first
-            // element of the arg type list
-            if (pParam->sig.hasThis() && !pParam->sig.hasExplicitThis())
+            // Does it have a 'this' pointer? Don't count explicit this, which
+            // has the this pointer type as the first element of the arg type list
+            if (params->sig.hasThis() && !params->sig.hasExplicitThis())
             {
-                assert(strlen(":this") == 5);
-                pParam->siglength += 5;
-                pParam->hasThis = true;
+                params->sigLength += strlen(":this");
+                params->hasThis = true;
             }
         },
-        &param);
+        &params);
 
     if (!success)
     {
-        param.siglength = 0;
+        params.sigLength = 0;
     }
 
-    /* add closing bracket and null terminator */
+    // Add closing bracket and null terminator
 
-    length += param.siglength + 2;
+    length += params.sigLength + 2;
 
     char* retName = getAllocator(CMK_DebugOnly).allocate<char>(length);
 
-    /* Now generate the full signature string in the allocated buffer */
+    // Now generate the full signature string in the allocated buffer
 
     if (className)
     {
@@ -1203,19 +1189,22 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
 
     strcat_s(retName, length, methodName);
 
-    // append the signature
+    // Append the signature
     strcat_s(retName, length, "(");
 
-    if (param.siglength > 0)
+    if (params.sigLength > 0)
     {
-        param.argLst = param.sig.args;
+        params.argLst = params.sig.args;
 
-        for (i = 0; i < param.sig.numArgs; i++)
+        for (unsigned i = 0; i < params.sig.numArgs; i++)
         {
-            var_types type = eeGetArgType(param.argLst, &param.sig);
-            strcat_s(retName, length, param.pArgNames[i]);
-            param.argLst = info.compCompHnd->getArgNext(param.argLst);
-            if (i + 1 < param.sig.numArgs)
+            CORINFO_CLASS_HANDLE argClass;
+            var_types            type =
+                CorTypeToVarType(strip(info.compCompHnd->getArgType(&params.sig, params.argLst, &argClass)));
+            strcat_s(retName, length, params.argNames[i]);
+            params.argLst = info.compCompHnd->getArgNext(params.argLst);
+
+            if (i + 1 < params.sig.numArgs)
             {
                 strcat_s(retName, length, ",");
             }
@@ -1224,20 +1213,20 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd)
 
     strcat_s(retName, length, ")");
 
-    if (param.returnType != nullptr)
+    if (params.returnType != nullptr)
     {
         strcat_s(retName, length, ":");
-        strcat_s(retName, length, param.returnType);
+        strcat_s(retName, length, params.returnType);
     }
 
-    if (param.hasThis)
+    if (params.hasThis)
     {
         strcat_s(retName, length, ":this");
     }
 
     assert(strlen(retName) == (length - 1));
 
-    return (retName);
+    return retName;
 }
 
 #endif // DEBUG || FEATURE_JIT_METHOD_PERF || FEATURE_SIMD

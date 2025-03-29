@@ -10449,18 +10449,13 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                 // processing the call, but we could/should apply
                 // similar sharpening to the argument and local types
                 // of the inlinee.
-                const unsigned retClassFlags = info.compCompHnd->getClassAttribs(objClass);
-                if (retClassFlags & CORINFO_FLG_SHAREDINST)
+
+                if ((info.compCompHnd->getClassAttribs(objClass) & CORINFO_FLG_SHAREDINST) != 0)
                 {
-                    CORINFO_CONTEXT_HANDLE context = inlInfo->exactContextHnd;
-
-                    if (context != nullptr)
+                    if (CORINFO_CONTEXT_HANDLE context = inlInfo->exactContextHnd)
                     {
-                        CORINFO_CLASS_HANDLE exactClass = eeGetClassFromContext(context);
-
-                        // Grab the signature in this context.
                         CORINFO_SIG_INFO sig;
-                        eeGetMethodSig(call->GetMethodHandle(), &sig, exactClass);
+                        eeGetMethodSig(call->GetMethodHandle(), &sig, eeGetClassFromContext(context));
                         assert(sig.retType == CORINFO_TYPE_CLASS);
                         objClass = sig.retTypeClass;
                     }
@@ -10476,6 +10471,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* pIsExact, b
                 CORINFO_CLASS_HANDLE  exactClass = nullptr;
                 CORINFO_SIG_INFO      sig;
                 eeGetMethodSig(method, &sig, exactClass);
+
                 if (sig.retType == CORINFO_TYPE_VOID)
                 {
                     // This is a constructor call.

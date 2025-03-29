@@ -2166,7 +2166,6 @@ struct Importer
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
-    CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static unsigned eeGetArrayDataOffset(var_types type);
     static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
@@ -5091,14 +5090,11 @@ public:
                         CORINFO_FIELD_INFO*     pResult);
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
-    const char* eeGetMethodName(CORINFO_METHOD_HANDLE hnd, const char** className);
-    const char* eeGetMethodFullName(CORINFO_METHOD_HANDLE hnd);
+    const char* eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className);
+    const char* eeGetMethodFullName(CORINFO_METHOD_HANDLE method);
     unsigned compMethodHash(CORINFO_METHOD_HANDLE methodHandle);
 #endif
 
-    var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig);
-    var_types eeGetArgType(CORINFO_ARG_LIST_HANDLE list, CORINFO_SIG_INFO* sig, bool* isPinned);
-    CORINFO_CLASS_HANDLE eeGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE list);
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
 
     // VOM info, method sigs
@@ -5159,12 +5155,9 @@ public:
 
     bool eeTryResolveToken(CORINFO_RESOLVED_TOKEN* resolvedToken);
 
-#if defined(UNIX_AMD64_ABI)
-#ifdef DEBUG
+#if defined(DEBUG) && defined(UNIX_AMD64_ABI)
     static void dumpSystemVClassificationType(SystemVClassificationType ct);
-#endif // DEBUG
-
-#endif // UNIX_AMD64_ABI
+#endif
 
     template <typename ParamType>
     bool eeRunWithErrorTrap(void (*function)(ParamType*), ParamType* param)
