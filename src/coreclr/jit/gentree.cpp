@@ -10452,9 +10452,10 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
 
                 if (sig.retType == CORINFO_TYPE_VOID)
                 {
-                    // TODO-MIKE-Review: How exactly do we end up querying the ret class handle
-                    // of a constructor call, which returns VOID?!? And why is the result "exact",
-                    // given that this may be a call to the constructor of a base class?
+                    // Constructors have VOID return type as far as the signature is concerned
+                    // but String constructors actually return the String object reference.
+                    // In theory, there could be other such cases (CORINFO_FLG_VAROBJSIZE) so
+                    // we can't blindly return the CLASSID_STRING builtin .
                     assert((info.compCompHnd->getMethodAttribs(method) & CORINFO_FLG_CONSTRUCTOR) != 0);
                     *isExact   = true;
                     *isNonNull = true;
@@ -10672,8 +10673,6 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
 
 CORINFO_CLASS_HANDLE Compiler::gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call)
 {
-    JITDUMP("Special intrinsic: looking for exact type returned by %s\n", eeGetMethodFullName(call->GetMethodHandle()));
-
     const NamedIntrinsic ni = call->GetIntrinsic();
 
     if ((ni == NI_System_Collections_Generic_Comparer_get_Default) ||
@@ -10722,36 +10721,19 @@ CORINFO_CLASS_HANDLE Compiler::gtGetSpecialIntrinsicExactReturnType(GenTreeCall*
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// gtGetArrayElementClassHandle: find class handle for elements of an array
-// of ref types
-//
-// Arguments:
-//    array -- array to find handle for
-//
-// Return Value:
-//    nullptr if element class handle is unknown, otherwise the class handle.
-
 CORINFO_CLASS_HANDLE Compiler::gtGetArrayElementClassHandle(GenTree* array)
 {
-    bool                 isArrayExact   = false;
-    bool                 isArrayNonNull = false;
-    CORINFO_CLASS_HANDLE arrayClassHnd  = gtGetClassHandle(array, &isArrayExact, &isArrayNonNull);
+    bool isArrayExact   = false;
+    bool isArrayNonNull = false;
 
-    if (arrayClassHnd != nullptr)
+    if (CORINFO_CLASS_HANDLE arrayClassHnd = gtGetClassHandle(array, &isArrayExact, &isArrayNonNull))
     {
-        // We know the class of the reference
-        DWORD attribs = info.compCompHnd->getClassAttribs(arrayClassHnd);
-
-        if ((attribs & CORINFO_FLG_ARRAY) != 0)
+        if ((info.compCompHnd->getClassAttribs(arrayClassHnd) & CORINFO_FLG_ARRAY) != 0)
         {
-            // We know for sure it is an array
-            CORINFO_CLASS_HANDLE elemClassHnd  = nullptr;
-            CorInfoType          arrayElemType = info.compCompHnd->getChildType(arrayClassHnd, &elemClassHnd);
+            CORINFO_CLASS_HANDLE elemClassHnd = nullptr;
 
-            if (arrayElemType == CORINFO_TYPE_CLASS)
+            if (info.compCompHnd->getChildType(arrayClassHnd, &elemClassHnd) == CORINFO_TYPE_CLASS)
             {
-                // We know it is an array of ref types
                 return elemClassHnd;
             }
         }
@@ -10760,61 +10742,47 @@ CORINFO_CLASS_HANDLE Compiler::gtGetArrayElementClassHandle(GenTree* array)
     return nullptr;
 }
 
-//------------------------------------------------------------------------
-// gtGetFieldClassHandle: find class handle for a field
-//
-// Arguments:
-//    fieldHnd - field handle for field in question
-//    pIsExact - [OUT] true if type is known exactly
-//    pIsNonNull - [OUT] true if field value is not null
-//
-// Return Value:
-//    nullptr if helper call result is not a ref class, or the class handle
-//    is unknown, otherwise the class handle.
-//
-//    May examine runtime state of static field instances.
-
-CORINFO_CLASS_HANDLE Compiler::gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldHnd, bool* pIsExact, bool* pIsNonNull)
+CORINFO_CLASS_HANDLE Compiler::gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldHnd, bool* isExact, bool* isNonNull)
 {
-    CORINFO_CLASS_HANDLE fieldClass   = nullptr;
-    CorInfoType          fieldCorType = info.compCompHnd->getFieldType(fieldHnd, &fieldClass);
+    CORINFO_CLASS_HANDLE fieldClass = nullptr;
 
-    if (fieldCorType == CORINFO_TYPE_CLASS)
+    if (info.compCompHnd->getFieldType(fieldHnd, &fieldClass) != CORINFO_TYPE_CLASS)
     {
-        // Optionally, look at the actual type of the field's value
-        bool queryForCurrentClass = true;
-        INDEBUG(queryForCurrentClass = (JitConfig.JitQueryCurrentStaticFieldClass() > 0););
+        return fieldClass;
+    }
 
-        if (queryForCurrentClass)
-        {
+    // Optionally, look at the actual type of a static field's value.
+    bool queryForCurrentClass = true;
+#ifdef DEBUG
+    queryForCurrentClass = JitConfig.JitQueryCurrentStaticFieldClass() > 0;
+#endif
+
+    if (!queryForCurrentClass)
+    {
+        return fieldClass;
+    }
 
 #if DEBUG
-            const char* fieldClassName = nullptr;
-            const char* fieldName      = eeGetFieldName(fieldHnd, &fieldClassName);
-            JITDUMP("Querying runtime about current class of field %s.%s (declared as %s)\n", fieldClassName, fieldName,
-                    eeGetClassName(fieldClass));
-#endif // DEBUG
+    const char* fieldClassName = nullptr;
+    const char* fieldName      = eeGetFieldName(fieldHnd, &fieldClassName);
+    JITDUMP("Querying runtime about current class of field %s.%s (declared as %s)\n", fieldClassName, fieldName,
+            eeGetClassName(fieldClass));
+#endif
 
-            // Is this a fully initialized init-only static field?
-            //
-            // Note we're not asking for speculative results here, yet.
-            CORINFO_CLASS_HANDLE currentClass = info.compCompHnd->getStaticFieldCurrentClass(fieldHnd);
+    // Is this a fully initialized init-only static field?
+    // Note we're not asking for speculative results here, yet.
 
-            if (currentClass != NO_CLASS_HANDLE)
-            {
-                // Yes! We know the class exactly and can rely on this to always be true.
-                fieldClass  = currentClass;
-                *pIsExact   = true;
-                *pIsNonNull = true;
-                JITDUMP("Runtime reports field is init-only and initialized and has class %s\n",
-                        eeGetClassName(fieldClass));
-            }
-            else
-            {
-                JITDUMP("Field's current class not available\n");
-            }
-        }
+    if (CORINFO_CLASS_HANDLE valueClass = info.compCompHnd->getStaticFieldCurrentClass(fieldHnd))
+    {
+        JITDUMP("Runtime reports field is init-only and initialized and has class %s\n", eeGetClassName(valueClass));
+
+        *isExact   = true;
+        *isNonNull = true;
+
+        return valueClass;
     }
+
+    JITDUMP("Field's current class not available\n");
 
     return fieldClass;
 }

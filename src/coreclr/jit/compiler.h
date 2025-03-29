@@ -3082,22 +3082,20 @@ public:
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
 
     // Get the handle for a ref type.
-    CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* pIsExact, bool* pIsNonNull);
-    // Get the class handle for an helper call
-    CORINFO_CLASS_HANDLE gtGetHelperCallClassHandle(GenTreeCall* call, bool* pIsExact, bool* pIsNonNull);
-    // Get the element handle for an array of ref type.
-    CORINFO_CLASS_HANDLE gtGetArrayElementClassHandle(GenTree* array);
+    CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull);
     // Get a class handle from a helper call argument
     CORINFO_CLASS_HANDLE gtGetHelperArgClassHandle(GenTree* array);
-    // Get the class handle for a field
-    CORINFO_CLASS_HANDLE gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldHnd, bool* pIsExact, bool* pIsNonNull);
-    // Check if this tree is a gc static base helper call
+
+    CORINFO_CLASS_HANDLE gtGetArrayElementClassHandle(GenTree* array);
+    CORINFO_CLASS_HANDLE gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldHnd, bool* isExact, bool* isNonNull);
+    CORINFO_CLASS_HANDLE gtGetHelperCallClassHandle(GenTreeCall* call, bool* isExact, bool* isNonNull);
+    CORINFO_CLASS_HANDLE gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call);
     bool gtIsStaticGCBaseHelperCall(GenTree* tree);
 
-//-------------------------------------------------------------------------
-// Functions to display the trees
-
 #ifdef DEBUG
+    //-------------------------------------------------------------------------
+    // Functions to display the trees
+
     void gtDispNode(GenTree* tree);
     void gtDispNodeHeader(GenTree* tree);
     int dmpNodeFlags(GenTree* node);
@@ -3527,8 +3525,6 @@ public:
     //=========================================================================
 
 protected:
-    CORINFO_CLASS_HANDLE gtGetSpecialIntrinsicExactReturnType(GenTreeCall* call);
-
     NamedIntrinsic lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method);
 
     NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,

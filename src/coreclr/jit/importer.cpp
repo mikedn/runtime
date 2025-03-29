@@ -2010,7 +2010,7 @@ bool Importer::impOpcodeIsCallOpcode(OPCODE opcode)
     }
 }
 
-static bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
+static bool OpcodeIsCallSiteBoundary(OPCODE opcode)
 {
     switch (opcode)
     {
@@ -2021,7 +2021,6 @@ static bool impOpcodeIsCallSiteBoundary(OPCODE opcode)
         case CEE_NEWOBJ:
         case CEE_NEWARR:
             return true;
-
         default:
             return false;
     }
@@ -8570,7 +8569,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 impCurStmtOffsSet(opcodeOffs);
             }
             else if ((compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES) &&
-                     impOpcodeIsCallSiteBoundary(prevOpcode))
+                     OpcodeIsCallSiteBoundary(prevOpcode))
             {
                 if (opts.compDbgCode)
                 {

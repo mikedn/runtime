@@ -175,8 +175,8 @@ private:
             hiddenArgument          = compiler->gtNewIndLoad(TYP_I_IMPL, hiddenArgument);
             hiddenArgument          = compiler->gtNewIndLoad(TYP_I_IMPL, hiddenArgument);
 
-            // TODO-MIKE-Review: This is cloning arbitratily large trees. And CSE can't even
-            // eliminating this redundancy, this requires hositing, that the JIT doesn't have.
+            // TODO-MIKE-Review: This is cloning arbitrarily large trees. And CSE can't even
+            // eliminating this redundancy, this requires hoisting, that the JIT doesn't have.
             GenTreeCall* fatCall = compiler->gtCloneExpr(origCall)->AsCall();
             fatCall->SetCallAddr(realCallAddr);
             AddHiddenArgument(fatCall, hiddenArgument);
