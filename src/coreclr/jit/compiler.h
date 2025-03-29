@@ -5167,10 +5167,10 @@ public:
 
     bool eeRunWithErrorTrapImp(void (*function)(void*), void* param);
 
-    template <typename ParamType>
-    bool eeRunWithSPMIErrorTrap(void (*function)(ParamType*), ParamType* param)
+    template <typename Func>
+    bool eeRunWithSPMIErrorTrap(Func func)
     {
-        return eeRunWithSPMIErrorTrapImp(reinterpret_cast<void (*)(void*)>(function), reinterpret_cast<void*>(param));
+        return eeRunWithSPMIErrorTrapImp([](void* f) { (*static_cast<Func*>(f))(); }, &func);
     }
 
     bool eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param);

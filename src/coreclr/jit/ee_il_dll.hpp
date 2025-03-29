@@ -67,11 +67,10 @@ inline CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HAND
     {
         return reinterpret_cast<CORINFO_CLASS_HANDLE>(contextBits & ~CORINFO_CONTEXTFLAGS_MASK);
     }
-    else
-    {
-        return info.compCompHnd->getMethodClass(
-            reinterpret_cast<CORINFO_METHOD_HANDLE>(contextBits & ~CORINFO_CONTEXTFLAGS_MASK));
-    }
+
+    assert((contextBits & CORINFO_CONTEXTFLAGS_MASK) == 0);
+
+    return info.compCompHnd->getMethodClass(reinterpret_cast<CORINFO_METHOD_HANDLE>(context));
 }
 
 inline var_types CorTypeToVarType(CorInfoType type)

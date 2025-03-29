@@ -334,57 +334,46 @@ void CILJit::ProcessShutdownWork(ICorStaticInfo* statInfo)
     jitShutdown(false);
 }
 
-/*****************************************************************************
- * Verify the JIT/EE interface identifier.
- */
 void CILJit::getVersionIdentifier(GUID* versionIdentifier)
 {
-    assert(versionIdentifier != nullptr);
-    memcpy(versionIdentifier, &JITEEVersionIdentifier, sizeof(GUID));
+    *versionIdentifier = JITEEVersionIdentifier;
 }
-
-/*****************************************************************************
- * Determine the maximum length of SIMD vector supported by this JIT.
- */
 
 unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 {
+#ifndef FEATURE_SIMD
+    const unsigned length = 0;
+#else
+    unsigned length = 16;
+
+#ifdef TARGET_XARCH
     JitFlags jitFlags;
     jitFlags.SetFromFlags(cpuCompileFlags);
 
-#ifdef FEATURE_SIMD
-#if defined(TARGET_XARCH)
     if (!jitFlags.IsSet(JitFlags::JIT_FLAG_PREJIT) && jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD) &&
         jitFlags.GetInstructionSetFlags().HasInstructionSet(InstructionSet_AVX2))
     {
         // Since the ISAs can be disabled individually and since they are hierarchical in nature (that is
         // disabling SSE also disables SSE2 through AVX2), we need to check each ISA in the hierarchy to
         // ensure that AVX2 is actually supported. Otherwise, we will end up getting asserts downstream.
-        if ((JitConfig.EnableAVX2() != 0) && (JitConfig.EnableAVX() != 0) && (JitConfig.EnableSSE42() != 0) &&
-            (JitConfig.EnableSSE41() != 0) && (JitConfig.EnableSSSE3() != 0) && (JitConfig.EnableSSE3_4() != 0) &&
-            (JitConfig.EnableSSE3() != 0) && (JitConfig.EnableSSE2() != 0) && (JitConfig.EnableSSE() != 0) &&
-            (JitConfig.EnableHWIntrinsic() != 0))
+        if (JitConfig.EnableAVX2() && JitConfig.EnableAVX() && JitConfig.EnableSSE42() && JitConfig.EnableSSE41() &&
+            JitConfig.EnableSSSE3() && JitConfig.EnableSSE3_4() && JitConfig.EnableSSE3() && JitConfig.EnableSSE2() &&
+            JitConfig.EnableSSE() && JitConfig.EnableHWIntrinsic())
         {
-            if (GetJitTls() != nullptr && JitTls::GetCompiler() != nullptr)
-            {
-                JITDUMP("getMaxIntrinsicSIMDVectorLength: returning 32\n");
-            }
-            return 32;
+            length = 32;
         }
     }
-#endif // defined(TARGET_XARCH)
-    if (GetJitTls() != nullptr && JitTls::GetCompiler() != nullptr)
+#endif
+#endif // FEATURE_SIMD
+
+#ifdef DEBUG
+    if ((GetJitTls() != nullptr) && (JitTls::GetCompiler() != nullptr))
     {
-        JITDUMP("getMaxIntrinsicSIMDVectorLength: returning 16\n");
+        JITDUMP("getMaxIntrinsicSIMDVectorLength: returning %u\n", length);
     }
-    return 16;
-#else  // !FEATURE_SIMD
-    if (GetJitTls() != nullptr && JitTls::GetCompiler() != nullptr)
-    {
-        JITDUMP("getMaxIntrinsicSIMDVectorLength: returning 0\n");
-    }
-    return 0;
-#endif // !FEATURE_SIMD
+#endif
+
+    return length;
 }
 
 unsigned Compiler::eeGetArrayDataOffset(var_types type)
@@ -857,36 +846,18 @@ bool Compiler::eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param)
 
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
-/*****************************************************************************
-*
-*  Filter wrapper to handle exception filtering.
-*  On Unix compilers don't support SEH.
-*/
-
-struct FilterSuperPMIExceptionsParam_ee_il
-{
-    Compiler*             pThis;
-    CompiledMethodInfo*   pJitInfo;
-    CORINFO_FIELD_HANDLE  field;
-    CORINFO_METHOD_HANDLE method;
-    CORINFO_CLASS_HANDLE  clazz;
-    const char**          classNamePtr;
-    const char*           fieldOrMethodOrClassNamePtr;
-    EXCEPTION_POINTERS    exceptionPointers;
-};
-
 static bool eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
 {
-    return ((((size_t)method) & 0x2) == 0x2);
+    return (reinterpret_cast<uintptr_t>(method) & 0x2) == 0x2;
 }
 
 static CORINFO_METHOD_HANDLE eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE method)
 {
-    assert((((size_t)method) & 0x3) == 0x2);
-    return (CORINFO_METHOD_HANDLE)(((size_t)method) & ~0x3);
+    assert((reinterpret_cast<uintptr_t>(method) & 0x3) == 0x2);
+    return reinterpret_cast<CORINFO_METHOD_HANDLE>(reinterpret_cast<uintptr_t>(method) & ~0x3);
 }
 
-const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** classNamePtr)
+const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className)
 {
     static const char* const jitHelperName[CORINFO_HELP_COUNT]{
 #define JITHELPER(code, pfnHelper, sig) #code,
@@ -896,9 +867,9 @@ const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
 
     if (CorInfoHelpFunc ftnNum = eeGetHelperNum(method))
     {
-        if (classNamePtr != nullptr)
+        if (className != nullptr)
         {
-            *classNamePtr = "HELPER";
+            *className = "HELPER";
         }
 
         const char* name = info.compCompHnd->getHelperName(ftnNum);
@@ -917,112 +888,77 @@ const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
 
     if (eeIsNativeMethod(method))
     {
-        if (classNamePtr != nullptr)
+        if (className != nullptr)
         {
-            *classNamePtr = "NATIVE";
+            *className = "NATIVE";
         }
+
         method = eeGetMethodHandleForNative(method);
     }
 
-    FilterSuperPMIExceptionsParam_ee_il param;
+    const char* methodName;
 
-    param.pThis        = this;
-    param.pJitInfo     = &info;
-    param.method       = method;
-    param.classNamePtr = classNamePtr;
-
-    bool success = eeRunWithSPMIErrorTrap<FilterSuperPMIExceptionsParam_ee_il>(
-        [](FilterSuperPMIExceptionsParam_ee_il* pParam) {
-            pParam->fieldOrMethodOrClassNamePtr =
-                pParam->pJitInfo->compCompHnd->getMethodName(pParam->method, pParam->classNamePtr);
-        },
-        &param);
-
-    if (!success)
+    if (!eeRunWithSPMIErrorTrap([&] { methodName = info.compCompHnd->getMethodName(method, className); }))
     {
-        if (param.classNamePtr != nullptr)
+        if (className != nullptr)
         {
-            *(param.classNamePtr) = "hackishClassName";
+            *className = "hackishClassName";
         }
 
-        param.fieldOrMethodOrClassNamePtr = "hackishMethodName";
+        methodName = "hackishMethodName";
     }
 
-    return param.fieldOrMethodOrClassNamePtr;
+    return methodName;
 }
 
-const char* Compiler::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** classNamePtr)
+const char* Compiler::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
 {
-    FilterSuperPMIExceptionsParam_ee_il param;
+    const char* fieldName;
 
-    param.pThis        = this;
-    param.pJitInfo     = &info;
-    param.field        = field;
-    param.classNamePtr = classNamePtr;
-
-    bool success = eeRunWithSPMIErrorTrap<FilterSuperPMIExceptionsParam_ee_il>(
-        [](FilterSuperPMIExceptionsParam_ee_il* pParam) {
-            pParam->fieldOrMethodOrClassNamePtr =
-                pParam->pJitInfo->compCompHnd->getFieldName(pParam->field, pParam->classNamePtr);
-        },
-        &param);
-
-    if (!success)
+    if (!eeRunWithSPMIErrorTrap([&] { fieldName = info.compCompHnd->getFieldName(field, className); }))
     {
-        param.fieldOrMethodOrClassNamePtr = "hackishFieldName";
+        if (className != nullptr)
+        {
+            *className = "hackishClassName";
+        }
+
+        fieldName = "hackishFieldName";
     }
 
-    return param.fieldOrMethodOrClassNamePtr;
+    return fieldName;
 }
 
 const char* Compiler::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
 {
-    FilterSuperPMIExceptionsParam_ee_il param;
+    const char* className;
 
-    param.pThis    = this;
-    param.pJitInfo = &info;
-    param.clazz    = clsHnd;
-
-    bool success = eeRunWithSPMIErrorTrap<FilterSuperPMIExceptionsParam_ee_il>(
-        [](FilterSuperPMIExceptionsParam_ee_il* pParam) {
-            pParam->fieldOrMethodOrClassNamePtr = pParam->pJitInfo->compCompHnd->getClassName(pParam->clazz);
-        },
-        &param);
-
-    if (!success)
+    if (!eeRunWithSPMIErrorTrap([&] { className = info.compCompHnd->getClassName(clsHnd); }))
     {
-        param.fieldOrMethodOrClassNamePtr = "hackishClassName";
+        className = "hackishClassName";
     }
-    return param.fieldOrMethodOrClassNamePtr;
+
+    return className;
 }
 
 const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
 {
-    FilterSuperPMIExceptionsParam_ee_il param;
+    const char* className;
 
-    param.pThis    = this;
-    param.pJitInfo = &info;
-    param.clazz    = clsHnd;
-
-    bool success = eeRunWithSPMIErrorTrap<FilterSuperPMIExceptionsParam_ee_il>(
-        [](FilterSuperPMIExceptionsParam_ee_il* pParam) {
-            if (pParam->pJitInfo->compCompHnd->getTypeInstantiationArgument(pParam->clazz, 0) == NO_CLASS_HANDLE)
+    if (!eeRunWithSPMIErrorTrap([&] {
+            if (info.compCompHnd->getTypeInstantiationArgument(clsHnd, 0) == NO_CLASS_HANDLE)
             {
-                pParam->fieldOrMethodOrClassNamePtr =
-                    pParam->pJitInfo->compCompHnd->getClassNameFromMetadata(pParam->clazz, nullptr);
+                className = info.compCompHnd->getClassNameFromMetadata(clsHnd, nullptr);
             }
             else
             {
-                pParam->fieldOrMethodOrClassNamePtr = pParam->pJitInfo->compCompHnd->getClassName(pParam->clazz);
+                className = info.compCompHnd->getClassName(clsHnd);
             }
-        },
-        &param);
-
-    if (!success)
+        }))
     {
-        param.fieldOrMethodOrClassNamePtr = "hackishClassName";
+        className = "hackishClassName";
     }
-    return param.fieldOrMethodOrClassNamePtr;
+
+    return className;
 }
 
 const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
@@ -1034,21 +970,6 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
     {
         return methodName;
     }
-
-    struct Params
-    {
-        Compiler*               comp;
-        CORINFO_METHOD_HANDLE   method;
-        bool                    hasThis   = false;
-        size_t                  sigLength = 0;
-        CORINFO_SIG_INFO        sig;
-        CORINFO_ARG_LIST_HANDLE argLst;
-        const char*             returnType = nullptr;
-        const char**            argNames;
-    } params;
-
-    params.comp   = this;
-    params.method = method;
 
     // Generating the full signature is a two-pass process. First we have to walk
     // the components in order to assess the total size, then we allocate the buffer
@@ -1066,118 +987,117 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
     }
     else
     {
-        assert(strlen("<NULL>.") == 7);
-        length = 7;
+        length = strlen("<NULL>.");
     }
 
     // Add length of methodName and opening bracket
     length += strlen(methodName) + 1;
 
-    bool success = eeRunWithSPMIErrorTrap<Params>(
-        [](Params* params) {
+    bool             hasThis    = false;
+    size_t           sigLength  = 0;
+    const char*      returnType = nullptr;
+    CORINFO_SIG_INFO sig;
+    const char**     argNames;
 
-            Compiler*    comp = params->comp;
-            ICorJitInfo* vm   = comp->info.compCompHnd;
+    bool success = eeRunWithSPMIErrorTrap([&] {
+        ICorJitInfo* vm = info.compCompHnd;
+        vm->getMethodSig(method, &sig, nullptr);
 
-            vm->getMethodSig(params->method, &params->sig, nullptr);
+        if (sig.numArgs > 0)
+        {
+            argNames = new (this, CMK_DebugOnly) const char*[sig.numArgs];
+        }
+        else
+        {
+            argNames = nullptr;
+        }
 
-            // allocate space to hold the class names for each of the parameters
+        CORINFO_ARG_LIST_HANDLE argLst = sig.args;
 
-            if (params->sig.numArgs > 0)
+        for (unsigned i = 0; i < sig.numArgs; i++, argLst = vm->getArgNext(argLst))
+        {
+            CORINFO_CLASS_HANDLE argClass;
+            var_types            type = CorTypeToVarType(strip(vm->getArgType(&sig, argLst, &argClass)));
+
+            switch (type)
             {
-                params->argNames = comp->getAllocator(CMK_DebugOnly).allocate<const char*>(params->sig.numArgs);
-            }
-            else
-            {
-                params->argNames = nullptr;
-            }
+                case TYP_REF:
+                case TYP_STRUCT:
+                    // For some SIMD struct types we can get a nullptr back from getArgClass on Linux/X64
+                    argClass = vm->getArgClass(&sig, argLst);
 
-            params->argLst = params->sig.args;
-
-            for (unsigned i = 0; i < params->sig.numArgs; i++)
-            {
-                CORINFO_CLASS_HANDLE argClass;
-                var_types type = CorTypeToVarType(strip(vm->getArgType(&params->sig, params->argLst, &argClass)));
-
-                switch (type)
-                {
-                    case TYP_REF:
-                    case TYP_STRUCT:
-                        // For some SIMD struct types we can get a nullptr back from eeGetArgClass on Linux/X64
-                        if (CORINFO_CLASS_HANDLE clsHnd = vm->getArgClass(&params->sig, params->argLst))
+                    if (argClass != nullptr)
+                    {
+                        if (const char* clsName = eeGetClassName(argClass))
                         {
-                            if (const char* clsName = comp->eeGetClassName(clsHnd))
-                            {
-                                params->argNames[i] = clsName;
-                                break;
-                            }
+                            argNames[i] = clsName;
+                            break;
                         }
-                        FALLTHROUGH;
-                    default:
-                        params->argNames[i] = varTypeName(type);
-                        break;
-                }
-
-                params->sigLength += strlen(params->argNames[i]);
-                params->argLst = vm->getArgNext(params->argLst);
+                    }
+                    FALLTHROUGH;
+                default:
+                    argNames[i] = varTypeName(type);
+                    break;
             }
 
-            // Add ',' if there is more than one argument
+            sigLength += strlen(argNames[i]);
+        }
 
-            if (params->sig.numArgs > 1)
+        // Add ',' if there is more than one argument
+
+        if (sig.numArgs > 1)
+        {
+            sigLength += sig.numArgs - 1;
+        }
+
+        var_types retType = CorTypeToVarType(sig.retType);
+
+        if (retType != TYP_VOID)
+        {
+            switch (retType)
             {
-                params->sigLength += params->sig.numArgs - 1;
-            }
-
-            var_types retType = CorTypeToVarType(params->sig.retType);
-
-            if (retType != TYP_VOID)
-            {
-                switch (retType)
-                {
-                    case TYP_REF:
-                    case TYP_STRUCT:
-                        if (CORINFO_CLASS_HANDLE clsHnd = params->sig.retTypeClass)
+                case TYP_REF:
+                case TYP_STRUCT:
+                    if (CORINFO_CLASS_HANDLE retClass = sig.retTypeClass)
+                    {
+                        if (const char* clsName = eeGetClassName(retClass))
                         {
-                            if (const char* clsName = comp->eeGetClassName(clsHnd))
-                            {
-                                params->returnType = clsName;
-                                break;
-                            }
+                            returnType = clsName;
+                            break;
                         }
-                        FALLTHROUGH;
-                    default:
-                        params->returnType = varTypeName(retType);
-                        break;
-                }
-
-                params->sigLength += strlen(params->returnType) + 1; // don't forget the delimiter ':'
+                    }
+                    FALLTHROUGH;
+                default:
+                    returnType = varTypeName(retType);
+                    break;
             }
 
-            // Does it have a 'this' pointer? Don't count explicit this, which
-            // has the this pointer type as the first element of the arg type list
-            if (params->sig.hasThis() && !params->sig.hasExplicitThis())
-            {
-                params->sigLength += strlen(":this");
-                params->hasThis = true;
-            }
-        },
-        &params);
+            sigLength += strlen(returnType) + 1; // don't forget the delimiter ':'
+        }
+
+        // Does it have a 'this' pointer? Don't count explicit this, which
+        // has the this pointer type as the first element of the arg type list
+        if (sig.hasThis() && !sig.hasExplicitThis())
+        {
+            sigLength += strlen(":this");
+            hasThis = true;
+        }
+    });
 
     if (!success)
     {
-        params.sigLength = 0;
+        sigLength = 0;
     }
 
     // Add closing bracket and null terminator
 
-    length += params.sigLength + 2;
+    length += sigLength + 2;
 
     char* retName = getAllocator(CMK_DebugOnly).allocate<char>(length);
 
     // Now generate the full signature string in the allocated buffer
 
-    if (className)
+    if (className != nullptr)
     {
         strcpy_s(retName, length, className);
         strcat_s(retName, length, ":");
@@ -1192,19 +1112,13 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
     // Append the signature
     strcat_s(retName, length, "(");
 
-    if (params.sigLength > 0)
+    if (sigLength > 0)
     {
-        params.argLst = params.sig.args;
-
-        for (unsigned i = 0; i < params.sig.numArgs; i++)
+        for (unsigned i = 0; i < sig.numArgs; i++)
         {
-            CORINFO_CLASS_HANDLE argClass;
-            var_types            type =
-                CorTypeToVarType(strip(info.compCompHnd->getArgType(&params.sig, params.argLst, &argClass)));
-            strcat_s(retName, length, params.argNames[i]);
-            params.argLst = info.compCompHnd->getArgNext(params.argLst);
+            strcat_s(retName, length, argNames[i]);
 
-            if (i + 1 < params.sig.numArgs)
+            if (i + 1 < sig.numArgs)
             {
                 strcat_s(retName, length, ",");
             }
@@ -1213,13 +1127,13 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
 
     strcat_s(retName, length, ")");
 
-    if (params.returnType != nullptr)
+    if (returnType != nullptr)
     {
         strcat_s(retName, length, ":");
-        strcat_s(retName, length, params.returnType);
+        strcat_s(retName, length, returnType);
     }
 
-    if (params.hasThis)
+    if (hasThis)
     {
         strcat_s(retName, length, ":this");
     }
