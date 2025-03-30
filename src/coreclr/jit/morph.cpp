@@ -717,22 +717,10 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 
         // The copied arg entries contain pointers to old uses, they need
         // to be updated to point to new uses.
-        if (GenTreeCall::Use* newThisUse = newCall->HasThisArg())
-        {
-            for (unsigned i = 0; i < argCount; i++)
-            {
-                if (argTable[i]->use == oldCall->GetThisArg())
-                {
-                    argTable[i]->use = newThisUse;
-                    break;
-                }
-            }
-        }
-
-        GenTreeCall::UseIterator newUse    = newCall->Args().begin();
-        GenTreeCall::UseIterator newUseEnd = newCall->Args().end();
-        GenTreeCall::UseIterator oldUse    = oldCall->Args().begin();
-        GenTreeCall::UseIterator oldUseEnd = newCall->Args().end();
+        GenTreeCall::UseIterator newUse    = newCall->AllArgs().begin();
+        GenTreeCall::UseIterator newUseEnd = newCall->AllArgs().end();
+        GenTreeCall::UseIterator oldUse    = oldCall->AllArgs().begin();
+        GenTreeCall::UseIterator oldUseEnd = newCall->AllArgs().end();
 
         for (; newUse != newUseEnd; ++newUse, ++oldUse)
         {
@@ -1532,9 +1520,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
     } nonStandardArgs(getAllocator(CMK_ArrayStack));
 
-    unsigned numArgs = call->HasThisArg() ? 1 : 0;
+    unsigned numArgs = 0;
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeCall::Use& use : call->AllArgs())
     {
         numArgs++;
     }
@@ -1594,7 +1582,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     {
         GenTree* stubAddrArg = gtCloneSimple(call->GetCallAddr());
 
-        gtPrependNewCallArg(call->gtCallArgs, stubAddrArg);
+        gtInsertNewCallArgAfter(stubAddrArg, call->GetThisArg());
 
         nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
         numArgs++;
@@ -1607,7 +1595,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
         cellAddress->SetDumpHandle(call->GetMethodHandle());
 
-        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
+        gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
 
         nonStandardArgs.Add(cellAddress, info.virtualStubParamRegNum);
         numArgs++;
@@ -1630,7 +1618,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         // currently correctly handle them when the value is in a CSE'd local.
         ARM_ONLY(cellAddress->SetDoNotCSE());
 
-        gtPrependNewCallArg(call->gtCallArgs, cellAddress);
+        if (GenTreeCall::Use* thisUse = call->HasThisArg())
+        {
+            gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
+        }
+        else
+        {
+            gtPrependNewCallArg(call->m_args, cellAddress);
+        }
 
         nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
         numArgs++;
@@ -1644,7 +1639,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTree* target = nullptr;
         GenTree* cookie = nullptr;
 
-        for (GenTreeCall::Use* use = call->gtCallArgs; use->GetNext() != nullptr; use = use->GetNext())
+        for (GenTreeCall::Use* use = call->m_args; use->GetNext() != nullptr; use = use->GetNext())
         {
             cookie = use->GetNode();
             target = use->GetNext()->GetNode();
@@ -1751,7 +1746,14 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
 
-    for (GenTreeCall::Use *args = call->gtCallArgs; args != nullptr; args = args->GetNext(), argIndex++)
+    GenTreeCall::Use* args = call->m_args;
+
+    if (call->HasThisArg())
+    {
+        args = args->GetNext();
+    }
+
+    for (; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree* const  argNode = args->GetNode();
         var_types const argType = argNode->GetType();
@@ -2237,13 +2239,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
     GenTreeFlags argsSideEffects = GTF_NONE;
 
-    if (GenTreeUse* use = call->HasThisArg())
-    {
-        use->SetNode(fgMorphTree(use->GetNode()));
-        argsSideEffects |= use->GetNode()->gtFlags;
-    }
-
-    for (GenTreeUse& use : call->Args())
+    for (GenTreeUse& use : call->AllArgs())
     {
         use.SetNode(fgMorphTree(use.GetNode()));
         argsSideEffects |= use.GetNode()->gtFlags;
@@ -6362,7 +6358,7 @@ bool Compiler::fgCanTailCallViaJitHelper()
 
 GenTree* Compiler::fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call)
 {
-    GenTreeCall::Use* delegateThisUse = call->gtCallArgs;
+    GenTreeCall::Use* delegateThisUse = call->m_args;
     GenTreeLclLoad*   delegateThis    = delegateThisUse->GetNode()->AsLclLoad();
     GenTree*          thisOffset      = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
     GenTree*          targetThisAddr  = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);

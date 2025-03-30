@@ -2127,7 +2127,6 @@ class GenTreeUseEdgeIterator final
 {
     enum CallState
     {
-        CALL_INSTANCE,
         CALL_ARGS,
         CALL_LATE_ARGS
     };
@@ -4003,8 +4002,7 @@ struct GenTreeCall final : public GenTree
     using UseIterator = GenTreeUseLinkIterator<Use>;
     using UseList     = GenTreeUseLinkList<Use>;
 
-    Use* gtCallThisArg  = nullptr; // The instance argument ('this' pointer)
-    Use* gtCallArgs     = nullptr; // The list of arguments in original evaluation order
+    Use* m_args         = nullptr; // The list of arguments in original evaluation order
     Use* gtCallLateArgs = nullptr; // On x86:     The register arguments in an optimal order
                                    // On ARM/x64: - also includes any outgoing arg space arguments
                                    //             - that were evaluated into a temp LclVar
@@ -4050,7 +4048,7 @@ struct GenTreeCall final : public GenTree
 public:
     GenTreeCall(var_types type, Use* args)
         : GenTree(GT_CALL, varActualType(type))
-        , gtCallArgs(args)
+        , m_args(args)
         , m_intrinsic(NI_Illegal)
         , m_callConv(static_cast<unsigned>(CorInfoCallConvExtension::Managed))
         , m_entryPointAccessType(IAT_VALUE)
@@ -4102,9 +4100,14 @@ public:
 
     void ResetArgInfo();
 
+    UseList AllArgs()
+    {
+        return UseList(m_args);
+    }
+
     UseList Args()
     {
-        return UseList(gtCallArgs);
+        return UseList((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0 ? m_args->GetNext() : m_args);
     }
 
     UseList LateArgs()
@@ -4115,46 +4118,42 @@ public:
     void AddThisArg(GenTreeCall::Use* arg)
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) == 0);
-        assert(gtCallThisArg == nullptr);
 
-        gtCallThisArg = arg;
+        arg->SetNext(m_args);
+        m_args = arg;
         gtCallMoreFlags |= GTF_CALL_M_HAS_THIS_ARG;
     }
 
     void RemoveThisArg()
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
-        assert(gtCallThisArg != nullptr);
 
-        gtCallThisArg = nullptr;
+        m_args = m_args->GetNext();
         gtCallMoreFlags &= ~GTF_CALL_M_HAS_THIS_ARG;
     }
 
     GenTreeCall::Use* GetThisArg() const
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
-        assert(gtCallThisArg != nullptr);
 
-        return gtCallThisArg;
+        return m_args;
     }
 
     GenTreeCall::Use* HasThisArg() const
     {
-        return gtCallThisArg;
+        return (gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0 ? m_args : nullptr;
     }
 
     void PrependArg(GenTreeCall::Use* arg)
     {
-        arg->SetNext(gtCallArgs);
-        gtCallArgs = arg;
+        arg->SetNext(m_args);
+        m_args = arg;
     }
 
     GenTreeCall::Use* RemoveFirstArg()
     {
-        // TODO-MIKE-Cleanup: This is inconsistent with GetFirstArg which treats
-        // the this arg as first, if present.
-        GenTreeCall::Use* first = gtCallArgs;
-        gtCallArgs              = first->GetNext();
+        GenTreeCall::Use* first = m_args;
+        m_args                  = first->GetNext();
         return first;
     }
 
@@ -4352,7 +4351,15 @@ public:
         assert(HasRetBufArg());
         // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
         // see impAddCallRetBufAddrArg.
-        return gtCallArgs;
+
+        if (GenTreeCall::Use* thisUse = HasThisArg())
+        {
+            return thisUse->GetNext();
+        }
+        else
+        {
+            return m_args;
+        }
     }
 
     void RemoveRetBufArg()
@@ -4361,8 +4368,16 @@ public:
         // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
         // see impAddCallRetBufAddrArg. It should not be needed but it should assert
         // for other cases.
-        gtCallArgs = gtCallArgs->GetNext();
         gtCallMoreFlags &= ~(GTF_CALL_M_REQUIRES_RETBUFF_ARG | GTF_CALL_M_HAS_RETBUFF_ARG);
+
+        if (GenTreeCall::Use* thisUse = HasThisArg())
+        {
+            thisUse->SetNext(thisUse->GetNext()->GetNext());
+        }
+        else
+        {
+            m_args = m_args->GetNext();
+        }
     }
 
     bool HasMultiRegRetVal() const

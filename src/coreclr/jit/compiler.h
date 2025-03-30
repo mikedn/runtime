@@ -6523,15 +6523,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         {
             GenTreeCall* const call = this->AsCall();
 
-            if (GenTreeUse* use = call->HasThisArg())
-            {
-                if (visitor(use->NodeRef()) == VisitResult::Abort)
-                {
-                    return;
-                }
-            }
-
-            for (GenTreeUse& use : call->Args())
+            for (GenTreeUse& use : call->AllArgs())
             {
                 if (visitor(use.NodeRef()) == VisitResult::Abort)
                 {
@@ -6904,16 +6896,7 @@ public:
             {
                 GenTreeCall* const call = node->AsCall();
 
-                if (GenTreeUse* use = call->HasThisArg())
-                {
-                    result = WalkTree(&use->NodeRef(), call);
-                    if (result == GenTreeWalkResult::Abort)
-                    {
-                        return result;
-                    }
-                }
-
-                for (GenTreeUse& use : call->Args())
+                for (GenTreeUse& use : call->AllArgs())
                 {
                     result = WalkTree(&use.NodeRef(), call);
                     if (result == GenTreeWalkResult::Abort)

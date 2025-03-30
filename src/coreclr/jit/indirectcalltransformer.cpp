@@ -204,9 +204,13 @@ private:
             {
                 compiler->gtInsertNewCallArgAfter(hiddenArgument, fatCall->GetRetBufArg());
             }
+            else if (fatCall->HasThisArg())
+            {
+                compiler->gtInsertNewCallArgAfter(hiddenArgument, fatCall->GetThisArg());
+            }
             else
             {
-                compiler->gtPrependNewCallArg(fatCall->gtCallArgs, hiddenArgument);
+                compiler->gtPrependNewCallArg(fatCall->m_args, hiddenArgument);
             }
 #endif
         }

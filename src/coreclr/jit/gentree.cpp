@@ -567,20 +567,10 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
         return false;
     }
 
-    if ((c1->HasThisArg() != nullptr) != (c2->HasThisArg() != nullptr))
-    {
-        return false;
-    }
-
-    if (c1->HasThisArg() && !Compare(c1->GetThisArg()->GetNode(), c2->GetThisArg()->GetNode()))
-    {
-        return false;
-    }
-
-    GenTreeCall::UseIterator i1   = c1->Args().begin();
-    GenTreeCall::UseIterator end1 = c1->Args().end();
-    GenTreeCall::UseIterator i2   = c2->Args().begin();
-    GenTreeCall::UseIterator end2 = c2->Args().end();
+    GenTreeCall::UseIterator i1   = c1->AllArgs().begin();
+    GenTreeCall::UseIterator end1 = c1->AllArgs().end();
+    GenTreeCall::UseIterator i2   = c2->AllArgs().begin();
+    GenTreeCall::UseIterator end2 = c2->AllArgs().end();
 
     for (; (i1 != end1) && (i2 != end2); ++i1, ++i2)
     {
@@ -634,9 +624,13 @@ void GenTreeCall::ResetArgInfo()
 #ifndef TARGET_X86
     if (IsVirtualStub())
     {
+        GenTreeCall::Use* thisUse = GetThisArg();
+        GenTreeCall::Use* stubUse = thisUse->GetNext();
+
         JITDUMP("Removing VSD non-standard arg [%06u] to prepare for re-morphing call [%06u]\n",
-                gtCallArgs->GetNode()->GetID(), GetID());
-        gtCallArgs = gtCallArgs->GetNext();
+                stubUse->GetNode()->GetID(), GetID());
+
+        thisUse->SetNext(stubUse->GetNext());
     }
 #endif
 
@@ -1076,15 +1070,7 @@ AGAIN:
             break;
 
         case GT_CALL:
-            if (GenTreeUse* use = tree->AsCall()->HasThisArg())
-            {
-                if (!use->GetNode()->OperIs(GT_NOP))
-                {
-                    hash = genTreeHashAdd(hash, gtHashValue(use->GetNode()));
-                }
-            }
-
-            for (GenTreeUse& use : tree->AsCall()->Args())
+            for (GenTreeUse& use : tree->AsCall()->AllArgs())
             {
                 hash = genTreeHashAdd(hash, gtHashValue(use.GetNode()));
             }
@@ -2615,7 +2601,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                     costSz += thisVal->GetCostSz() + 1;
                 }
 
-                if (call->gtCallArgs != nullptr)
+                if (call->m_args != nullptr)
                 {
                     const bool lateArgs = false;
                     gtSetCallArgsCosts(call->Args(), lateArgs, &costEx, &costSz);
@@ -3081,14 +3067,9 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
             GenTreeCall* call  = tree->AsCall();
             unsigned     level = 0;
 
-            if (GenTreeUse* use = call->HasThisArg())
+            if (call->m_args != nullptr)
             {
-                level = Max(level, gtSetOrder(use->GetNode()));
-            }
-
-            if (call->gtCallArgs != nullptr)
-            {
-                level = Max(level, gtSetCallArgsOrder(call->Args()));
+                level = Max(level, gtSetCallArgsOrder(call->AllArgs()));
             }
 
             if (call->gtCallLateArgs != nullptr)
@@ -3711,8 +3692,7 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
 
     call->SetMethodHandle(eeFindHelper(helper));
     call->SetCallAddr(nullptr);
-    call->gtCallThisArg  = nullptr;
-    call->gtCallArgs     = args;
+    call->m_args         = args;
     call->gtCallLateArgs = nullptr;
     call->fgArgInfo      = nullptr;
     call->ClearEntryPoint();
@@ -3944,7 +3924,7 @@ void Compiler::gtAppendCallArgs(GenTreeCall::Use*& head, GenTreeCall::Use* args)
 
 void Compiler::gtAppendCallArgs(GenTreeCall* call, GenTreeCall::Use* args)
 {
-    gtAppendCallArgs(call->gtCallArgs, args);
+    gtAppendCallArgs(call->m_args, args);
 }
 
 GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree* node)
@@ -3956,7 +3936,7 @@ GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree*
 
 GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall* call, GenTree* node)
 {
-    return gtAppendNewCallArg(call->gtCallArgs, node);
+    return gtAppendNewCallArg(call->m_args, node);
 }
 
 GenTreeCall::Use* Compiler::gtNewCallArgs(GenTree* node)
@@ -3983,7 +3963,7 @@ GenTree* GenTreeCall::GetFirstArg() const
 {
     if (fgArgInfo == nullptr)
     {
-        return (gtCallThisArg == nullptr ? gtCallArgs : gtCallThisArg)->GetNode();
+        return m_args->GetNode();
     }
 
     return GetArgNodeByArgNum(0);
@@ -3993,7 +3973,7 @@ GenTree* GenTreeCall::GetSecondArg() const
 {
     if (fgArgInfo == nullptr)
     {
-        return (gtCallThisArg == nullptr ? gtCallArgs->GetNext() : gtCallArgs)->GetNode();
+        return m_args->GetNext()->GetNode();
     }
 
     return GetArgNodeByArgNum(1);
@@ -4671,14 +4651,8 @@ GenTreeCall* Compiler::gtCloneExprCallHelper(GenTreeCall*     tree,
 {
     GenTreeCall* copy = new (this, GT_CALL) GenTreeCall(tree);
 
-    if (tree->HasThisArg())
-    {
-        copy->gtCallMoreFlags &= ~GTF_CALL_M_HAS_THIS_ARG;
-        copy->AddThisArg(gtNewCallArgs(gtCloneExpr(tree->GetThisArg()->GetNode(), addFlags, constLcl, constVal)));
-    }
-
-    GenTreeCall::Use** argsTail = &copy->gtCallArgs;
-    for (GenTreeCall::Use& use : tree->Args())
+    GenTreeCall::Use** argsTail = &copy->m_args;
+    for (GenTreeCall::Use& use : tree->AllArgs())
     {
         *argsTail = gtNewCallArgs(gtCloneExpr(use.GetNode(), addFlags, constLcl, constVal));
         (*argsTail)->SetSigTypeNum(use.GetSigTypeNum());
@@ -5168,7 +5142,9 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CALL:
-            m_edge = AdvanceCall<CALL_INSTANCE>();
+            m_statePtr = m_node->AsCall()->m_args;
+            m_advance  = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ARGS>;
+            m_edge     = AdvanceCall<CALL_ARGS>();
             return;
 
         case GT_LEA:
@@ -5307,25 +5283,15 @@ template <GenTreeUseEdgeIterator::CallState state>
 GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall()
 {
     GenTreeCall* const call = m_node->AsCall();
-    GenTree**          edge;
 
     switch (state)
     {
-        case CALL_INSTANCE:
-            m_statePtr = call->gtCallArgs;
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ARGS>;
-            if (GenTreeUse* use = call->HasThisArg())
-            {
-                return &use->NodeRef();
-            }
-            FALLTHROUGH;
-
         case CALL_ARGS:
             if (m_statePtr != nullptr)
             {
-                GenTreeCall::Use* use = static_cast<GenTreeCall::Use*>(m_statePtr);
-                edge                  = &use->NodeRef();
-                m_statePtr            = use->GetNext();
+                GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_statePtr);
+                GenTree**         edge = &use->NodeRef();
+                m_statePtr             = use->GetNext();
                 return edge;
             }
             m_statePtr = call->gtCallLateArgs;
@@ -5335,9 +5301,9 @@ GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall(
         case CALL_LATE_ARGS:
             if (m_statePtr != nullptr)
             {
-                GenTreeCall::Use* use = static_cast<GenTreeCall::Use*>(m_statePtr);
-                edge                  = &use->NodeRef();
-                m_statePtr            = use->GetNext();
+                GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_statePtr);
+                GenTree**         edge = &use->NodeRef();
+                m_statePtr             = use->GetNext();
                 return edge;
             }
             FALLTHROUGH;
@@ -7004,15 +6970,7 @@ void Compiler::gtDispTreeRec(
                 unsigned argNum = 0;
                 char     buf[256];
 
-                if (GenTreeUse* use = call->HasThisArg())
-                {
-                    GenTree* argNode = use->GetNode();
-                    gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
-                    gtDispChild(argNode, argNode == lastChild ? IIArcBottom : IIArc, buf);
-                    argNum++;
-                }
-
-                for (GenTreeUse& use : call->Args())
+                for (GenTreeUse& use : call->AllArgs())
                 {
                     GenTree* argNode = use.GetNode();
                     gtGetCallArgMsg(call, argNode, argNum, buf, sizeof(buf));
@@ -8347,7 +8305,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
         }
         else if (GenTreeCall* allocCall = alloc->IsCall())
         {
-            GenTreeCall::Use* args = allocCall->gtCallArgs;
+            GenTreeCall::Use* args = allocCall->m_args;
 
             // In R2R expansions the handle may not be an explicit operand to the helper,
             // so we can't remove the box.
