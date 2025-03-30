@@ -115,7 +115,7 @@ const char* varTypeName(var_types type)
 
 regMaskTP genRegMask(RegNum reg)
 {
-    const regMaskTP regMasks[REG_NA + 1]{
+    static const regMaskTP regMasks[REG_NA + 1]{
 #define REGDEF(name, ...) RBM_##name,
 #include "register.h"
 #ifdef TARGET_ARM64

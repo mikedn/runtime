@@ -5650,7 +5650,9 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 #ifdef TARGET_X86
 void CodeGen::AlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 {
+#ifdef UNIX_X86_ABI
     AlignStackBeforeCall(putArgStk->GetCall());
+#endif
 }
 
 void CodeGen::AlignStackBeforeCall(GenTreeCall* call)
