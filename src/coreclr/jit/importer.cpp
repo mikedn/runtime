@@ -4833,7 +4833,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     return impPopStack().val;
 }
 
-static bool getInlinePInvokeEnabled()
+static bool InlinePInvokeEnabled()
 {
 #ifdef DEBUG
     return JitConfig.JitPInvokeEnabled() && !JitConfig.StressCOMCall();
@@ -4842,51 +4842,34 @@ static bool getInlinePInvokeEnabled()
 #endif
 }
 
-//------------------------------------------------------------------------
-// impCanPInvokeInline: check whether PInvoke inlining should enabled in current method.
-//
-// Return Value:
-//    true if PInvoke inlining should be enabled in current method, false otherwise
-//
-// Notes:
-//    Checks a number of ambient conditions where we could pinvoke but choose not to
-
-bool Importer::impCanPInvokeInline()
+// Check whether PInvoke inlining should enabled in current method.
+bool Importer::CallerCanInlinePInvoke()
 {
-    return getInlinePInvokeEnabled() && (!opts.compDbgCode) && (compCodeOpt() != SMALL_CODE) &&
-           (!opts.compNoPInvokeInlineCB) // profiler is preventing inline pinvoke
+    return InlinePInvokeEnabled() && !opts.compDbgCode && (compCodeOpt() != SMALL_CODE) &&
+           !opts.compNoPInvokeInlineCB // profiler is preventing inline PInvoke
         ;
 }
 
-//------------------------------------------------------------------------
-// impCanPInvokeInlineCallSite: basic legality checks using information
-// from a call to see if the call qualifies as an inline pinvoke.
+// Basic legality checks using information from a call to see if the call
+// qualifies as an inline PInvoke.
 //
-// Arguments:
-//    block      - block contaning the call, or for inlinees, block
-//                 containing the call being inlined
+// For runtimes that support exception handling interop there are
+// restrictions on using inline PInvoke in handler regions.
 //
-// Return Value:
-//    true if this call can legally qualify as an inline pinvoke, false otherwise
+// * We have to disable PInvoke inlining inside of filters because
+// in case the main execution (i.e. in the try block) is inside
+// unmanaged code, we cannot reuse the inlined stub (we still need
+// the original state until we are in the catch handler)
 //
-// Notes:
-//    For runtimes that support exception handling interop there are
-//    restrictions on using inline pinvoke in handler regions.
+// * We disable PInvoke inlining inside handlers since the GSCookie
+// is in the inlined Frame (see
+// CORINFO_EE_INFO::InlinedCallFrameInfo::offsetOfGSCookie), but
+// this would not protect framelets/return-address of handlers.
 //
-//    * We have to disable pinvoke inlining inside of filters because
-//    in case the main execution (i.e. in the try block) is inside
-//    unmanaged code, we cannot reuse the inlined stub (we still need
-//    the original state until we are in the catch handler)
-//
-//    * We disable pinvoke inlining inside handlers since the GSCookie
-//    is in the inlined Frame (see
-//    CORINFO_EE_INFO::InlinedCallFrameInfo::offsetOfGSCookie), but
-//    this would not protect framelets/return-address of handlers.
-//
-//    These restrictions are currently also in place for CoreCLR but
-//    can be relaxed when coreclr/#8459 is addressed.
+// These restrictions are currently also in place for CoreCLR but
+// can be relaxed when coreclr/#8459 is addressed.
 
-bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
+bool Importer::CallSiteCanInlinePInvoke(BasicBlock* block)
 {
     if (block->hasHndIndex())
     {
@@ -4900,7 +4883,7 @@ bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
     }
 
 #ifdef TARGET_64BIT
-    // On 64-bit platforms, we disable pinvoke inlining inside of try regions.
+    // On 64-bit platforms, we disable PInvoke inlining inside of try regions.
     // Note that this could be needed on other architectures too, but we
     // haven't done enough investigation to know for sure at this point.
     //
@@ -4934,24 +4917,22 @@ bool Importer::impCanPInvokeInlineCallSite(BasicBlock* block)
 #endif
 }
 
-void Importer::impCheckForPInvokeCall(
-    GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block)
+void Importer::CheckPInvokeCall(GenTreeCall*          call,
+                                CORINFO_SIG_INFO*     sig,
+                                CORINFO_METHOD_HANDLE methHnd,
+                                unsigned              methFlags)
 {
+    bool                     suppressGCTransition = false;
     CorInfoCallConvExtension callConv;
-
-    if ((mflags & CORINFO_FLG_PINVOKE) != 0)
-    {
-        call->gtCallMoreFlags |= GTF_CALL_M_PINVOKE;
-    }
-
-    bool suppressGCTransition = false;
 
     if (methHnd != nullptr)
     {
-        if ((mflags & CORINFO_FLG_PINVOKE) == 0)
+        if ((methFlags & CORINFO_FLG_PINVOKE) == 0)
         {
             return;
         }
+
+        call->gtCallMoreFlags |= GTF_CALL_M_PINVOKE;
 
         callConv = info.compCompHnd->getUnmanagedCallConv(methHnd, nullptr, &suppressGCTransition);
     }
@@ -4965,6 +4946,7 @@ void Importer::impCheckForPInvokeCall(
         callConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
     }
 
+    // TODO-MIKE-Review: Should be set on calls that aren't actually unmanaged?
     if (suppressGCTransition)
     {
         call->gtCallMoreFlags |= GTF_CALL_M_SUPPRESS_GC_TRANSITION;
@@ -4972,6 +4954,12 @@ void Importer::impCheckForPInvokeCall(
 
     // If we can't get the unmanaged calling convention or the calling convention is unsupported in the JIT,
     // return here without inlining the native call.
+    //
+    // TODO-MIKE-Review: Fastcall is an x86 thing. As is, this code results in the JIT using a helper call
+    // that in turn throws an "unsupported" exception at runtime. Is this the intent?
+    // The documentation doesn't say anything about Fastcall being x86 only and Stdcall works just fine on
+    // x64 (as in it has no effect), despite it too being an x86 thing. Go figure...
+
     if ((callConv == CorInfoCallConvExtension::Managed) || (callConv == CorInfoCallConvExtension::Fastcall) ||
         (callConv == CorInfoCallConvExtension::FastcallMemberFunction))
     {
@@ -4989,8 +4977,9 @@ void Importer::impCheckForPInvokeCall(
     }
     else
     {
-        // Check legality
-        if (!impCanPInvokeInlineCallSite(block))
+        BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
+
+        if (!CallSiteCanInlinePInvoke(block))
         {
             return;
         }
@@ -5006,7 +4995,7 @@ void Importer::impCheckForPInvokeCall(
             }
             else
             {
-                if (!impCanPInvokeInline())
+                if (!CallerCanInlinePInvoke())
                 {
                     return;
                 }
@@ -5036,15 +5025,13 @@ void Importer::impCheckForPInvokeCall(
         info.compUnmanagedCallCountWithGCTransition++;
     }
 
-    if (callConv == CorInfoCallConvExtension::Thiscall)
+    if ((sig->numArgs == 0) && callConvIsInstanceMethodCallConv(callConv))
     {
-        if (sig->numArgs == 0)
-        {
-            BADCODE("Instance method without 'this' param");
-        }
+        BADCODE("Instance method without 'this' param");
     }
+
 #ifdef TARGET_X86
-    else if ((callConv == CorInfoCallConvExtension::C) || (callConv == CorInfoCallConvExtension::CMemberFunction))
+    if (IsCallerPop(callConv))
     {
         call->gtFlags |= GTF_CALL_POP_ARGS;
     }
@@ -6562,7 +6549,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     // fused the EH trees). However the block-related checks pertain to
     // EH and we currently won't inline a method with EH. So for
     // inlinees, just checking the call site block is sufficient.
-    impCheckForPInvokeCall(call, methHnd, sig, methFlags, compIsForInlining() ? impInlineInfo->iciBlock : currentBlock);
+    CheckPInvokeCall(call, sig, methHnd, methFlags);
 
     if (call->IsUnmanaged())
     {
@@ -12460,10 +12447,10 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     {
         assert(constrainedResolvedToken == nullptr);
 
-        // See comment in impCheckForPInvokeCall
+        // See comment in CheckPInvokeCall
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
 
-        if (info.compCompHnd->convertPInvokeCalliToCall(&resolvedToken, !impCanPInvokeInlineCallSite(block)))
+        if (info.compCompHnd->convertPInvokeCalliToCall(&resolvedToken, !CallSiteCanInlinePInvoke(block)))
         {
             eeGetCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &callInfo);
             opcode = CEE_CALL;
@@ -14433,9 +14420,10 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
 
     if ((methodAttr & CORINFO_FLG_PINVOKE) != 0)
     {
-        // See comment in impCheckForPInvokeCall
+        // See comment in CheckPInvokeCall
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
-        if (!impCanPInvokeInlineCallSite(block))
+
+        if (!CallSiteCanInlinePInvoke(block))
         {
             inlineResult.NoteFatal(InlineObservation::CALLSITE_PINVOKE_EH);
             return;

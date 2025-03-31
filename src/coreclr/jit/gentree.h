@@ -3759,10 +3759,10 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_TAILCALL_TO_LOOP        = 0x00000080, // call is a fast recursive tail call that can be converted into a loop
 #endif
 
-    GTF_CALL_M_PINVOKE                 = 0x00000100, // call is a PInvoke.  This mirrors VM flag CORINFO_FLG_PINVOKE.
+    GTF_CALL_M_PINVOKE                 = 0x00000100, // call is a PInvoke. This mirrors VM flag CORINFO_FLG_PINVOKE.
                                                      // A call marked as PInvoke is not necessarily a GT_CALL_UNMANAGED. For e.g.
                                                      // an IL Stub dynamically generated for a PInvoke declaration is flagged as
-                                                     // a PInvoke but not as an unmanaged call. See impCheckForPInvokeCall() to
+                                                     // a PInvoke but not as an unmanaged call. See CheckPInvokeCall to
                                                      // know when these flags are set.
 
 #if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)

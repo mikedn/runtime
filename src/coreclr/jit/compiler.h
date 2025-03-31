@@ -2005,10 +2005,9 @@ struct Importer
 
     void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CORINFO_CALL_INFO* callInfo);
 
-    bool impCanPInvokeInline();
-    bool impCanPInvokeInlineCallSite(BasicBlock* block);
-    void impCheckForPInvokeCall(
-        GenTreeCall* call, CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sig, unsigned mflags, BasicBlock* block);
+    bool CallerCanInlinePInvoke();
+    bool CallSiteCanInlinePInvoke(BasicBlock* block);
+    void CheckPInvokeCall(GenTreeCall* call, CORINFO_SIG_INFO* sig, CORINFO_METHOD_HANDLE methHnd, unsigned methFlags);
     GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
     void PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig);
 
