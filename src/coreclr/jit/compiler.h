@@ -1487,6 +1487,21 @@ struct Importer
         PREFIX_READONLY    = 0x01000000
     };
 
+    enum class TailCallFailReason
+    {
+        None,
+        SynchronizedCaller,
+        ReversePInvokeCaller,
+        VarargsCaller,
+        VarargsCall,
+        UnmanagedCall,
+        IndirectPInvokeCall,
+        IncompatibleReturnTypes,
+#ifdef TARGET_X86
+        RuntimeLookupVirtualCall
+#endif
+    };
+
     Compiler* const              comp;
     CORINFO_CONTEXT_HANDLE const impTokenLookupContextHandle;
     InlineInfo* const            impInlineInfo;
@@ -1960,14 +1975,13 @@ struct Importer
                           CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
                           GenTree*                newobjThis,
                           int                     prefixFlags,
-                          bool                    tailCall,
                           NamedIntrinsic*         intrinsicId,
                           bool*                   isSpecialIntrinsic);
     GenTree* impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
                               CORINFO_SIG_INFO*        sig,
                               var_types                callType,
                               NamedIntrinsic           intrinsicName,
-                              bool                     tailCall);
+                              int                      prefixFlags);
 
     bool impIsPrimitive(CorInfoType type);
 
@@ -2041,13 +2055,15 @@ struct Importer
                                       CORINFO_RESOLVED_TOKEN* resolvedToken,
                                       CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                       int                     prefixFlags);
+
+    TailCallFailReason GetCallerTailCallFailReason() const;
+
     void SetupTailCall(GenTreeCall*            call,
                        OPCODE                  opcode,
                        int                     prefixFlags,
                        CORINFO_SIG_INFO*       sig,
                        CORINFO_RESOLVED_TOKEN* resolvedToken,
-                       CORINFO_METHOD_HANDLE   methodHandle,
-                       const char*             tailCallFailReason);
+                       CORINFO_METHOD_HANDLE   methodHandle);
 
     void addExpRuntimeLookupCandidate(GenTreeCall* call);
 

@@ -2511,7 +2511,6 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                                 CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
                                 GenTree*                newobjThis,
                                 int                     prefixFlags,
-                                bool                    tailCall,
                                 NamedIntrinsic*         pIntrinsicId,
                                 bool*                   isSpecialIntrinsic)
 {
@@ -3120,7 +3119,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 #ifdef FEATURE_HW_INTRINSICS
         case NI_System_Math_FusedMultiplyAdd:
 #endif
-            retNode = impMathIntrinsic(callInfo, sig, callType, ni, tailCall);
+            retNode = impMathIntrinsic(callInfo, sig, callType, ni, prefixFlags);
             break;
 
         case NI_System_Array_Clone:
@@ -3256,7 +3255,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
                                     CORINFO_SIG_INFO*        sig,
                                     var_types                callType,
                                     NamedIntrinsic           intrinsic,
-                                    bool                     tailCall)
+                                    int                      prefixFlags)
 {
     assert(callType != TYP_STRUCT);
     assert(Compiler::IsMathIntrinsic(intrinsic));
@@ -3313,7 +3312,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
     const bool isCall = IsIntrinsicImplementedByUserCall(intrinsic);
 
     // Intrinsics that are not implemented directly by target instructions will
-    // be re-materialized as users calls in rationalizer.
+    // be re-materialized as calls in rationalizer.
     //
     // For prefixed tail calls, don't do this optimization, because it will be
     // non-trivial task or too late to re-materialize a surviving tail prefixed
@@ -3324,7 +3323,8 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
     // used as arguments to another call. This causes bad code generation for certain
     // EH constructs.
 
-    if (isCall NOT_X86(&&tailCall))
+    if (isCall NOT_X86(
+            &&(((prefixFlags & PREFIX_TAILCALL) != 0) && (GetCallerTailCallFailReason() == TailCallFailReason::None))))
     {
         return nullptr;
     }
@@ -6125,31 +6125,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 {
     assert(opcode == CEE_CALL || opcode == CEE_CALLVIRT || opcode == CEE_NEWOBJ || opcode == CEE_CALLI);
 
-    const char* tailCallFailReason = nullptr;
-
-    // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
-    // do that before tail calls, but that is probably not the intended
-    // semantic. So just disallow tail calls from synchronized methods.
-    // Also, popping arguments in a varargs function is more work and NYI
-    // If we have a security object, we have to keep our frame around for callers
-    // to see any imperative security.
-    // Reverse P/Invokes need a call to CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT
-    // at the end, so tail calls should be disabled.
-    if (info.IsSynchronized())
-    {
-        tailCallFailReason = "Caller is synchronized";
-    }
-    else if (opts.IsReversePInvoke())
-    {
-        tailCallFailReason = "Caller is Reverse P/Invoke";
-    }
-#if !FEATURE_FIXED_OUT_ARGS
-    else if (info.compIsVarArgs)
-    {
-        tailCallFailReason = "Caller is varargs";
-    }
-#endif
-
     IL_OFFSET              rawILOffset                    = static_cast<IL_OFFSET>(ilAddr - info.compCode);
     IL_OFFSETX             ilOffset                       = GetCallILOffsetX(rawILOffset);
     bool                   exactContextNeedsRuntimeLookup = false;
@@ -6257,10 +6232,8 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         if ((methFlags & (CORINFO_FLG_INTRINSIC | CORINFO_FLG_JIT_INTRINSIC)) != 0)
         {
-            const bool isTailCall = (tailCallFailReason == nullptr) && ((prefixFlags & PREFIX_TAILCALL) != 0);
-
             value = impIntrinsic(callInfo, methFlags, resolvedToken, constrainedResolvedToken, newobjThis, prefixFlags,
-                                 isTailCall, &intrinsicID, &isSpecialIntrinsic);
+                                 &intrinsicID, &isSpecialIntrinsic);
 
             if (compDonotInline())
             {
@@ -6382,8 +6355,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
                     call = gtNewIndCallNode(comp->gtNewLclLoad(lcl, TYP_I_IMPL), callRetTyp, nullptr);
                     call->gtFlags |= GTF_CALL_VSTUB_INDIRECT;
-
-                    X86_ONLY(tailCallFailReason = "VirtualCall with runtime lookup");
                 }
                 else
                 {
@@ -6554,16 +6525,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
 #ifdef TARGET_X86
         call->gtFlags |= GTF_CALL_POP_ARGS;
-
-        // Can't allow tailcall for varargs as it is caller-pop. The caller
-        // will be expecting to pop a certain number of arguments, but if we
-        // tailcall to a function with a different number of arguments, we
-        // are hosed. There are ways around this (caller remembers esp value,
-        // varargs is not caller-pop, etc), but not worth it.
-        if (tailCallFailReason == nullptr)
-        {
-            tailCallFailReason = "Callee is varargs";
-        }
 #endif
 
         // CALLI already has the correct signature, for other opcodes we need to switch to
@@ -6605,15 +6566,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
     if (call->IsUnmanaged())
     {
-        // We set up the unmanaged call by linking the frame, disabling GC, etc
-        // This needs to be cleaned up on return.
-        // In addition, native calls have different normalization rules than managed code
-        // (managed calling convention always widens return values in the callee)
-        if (tailCallFailReason == nullptr)
-        {
-            tailCallFailReason = "Callee is native";
-        }
-
         PopUnmanagedCallArgs(call, sig);
     }
     else
@@ -6660,11 +6612,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 assert(compDonotInline());
 
                 return nullptr;
-            }
-
-            if (tailCallFailReason == nullptr)
-            {
-                tailCallFailReason = "PInvoke calli";
             }
         }
 
@@ -6724,7 +6671,7 @@ DONE:
 
     if ((prefixFlags & PREFIX_TAILCALL) != 0)
     {
-        SetupTailCall(call, opcode, prefixFlags, sig, resolvedToken, methHnd, tailCallFailReason);
+        SetupTailCall(call, opcode, prefixFlags, sig, resolvedToken, methHnd);
     }
 
     // Note: we assume that small int return types are already widened by the managed callee
@@ -7028,13 +6975,40 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
     return gtNewIconEmbClsHndNode(exactClassHandle);
 }
 
+Importer::TailCallFailReason Importer::GetCallerTailCallFailReason() const
+{
+    // Synchronized methods need to call CORINFO_HELP_MON_EXIT at the end. We could
+    // do that before tail calls, but that is probably not the intended
+    // semantic. So just disallow tail calls from synchronized methods.
+    // Also, popping arguments in a varargs function is more work and NYI
+    // If we have a security object, we have to keep our frame around for callers
+    // to see any imperative security.
+    // Reverse P/Invokes need a call to CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT
+    // at the end, so tail calls should be disabled.
+    if (info.IsSynchronized())
+    {
+        return TailCallFailReason::SynchronizedCaller;
+    }
+    else if (opts.IsReversePInvoke())
+    {
+        return TailCallFailReason::ReversePInvokeCaller;
+    }
+#if !FEATURE_FIXED_OUT_ARGS
+    else if (info.compIsVarArgs)
+    {
+        return TailCallFailReason::VarargsCaller;
+    }
+#endif
+
+    return TailCallFailReason::None;
+}
+
 void Importer::SetupTailCall(GenTreeCall*            call,
                              OPCODE                  opcode,
                              int                     prefixFlags,
                              CORINFO_SIG_INFO*       sig,
                              CORINFO_RESOLVED_TOKEN* resolvedToken,
-                             CORINFO_METHOD_HANDLE   methodHandle,
-                             const char*             tailCallFailReason)
+                             CORINFO_METHOD_HANDLE   methodHandle)
 {
     const bool isExplicitTailCall = (prefixFlags & PREFIX_TAILCALL_EXPLICIT) != 0;
     const bool isImplicitTailCall = (prefixFlags & PREFIX_TAILCALL_IMPLICIT) != 0;
@@ -7056,34 +7030,74 @@ void Importer::SetupTailCall(GenTreeCall*            call,
 
     if (isExplicitTailCall && (verCurrentState.esStackDepth != 0))
     {
-        BADCODE("Stack should be empty after tailcall");
+        BADCODE("Stack should be empty after tail call");
     }
 
-    // For opportunistic tailcalls we allow implicit widening, i.e. tailcalls from int32 -> int16,
-    // since the managed calling convention dictates that the callee widens the value. For explicit
-    // tailcalls we don't want to require this detail of the calling convention to bubble up to the
-    // tailcall helpers.
+    TailCallFailReason tailCallFailReason = GetCallerTailCallFailReason();
 
-    if ((tailCallFailReason == nullptr) && !comp->impTailCallRetTypeCompatible(call, isImplicitTailCall))
+    if (tailCallFailReason == TailCallFailReason::None)
     {
-        tailCallFailReason = "Return types are not tail call compatible";
-    }
-
-    if ((tailCallFailReason == nullptr) && isImplicitTailCall && (verCurrentState.esStackDepth != 0))
-    {
-        BADCODE("Stack should be empty after tailcall");
+#ifdef TARGET_X86
+        if (call->IsVirtualStubIndirect())
+        {
+            tailCallFailReason = TailCallFailReason::RuntimeLookupVirtualCall;
+        }
+        else if (call->IsVarargs())
+        {
+            // Can't allow tail call for varargs as it is caller-pop. The caller will be expecting to
+            // pop a certain number of arguments, but if we tail call to a function with a different
+            // number of arguments, we are hosed. There are ways around this (caller remembers esp value,
+            // varargs is not caller-pop, etc), but not worth it.
+            tailCallFailReason = TailCallFailReason::VarargsCall;
+        }
+        else
+#endif
+            if (call->IsUnmanaged())
+        {
+            // We set up the unmanaged call by linking the frame, disabling GC, etc
+            // This needs to be cleaned up on return.
+            // In addition, native calls have different normalization rules than managed code
+            // (managed calling convention always widens return values in the callee)
+            tailCallFailReason = TailCallFailReason::UnmanagedCall;
+        }
+        else if (!comp->impTailCallRetTypeCompatible(call, isImplicitTailCall))
+        {
+            // For opportunistic tail calls we allow implicit widening, i.e. tail calls from int32 -> int16,
+            // since the managed calling convention dictates that the callee widens the value. For explicit
+            // tail calls we don't want to require this detail of the calling convention to bubble up to the
+            // tail call helpers.
+            tailCallFailReason = TailCallFailReason::IncompatibleReturnTypes;
+        }
+        else if (isImplicitTailCall && (verCurrentState.esStackDepth != 0))
+        {
+            BADCODE("Stack should be empty after tail call");
+        }
     }
 
     assert(!isExplicitTailCall || (currentBlock->bbJumpKind == BBJ_RETURN));
 
-    // Ask VM for permission to tailcall
-    if (tailCallFailReason != nullptr)
+    if (tailCallFailReason != TailCallFailReason::None)
     {
+        static const char* reasons[]{"None",
+                                     "Caller is synchronized",
+                                     "Caller is Reverse P/Invoke",
+                                     "Caller is varargs",
+                                     "Callee is varargs",
+                                     "Callee is native",
+                                     "PInvoke calli",
+                                     "Return types are not tail call compatible",
+#ifdef TARGET_X86
+                                     "VirtualCall with runtime lookup",
+#endif
+                                     "Unknown tail call failure reason"};
+
+        const char* reason = reasons[Min(static_cast<size_t>(tailCallFailReason), _countof(reasons) - 1)];
+
         JITDUMP("\nRejecting %splicit tail call for [%06u], reason: '%s'\n", isExplicitTailCall ? "ex" : "im",
-                call->GetID(), tailCallFailReason);
+                call->GetID(), reason);
 
         info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methodHandle, isExplicitTailCall, TAILCALL_FAIL,
-                                                 tailCallFailReason);
+                                                 reason);
 
         return;
     }
@@ -7100,9 +7114,9 @@ void Importer::SetupTailCall(GenTreeCall*            call,
 
     if (isExplicitTailCall)
     {
-        // This might or might not turn into a tailcall. We do more checks in morph.
-        // For explicit tailcalls we need more information in morph in case it turns
-        // out to be a helper-based tailcall.
+        // This might or might not turn into a tail call. We do more checks in morph.
+        // For explicit tail calls we need more information in morph in case it turns
+        // out to be a helper-based tail call.
         TailCallSiteInfo* tailCallInfo = new (comp, CMK_CorTailCallInfo) TailCallSiteInfo(sig);
 
         switch (opcode)
