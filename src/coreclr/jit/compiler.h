@@ -1634,7 +1634,6 @@ struct Importer
 
     static OPCODE impGetNonPrefixOpcode(const uint8_t* codeAddr, const uint8_t* codeEndp);
     static void impValidateMemoryAccessOpcode(OPCODE opcode, bool volatilePrefix);
-    static bool impOpcodeIsCallOpcode(OPCODE opcode);
 
     void impStmtListAppend(Statement* stmt);
     void impStmtListInsertBefore(Statement* stmt, Statement* stmtBefore);
@@ -1945,7 +1944,7 @@ struct Importer
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
     GenTree* ImportArrayAccessIntrinsic(
-        CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, bool readonlyCall, NamedIntrinsic name);
+        CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, int prefixFlags, NamedIntrinsic name);
     GenTree* ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig);
 
     GenTree* impMethodPointer(CORINFO_RESOLVED_TOKEN& resolvedToken, CORINFO_CALL_INFO& callInfo);
@@ -1955,16 +1954,15 @@ struct Importer
                               CORINFO_THIS_TRANSFORM  transform);
 
     GenTree* impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom);
-    GenTree* impIntrinsic(GenTree*                 newobjThis,
-                          CORINFO_SIG_INFO*        sig,
-                          unsigned                 methodFlags,
-                          CORINFO_RESOLVED_TOKEN*  resolvedToken,
-                          bool                     readonlyCall,
-                          bool                     tailCall,
-                          CORINFO_RESOLVED_TOKEN*  contstrainedResolvedToken,
-                          const CORINFO_CALL_INFO* callInfo,
-                          NamedIntrinsic*          pIntrinsicId,
-                          bool*                    isSpecialIntrinsic);
+    GenTree* impIntrinsic(CORINFO_CALL_INFO*      callInfo,
+                          unsigned                methodFlags,
+                          CORINFO_RESOLVED_TOKEN* resolvedToken,
+                          CORINFO_RESOLVED_TOKEN* contstrainedResolvedToken,
+                          GenTree*                newobjThis,
+                          int                     prefixFlags,
+                          bool                    tailCall,
+                          NamedIntrinsic*         intrinsicId,
+                          bool*                   isSpecialIntrinsic);
     GenTree* impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
                               CORINFO_SIG_INFO*        sig,
                               var_types                callType,
@@ -2042,7 +2040,7 @@ struct Importer
                                       CORINFO_CALL_INFO*      callInfo,
                                       CORINFO_RESOLVED_TOKEN* resolvedToken,
                                       CORINFO_RESOLVED_TOKEN* constrainedResolvedToken,
-                                      bool                    isReadOnlyCall);
+                                      int                     prefixFlags);
     void SetupTailCall(GenTreeCall*            call,
                        OPCODE                  opcode,
                        int                     prefixFlags,
