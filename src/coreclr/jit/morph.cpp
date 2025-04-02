@@ -1653,10 +1653,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
 
-    unsigned argIndex     = 0;
-    unsigned intArgRegNum = 0;
-    unsigned fltArgRegNum = 0;
-
 #ifdef TARGET_X86
     unsigned maxIntArgRegNum;
 
@@ -1720,31 +1716,11 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
 
-    if (GenTreeCall::Use* thisUse = call->HasThisArg())
-    {
-        var_types argType = thisUse->GetNode()->GetType();
-        assert(!call->IsHelperCall());
-        assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
+    unsigned intArgRegNum = 0;
+    unsigned fltArgRegNum = 0;
+    unsigned argIndex     = 0;
 
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, thisUse, 1);
-        argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
-        argInfo->SetArgType(argType);
-        call->fgArgInfo->AddArg(argInfo);
-        intArgRegNum++;
-#ifdef WINDOWS_AMD64_ABI
-        fltArgRegNum++;
-#endif
-        argIndex++;
-    }
-
-    GenTreeCall::Use* args = call->m_args;
-
-    if (call->HasThisArg())
-    {
-        args = args->GetNext();
-    }
-
-    for (; args != nullptr; args = args->GetNext(), argIndex++)
+    for (GenTreeCall::Use *args = call->m_args; args != nullptr; args = args->GetNext(), argIndex++)
     {
         GenTree* const  argNode = args->GetNode();
         var_types const argType = argNode->GetType();
