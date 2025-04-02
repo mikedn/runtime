@@ -749,7 +749,7 @@ GenTreeCall::Use* Importer::ReverseCallArgs(GenTreeCall::Use* args, bool skipFir
 }
 #endif // TARGET_X86
 
-void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
+void Importer::StoreCallWithRetBuf(GenTree* dest, GenTreeCall* call)
 {
     assert(varTypeIsStruct(dest->GetType()) && dest->OperIs(GT_LCL_STORE, GT_IND_STORE_OBJ, GT_IND_STORE));
 
@@ -764,57 +764,21 @@ void Importer::impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call)
         retBufAddr = dest->AsIndir()->GetAddr();
     }
 
-    impAddCallRetBufAddrArg(call, retBufAddr);
+    AddCallRetBufArg(call, retBufAddr);
 }
 
-void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
+void Importer::AddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
 {
     assert(call->TreatAsRequiresRetBufArg());
+    assert(!call->HasRetBufArg());
 
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
-    if (call->IsUnmanaged())
-    {
-        if (callConvIsInstanceMethodCallConv(call->GetCallConv()) &&
-            (call->GetCallConv() != CorInfoCallConvExtension::Thiscall))
-        {
-#ifndef TARGET_X86
-            if (call->m_args == nullptr)
-            {
-                call->m_args = comp->gtNewCallArgs(retBufAddr);
-            }
-            else
-            {
-                comp->gtInsertNewCallArgAfter(retBufAddr, call->m_args);
-            }
-#else
-            GenTreeCall::Use** lastRef = &call->m_args;
+    // For some ABIs calls return the address of the return buffer in the usual return register
+    // (rax, x0...) but the JIT never uses it so we can change the type of these calls to VOID.
+    call->SetType(TYP_VOID);
 
-            while ((*lastRef != nullptr) && ((*lastRef)->GetNext() != nullptr))
-            {
-                lastRef = &(*lastRef)->NextRef();
-            }
+    CorInfoCallConvExtension conv = call->GetCallConv();
 
-            *lastRef = new (comp, CMK_ASTNode) GenTreeCall::Use(retBufAddr, *lastRef);
-#endif
-        }
-        else
-        {
-#ifndef TARGET_X86
-            if (call->m_args == nullptr)
-            {
-                call->m_args = comp->gtNewCallArgs(retBufAddr);
-            }
-            else
-            {
-                comp->gtInsertNewCallArgAfter(retBufAddr, call->m_args);
-            }
-#else
-            comp->gtAppendNewCallArg(call, retBufAddr);
-#endif
-        }
-    }
-    else
-#endif // defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+    if (conv == CorInfoCallConvExtension::Managed)
     {
         if (GenTreeCall::Use* thisUse = call->HasThisArg())
         {
@@ -824,24 +788,62 @@ void Importer::impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* retBufAddr)
         {
             comp->gtPrependNewCallArg(call->m_args, retBufAddr);
         }
+
+        if (call->RequiresRetBufArg())
+        {
+            call->gtCallMoreFlags |= GTF_CALL_M_HAS_RETBUFF_ARG;
+        }
+
+        return;
     }
 
-    // TODO-MIKE-Call: GTF_CALL_M_HAS_RETBUFF_ARG shouldn't probably be set on unmanaged
-    // calls that append it to the arg list (x86). The JIT doesn't care much about such
-    // calls and the code that does care currently assumes that the ret buf arg is the
-    // first arg in the arg list, even if it may be second, last or second to last...
-    // Or we can set the flag and add a GetRetBufArg function to GenTreeCall that mirrors
-    // the above logic to retrieve the correct arg, which would probably be needed only
-    // in DEBUG builds, for dumps call arg naming.
-    // Note that on x86, fgInitArgInfo does depend on knowing that a ret buf arg is present
-    // (for register requirements) but it does not need to get the arg.
+    assert(!call->HasThisArg());
 
-    if (call->RequiresRetBufArg())
+#ifdef TARGET_X86
+    if ((conv == CorInfoCallConvExtension::CMemberFunction) ||
+        (conv == CorInfoCallConvExtension::StdcallMemberFunction))
     {
-        call->gtCallMoreFlags |= GTF_CALL_M_HAS_RETBUFF_ARG;
-    }
+        GenTreeCall::Use** lastRef = &call->m_args;
 
-    call->SetType(TYP_VOID);
+        while ((*lastRef != nullptr) && ((*lastRef)->GetNext() != nullptr))
+        {
+            lastRef = &(*lastRef)->NextRef();
+        }
+
+        // We can't set GTF_CALL_M_HAS_RETBUFF_ARG because GetRetBufArg doesn't currently
+        // handle this case, it thinks that the ret buf arg is first. Doesn't really matter
+        // as the rest of the JIT doesn't currently need this.
+        // TODO-MIKE-Fix: Dump code does depend on this, it would be nice to fix GetRetBufArg.
+        call->gtCallMoreFlags &= ~GTF_CALL_M_REQUIRES_RETBUFF_ARG;
+        *lastRef = new (comp, CMK_ASTNode) GenTreeCall::Use(retBufAddr, *lastRef);
+    }
+    else
+    {
+        // CheckPInvokeCall should have rejected fastcall unmanaged calls,
+        // these require inserting the ret buf arg after the first arg (this).
+        assert((conv != CorInfoCallConvExtension::Fastcall) &&
+               (conv != CorInfoCallConvExtension::FastcallMemberFunction));
+
+        call->gtCallMoreFlags &= ~GTF_CALL_M_REQUIRES_RETBUFF_ARG;
+        comp->gtAppendNewCallArg(call, retBufAddr);
+    }
+#else // !TARGET_X86
+
+#if defined(TARGET_WINDOWS) && (defined(TARGET_AMD64) || defined(TARGET_ARM64))
+    // win-x64 & win-arm64 ignore stdcall/fastcall/thiscall but care about member functions.
+    if (callConvIsInstanceMethodCallConv(call->GetCallConv()) && (call->m_args != nullptr))
+    {
+        call->gtCallMoreFlags &= ~GTF_CALL_M_REQUIRES_RETBUFF_ARG;
+        comp->gtInsertNewCallArgAfter(retBufAddr, call->m_args);
+    }
+    else
+#endif
+    {
+        // unix-x64, unix-arm & win-arm do not care about anything, the ret buf arg is always first.
+        call->gtCallMoreFlags |= GTF_CALL_M_HAS_RETBUFF_ARG;
+        comp->gtPrependNewCallArg(call->m_args, retBufAddr);
+    }
+#endif // !TARGET_X86
 }
 
 GenTree* Importer::impAssignMkRefAny(GenTree* store, GenTreeOp* mkRefAny, unsigned curLevel)
@@ -898,7 +900,7 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
     {
         if (call->TreatAsRequiresRetBufArg())
         {
-            impAssignCallWithRetBuf(store, call);
+            StoreCallWithRetBuf(store, call);
 
             return call;
         }
@@ -942,7 +944,7 @@ GenTree* Importer::impAssignStruct(GenTree* store, GenTree* value, unsigned curL
 
         if (call->TreatAsRequiresRetBufArg())
         {
-            impAssignCallWithRetBuf(store, call);
+            StoreCallWithRetBuf(store, call);
             retExpr->SetType(TYP_VOID);
 
             return retExpr;

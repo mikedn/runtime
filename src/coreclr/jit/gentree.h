@@ -4350,7 +4350,7 @@ public:
     {
         assert(HasRetBufArg());
         // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
-        // see impAddCallRetBufAddrArg.
+        // see Importer::AddCallRetBufArg.
 
         if (GenTreeCall::Use* thisUse = HasThisArg())
         {
@@ -4366,7 +4366,7 @@ public:
     {
         assert(HasRetBufArg());
         // TODO-MIKE-Call: This doesn't work for certain unmanaged calling conventions,
-        // see impAddCallRetBufAddrArg. It should not be needed but it should assert
+        // see Importer::AddCallRetBufArg. It should not be needed but it should assert
         // for other cases.
         gtCallMoreFlags &= ~(GTF_CALL_M_REQUIRES_RETBUFF_ARG | GTF_CALL_M_HAS_RETBUFF_ARG);
 

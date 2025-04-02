@@ -6534,7 +6534,7 @@ void Compiler::dmpInsert(GenTreeInsert* insert)
     }
 }
 
-const char* StructStoreKindName(StructStoreKind kind)
+static const char* StructStoreKindName(StructStoreKind kind)
 {
     switch (kind)
     {
@@ -6568,6 +6568,124 @@ const char* StructStoreKindName(StructStoreKind kind)
         case StructStoreKind::UnrollRegsWB:
             return "UnrollRegsWB";
 #endif
+        default:
+            return "???";
+    }
+}
+
+static const char* CallConvName(CorInfoCallConvExtension callConv)
+{
+    switch (callConv)
+    {
+        case CorInfoCallConvExtension::Managed:
+            return "managed";
+        case CorInfoCallConvExtension::C:
+            return "cdecl";
+        case CorInfoCallConvExtension::Stdcall:
+            return "stdcall";
+        case CorInfoCallConvExtension::Thiscall:
+            return "thiscall";
+        case CorInfoCallConvExtension::Fastcall:
+            return "fastcall";
+        case CorInfoCallConvExtension::CMemberFunction:
+            return "cdecl-member";
+        case CorInfoCallConvExtension::StdcallMemberFunction:
+            return "stdcall-member";
+        case CorInfoCallConvExtension::FastcallMemberFunction:
+            return "fastcall-member";
+        default:
+            return "unknown-call-conv";
+    }
+}
+
+#ifdef TARGET_XARCH
+static const char* PutArgStkKindName(GenTreePutArgStk::Kind kind)
+{
+    switch (kind)
+    {
+        case GenTreePutArgStk::Kind::RepInstr:
+            return "RepInst";
+        case GenTreePutArgStk::Kind::Unroll:
+            return "Unroll";
+#ifdef TARGET_X86
+        case GenTreePutArgStk::Kind::Push:
+            return "Push";
+        case GenTreePutArgStk::Kind::PushAllSlots:
+            return "PushAllSlots";
+#endif
+        case GenTreePutArgStk::Kind::RepInstrXMM:
+            return "RepInstrXMM";
+        case GenTreePutArgStk::Kind::GCUnroll:
+            return "GCUnroll";
+        case GenTreePutArgStk::Kind::GCUnrollXMM:
+            return "GCUnrollXMM";
+        default:
+            return "???";
+    }
+}
+#endif // TARGET_XARCH
+
+static const char* IntrinsicName(NamedIntrinsic intrinsic)
+{
+    // TODO-MIKE-Cleanup: Just use the normal intrinsic name and be done with it?
+    switch (intrinsic)
+    {
+        case NI_CORINFO_INTRINSIC_Object_GetType:
+            return "objGetType";
+        case NI_System_Math_Abs:
+            return "abs";
+        case NI_System_Math_Acos:
+            return "acos";
+        case NI_System_Math_Acosh:
+            return "acosh";
+        case NI_System_Math_Asin:
+            return "asin";
+        case NI_System_Math_Asinh:
+            return "asinh";
+        case NI_System_Math_Atan:
+            return "atan";
+        case NI_System_Math_Atanh:
+            return "atanh";
+        case NI_System_Math_Atan2:
+            return "atan2";
+        case NI_System_Math_Cbrt:
+            return "cbrt";
+        case NI_System_Math_Ceiling:
+            return "ceiling";
+        case NI_System_Math_Cos:
+            return "cos";
+        case NI_System_Math_Cosh:
+            return "cosh";
+        case NI_System_Math_Exp:
+            return "exp";
+        case NI_System_Math_Floor:
+            return "floor";
+        case NI_System_Math_FMod:
+            return "fmod";
+        case NI_System_Math_FusedMultiplyAdd:
+            return "fma";
+        case NI_System_Math_ILogB:
+            return "ilogb";
+        case NI_System_Math_Log:
+            return "log";
+        case NI_System_Math_Log2:
+            return "log2";
+        case NI_System_Math_Log10:
+            return "log10";
+        case NI_System_Math_Pow:
+            return "pow";
+        case NI_System_Math_Round:
+            return "round";
+        case NI_System_Math_Sin:
+            return "sin";
+        case NI_System_Math_Sinh:
+            return "sinh";
+        case NI_System_Math_Sqrt:
+            return "sqrt";
+        case NI_System_Math_Tan:
+            return "tan";
+        case NI_System_Math_Tanh:
+            return "tanh";
         default:
             return "???";
     }
@@ -6649,139 +6767,16 @@ void Compiler::gtDispTreeRec(
         case GT_INSERT:
             dmpInsert(tree->AsInsert());
             break;
-
+        case GT_INTRINSIC:
+            printf(" %s", IntrinsicName(tree->AsIntrinsic()->GetIntrinsic()));
+            break;
         case GT_PUTARG_STK:
-        {
             printf(" (@%u, %d slots", tree->AsPutArgStk()->GetSlotOffset(), tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
-            const char* kindName;
-            switch (tree->AsPutArgStk()->GetKind())
-            {
-                case GenTreePutArgStk::Kind::RepInstr:
-                    kindName = "RepInst";
-                    break;
-                case GenTreePutArgStk::Kind::Unroll:
-                    kindName = "Unroll";
-                    break;
-#ifdef TARGET_X86
-                case GenTreePutArgStk::Kind::Push:
-                    kindName = "Push";
-                    break;
-                case GenTreePutArgStk::Kind::PushAllSlots:
-                    kindName = "PushAllSlots";
-                    break;
-#endif
-                case GenTreePutArgStk::Kind::RepInstrXMM:
-                    kindName = "RepInstrXMM";
-                    break;
-                case GenTreePutArgStk::Kind::GCUnroll:
-                    kindName = "GCUnroll";
-                    break;
-                case GenTreePutArgStk::Kind::GCUnrollXMM:
-                    kindName = "GCUnrollXMM";
-                    break;
-                default:
-                    kindName = "???";
-                    break;
-            }
-            printf(", %s)", kindName);
+            printf(", %s)", PutArgStkKindName(tree->AsPutArgStk()->GetKind()));
 #else
             printf(")");
 #endif
-        }
-        break;
-
-        case GT_INTRINSIC:
-            switch (tree->AsIntrinsic()->GetIntrinsic())
-            {
-                case NI_CORINFO_INTRINSIC_Object_GetType:
-                    printf(" objGetType");
-                    break;
-                case NI_System_Math_Abs:
-                    printf(" abs");
-                    break;
-                case NI_System_Math_Acos:
-                    printf(" acos");
-                    break;
-                case NI_System_Math_Acosh:
-                    printf(" acosh");
-                    break;
-                case NI_System_Math_Asin:
-                    printf(" asin");
-                    break;
-                case NI_System_Math_Asinh:
-                    printf(" asinh");
-                    break;
-                case NI_System_Math_Atan:
-                    printf(" atan");
-                    break;
-                case NI_System_Math_Atanh:
-                    printf(" atanh");
-                    break;
-                case NI_System_Math_Atan2:
-                    printf(" atan2");
-                    break;
-                case NI_System_Math_Cbrt:
-                    printf(" cbrt");
-                    break;
-                case NI_System_Math_Ceiling:
-                    printf(" ceiling");
-                    break;
-                case NI_System_Math_Cos:
-                    printf(" cos");
-                    break;
-                case NI_System_Math_Cosh:
-                    printf(" cosh");
-                    break;
-                case NI_System_Math_Exp:
-                    printf(" exp");
-                    break;
-                case NI_System_Math_Floor:
-                    printf(" floor");
-                    break;
-                case NI_System_Math_FMod:
-                    printf(" fmod");
-                    break;
-                case NI_System_Math_FusedMultiplyAdd:
-                    printf(" fma");
-                    break;
-                case NI_System_Math_ILogB:
-                    printf(" ilogb");
-                    break;
-                case NI_System_Math_Log:
-                    printf(" log");
-                    break;
-                case NI_System_Math_Log2:
-                    printf(" log2");
-                    break;
-                case NI_System_Math_Log10:
-                    printf(" log10");
-                    break;
-                case NI_System_Math_Pow:
-                    printf(" pow");
-                    break;
-                case NI_System_Math_Round:
-                    printf(" round");
-                    break;
-                case NI_System_Math_Sin:
-                    printf(" sin");
-                    break;
-                case NI_System_Math_Sinh:
-                    printf(" sinh");
-                    break;
-                case NI_System_Math_Sqrt:
-                    printf(" sqrt");
-                    break;
-                case NI_System_Math_Tan:
-                    printf(" tan");
-                    break;
-                case NI_System_Math_Tanh:
-                    printf(" tanh");
-                    break;
-                default:
-                    printf(" ???");
-                    break;
-            }
             break;
 
         case GT_FIELD_LIST:
@@ -6907,23 +6902,17 @@ void Compiler::gtDispTreeRec(
 
             if (call->IsUnmanaged())
             {
-                printf("%sunmanaged", separator);
+                printf("%s%s", separator, CallConvName(call->GetCallConv()));
                 separator = ", ";
+            }
 
 #ifdef TARGET_X86
-                if (call->CallerPop())
-                {
-                    printf("%spopargs", separator);
-                    separator = ", ";
-                }
-#endif
-
-                if (call->GetCallConv() == CorInfoCallConvExtension::Thiscall)
-                {
-                    printf("%sthiscall", separator);
-                    separator = ", ";
-                }
+            if (call->CallerPop())
+            {
+                printf("%spopargs", separator);
+                separator = ", ";
             }
+#endif
 
             if (call->IsTailCall())
             {
@@ -7098,7 +7087,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         {
             sprintf_s(buf, bufLength, "this");
         }
-        else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (arg == call->GetRetBufArg()->GetNode()))
+        else if (call->HasRetBufArg() && (arg == call->GetRetBufArg()->GetNode()))
         {
             // TODO-MIKE-Review: This and the similar code below gets it wrong then the vstub
             // arg is present, because that one gets inserted in front of the return buffer arg.
@@ -7123,7 +7112,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
         buf += len;
         bufLength -= len;
     }
-    else if (call->HasRetBufArg() && call->TypeIs(TYP_VOID) && (argInfo->use == call->GetRetBufArg()))
+    else if (call->HasRetBufArg() && (argInfo->use == call->GetRetBufArg()))
     {
         int len = sprintf_s(buf, bufLength, "retbuf");
         buf += len;

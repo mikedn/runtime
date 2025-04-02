@@ -197,6 +197,8 @@ private:
 
         void AddHiddenArgument(GenTreeCall* fatCall, GenTree* hiddenArgument) const
         {
+            assert(!fatCall->IsUnmanaged());
+
 #ifdef TARGET_X86
             compiler->gtAppendNewCallArg(fatCall, hiddenArgument);
 #else

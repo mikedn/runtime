@@ -1704,8 +1704,8 @@ struct Importer
 
     GenTree* impAssignMkRefAny(GenTree* dest, GenTreeOp* mkRefAny, unsigned curLevel);
     GenTree* impAssignStruct(GenTree* dest, GenTree* src, unsigned curLevel);
-    void impAssignCallWithRetBuf(GenTree* dest, GenTreeCall* call);
-    void impAddCallRetBufAddrArg(GenTreeCall* call, GenTree* destAddr);
+    void StoreCallWithRetBuf(GenTree* dest, GenTreeCall* call);
+    void AddCallRetBufArg(GenTreeCall* call, GenTree* destAddr);
     void gtInitStructIndStore(GenTreeIndStoreObj* store, GenTree* value);
     void gtInitStructLclStore(GenTreeLclStore* store, GenTree* value);
 

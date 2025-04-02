@@ -1657,52 +1657,26 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned intArgRegNum = 0;
     unsigned fltArgRegNum = 0;
 
-    if (GenTreeCall::Use* thisUse = call->HasThisArg())
-    {
-        var_types argType = thisUse->GetNode()->GetType();
-        assert(!call->IsHelperCall());
-        assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, thisUse, 1);
-        argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
-        argInfo->SetArgType(argType);
-        call->fgArgInfo->AddArg(argInfo);
-        intArgRegNum++;
-#ifdef WINDOWS_AMD64_ABI
-        fltArgRegNum++;
-#endif
-        argIndex++;
-    }
-
 #ifdef TARGET_X86
-    unsigned maxRegArgs = MAX_REG_ARG; // X86: non-const, must be calculated
-
-#ifdef TARGET_WINDOWS
-    if (call->CallerPop())
-    {
-        noway_assert(intArgRegNum < MAX_REG_ARG);
-        // No more register arguments for varargs (CALL_POP_ARGS)
-        maxRegArgs = intArgRegNum;
-
-        if (call->HasRetBufArg())
-        {
-            maxRegArgs++;
-        }
-    }
-#endif
+    unsigned maxIntArgRegNum;
 
     if (call->IsUnmanaged())
     {
-        noway_assert(intArgRegNum == 0);
+        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
+        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
+               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
+        assert(!call->HasThisArg());
 
-        maxRegArgs = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-
-#ifdef UNIX_X86_ABI
-        if (call->HasRetBufArg())
-        {
-            maxRegArgs++;
-        }
-#endif
+        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
+    }
+    else if (call->IsVarargs())
+    {
+        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
+        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
+    }
+    else
+    {
+        maxIntArgRegNum = MAX_REG_ARG;
     }
 #endif // TARGET_X86
 
@@ -1745,6 +1719,23 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     regMaskTP intArgSkippedRegMask = RBM_NONE;
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
+
+    if (GenTreeCall::Use* thisUse = call->HasThisArg())
+    {
+        var_types argType = thisUse->GetNode()->GetType();
+        assert(!call->IsHelperCall());
+        assert(varTypeIsGC(argType) || (argType == TYP_I_IMPL));
+
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(0, thisUse, 1);
+        argInfo->SetRegNum(0, genMapIntRegArgNumToRegNum(intArgRegNum));
+        argInfo->SetArgType(argType);
+        call->fgArgInfo->AddArg(argInfo);
+        intArgRegNum++;
+#ifdef WINDOWS_AMD64_ABI
+        fltArgRegNum++;
+#endif
+        argIndex++;
+    }
 
     GenTreeCall::Use* args = call->m_args;
 
@@ -2017,7 +2008,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
             {
                 assert(size == 1);
-                isRegArg = intArgRegNum < maxRegArgs;
+                isRegArg = intArgRegNum < maxIntArgRegNum;
             }
 
             if (call->IsTailCallViaJitHelper())
