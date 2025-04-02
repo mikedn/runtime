@@ -4714,56 +4714,62 @@ public:
     GenTreeCall::Use* use;
 
 private:
-    GenTreeCall::Use* m_lateUse;
+    GenTreeCall::Use* m_lateUse = nullptr;
 
-    unsigned m_argNum; // The original argument number, also specifies the IL argument evaluation order
-
-    unsigned m_slotNum;   // When an argument is passed in the OutArg area this is the slot number in the OutArg area
-    unsigned m_slotCount; // Count of number of slots that this argument uses
-
-    unsigned m_tempLclNum; // the LclVar number if we had to force evaluation of this arg
-
-    var_types m_argType; // The type used to pass this argument. This is generally the original argument type, but when
-                         // a struct is passed as a scalar type, this is that type.
-                         // Note that if a struct is passed by reference, this will still be the struct type.
-
-    bool m_tempNeeded : 1; // True when we force this argument's evaluation into a temp LclVar
+    // The original argument number, also specifies the IL argument evaluation order
+    unsigned m_argNum;
+    // When an argument is passed in the OutArg area this is the slot number in the OutArg area
+    unsigned m_slotNum = 0;
+    // Count of number of slots that this argument uses
+    unsigned m_slotCount = 0;
+    // The temp local number if we had to force evaluation of this arg
+    unsigned m_tempLclNum = BAD_VAR_NUM;
+    // The type used to pass this argument. This is generally the original argument type, but when
+    // a struct is passed as a scalar type, this is that type.
+    // Note that if a struct is passed by reference, this will still be the struct type.
+    var_types m_argType = TYP_UNDEF;
+    // True when we force this argument's evaluation into a temp LclVar
+    bool m_tempNeeded : 1;
 #if FEATURE_FIXED_OUT_ARGS
-    bool m_placeholderNeeded : 1; // True when we must replace this argument with a placeholder node
+    // True when we must replace this argument with a placeholder node
+    bool m_placeholderNeeded : 1;
 #endif
-    bool m_isNonStandard : 1; // True if it is an arg that is passed in a reg other than a standard arg reg, or is
-                              // forced to be on the stack despite its arg list position.
+    // True if it is an arg that is passed in a reg other than a standard arg reg, or is
+    // forced to be on the stack despite its arg list position.
+    bool m_isNonStandard : 1;
 #ifdef TARGET_64BIT
     bool m_isImplicitByRef : 1;
 #endif
+#ifdef WINDOWS_X86_ABI
     bool m_isReturn : 1;
-
+#endif
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
     uint8_t m_regCount;
-
 #ifdef UNIX_AMD64_ABI
     // On unix-x64 arg registers may have different types so we need to store all of them.
-    var_types      m_regTypes[MAX_ARG_REG_COUNT];
-    regNumberSmall m_regNums[MAX_ARG_REG_COUNT];
+    var_types   m_regTypes[MAX_ARG_REG_COUNT];
+    RegNumSmall m_regNums[MAX_ARG_REG_COUNT];
 #else
 #ifdef FEATURE_HFA
-    var_types m_regType;
+    var_types m_regType = TYP_I_IMPL;
 #endif
     // Other multireg targets (ARM, ARM64) always use the same register type so it's enough
     // to store only the first register in arg info, the rest can be computed on the fly.
-    regNumberSmall m_regNum;
+    RegNumSmall m_regNum;
 #endif
 
 public:
-    CallArgInfo(unsigned argNum, GenTreeCall::Use* use, unsigned regCount, bool isReturn = false)
+    CallArgInfo(unsigned          argNum,
+                GenTreeCall::Use* use,
+                unsigned          regCount
+#if FEATURE_MULTIREG_RET
+                ,
+                bool isReturn = false
+#endif
+                )
         : use(use)
-        , m_lateUse(nullptr)
         , m_argNum(argNum)
-        , m_slotNum(0)
-        , m_slotCount(0)
-        , m_tempLclNum(BAD_VAR_NUM)
-        , m_argType(TYP_UNDEF)
         , m_tempNeeded(false)
 #if FEATURE_FIXED_OUT_ARGS
         , m_placeholderNeeded(false)
@@ -4772,13 +4778,16 @@ public:
 #ifdef TARGET_64BIT
         , m_isImplicitByRef(false)
 #endif
+#ifdef WINDOWS_X86_ABI
         , m_isReturn(isReturn)
-        , m_regCount(static_cast<uint8_t>(regCount))
-#ifdef FEATURE_HFA
-        , m_regType(TYP_I_IMPL)
 #endif
+        , m_regCount(static_cast<uint8_t>(regCount))
     {
+#ifdef WINDOWS_X86_ABI
         assert(regCount <= static_cast<unsigned>(isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
+#else
+        assert(regCount <= static_cast<unsigned>(MAX_ARG_REG_COUNT));
+#endif
     }
 
     // Get the use that corresponds to this argument.
@@ -4798,7 +4807,7 @@ public:
         return use->GetSigTypeNum();
     }
 
-    void SetNode(GenTree* node)
+    void SetNode(GenTree* node) const
     {
         GetUse()->SetNode(node);
     }
@@ -4966,7 +4975,7 @@ public:
         m_slotCount = slotCount;
     }
 
-    bool IsHfaArg()
+    bool IsHfaArg() const
     {
 #ifdef FEATURE_HFA
         return m_regType != TYP_I_IMPL;
@@ -4984,17 +4993,17 @@ public:
 #endif
     }
 
-    bool IsSingleRegOrSlot()
+    bool IsSingleRegOrSlot() const
     {
         return m_regCount + m_slotCount == 1;
     }
 
-    unsigned GetRegCount()
+    unsigned GetRegCount() const
     {
         return m_regCount;
     }
 
-    unsigned GetSlotCount()
+    unsigned GetSlotCount() const
     {
         return m_slotCount;
     }
@@ -5019,17 +5028,19 @@ public:
 #endif
     }
 
-    INDEBUG(void Dump() const;)
+#ifdef DEBUG
+    void Dump() const;
+#endif
 };
-
-typedef CallArgInfo fgArgTabEntry;
 
 class CallInfo
 {
-    CallArgInfo** argTable;         // variable sized array of per argument description: (i.e. argTable[argTableSize])
-    INDEBUG(unsigned argTableSize;) // size of argTable array (equal to the argCount when done with fgSetupArgs)
-    unsigned argCount;              // Updatable arg count value
-    unsigned nextSlotNum;           // Updatable slot count value
+    CallArgInfo** argTable; // variable sized array of per argument description: (i.e. argTable[argTableSize])
+#ifdef DEBUG
+    unsigned argTableSize; // size of argTable array (equal to the argCount when done with fgSetupArgs)
+#endif
+    unsigned argCount;    // Updatable arg count value
+    unsigned nextSlotNum; // Updatable slot count value
 
 #ifdef UNIX_X86_ABI
     unsigned stkSizeBytes;  // Size of stack used by this call, in bytes.
@@ -5118,10 +5129,10 @@ public:
     }
 #endif // defined(UNIX_X86_ABI)
 
+#ifdef DEBUG
     void Dump() const;
+#endif
 };
-
-typedef CallInfo fgArgInfo;
 
 struct GenTreeTernaryOp : public GenTreeOp
 {

@@ -588,11 +588,13 @@ bool Compiler::fgMorphNarrowTreeRec(GenTree* const tree, const var_types type, c
 #ifdef DEBUG
 void CallArgInfo::Dump() const
 {
+#ifdef WINDOWS_X86_ABI
     if (m_isReturn)
     {
         printf("return:");
     }
     else
+#endif
     {
         printf("arg %u:", m_argNum);
     }
@@ -707,12 +709,12 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 
     if (argCount > 0)
     {
-        argTable = new (compiler, CMK_CallInfo) fgArgTabEntry*[argCount];
+        argTable = new (compiler, CMK_CallInfo) CallArgInfo*[argCount];
 
         // Copy the old arg entries
         for (unsigned i = 0; i < argCount; i++)
         {
-            argTable[i] = new (compiler, CMK_CallInfo) fgArgTabEntry(*oldArgInfo->argTable[i]);
+            argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
         }
 
         // The copied arg entries contain pointers to old uses, they need
@@ -6585,9 +6587,9 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
             else
             {
                 // This is an actual argument that needs to be assigned to the corresponding caller parameter.
-                fgArgTabEntry* curArgTabEntry = recursiveTailCall->GetArgInfoByArgNum(earlyArgIndex);
-                Statement*     paramAssignStmt =
-                    fgAssignRecursiveCallArgToCallerParam(earlyArg, curArgTabEntry, block, callILOffset,
+                CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByArgNum(earlyArgIndex);
+                Statement*   paramAssignStmt =
+                    fgAssignRecursiveCallArgToCallerParam(earlyArg, argInfo, block, callILOffset,
                                                           tmpAssignmentInsertionPoint, paramAssignmentInsertionPoint);
                 if ((tmpAssignmentInsertionPoint == lastStmt) && (paramAssignStmt != nullptr))
                 {
@@ -6603,11 +6605,11 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     for (GenTreeCall::Use& use : recursiveTailCall->LateArgs())
     {
         // A late argument is an actual argument that needs to be assigned to the corresponding caller's parameter.
-        GenTree*       lateArg        = use.GetNode();
-        fgArgTabEntry* curArgTabEntry = recursiveTailCall->GetArgInfoByLateArgUse(&use);
-        Statement*     paramAssignStmt =
-            fgAssignRecursiveCallArgToCallerParam(lateArg, curArgTabEntry, block, callILOffset,
-                                                  tmpAssignmentInsertionPoint, paramAssignmentInsertionPoint);
+        GenTree*     lateArg = use.GetNode();
+        CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByLateArgUse(&use);
+        Statement*   paramAssignStmt =
+            fgAssignRecursiveCallArgToCallerParam(lateArg, argInfo, block, callILOffset, tmpAssignmentInsertionPoint,
+                                                  paramAssignmentInsertionPoint);
 
         if ((tmpAssignmentInsertionPoint == lastStmt) && (paramAssignStmt != nullptr))
         {
@@ -6734,25 +6736,25 @@ void Compiler::fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
 //
 // Returns the parameter store statement if one was inserted; nullptr otherwise.
 
-Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
-                                                           fgArgTabEntry* argTabEntry,
-                                                           BasicBlock*    block,
-                                                           IL_OFFSETX     callILOffset,
-                                                           Statement*     tmpStoreInsertionPoint,
-                                                           Statement*     paramStoreInsertionPoint)
+Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*     arg,
+                                                           CallArgInfo* argInfo,
+                                                           BasicBlock*  block,
+                                                           IL_OFFSETX   callILOffset,
+                                                           Statement*   tmpStoreInsertionPoint,
+                                                           Statement*   paramStoreInsertionPoint)
 {
     // Call arguments should be stored to temps first and then the temps should be
     // stored to parameters because some argument trees may reference parameters
     // directly.
 
     GenTree*   argInTemp             = nullptr;
-    LclVarDsc* originalArgLcl        = lvaGetDesc(argTabEntry->GetArgNum());
+    LclVarDsc* originalArgLcl        = lvaGetDesc(argInfo->GetArgNum());
     bool       needToAssignParameter = true;
 
     // TODO-CQ: enable calls with struct arguments passed in registers.
     noway_assert(!varTypeIsStruct(arg->GetType()));
 
-    if (argTabEntry->HasTemp() || arg->IsIntCon() || arg->IsDblCon())
+    if (argInfo->HasTemp() || arg->IsIntCon() || arg->IsDblCon())
     {
         // The argument is already stored to a temp or is a const.
         argInTemp = arg;
@@ -6778,29 +6780,31 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
     // any caller parameters. Some common cases are handled above but we may be able to eliminate
     // more temp stores.
 
-    Statement* paramStoreStmt = nullptr;
-    if (needToAssignParameter)
+    if (!needToAssignParameter)
     {
-        if (argInTemp == nullptr)
-        {
-            // The argument is not stored to a temp. We need to create a new temp and insert a store.
-            // TODO: we can avoid a temp store if we can prove that the argument tree
-            // doesn't involve any caller parameters.
-            LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
-
-            GenTreeLclStore* tmpStore     = gtNewLclStore(tmpLcl, arg->GetType(), arg);
-            Statement*       tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
-            fgInsertStmtBefore(block, tmpStoreInsertionPoint, tmpStoreStmt);
-            argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
-        }
-
-        // Now store the temp to the parameter.
-        assert(originalArgLcl->IsParam());
-        GenTreeLclStore* paramStore = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
-        paramStoreStmt              = gtNewStmt(paramStore, callILOffset);
-
-        fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
+        return nullptr;
     }
+
+    if (argInTemp == nullptr)
+    {
+        // The argument is not stored to a temp. We need to create a new temp and insert a store.
+        // TODO: we can avoid a temp store if we can prove that the argument tree
+        // doesn't involve any caller parameters.
+        LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
+
+        GenTreeLclStore* tmpStore     = gtNewLclStore(tmpLcl, arg->GetType(), arg);
+        Statement*       tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
+        fgInsertStmtBefore(block, tmpStoreInsertionPoint, tmpStoreStmt);
+        argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
+    }
+
+    // Now store the temp to the parameter.
+    assert(originalArgLcl->IsParam());
+    GenTreeLclStore* paramStore     = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
+    Statement*       paramStoreStmt = gtNewStmt(paramStore, callILOffset);
+
+    fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
+
     return paramStoreStmt;
 }
 

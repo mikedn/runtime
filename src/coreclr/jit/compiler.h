@@ -4445,12 +4445,12 @@ private:
     GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
     void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
     void fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
-    Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*       arg,
-                                                     fgArgTabEntry* argTabEntry,
-                                                     BasicBlock*    block,
-                                                     IL_OFFSETX     callILOffset,
-                                                     Statement*     tmpAssignmentInsertionPoint,
-                                                     Statement*     paramAssignmentInsertionPoint);
+    Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*     arg,
+                                                     CallArgInfo* argInfo,
+                                                     BasicBlock*  block,
+                                                     IL_OFFSETX   callILOffset,
+                                                     Statement*   tmpAssignmentInsertionPoint,
+                                                     Statement*   paramAssignmentInsertionPoint);
     GenTree* fgMorphCall(GenTreeCall* call, Statement* stmt);
     GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
     GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
