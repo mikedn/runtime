@@ -3700,9 +3700,6 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->SetIntrinsic(NI_Illegal);
     call->gtCallMoreFlags       = GTF_CALL_M_NONE;
     call->gtInlineCandidateInfo = nullptr;
-#ifdef UNIX_X86_ABI
-    call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
 
 #if DEBUG
     call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER;
@@ -3752,9 +3749,6 @@ GenTreeCall* Compiler::gtNewCallNode(
     CallKind kind, void* target, var_types type, GenTreeCall::Use* args, IL_OFFSETX ilOffset)
 {
     GenTreeCall* node = new (this, GT_CALL) GenTreeCall(type, args);
-#ifdef UNIX_X86_ABI
-    node->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
 
     if (kind == CT_INDIRECT)
     {
@@ -6905,14 +6899,6 @@ void Compiler::gtDispTreeRec(
                 printf("%s%s", separator, CallConvName(call->GetCallConv()));
                 separator = ", ";
             }
-
-#ifdef TARGET_X86
-            if (call->CallerPop())
-            {
-                printf("%spopargs", separator);
-                separator = ", ";
-            }
-#endif
 
             if (call->IsTailCall())
             {

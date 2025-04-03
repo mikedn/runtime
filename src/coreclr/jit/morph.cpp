@@ -1667,7 +1667,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
     }
-    else if (call->IsVarargs())
+    else if (callIsVararg)
     {
         // Varargs passes all args on stack, with the exception of "this" and ret buf args.
         maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
@@ -6477,7 +6477,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     call->SetCallAddr(nullptr);
     call->m_entryPointAccessType = IAT_VALUE;
     call->m_entryPointAddr       = nullptr;
-    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV | GTF_CALL_POP_ARGS);
+    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
     // Technically this call does not return but some other code expects "no return" only on "user" calls.
     call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY);
     call->fgArgInfo = nullptr;

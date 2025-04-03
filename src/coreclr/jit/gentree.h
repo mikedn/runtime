@@ -395,22 +395,18 @@ enum GenTreeFlags : unsigned
                                             // (CALLs and some LONG operations on 32 bit - MUL_LONG, BITCAST)
                                             // returns its result in multiple registers such as a long multiply)
     GTF_VAR_CLONED            = 0x00400000, // Node has been cloned (used by inliner to detect single use params)
-    GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_VAR)
+    GTF_VAR_CONTEXT           = 0x00200000, // Node is part of a runtime lookup tree (LCL_LOAD)
                               
     // CALL specific flags
 
-    GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the below call kinds
     GTF_CALL_VIRT_VTABLE      = 0x10000000, // Vtable-based virtual call
     GTF_CALL_VSTUB_DIRECT     = 0x20000000, // Direct Stub-dispatch virtual call
     GTF_CALL_VSTUB_INDIRECT   = 0x30000000, // Indirect Stub-dispatch virtual call
+    GTF_CALL_VIRT_KIND_MASK   = 0x30000000, // Mask of the above call kinds
     GTF_CALL_DELEGATE_INV     = 0x40000000, // call to Delegate.Invoke
-
-    GTF_CALL_NULLCHECK        = 0x08000000, // Null check `this`
-#ifdef TARGET_X86
-    GTF_CALL_POP_ARGS         = 0x04000000, // Caller pops arguments
-#endif
-    GTF_CALL_HOISTABLE        = 0x02000000, // Hoistable call (known helper calls)
-    GTF_CALL_INLINE_CANDIDATE = 0x01000000, // Inline candidate
+    GTF_CALL_NULLCHECK        = 0x80000000, // Null check first arg
+    GTF_CALL_HOISTABLE        = 0x01000000, // Hoistable call (known helper calls)
+    GTF_CALL_INLINE_CANDIDATE = 0x02000000, // Inline candidate
 
     // MEMORYBARRIER specific flags
 
@@ -4253,7 +4249,12 @@ public:
 #ifdef TARGET_X86
     bool CallerPop() const
     {
-        return (gtFlags & GTF_CALL_POP_ARGS) != 0;
+        // TODO-MIKE-Cleanup: Just mark CORINFO_HELP_NEW_MDARR varargs? That's basically
+        // what it is but some parts of JIT may not like that. Note that the varargs check
+        // is redundant for unmanaged calls as those should use the C calling convention
+        // which is already "caller pop". But it's not redundant for managed calls, that
+        // use the Frankenstein calling convention.
+        return IsCallerPop(GetCallConv()) || IsHelperCall(CORINFO_HELP_NEW_MDARR) || IsVarargs();
     }
 #endif
 

@@ -4763,10 +4763,6 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
 #endif
 
         call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR, TYP_REF, args);
-
-#ifdef TARGET_X86
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
     }
 
     call->m_retClassHandle = resolvedToken->hClass;
@@ -5031,13 +5027,6 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
     {
         BADCODE("Instance method without 'this' param");
     }
-
-#ifdef TARGET_X86
-    if (IsCallerPop(callConv))
-    {
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-    }
-#endif
 }
 
 GenTreeCall* Importer::impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset)
@@ -6512,10 +6501,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
 
-#ifdef TARGET_X86
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
-
         // CALLI already has the correct signature, for other opcodes we need to switch to
         // the call site signature to get the correct number of args.
 
@@ -6559,11 +6544,6 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
     }
     else
     {
-#ifdef UNIX_X86_ABI
-        call->gtFlags |= GTF_CALL_POP_ARGS;
-#endif
-        // Create the argument list
-
         GenTree* extraArg = nullptr;
 
         if (sig->hasTypeArg())
