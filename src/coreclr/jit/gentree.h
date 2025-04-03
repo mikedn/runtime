@@ -2107,9 +2107,7 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldList, GenTree)
 };
 
-//------------------------------------------------------------------------
-// GenTreeUseEdgeIterator: an iterator that will produce each use edge of a GenTree node in the order in which
-//                         they are used.
+// An iterator that will produce each use edge of a GenTree node in the order in which they are used.
 //
 // Operand iteration is common enough in the back end of the compiler that the implementation of this type has
 // traded some simplicity for speed:
@@ -2121,18 +2119,12 @@ public:
 //
 class GenTreeUseEdgeIterator final
 {
-    enum CallState
-    {
-        CALL_ARGS,
-        CALL_LATE_ARGS
-    };
-
     typedef GenTree** (GenTreeUseEdgeIterator::*AdvanceFn)();
 
-    AdvanceFn m_advance  = nullptr;
-    GenTree*  m_node     = nullptr;
-    GenTree** m_edge     = nullptr;
-    void*     m_statePtr = nullptr;
+    AdvanceFn m_advance = nullptr;
+    GenTree*  m_node    = nullptr;
+    GenTree** m_edge    = nullptr;
+    void*     m_state   = nullptr;
 
     GenTree** AdvanceBinOp0();
     GenTree** AdvanceBinOp1();
@@ -2146,8 +2138,8 @@ class GenTreeUseEdgeIterator final
     GenTree** AdvanceHWIntrinsicReverseOp();
 #endif
 
-    template <CallState state>
-    GenTree**           AdvanceCall();
+    GenTree** AdvanceCallArgs();
+    GenTree** AdvanceCallLateArgs();
 
     GenTree** Terminate()
     {

@@ -4976,8 +4976,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 {
     assert(m_node != nullptr);
 
-    // NOTE: the switch statement below must be updated when introducing new nodes.
-
     switch (m_node->GetOper())
     {
         // Leaf nodes
@@ -5096,27 +5094,27 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
             return;
 
         case GT_FIELD_LIST:
-            m_statePtr = m_node->AsFieldList()->Uses().GetHead();
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceFieldList;
-            m_edge     = AdvanceFieldList();
+            m_state   = m_node->AsFieldList()->Uses().GetHead();
+            m_advance = &GenTreeUseEdgeIterator::AdvanceFieldList;
+            m_edge    = AdvanceFieldList();
             return;
 
         case GT_PHI:
-            m_statePtr = m_node->AsPhi()->Uses().GetHead();
-            m_advance  = &GenTreeUseEdgeIterator::AdvancePhi;
-            m_edge     = AdvancePhi();
+            m_state   = m_node->AsPhi()->Uses().GetHead();
+            m_advance = &GenTreeUseEdgeIterator::AdvancePhi;
+            m_edge    = AdvancePhi();
             return;
 
         case GT_ARR_ELEM:
-            m_statePtr = m_node->AsArrElem()->Uses().begin();
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceArrElem;
-            m_edge     = AdvanceArrElem();
+            m_state   = m_node->AsArrElem()->Uses().begin();
+            m_advance = &GenTreeUseEdgeIterator::AdvanceArrElem;
+            m_edge    = AdvanceArrElem();
             return;
 
         case GT_INSTR:
-            m_statePtr = m_node->AsInstr()->Uses().begin();
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceInstr;
-            m_edge     = AdvanceInstr();
+            m_state   = m_node->AsInstr()->Uses().begin();
+            m_advance = &GenTreeUseEdgeIterator::AdvanceInstr;
+            m_edge    = AdvanceInstr();
             return;
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -5128,17 +5126,17 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
             }
             else
             {
-                m_statePtr = m_node->AsHWIntrinsic()->Uses().begin();
-                m_advance  = &GenTreeUseEdgeIterator::AdvanceHWIntrinsic;
-                m_edge     = AdvanceHWIntrinsic();
+                m_state   = m_node->AsHWIntrinsic()->Uses().begin();
+                m_advance = &GenTreeUseEdgeIterator::AdvanceHWIntrinsic;
+                m_edge    = AdvanceHWIntrinsic();
             }
             return;
 #endif // FEATURE_HW_INTRINSICS
 
         case GT_CALL:
-            m_statePtr = m_node->AsCall()->m_args;
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceCall<CALL_ARGS>;
-            m_edge     = AdvanceCall<CALL_ARGS>();
+            m_state   = m_node->AsCall()->m_args;
+            m_advance = &GenTreeUseEdgeIterator::AdvanceCallArgs;
+            m_edge    = AdvanceCallArgs();
             return;
 
         case GT_LEA:
@@ -5177,10 +5175,10 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 
 GenTree** GenTreeUseEdgeIterator::AdvanceTernaryOp()
 {
-    if (m_statePtr == nullptr)
+    if (m_state == nullptr)
     {
         // Just store any non-null value to get to the next operand.
-        m_statePtr = m_node;
+        m_state = m_node;
         return &m_node->AsTernaryOp()->gtOp2;
     }
 
@@ -5190,67 +5188,67 @@ GenTree** GenTreeUseEdgeIterator::AdvanceTernaryOp()
 
 GenTree** GenTreeUseEdgeIterator::AdvancePhi()
 {
-    if (m_statePtr == nullptr)
+    if (m_state == nullptr)
     {
         return nullptr;
     }
 
-    GenTreePhi::Use* use  = static_cast<GenTreePhi::Use*>(m_statePtr);
+    GenTreePhi::Use* use  = static_cast<GenTreePhi::Use*>(m_state);
     GenTree**        edge = &use->NodeRef();
-    m_statePtr            = use->GetNext();
+    m_state               = use->GetNext();
     return edge;
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceFieldList()
 {
-    if (m_statePtr == nullptr)
+    if (m_state == nullptr)
     {
         return nullptr;
     }
 
-    GenTreeFieldList::Use* use  = static_cast<GenTreeFieldList::Use*>(m_statePtr);
+    GenTreeFieldList::Use* use  = static_cast<GenTreeFieldList::Use*>(m_state);
     GenTree**              edge = &use->NodeRef();
-    m_statePtr                  = use->GetNext();
+    m_state                     = use->GetNext();
     return edge;
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceArrElem()
 {
-    if (m_statePtr == m_node->AsArrElem()->Uses().end())
+    if (m_state == m_node->AsArrElem()->Uses().end())
     {
         return nullptr;
     }
 
-    GenTreeArrElem::Use* use  = static_cast<GenTreeArrElem::Use*>(m_statePtr);
+    GenTreeArrElem::Use* use  = static_cast<GenTreeArrElem::Use*>(m_state);
     GenTree**            edge = &use->NodeRef();
-    m_statePtr                = use + 1;
+    m_state                   = use + 1;
     return edge;
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceInstr()
 {
-    if (m_statePtr == m_node->AsInstr()->Uses().end())
+    if (m_state == m_node->AsInstr()->Uses().end())
     {
         return nullptr;
     }
 
-    GenTreeInstr::Use* use  = static_cast<GenTreeInstr::Use*>(m_statePtr);
+    GenTreeInstr::Use* use  = static_cast<GenTreeInstr::Use*>(m_state);
     GenTree**          edge = &use->NodeRef();
-    m_statePtr              = use + 1;
+    m_state                 = use + 1;
     return edge;
 }
 
 #ifdef FEATURE_HW_INTRINSICS
 GenTree** GenTreeUseEdgeIterator::AdvanceHWIntrinsic()
 {
-    if (m_statePtr == m_node->AsHWIntrinsic()->Uses().end())
+    if (m_state == m_node->AsHWIntrinsic()->Uses().end())
     {
         return nullptr;
     }
 
-    GenTreeHWIntrinsic::Use* use  = static_cast<GenTreeHWIntrinsic::Use*>(m_statePtr);
+    GenTreeHWIntrinsic::Use* use  = static_cast<GenTreeHWIntrinsic::Use*>(m_state);
     GenTree**                edge = &use->NodeRef();
-    m_statePtr                    = use + 1;
+    m_state                       = use + 1;
     return edge;
 }
 
@@ -5273,39 +5271,35 @@ GenTree** GenTreeUseEdgeIterator::AdvanceBinOp1()
     return &m_node->AsOp()->gtOp2;
 }
 
-template <GenTreeUseEdgeIterator::CallState state>
-GenTree**                                   GenTreeUseEdgeIterator::AdvanceCall()
+GenTree** GenTreeUseEdgeIterator::AdvanceCallArgs()
 {
-    GenTreeCall* const call = m_node->AsCall();
-
-    switch (state)
+    if (m_state != nullptr)
     {
-        case CALL_ARGS:
-            if (m_statePtr != nullptr)
-            {
-                GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_statePtr);
-                GenTree**         edge = &use->NodeRef();
-                m_statePtr             = use->GetNext();
-                return edge;
-            }
-            m_statePtr = call->gtCallLateArgs;
-            m_advance  = &GenTreeUseEdgeIterator::AdvanceCall<CALL_LATE_ARGS>;
-            FALLTHROUGH;
-
-        case CALL_LATE_ARGS:
-            if (m_statePtr != nullptr)
-            {
-                GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_statePtr);
-                GenTree**         edge = &use->NodeRef();
-                m_statePtr             = use->GetNext();
-                return edge;
-            }
-            FALLTHROUGH;
-
-        default:
-            m_advance = &GenTreeUseEdgeIterator::Terminate;
-            return call->GetCallAddr() != nullptr ? &call->m_callAddr : nullptr;
+        GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_state);
+        GenTree**         edge = &use->NodeRef();
+        m_state                = use->GetNext();
+        return edge;
     }
+
+    m_advance = &GenTreeUseEdgeIterator::AdvanceCallLateArgs;
+    m_state   = m_node->AsCall()->gtCallLateArgs;
+
+    return AdvanceCallLateArgs();
+}
+
+GenTree** GenTreeUseEdgeIterator::AdvanceCallLateArgs()
+{
+    if (m_state != nullptr)
+    {
+        GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_state);
+        GenTree**         edge = &use->NodeRef();
+        m_state                = use->GetNext();
+        return edge;
+    }
+
+    m_advance               = &GenTreeUseEdgeIterator::Terminate;
+    GenTreeCall* const call = m_node->AsCall();
+    return call->GetCallAddr() != nullptr ? &call->m_callAddr : nullptr;
 }
 
 GenTreeUseEdgeIterator GenTree::UseEdgesBegin()
