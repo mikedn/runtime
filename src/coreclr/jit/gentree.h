@@ -4107,14 +4107,6 @@ public:
         gtCallMoreFlags |= GTF_CALL_M_HAS_THIS_ARG;
     }
 
-    void RemoveThisArg()
-    {
-        assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
-
-        m_args = m_args->GetNext();
-        gtCallMoreFlags &= ~GTF_CALL_M_HAS_THIS_ARG;
-    }
-
     GenTreeCall::Use* GetThisArg() const
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);

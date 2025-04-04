@@ -6015,10 +6015,8 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         call->fgArgInfo = nullptr;
     }
 
-    if (GenTreeCall::Use* thisUse = call->HasThisArg())
+    if (call->HasThisArg())
     {
-        call->RemoveThisArg();
-        call->PrependArg(thisUse);
         call->fgArgInfo = nullptr;
     }
 
@@ -6066,7 +6064,7 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
     call->SetIntrinsic(NI_Illegal);
     call->ClearEntryPoint();
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
-    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_EXPLICIT_TAILCALL | GTF_CALL_M_HAS_THIS_ARG);
 #if FEATURE_TAILCALL_OPT
     call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
 #endif
@@ -6327,7 +6325,7 @@ bool Compiler::fgCanTailCallViaJitHelper()
 
 GenTree* Compiler::fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call)
 {
-    GenTreeCall::Use* delegateThisUse = call->m_args;
+    GenTreeCall::Use* delegateThisUse = call->GetThisArg();
     GenTreeLclLoad*   delegateThis    = delegateThisUse->GetNode()->AsLclLoad();
     GenTree*          thisOffset      = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
     GenTree*          targetThisAddr  = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);
@@ -6390,8 +6388,6 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     // We do this by spilling `this` to a temp, if it's not already a local.
     if (GenTreeCall::Use* thisUse = call->HasThisArg())
     {
-        call->RemoveThisArg();
-
         GenTree* thisArg = thisUse->GetNode();
 
         // The runtime requires that we perform a null check on the `this` argument before tail
@@ -6415,8 +6411,6 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
                 thisUse->SetNode(thisArg);
             }
         }
-
-        call->PrependArg(thisUse);
     }
 
     // The tailcall helper has 4 extra arguments:
@@ -6479,7 +6473,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
     call->m_entryPointAddr       = nullptr;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
     // Technically this call does not return but some other code expects "no return" only on "user" calls.
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY);
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY | GTF_CALL_M_HAS_THIS_ARG);
     call->fgArgInfo = nullptr;
 
     gtAppendCallArgs(call, gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg));
