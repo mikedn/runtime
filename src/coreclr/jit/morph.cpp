@@ -1722,9 +1722,9 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned fltArgRegNum = 0;
     unsigned argIndex     = 0;
 
-    for (GenTreeCall::Use *args = call->m_args; args != nullptr; args = args->GetNext(), argIndex++)
+    for (GenTreeCall::Use& args : call->AllArgs())
     {
-        GenTree* const  argNode = args->GetNode();
+        GenTree* const  argNode = args.GetNode();
         var_types const argType = argNode->GetType();
 
         // We should not have setup the arguments yet
@@ -1733,8 +1733,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
         unsigned     argAlign        = 1;
-        const bool   isStructArg     = typIsLayoutNum(args->GetSigTypeNum());
-        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args->GetSigTypeNum()) : nullptr;
+        const bool   isStructArg     = typIsLayoutNum(args.GetSigTypeNum());
+        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
         unsigned     structSize      = 0;
         var_types    structBaseType  = TYP_STRUCT;
         bool         passStructByRef = false;
@@ -1797,7 +1797,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else
         {
-            sigType = static_cast<var_types>(args->GetSigTypeNum());
+            sigType = static_cast<var_types>(args.GetSigTypeNum());
 
             // The signature type should type should never be STRUCT, for struct params we should have
             // a layout instead. If it is then it's likely that we have a helper call with struct params.
@@ -2035,9 +2035,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
 #endif // TARGET_ARM
 
-        CallArgInfo* argInfo;
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
 
-        if (isRegArg)
+        if (!isRegArg)
+        {
+            argInfo->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
+        }
+        else
         {
             RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
 
@@ -2131,7 +2135,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             }
 #endif
 
-            argInfo = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, regCount);
+            argInfo->SetRegCount(regCount);
             argInfo->SetRegNum(0, regs[0]);
             argInfo->SetNonStandard(nonStdRegNum != REG_NA);
 
@@ -2172,11 +2176,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
                 argInfo->SetSlots(firstSlot, slotCount);
             }
 #endif
-        }
-        else
-        {
-            argInfo = new (this, CMK_CallInfo) CallArgInfo(argIndex, args, 0);
-            argInfo->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
         }
 
         if (isStructArg)
@@ -10948,7 +10947,8 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 
         GenTreeCall::Use use(val);
         use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
-        CallArgInfo argInfo(0, &use, info.retDesc.GetRegCount(), true);
+        CallArgInfo argInfo(&use, 0, true);
+        argInfo.SetRegCount(info.retDesc.GetRegCount());
         argInfo.SetArgType(val->GetType());
 
 #ifdef UNIX_AMD64_ABI

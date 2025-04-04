@@ -4725,7 +4725,7 @@ private:
 #endif
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
-    uint8_t m_regCount;
+    uint8_t m_regCount = 0;
 #ifdef UNIX_AMD64_ABI
     // On unix-x64 arg registers may have different types so we need to store all of them.
     var_types   m_regTypes[MAX_ARG_REG_COUNT];
@@ -4740,9 +4740,8 @@ private:
 #endif
 
 public:
-    CallArgInfo(unsigned          argNum,
-                GenTreeCall::Use* use,
-                unsigned          regCount
+    CallArgInfo(GenTreeCall::Use* use,
+                unsigned          argNum
 #if FEATURE_MULTIREG_RET
                 ,
                 bool isReturn = false
@@ -4761,13 +4760,7 @@ public:
 #ifdef WINDOWS_X86_ABI
         , m_isReturn(isReturn)
 #endif
-        , m_regCount(static_cast<uint8_t>(regCount))
     {
-#ifdef WINDOWS_X86_ABI
-        assert(regCount <= static_cast<unsigned>(isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
-#else
-        assert(regCount <= static_cast<unsigned>(MAX_ARG_REG_COUNT));
-#endif
     }
 
     // Get the use that corresponds to this argument.
@@ -4874,6 +4867,16 @@ public:
     void SetNonStandard(bool isNonStandard)
     {
         m_isNonStandard = isNonStandard;
+    }
+
+    void SetRegCount(unsigned regCount)
+    {
+#ifdef WINDOWS_X86_ABI
+        assert(regCount <= static_cast<unsigned>(m_isReturn ? MAX_RET_REG_COUNT : MAX_ARG_REG_COUNT));
+#else
+        assert(regCount <= static_cast<unsigned>(MAX_ARG_REG_COUNT));
+#endif
+        m_regCount = static_cast<uint8_t>(regCount);
     }
 
 #ifdef UNIX_AMD64_ABI

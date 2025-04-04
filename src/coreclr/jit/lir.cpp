@@ -1633,8 +1633,9 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
             lastLateArg = lateArg;
         }
 
-        CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(argNum, &arg, 1);
+        CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(&arg, argNum);
         argInfo->SetArgType(argNode->GetType());
+        argInfo->SetRegCount(1);
         argInfo->SetRegNum(0, argRegs[argNum]);
         argInfo->SetLateUse(lateArg);
         info->AddArg(argInfo);
