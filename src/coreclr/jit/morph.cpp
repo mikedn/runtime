@@ -6490,177 +6490,119 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
 }
 #endif // TARGET_X86
 
-//------------------------------------------------------------------------------
-// fgMorphRecursiveFastTailCallIntoLoop : Transform a recursive fast tail call into a loop.
-//
-//
-// Arguments:
-//    block  - basic block ending with a recursive fast tail call
-//    recursiveTailCall - recursive tail call to transform
-//
-// Notes:
-//    The legality of the transformation is ensured by the checks in endsWithTailCallConvertibleToLoop.
-
-void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall)
+void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* call)
 {
-    assert(recursiveTailCall->IsTailCallConvertibleToLoop());
+    assert(call->IsTailCallConvertibleToLoop());
     Statement* lastStmt = block->lastStmt();
-    assert(recursiveTailCall == lastStmt->GetRootNode());
-
-    // Transform recursive tail call into a loop.
-
-    Statement* earlyArgInsertionPoint = lastStmt;
-    IL_OFFSETX callILOffset           = lastStmt->GetILOffsetX();
-    unsigned   earlyArgIndex          = 0;
-
-    // Hoist arg setup statement for the 'this' argument.
-    if (GenTreeCall::Use* thisUse = recursiveTailCall->HasThisArg())
-    {
-        earlyArgIndex++;
-
-        if (!thisUse->GetNode()->IsNothingNode() && !thisUse->GetNode()->OperIs(GT_ARGPLACE))
-        {
-            Statement* thisArgStmt = gtNewStmt(thisUse->GetNode(), callILOffset);
-            fgInsertStmtBefore(block, earlyArgInsertionPoint, thisArgStmt);
-        }
-    }
+    assert(call == lastStmt->GetRootNode());
 
     // All arguments whose trees may involve caller parameter local variables need to be assigned to temps first;
-    // then the temps need to be assigned to the method parameters. This is done so that the caller
-    // parameters are not re-assigned before call arguments depending on them  are evaluated.
-    // tmpStoreInsertionPoint and paramStoreInsertionPoint keep track of
-    // where the next temp or parameter store should be inserted.
+    // then the temps need to be assigned to the method parameters. This is done so that the caller parameters are
+    // not re-assigned before call arguments depending on them are evaluated.
+    // tmpStoreInsertionPoint and paramStoreInsertionPoint keep track of where the next temp or parameter store
+    // should be inserted.
 
-    // In the example below the first call argument (arg1 - 1) needs to be assigned to a temp first
-    // while the second call argument (const 1) doesn't.
-    // Basic block before tail recursion elimination:
-    //  ***** BB04, stmt 1 (top level)
-    //  [000037] ------------             *  stmtExpr  void  (top level) (IL 0x00A...0x013)
-    //  [000033] --C - G------ - \--*  call      void   RecursiveMethod
-    //  [000030] ------------ | / --*  const     int - 1
-    //  [000031] ------------arg0 in rcx + --*  +int
-    //  [000029] ------------ | \--*  lclVar    int    V00 arg1
-    //  [000032] ------------arg1 in rdx    \--*  const     int    1
-    //
-    //
-    //  Basic block after tail recursion elimination :
-    //  ***** BB04, stmt 1 (top level)
-    //  [000051] ------------             *  stmtExpr  void  (top level) (IL 0x00A... ? ? ? )
-    //  [000030] ------------ | / --*  const     int - 1
-    //  [000031] ------------ | / --*  +int
-    //  [000029] ------------ | | \--*  lclVar    int    V00 arg1
-    //  [000050] - A----------             \--* = int
-    //  [000049] D------N----                \--*  lclVar    int    V02 tmp0
-    //
-    //  ***** BB04, stmt 2 (top level)
-    //  [000055] ------------             *  stmtExpr  void  (top level) (IL 0x00A... ? ? ? )
-    //  [000052] ------------ | / --*  lclVar    int    V02 tmp0
-    //  [000054] - A----------             \--* = int
-    //  [000053] D------N----                \--*  lclVar    int    V00 arg0
+    Statement* earlyArgInsertionPoint   = lastStmt;
+    Statement* tempStoreInsertionPoint  = lastStmt;
+    Statement* paramStoreInsertionPoint = lastStmt;
+    IL_OFFSETX ilOffset                 = lastStmt->GetILOffsetX();
+    unsigned   argIndex                 = 0;
 
-    //  ***** BB04, stmt 3 (top level)
-    //  [000058] ------------             *  stmtExpr  void  (top level) (IL 0x00A... ? ? ? )
-    //  [000032] ------------ | / --*  const     int    1
-    //  [000057] - A----------             \--* = int
-    //  [000056] D------N----                \--*  lclVar    int    V01 arg1
-
-    Statement* tmpAssignmentInsertionPoint   = lastStmt;
-    Statement* paramAssignmentInsertionPoint = lastStmt;
-
-    // Process early args. They may contain both setup statements for late args and actual args.
-    // Early args don't include 'this' arg. We need to account for that so that the call to gtArgEntryByArgNum
-    // below has the correct second argument.
-    for (GenTreeCall::Use& use : recursiveTailCall->Args())
+    for (GenTreeCall::Use& use : call->AllArgs())
     {
-        GenTree* earlyArg = use.GetNode();
-        if (!earlyArg->IsNothingNode() && !earlyArg->OperIs(GT_ARGPLACE))
+        GenTree* argNode = use.GetNode();
+
+        if (!argNode->IsNothingNode() && !argNode->OperIs(GT_ARGPLACE))
         {
             // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
             // and the linear search it performs...
-            CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByArgNode(earlyArg);
+
+            CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
+
             if (argInfo->HasLateUse())
             {
                 // This is a setup node so we need to hoist it.
-                Statement* earlyArgStmt = gtNewStmt(earlyArg, callILOffset);
-                fgInsertStmtBefore(block, earlyArgInsertionPoint, earlyArgStmt);
+                fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
             }
             else
             {
-                // This is an actual argument that needs to be assigned to the corresponding caller parameter.
-                CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByArgNum(earlyArgIndex);
-                Statement*   paramAssignStmt =
-                    fgAssignRecursiveCallArgToCallerParam(earlyArg, argInfo, block, callILOffset,
-                                                          tmpAssignmentInsertionPoint, paramAssignmentInsertionPoint);
-                if ((tmpAssignmentInsertionPoint == lastStmt) && (paramAssignStmt != nullptr))
+                // This is an actual argument that needs to be stored to the corresponding caller parameter.
+                CallArgInfo* argInfo = call->GetArgInfoByArgNum(argIndex);
+                Statement*   paramStoreStmt =
+                    fgAssignRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
+                                                          paramStoreInsertionPoint);
+
+                if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
                 {
                     // All temp assignments will happen before the first param store.
-                    tmpAssignmentInsertionPoint = paramAssignStmt;
+                    tempStoreInsertionPoint = paramStoreStmt;
                 }
             }
         }
-        earlyArgIndex++;
+
+        argIndex++;
     }
 
-    // Process late args.
-    for (GenTreeCall::Use& use : recursiveTailCall->LateArgs())
+    for (GenTreeCall::Use& use : call->LateArgs())
     {
-        // A late argument is an actual argument that needs to be assigned to the corresponding caller's parameter.
-        GenTree*     lateArg = use.GetNode();
-        CallArgInfo* argInfo = recursiveTailCall->GetArgInfoByLateArgUse(&use);
-        Statement*   paramAssignStmt =
-            fgAssignRecursiveCallArgToCallerParam(lateArg, argInfo, block, callILOffset, tmpAssignmentInsertionPoint,
-                                                  paramAssignmentInsertionPoint);
+        GenTree*     argNode = use.GetNode();
+        CallArgInfo* argInfo = call->GetArgInfoByLateArgUse(&use);
+        Statement*   paramStoreStmt =
+            fgAssignRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
+                                                  paramStoreInsertionPoint);
 
-        if ((tmpAssignmentInsertionPoint == lastStmt) && (paramAssignStmt != nullptr))
+        if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
         {
-            // All temp assignments will happen before the first param store.
-            tmpAssignmentInsertionPoint = paramAssignStmt;
+            // All temp stores will happen before the first param store.
+            tempStoreInsertionPoint = paramStoreStmt;
         }
     }
 
     // If the method has starg.s 0 or ldarga.s 0 a special local (lvaThisLclNum) is created so that
     // compThisArg stays immutable. Normally it's assigned in fgFirstBBScratch block. Since that
     // block won't be in the loop (it's assumed to have no predecessors), we need to update the special local here.
+
     if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
     {
         LclVarDsc* thisParamLcl = lvaGetDesc(info.GetThisParamLclNum());
         GenTree*   value        = gtNewLclLoad(thisParamLcl, thisParamLcl->GetType());
         GenTree*   store        = gtNewLclStore(lvaGetDesc(lvaThisLclNum), thisParamLcl->GetType(), value);
-        fgInsertStmtBefore(block, paramAssignmentInsertionPoint, gtNewStmt(store, callILOffset));
+        fgInsertStmtBefore(block, paramStoreInsertionPoint, gtNewStmt(store, ilOffset));
     }
 
     // If compInitMem is set, we may need to zero-initialize some locals. Normally it's done in the prolog
-    // but this loop can't include the prolog. Since we don't have liveness information, we insert zero-initialization
-    // for all non-parameter IL locals as well as temp structs with GC fields.
+    // but this loop can't include the prolog. Since we don't have liveness information, we initialize all
+    // all non-parameter IL locals as well as temp structs with GC fields.
     // Liveness phase will remove unnecessary initializations.
+
     if (info.compInitMem || compSuppressedZeroInit)
     {
         for (LclVarDsc* lcl : Locals())
         {
-            if (!lcl->IsParam())
+            if (lcl->IsParam())
             {
-#if FEATURE_FIXED_OUT_ARGS
-                if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
-                {
-                    continue;
-                }
-#endif
-                bool isUserLocal        = lcl->GetLclNum() < info.compLocalsCount;
-                bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
-                bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
+                continue;
+            }
 
-                if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
-                {
-                    fgMorphCreateLclInit(lcl, block, lastStmt, callILOffset);
-                }
+#if FEATURE_FIXED_OUT_ARGS
+            if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
+            {
+                continue;
+            }
+#endif
+            bool isUserLocal        = lcl->GetLclNum() < info.compLocalsCount;
+            bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
+            bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
+
+            if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
+            {
+                fgMorphCreateLclInit(lcl, block, lastStmt, ilOffset);
             }
         }
     }
 
-    // Remove the call
     fgRemoveStmt(block, lastStmt);
 
-    // Set the loop edge.
     if (opts.IsOSR())
     {
         // Todo: this may not look like a viable loop header.
@@ -6669,16 +6611,14 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     }
     else
     {
-        // Ensure we have a scratch block and then target the next
-        // block.  Loop detection needs to see a pred out of the loop,
-        // so mark the scratch block BBF_DONT_REMOVE to prevent empty
-        // block removal on it.
+        // Ensure we have a scratch block and then target the next block.
+        // Loop detection needs to see a pred out of the loop, so mark the scratch
+        // block BBF_DONT_REMOVE to prevent empty block removal on it.
         fgEnsureFirstBBisScratch();
         fgFirstBB->bbFlags |= BBF_DONT_REMOVE;
         block->bbJumpDest = fgFirstBB->bbNext;
     }
 
-    // Finish hooking things up.
     block->bbJumpKind = BBJ_ALWAYS;
     fgAddRefPred(block->bbJumpDest, block);
     block->bbFlags &= ~BBF_HAS_JMP;
