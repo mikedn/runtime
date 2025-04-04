@@ -603,7 +603,6 @@ struct InlArgInfo
     bool argHasSideEff : 1;
     bool argHasGlobRef : 1;
     bool argIsExact : 1;
-    bool paramIsThis : 1;
     bool paramHasLcl : 1;
     bool paramIsAddressTaken : 1;
     bool paramHasStores : 1;
@@ -614,7 +613,7 @@ struct InlArgInfo
         // Keep empty to avoid unnecessary initialization of InlineInfo::ilArgInfo array.
     }
 
-    InlArgInfo(GenTree* argNode, bool isThis = false)
+    InlArgInfo(GenTree* argNode)
         : argNode(argNode)
         , paramSingleUse(nullptr)
         , paramClass(NO_CLASS_HANDLE)
@@ -626,7 +625,6 @@ struct InlArgInfo
         , argHasSideEff(false)
         , argHasGlobRef(false)
         , argIsExact(false)
-        , paramIsThis(isThis)
         , paramHasLcl(false)
         , paramIsAddressTaken(false)
         , paramHasStores(false)

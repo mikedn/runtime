@@ -1217,35 +1217,31 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     inlineInfo->ilArgCount = argsSig.totalILArgs();
 
-    GenTreeUse* thisArg = inlineInfo->iciCall->HasThisArg();
+    bool        hasThis = inlineInfo->iciCall->HasThisArg();
     InlArgInfo* argInfo = inlineInfo->ilArgInfo;
-    unsigned    argNum  = 0;
 
-    assert((argsSig.hasThis()) == (thisArg != nullptr));
-
-    if (thisArg != nullptr)
-    {
-        new (&argInfo[argNum++]) InlArgInfo(thisArg->GetNode(), true);
-    }
+    assert(argsSig.hasThis() == hasThis);
 
     unsigned retBufArgNum   = UINT32_MAX;
     unsigned typeCtxtArgNum = UINT32_MAX;
 
     if (inlineInfo->iciCall->HasRetBufArg())
     {
-        retBufArgNum = argNum;
+        retBufArgNum = hasThis ? 1 : 0;
     }
 
     if (argsSig.hasTypeArg())
     {
 #ifndef TARGET_X86
-        typeCtxtArgNum = argNum;
+        typeCtxtArgNum = hasThis ? 1 : 0;
 #else
         typeCtxtArgNum = inlineInfo->ilArgCount;
 #endif
     }
 
-    for (GenTreeUse& use : inlineInfo->iciCall->Args())
+    unsigned argNum = 0;
+
+    for (GenTreeUse& use : inlineInfo->iciCall->AllArgs())
     {
         if (argNum == retBufArgNum)
         {
@@ -1281,10 +1277,10 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
     }
 #endif
 
-    if (thisArg != nullptr)
+    if (hasThis)
     {
         CORINFO_CLASS_HANDLE methodClass = inlineInfo->inlineCandidateInfo->clsHandle;
-        GenTree*             argNode     = thisArg->GetNode();
+        GenTree*             argNode     = argInfo[0].argNode;
 
         if ((inlineInfo->inlineCandidateInfo->clsAttr & CORINFO_FLG_VALUECLASS) == 0)
         {
@@ -1322,7 +1318,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     CORINFO_ARG_LIST_HANDLE paramHandle = argsSig.args;
 
-    for (unsigned i = (thisArg ? 1 : 0); i < argNum; i++, paramHandle = info.compCompHnd->getArgNext(paramHandle))
+    for (unsigned i = (hasThis ? 1 : 0); i < argNum; i++, paramHandle = info.compCompHnd->getArgNext(paramHandle))
     {
         CORINFO_CLASS_HANDLE paramClass;
         CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(&argsSig, paramHandle, &paramClass));
@@ -1443,7 +1439,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
 {
     InlArgInfo& argInfo = inlineInfo->ilArgInfo[argNum];
 
-    JITDUMP("Argument %u%s ", argNum, argInfo.paramIsThis ? " (this)" : "");
+    JITDUMP("Argument %u%s ", argNum, (argNum == 0) && inlineInfo->iciCall->HasThisArg() ? " (this)" : "");
 
     if (argInfo.argNode->OperIs(GT_MKREFANY))
     {
@@ -1569,7 +1565,7 @@ typeInfo InlineInfo::GetParamTypeInfo(unsigned ilArgNum) const
 bool InlineInfo::IsThisParam(GenTree* tree) const
 {
     return tree->OperIs(GT_LCL_LOAD) && (ilArgCount > 0) && (tree->AsLclLoad()->GetLcl() == ilArgInfo[0].paramLcl) &&
-           ilArgInfo[0].paramIsThis;
+           iciCall->HasThisArg();
 }
 
 bool Compiler::inlAnalyzeInlineeLocals(InlineInfo* inlineInfo)
