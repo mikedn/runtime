@@ -2266,7 +2266,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     JITDUMP("Setting up call [%06u] args\n", call->GetID());
 
     GenTreeFlags argsSideEffects = GTF_NONE;
-    unsigned     argNum          = call->HasThisArg() ? 1 : 0;
+    unsigned     argNum          = 0;
 
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
@@ -2275,7 +2275,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
 
-    for (GenTreeCall::Use& argUse : call->Args())
+    for (GenTreeCall::Use& argUse : call->AllArgs())
     {
         CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum++);
         GenTree*     arg     = argUse.GetNode();
@@ -2303,7 +2303,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
             // win-x64 passes single float/double field structs in integer registers, if we
             // promoted the struct, or if a float/double local was reinterpreted as a single
             // FP field struct we need to bitcast the FP value to integer.
-            if ((argInfo->GetRegCount() != 0) && genIsValidIntReg(argInfo->GetRegNum(0)) &&
+            if ((argInfo->GetRegCount() != 0) &&
 #ifdef TARGET_ARM
                 // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
                 // case in lowering/codegen.
@@ -2311,7 +2311,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
 #else
                 arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
 #endif
-                    )
+                && genIsValidIntReg(argInfo->GetRegNum(0)))
             {
                 arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
                 argUse.SetNode(arg);
@@ -6987,7 +6987,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     // Either or both of the array and index arguments may have been spilled to temps by `fgSetupArgs`. Copy
     // the spill trees as well if necessary.
     GenTreeOp* argSetup = nullptr;
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeCall::Use& use : call->AllArgs())
     {
         GenTree* const arg = use.GetNode();
         if (!arg->OperIs(GT_LCL_DEF, GT_LCL_STORE))

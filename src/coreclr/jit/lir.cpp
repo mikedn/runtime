@@ -1596,7 +1596,7 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 
     unsigned argCount = 0;
 
-    for (const auto& arg : call->Args())
+    for (const auto& arg : call->AllArgs())
     {
         argCount++;
     }
@@ -1611,7 +1611,7 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
     GenTreeCall::Use* firstLateArg = nullptr;
     GenTreeCall::Use* lastLateArg  = nullptr;
 
-    for (auto& arg : call->Args())
+    for (auto& arg : call->AllArgs())
     {
         GenTree* argNode = arg.GetNode();
 

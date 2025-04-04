@@ -1431,7 +1431,7 @@ void Lowering::LowerCall(GenTreeCall* call)
         LowerStructCall(call);
     }
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeCall::Use& use : call->AllArgs())
     {
         // A call argument may be local store when the arg is just setup for a late arg.
         // A store is not supposed to have an use and this is just an artifact of how
@@ -1556,7 +1556,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // call could over-write the stack arg that is setup earlier.
     ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
 
-    for (GenTreeCall::Use& use : call->Args())
+    for (GenTreeCall::Use& use : call->AllArgs())
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {

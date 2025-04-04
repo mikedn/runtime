@@ -441,8 +441,8 @@ bool GenTreeCall::IsPure() const
 // allocation functions are considered side-effect-free.
 bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
 {
-    // Generally all GT_CALL nodes are considered to have side-effects, but we may have extra information about helper
-    // calls that can prove them side-effect-free.
+    // Generally all CALL nodes are considered to have side-effects, but we may have
+    // extra information about helper calls that can prove them side-effect-free.
     if (!IsHelperCall())
     {
         return true;
@@ -9801,7 +9801,7 @@ bool Compiler::gtNodeHasSideEffects(GenTree* node, GenTreeFlags flags, bool igno
                 return true;
             }
 
-            for (GenTreeCall::Use& use : call->Args())
+            for (GenTreeCall::Use& use : call->AllArgs())
             {
                 if (gtTreeHasSideEffects(use.GetNode(), flags, ignoreCctors))
                 {

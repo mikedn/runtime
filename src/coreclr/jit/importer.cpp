@@ -15222,16 +15222,9 @@ public:
 
     void StoreRetExprResultsInArgs(GenTreeCall* call)
     {
-        // TODO-MIKE-Review: This seems to mess up arg evaluation order...
-
-        for (GenTreeCall::Use& use : call->Args())
+        for (GenTreeCall::Use& use : call->AllArgs())
         {
             WalkTree(&use.NodeRef(), call);
-        }
-
-        if (GenTreeUse* use = call->HasThisArg())
-        {
-            WalkTree(&use->NodeRef(), call);
         }
     }
 
