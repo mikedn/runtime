@@ -2860,11 +2860,15 @@ public:
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3);
     GenTreeCall::Use* gtNewCallArgs(GenTree* node1, GenTree* node2, GenTree* node3, GenTree* node4);
-    GenTreeCall::Use* gtPrependNewCallArg(GenTree* node, GenTreeCall::Use* args);
+
     GenTreeCall::Use* gtPrependNewCallArg(GenTreeCall::Use*& args, GenTree* node);
+    GenTreeCall::Use* gtPrependNewCallArg(GenTreeCall* call, GenTree* node);
+
     GenTreeCall::Use* gtAppendNewCallArg(GenTreeCall::Use*& list, GenTree* node);
     GenTreeCall::Use* gtAppendNewCallArg(GenTreeCall* call, GenTree* node);
+
     GenTreeCall::Use* gtInsertNewCallArgAfter(GenTree* node, GenTreeCall::Use* after);
+
     void gtAppendCallArgs(GenTreeCall::Use*& list, GenTreeCall::Use* args);
     void gtAppendCallArgs(GenTreeCall* call, GenTreeCall::Use* args);
 

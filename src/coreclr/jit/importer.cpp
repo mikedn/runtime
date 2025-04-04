@@ -786,7 +786,7 @@ void Importer::AddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
         }
         else
         {
-            comp->gtPrependNewCallArg(call->m_args, retBufAddr);
+            comp->gtPrependNewCallArg(call, retBufAddr);
         }
 
         if (call->RequiresRetBufArg())
@@ -841,7 +841,7 @@ void Importer::AddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
     {
         // unix-x64, unix-arm & win-arm do not care about anything, the ret buf arg is always first.
         call->gtCallMoreFlags |= GTF_CALL_M_HAS_RETBUFF_ARG;
-        comp->gtPrependNewCallArg(call->m_args, retBufAddr);
+        comp->gtPrependNewCallArg(call, retBufAddr);
     }
 #endif // !TARGET_X86
 }

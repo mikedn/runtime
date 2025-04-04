@@ -1626,7 +1626,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
         else
         {
-            gtPrependNewCallArg(call->m_args, cellAddress);
+            gtPrependNewCallArg(call, cellAddress);
         }
 
         nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);

@@ -212,7 +212,7 @@ private:
             }
             else
             {
-                compiler->gtPrependNewCallArg(fatCall->m_args, hiddenArgument);
+                compiler->gtPrependNewCallArg(fatCall, hiddenArgument);
             }
 #endif
         }
