@@ -196,36 +196,34 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
             LclVarDsc* prevStoreLcl  = state->storeLcl;
             bool       wasUnderIndir = state->isUnderIndir;
             state->storeLcl          = nullptr;
-            state->isUnderIndir      = false;
 
             GenTreeCall* call = tree->AsCall();
+            // TODO-MIKE-Review: Old code set isUnderIndir for all arguments of instance calls,
+            // isn't it supposed to be set only for the this argument itself?
+            state->isUnderIndir = call->HasThisArg();
 
-            if (GenTreeUse* use = call->HasThisArg())
-            {
-                state->isUnderIndir = true;
-                comp->fgWalkTreePre(&use->NodeRef(), MarkPtrsAndAssignGroups, state);
-                // TODO-MIKE-Review: This should reset isUnderIndir probably...
-            }
-
-            for (GenTreeCall::Use& use : call->Args())
+            for (GenTreeCall::Use& use : call->AllArgs())
             {
                 // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
                 // which this code ignored. Which is probably a bug since a struct can contain
                 // pointers. Needless to say that fixing this will result in regressions due to
                 // extra copying of current method's parameters.
-
-                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
                 {
-                    comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
+                    continue;
                 }
+
+                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
             }
 
             for (GenTreeCall::Use& use : call->LateArgs())
             {
-                if (!use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) || !use.GetNode()->TypeIs(TYP_STRUCT))
+                if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
                 {
-                    comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
+                    continue;
                 }
+
+                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
             }
 
             if (call->GetCallAddr() != nullptr)

@@ -4093,11 +4093,6 @@ public:
         return UseList(m_args);
     }
 
-    UseList Args()
-    {
-        return UseList((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0 ? m_args->GetNext() : m_args);
-    }
-
     UseList LateArgs()
     {
         return UseList(gtCallLateArgs);
