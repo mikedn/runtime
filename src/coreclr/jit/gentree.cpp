@@ -1466,36 +1466,46 @@ void Compiler::gtSetStmtSeq(Statement* stmt)
     stmt->SetNodeList(gtSetTreeSeq(stmt->GetRootNode(), false));
 }
 
-void Compiler::gtSetCallArgsCosts(const GenTreeCall::UseList& args,
-                                  bool                        lateArgs,
-                                  unsigned*                   callCostEx,
-                                  unsigned*                   callCostSz)
+void Compiler::gtSetCallArgsCosts(GenTreeCall* call, unsigned* callCostEx, unsigned* callCostSz)
 {
     unsigned costEx = 0;
     unsigned costSz = 0;
 
-    for (GenTreeCall::Use& use : args)
+    CallInfo& info = *call->GetInfo();
+
+    for (unsigned i = 0, count = info.GetArgCount(); i < count; i++)
     {
-        GenTree* argNode = use.GetNode();
+        CallArgInfo& argInfo = *info.GetArgInfo(i);
+
+        GenTree* argNode = argInfo.use->GetNode();
         gtSetCosts(argNode);
 
         if (argNode->GetCostEx() != 0)
         {
             costEx += argNode->GetCostEx();
-            costEx += lateArgs ? 0 : IND_COST_EX;
+            costEx += IND_COST_EX;
         }
 
         if (argNode->GetCostSz() != 0)
         {
             costSz += argNode->GetCostSz();
-#ifdef TARGET_XARCH
-            if (lateArgs) // push is smaller than mov to reg
+#ifndef TARGET_XARCH // push is smaller than mov to reg
+            costSz += 1;
 #endif
-            {
-                costSz += 1;
-            }
+        }
+
+        if (argInfo.HasLateUse())
+        {
+            GenTree* argNode = argInfo.GetLateUse()->GetNode();
+            gtSetCosts(argNode);
+
+            costEx += argNode->GetCostEx();
+            costSz += argNode->GetCostSz() + 1;
         }
     }
+
+    // TODO-MIKE-Review: Old code did this for no obvious reason...
+    costSz += call->HasThisArg() ? 1 : 0;
 
     *callCostEx += costEx;
     *callCostSz += costSz;
@@ -2592,26 +2602,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costEx = 5;
                 costSz = 2;
 
-                if (GenTreeUse* use = call->HasThisArg())
-                {
-                    GenTree* thisVal = use->GetNode();
-
-                    gtSetCosts(thisVal);
-                    costEx += thisVal->GetCostEx();
-                    costSz += thisVal->GetCostSz() + 1;
-                }
-
-                if (call->m_args != nullptr)
-                {
-                    const bool lateArgs = false;
-                    gtSetCallArgsCosts(call->Args(), lateArgs, &costEx, &costSz);
-                }
-
-                if (call->gtCallLateArgs != nullptr)
-                {
-                    const bool lateArgs = true;
-                    gtSetCallArgsCosts(call->LateArgs(), lateArgs, &costEx, &costSz);
-                }
+                gtSetCallArgsCosts(call, &costEx, &costSz);
 
                 if (call->IsIndirectCall())
                 {

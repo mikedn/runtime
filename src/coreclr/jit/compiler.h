@@ -3036,10 +3036,7 @@ public:
     unsigned gtSetOrder(GenTree* tree);
     unsigned gtSetCallArgsOrder(const GenTreeCall::UseList& args);
     void gtSetCosts(GenTree* tree);
-    void gtSetCallArgsCosts(const GenTreeCall::UseList& args,
-                            bool                        lateArgs,
-                            unsigned*                   callCostEx,
-                            unsigned*                   callCostSz);
+    void gtSetCallArgsCosts(GenTreeCall* call, unsigned* callCostEx, unsigned* callCostSz);
     bool gtMarkAddrMode(GenTree* addr, var_types indirType, unsigned* indirCostEx, unsigned* indirCostSz);
 
     // Returns "true" iff "node" has any of the side effects in "flags".
