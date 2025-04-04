@@ -1041,11 +1041,11 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     }
     else if (func != VNF_None)
     {
-        for (unsigned i = 0; i < funcApp.m_arity; i++)
+        for (unsigned i = 0; i < funcApp.arity; i++)
         {
             if (func == VNF_MapStore)
             {
-                assert(funcApp.m_arity == 4);
+                assert(funcApp.arity == 4);
 
                 if (i == 3)
                 {

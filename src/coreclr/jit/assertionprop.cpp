@@ -843,7 +843,7 @@ private:
             // "i LT|LE|GE|GT j" where either i or j is constant
             else
             {
-                VNFunc         cond    = funcApp.m_func;
+                VNFunc         cond    = funcApp.func;
                 ValueNum       vn      = funcApp[0];
                 ValueNum       limitVN = funcApp[1];
                 const int32_t* limitVal;
@@ -897,7 +897,7 @@ private:
         if ((func == VNF_COND_UGT) || (func == VNF_COND_ULE))
         {
             func = func == VNF_COND_UGT ? VNF_COND_ULT : VNF_COND_UGE;
-            std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+            std::swap(funcApp.args[0], funcApp.args[1]);
         }
         else if ((func != VNF_COND_ULT) && (func != VNF_COND_UGE))
         {
@@ -2273,11 +2273,11 @@ private:
                 VNFuncApp funcApp;
                 vnStore->GetVNFunc(op1.vn, &funcApp);
                 assert(ValueNumStore::IsVNCompareCheckedBoundRelop(funcApp));
-                VNFunc cond = funcApp.m_func;
+                VNFunc cond = funcApp.func;
 
                 if (funcApp[0] == lengthVN)
                 {
-                    std::swap(funcApp.m_args[0], funcApp.m_args[1]);
+                    std::swap(funcApp.args[0], funcApp.args[1]);
                     cond = SwapRelopVNFunc(cond);
                 }
                 else if (funcApp[1] != lengthVN)

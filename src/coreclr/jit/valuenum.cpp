@@ -255,28 +255,28 @@ ValueNum ValueNumStore::ExsetUnion(ValueNum xs0, ValueNum xs1)
     const VNFuncDef2* cons0 = IsVNFunc<VNFuncDef2>(xs0, VNF_ExsetCons);
     const VNFuncDef2* cons1 = IsVNFunc<VNFuncDef2>(xs1, VNF_ExsetCons);
 
-    if (cons0->m_arg0 < cons1->m_arg0)
+    if (cons0->arg0 < cons1->arg0)
     {
-        assert(ExsetIsOrdered(cons0->m_arg0, cons0->m_arg1));
+        assert(ExsetIsOrdered(cons0->arg0, cons0->arg1));
 
         // add the lower one (from xs0) to the result, advance xs0
-        return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->m_arg0, ExsetUnion(cons0->m_arg1, xs1));
+        return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->arg0, ExsetUnion(cons0->arg1, xs1));
     }
 
-    if (cons0->m_arg0 > cons1->m_arg0)
+    if (cons0->arg0 > cons1->arg0)
     {
-        assert(ExsetIsOrdered(cons1->m_arg0, cons1->m_arg1));
+        assert(ExsetIsOrdered(cons1->arg0, cons1->arg1));
 
         // add the lower one (from xs1) to the result, advance xs1
-        return VNForFunc(TYP_REF, VNF_ExsetCons, cons1->m_arg0, ExsetUnion(xs0, cons1->m_arg1));
+        return VNForFunc(TYP_REF, VNF_ExsetCons, cons1->arg0, ExsetUnion(xs0, cons1->arg1));
     }
 
-    assert(cons0->m_arg0 == cons1->m_arg0);
-    assert(ExsetIsOrdered(cons0->m_arg0, cons0->m_arg1));
-    assert(ExsetIsOrdered(cons1->m_arg0, cons1->m_arg1));
+    assert(cons0->arg0 == cons1->arg0);
+    assert(ExsetIsOrdered(cons0->arg0, cons0->arg1));
+    assert(ExsetIsOrdered(cons1->arg0, cons1->arg1));
 
     // Equal elements; add one (from xs0) to the result, advance both sets
-    return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->m_arg0, ExsetUnion(cons0->m_arg1, cons1->m_arg1));
+    return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->arg0, ExsetUnion(cons0->arg1, cons1->arg1));
 }
 
 ValueNumPair ValueNumStore::ExsetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp)
@@ -295,23 +295,23 @@ ValueNum ValueNumStore::ExsetIntersection(ValueNum xs0, ValueNum xs1)
     const VNFuncDef2* cons0 = IsVNFunc<VNFuncDef2>(xs0, VNF_ExsetCons);
     const VNFuncDef2* cons1 = IsVNFunc<VNFuncDef2>(xs1, VNF_ExsetCons);
 
-    if (cons0->m_arg0 < cons1->m_arg0)
+    if (cons0->arg0 < cons1->arg0)
     {
-        assert(ExsetIsOrdered(cons0->m_arg0, cons0->m_arg1));
-        return ExsetIntersection(cons0->m_arg1, xs1);
+        assert(ExsetIsOrdered(cons0->arg0, cons0->arg1));
+        return ExsetIntersection(cons0->arg1, xs1);
     }
 
-    if (cons0->m_arg0 > cons1->m_arg0)
+    if (cons0->arg0 > cons1->arg0)
     {
-        assert(ExsetIsOrdered(cons1->m_arg0, cons1->m_arg1));
-        return ExsetIntersection(xs0, cons1->m_arg1);
+        assert(ExsetIsOrdered(cons1->arg0, cons1->arg1));
+        return ExsetIntersection(xs0, cons1->arg1);
     }
 
-    assert(cons0->m_arg0 == cons1->m_arg0);
-    assert(ExsetIsOrdered(cons0->m_arg0, cons0->m_arg1));
-    assert(ExsetIsOrdered(cons1->m_arg0, cons1->m_arg1));
+    assert(cons0->arg0 == cons1->arg0);
+    assert(ExsetIsOrdered(cons0->arg0, cons0->arg1));
+    assert(ExsetIsOrdered(cons1->arg0, cons1->arg1));
 
-    return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->m_arg0, ExsetIntersection(cons0->m_arg1, cons1->m_arg1));
+    return VNForFunc(TYP_REF, VNF_ExsetCons, cons0->arg0, ExsetIntersection(cons0->arg1, cons1->arg1));
 }
 
 ValueNumPair ValueNumStore::ExsetIntersection(ValueNumPair xs0vnp, ValueNumPair xs1vnp)
@@ -338,13 +338,13 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
     ValueNum vnFullSetPrev = NullVN();
     ValueNum vnCandSetPrev = NullVN();
 
-    ValueNum vnFullSetRemainder = funcXsFull->m_arg1;
-    ValueNum vnCandSetRemainder = funcXsCand->m_arg1;
+    ValueNum vnFullSetRemainder = funcXsFull->arg1;
+    ValueNum vnCandSetRemainder = funcXsCand->arg1;
 
     while (true)
     {
-        ValueNum vnFullSetItem = funcXsFull->m_arg0;
-        ValueNum vnCandSetItem = funcXsCand->m_arg0;
+        ValueNum vnFullSetItem = funcXsFull->arg0;
+        ValueNum vnCandSetItem = funcXsCand->arg0;
 
         // Enforce that both sets are sorted by increasing ValueNumbers
         assert(vnFullSetItem > vnFullSetPrev);
@@ -368,7 +368,7 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
 
             // Advance the candidate set
             funcXsCand         = IsVNFunc<VNFuncDef2>(vnCandSetRemainder, VNF_ExsetCons);
-            vnCandSetRemainder = funcXsCand->m_arg1;
+            vnCandSetRemainder = funcXsCand->arg1;
         }
 
         if (vnFullSetRemainder == EmptyExsetVN())
@@ -379,7 +379,7 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
 
         // We will advance the full set
         funcXsFull         = IsVNFunc<VNFuncDef2>(vnFullSetRemainder, VNF_ExsetCons);
-        vnFullSetRemainder = funcXsFull->m_arg1;
+        vnFullSetRemainder = funcXsFull->arg1;
 
         vnFullSetPrev = vnFullSetItem;
         vnCandSetPrev = vnCandSetItem;
@@ -390,8 +390,8 @@ ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset) const
 {
     if (const VNFuncDef2* valueExset = IsVNFunc<VNFuncDef2>(vn, VNF_ValWithExset))
     {
-        *exset = valueExset->m_arg1;
-        return valueExset->m_arg0;
+        *exset = valueExset->arg1;
+        return valueExset->arg0;
     }
 
     *exset = EmptyExsetVN();
@@ -759,13 +759,13 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
 
         if (const VNFuncDef1* argFunc = IsVNFunc<VNFuncDef1>(arg0))
         {
-            switch (argFunc->m_func)
+            switch (argFunc->func)
             {
                 case VNOP_SXT:
                 case VNOP_UXT:
                     if (func == VNOP_TRUNC)
                     {
-                        return argFunc->m_arg0;
+                        return argFunc->arg0;
                     }
                     break;
 
@@ -773,9 +773,9 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0)
                 case VNOP_NOT:
                 case VNOP_FNEG:
                 case VNOP_BSWAP:
-                    if (func == argFunc->m_func)
+                    if (func == argFunc->func)
                     {
-                        return argFunc->m_arg0;
+                        return argFunc->arg0;
                     }
                     break;
                 default:
@@ -1075,7 +1075,7 @@ TailCall:
 
         if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
         {
-            void* def = ConstantHostPtr<void>(f->m_arg0);
+            void* def = ConstantHostPtr<void>(f->arg0);
 
             if (func == VNF_Phi)
             {
@@ -1103,8 +1103,8 @@ TailCall:
             {
                 if (const VNFuncDef2* f = IsVNFunc<VNFuncDef2>(argListVN, VNF_PhiArgs))
                 {
-                    argVN     = f->m_arg0;
-                    argListVN = f->m_arg1;
+                    argVN     = f->arg0;
+                    argListVN = f->arg1;
                 }
                 else
                 {
@@ -1114,7 +1114,7 @@ TailCall:
 
                 if (const VNFuncDef1* f = IsVNFunc<VNFuncDef1>(argVN, VNF_PhiArgDef))
                 {
-                    void* def = ConstantHostPtr<void>(f->m_arg0);
+                    void* def = ConstantHostPtr<void>(f->arg0);
 
                     if (func == VNF_Phi)
                     {
@@ -4438,13 +4438,13 @@ void ValueNumStore::GetCompareCheckedBound(const VNFuncApp& funcApp, CompareChec
 
     if (IsVNCheckedBound(funcApp[1]))
     {
-        info->cmpFunc = funcApp.m_func;
+        info->cmpFunc = funcApp.func;
         info->cmpOp   = funcApp[0];
         info->vnBound = funcApp[1];
     }
     else
     {
-        info->cmpFunc = SwapRelopVNFunc(funcApp.m_func);
+        info->cmpFunc = SwapRelopVNFunc(funcApp.func);
         info->cmpOp   = funcApp[1];
         info->vnBound = funcApp[0];
     }
@@ -4472,19 +4472,19 @@ void ValueNumStore::GetCompareCheckedBoundArithInfo(const VNFuncApp& funcApp, Co
 
     if (GetVNFunc(funcApp[1], &arithFuncApp) && IsVNCheckedBoundArith(arithFuncApp))
     {
-        info->cmpFunc = funcApp.m_func;
+        info->cmpFunc = funcApp.func;
         info->cmpOp   = funcApp[0];
     }
     else
     {
-        info->cmpFunc = SwapRelopVNFunc(funcApp.m_func);
+        info->cmpFunc = SwapRelopVNFunc(funcApp.func);
         info->cmpOp   = funcApp[1];
 
         GetVNFunc(funcApp[0], &arithFuncApp);
         assert(IsVNCheckedBoundArith(arithFuncApp));
     }
 
-    info->addFunc = arithFuncApp.m_func;
+    info->addFunc = arithFuncApp.func;
 
     if (IsVNCheckedBound(arithFuncApp[1]))
     {
@@ -4885,7 +4885,7 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
 {
     if (vn == NoVN)
     {
-        funcApp->m_func = VNF_None;
+        funcApp->func = VNF_None;
         return VNF_None;
     }
 
@@ -4897,55 +4897,55 @@ VNFunc ValueNumStore::GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const
     {
         case ChunkKind::Func4:
         {
-            VNFuncDef4* farg4  = &static_cast<VNFuncDef4*>(c->m_defs)[offset];
-            funcApp->m_func    = farg4->m_func;
-            funcApp->m_arity   = 4;
-            funcApp->m_args[0] = farg4->m_arg0;
-            funcApp->m_args[1] = farg4->m_arg1;
-            funcApp->m_args[2] = farg4->m_arg2;
-            funcApp->m_args[3] = farg4->m_arg3;
-            return funcApp->m_func;
+            VNFuncDef4* farg4 = &static_cast<VNFuncDef4*>(c->m_defs)[offset];
+            funcApp->func     = farg4->func;
+            funcApp->arity    = 4;
+            funcApp->args[0]  = farg4->arg0;
+            funcApp->args[1]  = farg4->arg1;
+            funcApp->args[2]  = farg4->arg2;
+            funcApp->args[3]  = farg4->arg3;
+            return funcApp->func;
         }
         case ChunkKind::Func3:
         {
-            VNFuncDef3* farg3  = &static_cast<VNFuncDef3*>(c->m_defs)[offset];
-            funcApp->m_func    = farg3->m_func;
-            funcApp->m_arity   = 3;
-            funcApp->m_args[0] = farg3->m_arg0;
-            funcApp->m_args[1] = farg3->m_arg1;
-            funcApp->m_args[2] = farg3->m_arg2;
-            return funcApp->m_func;
+            VNFuncDef3* farg3 = &static_cast<VNFuncDef3*>(c->m_defs)[offset];
+            funcApp->func     = farg3->func;
+            funcApp->arity    = 3;
+            funcApp->args[0]  = farg3->arg0;
+            funcApp->args[1]  = farg3->arg1;
+            funcApp->args[2]  = farg3->arg2;
+            return funcApp->func;
         }
         case ChunkKind::Func2:
         {
-            VNFuncDef2* farg2  = &static_cast<VNFuncDef2*>(c->m_defs)[offset];
-            funcApp->m_func    = farg2->m_func;
-            funcApp->m_arity   = 2;
-            funcApp->m_args[0] = farg2->m_arg0;
-            funcApp->m_args[1] = farg2->m_arg1;
-            return funcApp->m_func;
+            VNFuncDef2* farg2 = &static_cast<VNFuncDef2*>(c->m_defs)[offset];
+            funcApp->func     = farg2->func;
+            funcApp->arity    = 2;
+            funcApp->args[0]  = farg2->arg0;
+            funcApp->args[1]  = farg2->arg1;
+            return funcApp->func;
         }
         case ChunkKind::Func1:
         {
-            VNFuncDef1* farg1  = &static_cast<VNFuncDef1*>(c->m_defs)[offset];
-            funcApp->m_func    = farg1->m_func;
-            funcApp->m_arity   = 1;
-            funcApp->m_args[0] = farg1->m_arg0;
-            return funcApp->m_func;
+            VNFuncDef1* farg1 = &static_cast<VNFuncDef1*>(c->m_defs)[offset];
+            funcApp->func     = farg1->func;
+            funcApp->arity    = 1;
+            funcApp->args[0]  = farg1->arg0;
+            return funcApp->func;
         }
         case ChunkKind::Func0:
         {
             VNFuncDef0* farg0 = &static_cast<VNFuncDef0*>(c->m_defs)[offset];
-            funcApp->m_func   = farg0->m_func;
-            funcApp->m_arity  = 0;
-            return funcApp->m_func;
+            funcApp->func     = farg0->func;
+            funcApp->arity    = 0;
+            return funcApp->func;
         }
         case ChunkKind::NotAField:
-            funcApp->m_func  = VNF_NotAField;
-            funcApp->m_arity = 0;
+            funcApp->func  = VNF_NotAField;
+            funcApp->arity = 0;
             return VNF_NotAField;
         default:
-            funcApp->m_func = VNF_None;
+            funcApp->func = VNF_None;
             return VNF_None;
     }
 }
@@ -5122,7 +5122,7 @@ void ValueNumStore::Dump(ValueNum vn)
 
                 printf("(");
 
-                for (unsigned i = 0; i < funcApp.m_arity; i++)
+                for (unsigned i = 0; i < funcApp.arity; i++)
                 {
                     if (i > 0)
                     {
@@ -5532,7 +5532,7 @@ void ValueNumStore::RunTests(Compiler* comp)
     assert(!vns->IsConst(vnForFunc2a));
     VNFuncApp fa2a;
     vns->GetVNFunc(vnForFunc2a, &fa2a);
-    assert(fa2a.Is(VNF_Add) && fa2a.m_arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
+    assert(fa2a.Is(VNF_Add) && fa2a.arity == 2 && fa2a[0] == vnFor1 && fa2a[1] == vnRandom1);
 
     ValueNum vnForFunc2b = vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100);
     assert(vnForFunc2b == vns->VNForFunc(TYP_INT, VNF_Add, vnFor1, vnFor100));

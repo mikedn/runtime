@@ -82,28 +82,28 @@ VNFunc SwapRelopVNFunc(VNFunc cond);
 VNFunc ReverseRelopVNFunc(VNFunc cond);
 
 // An instance of this struct represents an application of the function symbol
-// "m_func" to the first "m_arity" (<= 4) argument values in "m_args."
+// "m_func" to the first "m_arity" (<= 4) argument values in "args."
 struct VNFuncApp
 {
-    VNFunc   m_func;
-    unsigned m_arity;
-    ValueNum m_args[4];
+    VNFunc   func;
+    unsigned arity;
+    ValueNum args[4];
 
-    bool Is(VNFunc func) const
+    bool Is(VNFunc f) const
     {
-        return m_func == func;
+        return func == f;
     }
 
     template <typename... T>
-    bool Is(VNFunc func, T... rest) const
+    bool Is(VNFunc f, T... rest) const
     {
-        return Is(func) || Is(rest...);
+        return Is(f) || Is(rest...);
     }
 
     ValueNum operator[](unsigned i) const
     {
-        assert(i < m_arity);
-        return m_args[i];
+        assert(i < arity);
+        return args[i];
     }
 };
 
@@ -181,15 +181,15 @@ class ValueNumStore
         static constexpr ChunkKind Kind  = ChunkKind::Func0;
         static constexpr unsigned  Arity = 0;
 
-        VNFunc m_func;
+        VNFunc func;
 
-        VNFuncDef0(VNFunc func) : m_func(func)
+        VNFuncDef0(VNFunc func) : func(func)
         {
         }
 
         bool operator==(const VNFuncDef0& y) const
         {
-            return m_func == y.m_func;
+            return func == y.func;
         }
     };
 
@@ -198,15 +198,15 @@ class ValueNumStore
         static constexpr ChunkKind Kind  = ChunkKind::Func1;
         static constexpr unsigned  Arity = 1;
 
-        ValueNum m_arg0;
+        ValueNum arg0;
 
-        VNFuncDef1(VNFunc func, ValueNum arg0) : VNFuncDef0(func), m_arg0(arg0)
+        VNFuncDef1(VNFunc func, ValueNum arg0) : VNFuncDef0(func), arg0(arg0)
         {
         }
 
         bool operator==(const VNFuncDef1& y) const
         {
-            return VNFuncDef0::operator==(y) && m_arg0 == y.m_arg0;
+            return VNFuncDef0::operator==(y) && arg0 == y.arg0;
         }
     };
 
@@ -214,7 +214,7 @@ class ValueNumStore
     {
         static unsigned GetHashCode(VNFuncDef1 val)
         {
-            return (val.m_func << 24) + val.m_arg0;
+            return (val.func << 24) + val.arg0;
         }
     };
 
@@ -225,15 +225,15 @@ class ValueNumStore
         static constexpr ChunkKind Kind  = ChunkKind::Func2;
         static constexpr unsigned  Arity = 2;
 
-        ValueNum m_arg1;
+        ValueNum arg1;
 
-        VNFuncDef2(VNFunc func, ValueNum arg0, ValueNum arg1) : VNFuncDef1(func, arg0), m_arg1(arg1)
+        VNFuncDef2(VNFunc func, ValueNum arg0, ValueNum arg1) : VNFuncDef1(func, arg0), arg1(arg1)
         {
         }
 
         bool operator==(const VNFuncDef2& y) const
         {
-            return VNFuncDef1::operator==(y) && m_arg1 == y.m_arg1;
+            return VNFuncDef1::operator==(y) && arg1 == y.arg1;
         }
     };
 
@@ -241,7 +241,7 @@ class ValueNumStore
     {
         static unsigned GetHashCode(const VNFuncDef2& val)
         {
-            return (val.m_func << 24) + (val.m_arg0 << 8) + val.m_arg1;
+            return (val.func << 24) + (val.arg0 << 8) + val.arg1;
         }
     };
 
@@ -252,16 +252,15 @@ class ValueNumStore
         static constexpr ChunkKind Kind  = ChunkKind::Func3;
         static constexpr unsigned  Arity = 3;
 
-        ValueNum m_arg2;
+        ValueNum arg2;
 
-        VNFuncDef3(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2)
-            : VNFuncDef2(func, arg0, arg1), m_arg2(arg2)
+        VNFuncDef3(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2) : VNFuncDef2(func, arg0, arg1), arg2(arg2)
         {
         }
 
         bool operator==(const VNFuncDef3& y) const
         {
-            return VNFuncDef2::operator==(y) && m_arg2 == y.m_arg2;
+            return VNFuncDef2::operator==(y) && arg2 == y.arg2;
         }
     };
 
@@ -269,7 +268,7 @@ class ValueNumStore
     {
         static unsigned GetHashCode(const VNFuncDef3& val)
         {
-            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2;
+            return (val.func << 24) + (val.arg0 << 16) + (val.arg1 << 8) + val.arg2;
         }
     };
 
@@ -280,16 +279,16 @@ class ValueNumStore
         static constexpr ChunkKind Kind  = ChunkKind::Func4;
         static constexpr unsigned  Arity = 4;
 
-        ValueNum m_arg3;
+        ValueNum arg3;
 
         VNFuncDef4(VNFunc func, ValueNum arg0, ValueNum arg1, ValueNum arg2, ValueNum arg3)
-            : VNFuncDef3(func, arg0, arg1, arg2), m_arg3(arg3)
+            : VNFuncDef3(func, arg0, arg1, arg2), arg3(arg3)
         {
         }
 
         bool operator==(const VNFuncDef4& y) const
         {
-            return VNFuncDef3::operator==(y) && m_arg3 == y.m_arg3;
+            return VNFuncDef3::operator==(y) && arg3 == y.arg3;
         }
     };
 
@@ -297,7 +296,7 @@ class ValueNumStore
     {
         static unsigned GetHashCode(const VNFuncDef4& val)
         {
-            return (val.m_func << 24) + (val.m_arg0 << 16) + (val.m_arg1 << 8) + val.m_arg2 + (val.m_arg3 << 12);
+            return (val.func << 24) + (val.arg0 << 16) + (val.arg1 << 8) + val.arg2 + (val.arg3 << 12);
         }
     };
 
@@ -826,7 +825,7 @@ public:
         }
 
         const T* def = &static_cast<T*>(chunk->m_defs)[index];
-        return def->m_func == func ? def : nullptr;
+        return def->func == func ? def : nullptr;
     }
 
     template <typename T>

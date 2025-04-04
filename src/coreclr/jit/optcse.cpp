@@ -757,7 +757,7 @@ public:
         ValueNum  compareVN = compare->GetConservativeVN();
         VNFuncApp cmpVNFuncApp;
 
-        if (!vnStore->GetVNFunc(compareVN, &cmpVNFuncApp) || (cmpVNFuncApp.m_func != GetRelopVNFunc(compare)))
+        if (!vnStore->GetVNFunc(compareVN, &cmpVNFuncApp) || (cmpVNFuncApp.func != GetRelopVNFunc(compare)))
         {
             // Value numbering inferred this compare as something other
             // than its own operator; leave its value number alone.
