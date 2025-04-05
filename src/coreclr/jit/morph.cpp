@@ -661,18 +661,14 @@ void CallInfo::Dump() const
         argTable[i]->Dump();
     }
 }
-#endif
+#endif // DEBUG
 
 CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
     : argTable(numArgs == 0 ? nullptr : new (comp, CMK_CallInfo) CallArgInfo*[numArgs])
 #ifdef DEBUG
     , argTableSize(numArgs)
 #endif
-    , argCount(0)
-    , nextSlotNum(INIT_ARG_STACK_SLOT)
 #if defined(UNIX_X86_ABI)
-    , stkSizeBytes(0)
-    , padStkAlign(0)
     , alignmentDone(false)
 #endif
     , hasRegArgs(false)
@@ -886,7 +882,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         // in the tree. We don't know where it stores to so we are very conservative here
         // and assume that any local variable could have been modified.
 
-        if ((arg->gtFlags & GTF_ASG) != 0)
+        if (arg->HasAnySideEffect(GTF_ASG))
         {
             // TODO-MIKE-Review: This check seems overly conservative. If an arg contains
             // a store then it only needs a temp if it will be moved to the late arg list
@@ -933,7 +929,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
             }
         }
 
-        bool treatLikeCall = ((arg->gtFlags & GTF_CALL) != 0);
+        bool treatLikeCall = arg->HasAnySideEffect(GTF_CALL);
 
 #if FEATURE_FIXED_OUT_ARGS
         // Like calls, if this argument has a tree that will do an inline throw,
@@ -986,7 +982,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 // For all previous arguments, if they have any GTF_ALL_EFFECT
                 //  we require that they be evaluated into a temp
-                if ((prevArgInfo->GetNode()->gtFlags & GTF_ALL_EFFECT) != 0)
+                if (prevArgInfo->GetNode()->HasAnySideEffect(GTF_ALL_EFFECT))
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;
@@ -1059,7 +1055,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
             GenTree* arg = argInfo->GetNode();
 
-            if ((arg->gtFlags & GTF_EXCEPT) != 0)
+            if (arg->HasAnySideEffect(GTF_EXCEPT))
             {
 #if FEATURE_FIXED_OUT_ARGS
                 if (HasLclHeap(compiler, arg))
@@ -1091,7 +1087,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     argsComplete = true;
 }
 
-void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
 {
     // Shuffle the arguments around before we build the gtCallLateArgs list.
     // The idea is to move all "simple" arguments like constants and local vars
@@ -1239,7 +1235,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
 #endif
 }
 
-void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable)
+void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
@@ -1256,7 +1252,6 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
         // On x86 and other archs that use push instructions to pass arguments:
         //   Only the register arguments need to be replaced with placeholder nodes.
         //   Stacked arguments are evaluated and pushed (or stored into the stack) in order.
-        //
         if (argInfo->GetRegCount() == 0)
         {
             continue;
@@ -1565,7 +1560,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         {
             GenTreeLclLoad* tmp = fgInsertCommaFormTemp(&arg);
             call->GetThisArg()->SetNode(arg);
-            call->gtFlags |= GTF_ASG;
+            call->AddSideEffects(GTF_ASG);
             arg = tmp;
         }
 
@@ -1648,9 +1643,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         }
 
         nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
-        numArgs++;
         nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
-        numArgs++;
     }
 
     call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
@@ -2137,7 +2130,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             argInfo->SetRegCount(regCount);
             argInfo->SetRegNum(0, regs[0]);
-            argInfo->SetNonStandard(nonStdRegNum != REG_NA);
+            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
 
 #if defined(UNIX_AMD64_ABI)
             assert(regCount <= 2);
@@ -5000,7 +4993,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 
     // TODO-MIKE-Cleanup: This can probably be replaced with callee->GetInfo()->GetNextSlotNum().
 
-    for (unsigned index = 0; index < call->GetInfo()->GetArgCount(); ++index)
+    for (unsigned index = 0, count = call->GetInfo()->GetArgCount(); index < count; ++index)
     {
         CallArgInfo* arg = call->GetArgInfoByArgNum(index);
 

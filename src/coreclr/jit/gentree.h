@@ -4859,6 +4859,7 @@ public:
     }
 #endif
 
+#ifdef DEBUG
     bool IsNonStandard() const
     {
         return m_isNonStandard;
@@ -4868,6 +4869,7 @@ public:
     {
         m_isNonStandard = isNonStandard;
     }
+#endif
 
     void SetRegCount(unsigned regCount)
     {
@@ -5022,22 +5024,22 @@ class CallInfo
 #ifdef DEBUG
     unsigned argTableSize; // size of argTable array (equal to the argCount when done with fgSetupArgs)
 #endif
-    unsigned argCount;    // Updatable arg count value
-    unsigned nextSlotNum; // Updatable slot count value
+    unsigned argCount    = 0;                   // Updatable arg count value
+    unsigned nextSlotNum = INIT_ARG_STACK_SLOT; // Updatable slot count value
 
 #ifdef UNIX_X86_ABI
-    unsigned stkSizeBytes;  // Size of stack used by this call, in bytes.
-    unsigned padStkAlign;   // Stack alignment in bytes required before arguments are pushed for this call.
-                            // Computed dynamically during codegen, based on stkSizeBytes and the current
-                            // stack level (genStackLevel) when the first stack adjustment is made for
-                            // this call.
-    bool alignmentDone : 1; // Updateable flag, set to 'true' after we've done any required alignment.
+    unsigned stkSizeBytes = 0; // Size of stack used by this call, in bytes.
+    unsigned padStkAlign  = 0; // Stack alignment in bytes required before arguments are pushed for this call.
+                               // Computed dynamically during codegen, based on stkSizeBytes and the current
+                               // stack level (genStackLevel) when the first stack adjustment is made for
+                               // this call.
+    bool alignmentDone : 1;    // Updateable flag, set to 'true' after we've done any required alignment.
 #endif
     bool hasRegArgs : 1;   // true if we have one or more register arguments
     bool argsComplete : 1; // marker for state
 
-    void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
-    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable);
+    void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
+    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
 
 public:
     CallInfo(class Compiler* comp, GenTreeCall* call, unsigned argCount);
