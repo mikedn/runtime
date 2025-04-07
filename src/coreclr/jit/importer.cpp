@@ -5251,7 +5251,7 @@ GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      add
 
         if (fgAddrCouldBeNull(addr))
         {
-            field->gtFlags |= GTF_EXCEPT;
+            field->AddSideEffects(GTF_EXCEPT);
         }
     }
 
@@ -9600,13 +9600,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     if (op1->IsOverflowOp())
                     {
-                        op1->gtFlags |= GTF_EXCEPT;
+                        op1->AddSideEffects(GTF_EXCEPT);
                     }
                     else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
                     {
                         if (op1->DivModMayThrow(comp))
                         {
-                            op1->gtFlags |= GTF_EXCEPT;
+                            op1->AddSideEffects(GTF_EXCEPT);
                         }
                     }
                     else
@@ -9646,7 +9646,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1  = impPopStack().val;
                 type = op1->GetType();
                 op1  = gtNewOperNode(GT_CKFINITE, type, op1);
-                op1->gtFlags |= GTF_EXCEPT;
+                op1->AddSideEffects(GTF_EXCEPT);
                 impPushOnStack(op1);
                 break;
 
@@ -10701,7 +10701,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 if (lclTyp != TYP_STRUCT)
                 {
                     op2 = comp->gtNewIndLoad(lclTyp, op2);
-                    op2->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+                    op2->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
                     goto STIND_CPOBJ;
                 }
@@ -10801,7 +10801,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(varTypeIsArithmetic(lclTyp));
 
                     op1 = comp->gtNewIndLoad(lclTyp, op1);
-                    op1->gtFlags |= GTF_GLOB_REF;
+                    op1->AddSideEffects(GTF_GLOB_REF);
                 }
 
                 if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
@@ -10810,7 +10810,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    op1->gtFlags |= GTF_EXCEPT;
+                    op1->AddSideEffects(GTF_EXCEPT);
                 }
 
                 if ((prefixFlags & PREFIX_UNALIGNED) != 0)
@@ -10843,7 +10843,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     op2 = gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
                     op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                     op1 = comp->gtNewIndLoad(TYP_INT, op1);
-                    op1->gtFlags |= GTF_EXCEPT;
+                    op1->AddSideEffects(GTF_EXCEPT);
                 }
 
                 impPushOnStack(op1);
@@ -11472,7 +11472,7 @@ LOAD_VALUE:
         assert(varTypeIsArithmetic(lclTyp));
 
         op1 = comp->gtNewIndLoad(lclTyp, op1);
-        op1->gtFlags |= GTF_GLOB_REF;
+        op1->AddSideEffects(GTF_GLOB_REF);
     }
 
     if (op2->IsFieldAddr() && op2->AsFieldAddr()->GetFieldSeq()->IsBoxedValueField())
@@ -11481,7 +11481,7 @@ LOAD_VALUE:
     }
     else
     {
-        op1->gtFlags |= GTF_EXCEPT;
+        op1->AddSideEffects(GTF_EXCEPT);
     }
 
     if ((lclTyp == TYP_STRUCT) ||

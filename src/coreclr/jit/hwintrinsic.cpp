@@ -835,10 +835,10 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         if (isMemoryStore)
         {
-            retNode->gtFlags |= GTF_ASG;
+            retNode->AddSideEffects(GTF_ASG);
         }
 
-        retNode->gtFlags |= GTF_GLOB_REF | GTF_EXCEPT;
+        retNode->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
     }
 
     return retNode;

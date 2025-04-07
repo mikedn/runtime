@@ -79,7 +79,7 @@ GenTreeInstr* Lowering::MakeInstr(GenTree* node, instruction ins, emitAttr size)
     instr->SetImmediate(0);
     // Currently INSTR nodes never have side effects. This will need to be adjusted if load/store
     // nodes are lowered to load/store instructions.
-    instr->gtFlags = GTF_EMPTY;
+    instr->gtFlags = GTF_NONE;
     return instr;
 }
 

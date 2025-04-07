@@ -2442,7 +2442,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         arg->AsLclLoad()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
         arg->SetType(fieldType);
-        arg->gtFlags = GTF_EMPTY;
+        arg->gtFlags = GTF_NONE;
 
         argInfo->SetArgType(fieldType);
 
@@ -2557,7 +2557,6 @@ void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
     GenTree* type    = arg->GetOp(1);
 
     GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-    fieldList->gtFlags          = GTF_EMPTY;
     fieldList->AddField(this, dataPtr, OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
     fieldList->AddField(this, type, OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
 }
@@ -4320,7 +4319,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
         store = gtNewLclStore(tempLcl, tempLcl->GetType(), arg);
     }
 
-    store->gtFlags |= GTF_GLOB_REF;
+    store->AddSideEffects(GTF_GLOB_REF);
 
     if (varTypeIsStruct(store->GetType()))
     {
@@ -6644,7 +6643,7 @@ void Compiler::fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
 
     if (lcl->IsAddressExposed())
     {
-        init->gtFlags |= GTF_GLOB_REF;
+        init->AddSideEffects(GTF_GLOB_REF);
     }
 
     fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
@@ -8167,7 +8166,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
             GenTree* load = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
-            load->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
+            load->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
             *loads++ = load;
         }
     };
@@ -8176,7 +8175,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
             GenTree* store = gtNewLclStore(fieldLcl, fieldLcl->GetType(), *loads++);
-            store->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
+            store->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
             *stores++ = store;
         }
     };
@@ -8384,7 +8383,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
             if ((load->gtFlags & GTF_IND_NONFAULTING) == 0)
             {
-                fieldLoad->gtFlags |= GTF_EXCEPT;
+                fieldLoad->AddSideEffects(GTF_EXCEPT);
             }
 
             loads[i] = fieldLoad;
@@ -8406,7 +8405,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
             if ((store->gtFlags & GTF_IND_NONFAULTING) == 0)
             {
-                fieldStore->gtFlags |= GTF_EXCEPT;
+                fieldStore->AddSideEffects(GTF_EXCEPT);
             }
 
             stores[i] = fieldStore;
@@ -8807,7 +8806,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                                               op1->AsLclAddr()->GetLclOffs(), FieldSeqStore::NotAField(), op2);
                 storeField->SetLayout(layout, this);
                 storeField->SetSideEffects(GTF_ASG | GTF_GLOB_REF | op2->GetSideEffects());
-                storeField->gtFlags &= ~GTF_REVERSE_OPS;
+                storeField->SetReverseOps(false);
                 tree = storeField;
 
                 oper = GT_LCL_STORE_FLD;
@@ -8817,7 +8816,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             else if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && !op1->HasAnySideEffect(GTF_EXCEPT) &&
                      !op2->HasAnySideEffect(GTF_EXCEPT))
             {
-                tree->gtFlags &= ~GTF_EXCEPT;
+                tree->RemoveSideEffects(GTF_EXCEPT);
             }
             break;
 
@@ -8859,7 +8858,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && ((op1->gtFlags & GTF_EXCEPT) == 0))
             {
-                tree->gtFlags &= ~GTF_EXCEPT;
+                tree->RemoveSideEffects(GTF_EXCEPT);
             }
             break;
 
@@ -9068,11 +9067,8 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 noway_assert(op1->TypeIs(TYP_LONG));
                 tree->AsOp()->SetOp(0, op1);
 
-                // Update flags for op1 morph.
-                tree->gtFlags &= ~GTF_ALL_EFFECT;
-
                 // Only update with op1 as op2 is a constant.
-                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
+                tree->SetSideEffects(op1->GetSideEffects());
 
                 // If op1 is a constant, then do constant folding of the division operator.
                 if (op1->OperIs(GT_CNS_NATIVELONG))
@@ -9244,8 +9240,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 op1 = fgMorphTree(op1);
 
                 tree->AsUnOp()->SetOp(0, op1);
-                tree->gtFlags &= ~GTF_ALL_EFFECT;
-                tree->gtFlags |= (op1->gtFlags & GTF_ALL_EFFECT);
+                tree->SetSideEffects(op1->GetSideEffects());
 
                 return tree;
             }
@@ -9621,10 +9616,8 @@ DONE_MORPHING_CHILDREN:
                     relop->SetOp(0, comma);
                     comma->AsOp()->SetOp(1, relop_op1);
 
-                    // Comma now has fewer nodes underneath it, so we need to regenerate its flags
-                    comma->gtFlags &= ~GTF_ALL_EFFECT;
-                    comma->gtFlags |= comma->AsOp()->GetOp(0)->GetSideEffects();
-                    comma->gtFlags |= comma->AsOp()->GetOp(1)->GetSideEffects();
+                    comma->SetSideEffects(comma->AsOp()->GetOp(0)->GetSideEffects() |
+                                          comma->AsOp()->GetOp(1)->GetSideEffects());
 
                     noway_assert(!relop->IsReverseOp());
                     relop->gtFlags |= tree->gtFlags & (GTF_DONT_CSE | GTF_ALL_EFFECT);
@@ -11283,7 +11276,7 @@ GenTree* Compiler::fgMorphModToSubMulDiv(GenTreeOp* tree)
     GenTree* mul = gtNewOperNode(GT_MUL, type, tree, gtCloneExpr(denominator));
     assert(!mul->IsReverseOp());
     GenTree* sub = gtNewOperNode(GT_SUB, type, gtCloneExpr(numerator), mul);
-    sub->gtFlags |= GTF_REVERSE_OPS;
+    sub->SetReverseOps(true);
     INDEBUG(sub->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
     return sub;
@@ -11990,9 +11983,9 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
                 }
             }
 
-            tree->gtFlags |= tree->AsTernaryOp()->GetOp(0)->GetSideEffects();
-            tree->gtFlags |= tree->AsTernaryOp()->GetOp(1)->GetSideEffects();
-            tree->gtFlags |= tree->AsTernaryOp()->GetOp(2)->GetSideEffects();
+            tree->AddSideEffects(tree->AsTernaryOp()->GetOp(0)->GetSideEffects() |
+                                 tree->AsTernaryOp()->GetOp(1)->GetSideEffects() |
+                                 tree->AsTernaryOp()->GetOp(2)->GetSideEffects());
             break;
 
         default:

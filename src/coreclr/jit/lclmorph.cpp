@@ -828,7 +828,7 @@ private:
                                           (lcl->IsPromoted() && (loadSize == lclSize))))
             {
                 load->ChangeToLclLoad(loadType, lcl);
-                load->gtFlags = GTF_EMPTY;
+                load->gtFlags = GTF_NONE;
                 INDEBUG(m_stmtModified = true);
 
                 return;
@@ -898,7 +898,7 @@ private:
                                ((loadType == TYP_UBYTE) && (lclType == TYP_BOOL)));
 
                         load->ChangeToLclLoad(loadType, lcl);
-                        load->gtFlags = GTF_EMPTY;
+                        load->gtFlags = GTF_NONE;
                         INDEBUG(m_stmtModified = true);
 
                         return;
@@ -912,7 +912,7 @@ private:
 
                         load->ChangeOper(GT_BITCAST);
                         load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_EMPTY;
+                        load->gtFlags = GTF_NONE;
                         INDEBUG(m_stmtModified = true);
 
                         return;
@@ -1036,7 +1036,7 @@ private:
         }
 
         load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
-        load->gtFlags = GTF_EMPTY;
+        load->gtFlags = GTF_NONE;
 
         if (loadLayout != nullptr)
         {
@@ -1326,7 +1326,7 @@ private:
         }
 
         // Local address nodes never have side effects (nor any other flags, at least at this point).
-        addr->gtFlags = GTF_EMPTY;
+        addr->gtFlags = GTF_NONE;
 
         if (!user->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE))
         {
@@ -3011,14 +3011,14 @@ public:
                 add->SetType(TYP_BYREF);
                 add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(lcl, TYP_BYREF));
                 add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
-                add->gtFlags = GTF_EMPTY;
+                add->gtFlags = GTF_NONE;
             }
             else
             {
                 addr->ChangeOper(GT_LCL_LOAD);
                 addr->SetType(TYP_BYREF);
                 addr->AsLclLoad()->SetLcl(lcl);
-                addr->gtFlags = GTF_EMPTY;
+                addr->gtFlags = GTF_NONE;
             }
 
             INDEBUG(m_stmtModified = true;)
@@ -3047,7 +3047,7 @@ public:
             add->SetType(TYP_BYREF);
             add->AsOp()->SetOp(0, m_compiler->gtNewLclLoad(paramLcl, TYP_BYREF));
             add->AsOp()->SetOp(1, m_compiler->gtNewIconNode(lclOffs, fieldSeq));
-            add->gtFlags = GTF_EMPTY;
+            add->gtFlags = GTF_NONE;
 
             INDEBUG(m_stmtModified = true;)
         }

@@ -656,7 +656,7 @@ private:
     ValueNumPair m_vnp;
 
 public:
-    GenTreeFlags gtFlags = GTF_EMPTY;
+    GenTreeFlags gtFlags = GTF_NONE;
     regMaskTP    m_tempRegs;
     GenTree*     gtNext = nullptr;
     GenTree*     gtPrev = nullptr;

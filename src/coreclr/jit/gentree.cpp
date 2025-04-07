@@ -402,7 +402,7 @@ void GenTree::DumpNodeSizes(FILE* fp)
 void GenTreeFieldList::AddField(Compiler* compiler, GenTree* node, unsigned offset, var_types type)
 {
     m_uses.AddUse(new (compiler, CMK_ASTNode) Use(node, offset, type));
-    gtFlags |= node->gtFlags & GTF_ALL_EFFECT;
+    gtFlags |= node->GetSideEffects();
 }
 
 void GenTreeFieldList::AddFieldLIR(Compiler* compiler, GenTree* node, unsigned offset, var_types type)
@@ -413,7 +413,7 @@ void GenTreeFieldList::AddFieldLIR(Compiler* compiler, GenTree* node, unsigned o
 void GenTreeFieldList::InsertField(Compiler* compiler, Use* insertAfter, GenTree* node, unsigned offset, var_types type)
 {
     m_uses.InsertUse(insertAfter, new (compiler, CMK_ASTNode) Use(node, offset, type));
-    gtFlags |= node->gtFlags & GTF_ALL_EFFECT;
+    gtFlags |= node->GetSideEffects();
 }
 
 void GenTreeFieldList::InsertFieldLIR(
@@ -3709,15 +3709,15 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->ClearOtherRegs();
 #endif
 
-    call->gtFlags |= GTF_CALL;
+    call->AddSideEffects(GTF_CALL);
 
     if (call->CallMayThrow(this))
     {
-        call->gtFlags |= GTF_EXCEPT;
+        call->AddSideEffects(GTF_EXCEPT);
     }
     else
     {
-        call->gtFlags &= ~GTF_EXCEPT;
+        call->RemoveSideEffects(GTF_EXCEPT);
     }
 
     for (GenTreeCall::Use& use : GenTreeCall::UseList(args))
@@ -4031,7 +4031,7 @@ GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAd
         indir = gtNewIndLoadObj(indexAddr->GetLayout(this), indexAddr);
     }
 
-    indir->gtFlags |= GTF_GLOB_REF;
+    indir->AddSideEffects(GTF_GLOB_REF);
 
     if ((indexAddr->gtFlags & GTF_INX_RNGCHK) != 0)
     {
@@ -4039,7 +4039,7 @@ GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAd
     }
     else
     {
-        indir->gtFlags |= GTF_EXCEPT;
+        indir->AddSideEffects(GTF_EXCEPT);
     }
 
     return indir;
@@ -11266,7 +11266,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     node->SetOp(3, op4);
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
+        node->gtFlags |= use.GetNode()->GetSideEffects();
         lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
@@ -11291,7 +11291,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     node->SetOp(4, op5);
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        node->gtFlags |= use.GetNode()->gtFlags & GTF_ALL_EFFECT;
+        node->gtFlags |= use.GetNode()->GetSideEffects();
         lvaRecordSimdIntrinsicUse(use.GetNode());
     }
     return node;
@@ -11305,7 +11305,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     for (unsigned i = 0; i < numOps; i++)
     {
         node->SetOp(i, ops[i]);
-        node->gtFlags |= ops[i]->gtFlags & GTF_ALL_EFFECT;
+        node->gtFlags |= ops[i]->GetSideEffects();
         lvaRecordSimdIntrinsicUse(ops[i]);
     }
     return node;

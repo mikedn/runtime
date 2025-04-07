@@ -343,7 +343,7 @@ void AliasSet::Clear()
 // Adds the given node's accesses to this SideEffectSet.
 void SideEffectSet::AddNode(Compiler* compiler, GenTree* node)
 {
-    m_sideEffectFlags |= (node->gtFlags & GTF_ALL_EFFECT);
+    m_sideEffectFlags |= node->GetSideEffects();
     m_aliasSet.AddNode(compiler, node);
 }
 

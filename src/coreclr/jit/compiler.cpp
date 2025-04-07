@@ -4784,334 +4784,323 @@ Compiler::LoopDsc* dFindLoop(unsigned loopNum)
 
 void cTreeFlags(Compiler* comp, GenTree* tree)
 {
-    int chars = 0;
+    GenTreeFlags flags = tree->gtFlags;
 
-    if (tree->gtFlags != 0)
+    if (flags == GTF_NONE)
     {
-        chars += printf("flags=");
+        return;
+    }
 
-        // Node flags
-        CLANG_FORMAT_COMMENT_ANCHOR;
+    printf("flags=");
 
-#if defined(DEBUG)
-        if (tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE)
-        {
-            chars += printf("[NODE_LARGE]");
-        }
-        if (tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED)
-        {
-            chars += printf("[MORPHED]");
-        }
-#endif // defined(DEBUG)
-
-        // Operator flags
-
-        switch (tree->GetOper())
-        {
-            case GT_LCL_LOAD:
-            case GT_LCL_STORE:
-            case GT_LCL_LOAD_FLD:
-            case GT_LCL_STORE_FLD:
-                if (tree->gtFlags & GTF_LCL_LAST_USE_MASK)
-                {
-                    chars += printf("[VAR_DEATH]");
-                }
-                FALLTHROUGH;
-            case GT_LCL_ADDR:
-                if (tree->gtFlags & GTF_VAR_CLONED)
-                {
-                    chars += printf("[VAR_CLONED]");
-                }
-                break;
-
-            case GT_NOP:
-                break;
-
-            case GT_NO_OP:
-                break;
-
-            case GT_INDEX_ADDR:
-                if (tree->gtFlags & GTF_INX_RNGCHK)
-                {
-                    chars += printf("[INX_RNGCHK]");
-                }
-                break;
-
-            case GT_IND_LOAD:
-            case GT_IND_STORE:
-            case GT_IND_LOAD_OBJ:
-            case GT_IND_STORE_OBJ:
-            case GT_IND_LOAD_BLK:
-            case GT_IND_STORE_BLK:
-                if (tree->AsIndir()->IsVolatile())
-                {
-                    chars += printf("[IND_VOLATILE]");
-                }
-                if (tree->AsIndir()->IsUnaligned())
-                {
-                    chars += printf("[IND_UNALIGNED]");
-                }
-                if (tree->gtFlags & GTF_IND_TGT_HEAP)
-                {
-                    chars += printf("[IND_TGT_HEAP]");
-                }
-                if (tree->gtFlags & GTF_IND_TGT_NOT_HEAP)
-                {
-                    chars += printf("[IND_TGT_NOT_HEAP]");
-                }
-                if (tree->gtFlags & GTF_IND_INVARIANT)
-                {
-                    chars += printf("[IND_INVARIANT]");
-                }
-                if (tree->gtFlags & GTF_IND_NONNULL)
-                {
-                    chars += printf("[IND_NONNULL]");
-                }
-                FALLTHROUGH;
-            case GT_ARR_LENGTH:
-            case GT_NULLCHECK:
-                if (tree->gtFlags & GTF_IND_NONFAULTING)
-                {
-                    chars += printf("[IND_NONFAULTING]");
-                }
-                break;
-
-            case GT_COPY_BLK:
-            case GT_INIT_BLK:
-                if (tree->AsDynBlk()->IsVolatile())
-                {
-                    chars += printf("[IND_VOLATILE]");
-                }
-                if (tree->AsDynBlk()->IsUnaligned())
-                {
-                    chars += printf("[BLK_UNALIGNED]");
-                }
-                break;
-
-            case GT_ADD:
-            case GT_MUL:
-            case GT_LSH:
-            case GT_COMMA:
-            case GT_MOD:
-            case GT_UMOD:
-                break;
-
-            case GT_EQ:
-            case GT_NE:
-            case GT_LT:
-            case GT_LE:
-            case GT_GT:
-            case GT_GE:
-                if (tree->IsRelopUnordered())
-                {
-                    chars += printf("[RELOP_NAN_UN]");
-                }
-                if (tree->IsRelopUnsigned())
-                {
-                    chars += printf("[RELOP_UNSIGNED]");
-                }
-                break;
-
-            case GT_QMARK:
-
-                if (tree->gtFlags & GTF_QMARK_CAST_INSTOF)
-                {
-                    chars += printf("[QMARK_CAST_INSTOF]");
-                }
-                break;
-
-            case GT_CNS_INT:
-                switch (tree->AsIntCon()->GetHandleKind())
-                {
-                    case HandleKind::Module:
-                        chars += printf("[ICON_MODULE]");
-                        break;
-                    case HandleKind::Class:
-                        chars += printf("[ICON_CLASS]");
-                        break;
-                    case HandleKind::Method:
-                        chars += printf("[ICON_METHOD]");
-                        break;
-                    case HandleKind::Field:
-                        chars += printf("[ICON_FIELD]");
-                        break;
-                    case HandleKind::Static:
-                        chars += printf("[ICON_STATIC]");
-                        break;
-                    case HandleKind::String:
-                        chars += printf("[ICON_STRING]");
-                        break;
-                    case HandleKind::ConstData:
-                        chars += printf("[ICON_CONST_DATA]");
-                        break;
-                    case HandleKind::MutableData:
-                        chars += printf("[ICON_MUTABLE_DATA]");
-                        break;
-                    case HandleKind::Token:
-                        chars += printf("[ICON_TOKEN]");
-                        break;
-                    case HandleKind::MethodAddr:
-                        chars += printf("[ICON_METHOD_ADDR]");
-                        break;
-                    case HandleKind::BlockCount:
-                        chars += printf("[ICON_BLOCK_COUNT]");
-                        break;
-#ifdef WINDOWS_X86_ABI
-                    case HandleKind::TLS:
-                        chars += printf("[ICON_TLS]");
-                        break;
+#ifdef DEBUG
+    if (tree->gtDebugFlags & GTF_DEBUG_NODE_LARGE)
+    {
+        printf("[NODE_LARGE]");
+    }
+    if (tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED)
+    {
+        printf("[MORPHED]");
+    }
 #endif
-                    default:
-                        break;
-                }
-                break;
 
-            case GT_CALL:
+    switch (tree->GetOper())
+    {
+        case GT_LCL_LOAD:
+        case GT_LCL_STORE:
+        case GT_LCL_LOAD_FLD:
+        case GT_LCL_STORE_FLD:
+            if (flags & GTF_LCL_LAST_USE_MASK)
             {
-                GenTreeCall* call = tree->AsCall();
-
-                if (tree->gtFlags & GTF_CALL_INLINE_CANDIDATE)
-                {
-                    chars += printf("[CALL_INLINE_CANDIDATE]");
-                }
-                if (!call->IsVirtual())
-                {
-                    chars += printf("[CALL_NONVIRT]");
-                }
-                if (call->IsVirtualVtable())
-                {
-                    chars += printf("[CALL_VIRT_VTABLE]");
-                }
-                if (call->IsVirtualStub())
-                {
-                    chars += printf("[CALL_VIRT_STUB]");
-                }
-                if (call->IsDelegateInvoke())
-                {
-                    chars += printf("[CALL_DELEGATE_INVOKE]");
-                }
-                if (tree->AsCall()->HasNullCheck())
-                {
-                    chars += printf("[CALL_NULLCHECK]");
-                }
-                if (tree->gtFlags & GTF_CALL_HOISTABLE)
-                {
-                    chars += printf("[CALL_HOISTABLE]");
-                }
-
-                // More flags associated with calls.
-
-                if (call->gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
-                {
-                    chars += printf("[CALL_M_EXPLICIT_TAILCALL]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_TAILCALL)
-                {
-                    chars += printf("[CALL_M_TAILCALL]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_VARARGS)
-                {
-                    chars += printf("[CALL_M_VARARGS]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG)
-                {
-                    chars += printf("[CALL_M_REQUIRES_RETBUFFARG]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_HAS_RETBUFF_ARG)
-                {
-                    chars += printf("[CALL_M_HAS_RETBUFFARG]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK)
-                {
-                    chars += printf("[CALL_M_NOGCCHECK]");
-                }
-                if (call->gtCallMoreFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
-                {
-                    chars += printf("[CALL_M_SPECIAL_INTRINSIC]");
-                }
-
-#if FEATURE_TAILCALL_OPT
-                if (call->gtCallMoreFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
-                {
-                    chars += printf("[CALL_M_IMPLICIT_TAILCALL]");
-                }
-#endif
-                if (call->gtCallMoreFlags & GTF_CALL_M_PINVOKE)
-                {
-                    chars += printf("[CALL_M_PINVOKE]");
-                }
-
-                if (call->IsFatPointerCandidate())
-                {
-                    chars += printf("[CALL_FAT_POINTER_CANDIDATE]");
-                }
-
-                if (call->IsGuarded())
-                {
-                    chars += printf("[CALL_GUARDED]");
-                }
-
-                if (call->IsExpRuntimeLookup())
-                {
-                    chars += printf("[CALL_EXP_RUNTIME_LOOKUP]");
-                }
+                printf("[VAR_DEATH]");
+            }
+            FALLTHROUGH;
+        case GT_LCL_ADDR:
+            if (flags & GTF_VAR_CLONED)
+            {
+                printf("[VAR_CLONED]");
             }
             break;
 
-            default:
-                if (GenTreeFlags flags = (tree->gtFlags & ~GTF_COMMON_MASK))
-                {
-                    chars += printf("[%08X]", flags);
-                }
-                break;
-        }
+        case GT_INDEX_ADDR:
+            if (flags & GTF_INX_RNGCHK)
+            {
+                printf("[INX_RNGCHK]");
+            }
+            break;
 
-        // Common flags.
+        case GT_IND_LOAD:
+        case GT_IND_STORE:
+        case GT_IND_LOAD_OBJ:
+        case GT_IND_STORE_OBJ:
+        case GT_IND_LOAD_BLK:
+        case GT_IND_STORE_BLK:
+            if (tree->AsIndir()->IsVolatile())
+            {
+                printf("[IND_VOLATILE]");
+            }
+            if (tree->AsIndir()->IsUnaligned())
+            {
+                printf("[IND_UNALIGNED]");
+            }
+            if (flags & GTF_IND_TGT_HEAP)
+            {
+                printf("[IND_TGT_HEAP]");
+            }
+            if (flags & GTF_IND_TGT_NOT_HEAP)
+            {
+                printf("[IND_TGT_NOT_HEAP]");
+            }
+            if (flags & GTF_IND_INVARIANT)
+            {
+                printf("[IND_INVARIANT]");
+            }
+            if (flags & GTF_IND_NONNULL)
+            {
+                printf("[IND_NONNULL]");
+            }
+            FALLTHROUGH;
+        case GT_ARR_LENGTH:
+        case GT_NULLCHECK:
+            if (flags & GTF_IND_NONFAULTING)
+            {
+                printf("[IND_NONFAULTING]");
+            }
+            break;
 
-        if (tree->gtFlags & GTF_ASG)
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            if (tree->AsDynBlk()->IsVolatile())
+            {
+                printf("[IND_VOLATILE]");
+            }
+            if (tree->AsDynBlk()->IsUnaligned())
+            {
+                printf("[BLK_UNALIGNED]");
+            }
+            break;
+
+        case GT_EQ:
+        case GT_NE:
+        case GT_LT:
+        case GT_LE:
+        case GT_GT:
+        case GT_GE:
+            if (tree->IsRelopUnordered())
+            {
+                printf("[RELOP_NAN_UN]");
+            }
+            if (tree->IsRelopUnsigned())
+            {
+                printf("[RELOP_UNSIGNED]");
+            }
+            break;
+
+        case GT_QMARK:
+            if (flags & GTF_QMARK_CAST_INSTOF)
+            {
+                printf("[QMARK_CAST_INSTOF]");
+            }
+            break;
+
+        case GT_CNS_INT:
+            switch (tree->AsIntCon()->GetHandleKind())
+            {
+                case HandleKind::Module:
+                    printf("[ICON_MODULE]");
+                    break;
+                case HandleKind::Class:
+                    printf("[ICON_CLASS]");
+                    break;
+                case HandleKind::Method:
+                    printf("[ICON_METHOD]");
+                    break;
+                case HandleKind::Field:
+                    printf("[ICON_FIELD]");
+                    break;
+                case HandleKind::Static:
+                    printf("[ICON_STATIC]");
+                    break;
+                case HandleKind::String:
+                    printf("[ICON_STRING]");
+                    break;
+                case HandleKind::ConstData:
+                    printf("[ICON_CONST_DATA]");
+                    break;
+                case HandleKind::MutableData:
+                    printf("[ICON_MUTABLE_DATA]");
+                    break;
+                case HandleKind::Token:
+                    printf("[ICON_TOKEN]");
+                    break;
+                case HandleKind::MethodAddr:
+                    printf("[ICON_METHOD_ADDR]");
+                    break;
+                case HandleKind::BlockCount:
+                    printf("[ICON_BLOCK_COUNT]");
+                    break;
+#ifdef WINDOWS_X86_ABI
+                case HandleKind::TLS:
+                    printf("[ICON_TLS]");
+                    break;
+#endif
+                default:
+                    break;
+            }
+            break;
+
+        case GT_CALL:
         {
-            chars += printf("[ASG]");
+            GenTreeCall* call = tree->AsCall();
+
+            if (flags & GTF_CALL_INLINE_CANDIDATE)
+            {
+                printf("[CALL_INLINE_CANDIDATE]");
+            }
+            if (!call->IsVirtual())
+            {
+                printf("[CALL_NONVIRT]");
+            }
+            if (call->IsVirtualVtable())
+            {
+                printf("[CALL_VIRT_VTABLE]");
+            }
+            if (call->IsVirtualStub())
+            {
+                printf("[CALL_VIRT_STUB]");
+            }
+            if (call->IsDelegateInvoke())
+            {
+                printf("[CALL_DELEGATE_INVOKE]");
+            }
+            if (tree->AsCall()->HasNullCheck())
+            {
+                printf("[CALL_NULLCHECK]");
+            }
+            if (flags & GTF_CALL_HOISTABLE)
+            {
+                printf("[CALL_HOISTABLE]");
+            }
+
+            GenTreeCallFlags callFlags = call->gtCallMoreFlags;
+
+            if (callFlags & GTF_CALL_M_EXPLICIT_TAILCALL)
+            {
+                printf("[CALL_M_EXPLICIT_TAILCALL]");
+            }
+            if (callFlags & GTF_CALL_M_TAILCALL)
+            {
+                printf("[CALL_M_TAILCALL]");
+            }
+            if (callFlags & GTF_CALL_M_VARARGS)
+            {
+                printf("[CALL_M_VARARGS]");
+            }
+            if (callFlags & GTF_CALL_M_REQUIRES_RETBUFF_ARG)
+            {
+                printf("[CALL_M_REQUIRES_RETBUFFARG]");
+            }
+            if (callFlags & GTF_CALL_M_HAS_RETBUFF_ARG)
+            {
+                printf("[CALL_M_HAS_RETBUFFARG]");
+            }
+            if (callFlags & GTF_CALL_M_NOGCCHECK)
+            {
+                printf("[CALL_M_NOGCCHECK]");
+            }
+            if (callFlags & GTF_CALL_M_SPECIAL_INTRINSIC)
+            {
+                printf("[CALL_M_SPECIAL_INTRINSIC]");
+            }
+#if FEATURE_TAILCALL_OPT
+            if (callFlags & GTF_CALL_M_IMPLICIT_TAILCALL)
+            {
+                printf("[CALL_M_IMPLICIT_TAILCALL]");
+            }
+#endif
+            if (callFlags & GTF_CALL_M_PINVOKE)
+            {
+                printf("[CALL_M_PINVOKE]");
+            }
+
+            if (call->IsFatPointerCandidate())
+            {
+                printf("[CALL_FAT_POINTER_CANDIDATE]");
+            }
+
+            if (call->IsGuarded())
+            {
+                printf("[CALL_GUARDED]");
+            }
+
+            if (call->IsExpRuntimeLookup())
+            {
+                printf("[CALL_EXP_RUNTIME_LOOKUP]");
+            }
         }
-        if (tree->gtFlags & GTF_CALL)
-        {
-            chars += printf("[CALL]");
-        }
-        if (tree->gtFlags & GTF_EXCEPT)
-        {
-            chars += printf("[EXCEPT]");
-        }
-        if (tree->gtFlags & GTF_GLOB_REF)
-        {
-            chars += printf("[GLOB_REF]");
-        }
-        if (tree->gtFlags & GTF_ORDER_SIDEEFF)
-        {
-            chars += printf("[ORDER_SIDEEFF]");
-        }
-        if (tree->gtFlags & GTF_REVERSE_OPS)
-        {
-            chars += printf("[REVERSE_OPS]");
-        }
-        if (tree->gtFlags & GTF_MAKE_CSE)
-        {
-            chars += printf("[MAKE_CSE]");
-        }
-        if (tree->gtFlags & GTF_DONT_CSE)
-        {
-            chars += printf("[DONT_CSE]");
-        }
-        if (tree->gtFlags & GTF_NO_CSE)
-        {
-            chars += printf("[NO_CSE]");
-        }
-        if (tree->gtFlags & GTF_BOOLEAN)
-        {
-            chars += printf("[BOOLEAN]");
-        }
-        if (tree->gtFlags & GTF_REUSE_REG_VAL)
-        {
-            chars += printf("[REUSE_REG_VAL]");
-        }
+        break;
+
+        case GT_NOP:
+        case GT_NO_OP:
+        case GT_ADD:
+        case GT_MUL:
+        case GT_LSH:
+        case GT_COMMA:
+        case GT_MOD:
+        case GT_UMOD:
+            break;
+
+        default:
+            if (GenTreeFlags unknownFlags = flags & ~GTF_COMMON_MASK)
+            {
+                printf("[%08X]", unknownFlags);
+            }
+            break;
+    }
+
+    if (flags & GTF_ASG)
+    {
+        printf("[ASG]");
+    }
+    if (flags & GTF_CALL)
+    {
+        printf("[CALL]");
+    }
+    if (flags & GTF_EXCEPT)
+    {
+        printf("[EXCEPT]");
+    }
+    if (flags & GTF_GLOB_REF)
+    {
+        printf("[GLOB_REF]");
+    }
+    if (flags & GTF_ORDER_SIDEEFF)
+    {
+        printf("[ORDER_SIDEEFF]");
+    }
+    if (flags & GTF_REVERSE_OPS)
+    {
+        printf("[REVERSE_OPS]");
+    }
+    if (flags & GTF_MAKE_CSE)
+    {
+        printf("[MAKE_CSE]");
+    }
+    if (flags & GTF_DONT_CSE)
+    {
+        printf("[DONT_CSE]");
+    }
+    if (flags & GTF_NO_CSE)
+    {
+        printf("[NO_CSE]");
+    }
+    if (flags & GTF_BOOLEAN)
+    {
+        printf("[BOOLEAN]");
+    }
+    if (flags & GTF_REUSE_REG_VAL)
+    {
+        printf("[REUSE_REG_VAL]");
     }
 }
 

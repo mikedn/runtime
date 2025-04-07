@@ -2008,10 +2008,10 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        indir->gtFlags &= ~GTF_EXCEPT;
+        indir->RemoveSideEffects(GTF_EXCEPT);
         indir->gtFlags |= GTF_IND_NONFAULTING;
         // Set this flag to prevent reordering
-        indir->gtFlags |= GTF_ORDER_SIDEEFF;
+        indir->AddSideEffects(GTF_ORDER_SIDEEFF);
 
         return UpdateTree(indir, indir, stmt);
     }
@@ -3018,7 +3018,7 @@ private:
 
             JITDUMP("\nIndir " FMT_TREEID " has non-null address, removing GTF_EXCEPT\n", indir->GetID());
 
-            indir->gtFlags &= ~GTF_EXCEPT;
+            indir->RemoveSideEffects(GTF_EXCEPT);
             indir->gtFlags |= GTF_IND_NONFAULTING;
 
             if (isLocalAddr)
@@ -3034,7 +3034,7 @@ private:
                 // is non-null due to a previous indirection or null check that prevent us from getting here
                 // with a null address. Of course, a local address is never null so it doesn't need this.
                 // TODO-MIKE-Review: Hmm, that's probably only for local assertion propagation...
-                indir->gtFlags |= GTF_ORDER_SIDEEFF;
+                indir->AddSideEffects(GTF_ORDER_SIDEEFF);
             }
 
             m_stmtMorphPending = true;

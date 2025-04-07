@@ -1332,10 +1332,10 @@ GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
         return nullptr;
     }
 
-    indir->gtFlags &= ~GTF_EXCEPT;
+    indir->RemoveSideEffects(GTF_EXCEPT);
     indir->gtFlags |= GTF_IND_NONFAULTING;
     // Set this flag to prevent reordering
-    indir->gtFlags |= GTF_ORDER_SIDEEFF;
+    indir->AddSideEffects(GTF_ORDER_SIDEEFF);
 
     return indir;
 }

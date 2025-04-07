@@ -294,7 +294,7 @@ private:
                 // confused this with another situation that does require GTF_ORDER_SIDEEFF - an indir
                 // dominated by another indir may be made "non faulting" and then we do need to prevent
                 // the "non faulting" indir to be reordered in front of the dominating faulting indir.
-                nullCheck->gtFlags |= GTF_ORDER_SIDEEFF;
+                nullCheck->AddSideEffects(GTF_ORDER_SIDEEFF);
 
                 compiler->gtUpdateAncestorsSideEffects(nullCheck);
 
