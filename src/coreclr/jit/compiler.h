@@ -2993,7 +2993,7 @@ public:
     GenTree* gtCloneComplex(GenTree* tree);
 
     GenTree* gtCloneExpr(GenTree*         tree,
-                         GenTreeFlags     addFlags = GTF_EMPTY,
+                         GenTreeFlags     addFlags = GTF_NONE,
                          const LclVarDsc* constLcl = nullptr,
                          int              constVal = 0);
 
@@ -3005,7 +3005,7 @@ public:
 
     // Internal helper for cloning a call
     GenTreeCall* gtCloneExprCallHelper(GenTreeCall*     call,
-                                       GenTreeFlags     addFlags = GTF_EMPTY,
+                                       GenTreeFlags     addFlags = GTF_NONE,
                                        const LclVarDsc* constLcl = nullptr,
                                        int              constVal = 0);
 

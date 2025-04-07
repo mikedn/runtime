@@ -2075,8 +2075,8 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
         GenTreeFlags       sideEffects;
         LIR::ReadOnlyRange testRange = blockRange.GetTreeRange(test, &isClosed, &sideEffects);
 
-        // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that produces unacceptable
-        //            diffs compared to the existing backend.
+        // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that
+        // produces unacceptable diffs compared to the existing backend.
         if (isClosed && ((sideEffects & GTF_SIDE_EFFECT) == 0))
         {
             // If the jump and its operands form a contiguous, side-effect-free range,

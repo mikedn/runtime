@@ -150,7 +150,7 @@ GenTree* Compiler::fgMorphTruncate(GenTreeUnOp* trunc)
             }
             else if ((32 <= shiftAmountValue) && (shiftAmountValue < 64))
             {
-                if (!src->HasAnySideEffect(GTF_ALL_EFFECT))
+                if (!src->HasSideEffects())
                 {
                     GenTree* zero = gtNewIconNode(0, TYP_INT);
                     INDEBUG(zero->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
@@ -980,9 +980,9 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 
                 assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
 
-                // For all previous arguments, if they have any GTF_ALL_EFFECT
-                //  we require that they be evaluated into a temp
-                if (prevArgInfo->GetNode()->HasAnySideEffect(GTF_ALL_EFFECT))
+                // For all previous arguments, if they have any side efect
+                // we require that they be evaluated into a temp
+                if (prevArgInfo->GetNode()->HasSideEffects())
                 {
                     prevArgInfo->SetTempNeeded();
                     needsTemps = true;
@@ -8214,7 +8214,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
 
             GenTreeLclLoadFld* fieldLoad = gtNewLclLoadFld(promotedFieldLcl->GetType(), lcl, loadFieldOffs);
             fieldLoad->SetFieldSeq(loadFieldSeq);
-            fieldLoad->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
+            fieldLoad->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
             *loads++ = fieldLoad;
         }
 
@@ -8256,7 +8256,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
             GenTreeLclStoreFld* fieldStore =
                 gtNewLclStoreFld(promotedFieldLcl->GetType(), lcl, storeFieldOffs, *loads++);
             fieldStore->SetFieldSeq(storeFieldSeq);
-            fieldStore->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_EMPTY;
+            fieldStore->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
             *stores++ = fieldStore;
         }
 
@@ -10278,7 +10278,7 @@ DONE_MORPHING_CHILDREN:
                     // Dereferencing the pointer in either case will have the
                     // same effect.
 
-                    if (varTypeIsGC(op2->GetType()) && ((op1->gtFlags & GTF_ALL_EFFECT) == 0))
+                    if (varTypeIsGC(op2->GetType()) && !op1->HasSideEffects())
                     {
                         op2->SetType(tree->GetType());
                         DEBUG_DESTROY_NODE(op1);
@@ -10842,7 +10842,7 @@ DONE_MORPHING_CHILDREN:
             // Discard op1 if it doesn't have any side effects and return the COMMA throw tree.
             // TODO-MIKE-Review: This ignores GTF_REVERSE_OPS, if it's set we don't care about op1 at all.
 
-            if (!op1->HasAnySideEffect(GTF_ALL_EFFECT))
+            if (!op1->HasSideEffects())
             {
                 GenTreeOp* comma = op2->AsOp();
 
@@ -11932,11 +11932,11 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_PHI:
-            assert(!tree->HasAnySideEffect(GTF_ALL_EFFECT));
+            assert(!tree->HasSideEffects());
             for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
             {
                 use.SetNode(use.GetNode());
-                assert(!use.GetNode()->HasAnySideEffect(GTF_ALL_EFFECT));
+                assert(!use.GetNode()->HasSideEffects());
             }
             break;
 

@@ -1956,20 +1956,20 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
     if ((relop->gtNext == jtrue) && relopOp2->IsIntCon())
     {
         bool         useJCMP   = false;
-        GenTreeFlags jcmpFlags = GTF_EMPTY;
+        GenTreeFlags jcmpFlags = GTF_NONE;
         size_t       imm       = static_cast<size_t>(relopOp2->AsIntCon()->GetValue());
 
         if (relop->OperIs(GT_EQ, GT_NE) && (imm == 0))
         {
             // Generate CBZ/CBNZ
             useJCMP   = true;
-            jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : GTF_EMPTY;
+            jcmpFlags = relop->OperIs(GT_EQ) ? GTF_JCMP_EQ : GTF_NONE;
         }
         else if (relop->OperIs(GT_LT, GT_GE) && !relop->IsRelopUnsigned() && (imm == 0))
         {
             // Positive/negative checks can test the sign bit using TBZ/TBNZ
             useJCMP   = true;
-            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : GTF_EMPTY);
+            jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_GE) ? GTF_JCMP_EQ : GTF_NONE);
 
             if (relop->AsOp()->GetOp(0)->TypeIs(TYP_LONG))
             {
@@ -1992,7 +1992,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
             {
                 // Generate TBZ/TBNZ
                 useJCMP   = true;
-                jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : GTF_EMPTY);
+                jcmpFlags = GTF_JCMP_TST | (relop->OperIs(GT_TEST_EQ) ? GTF_JCMP_EQ : GTF_NONE);
 
                 relopOp2->AsIntCon()->SetValue(genLog2(imm));
             }

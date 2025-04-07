@@ -747,7 +747,7 @@ bool BasicBlock::CloneBlockState(
 
     for (Statement* const fromStmt : from->Statements())
     {
-        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_EMPTY, constLcl, constVal);
+        auto newExpr = compiler->gtCloneExpr(fromStmt->GetRootNode(), GTF_NONE, constLcl, constVal);
         if (!newExpr)
         {
             // gtCloneExpr doesn't handle all opcodes, so may fail to clone a statement.

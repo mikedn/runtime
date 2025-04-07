@@ -1487,7 +1487,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
     }
     else
     {
-        if ((argInfo.argNode->gtFlags & GTF_ALL_EFFECT) != 0)
+        if (argInfo.argNode->HasSideEffects())
         {
             argInfo.argHasGlobRef = (argInfo.argNode->gtFlags & GTF_GLOB_REF) != 0;
             argInfo.argHasSideEff = (argInfo.argNode->gtFlags & (GTF_ALL_EFFECT & ~GTF_GLOB_REF)) != 0;

@@ -353,11 +353,10 @@ static_assert(static_cast<unsigned>(HandleKind::Count) <= 16, "HandleKind must f
 // clang-format off
 enum GenTreeFlags : unsigned
 {
-    GTF_EMPTY = 0,
-
+    GTF_NONE                  = 0,
+    
     // Side effects (of tree in HIR, of node in LIR)
 
-    GTF_NONE                  = 0,
     GTF_ASG                   = 0x00000001, // Tree contains a store or intrinsic with similar effect
     GTF_CALL                  = 0x00000002, // Tree contains a call
     GTF_EXCEPT                = 0x00000004, // Tree might throw an exception (OverflowException, NullReferenceException etc.)
@@ -1086,6 +1085,11 @@ public:
         return gtFlags & GTF_ALL_EFFECT;
     }
 
+    bool HasSideEffects() const
+    {
+        return GetSideEffects() != GTF_NONE;
+    }
+
     bool HasAllSideEffects(GenTreeFlags sideEffects) const
     {
         return (gtFlags & sideEffects) == sideEffects;
@@ -1692,7 +1696,7 @@ public:
 
     void SetReverseOps(bool reverseOps)
     {
-        gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_EMPTY);
+        gtFlags = (gtFlags & ~GTF_REVERSE_OPS) | (reverseOps ? GTF_REVERSE_OPS : GTF_NONE);
     }
 
     bool IsRelopUnsigned() const
@@ -2239,10 +2243,11 @@ protected:
     GenTreeUnOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
         : GenTree(oper, type DEBUGARG(largeNode)), gtOp1(op1)
     {
-        assert(op1 != nullptr || NullOp1Legal());
+        assert((op1 != nullptr) || NullOp1Legal());
+
         if (op1 != nullptr)
-        { // Propagate effects flags from child.
-            gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+        {
+            gtFlags |= op1->GetSideEffects();
         }
     }
 
@@ -2287,17 +2292,13 @@ struct GenTreeOp : public GenTreeUnOp
     GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type, op1 DEBUGARG(largeNode)), gtOp2(op2)
     {
-        // comparisons are always integral types
         assert(!GenTree::OperIsCompare(oper) || varTypeIsIntegral(type));
-        // Binary operators, with a few exceptions, require a non-nullptr
-        // second argument.
-        assert(op2 != nullptr || NullOp2Legal());
-        // Unary operators, on the other hand, require a null second argument.
-        assert(!OperIsUnary(oper) || op2 == nullptr);
-        // Propagate effects flags from child.  (UnOp handled this for first child.)
+        assert((op2 != nullptr) || NullOp2Legal());
+        assert(!OperIsUnary(oper) || (op2 == nullptr));
+
         if (op2 != nullptr)
         {
-            gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+            gtFlags |= op2->GetSideEffects();
         }
     }
 
@@ -2306,7 +2307,6 @@ struct GenTreeOp : public GenTreeUnOp
     GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
     {
-        // Unary operators with optional arguments:
         assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
@@ -5387,7 +5387,7 @@ public:
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
 
-        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op1->GetSideEffects();
     }
 
     GenTreeHWIntrinsic(
@@ -5406,8 +5406,8 @@ public:
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
 
-        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op1->GetSideEffects();
+        gtFlags |= op2->GetSideEffects();
     }
 
     GenTreeHWIntrinsic(var_types      type,
@@ -5431,9 +5431,9 @@ public:
             gtFlags |= (GTF_GLOB_REF | GTF_ASG);
         }
 
-        gtFlags |= op1->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= op2->gtFlags & GTF_ALL_EFFECT;
-        gtFlags |= op3->gtFlags & GTF_ALL_EFFECT;
+        gtFlags |= op1->GetSideEffects();
+        gtFlags |= op2->GetSideEffects();
+        gtFlags |= op3->GetSideEffects();
     }
 
     GenTreeHWIntrinsic(const GenTreeHWIntrinsic* copyFrom, CompAllocator alloc)

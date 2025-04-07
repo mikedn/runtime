@@ -2868,11 +2868,11 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 if (!csePhase || cseCanSwapOrder(op1, op2))
                 {
                     if (tree->AsIndir()->GetAddr()->IsLocalAddrExpr() ||
-                        (!tree->AsIndir()->GetAddr()->HasAnySideEffect(GTF_ALL_EFFECT) &&
-                         !op2->HasAnySideEffect(GTF_ASG) && !op2->OperIsLeaf()))
+                        (!tree->AsIndir()->GetAddr()->HasSideEffects() && !op2->HasAnySideEffect(GTF_ASG) &&
+                         !op2->OperIsLeaf()))
                     {
                         allowSwap = false;
-                        tree->gtFlags |= GTF_REVERSE_OPS;
+                        tree->SetReverseOps(true);
                     }
                 }
 
@@ -4072,7 +4072,7 @@ GenTreeIndir* Compiler::gtNewFieldLoad(var_types type, unsigned layoutNum, GenTr
         indir = gtNewIndLoadObj(typGetLayoutByNum(layoutNum), fieldAddr);
         // gtNewIndLoadObj has other rules for adding GTF_GLOB_REF, remove
         // it and add it back below according to the old field rules.
-        indir->gtFlags &= ~GTF_GLOB_REF;
+        indir->RemoveSideEffects(GTF_GLOB_REF);
     }
     else
     {
@@ -4111,7 +4111,7 @@ GenTreeIndLoadObj* Compiler::gtNewIndLoadObj(var_types type, ClassLayout* layout
         // An Obj is not a global reference, if it is known to be a local struct.
         if (((addr->gtFlags & GTF_GLOB_REF) == 0) && !lclNode->GetLcl()->IsImplicitByRefParam())
         {
-            load->gtFlags &= ~GTF_GLOB_REF;
+            load->RemoveSideEffects(GTF_GLOB_REF);
         }
     }
     else if (GenTreeFieldAddr* fieldAddr = addr->IsFieldAddr())
@@ -11815,7 +11815,7 @@ GenTreeCall* Compiler::gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls)
 GenTreeCall* Compiler::gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper)
 {
     bool         needClassId = true;
-    GenTreeFlags callFlags   = GTF_EMPTY;
+    GenTreeFlags callFlags   = GTF_NONE;
     var_types    retType     = TYP_BYREF;
 
     // This is sort of ugly, as we have knowledge of what the helper is returning.

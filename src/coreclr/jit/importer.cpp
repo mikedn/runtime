@@ -1770,8 +1770,8 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
 GenTree* Importer::impNewCatchArg()
 {
     GenTree* arg = new (comp, GT_CATCH_ARG) GenTree(GT_CATCH_ARG, TYP_REF);
-    // GT_CATCH_ARG cannot be moved around since it uses a fixed register on x86 (EAX).
-    arg->gtFlags |= GTF_ORDER_SIDEEFF;
+    // CATCH_ARG cannot be moved around since it uses a fixed register on x86 (EAX).
+    arg->AddSideEffects(GTF_ORDER_SIDEEFF);
     return arg;
 }
 
@@ -2451,9 +2451,9 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
     GenTreeBlk* store   = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, load, load->GetLayout());
 
-    load->gtFlags &= ~GTF_EXCEPT;
+    load->RemoveSideEffects(GTF_EXCEPT);
     load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-    store->gtFlags &= ~GTF_EXCEPT;
+    store->RemoveSideEffects(GTF_EXCEPT);
     store->gtFlags |= GTF_IND_NONFAULTING;
 
     INDEBUG(srcAddr->AsIntCon()->SetDumpHandle(reinterpret_cast<void*>(THT_IntializeArrayIntrinsics)));
@@ -5126,7 +5126,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     for (GenTreeCall::Use& argUse : call->AllArgs())
     {
         GenTree* arg = argUse.GetNode();
-        call->gtFlags |= arg->gtFlags & GTF_GLOB_EFFECT;
+        call->gtFlags |= arg->GetSideEffects();
 
         // We should not pass GC typed args to an unmanaged call.
         // We tolerate BYREF args by retyping to native int.
@@ -8929,7 +8929,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (verCurrentState.esStackDepth > 0)
                 {
-                    GenTreeFlags spillSideEffects = GTF_EMPTY;
+                    GenTreeFlags spillSideEffects = GTF_NONE;
 
                     if (lcl->IsPinning())
                     {
@@ -8982,7 +8982,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                         impSpillLclReferences(lcl);
                     }
 
-                    if (spillSideEffects != GTF_EMPTY)
+                    if (spillSideEffects != GTF_NONE)
                     {
                         impSpillSideEffects(spillSideEffects, CHECK_SPILL_ALL DEBUGARG("STLOC stack spill temp"));
                     }

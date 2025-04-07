@@ -207,7 +207,7 @@ GenTree* DecomposeLongs::FinalizeDecomposition(LIR::Use& use,
     }
 
     GenTree* gtLong = new (m_compiler, GT_LONG) GenTreeOp(GT_LONG, TYP_LONG, loResult, hiResult);
-    gtLong->SetSideEffects(GTF_EMPTY);
+    gtLong->SetSideEffects(GTF_NONE);
     gtLong->SetContained();
 
     loResult->ClearUnusedValue();
@@ -790,7 +790,7 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                 // feeds the hi operand while there are no side effects)
 
-                if (hiValue->HasAnySideEffect(GTF_ALL_EFFECT))
+                if (hiValue->HasSideEffects())
                 {
                     hiValue->SetUnusedValue();
                 }

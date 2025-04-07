@@ -3489,7 +3489,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     addr->ChangeOper(GT_LEA);
     // Make sure there are no leftover side effects (though the existing ADD we're
     // changing shouldn't have any at this point, but sometimes it does).
-    addr->RemoveSideEffects(GTF_ALL_EFFECT);
+    addr->SetSideEffects(GTF_NONE);
 
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
     addrMode->SetBase(am.base);
