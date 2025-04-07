@@ -2942,13 +2942,10 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
         {
             if (tree->OperIs(GT_CATCH_ARG))
             {
-                // The GT_CATCH_ARG should always have GTF_ORDER_SIDEEFF set
-                noway_assert(tree->gtFlags & GTF_ORDER_SIDEEFF);
-                // The GT_CATCH_ARG has to be the first thing evaluated
+                noway_assert(tree->HasAnySideEffect(GTF_ORDER_SIDEEFF));
                 noway_assert(stmt == block->FirstNonPhiDef());
                 noway_assert(stmt->GetNodeList()->OperIs(GT_CATCH_ARG));
-                // The root of the tree should have GTF_ORDER_SIDEEFF set
-                noway_assert(stmt->GetRootNode()->gtFlags & GTF_ORDER_SIDEEFF);
+                noway_assert(stmt->GetRootNode()->HasAnySideEffect(GTF_ORDER_SIDEEFF));
             }
         }
         else if (tree->OperIsUnary() && (tree->AsUnOp()->gtOp1 != nullptr))

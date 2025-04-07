@@ -2647,7 +2647,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         }
         else
         {
-            if ((switchTree->gtFlags & GTF_SIDE_EFFECT) != 0)
+            if (switchTree->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
                 GenTree* sideEffList = gtExtractSideEffList(switchTree);
 
@@ -2656,7 +2656,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
                     goto NO_SWITCH_SIDE_EFFECT;
                 }
 
-                noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
+                noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
 
 #ifdef DEBUG
                 if (verbose)

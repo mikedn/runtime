@@ -174,27 +174,22 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
         }
 
         // Keep looking higher up in the tree
-        //
         prevBlock = domBlock;
         domBlock  = domBlock->bbIDom;
     }
 
     // Did we determine the relop value via dominance checks? If so, optimize.
-    //
     if (relopValue == -1)
     {
         return false;
     }
 
     // Bail out if tree is has certain side effects
-    //
     // Note we really shouldn't get here if the tree has non-exception effects,
     // as they should have impacted the value number.
-    //
-    if ((compare->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if (compare->HasAnySideEffect(GTF_SIDE_EFFECT))
     {
         // Bail if there is a non-exception effect.
-        //
         if ((compare->gtFlags & GTF_SIDE_EFFECT) != GTF_EXCEPT)
         {
             JITDUMP("Current relop has non-exception side effects, so we won't optimize\n");
@@ -203,7 +198,6 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
 
         // Be conservative if there is an exception effect and we're in an EH region
         // as we might not model the full extent of EH flow.
-        //
         if (block->hasTryIndex())
         {
             JITDUMP("Current relop has exception side effect and is in a try, so we won't optimize\n");
@@ -277,7 +271,7 @@ bool RedundantBranchesDomTreeVisitor::JumpThread(BasicBlock* const block, BasicB
     // favorable (ones that don't reach block via a critical edge), consider
     // duplicating block's IR into the predecessor. This is the jump threading
     // analog of the optimization we encourage via fgOptimizeUncondBranchToSimpleCond.
-    //
+
     Statement* const lastStmt = block->lastStmt();
 
     for (Statement* const stmt : block->NonPhiStatements())
@@ -285,24 +279,21 @@ bool RedundantBranchesDomTreeVisitor::JumpThread(BasicBlock* const block, BasicB
         GenTree* const tree = stmt->GetRootNode();
 
         // We can ignore exception side effects in the jump tree.
-        //
         // They are covered by the exception effects in the dominating compare.
         // We know this because the VNs match and they encode exception states.
-        //
-        if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if (tree->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             if (stmt == lastStmt)
             {
                 assert(tree->OperIs(GT_JTRUE));
+
                 if ((tree->gtFlags & GTF_SIDE_EFFECT) == GTF_EXCEPT)
                 {
                     // However, be conservative if block is in a try as we might not
                     // have a full picture of EH flow.
-                    //
                     if (!block->hasTryIndex())
                     {
                         // We will ignore the side effect on this tree.
-                        //
                         continue;
                     }
                 }

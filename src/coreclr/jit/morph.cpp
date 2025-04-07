@@ -1136,7 +1136,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     // Move all call args to the beginning of the arg table.
     for (ssize_t i = first; i <= last; i++)
     {
-        if ((argTable[i]->use->GetNode()->gtFlags & GTF_CALL) != 0)
+        if (argTable[i]->use->GetNode()->HasAnySideEffect(GTF_CALL))
         {
             std::swap(argTable[i], argTable[first]);
             first++;
@@ -4480,7 +4480,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
         GenTree* array2 = nullptr;
 
-        if (((array->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || array->OperIs(GT_LCL_LOAD_FLD) ||
+        if (array->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || array->OperIs(GT_LCL_LOAD_FLD) ||
             gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
         {
             LclVarDsc* arrayTmpLcl = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
@@ -4510,7 +4510,7 @@ GenTree* Compiler::fgMorphIndexAddr(GenTreeIndexAddr* tree)
 
         GenTree* index2 = nullptr;
 
-        if (((index->gtFlags & (GTF_ASG | GTF_CALL | GTF_GLOB_REF)) != 0) || index->OperIs(GT_LCL_LOAD_FLD) ||
+        if (index->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || index->OperIs(GT_LCL_LOAD_FLD) ||
             gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
         {
             var_types  indexTmpType = varActualType(index->GetType());
@@ -7152,7 +7152,7 @@ GenTree* Compiler::fgMorphLeaf(GenTree* tree)
     {
         if (tree->AsLclLoadFld()->GetLcl()->IsAddressExposed())
         {
-            tree->gtFlags |= GTF_GLOB_REF;
+            tree->AddSideEffects(GTF_GLOB_REF);
         }
 
         return tree;
@@ -8166,7 +8166,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
             GenTree* load = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
-            load->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
+            load->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
             *loads++ = load;
         }
     };
@@ -8175,7 +8175,7 @@ GenTree* Compiler::fgMorphCopyStruct(GenTree* store, GenTree* src)
         for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
             GenTree* store = gtNewLclStore(fieldLcl, fieldLcl->GetType(), *loads++);
-            store->gtFlags |= fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
+            store->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
             *stores++ = store;
         }
     };
@@ -9081,17 +9081,12 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif // TARGET_XARCH
 
         ASSIGN_HELPER_FOR_MOD:
-            // For "val % 1", return 0 if op1 doesn't have any side effects
-
-            if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
+            if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
             {
-                if (op2->IsIntegralConst(1))
-                {
-                    GenTree* zeroNode = gtNewZeroConNode(typ);
-                    INDEBUG(zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                    DEBUG_DESTROY_NODE(tree);
-                    return zeroNode;
-                }
+                GenTree* zeroNode = gtNewZeroConNode(typ);
+                INDEBUG(zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                DEBUG_DESTROY_NODE(tree);
+                return zeroNode;
             }
 
 #ifndef TARGET_64BIT
@@ -10361,7 +10356,7 @@ DONE_MORPHING_CHILDREN:
 
                 if (mult == 0)
                 {
-                    if ((op1->gtFlags & GTF_SIDE_EFFECT) == 0)
+                    if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT))
                     {
                         DEBUG_DESTROY_NODE(op1);
                         DEBUG_DESTROY_NODE(tree);

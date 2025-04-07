@@ -761,8 +761,7 @@ public:
                     // first possible global side effect (and we assume we're after that if we're not in the first
                     // block).
                     // TODO-CQ: this is when we might do loop cloning.
-                    //
-                    if ((tree->gtFlags & GTF_EXCEPT) != 0)
+                    if (tree->HasAnySideEffect(GTF_EXCEPT))
                     {
                         treeIsHoistable = false;
                     }

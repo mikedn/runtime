@@ -1310,7 +1310,7 @@ GenTree* Compiler::morphAssertionPropagateConv(GenTreeUnOp* conv)
 
 GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
 {
-    if ((indir->gtFlags & GTF_EXCEPT) == 0)
+    if (!indir->HasAnySideEffect(GTF_EXCEPT))
     {
         return nullptr;
     }

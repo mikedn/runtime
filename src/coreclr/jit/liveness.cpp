@@ -1169,7 +1169,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 // See the dead store removal code above (case LCL_STORE) for more explanation.
                 //
                 // TODO-MIKE-Review: Well, there's no explanation above...
-                if ((node->gtFlags & GTF_ORDER_SIDEEFF) != 0)
+                if (node->HasAnySideEffect(GTF_ORDER_SIDEEFF))
                 {
                     break;
                 }
@@ -1204,14 +1204,14 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, Basi
 
     GenTree* sideEffects = nullptr;
 
-    if ((store->GetOp(0)->gtFlags & GTF_SIDE_EFFECT) != 0)
+    if (store->GetOp(0)->HasAnySideEffect(GTF_SIDE_EFFECT))
     {
         sideEffects = gtExtractSideEffList(store->GetOp(0));
 
         if (sideEffects != nullptr)
         {
             JITDUMPTREE(sideEffects, "Extracted dead store side effects:\n");
-            noway_assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
+            noway_assert(sideEffects->HasAnySideEffect(GTF_SIDE_EFFECT));
         }
     }
 

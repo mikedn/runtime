@@ -10,7 +10,7 @@ static bool BlockNeedsGCPoll(BasicBlock* block)
 
     for (Statement* stmt : block->NonPhiStatements())
     {
-        if ((stmt->GetRootNode()->gtFlags & GTF_CALL) == 0)
+        if (!stmt->GetRootNode()->HasAnySideEffect(GTF_CALL))
         {
             continue;
         }

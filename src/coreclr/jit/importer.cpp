@@ -1618,7 +1618,7 @@ void Importer::impSpillLclReferences(LclVarDsc* lcl)
         // to spill assignments to the local if the local is live on entry to the handler.
         // We don't have liveness during import so we simply spill them all.
 
-        bool xcptnCaught = ((tree->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0) && ehBlockHasExnFlowDsc(currentBlock);
+        bool xcptnCaught = tree->HasAnySideEffect(GTF_CALL | GTF_EXCEPT) && ehBlockHasExnFlowDsc(currentBlock);
 
         if (xcptnCaught || impHasLclRef(tree, lcl))
         {
@@ -4321,7 +4321,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
             nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
             assert((nextCodeAddr + ((nextCodeAddr[0] >= CEE_BRFALSE) ? 5 : 2)) <= codeEnd);
 
-            if ((impStackTop().val->gtFlags & GTF_SIDE_EFFECT) != 0)
+            if (impStackTop().val->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
                 return false;
             }
@@ -5083,13 +5083,13 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
 
     for (unsigned level = verCurrentState.esStackDepth - argsToReverse; level < verCurrentState.esStackDepth; level++)
     {
-        if ((verCurrentState.esStack[level].val->gtFlags & GTF_ORDER_SIDEEFF) != 0)
+        if (verCurrentState.esStack[level].val->HasAnySideEffect(GTF_ORDER_SIDEEFF))
         {
             assert(lastLevelWithSideEffects == UINT_MAX);
 
             impSpillStackEntry(level DEBUGARG("PopUnmanagedCallArgs - other side effect"));
         }
-        else if ((verCurrentState.esStack[level].val->gtFlags & GTF_SIDE_EFFECT) != 0)
+        else if (verCurrentState.esStack[level].val->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             if (lastLevelWithSideEffects != UINT_MAX)
             {
@@ -8243,12 +8243,13 @@ void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
 
     block->bbJumpKind = BBJ_NONE;
 
-    if (op1->gtFlags & GTF_GLOB_EFFECT)
+    if (op1->HasAnySideEffect(GTF_GLOB_EFFECT))
     {
         impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op1 side effect"));
         impSpillNoneAppendTree(gtUnusedValNode(op1));
     }
-    if (op2->gtFlags & GTF_GLOB_EFFECT)
+
+    if (op2->HasAnySideEffect(GTF_GLOB_EFFECT))
     {
         impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("Branch to next Optimization, op2 side effect"));
         impSpillNoneAppendTree(gtUnusedValNode(op2));
@@ -8380,7 +8381,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
         // not worth the code expansion if jitting fast or in a rarely run block
         shouldExpandInline = false;
     }
-    else if ((op1->gtFlags & GTF_GLOB_EFFECT) && lvaHaveManyLocals())
+    else if (op1->HasAnySideEffect(GTF_GLOB_EFFECT) && lvaHaveManyLocals())
     {
         // not worth creating an untracked local variable
         shouldExpandInline = false;
@@ -9451,7 +9452,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // We don't have much of a choice but to spill the stack to ensure correct
                 // side effect ordering.
 
-                if ((impStackTop().val->gtFlags & GTF_SIDE_EFFECT) != 0)
+                if (impStackTop().val->HasAnySideEffect(GTF_SIDE_EFFECT))
                 {
                     impSpillSideEffects(GTF_SIDE_EFFECT, CHECK_SPILL_ALL DEBUGARG("STELEM ordering spill temp"));
                 }
@@ -9709,7 +9710,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     block->bbJumpKind = BBJ_NONE;
 
-                    if ((op1->gtFlags & GTF_GLOB_EFFECT) != 0)
+                    if (op1->HasAnySideEffect(GTF_GLOB_EFFECT))
                     {
                         impSpillAllAppendTree(gtUnusedValNode(op1));
                     }
@@ -9719,7 +9720,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (op1->OperIsRelop())
                 {
-                    if (opcode == CEE_BRFALSE || opcode == CEE_BRFALSE_S)
+                    if ((opcode == CEE_BRFALSE) || (opcode == CEE_BRFALSE_S))
                     {
                         Compiler::gtReverseRelop(op1->AsOp());
                     }
@@ -10214,7 +10215,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 op1 = comp->gtNewIndLoad(lclTyp, op1);
 
-                op1->gtFlags |= GTF_EXCEPT | GTF_GLOB_REF;
+                op1->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
                 if ((prefixFlags & PREFIX_VOLATILE) != 0)
                 {
@@ -10261,7 +10262,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // preserved.
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
-                    if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
+                    if (obj->HasAnySideEffect(GTF_SIDE_EFFECT))
                     {
                         impSpillAllAppendTree(gtUnusedValNode(obj));
                     }
@@ -10407,7 +10408,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // STFLD can be used with static fields. The address is ignored but side effects must be preserved.
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) != 0)
                 {
-                    if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
+                    if (obj->HasAnySideEffect(GTF_SIDE_EFFECT))
                     {
                         impSpillAllAppendTree(gtUnusedValNode(obj));
                     }
@@ -11676,7 +11677,7 @@ void Importer::ImportLdVirtFtn(const uint8_t* codeAddr)
 
     if (opts.IsReadyToRun() ? (callInfo.kind != CORINFO_VIRTUALCALL_LDVIRTFTN) : isNonVirtual)
     {
-        if ((obj->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if (obj->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             impSpillAllAppendTree(gtUnusedValNode(obj));
         }
@@ -15848,7 +15849,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     CORINFO_CLASS_HANDLE clsHnd = se.seTypeInfo.GetClassHandle();
     GenTree*             op1    = se.val;
 
-    if (((op1->gtFlags & GTF_SIDE_EFFECT) == 0) && !opts.compDbgCode)
+    if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && !opts.compDbgCode)
     {
         return nullptr;
     }
@@ -15901,7 +15902,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
 
     if (!op1->IsCall())
     {
-        if ((op1->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if (op1->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             op1 = gtUnusedValNode(op1);
         }

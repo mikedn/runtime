@@ -5608,7 +5608,7 @@ void Compiler::optAddCopies()
             tree->SetOp(1, copyAsg);
             tree->SetType(TYP_VOID);
             tree->SetSideEffects(newAsg->GetSideEffects() | copyAsg->GetSideEffects());
-            tree->gtFlags &= ~GTF_REVERSE_OPS;
+            tree->SetReverseOps(false);
         }
 
         JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lcl->GetLclNum());
@@ -5662,12 +5662,12 @@ void Compiler::phRemoveRedundantZeroInits()
 
             for (GenTree* node : stmt->Nodes())
             {
-                if (((node->gtFlags & GTF_CALL) != 0))
+                if (node->HasAnySideEffect(GTF_CALL))
                 {
                     hasGCSafePoint = true;
                 }
 
-                if ((node->gtFlags & GTF_EXCEPT) != 0)
+                if (node->HasAnySideEffect(GTF_EXCEPT))
                 {
                     canThrow = true;
                 }
