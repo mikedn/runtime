@@ -7821,7 +7821,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
     ssize_t val = cons->AsIntCon()->GetValue();
 
     // Transforms that would drop op cannot be performed if op has side effects
-    bool opHasSideEffects = (op->gtFlags & GTF_SIDE_EFFECT) != 0;
+    bool opHasSideEffects = op->HasAnySideEffect(GTF_SIDE_EFFECT);
 
     // Helper function that creates a new IntCon node and morphs it, if required
     auto NewMorphedIntConNode = [&](int value) -> GenTreeIntCon* {

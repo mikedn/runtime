@@ -3262,13 +3262,13 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
 
     emitAttr attr = emitActualTypeSize(op1->GetType());
 
-    if (tree->gtFlags & GTF_JCMP_TST)
+    if ((tree->gtFlags & GTF_JCMP_TST) != 0)
     {
         size_t imm = static_cast<size_t>(op2->AsIntCon()->GetValue());
 
         assert(imm < EA_SIZE(attr) * 8);
 
-        instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_tbz : INS_tbnz;
+        instruction ins = ((tree->gtFlags & GTF_JCMP_EQ) != 0) ? INS_tbz : INS_tbnz;
 
         GetEmitter()->emitIns_J_R_I(ins, attr, block->bbJumpDest->emitLabel, reg, static_cast<int>(imm));
     }
@@ -3276,7 +3276,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     {
         assert(op2->IsIntegralConst(0));
 
-        instruction ins = (tree->gtFlags & GTF_JCMP_EQ) ? INS_cbz : INS_cbnz;
+        instruction ins = ((tree->gtFlags & GTF_JCMP_EQ) != 0) ? INS_cbz : INS_cbnz;
 
         GetEmitter()->emitIns_J_R(ins, attr, block->bbJumpDest->emitLabel, reg);
     }

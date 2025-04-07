@@ -520,16 +520,16 @@ private:
 
     bool CanMoveNullCheckPastTree(GenTree* node, bool isInsideTry)
     {
-        if ((node->gtFlags & (GTF_CALL | GTF_EXCEPT)) != 0)
+        if (node->HasAnySideEffect(GTF_CALL | GTF_EXCEPT))
         {
             return false;
         }
 
-        assert((node->gtFlags & GTF_ASG) != 0);
+        assert(node->HasAnySideEffect(GTF_ASG));
 
         if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
         {
-            if ((node->AsLclRef()->GetOp(0)->gtFlags & GTF_ASG) != 0)
+            if (node->AsLclRef()->GetOp(0)->HasAnySideEffect(GTF_ASG))
             {
                 return false;
             }
@@ -539,7 +539,7 @@ private:
 
         if (GenTreeLclDef* def = node->IsLclDef())
         {
-            if ((def->GetValue()->gtFlags & GTF_ASG) != 0)
+            if (def->GetValue()->HasAnySideEffect(GTF_ASG))
             {
                 return false;
             }

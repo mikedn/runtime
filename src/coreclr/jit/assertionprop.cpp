@@ -1655,7 +1655,7 @@ private:
     {
         assert(relop->OperIsRelop());
 
-        if ((relop->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if (relop->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             return nullptr;
         }
@@ -1982,7 +1982,7 @@ private:
 
     GenTree* PropagateIndir(const ASSERT_TP assertions, GenTreeIndir* indir, Statement* stmt)
     {
-        if ((indir->gtFlags & GTF_EXCEPT) == 0)
+        if (!indir->HasAnySideEffect(GTF_EXCEPT))
         {
             return nullptr;
         }
@@ -2990,7 +2990,7 @@ private:
 
         void PropagateNonNullIndirAddress(GenTreeIndir* indir)
         {
-            if ((indir->gtFlags & GTF_EXCEPT) == 0)
+            if (!indir->HasAnySideEffect(GTF_EXCEPT))
             {
                 return;
             }
@@ -3127,9 +3127,9 @@ private:
                 // TODO-MIKE-CQ: Check what happens with struct args and returns, we
                 // probably can't use a constant INT node in all cases but perhaps it
                 // can be done when the struct fits in a register. Otherwise we may
-                // need a STRUCT typed constant node instead of abusing GT_CNS_INT.
+                // need a STRUCT typed constant node instead of abusing CNS_INT.
 
-                if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT) &&
                     (m_vnStore->ExtractValue(tree->GetConservativeVN()) == m_vnStore->ZeroMapVN()))
                 {
                     if (user->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK))
@@ -3188,7 +3188,7 @@ private:
                     // with constant operands or get_AllBitsSet) but it's not clear how useful
                     // would that be.
 
-                    if ((user != nullptr) && ((tree->gtFlags & GTF_SIDE_EFFECT) == 0) &&
+                    if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT) &&
                         user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) && user->TypeIs(TYP_SIMD12))
                     {
                         GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
@@ -3422,7 +3422,7 @@ private:
 
             if (sideEffects != nullptr)
             {
-                assert((sideEffects->gtFlags & GTF_SIDE_EFFECT) != 0);
+                assert(sideEffects->HasAnySideEffect(GTF_SIDE_EFFECT));
 
                 newTree = m_compiler->gtNewCommaNode(sideEffects, newTree);
                 newTree->SetVNP(tree->GetVNP());
@@ -3433,7 +3433,7 @@ private:
 
         GenTree* ExtractConstTreeSideEffects(GenTree* tree)
         {
-            if ((tree->gtFlags & GTF_SIDE_EFFECT) == 0)
+            if (!tree->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
                 return nullptr;
             }

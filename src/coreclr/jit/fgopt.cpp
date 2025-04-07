@@ -2098,13 +2098,13 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 
         GenTree* sideEffList = nullptr;
 
-        if ((tree->gtFlags & GTF_SIDE_EFFECT) != 0)
+        if (tree->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
             sideEffList = gtExtractSideEffList(tree);
 
             if (sideEffList != nullptr)
             {
-                noway_assert((sideEffList->gtFlags & GTF_SIDE_EFFECT) != 0);
+                noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
                 JITDUMPTREE(sideEffList, "Extracted side effects list from condition...\n");
             }
         }
@@ -3148,7 +3148,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
             GenTree*   cond     = condStmt->GetRootNode();
             noway_assert(cond->OperIs(GT_JTRUE));
 
-            if ((cond->gtFlags & GTF_SIDE_EFFECT) != 0)
+            if (cond->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
                 GenTree* sideEffList = gtExtractSideEffList(cond);
 
@@ -3158,7 +3158,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
                 }
                 else
                 {
-                    noway_assert(sideEffList->gtFlags & GTF_SIDE_EFFECT);
+                    noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
 #ifdef DEBUG
                     if (verbose)
                     {
@@ -3168,7 +3168,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
                         gtDispTree(sideEffList);
                         printf("\n");
                     }
-#endif // DEBUG
+#endif
 
                     // Replace the conditional statement with the list of side effects
                     noway_assert(!sideEffList->OperIs(GT_JTRUE));
