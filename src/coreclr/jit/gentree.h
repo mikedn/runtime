@@ -5028,15 +5028,11 @@ class CallInfo
     unsigned nextSlotNum = INIT_ARG_STACK_SLOT; // Updatable slot count value
 
 #ifdef UNIX_X86_ABI
-    unsigned stkSizeBytes = 0; // Size of stack used by this call, in bytes.
-    unsigned padStkAlign  = 0; // Stack alignment in bytes required before arguments are pushed for this call.
-                               // Computed dynamically during codegen, based on stkSizeBytes and the current
-                               // stack level (genStackLevel) when the first stack adjustment is made for
-                               // this call.
-    bool alignmentDone : 1;    // Updateable flag, set to 'true' after we've done any required alignment.
+    unsigned stackAlignPadding = 0;
+    bool     stackAlignmentDone : 1;
 #endif
-    bool hasRegArgs : 1;   // true if we have one or more register arguments
-    bool argsComplete : 1; // marker for state
+    bool hasRegArgs : 1;
+    bool argsComplete : 1;
 
     void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
     void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
@@ -5077,42 +5073,37 @@ public:
         return nextSlotNum != INIT_ARG_STACK_SLOT;
     }
 
+    unsigned GetStackArgsSize() const
+    {
+        return nextSlotNum * REGSIZE_BYTES;
+    }
+
     bool AreArgsComplete() const
     {
         return argsComplete;
     }
 
-#if defined(UNIX_X86_ABI)
-    void ComputeStackAlignment(unsigned curStackLevelInBytes)
+#ifdef UNIX_X86_ABI
+    void SetStackAlignPadding(unsigned padding)
     {
-        padStkAlign = AlignmentPad(curStackLevelInBytes, STACK_ALIGN);
+        stackAlignPadding = padding;
     }
 
-    unsigned GetStkAlign() const
+    unsigned GetStackAlignPadding() const
     {
-        return padStkAlign;
+        return stackAlignPadding;
     }
 
-    void SetStkSizeBytes(unsigned newStkSizeBytes)
+    bool IsStackAlignmentDone() const
     {
-        stkSizeBytes = newStkSizeBytes;
+        return stackAlignmentDone;
     }
 
-    unsigned GetStkSizeBytes() const
+    void SetStackAlignmentDone()
     {
-        return stkSizeBytes;
+        stackAlignmentDone = true;
     }
-
-    bool IsStkAlignmentDone() const
-    {
-        return alignmentDone;
-    }
-
-    void SetStkAlignmentDone()
-    {
-        alignmentDone = true;
-    }
-#endif // defined(UNIX_X86_ABI)
+#endif // UNIX_X86_ABI
 
 #ifdef DEBUG
     void Dump() const;

@@ -1268,7 +1268,7 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
 #if FEATURE_FIXED_OUT_ARGS
     if (!call->IsFastTailCall())
     {
-        unsigned callArgSize = info->GetNextSlotNum() * REGSIZE_BYTES;
+        unsigned callArgSize = info->GetStackArgsSize();
 
         if (callArgSize > outgoingArgAreaSize)
         {
@@ -3105,7 +3105,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
         // This is because the callee pops stack arguments, and we need to keep track of this during stack
         // walking
-        const unsigned    numStkArgBytes = call->fgArgInfo->GetNextSlotNum() * REGSIZE_BYTES;
+        const unsigned    numStkArgBytes = call->GetInfo()->GetStackArgsSize();
         GenTree*          stackBytes     = comp->gtNewIconNode(numStkArgBytes, TYP_INT);
         GenTreeCall::Use* args           = comp->gtNewCallArgs(frameAddr, stackBytes);
 #else
@@ -3136,7 +3136,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     {
 #ifndef TARGET_64BIT
         // On 32-bit targets, indirect calls need the size of the stack args in InlinedCallFrame.m_Datum.
-        const unsigned numStkArgBytes = call->fgArgInfo->GetNextSlotNum() * REGSIZE_BYTES;
+        const unsigned numStkArgBytes = call->GetInfo()->GetStackArgsSize();
 
         src = comp->gtNewIconNode(numStkArgBytes, TYP_INT);
 #else

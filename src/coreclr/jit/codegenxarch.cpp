@@ -4110,7 +4110,7 @@ void CodeGen::GenCall(GenTreeCall* call)
             continue;
         }
 
-        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy());
+        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy()));
 
 #ifdef UNIX_AMD64_ABI
         if (GenTreeFieldList* fieldList = argNode->IsFieldList())
@@ -4187,14 +4187,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 #endif
 
-    // TODO-MIKE-Cleanup: This can probably just use CallInfo::nextSlotNum instead of going through all args.
-    int32_t stackArgBytes = 0;
-
-    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
-    {
-        stackArgBytes += call->GetInfo()->GetArgInfo(i)->GetSlotCount() * REGSIZE_BYTES;
-    }
-
+    int32_t stackArgBytes = static_cast<int32_t>(call->GetInfo()->GetStackArgsSize());
     // If the callee pops the arguments, we pass a positive shift as the argSize, and the emitter will
     // adjust its stack level accordingly.
     // If the caller needs to explicitly pop its arguments, we must pass a negative shift, and then do the
@@ -5658,42 +5651,41 @@ void CodeGen::AlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 void CodeGen::AlignStackBeforeCall(GenTreeCall* call)
 {
 #ifdef UNIX_X86_ABI
-    if (!call->GetInfo()->IsStkAlignmentDone())
+    if (call->GetInfo()->IsStackAlignmentDone())
     {
-        // We haven't done any stack alignment yet for this call.  We might need to create
-        // an alignment adjustment, even if this function itself doesn't have any stack args.
-        // This can happen if this function call is part of a nested call sequence, and the outer
-        // call has already pushed some arguments.
-
-        unsigned stkLevel = genStackLevel + call->GetInfo()->GetStkSizeBytes();
-        call->GetInfo()->ComputeStackAlignment(stkLevel);
-
-        unsigned padStkAlign = call->GetInfo()->GetStkAlign();
-        if (padStkAlign != 0)
-        {
-            // Now generate the alignment
-            GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(padStkAlign));
-            AddStackLevel(padStkAlign);
-            AddNestedAlignment(padStkAlign);
-        }
-
-        call->GetInfo()->SetStkAlignmentDone();
+        return;
     }
+
+    // We haven't done any stack alignment yet for this call. We might need to create
+    // an alignment adjustment, even if this function itself doesn't have any stack args.
+    // This can happen if this function call is part of a nested call sequence, and the outer
+    // call has already pushed some arguments.
+
+    unsigned stackAlignPadding = AlignmentPad(genStackLevel + call->GetInfo()->GetStackArgsSize(), STACK_ALIGN);
+
+    call->GetInfo()->SetStackAlignPadding(stackAlignPadding);
+
+    if (stackAlignPadding != 0)
+    {
+        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(stackAlignPadding));
+        AddStackLevel(stackAlignPadding);
+        AddNestedAlignment(stackAlignPadding);
+    }
+
+    call->GetInfo()->SetStackAlignmentDone();
 #endif // UNIX_X86_ABI
 }
 
 void CodeGen::RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 {
 #ifdef UNIX_X86_ABI
-    // Put back the stack pointer if there was any padding for stack alignment
-    unsigned padStkAlign  = call->GetInfo()->GetStkAlign();
-    unsigned padStkAdjust = padStkAlign + bias;
+    unsigned stackAlignPadding = call->GetInfo()->GetStackAlignPadding();
 
-    if (padStkAdjust != 0)
+    if (unsigned adjust = stackAlignPadding + bias)
     {
-        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(padStkAdjust));
-        SubtractStackLevel(padStkAlign);
-        SubtractNestedAlignment(padStkAlign);
+        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(adjust));
+        SubtractStackLevel(stackAlignPadding);
+        SubtractNestedAlignment(stackAlignPadding);
     }
 #else
     if (bias != 0)

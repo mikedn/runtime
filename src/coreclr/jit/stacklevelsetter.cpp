@@ -26,9 +26,9 @@ private:
     void ProcessBlock(BasicBlock* block);
     void SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock);
     void SetThrowHelperBlockStackLevel(ThrowHelperKind kind, BasicBlock* throwBlock);
-    unsigned PopArgumentsFromCall(GenTreeCall* call);
+    void PopCallArgs(GenTreeCall* call);
     void PushArg(GenTreePutArgStk* putArgStk);
-    void PopArg(GenTreePutArgStk* putArgStk);
+    void PopArgs(unsigned slotCount);
 };
 
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
@@ -68,17 +68,6 @@ void StackLevelSetter::Run()
     }
 }
 
-//------------------------------------------------------------------------
-// ProcessBlock: Do stack level calculations for one block.
-//
-// Notes:
-//   Block starts and ends with an empty outgoing stack.
-//   Nodes in blocks are iterated in the reverse order to memorize GT_PUTARG_STK
-//   and GT_PUTARG_SPLIT stack sizes.
-//
-// Arguments:
-//   block - the block to process.
-//
 void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
     assert(currentStackLevel == 0);
@@ -101,12 +90,10 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
 
         if (GenTreeCall* call = node->IsCall())
         {
-            unsigned usedStackSlotsCount = PopArgumentsFromCall(call);
-#ifdef UNIX_X86_ABI
-            call->fgArgInfo->SetStkSizeBytes(usedStackSlotsCount * TARGET_POINTER_SIZE);
-#endif
+            PopCallArgs(call);
         }
     }
+
     assert(currentStackLevel == 0);
 }
 
@@ -201,36 +188,9 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
     }
 }
 
-//------------------------------------------------------------------------
-// PopArgumentsFromCall: Calculate the number of stack arguments that are used by the call.
-//
-// Notes:
-//   memorize number of slots that each stack argument use.
-//
-// Arguments:
-//   call - the call to process.
-//
-// Return value:
-//   the number of stack slots in stack arguments for the call.
-unsigned StackLevelSetter::PopArgumentsFromCall(GenTreeCall* call)
+void StackLevelSetter::PopCallArgs(GenTreeCall* call)
 {
-    unsigned  usedStackSlotsCount = 0;
-    CallInfo* callInfo            = call->GetInfo();
-    if (callInfo->HasStackArgs())
-    {
-        // TODO-MIKE-Cleaup: CallInfo::GetNextSlotNum should provide the total
-        // slot count so this loop shouldn't be necessary.
-
-        for (unsigned i = 0; i < callInfo->GetArgCount(); ++i)
-        {
-            if (GenTreePutArgStk* putArgStk = callInfo->GetArgInfo(i)->GetNode()->IsPutArgStk())
-            {
-                usedStackSlotsCount += putArgStk->GetSlotCount();
-                PopArg(putArgStk);
-            }
-        }
-    }
-    return usedStackSlotsCount;
+    PopArgs(call->GetInfo()->GetNextSlotNum());
 }
 
 void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
@@ -243,10 +203,10 @@ void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
     }
 }
 
-void StackLevelSetter::PopArg(GenTreePutArgStk* putArgStk)
+void StackLevelSetter::PopArgs(unsigned slotCount)
 {
-    assert(currentStackLevel >= putArgStk->GetSlotCount());
-    currentStackLevel -= putArgStk->GetSlotCount();
+    assert(currentStackLevel >= slotCount);
+    currentStackLevel -= slotCount;
 }
 
 PhaseStatus Compiler::phSetThrowHelperBlockStackLevel()

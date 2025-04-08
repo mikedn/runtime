@@ -1736,8 +1736,8 @@ void CodeGen::GenCall(GenTreeCall* call)
             continue;
         }
 
-        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
-        argNode              = argNode->gtSkipReloadOrCopy();
+        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode));
+        argNode = argNode->gtSkipReloadOrCopy();
 
         if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
@@ -1778,12 +1778,15 @@ void CodeGen::GenCall(GenTreeCall* call)
             // get a COPY/RELOAD here because these nodes have specific, single reg
             // requirements so there's little point in LSRA adding reloads/copies...
             UnspillRegsIfNeeded(argSplit);
-            INDEBUG(VerifyUseOrder(argSplit));
+
+#ifdef DEBUG
+            VerifyUseOrder(argSplit);
 
             for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
             {
                 assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
             }
+#endif
 
             continue;
         }

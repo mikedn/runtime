@@ -668,8 +668,8 @@ CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 #ifdef DEBUG
     , argTableSize(numArgs)
 #endif
-#if defined(UNIX_X86_ABI)
-    , alignmentDone(false)
+#ifdef UNIX_X86_ABI
+    , stackAlignmentDone(false)
 #endif
     , hasRegArgs(false)
     , argsComplete(false)
@@ -691,10 +691,9 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 
     argCount    = oldArgInfo->argCount;
     nextSlotNum = INIT_ARG_STACK_SLOT;
-#if defined(UNIX_X86_ABI)
-    alignmentDone = oldArgInfo->alignmentDone;
-    stkSizeBytes  = oldArgInfo->stkSizeBytes;
-    padStkAlign   = oldArgInfo->padStkAlign;
+#ifdef UNIX_X86_ABI
+    stackAlignmentDone = oldArgInfo->stackAlignmentDone;
+    stackAlignPadding  = oldArgInfo->stackAlignPadding;
 #endif
 
     INDEBUG(argTableSize = oldArgInfo->argTableSize;)
@@ -4987,27 +4986,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 
     fgInitArgInfo(call);
 
-    unsigned calleeArgStackSize = 0;
+    unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
     unsigned callerArgStackSize = codeGen->paramsStackSize;
-
-    // TODO-MIKE-Cleanup: This can probably be replaced with callee->GetInfo()->GetNextSlotNum().
-
-    for (unsigned index = 0, count = call->GetInfo()->GetArgCount(); index < count; ++index)
-    {
-        CallArgInfo* arg = call->GetArgInfoByArgNum(index);
-
-        if (arg->GetSlotCount() != 0)
-        {
-            unsigned argEndOffset = (arg->GetSlotNum() + arg->GetSlotCount()) * REGSIZE_BYTES;
-
-            if (argEndOffset > calleeArgStackSize)
-            {
-                calleeArgStackSize = argEndOffset;
-            }
-        }
-    }
-
-    calleeArgStackSize = roundUp(calleeArgStackSize, REGSIZE_BYTES);
 
     auto reportFastTailCallDecision = [&](const char* thisFailReason) {
         if (failReason != nullptr)
