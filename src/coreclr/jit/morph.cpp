@@ -4869,34 +4869,25 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
     return addr;
 }
 
-//------------------------------------------------------------------------
-// fgCanFastTailCall: Check to see if this tail call can be optimized as epilog+jmp.
+// Check to see if this tail call can be optimized as epilog+jmp.
+// Returns true or false based on whether the callee can be fastTailCalled
 //
-// Arguments:
-//    callee - The callee to check
-//    failReason - If this method returns false, the reason why. Can be nullptr.
+// This function is target specific and each target will make the fastTailCall
+// decision differently. See the notes below.
 //
-// Return Value:
-//    Returns true or false based on whether the callee can be fastTailCalled
+// This function calls fgInitArgInfo to initialize the arg info table, which
+// is used to analyze the argument. This function can alter the call arguments
+// by adding argument IR nodes for non-standard arguments.
 //
-// Notes:
-//    This function is target specific and each target will make the fastTailCall
-//    decision differently. See the notes below.
+// win-x64:
+//   A fast tail call can be made whenever the number of callee arguments
+//   is less than or equal to the number of caller arguments, or we have four
+//   or fewer callee arguments. This is because, on Windows AMD64, each
+//   argument uses exactly one register or one 8-byte stack slot. Thus, we only
+//   need to count arguments, and not be concerned with the size of each
+//   incoming or outgoing argument.
 //
-//    This function calls fgInitArgInfo to initialize the arg info table, which
-//    is used to analyze the argument. This function can alter the call arguments
-//    by adding argument IR nodes for non-standard arguments.
-//
-// Windows Amd64:
-//    A fast tail call can be made whenever the number of callee arguments
-//    is less than or equal to the number of caller arguments, or we have four
-//    or fewer callee arguments. This is because, on Windows AMD64, each
-//    argument uses exactly one register or one 8-byte stack slot. Thus, we only
-//    need to count arguments, and not be concerned with the size of each
-//    incoming or outgoing argument.
-//
-// Can fast tail call examples (amd64 Windows):
-//
+// Can fast tail call examples:
 //    -- Callee will have all register arguments --
 //    caller(int, int, int, int)
 //    callee(int, int, float, int)
@@ -4913,8 +4904,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    caller(int)
 //    callee(int, int, int, int)
 //
-// Cannot fast tail call examples (amd64 Windows):
-//
+// Cannot fast tail call examples:
 //    -- Callee requires stack space that is larger than the caller --
 //    caller(struct, double, struct, float, struct, struct)
 //    callee(int, int, int, int, int, double, double, double)
@@ -4923,7 +4913,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    caller(int, int, int)
 //    callee(struct(size 3 bytes))
 //
-// Unix Amd64 && Arm64:
+// unix-x64 & arm64:
 //    A fastTailCall decision can be made whenever the callee's stack space is
 //    less than or equal to the caller's stack space. There are many permutations
 //    of when the caller and callee have different stack sizes if there are
@@ -4937,8 +4927,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    decision of do not fast tail call is taken. This limitations should be
 //    removed if/when fgSetupArgs no longer depends on fgCanFastTailCall.
 //
-// Can fast tail call examples (amd64 Unix):
-//
+// Can fast tail call examples:
 //    -- Callee will have all register arguments --
 //    caller(int, int, int, int)
 //    callee(int, int, float, int)
@@ -4959,8 +4948,7 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 //    caller(int)
 //    callee(int, int, int, int)
 //
-// Cannot fast tail call examples (amd64 Unix):
-//
+// Cannot fast tail call examples:
 //    -- Callee requires stack space that is larger than the caller --
 //    caller(float, float, float, float, float, float, float, float) -- 8 float register arguments
 //    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
@@ -4981,19 +4969,11 @@ GenTree* Compiler::fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 #if FEATURE_FASTTAILCALL
 bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 {
-    // To reach here means that the return types of the caller and callee are tail call compatible.
     assert(!call->IsExplicitTailCall() || impTailCallRetTypeCompatible(call, false));
 
-    fgInitArgInfo(call);
-
-    unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
-    unsigned callerArgStackSize = codeGen->paramsStackSize;
-
-    auto reportFastTailCallDecision = [&](const char* thisFailReason) {
-        if (failReason != nullptr)
-        {
-            *failReason = thisFailReason;
-        }
+    auto reportFastTailCallDecision = [&](const char* reason, unsigned calleeArgStackSize = UINT_MAX,
+                                          unsigned callerArgStackSize = UINT_MAX) {
+        *failReason = reason;
 
 #ifdef DEBUG
         if (JitConfig.JitReportFastTailCallDecisions() == 1)
@@ -5010,26 +4990,31 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
                        info.compFullName);
             }
 
-            if (thisFailReason == nullptr)
+            if (reason == nullptr)
             {
                 printf("Will fast tailcall");
             }
             else
             {
-                printf("Will not fast tailcall (%s)", thisFailReason);
+                printf("Will not fast tailcall (%s)", reason);
             }
 
-            printf(" (CallerArgStackSize: %d, CalleeArgStackSize: %d)\n\n", callerArgStackSize, calleeArgStackSize);
+            if ((callerArgStackSize != UINT_MAX) && (calleeArgStackSize != UINT_MAX))
+            {
+                printf(" (CallerArgStackSize: %d, CalleeArgStackSize: %d)", callerArgStackSize, calleeArgStackSize);
+            }
+
+            printf("\n\n");
         }
         else
         {
-            if (thisFailReason == nullptr)
+            if (reason == nullptr)
             {
                 JITDUMP("[Fast tailcall decision]: Will fast tailcall\n");
             }
             else
             {
-                JITDUMP("[Fast tailcall decision]: Will not fast tailcall (%s)\n", thisFailReason);
+                JITDUMP("[Fast tailcall decision]: Will not fast tailcall (%s)\n", reason);
             }
         }
 #endif // DEBUG
@@ -5047,38 +5032,26 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
         return false;
     }
 
-    // Note on vararg methods:
-    // If the caller is vararg method, we don't know the number of arguments passed by caller's caller.
-    // But we can be sure that in-coming arg area of vararg caller would be sufficient to hold its
-    // fixed args. Therefore, we can allow a vararg method to fast tail call other methods as long as
-    // out-going area required for callee is bounded by caller's fixed argument space.
-    //
-    // Note that callee being a vararg method is not a problem since we can account the params being passed.
-    //
-    // We will currently decide to not fast tail call on Windows armarch if the caller or callee is a vararg
-    // method. This is due to the ABI differences for native vararg methods for these platforms. There is
-    // work required to shuffle arguments to the correct locations.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if (defined(TARGET_WINDOWS) && defined(TARGET_ARM)) || (defined(TARGET_WINDOWS) && defined(TARGET_ARM64))
-    if (info.compIsVarArgs || call->IsVarargs())
-    {
-        reportFastTailCallDecision("Fast tail calls with varargs not supported on Windows ARM/ARM64");
-        return false;
-    }
-#endif // (defined(TARGET_WINDOWS) && defined(TARGET_ARM)) || defined(TARGET_WINDOWS) && defined(TARGET_ARM64))
-
     if (compLocallocUsed)
     {
         reportFastTailCallDecision("Localloc used");
         return false;
     }
 
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARMARCH)
+    // We will currently decide to not fast tail call on win-arm32/64 if the caller or callee is a vararg
+    // method. This is due to the ABI differences for native vararg methods for these platforms. There is
+    // work required to shuffle arguments to the correct locations.
+    if (info.compIsVarArgs || call->IsVarargs())
+    {
+        reportFastTailCallDecision("Fast tail calls with varargs not supported on Windows ARM/ARM64");
+        return false;
+    }
+#endif
+
 #ifdef TARGET_AMD64
-    // Needed for Jit64 compat.
-    // In future, enabling fast tail calls from methods that need GS cookie
-    // check would require codegen side work to emit GS cookie check before a
-    // tail call.
+    // Enabling fast tail calls from methods that need GS cookie check would
+    // require codegen side work to emit GS cookie check before a tail call.
     if (getNeedsGSSecurityCookie())
     {
         reportFastTailCallDecision("GS Security cookie check required");
@@ -5086,7 +5059,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
     }
 #endif
 
-    // If the NextCallReturnAddress intrinsic is used we should do normal calls.
     if (info.compHasNextCallRetAddr)
     {
         reportFastTailCallDecision("Uses NextCallReturnAddress intrinsic");
@@ -5099,21 +5071,25 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
         return false;
     }
 
+    fgInitArgInfo(call);
+
+    unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
+    unsigned callerArgStackSize = codeGen->paramsStackSize;
+
     // For a fast tail call the caller will use its incoming arg stack space to place
     // arguments, so if the callee requires more arg stack space than is available here
     // the fast tail call cannot be performed. This is common to all platforms.
-    // Note that the GC'ness of on stack args need not match since the arg setup area is marked
-    // as non-interruptible for fast tail calls.
+    // Note that the GC'ness of on stack args need not match since the arg setup area is
+    // marked as non-interruptible for fast tail calls.
     if (calleeArgStackSize > callerArgStackSize)
     {
-        reportFastTailCallDecision("Not enough incoming arg space");
+        reportFastTailCallDecision("Not enough incoming arg space", calleeArgStackSize, callerArgStackSize);
         return false;
     }
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    // For Windows some struct parameters are copied on the local frame
-    // and then passed by reference. We cannot fast tail call in these situation
-    // as we need to keep our frame around.
+    // Implicit byref parameters are allocated on the caller frame so we cannot
+    // fast tail call in these situation as we need to keep our frame around.
     if (fgCallHasMustCopyByrefParameter(call->GetInfo()))
     {
         reportFastTailCallDecision("Callee has a byref parameter");
@@ -5127,17 +5103,9 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 #endif // FEATURE_FASTTAILCALL
 
 #if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
-//------------------------------------------------------------------------
-// fgCallHasMustCopyByrefParameter: Check to see if this call has a byref parameter that
-//                                  requires a struct copy in the caller.
-//
-// Arguments:
-//    callInfo - Call node info
-//
-// Return Value:
-//    Returns true or false based on whether this call has a byref parameter that
-//    requires a struct copy in the caller.
-//
+// Check to see if this call has a byref parameter that requires a struct copy in the caller.
+// Returns true or false based on whether this call has a byref parameter that requires
+// a struct copy in the caller.
 bool Compiler::fgCallHasMustCopyByrefParameter(CallInfo* callInfo)
 {
     for (unsigned index = 0; index < callInfo->GetArgCount(); ++index)
