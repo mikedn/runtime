@@ -5031,7 +5031,6 @@ class CallInfo
     unsigned stackAlignPadding = 0;
     bool     stackAlignmentDone : 1;
 #endif
-    bool hasRegArgs : 1;
     bool argsComplete : 1;
 
     void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
@@ -5061,11 +5060,6 @@ public:
     unsigned GetNextSlotNum() const
     {
         return nextSlotNum;
-    }
-
-    bool HasRegArgs() const
-    {
-        return hasRegArgs;
     }
 
     bool HasStackArgs() const

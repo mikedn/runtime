@@ -671,7 +671,6 @@ CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 #ifdef UNIX_X86_ABI
     , stackAlignmentDone(false)
 #endif
-    , hasRegArgs(false)
     , argsComplete(false)
 {
 }
@@ -750,16 +749,13 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
     }
 
     nextSlotNum  = oldArgInfo->nextSlotNum;
-    hasRegArgs   = oldArgInfo->hasRegArgs;
     argsComplete = true;
 }
 
 void CallInfo::AddArg(CallArgInfo* argInfo)
 {
     assert(argCount < argTableSize);
-    argTable[argCount] = argInfo;
-    argCount++;
-    hasRegArgs |= argInfo->GetRegCount() != 0;
+    argTable[argCount++] = argInfo;
 }
 
 unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
@@ -834,29 +830,33 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
     assert(!argsComplete);
 
     bool needsTemps = false;
+    bool hasRegArgs = false;
 
     for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
     {
         CallArgInfo* argInfo = argTable[argIndex];
-        GenTree*     arg     = argInfo->GetNode();
 
         if (argInfo->GetRegCount() == 0)
         {
             assert(HasStackArgs());
+
 #if !FEATURE_FIXED_OUT_ARGS
-            // On x86 we use push instructions to pass arguments:
-            //   The non-register arguments are evaluated and pushed in order
-            //   and they are never evaluated into temps
-            //
+            // On x86 we use push instructions to pass arguments, so stack args must
+            // be evaluated in order, only reg args can (and need) to be moved to the
+            // "late" arg list.
             continue;
 #endif
         }
-#if FEATURE_ARG_SPLIT
-        else if (argInfo->IsSplit())
+        else
         {
-            assert(HasStackArgs());
+#if FEATURE_ARG_SPLIT
+            assert(!argInfo->IsSplit() || HasStackArgs());
+#endif
+
+            hasRegArgs = true;
         }
-#endif // FEATURE_ARG_SPLIT
+
+        GenTree* arg = argInfo->GetNode();
 
         if (argInfo->HasTemp())
         {
@@ -1067,7 +1067,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         }
     }
 
-    if (HasRegArgs() || needsTemps)
+    if (hasRegArgs || needsTemps)
     {
         CallArgInfo*  sortedArgTableArray[32];
         CallArgInfo** sortedArgTable = sortedArgTableArray;
