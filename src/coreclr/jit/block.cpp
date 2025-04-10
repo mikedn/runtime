@@ -1103,40 +1103,30 @@ BasicBlock* BasicBlock::GetSucc(unsigned i) const
     }
 }
 
-//------------------------------------------------------------------------
-// NumSucc: Returns the count of block successors. See the declaration comment for details.
-//
-// Arguments:
-//    comp - Compiler instance
-//
-// Return Value:
-//    Count of block successors.
-//
+// Returns the count of distinct block successors.
 unsigned BasicBlock::NumSucc(Compiler* comp)
 {
     assert(comp != nullptr);
 
     switch (bbJumpKind)
     {
-        case BBJ_THROW:
-        case BBJ_RETURN:
-            return 0;
-
         case BBJ_EHFINALLYRET:
         {
-            // The first block of the handler is labelled with the catch type.
             BasicBlock* hndBeg = comp->fgFirstBlockOfHandler(this);
+
             if (hndBeg->bbCatchTyp == BBCT_FINALLY)
             {
                 return comp->fgNSuccsOfFinallyRet(this);
             }
-            else
-            {
-                assert(hndBeg->bbCatchTyp == BBCT_FAULT); // We can only BBJ_EHFINALLYRET from FINALLY and FAULT.
-                // A FAULT block has no successors.
-                return 0;
-            }
+
+            assert(hndBeg->bbCatchTyp == BBCT_FAULT);
+
+            FALLTHROUGH;
         }
+
+        case BBJ_THROW:
+        case BBJ_RETURN:
+            return 0;
 
         case BBJ_CALLFINALLY:
         case BBJ_ALWAYS:
@@ -1147,14 +1137,7 @@ unsigned BasicBlock::NumSucc(Compiler* comp)
             return 1;
 
         case BBJ_COND:
-            if (bbJumpDest == bbNext)
-            {
-                return 1;
-            }
-            else
-            {
-                return 2;
-            }
+            return 1 + (bbJumpDest != bbNext);
 
         case BBJ_SWITCH:
             return comp->GetDescriptorForSwitch(this)->numDistinctSuccs;

@@ -2382,131 +2382,69 @@ bool Compiler::fgOptimizeEmptyBlock(BasicBlock* block)
     return false;
 }
 
-//-------------------------------------------------------------
-// fgOptimizeSwitchBranches:
-//   Does flow optimization for a switch - bypasses jumps to empty unconditional branches,
-//   and transforms degenerate switch cases like those with 1 or 2 targets.
-//
-// Arguments:
-//    block - block with switch
-//
-// Returns: true if changes were made
-//
 bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 {
-    assert(block->bbJumpKind == BBJ_SWITCH);
+    assert(block->KindIs(BBJ_SWITCH));
 
-    unsigned     jmpCnt = block->bbJumpSwt->bbsCount;
-    BasicBlock** jmpTab = block->bbJumpSwt->bbsDstTab;
-    BasicBlock*  bNewDest; // the new jump target for the current switch case
-    BasicBlock*  bDest;
-    bool         returnvalue = false;
+    unsigned const     destCount  = block->bbJumpSwt->bbsCount;
+    BasicBlock** const destBlocks = block->bbJumpSwt->bbsDstTab;
+    bool               optimized  = false;
 
-    do
+    for (unsigned i = 0; i < destCount; i++)
     {
-    REPEAT_SWITCH:;
-        bDest    = *jmpTab;
-        bNewDest = bDest;
+        BasicBlock* dest = destBlocks[i];
 
-        // Do we have a JUMP to an empty unconditional JUMP block?
-        if (bDest->isEmpty() && (bDest->bbJumpKind == BBJ_ALWAYS) &&
-            (bDest != bDest->bbJumpDest)) // special case for self jumps
+        while (dest->KindIs(BBJ_ALWAYS) && dest->isEmpty() && (dest != dest->bbJumpDest))
         {
-            bool optimizeJump = true;
-
-            // We do not optimize jumps between two different try regions.
-            // However jumping to a block that is not in any try region is OK
-            //
-            if (bDest->hasTryIndex() && !BasicBlock::sameTryRegion(block, bDest))
-            {
-                optimizeJump = false;
-            }
-
-            // If we are optimize using real profile weights
-            // then don't optimize a switch jump to an unconditional jump
-            // until after we have computed the edge weights
-            //
+            // If we are optimize using real profile weights then don't optimize a switch
+            // jump to an unconditional jump until after we have computed the edge weights.
             if (fgIsUsingProfileWeights() && !fgEdgeWeightsComputed)
             {
                 fgNeedsUpdateFlowGraph = true;
-                optimizeJump           = false;
+                break;
             }
 
-            if (optimizeJump)
+            if (dest->hasTryIndex() && !BasicBlock::sameTryRegion(block, dest))
             {
-                bNewDest = bDest->bbJumpDest;
-
-                JITDUMP("\nOptimizing a switch jump to an empty block with an unconditional jump (" FMT_BB " -> " FMT_BB
-                        " -> " FMT_BB ")\n",
-                        block->bbNum, bDest->bbNum, bNewDest->bbNum);
+                break;
             }
-        }
 
-        if (bNewDest != bDest)
-        {
-            //
-            // When we optimize a branch to branch we need to update the profile weight
-            // of bDest by subtracting out the block/edge weight of the path that is being optimized.
-            //
-            if (fgIsUsingProfileWeights() && bDest->hasProfileWeight())
+            BasicBlock* newDest = dest->bbJumpDest;
+
+            JITDUMP("\nOptimizing a switch jump to an empty block with an unconditional jump (" FMT_BB " -> " FMT_BB
+                    " -> " FMT_BB ")\n",
+                    block->bbNum, dest->bbNum, newDest->bbNum);
+
+            // When we optimize a branch to branch we need to update the profile weight of dest
+            // by subtracting out the block/edge weight of the path that is being optimized.
+            if (fgIsUsingProfileWeights() && dest->hasProfileWeight())
             {
                 if (fgHaveValidEdgeWeights)
                 {
-                    flowList*            edge                = fgGetPredForBlock(bDest, block);
+                    FlowEdge*            edge                = fgGetPredForBlock(dest, block);
                     BasicBlock::weight_t branchThroughWeight = edge->edgeWeightMin();
 
-                    if (bDest->bbWeight > branchThroughWeight)
+                    if (dest->bbWeight > branchThroughWeight)
                     {
-                        bDest->bbWeight -= branchThroughWeight;
+                        dest->bbWeight -= branchThroughWeight;
                     }
                     else
                     {
-                        bDest->bbWeight = BB_ZERO_WEIGHT;
-                        bDest->bbFlags |= BBF_RUN_RARELY;
+                        dest->bbWeight = BB_ZERO_WEIGHT;
+                        dest->bbFlags |= BBF_RUN_RARELY;
                     }
                 }
             }
 
-            // Update the switch jump table
-            *jmpTab = bNewDest;
+            destBlocks[i] = newDest;
 
-            // Maintain, if necessary, the set of unique targets of "block."
-            UpdateSwitchTableTarget(block, bDest, bNewDest);
+            UpdateSwitchTableTarget(block, dest, newDest);
+            fgAddRefPred(newDest, block, fgRemoveRefPred(dest, block));
 
-            fgAddRefPred(bNewDest, block, fgRemoveRefPred(bDest, block));
-
-            // we optimized a Switch label - goto REPEAT_SWITCH to follow this new jump
-            returnvalue = true;
-
-            goto REPEAT_SWITCH;
+            dest      = newDest;
+            optimized = true;
         }
-    } while (++jmpTab, --jmpCnt);
-
-    Statement*  switchStmt = nullptr;
-    LIR::Range* blockRange = nullptr;
-    GenTree*    switchTree;
-
-    if (block->IsLIR())
-    {
-        blockRange = &LIR::AsRange(block);
-        switchTree = blockRange->LastNode();
-
-        assert(switchTree->OperIs(GT_SWITCH_TABLE));
     }
-    else
-    {
-        switchStmt = block->lastStmt();
-        switchTree = switchStmt->GetRootNode();
-
-        assert(switchTree->OperIs(GT_SWITCH));
-    }
-
-    noway_assert(switchTree->TypeIs(TYP_VOID));
-
-    // At this point all of the case jump targets have been updated such
-    // that none of them go to block that is an empty unconditional block
-    jmpTab = block->bbJumpSwt->bbsDstTab;
-    jmpCnt = block->bbJumpSwt->bbsCount;
 
     if (block->NumSucc(this) == 1)
     {
@@ -2515,9 +2453,9 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
         block->bbJumpKind = BBJ_ALWAYS;
 
-        for (unsigned i = 1; i < jmpCnt; ++i)
+        for (unsigned i = 1; i < destCount; i++)
         {
-            fgRemoveRefPred(jmpTab[i], block);
+            fgRemoveRefPred(destBlocks[i], block);
         }
 
         fgRemoveConditionalBlockJumpInstr(block);
@@ -2530,6 +2468,25 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         // Change the SWITCH(x) { case 0: ...; default: ...; } into JTRUE(EQ(x, 0)).
 
         JITDUMP("\n" FMT_BB ": Converting a SWITCH with only 2 targets to a JTRUE\n", block->bbNum);
+
+        Statement*  switchStmt = nullptr;
+        LIR::Range* blockRange = nullptr;
+        GenTree*    switchTree;
+
+        if (block->IsLIR())
+        {
+            blockRange = &LIR::AsRange(block);
+            switchTree = blockRange->LastNode();
+
+            assert(switchTree->OperIs(GT_SWITCH_TABLE));
+        }
+        else
+        {
+            switchStmt = block->GetLastStatement();
+            switchTree = switchStmt->GetRootNode();
+
+            assert(switchTree->OperIs(GT_SWITCH));
+        }
 
         GenTree* value = switchTree->AsOp()->GetOp(0);
         assert(varActualTypeIsIntOrI(value->GetType()));
@@ -2563,7 +2520,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
         return true;
     }
 
-    return returnvalue;
+    return optimized;
 }
 
 //-------------------------------------------------------------
