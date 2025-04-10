@@ -1181,6 +1181,70 @@ LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, GenTr
     return GetMarkedRange(root, isClosed, sideEffects);
 }
 
+void LIR::Range::RemoveDeadTree(GenTree* root)
+{
+    assert(!root->HasAnySideEffect(GTF_SIDE_EFFECT));
+
+    root->SetLIRMark();
+
+    unsigned markCount = 1;
+    GenTree* firstNode = root;
+    GenTree* lastNode  = root;
+
+    for (;;)
+    {
+        if (firstNode->HasLIRMark())
+        {
+            firstNode->VisitOperands([&markCount](GenTree* operand) {
+                if (!operand->OperIs(GT_ARGPLACE) && !operand->HasAnySideEffect(GTF_SIDE_EFFECT))
+                {
+                    operand->SetLIRMark();
+                    markCount++;
+                }
+                else if (!operand->OperIs(GT_ARGPLACE))
+                {
+                    operand->SetUnusedValue();
+                }
+
+                return GenTree::VisitResult::Continue;
+            });
+
+            if (lastNode == nullptr)
+            {
+                lastNode = firstNode;
+            }
+
+            if (--markCount == 0)
+            {
+                break;
+            }
+        }
+        else if (lastNode != nullptr)
+        {
+            RemoveMarkedDeadRange(firstNode->gtNext, lastNode);
+            lastNode = nullptr;
+        }
+
+        firstNode = firstNode->gtPrev;
+    }
+
+    if (lastNode != nullptr)
+    {
+        RemoveMarkedDeadRange(firstNode, lastNode);
+    }
+}
+
+void LIR::Range::RemoveMarkedDeadRange(GenTree* first, GenTree* last)
+{
+#ifdef DEBUG
+    for (GenTree* n : ReadOnlyRange(first, last))
+    {
+        assert(n->HasLIRMark() && !n->HasAnySideEffect(GTF_SIDE_EFFECT));
+    }
+#endif
+
+    Remove(first, last);
+}
 #ifdef DEBUG
 
 //------------------------------------------------------------------------

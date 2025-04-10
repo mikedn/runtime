@@ -212,24 +212,15 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
         case GT_COMMA:
         {
+            GenTree* sideEffects = node->AsOp()->GetOp(0);
+
+            if (!sideEffects->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
-                GenTree*           op1         = node->AsOp()->GetOp(0);
-                bool               isClosed    = false;
-                GenTreeFlags       sideEffects = GTF_NONE;
-                LIR::ReadOnlyRange range       = BlockRange().GetTreeRange(op1, &isClosed, &sideEffects);
-
-                if (sideEffects == GTF_NONE)
-                {
-                    // The LHS has no side effects. Remove it.
-                    // None of the transforms performed herein violate tree order, so isClosed should always be true.
-                    assert(isClosed);
-
-                    BlockRange().Delete(comp, m_block, std::move(range));
-                }
-                else if (op1->IsValue())
-                {
-                    op1->SetUnusedValue();
-                }
+                BlockRange().RemoveDeadTree(sideEffects);
+            }
+            else if (sideEffects->IsValue())
+            {
+                sideEffects->SetUnusedValue();
             }
 
             BlockRange().Unlink(node);
@@ -240,24 +231,13 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             {
                 use.SetDef(node->AsOp()->GetOp(1));
             }
-            else
+            else if (!value->HasAnySideEffect(GTF_SIDE_EFFECT))
             {
-                // This is a top-level comma. If the RHS has no side effects we can remove it as well.
-                bool               isClosed    = false;
-                GenTreeFlags       sideEffects = GTF_NONE;
-                LIR::ReadOnlyRange range       = BlockRange().GetTreeRange(value, &isClosed, &sideEffects);
-
-                if (sideEffects == GTF_NONE)
-                {
-                    // None of the transforms performed herein violate tree order, so isClosed should always be true.
-                    assert(isClosed);
-
-                    BlockRange().Delete(comp, m_block, std::move(range));
-                }
-                else if (value->IsValue())
-                {
-                    value->SetUnusedValue();
-                }
+                BlockRange().RemoveDeadTree(value);
+            }
+            else if (value->IsValue())
+            {
+                value->SetUnusedValue();
             }
 
             return GenTreeWalkResult::Continue;

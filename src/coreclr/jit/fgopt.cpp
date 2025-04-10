@@ -2907,20 +2907,7 @@ void Compiler::fgRemoveConditionalBlockJumpInstr(BasicBlock* block)
             jmp->AsUnOp()->GetOp(0)->gtFlags &= ~GTF_SET_FLAGS;
         }
 
-        bool               isClosed;
-        GenTreeFlags       sideEffects;
-        LIR::ReadOnlyRange jmpRange = blockRange.GetTreeRange(jmp, &isClosed, &sideEffects);
-
-        // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that
-        // produces unacceptable diffs compared to the existing backend.
-        if (isClosed && ((sideEffects & GTF_SIDE_EFFECT) == 0))
-        {
-            blockRange.Delete(this, block, std::move(jmpRange));
-        }
-        else
-        {
-            blockRange.Remove(jmp, true);
-        }
+        blockRange.RemoveDeadTree(jmp);
     }
     else
     {
