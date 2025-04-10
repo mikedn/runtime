@@ -317,6 +317,8 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         case GT_TRUNC:
         case GT_CONV:
         case GT_RETURN:
+        case GT_JTRUE:
+        case GT_SWITCH:
             node->SetSideEffects(GTF_NONE);
             break;
 
