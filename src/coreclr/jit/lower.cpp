@@ -1398,11 +1398,11 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
     else if (call->IsUnmanaged())
     {
-        InsertPInvokeCallPrologAndEpilog(call);
+        InsertUnmanagedCallPrologAndEpilog(call);
 
         if (!call->IsIndirectCall())
         {
-            call->SetCallAddr(LowerDirectPInvokeCall(call));
+            call->SetCallAddr(LowerDirectUnmanagedCall(call));
         }
     }
     else if (!call->IsIndirectCall())
@@ -1578,9 +1578,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     {
         // Get the earliest operand of the first PUTARG_STK node. We will make
         // the required copies of args before this node.
-        bool         isClosed;
-        GenTreeFlags sideEffects;
-        GenTree*     insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &isClosed, &sideEffects).FirstNode();
+        GenTree* insertionPoint = BlockRange().FindFirstTreeLeaf(putargs.Get(0));
         // Insert GT_START_NONGC node before we evaluate the PUTARG_STK args.
         // Note that if there are no args to be setup on stack, no need to
         // insert GT_START_NONGC node.
@@ -2527,7 +2525,7 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
     return ExpandConstLookupCallTarget(entryPoint, call DEBUGARG(call));
 }
 
-GenTree* Lowering::LowerDirectPInvokeCall(GenTreeCall* call)
+GenTree* Lowering::LowerDirectUnmanagedCall(GenTreeCall* call)
 {
     assert(call->IsUserCall());
 
@@ -3075,21 +3073,13 @@ void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
     }
 }
 
-// Emit the call-site prolog for direct calls to unmanaged code.
+// Emit the call-site prolog for calls to unmanaged code.
 // It does all the necessary call-site setup of the InlinedCallFrame.
-void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
+void Lowering::InsertUnmanagedCallProlog(GenTreeCall* call)
 {
-    JITDUMP("======= Inserting PInvoke call prolog\n");
+    JITDUMP("======= Inserting unmanaged call prolog\n");
 
-    GenTree* insertBefore = call;
-
-    if (call->IsIndirectCall())
-    {
-        bool         isClosed;
-        GenTreeFlags sideEffects;
-        insertBefore = BlockRange().GetTreeRange(call->GetCallAddr(), &isClosed, &sideEffects).FirstNode();
-        assert(isClosed);
-    }
+    GenTree* insertBefore = call->IsIndirectCall() ? call->GetCallAddr() : call;
 
     const CORINFO_EE_INFO::InlinedCallFrameInfo& callFrameInfo = comp->eeGetEEInfo()->inlinedCallFrameInfo;
 
@@ -3103,7 +3093,7 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
         GenTree* frameAddr = comp->gtNewLclAddr(pInvokeFrameLcl);
         comp->lvaSetAddressExposed(pInvokeFrameLcl);
 
-#if defined(TARGET_X86) && !defined(UNIX_X86_ABI)
+#if defined(TARGET_X86) && defined(TARGET_WINDOWS)
         // On x86 targets, PInvoke calls need the size of the stack args in InlinedCallFrame.m_Datum.
         // This is because the callee pops stack arguments, and we need to keep track of this during stack
         // walking
@@ -3113,9 +3103,12 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 #else
         GenTreeCall::Use* args = comp->gtNewCallArgs(frameAddr);
 #endif
+        // Note that this is a special helper function that's a leaf and does not
+        // modify its parameter area, so it can be nested within this call site.
         GenTreeCall* pInvokeBegin = comp->gtNewHelperCallNode(CORINFO_HELP_JIT_PINVOKE_BEGIN, TYP_VOID, args);
         LIR::InsertHelperCallBefore(comp, BlockRange(), insertBefore, pInvokeBegin);
         LowerCall(pInvokeBegin);
+
         return;
     }
 
@@ -3226,10 +3219,10 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
     BlockRange().InsertBefore(insertBefore, preemptiveGCNode);
 }
 
-// Insert the code that goes after every inlined pinvoke call.
-void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
+// Insert the code that goes after every unmanaged call.
+void Lowering::InsertUnmanagedCallEpilog(GenTreeCall* call)
 {
-    JITDUMP("======= Inserting PInvoke call epilog\n");
+    JITDUMP("======= Inserting unmanaged call epilog\n");
 
     noway_assert(comp->lvaInlinedPInvokeFrameVar != BAD_VAR_NUM);
     LclVarDsc* pInvokeFrameLcl = comp->lvaGetDesc(comp->lvaInlinedPInvokeFrameVar);
@@ -3272,7 +3265,7 @@ void Lowering::InsertPInvokeCallEpilog(GenTreeCall* call)
 #endif // TARGET_64BIT
 }
 
-void Lowering::InsertPInvokeCallPrologAndEpilog(GenTreeCall* call)
+void Lowering::InsertUnmanagedCallPrologAndEpilog(GenTreeCall* call)
 {
     assert(call->IsUnmanaged() X86_ONLY(&&!call->IsTailCallViaJitHelper()));
 
@@ -3308,7 +3301,7 @@ void Lowering::InsertPInvokeCallPrologAndEpilog(GenTreeCall* call)
     //     if (g_TrapReturningThreads)
     //         RareDisablePreemptiveGC();
     //
-    // Transistions using helpers:
+    // Transitions using helpers:
     //
     //     OpaqueFrame opaqueFrame;
     //
@@ -3335,8 +3328,8 @@ void Lowering::InsertPInvokeCallPrologAndEpilog(GenTreeCall* call)
 
     if (!call->IsSuppressGCTransition())
     {
-        InsertPInvokeCallProlog(call);
-        InsertPInvokeCallEpilog(call);
+        InsertUnmanagedCallProlog(call);
+        InsertUnmanagedCallEpilog(call);
     }
 }
 

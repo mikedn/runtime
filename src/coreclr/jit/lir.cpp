@@ -1064,132 +1064,52 @@ bool LIR::Range::TryGetUse(GenTree* node, Use* use)
     return false;
 }
 
-// Computes the subrange that includes all nodes in the dataflow
-// trees rooted at a particular set of nodes.
-//
-// This method logically uses the following algorithm to compute the
-// range:
-//
-//    worklist = { set }
-//    firstNode = start
-//    isClosed = true
-//
-//    while not worklist.isEmpty:
-//        if not worklist.contains(firstNode):
-//            isClosed = false
-//        else:
-//            for operand in firstNode:
-//                worklist.add(operand)
-//
-//            worklist.remove(firstNode)
-//
-//        firstNode = firstNode.previousNode
-//
-//    return firstNode
-//
-// Instead of using a set for the worklist, the implementation uses the
-// `LIR::Mark` bit of the `GenTree::LIRFlags` field to track whether or
-// not a node is in the worklist.
-//
-// Note also that this algorithm depends LIR nodes being SDSU, SDSU defs
-// and uses occurring in the same block, and correct dataflow (i.e. defs
-// occurring before uses).
-//
-LIR::ReadOnlyRange LIR::Range::GetMarkedRange(GenTree* start, bool* isClosed, GenTreeFlags* sideEffects) const
+// Finds the first leaf (in execution order) of an SDSU expression tree.
+GenTree* LIR::Range::FindFirstTreeLeaf(GenTree* tree) const
 {
-    assert(start != nullptr);
-    assert(isClosed != nullptr);
-    assert(sideEffects != nullptr);
+    assert(tree != nullptr);
 
-    start->SetLIRMark();
-
-    unsigned     markCount          = 1;
-    bool         sawUnmarkedNode    = false;
-    GenTreeFlags sideEffectsInRange = GTF_NONE;
-    GenTree*     firstNode          = start;
-    GenTree*     lastNode           = nullptr;
-
-    for (;;)
-    {
-        if (firstNode->HasLIRMark())
-        {
-            if (lastNode == nullptr)
-            {
-                lastNode = firstNode;
-            }
-
-            // Mark the node's operands
-            firstNode->VisitOperands([&markCount](GenTree* operand) {
-                // Do not mark nodes that do not appear in the execution order
-                if (!operand->OperIs(GT_ARGPLACE))
-                {
-                    operand->SetLIRMark();
-                    markCount++;
-                }
-
-                return GenTree::VisitResult::Continue;
-            });
-
-            // Unmark the the node and update `firstNode`
-            firstNode->ClearLIRMark();
-            markCount--;
-        }
-        else if (lastNode != nullptr)
-        {
-            sawUnmarkedNode = true;
-        }
-
-        if (lastNode != nullptr)
-        {
-            sideEffectsInRange |= firstNode->GetSideEffects();
-        }
-
-        if (markCount == 0)
-        {
-            break;
-        }
-
-        firstNode = firstNode->gtPrev;
-
-        // This assert will fail if the dataflow that feeds the root node
-        // is incorrect in that it crosses a block boundary or if it involves
-        // a use that occurs before its corresponding def.
-        assert(firstNode != nullptr);
-    }
-
-    assert(lastNode != nullptr);
-
-    *isClosed    = !sawUnmarkedNode;
-    *sideEffects = sideEffectsInRange;
-
-    return ReadOnlyRange(firstNode, lastNode);
-}
-
-// Computes the subrange that includes all nodes in the dataflow
-// tree rooted at a particular node.
-//
-// Arguments:
-//    root        - The root of the dataflow tree.
-//    isClosed    - An output parameter that is set to true if the returned
-//                  range contains only nodes in the dataflow tree and false
-//                  otherwise.
-//    sideEffects - An output parameter that summarizes the side effects
-//                  contained in the returned range.
-//
-LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, GenTreeFlags* sideEffects) const
-{
-    return GetMarkedRange(root, isClosed, sideEffects);
-}
-
-void LIR::Range::RemoveDeadTree(GenTree* root)
-{
-    assert(!root->HasAnySideEffect(GTF_SIDE_EFFECT));
-
-    root->SetLIRMark();
+    tree->SetLIRMark();
 
     unsigned markCount = 1;
-    GenTree* firstNode = root;
-    GenTree* lastNode  = root;
+    GenTree* first     = tree;
+
+    do
+    {
+        first->VisitOperands([&markCount](GenTree* operand) {
+            // ARGPLACE does not appear in the execution order.
+            if (!operand->OperIs(GT_ARGPLACE))
+            {
+                operand->SetLIRMark();
+                markCount++;
+            }
+
+            return GenTree::VisitResult::Continue;
+        });
+
+        first->ClearLIRMark();
+
+        if (--markCount != 0)
+        {
+            while (!first->HasLIRMark())
+            {
+                first = first->gtPrev;
+            }
+        }
+    } while (markCount != 0);
+
+    return first;
+}
+
+void LIR::Range::RemoveDeadTree(GenTree* tree)
+{
+    assert(!tree->HasAnySideEffect(GTF_SIDE_EFFECT));
+
+    tree->SetLIRMark();
+
+    unsigned markCount = 1;
+    GenTree* firstNode = tree;
+    GenTree* lastNode  = tree;
 
     for (;;)
     {

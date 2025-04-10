@@ -6752,7 +6752,10 @@ void Compiler::gtDispTreeRec(
         case GT_PUTARG_STK:
             printf(" (@%u, %d slots", tree->AsPutArgStk()->GetSlotOffset(), tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
-            printf(", %s)", PutArgStkKindName(tree->AsPutArgStk()->GetKind()));
+            if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
+            {
+                printf(", %s)", PutArgStkKindName(kind));
+            }
 #else
             printf(")");
 #endif
@@ -7145,12 +7148,6 @@ void Compiler::gtDispStmt(Statement* stmt, const char* msg)
     gtDispTree(stmt->GetRootNode());
 }
 
-//------------------------------------------------------------------------
-// gtDispBlockStmts: dumps all statements inside `block`.
-//
-// Arguments:
-//    block - the block to display statements for.
-//
 void Compiler::gtDispBlockStmts(BasicBlock* block)
 {
     for (Statement* const stmt : block->Statements())
@@ -7160,19 +7157,17 @@ void Compiler::gtDispBlockStmts(BasicBlock* block)
     }
 }
 
+void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
+{
+    gtDispRange(LIR::ReadOnlyRange(containingRange.FindFirstTreeLeaf(tree), tree));
+}
+
 void Compiler::gtDispRange(LIR::ReadOnlyRange const& range)
 {
     for (GenTree* node : range)
     {
         gtDispLIRNode(node);
     }
-}
-
-void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
-{
-    bool         isClosed;
-    GenTreeFlags sideEffects;
-    gtDispRange(containingRange.GetTreeRange(tree, &isClosed, &sideEffects));
 }
 
 void Compiler::gtDispLIRNode(GenTree* node)

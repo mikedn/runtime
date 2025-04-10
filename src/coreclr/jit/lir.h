@@ -247,7 +247,6 @@ public:
         Range(const Range& other) = delete;
         Range& operator=(const Range& other) = delete;
 
-        ReadOnlyRange GetMarkedRange(GenTree* start, bool* isClosed, GenTreeFlags* sideEffects) const;
         void RemoveMarkedDeadRange(GenTree* first, GenTree* last);
 
         void FinishInsertBefore(GenTree* insertionPoint, GenTree* first, GenTree* last);
@@ -292,10 +291,12 @@ public:
 
         bool TryGetUse(GenTree* node, Use* use);
 
-        ReadOnlyRange GetTreeRange(GenTree* root, bool* isClosed, GenTreeFlags* sideEffects) const;
-        void RemoveDeadTree(GenTree* root);
+        GenTree* FindFirstTreeLeaf(GenTree* tree) const;
+        void RemoveDeadTree(GenTree* tree);
 
-        INDEBUG(bool CheckLIR(Compiler* compiler, bool checkUnusedValues = false) const;)
+#ifdef DEBUG
+        bool CheckLIR(Compiler* compiler, bool checkUnusedValues = false) const;
+#endif
     };
 
 public:

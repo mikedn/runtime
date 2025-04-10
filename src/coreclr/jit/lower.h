@@ -105,7 +105,7 @@ private:
     GenTree* SpillStructCall(GenTreeCall* call, GenTree* user);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
     GenTree* LowerDirectCall(GenTreeCall* call);
-    GenTree* LowerDirectPInvokeCall(GenTreeCall* call);
+    GenTree* LowerDirectUnmanagedCall(GenTreeCall* call);
     GenTree* ExpandConstLookupCallTarget(const CORINFO_CONST_LOOKUP& entryPoint,
                                          GenTree* insertBefore DEBUGARG(GenTreeCall* call));
 #ifdef TARGET_X86
@@ -127,9 +127,9 @@ private:
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
 
-    void InsertPInvokeCallPrologAndEpilog(GenTreeCall* call);
-    void InsertPInvokeCallProlog(GenTreeCall* call);
-    void InsertPInvokeCallEpilog(GenTreeCall* call);
+    void InsertUnmanagedCallPrologAndEpilog(GenTreeCall* call);
+    void InsertUnmanagedCallProlog(GenTreeCall* call);
+    void InsertUnmanagedCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
     void InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr));
     void InsertSetGCState(GenTree* before, int cns);
