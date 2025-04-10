@@ -36,14 +36,9 @@ public:
     inline void TermStateMatch(SM_STATE_ID stateID DEBUGARG(bool verbose))
     {
         assert(States[stateID].term);
-#ifdef DEBUG
 #ifndef SMGEN_COMPILE
-        if (verbose)
-        {
-            printf("weight=%3d : state %3d [ %s ]\n", StateWeights[stateID], stateID, StateDesc(stateID));
-        }
-#endif // SMGEN_COMPILE
-#endif // DEBUG
+        JITDUMP("weight=%3d : state %3d [ %s ]\n", StateWeights[stateID], stateID, StateDesc(stateID));
+#endif
 
         NativeSize += StateWeights[stateID];
     }

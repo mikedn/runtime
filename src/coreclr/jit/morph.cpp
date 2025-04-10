@@ -12502,20 +12502,12 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         {
             // Clone all the trees to stress gtCloneExpr()
 
-            if (verbose)
-            {
-                printf("\nfgMorphTree (stressClone from):\n");
-                gtDispTree(morphedTree);
-            }
+            JITDUMPTREE(morphedTree, "\nfgMorphTree (stressClone from):\n");
 
             morphedTree = gtCloneExpr(morphedTree);
             noway_assert(morphedTree != nullptr);
 
-            if (verbose)
-            {
-                printf("\nfgMorphTree (stressClone to):\n");
-                gtDispTree(morphedTree);
-            }
+            JITDUMPTREE(morphedTree, "\nfgMorphTree (stressClone to):\n");
         }
 
         /* If the hash value changes. we modified the tree during morphing */
@@ -12641,12 +12633,7 @@ void Compiler::fgMorphBlocks()
 
     do
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nMorphing " FMT_BB " of '%s'\n", block->bbNum, info.compFullName);
-        }
-#endif
+        JITDUMP("\nMorphing " FMT_BB " of '%s'\n", block->bbNum, info.compFullName);
 
 #if LOCAL_ASSERTION_PROP
         if (morphAssertionCount != 0)

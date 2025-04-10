@@ -73,12 +73,7 @@ void Compiler::fgEnsureFirstBBisScratch()
 
     fgFirstBBScratch = fgFirstBB;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("New scratch " FMT_BB "\n", block->bbNum);
-    }
-#endif
+    JITDUMP("New scratch " FMT_BB "\n", block->bbNum);
 }
 
 //------------------------------------------------------------------------
@@ -3682,13 +3677,8 @@ void Compiler::fgUnlinkBlock(BasicBlock* block)
 
         if (fgFirstBBScratch != nullptr)
         {
-#ifdef DEBUG
             // We had created an initial scratch BB, but now we're deleting it.
-            if (verbose)
-            {
-                printf("Unlinking scratch " FMT_BB "\n", block->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("Unlinking scratch " FMT_BB "\n", block->bbNum);
             fgFirstBBScratch = nullptr;
         }
     }
@@ -3846,12 +3836,7 @@ void Compiler::fgRemoveBlock(BasicBlock* block, bool unreachable)
         /* This cannot be the last basic block */
         noway_assert(block != fgLastBB);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("Removing empty " FMT_BB "\n", block->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("Removing empty " FMT_BB "\n", block->bbNum);
 
 #ifdef DEBUG
         /* Some extra checks for the empty case */
@@ -4128,14 +4113,9 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
                 case BBJ_NONE:
                     bSrc->bbJumpKind = BBJ_ALWAYS;
                     bSrc->bbJumpDest = bDst;
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Block " FMT_BB " ended with a BBJ_NONE, Changed to an unconditional jump to " FMT_BB
-                               "\n",
-                               bSrc->bbNum, bSrc->bbJumpDest->bbNum);
-                    }
-#endif
+
+                    JITDUMP("Block " FMT_BB " ended with a BBJ_NONE, Changed to an unconditional jump to " FMT_BB "\n",
+                            bSrc->bbNum, bSrc->bbJumpDest->bbNum);
                     break;
 
                 case BBJ_CALLFINALLY:
@@ -4207,13 +4187,8 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
                         jmpBlk->bbFlags |= BBF_IMPORTED;
                     }
 
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("Added an unconditional jump to " FMT_BB " after block " FMT_BB "\n",
-                               jmpBlk->bbJumpDest->bbNum, bSrc->bbNum);
-                    }
-#endif // DEBUG
+                    JITDUMP("Added an unconditional jump to " FMT_BB " after block " FMT_BB "\n",
+                            jmpBlk->bbJumpDest->bbNum, bSrc->bbNum);
                     break;
 
                 default:
@@ -4230,14 +4205,10 @@ BasicBlock* Compiler::fgConnectFallThrough(BasicBlock* bSrc, BasicBlock* bDst)
                 (bSrc->bbJumpDest == bSrc->bbNext))
             {
                 bSrc->bbJumpKind = BBJ_NONE;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Changed an unconditional jump from " FMT_BB " to the next block " FMT_BB
-                           " into a BBJ_NONE block\n",
-                           bSrc->bbNum, bSrc->bbNext->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("Changed an unconditional jump from " FMT_BB " to the next block " FMT_BB
+                        " into a BBJ_NONE block\n",
+                        bSrc->bbNum, bSrc->bbNext->bbNum);
             }
         }
     }
@@ -4292,12 +4263,7 @@ bool Compiler::fgRenumberBlocks()
         if (block->bbNum != num)
         {
             renumbered = true;
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Renumber " FMT_BB " to " FMT_BB "\n", block->bbNum, num);
-            }
-#endif // DEBUG
+            JITDUMP("Renumber " FMT_BB " to " FMT_BB "\n", block->bbNum, num);
             block->bbNum = num;
         }
 
@@ -4438,14 +4404,9 @@ void Compiler::fgMoveBlocksAfter(BasicBlock* bStart, BasicBlock* bEnd, BasicBloc
     /* We have decided to insert the block(s) after 'insertAfterBlk' */
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Relocated block%s [" FMT_BB ".." FMT_BB "] inserted after " FMT_BB "%s\n", (bStart == bEnd) ? "" : "s",
-               bStart->bbNum, bEnd->bbNum, insertAfterBlk->bbNum,
-               (insertAfterBlk->bbNext == nullptr) ? " at the end of method" : "");
-    }
-#endif // DEBUG
+    JITDUMP("Relocated block%s [" FMT_BB ".." FMT_BB "] inserted after " FMT_BB "%s\n", (bStart == bEnd) ? "" : "s",
+            bStart->bbNum, bEnd->bbNum, insertAfterBlk->bbNum,
+            (insertAfterBlk->bbNext == nullptr) ? " at the end of method" : "");
 
     /* relink [bStart .. bEnd] into the flow graph */
 
@@ -4806,13 +4767,8 @@ BasicBlock* Compiler::fgRelocateEHRange(unsigned regionIndex, FG_RELOCATE_TYPE r
 
 FAILURE:
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** Failed fgRelocateEHRange(" FMT_BB ".." FMT_BB ") because %s\n", bStart->bbNum,
-               bLast->bbNum, reason);
-    }
-#endif // DEBUG
+    JITDUMP("*************** Failed fgRelocateEHRange(" FMT_BB ".." FMT_BB ") because %s\n", bStart->bbNum,
+            bLast->bbNum, reason);
 
     bLast = nullptr;
 

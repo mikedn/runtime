@@ -1469,12 +1469,7 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
     /* both or none must have an exception handler */
     noway_assert(block->hasTryIndex() == bNext->hasTryIndex());
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nCompacting blocks " FMT_BB " and " FMT_BB ":\n", block->bbNum, bNext->bbNum);
-    }
-#endif
+    JITDUMP("\nCompacting blocks " FMT_BB " and " FMT_BB ":\n", block->bbNum, bNext->bbNum);
 
     if (bNext->countOfInEdges() > 1)
     {
@@ -1976,12 +1971,7 @@ void Compiler::fgUnreachableBlock(BasicBlock* block)
         return;
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nRemoving unreachable " FMT_BB "\n", block->bbNum);
-    }
-#endif // DEBUG
+    JITDUMP("\nRemoving unreachable " FMT_BB "\n", block->bbNum);
 
     noway_assert(block->bbPrev != nullptr); // Can't use this function to remove the first block
 
@@ -2052,15 +2042,11 @@ void Compiler::fgRemoveConditionalJump(BasicBlock* block)
     --block->bbNext->bbRefs;
     --flow->flDupCount;
 
-#ifdef DEBUG
-    block->bbJumpDest = nullptr;
-    if (verbose)
-    {
-        printf("Block " FMT_BB " becoming a BBJ_NONE to " FMT_BB " (jump target is the same whether the condition"
-               " is true or false)\n",
-               block->bbNum, block->bbNext->bbNum);
-    }
-#endif
+    INDEBUG(block->bbJumpDest = nullptr);
+
+    JITDUMP("Block " FMT_BB " becoming a BBJ_NONE to " FMT_BB " (jump target is the same whether the condition"
+            " is true or false)\n",
+            block->bbNum, block->bbNext->bbNum);
 
     // Remove the block jump condition
 
@@ -2194,18 +2180,11 @@ bool Compiler::fgOptimizeBranchToEmptyUnconditional(BasicBlock* block, BasicBloc
 
     if (optimizeJump)
     {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nOptimizing a jump to an unconditional jump (" FMT_BB " -> " FMT_BB " -> " FMT_BB ")\n",
-                   block->bbNum, bDest->bbNum, bDest->bbJumpDest->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("\nOptimizing a jump to an unconditional jump (" FMT_BB " -> " FMT_BB " -> " FMT_BB ")\n", block->bbNum,
+                bDest->bbNum, bDest->bbJumpDest->bbNum);
 
-        //
         // When we optimize a branch to branch we need to update the profile weight
         // of bDest by subtracting out the block/edge weight of the path that is being optimized.
-        //
         if (fgHaveValidEdgeWeights && bDest->hasProfileWeight())
         {
             flowList* edge1 = fgGetPredForBlock(bDest, block);
@@ -2547,14 +2526,10 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
             if (optimizeJump)
             {
                 bNewDest = bDest->bbJumpDest;
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nOptimizing a switch jump to an empty block with an unconditional jump (" FMT_BB
-                           " -> " FMT_BB " -> " FMT_BB ")\n",
-                           block->bbNum, bDest->bbNum, bNewDest->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("\nOptimizing a switch jump to an empty block with an unconditional jump (" FMT_BB " -> " FMT_BB
+                        " -> " FMT_BB ")\n",
+                        block->bbNum, bDest->bbNum, bNewDest->bbNum);
             }
         }
 
@@ -3086,15 +3061,12 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
                 {
                     /* the unconditional jump is to the next BB  */
                     block->bbJumpKind = BBJ_NONE;
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("\nRemoving unconditional jump to next block (" FMT_BB " -> " FMT_BB
-                               ") (converted " FMT_BB " to "
-                               "fall-through)\n",
-                               block->bbNum, bNext->bbNum, block->bbNum);
-                    }
-#endif // DEBUG
+
+                    JITDUMP("\nRemoving unconditional jump to next block (" FMT_BB " -> " FMT_BB ") (converted " FMT_BB
+                            " to "
+                            "fall-through)\n",
+                            block->bbNum, bNext->bbNum, block->bbNum);
+
                     return true;
                 }
             }
@@ -3106,13 +3078,7 @@ bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, Basi
         noway_assert(block->bbJumpKind == BBJ_COND);
         noway_assert(block->isValid());
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nRemoving conditional jump to next block (" FMT_BB " -> " FMT_BB ")\n", block->bbNum,
-                   bNext->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("\nRemoving conditional jump to next block (" FMT_BB " -> " FMT_BB ")\n", block->bbNum, bNext->bbNum);
 
         if (block->IsLIR())
         {
@@ -3358,15 +3324,10 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
 
     bool costIsTooHigh = (estDupCostSz > maxDupCostSz);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nDuplication of the conditional block " FMT_BB " (always branch from " FMT_BB
-               ") %s, because the cost of duplication (%i) is %s than %i, validProfileWeights = %s\n",
-               bDest->bbNum, bJump->bbNum, costIsTooHigh ? "not done" : "performed", estDupCostSz,
-               costIsTooHigh ? "greater" : "less or equal", maxDupCostSz, allProfileWeightsAreValid ? "true" : "false");
-    }
-#endif // DEBUG
+    JITDUMP("\nDuplication of the conditional block " FMT_BB " (always branch from " FMT_BB
+            ") %s, because the cost of duplication (%i) is %s than %i, validProfileWeights = %s\n",
+            bDest->bbNum, bJump->bbNum, costIsTooHigh ? "not done" : "performed", estDupCostSz,
+            costIsTooHigh ? "greater" : "less or equal", maxDupCostSz, allProfileWeightsAreValid ? "true" : "false");
 
     if (costIsTooHigh)
     {
@@ -3684,16 +3645,9 @@ bool Compiler::fgOptimizeSwitchJumps()
 //
 bool Compiler::fgExpandRarelyRunBlocks()
 {
+    JITDUMP("\n*************** In fgExpandRarelyRunBlocks()\n");
+
     bool result = false;
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n*************** In fgExpandRarelyRunBlocks()\n");
-    }
-
-    const char* reason = nullptr;
-#endif
 
     // Helper routine to figure out the lexically earliest predecessor
     // of bPrev that could become run rarely, given that bPrev
@@ -3956,33 +3910,24 @@ bool Compiler::fgExpandRarelyRunBlocks()
                 bPrev->bbWeight =
                     block->bbWeight; // the BBJ_CALLFINALLY block now has the same weight as the BBJ_ALWAYS block
                 bPrev->bbFlags |= BBF_RUN_RARELY; // and is now rarely run
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Marking the BBJ_CALLFINALLY block at " FMT_BB " as rarely run because " FMT_BB
-                           " is rarely run\n",
-                           bPrev->bbNum, block->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("Marking the BBJ_CALLFINALLY block at " FMT_BB " as rarely run because " FMT_BB
+                        " is rarely run\n",
+                        bPrev->bbNum, block->bbNum);
             }
             else if (bPrev->isRunRarely())
             {
                 block->bbWeight =
                     bPrev->bbWeight; // the BBJ_ALWAYS block now has the same weight as the BBJ_CALLFINALLY block
                 block->bbFlags |= BBF_RUN_RARELY; // and is now rarely run
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("Marking the BBJ_ALWAYS block at " FMT_BB " as rarely run because " FMT_BB
-                           " is rarely run\n",
-                           block->bbNum, bPrev->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("Marking the BBJ_ALWAYS block at " FMT_BB " as rarely run because " FMT_BB " is rarely run\n",
+                        block->bbNum, bPrev->bbNum);
             }
             else // Both blocks are hot, bPrev is known not to be using profiled weight
             {
-                bPrev->bbWeight =
-                    block->bbWeight; // the BBJ_CALLFINALLY block now has the same weight as the BBJ_ALWAYS block
+                // the BBJ_CALLFINALLY block now has the same weight as the BBJ_ALWAYS block
+                bPrev->bbWeight = block->bbWeight;
             }
             noway_assert(block->bbWeight == bPrev->bbWeight);
         }

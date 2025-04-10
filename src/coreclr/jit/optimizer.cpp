@@ -113,13 +113,8 @@ void Compiler::optMarkLoopBlocks(BasicBlock* begBlk, BasicBlock* endBlk, bool ex
     noway_assert(fgReachable(begBlk, endBlk));
     noway_assert(!opts.MinOpts());
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nMarking a loop from " FMT_BB " to " FMT_BB, begBlk->bbNum,
-               excludeEndBlk ? endBlk->bbPrev->bbNum : endBlk->bbNum);
-    }
-#endif
+    JITDUMP("\nMarking a loop from " FMT_BB " to " FMT_BB, begBlk->bbNum,
+            excludeEndBlk ? endBlk->bbPrev->bbNum : endBlk->bbNum);
 
     /* Build list of backedges for block begBlk */
     flowList* backedgeList = nullptr;
@@ -274,12 +269,7 @@ void Compiler::optUnmarkLoopBlocks(BasicBlock* begBlk, BasicBlock* endBlk)
     noway_assert(backEdgeCount == 1);
     noway_assert(fgReachable(begBlk, endBlk));
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nUnmarking loop at " FMT_BB, begBlk->bbNum);
-    }
-#endif
+    JITDUMP("\nUnmarking loop at " FMT_BB, begBlk->bbNum);
 
     BasicBlock* curBlk = begBlk;
     while (true)
@@ -2184,12 +2174,7 @@ private:
 
 void Compiler::optFindNaturalLoops()
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optFindNaturalLoops()\n");
-    }
-#endif // DEBUG
+    JITDUMP("*************** In optFindNaturalLoops()\n");
 
     noway_assert(fgDomsComputed);
     assert(fgHasLoops);
@@ -3819,19 +3804,13 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         }
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        // Note that `optInvertTotalInfo.sharedStaticHelperCount = 0` means either there were zero helpers, or the
-        // tree walk to count them was not done.
-        printf(
-            "\nDuplication of loop condition [%06u] is %s, because the cost of duplication (%i) is %s than %i,"
+    // Note that `optInvertTotalInfo.sharedStaticHelperCount = 0` means either there were zero helpers, or the
+    // tree walk to count them was not done.
+    JITDUMP("\nDuplication of loop condition [%06u] is %s, because the cost of duplication (%i) is %s than %i,"
             "\n   loopIterations = %7.3f, optInvertTotalInfo.sharedStaticHelperCount >= %d, validProfileWeights = %s\n",
             condTree->GetID(), costIsTooHigh ? "not done" : "performed", estDupCostSz,
             costIsTooHigh ? "greater" : "less or equal", maxDupCostSz, loopIterations,
             optInvertTotalInfo.sharedStaticHelperCount, dspBool(allProfileWeightsAreValid));
-    }
-#endif
 
     if (costIsTooHigh)
     {
@@ -4101,12 +4080,7 @@ PhaseStatus Compiler::phFindLoops()
 {
     noway_assert(opts.OptimizationEnabled());
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("*************** In optFindLoops()\n");
-    }
-#endif
+    JITDUMP("*************** In optFindLoops()\n");
 
     optSetBlockWeights();
 

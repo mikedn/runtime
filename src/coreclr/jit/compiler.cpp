@@ -1475,11 +1475,8 @@ void Compiler::compInitOptions()
     {
         compMaxUncheckedOffsetForNullObject = (size_t)JitConfig.JitMaxUncheckedOffset();
 
-        if (verbose)
-        {
-            printf("STRESS_NULL_OBJECT_CHECK: compMaxUncheckedOffsetForNullObject=0x%X\n",
-                   compMaxUncheckedOffsetForNullObject);
-        }
+        JITDUMP("STRESS_NULL_OBJECT_CHECK: compMaxUncheckedOffsetForNullObject=0x%X\n",
+                compMaxUncheckedOffsetForNullObject);
     }
 
     if (verbose)
@@ -1745,10 +1742,7 @@ bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
 
     if (doStress && !compActiveStressModes[stressArea])
     {
-        if (verbose)
-        {
-            printf("\n\n*** JitStress: %ws ***\n\n", s_compStressModeNames[stressArea]);
-        }
+        JITDUMP("\n\n*** JitStress: %ws ***\n\n", s_compStressModeNames[stressArea]);
         compActiveStressModes[stressArea] = true;
     }
 
@@ -1953,10 +1947,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
             default:
                 if (jitMinOpts <= methodCount)
                 {
-                    if (verbose)
-                    {
-                        printf(" Optimizations disabled by JitMinOpts and methodCount\n");
-                    }
+                    JITDUMP(" Optimizations disabled by JitMinOpts and methodCount\n");
                     theMinOptsValue = true;
                 }
                 break;
@@ -1967,10 +1958,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 
                 if ((firstMinopts == methodCountMask) || (secondMinopts == methodCountMask))
                 {
-                    if (verbose)
-                    {
-                        printf("0xD: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    }
+                    JITDUMP("0xD: Optimizations disabled by JitMinOpts and methodCountMask\n");
                     theMinOptsValue = true;
                 }
             }
@@ -1982,10 +1970,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 
                 if ((startMinopts <= methodCountMask) && (endMinopts >= methodCountMask))
                 {
-                    if (verbose)
-                    {
-                        printf("0xE: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    }
+                    JITDUMP("0xE: Optimizations disabled by JitMinOpts and methodCountMask\n");
                     theMinOptsValue = true;
                 }
             }
@@ -1997,10 +1982,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 
                 if (((methodCountMask & bitsOne) == bitsOne) && ((~methodCountMask & bitsZero) == bitsZero))
                 {
-                    if (verbose)
-                    {
-                        printf("0xF: Optimizations disabled by JitMinOpts and methodCountMask\n");
-                    }
+                    JITDUMP("0xF: Optimizations disabled by JitMinOpts and methodCountMask\n");
                     theMinOptsValue = true;
                 }
             }

@@ -1129,12 +1129,7 @@ void Compiler::fgSetTryEnd(EHblkDsc* handlerTab, BasicBlock* newTryLast)
         // Update the EH table with the newTryLast block
         handlerTab->ebdTryLast = newTryLast;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("EH#%u: New last block of try: " FMT_BB "\n", ehGetIndex(handlerTab), newTryLast->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("EH#%u: New last block of try: " FMT_BB "\n", ehGetIndex(handlerTab), newTryLast->bbNum);
     }
 }
 
@@ -1155,12 +1150,7 @@ void Compiler::fgSetHndEnd(EHblkDsc* handlerTab, BasicBlock* newHndLast)
         // Update the EH table with the newHndLast block
         handlerTab->ebdHndLast = newHndLast;
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("EH#%u: New last block of handler: " FMT_BB "\n", ehGetIndex(handlerTab), newHndLast->bbNum);
-        }
-#endif // DEBUG
+        JITDUMP("EH#%u: New last block of handler: " FMT_BB "\n", ehGetIndex(handlerTab), newHndLast->bbNum);
     }
 }
 
@@ -1520,10 +1510,7 @@ EHblkDsc* Compiler::fgAddEHTableEntry(unsigned XTnum)
  */
 void Compiler::fgRemoveEH()
 {
-#ifdef DEBUG
-    if (verbose)
-        printf("\n*************** In fgRemoveEH()\n");
-#endif // DEBUG
+    JITDUMP("\n*************** In fgRemoveEH()\n");
 
     if (compHndBBtabCount == 0)
     {
@@ -1749,14 +1736,8 @@ void Compiler::fgSortEHTable()
     // but ARM did. It turns out not sorting the table can cause the EH table to incorrectly
     // set the bbHndIndex value in some nested cases, and that can lead to a security exploit
     // that allows the execution of arbitrary code.
-    CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("fgSortEHTable: Sorting EH table\n");
-    }
-#endif // DEBUG
+    JITDUMP("fgSortEHTable: Sorting EH table\n");
 
     EHblkDsc* xtab1;
     EHblkDsc* xtab2;
@@ -1788,10 +1769,7 @@ void Compiler::fgSortEHTable()
                 )
             {
 #ifdef DEBUG
-                if (verbose)
-                {
-                    printf("fgSortEHTable: Swapping out-of-order EH#%u and EH#%u\n", xtabnum1, xtabnum2);
-                }
+                JITDUMP("fgSortEHTable: Swapping out-of-order EH#%u and EH#%u\n", xtabnum1, xtabnum2);
 
                 // Assert that the 'try' region is also nested in the same place as the handler
 
@@ -2062,15 +2040,9 @@ bool Compiler::fgNormalizeEHCase1()
             BasicBlock* newHndStart = bbNewBasicBlock(BBJ_NONE);
             fgInsertBBbefore(eh->ebdHndBeg, newHndStart);
 
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("Handler begin for EH#%02u and 'try' begin for EH%02u are the same block; inserted new " FMT_BB
-                       " "
-                       "before " FMT_BB " as new handler begin for EH#%u.\n",
-                       XTnum, ehGetIndex(handlerStartContainingTry), newHndStart->bbNum, eh->ebdHndBeg->bbNum, XTnum);
-            }
-#endif // DEBUG
+            JITDUMP("Handler begin for EH#%02u and 'try' begin for EH%02u are the same block; inserted new " FMT_BB " "
+                    "before " FMT_BB " as new handler begin for EH#%u.\n",
+                    XTnum, ehGetIndex(handlerStartContainingTry), newHndStart->bbNum, eh->ebdHndBeg->bbNum, XTnum);
 
             // The new block is the new handler begin.
             eh->ebdHndBeg = newHndStart;
@@ -2146,7 +2118,7 @@ bool Compiler::fgNormalizeEHCase2()
 
                     if (ehOuter->ebdIsSameTry(mutualTryBeg, mutualTryLast))
                     {
-// clang-format off
+                        // clang-format off
                         // Don't touch mutually-protect regions: their 'try' regions must remain identical!
                         // We want to continue the looping outwards, in case we have something like this:
                         //
@@ -2195,15 +2167,10 @@ bool Compiler::fgNormalizeEHCase2()
                         //
                         // In this case, all the 'try' start at the same block! Note that there are two sets of mutually-protect regions,
                         // separated by some nesting.
-// clang-format on
+                        // clang-format on
 
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("Mutually protect regions EH#%u and EH#%u; leaving identical 'try' begin blocks.\n",
-                                   mutualProtectIndex, ehGetIndex(ehOuter));
-                        }
-#endif // DEBUG
+                        JITDUMP("Mutually protect regions EH#%u and EH#%u; leaving identical 'try' begin blocks.\n",
+                                mutualProtectIndex, ehGetIndex(ehOuter));
 
                         // We still need to update the tryBeg, if something more nested already did that.
                         ehOuter->ebdTryBeg = insertBeforeBlk;
@@ -2229,15 +2196,10 @@ bool Compiler::fgNormalizeEHCase2()
                         BasicBlock* newTryStart = bbNewBasicBlock(BBJ_NONE);
                         fgInsertBBbefore(insertBeforeBlk, newTryStart);
 
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("'try' begin for EH#%u and EH#%u are same block; inserted new " FMT_BB
-                                   " before " FMT_BB " "
-                                   "as new 'try' begin for EH#%u.\n",
-                                   ehOuterTryIndex, XTnum, newTryStart->bbNum, insertBeforeBlk->bbNum, ehOuterTryIndex);
-                        }
-#endif // DEBUG
+                        JITDUMP("'try' begin for EH#%u and EH#%u are same block; inserted new " FMT_BB " before " FMT_BB
+                                " "
+                                "as new 'try' begin for EH#%u.\n",
+                                ehOuterTryIndex, XTnum, newTryStart->bbNum, insertBeforeBlk->bbNum, ehOuterTryIndex);
 
                         // The new block is the new 'try' begin.
                         ehOuter->ebdTryBeg = newTryStart;
@@ -2317,13 +2279,8 @@ bool Compiler::fgNormalizeEHCase2()
                                 assert(insertBeforeBlk->countOfInEdges() > 0);
                                 insertBeforeBlk->bbRefs--;
 
-#ifdef DEBUG
-                                if (verbose)
-                                {
-                                    printf("Redirect " FMT_BB " target from " FMT_BB " to " FMT_BB ".\n",
-                                           predBlock->bbNum, insertBeforeBlk->bbNum, newTryStart->bbNum);
-                                }
-#endif // DEBUG
+                                JITDUMP("Redirect " FMT_BB " target from " FMT_BB " to " FMT_BB ".\n", predBlock->bbNum,
+                                        insertBeforeBlk->bbNum, newTryStart->bbNum);
                             }
                         }
 
@@ -2517,15 +2474,8 @@ bool Compiler::fgNormalizeEHCase3()
                     if (EHblkDsc::ebdIsSameTry(ehOuter, ehInner))
                     {
                         // We can't touch this 'try', since it's mutual protect.
-                        CLANG_FORMAT_COMMENT_ANCHOR;
-#ifdef DEBUG
-                        if (verbose)
-                        {
-                            printf("Mutual protect regions EH#%u and EH#%u; leaving identical 'try' last blocks.\n",
-                                   ehOuterIndex, ehInnerIndex);
-                        }
-#endif // DEBUG
-
+                        JITDUMP("Mutual protect regions EH#%u and EH#%u; leaving identical 'try' last blocks.\n",
+                                ehOuterIndex, ehInnerIndex);
                         insertNormalizationBlock = false;
                     }
                     else
@@ -2609,16 +2559,10 @@ bool Compiler::fgNormalizeEHCase3()
                     assert(insertAfterBlk != nullptr);
                     fgInsertBBafter(insertAfterBlk, newLast);
 
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf(
-                            "last %s block for EH#%u and last %s block for EH#%u are same block; inserted new " FMT_BB
+                    JITDUMP("last %s block for EH#%u and last %s block for EH#%u are same block; inserted new " FMT_BB
                             " after " FMT_BB " as new last %s block for EH#%u.\n",
                             outerType, ehOuterIndex, innerType, ehInnerIndex, newLast->bbNum, insertAfterBlk->bbNum,
                             outerType, ehOuterIndex);
-                    }
-#endif // DEBUG
 
                     if (outerIsTryRegion)
                     {
@@ -2707,16 +2651,10 @@ bool Compiler::fgNormalizeEHCase3()
                             if (innerIsTryRegion && ehOuter->ebdIsSameTry(mutualTryBeg, mutualTryLast))
                             {
                                 // We can't touch this 'try', since it's mutual protect.
-                                CLANG_FORMAT_COMMENT_ANCHOR;
 
-#ifdef DEBUG
-                                if (verbose)
-                                {
-                                    printf("Mutual protect regions EH#%u and EH#%u; leaving identical 'try' last "
-                                           "blocks.\n",
-                                           ehOuterIndex, ehInnerIndex);
-                                }
-#endif // DEBUG
+                                JITDUMP("Mutual protect regions EH#%u and EH#%u; leaving identical 'try' last "
+                                        "blocks.\n",
+                                        ehOuterIndex, ehInnerIndex);
 
                                 insertNormalizationBlock = false;
 
@@ -4065,10 +4003,7 @@ bool Compiler::fgRelocateEHRegions()
 {
     bool result = false; // Our return value
 
-#ifdef DEBUG
-    if (verbose)
-        printf("*************** In fgRelocateEHRegions()\n");
-#endif
+    JITDUMP("*************** In fgRelocateEHRegions()\n");
 
     unsigned  XTnum;
     EHblkDsc* HBtab;
@@ -4192,12 +4127,8 @@ void Compiler::fgExtendEHRegionBefore(BasicBlock* block)
         /* Multiple pointers in EHblkDsc can point to same block. We can not early out after the first match. */
         if (HBtab->ebdTryBeg == block)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("EH#%u: New first block of try: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("EH#%u: New first block of try: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
+
             HBtab->ebdTryBeg = bPrev;
             bPrev->bbFlags |= BBF_TRY_BEG | BBF_DONT_REMOVE;
 
@@ -4210,12 +4141,7 @@ void Compiler::fgExtendEHRegionBefore(BasicBlock* block)
 
         if (HBtab->ebdHndBeg == block)
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("EH#%u: New first block of handler: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("EH#%u: New first block of handler: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
 
             // The first block of a handler has an artificial extra refcount. Transfer that to the new block.
             assert(block->bbRefs > 0);
@@ -4245,13 +4171,10 @@ void Compiler::fgExtendEHRegionBefore(BasicBlock* block)
                 assert(bFilterLast != nullptr);
                 assert(bFilterLast->bbJumpKind == BBJ_EHFILTERRET);
                 assert(bFilterLast->bbJumpDest == block);
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("EH#%u: Updating bbJumpDest for filter ret block: " FMT_BB " => " FMT_BB "\n",
-                           ehGetIndex(HBtab), bFilterLast->bbNum, bPrev->bbNum);
-                }
-#endif // DEBUG
+
+                JITDUMP("EH#%u: Updating bbJumpDest for filter ret block: " FMT_BB " => " FMT_BB "\n",
+                        ehGetIndex(HBtab), bFilterLast->bbNum, bPrev->bbNum);
+
                 // Change the bbJumpDest for bFilterLast from the old first 'block' to the new first 'bPrev'
                 bFilterLast->bbJumpDest = bPrev;
             }
@@ -4259,12 +4182,7 @@ void Compiler::fgExtendEHRegionBefore(BasicBlock* block)
 
         if (HBtab->HasFilter() && (HBtab->ebdFilter == block))
         {
-#ifdef DEBUG
-            if (verbose)
-            {
-                printf("EH#%u: New first block of filter: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
-            }
-#endif // DEBUG
+            JITDUMP("EH#%u: New first block of filter: " FMT_BB "\n", ehGetIndex(HBtab), bPrev->bbNum);
 
             // The first block of a filter has an artificial extra refcount. Transfer that to the new block.
             assert(block->bbRefs > 0);

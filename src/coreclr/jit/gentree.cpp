@@ -10005,10 +10005,7 @@ void dispNodeList(GenTree* list, bool verbose)
     {
         next = list->gtNext;
 
-        if (verbose)
-        {
-            printf("%08X -> %08X -> %08X\n", last, list, next);
-        }
+        JITDUMP("%08X -> %08X -> %08X\n", last, list, next);
 
         assert(!last || last->gtNext == list);
 

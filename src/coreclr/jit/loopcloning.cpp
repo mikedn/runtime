@@ -1758,12 +1758,7 @@ bool LoopCloneContext::Run()
     }
 
 #ifdef DEBUG
-    if (verbose)
-    {
-        printf("Loops cloned: %u\n", clonedLoopCount);
-        printf("Loops statically optimized: %u\n", staticallyOptimizedLoops);
-    }
-
+    JITDUMP("Loops cloned: %u\nLoops statically optimized: %u\n", clonedLoopCount, staticallyOptimizedLoops);
     compiler->fgDebugCheckLoopTable();
 #endif
 

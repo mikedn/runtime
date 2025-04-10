@@ -763,13 +763,8 @@ void Compiler::fgConvertSyncReturnToLeave(BasicBlock* block)
     block->bbJumpDest = genReturnBB;
     fgAddRefPred(genReturnBB, block);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Synchronized method - convert block " FMT_BB " to BBJ_ALWAYS [targets " FMT_BB "]\n", block->bbNum,
-               block->bbJumpDest->bbNum);
-    }
-#endif
+    JITDUMP("Synchronized method - convert block " FMT_BB " to BBJ_ALWAYS [targets " FMT_BB "]\n", block->bbNum,
+            block->bbJumpDest->bbNum);
 }
 
 #endif // FEATURE_EH_FUNCLETS
@@ -1672,12 +1667,7 @@ BasicBlock* Compiler::fgEndBBAfterMainFunction()
 
 void Compiler::fgInsertFuncletPrologBlock(BasicBlock* block)
 {
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nCreating funclet prolog header for " FMT_BB "\n", block->bbNum);
-    }
-#endif
+    JITDUMP("\nCreating funclet prolog header for " FMT_BB "\n", block->bbNum);
 
     assert(block->hasHndIndex());
     assert(fgFirstBlockOfHandler(block) == block); // this block is the first block of a handler
