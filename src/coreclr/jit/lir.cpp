@@ -1064,10 +1064,8 @@ bool LIR::Range::TryGetUse(GenTree* node, Use* use)
     return false;
 }
 
-//------------------------------------------------------------------------
-// LIR::Range::GetTreeRange: Computes the subrange that includes all nodes
-//                           in the dataflow trees rooted at a particular
-//                           set of nodes.
+// Computes the subrange that includes all nodes in the dataflow
+// trees rooted at a particular set of nodes.
 //
 // This method logically uses the following algorithm to compute the
 // range:
@@ -1097,25 +1095,15 @@ bool LIR::Range::TryGetUse(GenTree* node, Use* use)
 // and uses occurring in the same block, and correct dataflow (i.e. defs
 // occurring before uses).
 //
-// Arguments:
-//    root        - The root of the dataflow tree.
-//    isClosed    - An output parameter that is set to true if the returned
-//                  range contains only nodes in the dataflow tree and false
-//                  otherwise.
-//
-// Returns:
-//    The computed subrange.
-//
-LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned      markCount,
-                                              GenTree*      start,
-                                              bool*         isClosed,
-                                              GenTreeFlags* sideEffects) const
+LIR::ReadOnlyRange LIR::Range::GetMarkedRange(GenTree* start, bool* isClosed, GenTreeFlags* sideEffects) const
 {
-    assert(markCount != 0);
     assert(start != nullptr);
     assert(isClosed != nullptr);
     assert(sideEffects != nullptr);
 
+    start->SetLIRMark();
+
+    unsigned     markCount          = 1;
     bool         sawUnmarkedNode    = false;
     GenTreeFlags sideEffectsInRange = GTF_NONE;
     GenTree*     firstNode          = start;
@@ -1131,15 +1119,14 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned      markCount,
             }
 
             // Mark the node's operands
-            firstNode->VisitOperands([&markCount](GenTree* operand) -> GenTree::VisitResult {
+            firstNode->VisitOperands([&markCount](GenTree* operand) {
                 // Do not mark nodes that do not appear in the execution order
-                if (operand->OperIs(GT_ARGPLACE))
+                if (!operand->OperIs(GT_ARGPLACE))
                 {
-                    return GenTree::VisitResult::Continue;
+                    operand->SetLIRMark();
+                    markCount++;
                 }
 
-                operand->SetLIRMark();
-                markCount++;
                 return GenTree::VisitResult::Continue;
             });
 
@@ -1178,29 +1165,8 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned      markCount,
     return ReadOnlyRange(firstNode, lastNode);
 }
 
-//------------------------------------------------------------------------
-// LIR::Range::GetTreeRange: Computes the subrange that includes all nodes
-//                           in the dataflow tree rooted at a particular
-//                           node.
-//
-// Arguments:
-//    root        - The root of the dataflow tree.
-//    isClosed    - An output parameter that is set to true if the returned
-//                  range contains only nodes in the dataflow tree and false
-//                  otherwise.
-//
-// Returns:
-//    The computed subrange.
-LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed) const
-{
-    GenTreeFlags unused;
-    return GetTreeRange(root, isClosed, &unused);
-}
-
-//------------------------------------------------------------------------
-// LIR::Range::GetTreeRange: Computes the subrange that includes all nodes
-//                           in the dataflow tree rooted at a particular
-//                           node.
+// Computes the subrange that includes all nodes in the dataflow
+// tree rooted at a particular node.
 //
 // Arguments:
 //    root        - The root of the dataflow tree.
@@ -1210,17 +1176,9 @@ LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed) const
 //    sideEffects - An output parameter that summarizes the side effects
 //                  contained in the returned range.
 //
-// Returns:
-//    The computed subrange.
 LIR::ReadOnlyRange LIR::Range::GetTreeRange(GenTree* root, bool* isClosed, GenTreeFlags* sideEffects) const
 {
-    assert(root != nullptr);
-
-    // Mark the root of the tree
-    const unsigned markCount = 1;
-    root->SetLIRMark();
-
-    return GetMarkedRange(markCount, root, isClosed, sideEffects);
+    return GetMarkedRange(root, isClosed, sideEffects);
 }
 
 #ifdef DEBUG

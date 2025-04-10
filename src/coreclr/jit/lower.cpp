@@ -1578,8 +1578,9 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     {
         // Get the earliest operand of the first PUTARG_STK node. We will make
         // the required copies of args before this node.
-        bool     unused;
-        GenTree* insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &unused).FirstNode();
+        bool         isClosed;
+        GenTreeFlags sideEffects;
+        GenTree*     insertionPoint = BlockRange().GetTreeRange(putargs.Get(0), &isClosed, &sideEffects).FirstNode();
         // Insert GT_START_NONGC node before we evaluate the PUTARG_STK args.
         // Note that if there are no args to be setup on stack, no need to
         // insert GT_START_NONGC node.
@@ -3084,8 +3085,9 @@ void Lowering::InsertPInvokeCallProlog(GenTreeCall* call)
 
     if (call->IsIndirectCall())
     {
-        bool isClosed;
-        insertBefore = BlockRange().GetTreeRange(call->GetCallAddr(), &isClosed).FirstNode();
+        bool         isClosed;
+        GenTreeFlags sideEffects;
+        insertBefore = BlockRange().GetTreeRange(call->GetCallAddr(), &isClosed, &sideEffects).FirstNode();
         assert(isClosed);
     }
 

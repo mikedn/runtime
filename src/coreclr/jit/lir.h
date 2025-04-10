@@ -28,7 +28,7 @@ public:
 
             Mark = 0x01, // An aribtrary "mark" bit that can be used in place of
                          // a more expensive data structure when processing a set
-                         // of LIR nodes. See for example `LIR::GetTreeRange`.
+                         // of LIR nodes.
 
             UnusedValue = 0x02, // Set on a node if it produces a value that is not
                                 // subsequently used. Should never be set on nodes
@@ -247,10 +247,7 @@ public:
         Range(const Range& other) = delete;
         Range& operator=(const Range& other) = delete;
 
-        ReadOnlyRange GetMarkedRange(unsigned      markCount,
-                                     GenTree*      start,
-                                     bool*         isClosed,
-                                     GenTreeFlags* sideEffects) const;
+        ReadOnlyRange GetMarkedRange(GenTree* start, bool* isClosed, GenTreeFlags* sideEffects) const;
 
         void FinishInsertBefore(GenTree* insertionPoint, GenTree* first, GenTree* last);
         void FinishInsertAfter(GenTree* insertionPoint, GenTree* first, GenTree* last);
@@ -294,7 +291,6 @@ public:
 
         bool TryGetUse(GenTree* node, Use* use);
 
-        ReadOnlyRange GetTreeRange(GenTree* root, bool* isClosed) const;
         ReadOnlyRange GetTreeRange(GenTree* root, bool* isClosed, GenTreeFlags* sideEffects) const;
 
         INDEBUG(bool CheckLIR(Compiler* compiler, bool checkUnusedValues = false) const;)

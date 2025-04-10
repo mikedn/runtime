@@ -7160,12 +7160,6 @@ void Compiler::gtDispBlockStmts(BasicBlock* block)
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::gtDispRange: dumps a range of LIR.
-//
-// Arguments:
-//    range - the range of LIR to display.
-//
 void Compiler::gtDispRange(LIR::ReadOnlyRange const& range)
 {
     for (GenTree* node : range)
@@ -7174,19 +7168,11 @@ void Compiler::gtDispRange(LIR::ReadOnlyRange const& range)
     }
 }
 
-//------------------------------------------------------------------------
-// Compiler::gtDispTreeRange: dumps the LIR range that contains all of the
-//                            nodes in the dataflow tree rooted at a given
-//                            node.
-//
-// Arguments:
-//    containingRange - the LIR range that contains the root node.
-//    tree - the root of the dataflow tree.
-//
 void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
 {
-    bool unused;
-    gtDispRange(containingRange.GetTreeRange(tree, &unused));
+    bool         isClosed;
+    GenTreeFlags sideEffects;
+    gtDispRange(containingRange.GetTreeRange(tree, &isClosed, &sideEffects));
 }
 
 void Compiler::gtDispLIRNode(GenTree* node)
