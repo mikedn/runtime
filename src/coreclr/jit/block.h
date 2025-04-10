@@ -687,8 +687,6 @@ struct BasicBlock : private LIR::Range
     // trees *except* PHI definitions.
     bool isEmpty() const;
 
-    bool isValid() const;
-
     // Returns "true" iff "this" is the first block of a BBJ_CALLFINALLY/BBJ_ALWAYS pair --
     // a block corresponding to an exit from the try of a try/finally.
     // [[deprecated]]
@@ -1663,22 +1661,24 @@ struct BasicBlockList
     }
 };
 
-// flowList -- control flow edge
-//
 struct flowList
 {
 public:
-    flowList* flNext; // The next BasicBlock in the list, nullptr for end of list.
+    flowList* flNext;
 
 private:
-    BasicBlock*          m_block; // The BasicBlock of interest.
-    BasicBlock::weight_t flEdgeWeightMin;
-    BasicBlock::weight_t flEdgeWeightMax;
+    BasicBlock*          m_block;
+    BasicBlock::weight_t flEdgeWeightMin = 0;
+    BasicBlock::weight_t flEdgeWeightMax = 0;
 
 public:
-    unsigned flDupCount; // The count of duplicate "edges" (use only for switch stmts)
+    unsigned flDupCount = 0; // The count of duplicate "edges" (use only for switch stmts)
 
 public:
+    flowList(BasicBlock* block, flowList* rest) : flNext(rest), m_block(block)
+    {
+    }
+
     BasicBlock* getBlock() const
     {
         return m_block;
@@ -1703,7 +1703,6 @@ public:
     // they are used only during the computation of the edge weights
     // They return false if the newWeight is not between the current [min..max]
     // when slop is non-zero we allow for the case where our weights might be off by 'slop'
-    //
     bool setEdgeWeightMinChecked(BasicBlock::weight_t newWeight,
                                  BasicBlock*          bDst,
                                  BasicBlock::weight_t slop,
@@ -1713,12 +1712,9 @@ public:
                                  BasicBlock::weight_t slop,
                                  bool*                wbUsedSlop);
     void setEdgeWeights(BasicBlock::weight_t newMinWeight, BasicBlock::weight_t newMaxWeight, BasicBlock* bDst);
-
-    flowList(BasicBlock* block, flowList* rest)
-        : flNext(rest), m_block(block), flEdgeWeightMin(0), flEdgeWeightMax(0), flDupCount(0)
-    {
-    }
 };
+
+using FlowEdge = flowList;
 
 // Pred list iterator implementations (that are required to be defined after the declaration of BasicBlock and flowList)
 

@@ -2022,97 +2022,6 @@ void Compiler::fgUnreachableBlock(BasicBlock* block)
 }
 
 //-------------------------------------------------------------
-// fgRemoveConditionalJump: Remove or morph a jump when we jump to the same
-// block when both the condition is true or false. Remove the branch condition,
-// but leave any required side effects.
-//
-// Arguments:
-//    block - block with conditional branch
-//
-void Compiler::fgRemoveConditionalJump(BasicBlock* block)
-{
-    noway_assert(block->bbJumpKind == BBJ_COND && block->bbJumpDest == block->bbNext);
-    assert(compRationalIRForm == block->IsLIR());
-
-    flowList* flow = fgGetPredForBlock(block->bbNext, block);
-    noway_assert(flow->flDupCount == 2);
-
-    // Change the BBJ_COND to BBJ_NONE, and adjust the refCount and dupCount.
-    block->bbJumpKind = BBJ_NONE;
-    --block->bbNext->bbRefs;
-    --flow->flDupCount;
-
-    INDEBUG(block->bbJumpDest = nullptr);
-
-    JITDUMP("Block " FMT_BB " becoming a BBJ_NONE to " FMT_BB " (jump target is the same whether the condition"
-            " is true or false)\n",
-            block->bbNum, block->bbNext->bbNum);
-
-    // Remove the block jump condition
-
-    if (block->IsLIR())
-    {
-        LIR::Range& blockRange = LIR::AsRange(block);
-
-        GenTree* test = blockRange.LastNode();
-        assert(test->OperIsConditionalJump());
-
-        bool               isClosed;
-        GenTreeFlags       sideEffects;
-        LIR::ReadOnlyRange testRange = blockRange.GetTreeRange(test, &isClosed, &sideEffects);
-
-        // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that
-        // produces unacceptable diffs compared to the existing backend.
-        if (isClosed && ((sideEffects & GTF_SIDE_EFFECT) == 0))
-        {
-            // If the jump and its operands form a contiguous, side-effect-free range,
-            // remove them.
-            blockRange.Delete(this, block, std::move(testRange));
-        }
-        else
-        {
-            // Otherwise, just remove the jump node itself.
-            blockRange.Remove(test, true);
-        }
-    }
-    else
-    {
-        Statement* test = block->lastStmt();
-        GenTree*   tree = test->GetRootNode();
-
-        noway_assert(tree->OperIs(GT_JTRUE));
-
-        GenTree* sideEffList = nullptr;
-
-        if (tree->HasAnySideEffect(GTF_SIDE_EFFECT))
-        {
-            sideEffList = gtExtractSideEffList(tree);
-
-            if (sideEffList != nullptr)
-            {
-                noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
-                JITDUMPTREE(sideEffList, "Extracted side effects list from condition...\n");
-            }
-        }
-
-        // Delete the cond test or replace it with the side effect tree
-        if (sideEffList == nullptr)
-        {
-            fgRemoveStmt(block, test);
-        }
-        else
-        {
-            test->SetRootNode(sideEffList);
-
-            if (fgStmtListThreaded)
-            {
-                gtSetStmtOrder(test);
-            }
-        }
-    }
-}
-
-//-------------------------------------------------------------
 // fgOptimizeBranchToEmptyUnconditional:
 //    Optimize a jump to an empty block which ends in an unconditional branch.
 //
@@ -2575,8 +2484,8 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
     Statement*  switchStmt = nullptr;
     LIR::Range* blockRange = nullptr;
+    GenTree*    switchTree;
 
-    GenTree* switchTree;
     if (block->IsLIR())
     {
         blockRange = &LIR::AsRange(block);
@@ -2596,94 +2505,35 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
     // At this point all of the case jump targets have been updated such
     // that none of them go to block that is an empty unconditional block
-    //
     jmpTab = block->bbJumpSwt->bbsDstTab;
     jmpCnt = block->bbJumpSwt->bbsCount;
 
-    // Now check for two trivial switch jumps.
-    //
     if (block->NumSucc(this) == 1)
     {
-        // Use BBJ_ALWAYS for a switch with only a default clause, or with only one unique successor.
-        JITDUMP("\nRemoving a switch jump with a single target (" FMT_BB ")\nBEFORE:\n", block->bbNum);
+        JITDUMP("\n" FMT_BB ": Removing a SWITCH with a single target\n", block->bbNum);
 
-        if (block->IsLIR())
-        {
-            bool               isClosed;
-            GenTreeFlags       sideEffects;
-            LIR::ReadOnlyRange switchTreeRange = blockRange->GetTreeRange(switchTree, &isClosed, &sideEffects);
-
-            // The switch tree should form a contiguous, side-effect free range by construction. See
-            // Lowering::LowerSwitch for details.
-            assert(isClosed);
-            assert((sideEffects & GTF_ALL_EFFECT) == 0);
-
-            blockRange->Delete(this, block, std::move(switchTreeRange));
-        }
-        else
-        {
-            if (switchTree->HasAnySideEffect(GTF_SIDE_EFFECT))
-            {
-                GenTree* sideEffList = gtExtractSideEffList(switchTree);
-
-                if (sideEffList == nullptr)
-                {
-                    goto NO_SWITCH_SIDE_EFFECT;
-                }
-
-                noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
-
-#ifdef DEBUG
-                if (verbose)
-                {
-                    printf("\nSwitch expression has side effects! Extracting side effects...\n");
-                    gtDispTree(switchTree);
-                    printf("\n");
-                    gtDispTree(sideEffList);
-                    printf("\n");
-                }
-#endif // DEBUG
-
-                // Replace the conditional statement with the list of side effects
-                noway_assert(!sideEffList->OperIs(GT_SWITCH));
-
-                switchStmt->SetRootNode(sideEffList);
-
-                if (fgStmtListThreaded)
-                {
-                    gtSetStmtOrder(switchStmt);
-                }
-            }
-            else
-            {
-            NO_SWITCH_SIDE_EFFECT:
-                // conditional has NO side effect - remove it
-                fgRemoveStmt(block, switchStmt);
-            }
-        }
-
-        // Change the switch jump into a BBJ_ALWAYS
         block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
         block->bbJumpKind = BBJ_ALWAYS;
-        if (jmpCnt > 1)
+
+        for (unsigned i = 1; i < jmpCnt; ++i)
         {
-            for (unsigned i = 1; i < jmpCnt; ++i)
-            {
-                (void)fgRemoveRefPred(jmpTab[i], block);
-            }
+            fgRemoveRefPred(jmpTab[i], block);
         }
+
+        fgRemoveConditionalBlockJumpInstr(block);
 
         return true;
     }
-    else if (block->bbJumpSwt->bbsCount == 2 && block->bbJumpSwt->bbsDstTab[1] == block->bbNext)
-    {
-        // Use a BBJ_COND(switchVal==0) for a switch with only one
-        // significant clause besides the default clause, if the
-        // default clause is bbNext
-        GenTree* switchVal = switchTree->AsOp()->GetOp(0);
-        noway_assert(varActualTypeIsIntOrI(switchVal->GetType()));
 
-        // If we are in LIR, remove the jump table from the block.
+    if ((block->bbJumpSwt->bbsCount == 2) && (block->bbJumpSwt->bbsDstTab[1] == block->bbNext))
+    {
+        // Change the SWITCH(x) { case 0: ...; default: ...; } into JTRUE(EQ(x, 0)).
+
+        JITDUMP("\n" FMT_BB ": Converting a SWITCH with only 2 targets to a JTRUE\n", block->bbNum);
+
+        GenTree* value = switchTree->AsOp()->GetOp(0);
+        assert(varActualTypeIsIntOrI(value->GetType()));
+
         if (block->IsLIR())
         {
             GenTree* jumpTable = switchTree->AsOp()->GetOp(1);
@@ -2691,20 +2541,9 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
             blockRange->Unlink(jumpTable);
         }
 
-        // Change the GT_SWITCH(switchVal) into GT_JTRUE(GT_EQ(switchVal==0)).
-        // Also mark the node as GTF_DONT_CSE as further down JIT is not capable of handling it.
-        // For example CSE could determine that the expression rooted at GT_EQ is a candidate cse and
-        // replace it with a COMMA node.  In such a case we will end up with GT_JTRUE node pointing to
-        // a COMMA node which results in noway asserts in fgMorphSmpOp(), optAssertionGen() and rpPredictTreeRegUse().
-        // For the same reason fgMorphSmpOp() marks GT_JTRUE nodes with RELOP children as GTF_DONT_CSE.
-
-        JITDUMP("\nConverting a switch (" FMT_BB ") with only one significant clause besides a default target to a "
-                "conditional branch\n",
-                block->bbNum);
-
-        GenTree* zeroNode = gtNewZeroConNode(varActualType(switchVal->GetType()));
-        GenTree* eqNode   = gtNewOperNode(GT_EQ, TYP_INT, switchVal, zeroNode);
-        eqNode->gtFlags |= GTF_DONT_CSE;
+        GenTree* zeroNode = gtNewZeroConNode(varActualType(value->GetType()));
+        GenTree* eqNode   = gtNewOperNode(GT_EQ, TYP_INT, value, zeroNode);
+        eqNode->SetDoNotCSE();
         switchTree->ChangeOper(GT_JTRUE);
         switchTree->AsUnOp()->SetOp(0, eqNode);
         block->bbJumpDest = block->bbJumpSwt->bbsDstTab[0];
@@ -2712,7 +2551,7 @@ bool Compiler::fgOptimizeSwitchBranches(BasicBlock* block, Lowering* lowering)
 
         if (block->IsLIR())
         {
-            blockRange->InsertAfter(switchVal, zeroNode, eqNode);
+            blockRange->InsertAfter(value, zeroNode, eqNode);
             lowering->LowerNode(block, eqNode);
             lowering->LowerNode(block, switchTree);
         }
@@ -3030,142 +2869,136 @@ bool Compiler::fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock*
     return true;
 }
 
-//-------------------------------------------------------------
-// fgOptimizeBranchToNext:
-//    Optimize a block which has a branch to the following block
-//
-// Arguments:
-//    block - block with a branch
-//    bNext - block which is both next and the target of the first block
-//    bPrev - block which is prior to the first block
-//
-// Returns: true if changes were made
-//
-bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* bNext, BasicBlock* bPrev)
+void Compiler::fgRemoveConditionalJump(BasicBlock* block)
 {
-    assert(block->bbJumpKind == BBJ_COND || block->bbJumpKind == BBJ_ALWAYS);
-    assert(block->bbJumpDest == bNext);
-    assert(block->bbNext == bNext);
-    assert(block->bbPrev == bPrev);
+    noway_assert((block->bbJumpKind == BBJ_COND) && (block->bbJumpDest == block->bbNext));
+    assert(compRationalIRForm == block->IsLIR());
 
-    if (block->bbJumpKind == BBJ_ALWAYS)
+    FlowEdge* predEdge = fgGetPredForBlock(block->bbNext, block);
+    noway_assert(predEdge->flDupCount == 2);
+
+    JITDUMP("Block " FMT_BB " becoming a BBJ_NONE to " FMT_BB " (jump target is the same whether the condition"
+            " is true or false)\n",
+            block->bbNum, block->bbNext->bbNum);
+
+    block->bbJumpKind = BBJ_NONE;
+    block->bbJumpDest = nullptr;
+    block->bbNext->bbRefs--;
+    predEdge->flDupCount--;
+
+    fgRemoveConditionalBlockJumpInstr(block);
+}
+
+bool Compiler::fgOptimizeBranchToNext(BasicBlock* block, BasicBlock* next, BasicBlock* prev)
+{
+    assert(block->bbJumpDest == next);
+    assert(block->bbNext == next);
+    assert(block->bbPrev == prev);
+
+    if (block->KindIs(BBJ_ALWAYS))
     {
-        // We can't remove it if it is a branch from hot => cold
-        if (!fgInDifferentRegions(block, bNext))
+        if (fgInDifferentRegions(block, next))
         {
-            // We can't remove if it is marked as BBF_KEEP_BBJ_ALWAYS
-            if (!(block->bbFlags & BBF_KEEP_BBJ_ALWAYS))
-            {
-                // We can't remove if the BBJ_ALWAYS is part of a BBJ_CALLFINALLY pair
-                if (!block->isBBCallAlwaysPairTail())
-                {
-                    /* the unconditional jump is to the next BB  */
-                    block->bbJumpKind = BBJ_NONE;
+            return false;
+        }
 
-                    JITDUMP("\nRemoving unconditional jump to next block (" FMT_BB " -> " FMT_BB ") (converted " FMT_BB
-                            " to "
-                            "fall-through)\n",
-                            block->bbNum, bNext->bbNum, block->bbNum);
+        if ((block->bbFlags & BBF_KEEP_BBJ_ALWAYS) != 0)
+        {
+            return false;
+        }
 
-                    return true;
-                }
-            }
+        if (block->isBBCallAlwaysPairTail())
+        {
+            return false;
+        }
+
+        block->bbJumpKind = BBJ_NONE;
+
+        JITDUMP("\nRemoving unconditional jump to next block (" FMT_BB " -> " FMT_BB ") (converted " FMT_BB " to "
+                "fall-through)\n",
+                block->bbNum, next->bbNum, block->bbNum);
+
+        return true;
+    }
+
+    noway_assert(block->KindIs(BBJ_COND));
+    noway_assert(next->countOfInEdges() > 1);
+
+    // TODO-MIKE-Cleanup: This is pretty much the same as fgRemoveConditionalJump
+
+    block->bbJumpKind = BBJ_NONE;
+
+    fgRemoveRefPred(next, block);
+    fgRemoveConditionalBlockJumpInstr(block);
+
+    return true;
+}
+
+void Compiler::fgRemoveConditionalBlockJumpInstr(BasicBlock* block)
+{
+    JITDUMP("\nRemoving conditional jump from block " FMT_BB "\n", block->bbNum);
+
+    if (block->IsLIR())
+    {
+        LIR::Range& blockRange = LIR::AsRange(block);
+        GenTree*    jmp        = blockRange.LastNode();
+
+        assert(jmp->OperIsConditionalJump() || jmp->OperIs(GT_SWITCH_TABLE));
+
+        if (jmp->OperIs(GT_JTRUE))
+        {
+            jmp->AsUnOp()->GetOp(0)->gtFlags &= ~GTF_SET_FLAGS;
+        }
+
+        bool               isClosed;
+        GenTreeFlags       sideEffects;
+        LIR::ReadOnlyRange jmpRange = blockRange.GetTreeRange(jmp, &isClosed, &sideEffects);
+
+        // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that
+        // produces unacceptable diffs compared to the existing backend.
+        if (isClosed && ((sideEffects & GTF_SIDE_EFFECT) == 0))
+        {
+            blockRange.Delete(this, block, std::move(jmpRange));
+        }
+        else
+        {
+            blockRange.Remove(jmp, true);
         }
     }
     else
     {
-        /* remove the conditional statement at the end of block */
-        noway_assert(block->bbJumpKind == BBJ_COND);
-        noway_assert(block->isValid());
+        Statement* jmpStmt = block->GetLastStatement();
+        GenTree*   jmp     = jmpStmt->GetRootNode();
 
-        JITDUMP("\nRemoving conditional jump to next block (" FMT_BB " -> " FMT_BB ")\n", block->bbNum, bNext->bbNum);
+        assert(jmp->OperIs(GT_JTRUE, GT_SWITCH));
 
-        if (block->IsLIR())
+        GenTree* sideEffList = nullptr;
+
+        if (jmp->HasAnySideEffect(GTF_SIDE_EFFECT))
         {
-            LIR::Range& blockRange = LIR::AsRange(block);
-            GenTree*    jmp        = blockRange.LastNode();
-            assert(jmp->OperIsConditionalJump());
-            if (jmp->OperIs(GT_JTRUE))
-            {
-                jmp->AsUnOp()->GetOp(0)->gtFlags &= ~GTF_SET_FLAGS;
-            }
+            sideEffList = gtExtractSideEffList(jmp);
 
-            bool               isClosed;
-            GenTreeFlags       sideEffects;
-            LIR::ReadOnlyRange jmpRange = blockRange.GetTreeRange(jmp, &isClosed, &sideEffects);
+            if (sideEffList != nullptr)
+            {
+                assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
+                JITDUMPTREE(sideEffList, "Extracted side effects list from condition\n");
+            }
+        }
 
-            // TODO-LIR: this should really be checking GTF_ALL_EFFECT, but that produces unacceptable
-            //            diffs compared to the existing backend.
-            if (isClosed && ((sideEffects & GTF_SIDE_EFFECT) == 0))
-            {
-                // If the jump and its operands form a contiguous, side-effect-free range,
-                // remove them.
-                blockRange.Delete(this, block, std::move(jmpRange));
-            }
-            else
-            {
-                // Otherwise, just remove the jump node itself.
-                blockRange.Remove(jmp, true);
-            }
+        if (sideEffList == nullptr)
+        {
+            fgRemoveStmt(block, jmpStmt);
         }
         else
         {
-            Statement* condStmt = block->lastStmt();
-            GenTree*   cond     = condStmt->GetRootNode();
-            noway_assert(cond->OperIs(GT_JTRUE));
+            jmpStmt->SetRootNode(sideEffList);
 
-            if (cond->HasAnySideEffect(GTF_SIDE_EFFECT))
+            if (fgStmtListThreaded)
             {
-                GenTree* sideEffList = gtExtractSideEffList(cond);
-
-                if (sideEffList == nullptr)
-                {
-                    fgRemoveStmt(block, condStmt);
-                }
-                else
-                {
-                    noway_assert(sideEffList->HasAnySideEffect(GTF_SIDE_EFFECT));
-#ifdef DEBUG
-                    if (verbose)
-                    {
-                        printf("\nConditional has side effects! Extracting side effects...\n");
-                        gtDispTree(cond);
-                        printf("\n");
-                        gtDispTree(sideEffList);
-                        printf("\n");
-                    }
-#endif
-
-                    // Replace the conditional statement with the list of side effects
-                    noway_assert(!sideEffList->OperIs(GT_JTRUE));
-
-                    condStmt->SetRootNode(sideEffList);
-
-                    if (fgStmtListThreaded)
-                    {
-                        gtSetStmtOrder(condStmt);
-                    }
-                }
-            }
-            else
-            {
-                fgRemoveStmt(block, condStmt);
+                gtSetStmtOrder(jmpStmt);
             }
         }
-
-        /* Conditional is gone - simply fall into the next block */
-
-        block->bbJumpKind = BBJ_NONE;
-
-        /* Update bbRefs and bbNum - Conditional predecessors to the same
-         * block are counted twice so we have to remove one of them */
-
-        noway_assert(bNext->countOfInEdges() > 1);
-        fgRemoveRefPred(bNext, block);
-
-        return true;
     }
-    return false;
 }
 
 //-------------------------------------------------------------

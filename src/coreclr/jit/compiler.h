@@ -4105,6 +4105,8 @@ public:
 
     void fgRemoveConditionalJump(BasicBlock* block);
 
+    void fgRemoveConditionalBlockJumpInstr(BasicBlock* block);
+
     BasicBlock* fgLastBBInMainFunction();
 
     BasicBlock* fgEndBBAfterMainFunction();

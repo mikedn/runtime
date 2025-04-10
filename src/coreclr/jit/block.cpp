@@ -772,7 +772,6 @@ void BasicBlock::MakeLIR()
 
 bool BasicBlock::IsLIR() const
 {
-    assert(isValid());
     return (bbFlags & BBF_IS_LIR) != 0;
 }
 
@@ -949,27 +948,6 @@ bool BasicBlock::isEmpty() const
     }
 
     return true;
-}
-
-//------------------------------------------------------------------------
-// isValid: Checks that the basic block doesn't mix statements and LIR lists.
-//
-// Return Value:
-//    True if it a valid basic block.
-//
-bool BasicBlock::isValid() const
-{
-    const bool isLIR = ((bbFlags & BBF_IS_LIR) != 0);
-    if (isLIR)
-    {
-        // Should not have statements in LIR.
-        return (bbStmtList == nullptr);
-    }
-    else
-    {
-        // Should not have tree list before LIR.
-        return (GetFirstLIRNode() == nullptr);
-    }
 }
 
 Statement* BasicBlock::FirstNonPhiDef() const
