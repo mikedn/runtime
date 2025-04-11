@@ -207,7 +207,7 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
             m_lclLoads.Add(compiler, lcl);
         }
 
-        if (!operand->OperIs(GT_ARGPLACE) && operand->isContained())
+        if (operand->isContained())
         {
             AddNode(compiler, operand);
         }

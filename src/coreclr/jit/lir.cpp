@@ -1077,12 +1077,10 @@ GenTree* LIR::Range::FindFirstTreeLeaf(GenTree* tree) const
     do
     {
         first->VisitOperands([&markCount](GenTree* operand) {
-            // ARGPLACE does not appear in the execution order.
-            if (!operand->OperIs(GT_ARGPLACE))
-            {
-                operand->SetLIRMark();
-                markCount++;
-            }
+            assert(!operand->OperIs(GT_ARGPLACE));
+
+            operand->SetLIRMark();
+            markCount++;
 
             return GenTree::VisitResult::Continue;
         });
@@ -1116,12 +1114,14 @@ void LIR::Range::RemoveDeadTree(GenTree* tree)
         if (firstNode->HasLIRMark())
         {
             firstNode->VisitOperands([&markCount](GenTree* operand) {
-                if (!operand->OperIs(GT_ARGPLACE) && !operand->HasAnySideEffect(GTF_SIDE_EFFECT))
+                assert(!operand->OperIs(GT_ARGPLACE));
+
+                if (!operand->HasAnySideEffect(GTF_SIDE_EFFECT))
                 {
                     operand->SetLIRMark();
                     markCount++;
                 }
-                else if (!operand->OperIs(GT_ARGPLACE))
+                else
                 {
                     operand->SetUnusedValue();
                 }
@@ -1237,12 +1237,8 @@ private:
     {
         for (GenTree* operand : node->Operands())
         {
-            if (!operand->IsLIR())
-            {
-                // ARGPLACE nodes are not represented in the LIR sequence. Ignore them.
-                assert(operand->OperIs(GT_ARGPLACE));
-                continue;
-            }
+            assert(operand->IsLIR());
+
             if (operand->isContained())
             {
                 UseNodeOperands(operand);
@@ -1367,8 +1363,7 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
                 // instead of removing them we replace with a NOP.
                 // ARGPLACE nodes are not represented in the LIR sequence. Ignore them.
                 // The argument of a JTRUE doesn't produce a value (just sets a flag).
-                assert((node->OperIs(GT_CALL) &&
-                        (def->OperIsStore() || def->OperIs(GT_PUTARG_STK, GT_NOP, GT_ARGPLACE))) ||
+                assert((node->OperIs(GT_CALL) && (def->OperIs(GT_PUTARG_STK))) ||
                        (node->OperIs(GT_JTRUE) && def->TypeIs(TYP_VOID) && ((def->gtFlags & GTF_SET_FLAGS) != 0)));
                 continue;
             }
@@ -1550,42 +1545,20 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 
     unsigned argNum = 0;
 
-    GenTreeCall::Use* firstLateArg = nullptr;
-    GenTreeCall::Use* lastLateArg  = nullptr;
-
     for (auto& arg : call->AllArgs())
     {
         GenTree* argNode = arg.GetNode();
 
         assert(varTypeIsIntegralOrI(argNode->GetType()));
 
-        arg.SetNode(new (compiler, GT_ARGPLACE) GenTree(GT_ARGPLACE, argNode->GetType()));
-
         range.InsertBefore(before, argNode);
-        GenTreeCall::Use* lateArg = compiler->gtNewCallArgs(argNode);
-
-        if (firstLateArg == nullptr)
-        {
-            firstLateArg = lateArg;
-            lastLateArg  = lateArg;
-        }
-        else
-        {
-            lastLateArg->SetNext(lateArg);
-            lastLateArg = lateArg;
-        }
 
         CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(&arg, argNum);
         argInfo->SetArgType(argNode->GetType());
         argInfo->SetRegCount(1);
-        argInfo->SetRegNum(0, argRegs[argNum]);
-        argInfo->SetLateUse(lateArg);
+        argInfo->SetRegNum(0, argRegs[argNum++]);
         info->AddArg(argInfo);
-
-        argNum++;
     }
-
-    call->gtCallLateArgs = firstLateArg;
 
     range.InsertBefore(before, call);
 }

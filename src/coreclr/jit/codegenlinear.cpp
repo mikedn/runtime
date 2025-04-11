@@ -2153,12 +2153,6 @@ void CodeGen::AssignUseOrder(GenTree* const operand, int& useNum) const
 {
     assert(operand != nullptr);
 
-    // Ignore argument placeholders.
-    if (operand->OperIs(GT_ARGPLACE))
-    {
-        return;
-    }
-
     assert(operand->gtUseNum == -1);
 
     if (!operand->isContained() && !operand->IsCopyOrReload())

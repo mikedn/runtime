@@ -949,14 +949,6 @@ void LinearScan::buildUpperVectorRestoreRefPosition(Interval* lclVarInterval, Ls
 // closure of the registers produced by its sources.
 unsigned LinearScan::ComputeOperandDstCount(GenTree* operand) const
 {
-    // GT_ARGPLACE is the only non-LIR node that is currently in the trees at this stage, though
-    // note that it is not in the linear order. It seems best to check for !IsLIR() rather than
-    // GT_ARGPLACE directly, since it's that characteristic that makes it irrelevant for this method.
-    if (!operand->IsLIR())
-    {
-        return 0;
-    }
-
     if (operand->isContained())
     {
         unsigned dstCount = 0;
@@ -1015,8 +1007,6 @@ unsigned LinearScan::ComputeAvailableSrcCount(GenTree* node) const
 
 void LinearScan::buildRefPositionsForNode(GenTree* tree)
 {
-    assert(!tree->OperIs(GT_ARGPLACE));
-
     tree->ClearTempRegs();
     tree->ClearRegSpillSet();
 

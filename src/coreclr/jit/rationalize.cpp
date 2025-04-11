@@ -248,22 +248,38 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             break;
 
         case GT_CALL:
-            for (GenTreeCall::Use& use : node->AsCall()->AllArgs())
+            if (GenTreeCall::Use* lateArgs = node->AsCall()->gtCallLateArgs)
             {
-                // A call argument may be local store when the arg is just setup for a late arg.
-                // A store is not supposed to have an use and this is just an artifact of how
-                // call trees are handled in HIR, it is no longer necessary in LIR. Replace with
-                // with ARGPLACE nodes so dead store removal in liveness doesn't leave us with
-                // args that "use" removed nodes.
+                GenTreeCall* call        = node->AsCall();
+                CallInfo*    info        = call->GetInfo();
+                unsigned     argCount    = info->GetArgCount();
+                CallArgInfo* lastArgInfo = info->GetArgInfo(argCount - 1);
 
-                // TODO-MIKE-Throughput: It may be possible to use a single ARGPLACE node for all
-                // args that need this to avoid unnecessary memory allocation. It is not chained
-                // in LIR so its gtNext/gtPrev pointers are always null and it has no other distinct
-                // properties. Well, it does have the type set to the original arg type but that's
-                // pointless since nothing actually looks at these nodes.
-                if (use.GetNode()->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+                assert(lastArgInfo->use->GetNext() == nullptr);
+                lastArgInfo->use->SetNext(lateArgs);
+                call->gtCallLateArgs = nullptr;
+
+                GenTreeCall::Use** prevUseLink = &call->m_args;
+
+                // TODO-MIKE-Cleanup: The order of the args linked list should probably be changed to
+                // match the order of the arg info array but some code expects that all PUTARG_REGS
+                // appear after all PUTARG_STKs...
+
+                for (unsigned i = 0; i < argCount; i++)
                 {
-                    use.SetNode(new (comp, GT_ARGPLACE) GenTree(GT_ARGPLACE, use.GetNode()->GetType()));
+                    CallArgInfo* argInfo = info->GetArgInfo(i);
+
+                    if (GenTreeCall::Use* lateUse = argInfo->GetLateUse())
+                    {
+                        *prevUseLink = argInfo->use->GetNext();
+
+                        argInfo->use = lateUse;
+                        argInfo->RemoveLateUse();
+                    }
+                    else
+                    {
+                        prevUseLink = &argInfo->use->NextRef();
+                    }
                 }
             }
             break;

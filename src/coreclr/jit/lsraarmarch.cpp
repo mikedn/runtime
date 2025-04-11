@@ -123,7 +123,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
 #endif // TARGET_ARM
 
-    for (GenTreeCall::Use& arg : call->LateArgs())
+    for (GenTreeCall::Use& arg : call->AllArgs())
     {
         GenTree* argNode = arg.GetNode();
 

@@ -7105,10 +7105,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
 
                     for (GenTree* operand : node->Operands())
                     {
-                        if (!operand->OperIs(GT_ARGPLACE))
-                        {
-                            DumpOperandDefs(operand, first, mode);
-                        }
+                        DumpOperandDefs(operand, first, mode);
                     }
                 }
             }

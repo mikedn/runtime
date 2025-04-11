@@ -4796,6 +4796,11 @@ public:
         m_lateUse = lateUse;
     }
 
+    void RemoveLateUse()
+    {
+        m_lateUse = nullptr;
+    }
+
     bool HasLateUse() const
     {
         return m_lateUse != nullptr;

@@ -1542,14 +1542,6 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         }
     }
 
-    for (GenTreeCall::Use& use : call->LateArgs())
-    {
-        if (use.GetNode()->OperIs(GT_PUTARG_STK))
-        {
-            putargs.Push(use.GetNode()->AsPutArgStk());
-        }
-    }
-
     GenTree* startNonGCNode = nullptr;
 
     if (!putargs.Empty())
@@ -1652,10 +1644,8 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
         if (insertionPoint == nullptr)
         {
-            for (GenTreeCall::Use& use : call->LateArgs())
+            for (GenTreeCall::Use& use : call->AllArgs())
             {
-                // We would have already inserted a START_NONGC if we had a PUTARG_STK.
-                assert(!use.GetNode()->OperIs(GT_PUTARG_STK));
                 // TODO-MIKE-Review: What about PUTARG_SPLIT? Likely doesn't happen
                 // because ARM32 doesn't support fast tail calls and ARM64 only uses
                 // PUTARG_SPLIT for varargs on Windows, which probably also does not
@@ -4520,11 +4510,7 @@ void Lowering::VerifyAllLocalsImplicitlyReferenced()
 
 void Lowering::VerifyCallArg(GenTree* arg)
 {
-    if (!arg->IsValue() && !arg->IsPutArgStk())
-    {
-        assert(arg->OperIs(GT_LCL_STORE, GT_ARGPLACE) || arg->IsNothingNode());
-        return;
-    }
+    assert(arg->IsValue() || arg->IsPutArgStk());
 
     if (arg->OperIs(GT_FIELD_LIST))
     {
@@ -4549,11 +4535,6 @@ void Lowering::VerifyCallArg(GenTree* arg)
 void Lowering::VerifyCall(GenTreeCall* call)
 {
     for (GenTreeUse& use : call->AllArgs())
-    {
-        VerifyCallArg(use.GetNode());
-    }
-
-    for (GenTreeUse& use : call->LateArgs())
     {
         VerifyCallArg(use.GetNode());
     }
