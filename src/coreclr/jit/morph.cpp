@@ -11951,8 +11951,7 @@ void Compiler::fgMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG
 #ifdef DEBUG
     if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
-        printf("\nfgMorphTree (after %d):\n", morphNum);
-        gtDispTree(tree);
+        JITDUMPTREE(tree, "\nfgMorphTree (after %d):\n", morphNum);
         printf(""); // in our logic this causes a flush
     }
 #endif
@@ -12444,8 +12443,8 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         if (verbose)
         {
             oldHash = gtHashValue(stmt->GetRootNode());
-            printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
-            gtDispTree(stmt->GetRootNode());
+            JITDUMPTREE(stmt->GetRootNode(), "\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum,
+                        stmt->GetID());
         }
 #endif
 
@@ -12510,14 +12509,9 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             JITDUMPTREE(morphedTree, "\nfgMorphTree (stressClone to):\n");
         }
 
-        /* If the hash value changes. we modified the tree during morphing */
-        if (verbose)
+        if (verbose && (gtHashValue(morphedTree) != oldHash))
         {
-            if (gtHashValue(morphedTree) != oldHash)
-            {
-                printf("\nfgMorphTree " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
-                gtDispTree(morphedTree);
-            }
+            JITDUMPTREE(morphedTree, "\nfgMorphTree " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
         }
 #endif
 
@@ -12534,8 +12528,6 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         {
             continue;
         }
-
-        /* Has the statement been optimized away */
 
         if (fgMorphRemoveUselessStmt(block, stmt))
         {
@@ -12799,14 +12791,8 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
         fgRemoveStmt(block, lastStmt);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Return block " FMT_BB " now jumps to merged return block " FMT_BB "\n", block->bbNum,
-               genReturnBB->bbNum);
-        fgTableDispBasicBlock(block);
-    }
-#endif
+    JITDUMP("Return block " FMT_BB " now jumps to merged return block " FMT_BB "\n", block->bbNum, genReturnBB->bbNum);
+    DISPBLOCK(block);
 
     if (block->hasProfileWeight())
     {

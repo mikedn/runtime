@@ -2945,10 +2945,9 @@ public:
         WalkTree(stmt->GetRootNodePointer(), nullptr);
 
 #ifdef DEBUG
-        if (m_compiler->verbose && m_stmtModified)
+        if (m_stmtModified)
         {
-            printf("IndirectParamMorphVisitor modified statement:\n");
-            m_compiler->gtDispTree(stmt->GetRootNode());
+            JITDUMPSTMT(stmt, "IndirectParamMorphVisitor modified statement:\n");
         }
 #endif
     }

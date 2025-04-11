@@ -1355,8 +1355,7 @@ public:
 
         call->GetThisArg()->SetNode(storeComma);
 
-        JITDUMP("Modified call is now\n");
-        DISPTREE(call);
+        JITDUMPTREE(call, "Modified call is now\n");
 
         m_instrCount++;
     }

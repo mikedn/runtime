@@ -956,7 +956,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 if (node->IsUnusedValue())
                 {
                     JITDUMP("Removing dead LclVar use:\n");
-                    DISPNODE(lclNode);
+                    DISPLIRNODE(lclNode);
 
                     blockRange.Delete(this, block, node);
 
@@ -1032,7 +1032,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     assert(!opts.MinOpts());
 
                     JITDUMP("Removing dead store:\n");
-                    DISPNODE(lclNode);
+                    DISPLIRNODE(lclNode);
 
                     lclNode->GetOp(0)->SetUnusedValue();
                     blockRange.Unlink(node);
@@ -1058,7 +1058,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 if (node->IsUnusedValue())
                 {
                     JITDUMP("Removing dead node:\n");
-                    DISPNODE(node);
+                    DISPLIRNODE(node);
 
                     blockRange.Unlink(node);
                 }
@@ -1071,7 +1071,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(false, false))
                 {
                     JITDUMP("Removing dead call:\n");
-                    DISPNODE(call);
+                    DISPLIRNODE(call);
 
                     node->VisitOperands([](GenTree* operand) {
                         if (operand->IsValue())
@@ -1179,7 +1179,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     !node->OperMayThrow(this))
                 {
                     JITDUMP("Removing dead node:\n");
-                    DISPNODE(node);
+                    DISPLIRNODE(node);
 
                     node->VisitOperands([](GenTree* operand) {
                         operand->SetUnusedValue();

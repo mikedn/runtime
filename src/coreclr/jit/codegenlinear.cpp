@@ -263,7 +263,7 @@ void CodeGen::genCodeForBBlist()
     for (BasicBlock* block = compiler->fgFirstBB; block != nullptr; block = block->bbNext)
     {
         JITDUMP("\n=============== Generating ");
-        DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
+        DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true, true));
 
         assert(LIR::AsRange(block).CheckLIR(compiler));
 
@@ -361,7 +361,7 @@ void CodeGen::genCodeForBBlist()
 
         for (GenTree* node : LIR::AsRange(block))
         {
-            DBEXEC(compiler->verbose, compiler->gtDispLIRNode(node));
+            DBEXEC(compiler->verbose, compiler->dmpLIRNode(node));
 
             // Validate that all the operands for the current node are used in order.
             // This is important because LSRA ensures that any necessary copies will be
@@ -567,7 +567,7 @@ void CodeGen::genCodeForBBlist()
                     block = block->bbNext;
 
                     JITDUMP("\n=============== Skipping finally return ");
-                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true));
+                    DBEXEC(compiler->verbose, block->dspBlockHeader(compiler, true, true, true));
                 }
                 break;
 
@@ -2182,13 +2182,13 @@ void CodeGen::VerifyUseOrder(GenTree* const node)
         else if ((node->gtDebugFlags & GTF_DEBUG_NODE_CG_CONSUMED) != 0)
         {
             printf("Node was consumed twice:\n");
-            compiler->gtDispLIRNode(node);
+            compiler->dmpLIRNode(node);
         }
         else if ((lastConsumedNode != nullptr) && (node->gtUseNum < lastConsumedNode->gtUseNum))
         {
             printf("Nodes were consumed out-of-order:\n");
-            compiler->gtDispLIRNode(lastConsumedNode);
-            compiler->gtDispLIRNode(node);
+            compiler->dmpLIRNode(lastConsumedNode);
+            compiler->dmpLIRNode(node);
         }
     }
 

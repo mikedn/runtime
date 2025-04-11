@@ -25,7 +25,6 @@
 #endif
 
 struct InfoHdr;
-struct escapeMapping_t;
 class EmitterBase;
 struct ShadowParamVarInfo;
 struct ParamAllocInfo;
@@ -1007,7 +1006,7 @@ struct CompiledMethodInfo
     CORINFO_METHOD_HANDLE compMethodHnd;
     CORINFO_METHOD_INFO*  compMethodInfo;
 
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM) || defined(DUMP_FLOWGRAPHS)
     const char* compMethodName = nullptr;
     const char* compClassName  = nullptr;
     const char* compFullName   = nullptr;
@@ -2158,8 +2157,6 @@ struct Importer
     void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
     void fgDispBasicBlocks(bool dumpTrees = false);
     void fgDispHandlerTab();
-    void gtDispStmt(Statement* stmt);
-    void gtDispTree(GenTree* tree);
 #endif
 
     void eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -3142,11 +3139,9 @@ public:
     void gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree* arg, char* buf, unsigned bufLength);
     void dmpFieldSeqFields(FieldSeqNode* fieldSeq);
 
-    void gtDispRange(LIR::ReadOnlyRange const& range);
-
-    void gtDispTreeRange(LIR::Range& containingRange, GenTree* tree);
-
-    void gtDispLIRNode(GenTree* node);
+    void dmpLIRRange(const LIR::ReadOnlyRange& range);
+    void dmpLIRTreeRange(const LIR::Range& containingRange, GenTree* tree);
+    void dmpLIRNode(GenTree* node);
 #endif
 
     // For tree walks
@@ -4011,17 +4006,17 @@ public:
     // Requires that "block" is a block that returns from
     // a finally.  Returns the number of successors (jump targets of
     // of blocks in the covered "try" that did a "LEAVE".)
-    unsigned fgNSuccsOfFinallyRet(BasicBlock* block);
+    unsigned fgNSuccsOfFinallyRet(const BasicBlock* block);
 
     // Requires that "block" is a block that returns (in the sense of BBJ_EHFINALLYRET) from
     // a finally.  Returns its "i"th successor (jump targets of
     // of blocks in the covered "try" that did a "LEAVE".)
     // Requires that "i" < fgNSuccsOfFinallyRet(block).
-    BasicBlock* fgSuccOfFinallyRet(BasicBlock* block, unsigned i);
+    BasicBlock* fgSuccOfFinallyRet(const BasicBlock* block, unsigned i);
 
 private:
     // Factor out common portions of the impls of the methods above.
-    void fgSuccOfFinallyRetWork(BasicBlock* block, unsigned i, BasicBlock** bres, unsigned* nres);
+    void fgSuccOfFinallyRetWork(const BasicBlock* block, unsigned i, BasicBlock** bres, unsigned* nres);
 
 public:
     // Invalidate the map of unique switch block successors. For example, since the hash key of the map
@@ -4031,7 +4026,7 @@ public:
 
     // Requires "switchBlock" to be a block that ends in a switch.  Returns
     // the corresponding SwitchUniqueSuccSet.
-    BBswtDesc* GetDescriptorForSwitch(BasicBlock* switchBlk);
+    BBswtDesc* GetDescriptorForSwitch(const BasicBlock* switchBlk);
 
     // The switch block "switchBlk" just had an entry with value "from" modified to the value "to".
     // Update "this" as necessary: if "from" is no longer an element of the jump table of "switchBlk",
@@ -4041,7 +4036,7 @@ public:
     // Remove the "SwitchUniqueSuccSet" of "switchBlk" in the BlockToSwitchDescMap.
     void fgInvalidateSwitchDescMapEntry(BasicBlock* switchBlk);
 
-    BasicBlock* fgFirstBlockOfHandler(BasicBlock* block);
+    BasicBlock* fgFirstBlockOfHandler(const BasicBlock* block);
 
     flowList* fgGetPredForBlock(BasicBlock* block, BasicBlock* blockPred);
 
@@ -4093,7 +4088,7 @@ public:
 
     void fgRemoveEmptyBlocks();
 
-    void fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt = true));
+    void fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt = true)) const;
 
     void fgUnlinkStmt(BasicBlock* block, Statement* stmt);
 
@@ -4190,25 +4185,17 @@ public:
 
     unsigned fgGetCodeSizeEstimate(BasicBlock* block, unsigned limit);
 
-#if DUMP_FLOWGRAPHS
-    enum class PhasePosition
-    {
-        PrePhase,
-        PostPhase
-    };
-    const char* fgProcessEscapes(const char* nameIn, escapeMapping_t* map);
-    static void fgDumpTree(FILE* fgxFile, GenTree* const tree);
-    FILE* fgOpenFlowGraphFile(bool* wbDontClose, Phases phase, PhasePosition pos, LPCWSTR type);
+#ifdef DUMP_FLOWGRAPHS
     bool fgDumpFlowGraph(Phases phase, PhasePosition pos);
-#endif // DUMP_FLOWGRAPHS
+#endif
 
 #ifdef DEBUG
-    void fgDispDoms(BasicBlock** postOrder);
+    void fgDispDoms(BasicBlock** postOrder) const;
     void fgDispReach();
     void fgDispBBLocalLiveness(BasicBlock* block);
     void fgDispBBLiveness(BasicBlock* block);
     void fgDispBBLiveness();
-    void fgTableDispBasicBlock(BasicBlock* block, int ibcColWidth = 0);
+    void fgTableDispBasicBlock(const BasicBlock* block, int ibcColWidth = 0);
     void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
     void fgDispBasicBlocks(bool dumpTrees = false);
     void fgDumpBlock(BasicBlock* block);
@@ -4221,7 +4208,7 @@ public:
     void fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees);
     void fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt);
     void fgDebugCheckNodesUniqueness();
-    void fgDebugCheckLoopTable();
+    void fgDebugCheckLoopTable() const;
 
     void fgDebugCheckFlags(GenTree* tree);
     void fgDebugCheckTryFinallyExits();

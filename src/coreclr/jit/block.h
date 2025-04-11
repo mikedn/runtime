@@ -543,21 +543,17 @@ struct BasicBlock : private LIR::Range
     }
 
 #ifdef DEBUG
-    void     dspFlags();               // Print the flags
-    unsigned dspCheapPreds();          // Print the predecessors (bbCheapPreds)
-    unsigned dspPreds();               // Print the predecessors (bbPreds)
-    void dspSuccs(Compiler* compiler); // Print the successors. The 'compiler' argument determines whether EH
-                                       // regions are printed: see NumSucc() for details.
-    void dspJumpKind();                // Print the block jump kind (e.g., BBJ_NONE, BBJ_COND, etc.).
-
-    // Print a simple basic block header for various output, including a list of predecessors and successors.
-    void dspBlockHeader(Compiler* compiler, bool showKind = true, bool showFlags = false, bool showPreds = true);
-
-    const char* dspToString(int blockNumPadding = 0);
-#endif // DEBUG
+    void     dspFlags() const;
+    unsigned dspCheapPreds() const;
+    unsigned dspPreds() const;
+    void dspSuccs(Compiler* compiler) const;
+    void dspJumpKind() const;
+    void dspBlockHeader(Compiler* compiler, bool showKind, bool showFlags, bool showPreds) const;
+    const char* dspToString(int blockNumPadding = 0) const;
+#endif
 
     // Type used to hold block and edge weights
-    typedef float weight_t;
+    using weight_t = float;
 
 #define BB_UNITY_WEIGHT 100.0f       // how much a normal execute once block weighs
 #define BB_UNITY_WEIGHT_UNSIGNED 100 // how much a normal execute once block weighs
@@ -762,11 +758,11 @@ struct BasicBlock : private LIR::Range
     //
     // NumSucc: Returns the number of successors of "this".
     unsigned NumSucc() const;
-    unsigned NumSucc(Compiler* comp);
+    unsigned NumSucc(Compiler* comp) const;
 
     // GetSucc: Returns the "i"th successor. Requires (0 <= i < NumSucc()).
     BasicBlock* GetSucc(unsigned i) const;
-    BasicBlock* GetSucc(unsigned i, Compiler* comp);
+    BasicBlock* GetSucc(unsigned i, Compiler* comp) const;
 
     BBswtDesc& GetSwitchDesc()
     {
@@ -960,7 +956,7 @@ struct BasicBlock : private LIR::Range
 
     // Pred list maintenance
     //
-    bool checkPredListOrder();
+    bool checkPredListOrder() const;
     void ensurePredListOrder(Compiler* compiler);
     void reorderPredList(Compiler* compiler);
 
@@ -1252,19 +1248,17 @@ struct BasicBlock : private LIR::Range
     // of the implications of this versus the version that does not take `Compiler*`.
     class BBCompilerSuccList
     {
-        Compiler*   m_comp;
-        BasicBlock* m_block;
+        Compiler*         m_comp;
+        const BasicBlock* m_block;
 
-        // iterator: forward iterator for an array of BasicBlock*, such as the BBswtDesc->bbsDstTab.
-        //
         class iterator
         {
-            Compiler*   m_comp;
-            BasicBlock* m_block;
-            unsigned    m_succNum;
+            Compiler*         m_comp;
+            const BasicBlock* m_block;
+            unsigned          m_succNum;
 
         public:
-            iterator(Compiler* comp, BasicBlock* block, unsigned succNum)
+            iterator(Compiler* comp, const BasicBlock* block, unsigned succNum)
                 : m_comp(comp), m_block(block), m_succNum(succNum)
             {
             }
@@ -1272,9 +1266,9 @@ struct BasicBlock : private LIR::Range
             BasicBlock* operator*() const
             {
                 assert(m_block != nullptr);
-                BasicBlock* bTarget = m_block->GetSucc(m_succNum, m_comp);
-                assert(bTarget != nullptr);
-                return bTarget;
+                BasicBlock* succ = m_block->GetSucc(m_succNum, m_comp);
+                assert(succ != nullptr);
+                return succ;
             }
 
             iterator& operator++()
@@ -1290,7 +1284,7 @@ struct BasicBlock : private LIR::Range
         };
 
     public:
-        BBCompilerSuccList(Compiler* comp, BasicBlock* block) : m_comp(comp), m_block(block)
+        BBCompilerSuccList(Compiler* comp, const BasicBlock* block) : m_comp(comp), m_block(block)
         {
         }
 
@@ -1316,7 +1310,7 @@ struct BasicBlock : private LIR::Range
         return BBSuccList(this);
     }
 
-    BBCompilerSuccList Succs(Compiler* comp)
+    BBCompilerSuccList Succs(Compiler* comp) const
     {
         return BBCompilerSuccList(comp, this);
     }

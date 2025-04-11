@@ -767,17 +767,6 @@ public:
 
 #endif // FEATURE_JIT_METHOD_PERF
 
-#ifdef DEBUG
-
-/*****************************************************************************
- * Return the number of digits in a number of the given base (default base 10).
- * Used when outputting strings.
- */
-unsigned CountDigits(unsigned num, unsigned base = 10);
-unsigned CountDigits(float num, unsigned base = 10);
-
-#endif // DEBUG
-
 struct FloatingPointUtils
 {
     static double convertUInt64ToDouble(uint64_t u64);

@@ -385,22 +385,21 @@ void Compiler::fgUnlinkStmt(BasicBlock* block, Statement* stmt)
     stmt->SetPrevStmt(nullptr);
 }
 
-void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt /* = true */))
+void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dumpStmt)) const
 {
     assert(!fgLinearOrder);
 
 #ifdef DEBUG
-    if (verbose && dumpStmt)
+    if (dumpStmt)
     {
-        printf("\nremoving statement " FMT_BB " ", block->bbNum);
-        gtDispStmt(stmt);
+        JITDUMPSTMT(stmt, "\nremoving statement " FMT_BB " ", block->bbNum);
     }
 #endif
 
     if (opts.compDbgCode && stmt->GetPrevStmt() != stmt && stmt->GetILOffsetX() != BAD_IL_OFFSET)
     {
-        /* TODO: For debuggable code, should we remove significant
-           statement boundaries. Or should we leave a GT_NO_OP in its place? */
+        // TODO: For debuggable code, should we remove significant statement
+        // boundaries. Or should we leave a GT_NO_OP in its place?
     }
 
     Statement* firstStmt = block->firstStmt();
@@ -410,7 +409,7 @@ void Compiler::fgRemoveStmt(BasicBlock* block, Statement* stmt DEBUGARG(bool dum
         {
             assert(firstStmt == block->lastStmt());
 
-            /* this is the only statement - basic block becomes empty */
+            // this is the only statement - basic block becomes empty
             block->bbStmtList = nullptr;
         }
         else

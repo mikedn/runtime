@@ -852,7 +852,7 @@ void Compiler::fgComputePreds()
 #endif
 }
 
-unsigned Compiler::fgNSuccsOfFinallyRet(BasicBlock* block)
+unsigned Compiler::fgNSuccsOfFinallyRet(const BasicBlock* block)
 {
     BasicBlock* bb;
     unsigned    res;
@@ -860,7 +860,7 @@ unsigned Compiler::fgNSuccsOfFinallyRet(BasicBlock* block)
     return res;
 }
 
-BasicBlock* Compiler::fgSuccOfFinallyRet(BasicBlock* block, unsigned i)
+BasicBlock* Compiler::fgSuccOfFinallyRet(const BasicBlock* block, unsigned i)
 {
     BasicBlock* bb;
     unsigned    res;
@@ -868,7 +868,7 @@ BasicBlock* Compiler::fgSuccOfFinallyRet(BasicBlock* block, unsigned i)
     return bb;
 }
 
-void Compiler::fgSuccOfFinallyRetWork(BasicBlock* block, unsigned i, BasicBlock** bres, unsigned* nres)
+void Compiler::fgSuccOfFinallyRetWork(const BasicBlock* block, unsigned i, BasicBlock** bres, unsigned* nres)
 {
     assert(block->hasHndIndex()); // Otherwise, endfinally outside a finally/fault block?
 
@@ -912,7 +912,7 @@ void Compiler::fgSuccOfFinallyRetWork(BasicBlock* block, unsigned i, BasicBlock*
     }
 }
 
-BBswtDesc* Compiler::GetDescriptorForSwitch(BasicBlock* switchBlk)
+BBswtDesc* Compiler::GetDescriptorForSwitch(const BasicBlock* switchBlk)
 {
     assert(switchBlk->bbJumpKind == BBJ_SWITCH);
 

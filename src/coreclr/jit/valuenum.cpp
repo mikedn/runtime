@@ -6034,14 +6034,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
     // Now iterate over the remaining statements, and their trees.
     for (; stmt != nullptr; stmt = stmt->GetNextStmt())
     {
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\n***** " FMT_BB ", " FMT_STMT "(before)\n", block->bbNum, stmt->GetID());
-            compiler->gtDispTree(stmt->GetRootNode());
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(stmt->GetRootNode(), "\n***** " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum, stmt->GetID());
+        JITDUMP("\n");
 
         for (GenTree* node : stmt->Nodes())
         {
@@ -6051,18 +6045,8 @@ void ValueNumbering::NumberBlock(BasicBlock* block)
 
         vnStore->SetCurrentNode(nullptr);
 
-#ifdef DEBUG
-        if (compiler->verbose)
-        {
-            printf("\n***** " FMT_BB ", " FMT_STMT "(after)\n", block->bbNum, stmt->GetID());
-            compiler->gtDispTree(stmt->GetRootNode());
-            printf("\n");
-            if (stmt->GetNextStmt() != nullptr)
-            {
-                printf("---------\n");
-            }
-        }
-#endif
+        JITDUMPTREE(stmt->GetRootNode(), "\n***** " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
+        JITDUMP("\n%s", stmt->GetNextStmt() == nullptr ? "" : "---------\n");
     }
 
     if (block->memoryExitDef != block->memoryEntryDef)

@@ -196,13 +196,8 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
     return res;
 }
 
-//------------------------------------------------------------------------
-// checkPredListOrder: see if pred list is properly ordered
-//
-// Returns:
-//    false if pred list is not in increasing bbNum order.
-//
-bool BasicBlock::checkPredListOrder()
+// Returns false if pred list is not in increasing bbNum order.
+bool BasicBlock::checkPredListOrder() const
 {
     unsigned lastBBNum = 0;
     for (BasicBlock* const predBlock : PredBlocks())
@@ -218,13 +213,7 @@ bool BasicBlock::checkPredListOrder()
     return true;
 }
 
-//------------------------------------------------------------------------
-// ensurePredListOrder: ensure all pred list entries appear in increasing
-//    bbNum order.
-//
-// Arguments:
-//    compiler - current compiler instance
-//
+// Ensure all pred list entries appear in increasing
 void BasicBlock::ensurePredListOrder(Compiler* compiler)
 {
     // First, check if list is already in order.
@@ -238,12 +227,7 @@ void BasicBlock::ensurePredListOrder(Compiler* compiler)
     assert(checkPredListOrder());
 }
 
-//------------------------------------------------------------------------
-// reorderPredList: relink pred list in increasing bbNum order.
-//
-// Arguments:
-//    compiler - current compiler instance
-//
+// Relink pred list in increasing bbNum order.
 void BasicBlock::reorderPredList(Compiler* compiler)
 {
     // Count number or entries.
@@ -312,393 +296,8 @@ void BasicBlock::reorderPredList(Compiler* compiler)
     last->flNext = nullptr;
 
     // Note this lastPred is only used transiently.
-    //
     bbLastPred = last;
 }
-
-#ifdef DEBUG
-
-//------------------------------------------------------------------------
-// dspBlockILRange(): Display the block's IL range as [XXX...YYY), where XXX and YYY might be "???" for BAD_IL_OFFSET.
-//
-void BasicBlock::dspBlockILRange() const
-{
-    if (bbCodeOffs != BAD_IL_OFFSET)
-    {
-        printf("[%03X..", bbCodeOffs);
-    }
-    else
-    {
-        printf("[???"
-               "..");
-    }
-
-    if (bbCodeOffsEnd != BAD_IL_OFFSET)
-    {
-        // brace-matching editor workaround for following line: (
-        printf("%03X)", bbCodeOffsEnd);
-    }
-    else
-    {
-        // brace-matching editor workaround for following line: (
-        printf("???"
-               ")");
-    }
-}
-
-//------------------------------------------------------------------------
-// dspFlags: Print out the block's flags
-//
-void BasicBlock::dspFlags()
-{
-    if (bbFlags & BBF_MARKED)
-    {
-        printf("m ");
-    }
-    if (bbFlags & BBF_REMOVED)
-    {
-        printf("del ");
-    }
-    if (bbFlags & BBF_DONT_REMOVE)
-    {
-        printf("keep ");
-    }
-    if (bbFlags & BBF_IMPORTED)
-    {
-        printf("i ");
-    }
-    if (bbFlags & BBF_INTERNAL)
-    {
-        printf("internal ");
-    }
-    if (bbFlags & BBF_TRY_BEG)
-    {
-        printf("try ");
-    }
-    if (bbFlags & BBF_RUN_RARELY)
-    {
-        printf("rare ");
-    }
-    if (bbFlags & BBF_LOOP_HEAD)
-    {
-        printf("Loop ");
-    }
-    if (bbFlags & BBF_LOOP_CALL0)
-    {
-        printf("Loop0 ");
-    }
-    if (bbFlags & BBF_LOOP_CALL1)
-    {
-        printf("Loop1 ");
-    }
-    if (bbFlags & BBF_HAS_LABEL)
-    {
-        printf("label ");
-    }
-    if (bbFlags & BBF_HAS_JMP)
-    {
-        printf("jmp ");
-    }
-    if (bbFlags & BBF_HAS_CALL)
-    {
-        printf("hascall ");
-    }
-    if (bbFlags & BBF_GC_SAFE_POINT)
-    {
-        printf("gcsafe ");
-    }
-    if (bbFlags & BBF_FUNCLET_BEG)
-    {
-        printf("flet ");
-    }
-    if (bbFlags & BBF_HAS_IDX_LEN)
-    {
-        printf("idxlen ");
-    }
-    if (bbFlags & BBF_HAS_NEWARRAY)
-    {
-        printf("new[] ");
-    }
-    if (bbFlags & BBF_HAS_NEWOBJ)
-    {
-        printf("newobj ");
-    }
-    if (bbFlags & BBF_HAS_NULLCHECK)
-    {
-        printf("nullcheck ");
-    }
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (bbFlags & BBF_FINALLY_TARGET)
-    {
-        printf("ftarget ");
-    }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    if (bbFlags & BBF_BACKWARD_JUMP)
-    {
-        printf("bwd ");
-    }
-    if (bbFlags & BBF_BACKWARD_JUMP_TARGET)
-    {
-        printf("bwd-target ");
-    }
-    if (bbFlags & BBF_PATCHPOINT)
-    {
-        printf("ppoint ");
-    }
-    if (bbFlags & BBF_RETLESS_CALL)
-    {
-        printf("retless ");
-    }
-    if (bbFlags & BBF_LOOP_PREHEADER)
-    {
-        printf("LoopPH ");
-    }
-    if (bbFlags & BBF_COLD)
-    {
-        printf("cold ");
-    }
-    if (bbFlags & BBF_PROF_WEIGHT)
-    {
-        printf("IBC ");
-    }
-    if (bbFlags & BBF_IS_LIR)
-    {
-        printf("LIR ");
-    }
-    if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
-    {
-        printf("KEEP ");
-    }
-    if (bbFlags & BBF_CLONED_FINALLY_BEGIN)
-    {
-        printf("cfb ");
-    }
-    if (bbFlags & BBF_CLONED_FINALLY_END)
-    {
-        printf("cfe ");
-    }
-    if (bbFlags & BBF_LOOP_ALIGN)
-    {
-        printf("align ");
-    }
-}
-
-/*****************************************************************************
- *
- *  Display the bbPreds basic block list (the block predecessors).
- *  Returns the number of characters printed.
- */
-
-unsigned BasicBlock::dspPreds()
-{
-    unsigned count = 0;
-    for (flowList* const pred : PredEdges())
-    {
-        if (count != 0)
-        {
-            printf(",");
-            count += 1;
-        }
-        printf(FMT_BB, pred->getBlock()->bbNum);
-        count += 4;
-
-        // Account for %02u only handling 2 digits, but we can display more than that.
-        unsigned digits = CountDigits(pred->getBlock()->bbNum);
-        if (digits > 2)
-        {
-            count += digits - 2;
-        }
-
-        // Does this predecessor have an interesting dup count? If so, display it.
-        if (pred->flDupCount > 1)
-        {
-            printf("(%u)", pred->flDupCount);
-            count += 2 + CountDigits(pred->flDupCount);
-        }
-    }
-    return count;
-}
-
-/*****************************************************************************
- *
- *  Display the bbCheapPreds basic block list (the block predecessors).
- *  Returns the number of characters printed.
- */
-
-unsigned BasicBlock::dspCheapPreds()
-{
-    unsigned count = 0;
-    for (BasicBlockList* pred = bbCheapPreds; pred != nullptr; pred = pred->next)
-    {
-        if (count != 0)
-        {
-            printf(",");
-            count += 1;
-        }
-        printf(FMT_BB, pred->block->bbNum);
-        count += 4;
-
-        // Account for %02u only handling 2 digits, but we can display more than that.
-        unsigned digits = CountDigits(pred->block->bbNum);
-        if (digits > 2)
-        {
-            count += digits - 2;
-        }
-    }
-    return count;
-}
-
-/*****************************************************************************
- *
- *  Display the basic block successors.
- */
-
-void BasicBlock::dspSuccs(Compiler* compiler)
-{
-    bool first = true;
-    for (BasicBlock* const succ : Succs(compiler))
-    {
-        printf("%s" FMT_BB, first ? "" : ",", succ->bbNum);
-        first = false;
-    }
-}
-
-// Display a compact representation of the bbJumpKind, that is, where this block branches.
-// This is similar to code in Compiler::fgTableDispBasicBlock(), but doesn't have that code's requirements to align
-// things strictly.
-void BasicBlock::dspJumpKind()
-{
-    switch (bbJumpKind)
-    {
-        case BBJ_EHFINALLYRET:
-            printf(" (finret)");
-            break;
-
-        case BBJ_EHFILTERRET:
-            printf(" (fltret)");
-            break;
-
-        case BBJ_EHCATCHRET:
-            printf(" -> " FMT_BB " (cret)", bbJumpDest->bbNum);
-            break;
-
-        case BBJ_THROW:
-            printf(" (throw)");
-            break;
-
-        case BBJ_RETURN:
-            printf(" (return)");
-            break;
-
-        case BBJ_NONE:
-            // For fall-through blocks, print nothing.
-            break;
-
-        case BBJ_ALWAYS:
-            if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
-            {
-                printf(" -> " FMT_BB " (ALWAYS)", bbJumpDest->bbNum);
-            }
-            else
-            {
-                printf(" -> " FMT_BB " (always)", bbJumpDest->bbNum);
-            }
-            break;
-
-        case BBJ_LEAVE:
-            printf(" -> " FMT_BB " (leave)", bbJumpDest->bbNum);
-            break;
-
-        case BBJ_CALLFINALLY:
-            printf(" -> " FMT_BB " (callf)", bbJumpDest->bbNum);
-            break;
-
-        case BBJ_COND:
-            printf(" -> " FMT_BB " (cond)", bbJumpDest->bbNum);
-            break;
-
-        case BBJ_SWITCH:
-        {
-            printf(" ->");
-
-            const unsigned     jumpCnt = bbJumpSwt->bbsCount;
-            BasicBlock** const jumpTab = bbJumpSwt->bbsDstTab;
-
-            for (unsigned i = 0; i < jumpCnt; i++)
-            {
-                printf("%c" FMT_BB, (i == 0) ? ' ' : ',', jumpTab[i]->bbNum);
-
-                const bool isDefault = bbJumpSwt->bbsHasDefault && (i == jumpCnt - 1);
-                if (isDefault)
-                {
-                    printf("[def]");
-                }
-
-                const bool isDominant = bbJumpSwt->bbsHasDominantCase && (i == bbJumpSwt->bbsDominantCase);
-                if (isDominant)
-                {
-                    printf("[dom(" FMT_WT ")]", bbJumpSwt->bbsDominantFraction);
-                }
-            }
-
-            printf(" (switch)");
-        }
-        break;
-
-        default:
-            unreached();
-            break;
-    }
-}
-
-void BasicBlock::dspBlockHeader(Compiler* compiler,
-                                bool      showKind /*= true*/,
-                                bool      showFlags /*= false*/,
-                                bool      showPreds /*= true*/)
-{
-    printf(FMT_BB " ", bbNum);
-    dspBlockILRange();
-    if (showKind)
-    {
-        dspJumpKind();
-    }
-    if (showPreds)
-    {
-        printf(", preds={");
-        if (compiler->fgCheapPredsValid)
-        {
-            dspCheapPreds();
-        }
-        else
-        {
-            dspPreds();
-        }
-        printf("} succs={");
-        dspSuccs(compiler);
-        printf("}");
-    }
-    if (showFlags)
-    {
-        const unsigned lowFlags  = (unsigned)bbFlags;
-        const unsigned highFlags = (unsigned)(bbFlags >> 32);
-        printf(" flags=0x%08x.%08x: ", highFlags, lowFlags);
-        dspFlags();
-    }
-    printf("\n");
-}
-
-const char* BasicBlock::dspToString(int blockNumPadding /* = 0 */)
-{
-    static char buffers[3][64]; // static array of 3 to allow 3 concurrent calls in one printf()
-    static int  nextBufferIndex = 0;
-
-    auto& buffer    = buffers[nextBufferIndex];
-    nextBufferIndex = (nextBufferIndex + 1) % _countof(buffers);
-    _snprintf_s(buffer, _countof(buffer), _countof(buffer), FMT_BB "%*s [%04u]", bbNum, blockNumPadding, "", bbID);
-    return buffer;
-}
-
-#endif // DEBUG
 
 //------------------------------------------------------------------------
 // CloneBlockState: Try to populate `to` block with a copy of `from` block's statements, replacing
@@ -1017,15 +616,6 @@ bool BasicBlock::bbFallsThrough() const
     }
 }
 
-//------------------------------------------------------------------------
-// NumSucc: Returns the count of block successors. See the declaration comment for details.
-//
-// Arguments:
-//    None.
-//
-// Return Value:
-//    Count of block successors.
-//
 unsigned BasicBlock::NumSucc() const
 {
     switch (bbJumpKind)
@@ -1061,15 +651,6 @@ unsigned BasicBlock::NumSucc() const
     }
 }
 
-//------------------------------------------------------------------------
-// GetSucc: Returns the requested block successor. See the declaration comment for details.
-//
-// Arguments:
-//    i - index of successor to return. 0 <= i <= NumSucc().
-//
-// Return Value:
-//    Requested successor block
-//
 BasicBlock* BasicBlock::GetSucc(unsigned i) const
 {
     assert(i < NumSucc()); // Index bounds check.
@@ -1104,7 +685,7 @@ BasicBlock* BasicBlock::GetSucc(unsigned i) const
 }
 
 // Returns the count of distinct block successors.
-unsigned BasicBlock::NumSucc(Compiler* comp)
+unsigned BasicBlock::NumSucc(Compiler* comp) const
 {
     assert(comp != nullptr);
 
@@ -1147,17 +728,7 @@ unsigned BasicBlock::NumSucc(Compiler* comp)
     }
 }
 
-//------------------------------------------------------------------------
-// GetSucc: Returns the requested block successor. See the declaration comment for details.
-//
-// Arguments:
-//    i - index of successor to return. 0 <= i <= NumSucc(comp).
-//    comp - Compiler instance
-//
-// Return Value:
-//    Requested successor block
-//
-BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp)
+BasicBlock* BasicBlock::GetSucc(unsigned i, Compiler* comp) const
 {
     assert(comp != nullptr);
     assert(i < NumSucc(comp));
@@ -1444,26 +1015,343 @@ bool BasicBlock::hasEHBoundaryOut() const
     return returnVal;
 }
 
-//------------------------------------------------------------------------
-// BBswtDesc copy ctor: copy a switch descriptor
-//
-// Arguments:
-//    comp - compiler instance
-//    other - existing switch descriptor to copy
-//
 BBswtDesc::BBswtDesc(Compiler* comp, const BBswtDesc* other)
-    : bbsDstTab(nullptr)
+    : bbsDstTab(new (comp, CMK_BasicBlock) BasicBlock*[other->bbsCount])
     , bbsCount(other->bbsCount)
     , bbsDominantCase(other->bbsDominantCase)
     , bbsDominantFraction(other->bbsDominantFraction)
     , bbsHasDefault(other->bbsHasDefault)
     , bbsHasDominantCase(other->bbsHasDominantCase)
 {
-    // Allocate and fill in a new dst tab
-    //
-    bbsDstTab = new (comp, CMK_BasicBlock) BasicBlock*[bbsCount];
     for (unsigned i = 0; i < bbsCount; i++)
     {
         bbsDstTab[i] = other->bbsDstTab[i];
     }
 }
+
+#ifdef DEBUG
+
+void BasicBlock::dspBlockILRange() const
+{
+    if (bbCodeOffs != BAD_IL_OFFSET)
+    {
+        printf("[%03X..", bbCodeOffs);
+    }
+    else
+    {
+        printf("[%s..", "???");
+    }
+
+    if (bbCodeOffsEnd != BAD_IL_OFFSET)
+    {
+        printf("%03X)", bbCodeOffsEnd);
+    }
+    else
+    {
+        printf("%s)", "???");
+    }
+}
+
+void BasicBlock::dspFlags() const
+{
+    if (bbFlags & BBF_MARKED)
+    {
+        printf("m ");
+    }
+    if (bbFlags & BBF_REMOVED)
+    {
+        printf("del ");
+    }
+    if (bbFlags & BBF_DONT_REMOVE)
+    {
+        printf("keep ");
+    }
+    if (bbFlags & BBF_IMPORTED)
+    {
+        printf("i ");
+    }
+    if (bbFlags & BBF_INTERNAL)
+    {
+        printf("internal ");
+    }
+    if (bbFlags & BBF_TRY_BEG)
+    {
+        printf("try ");
+    }
+    if (bbFlags & BBF_RUN_RARELY)
+    {
+        printf("rare ");
+    }
+    if (bbFlags & BBF_LOOP_HEAD)
+    {
+        printf("Loop ");
+    }
+    if (bbFlags & BBF_LOOP_CALL0)
+    {
+        printf("Loop0 ");
+    }
+    if (bbFlags & BBF_LOOP_CALL1)
+    {
+        printf("Loop1 ");
+    }
+    if (bbFlags & BBF_HAS_LABEL)
+    {
+        printf("label ");
+    }
+    if (bbFlags & BBF_HAS_JMP)
+    {
+        printf("jmp ");
+    }
+    if (bbFlags & BBF_HAS_CALL)
+    {
+        printf("hascall ");
+    }
+    if (bbFlags & BBF_GC_SAFE_POINT)
+    {
+        printf("gcsafe ");
+    }
+    if (bbFlags & BBF_FUNCLET_BEG)
+    {
+        printf("flet ");
+    }
+    if (bbFlags & BBF_HAS_IDX_LEN)
+    {
+        printf("idxlen ");
+    }
+    if (bbFlags & BBF_HAS_NEWARRAY)
+    {
+        printf("new[] ");
+    }
+    if (bbFlags & BBF_HAS_NEWOBJ)
+    {
+        printf("newobj ");
+    }
+    if (bbFlags & BBF_HAS_NULLCHECK)
+    {
+        printf("nullcheck ");
+    }
+#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+    if (bbFlags & BBF_FINALLY_TARGET)
+    {
+        printf("ftarget ");
+    }
+#endif
+    if (bbFlags & BBF_BACKWARD_JUMP)
+    {
+        printf("bwd ");
+    }
+    if (bbFlags & BBF_BACKWARD_JUMP_TARGET)
+    {
+        printf("bwd-target ");
+    }
+    if (bbFlags & BBF_PATCHPOINT)
+    {
+        printf("ppoint ");
+    }
+    if (bbFlags & BBF_RETLESS_CALL)
+    {
+        printf("retless ");
+    }
+    if (bbFlags & BBF_LOOP_PREHEADER)
+    {
+        printf("LoopPH ");
+    }
+    if (bbFlags & BBF_COLD)
+    {
+        printf("cold ");
+    }
+    if (bbFlags & BBF_PROF_WEIGHT)
+    {
+        printf("IBC ");
+    }
+    if (bbFlags & BBF_IS_LIR)
+    {
+        printf("LIR ");
+    }
+    if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
+    {
+        printf("KEEP ");
+    }
+    if (bbFlags & BBF_CLONED_FINALLY_BEGIN)
+    {
+        printf("cfb ");
+    }
+    if (bbFlags & BBF_CLONED_FINALLY_END)
+    {
+        printf("cfe ");
+    }
+    if (bbFlags & BBF_LOOP_ALIGN)
+    {
+        printf("align ");
+    }
+}
+
+unsigned BasicBlock::dspPreds() const
+{
+    unsigned length = 0;
+
+    for (flowList* const pred : PredEdges())
+    {
+        length += printf("%s" FMT_BB, length == 0 ? "" : ",", pred->getBlock()->bbNum);
+
+        if (pred->flDupCount > 1)
+        {
+            length += printf("(%u)", pred->flDupCount);
+        }
+    }
+
+    return length;
+}
+
+unsigned BasicBlock::dspCheapPreds() const
+{
+    unsigned length = 0;
+
+    for (BasicBlockList* pred = bbCheapPreds; pred != nullptr; pred = pred->next)
+    {
+        length += printf("%s" FMT_BB, length == 0 ? "" : ",", pred->block->bbNum);
+    }
+
+    return length;
+}
+
+void BasicBlock::dspSuccs(Compiler* compiler) const
+{
+    unsigned index = 0;
+
+    for (BasicBlock* const succ : Succs(compiler))
+    {
+        printf("%s" FMT_BB, index++ == 0 ? "" : ",", succ->bbNum);
+    }
+}
+
+void BasicBlock::dspJumpKind() const
+{
+    switch (bbJumpKind)
+    {
+        case BBJ_EHFINALLYRET:
+            printf(" (finret)");
+            return;
+
+        case BBJ_EHFILTERRET:
+            printf(" (fltret)");
+            return;
+
+        case BBJ_EHCATCHRET:
+            printf(" -> " FMT_BB " (cret)", bbJumpDest->bbNum);
+            return;
+
+        case BBJ_THROW:
+            printf(" (throw)");
+            return;
+
+        case BBJ_RETURN:
+            printf(" (return)");
+            return;
+
+        case BBJ_NONE:
+            return;
+
+        case BBJ_ALWAYS:
+            if (bbFlags & BBF_KEEP_BBJ_ALWAYS)
+            {
+                printf(" -> " FMT_BB " (ALWAYS)", bbJumpDest->bbNum);
+            }
+            else
+            {
+                printf(" -> " FMT_BB " (always)", bbJumpDest->bbNum);
+            }
+            return;
+
+        case BBJ_LEAVE:
+            printf(" -> " FMT_BB " (leave)", bbJumpDest->bbNum);
+            return;
+
+        case BBJ_CALLFINALLY:
+            printf(" -> " FMT_BB " (callf)", bbJumpDest->bbNum);
+            return;
+
+        case BBJ_COND:
+            printf(" -> " FMT_BB " (cond)", bbJumpDest->bbNum);
+            return;
+
+        case BBJ_SWITCH:
+        {
+            printf(" ->");
+
+            BasicBlock** const successors = bbJumpSwt->bbsDstTab;
+
+            for (unsigned i = 0, count = bbJumpSwt->bbsCount; i < count; i++)
+            {
+                printf("%c" FMT_BB, (i == 0) ? ' ' : ',', successors[i]->bbNum);
+
+                if (bbJumpSwt->bbsHasDefault && (i == count - 1))
+                {
+                    printf("[def]");
+                }
+
+                if (bbJumpSwt->bbsHasDominantCase && (i == bbJumpSwt->bbsDominantCase))
+                {
+                    printf("[dom(" FMT_WT ")]", bbJumpSwt->bbsDominantFraction);
+                }
+            }
+
+            printf(" (switch)");
+            return;
+        }
+
+        default:
+            unreached();
+    }
+}
+
+void BasicBlock::dspBlockHeader(Compiler* compiler, bool showKind, bool showFlags, bool showPreds) const
+{
+    printf(FMT_BB " ", bbNum);
+
+    dspBlockILRange();
+
+    if (showKind)
+    {
+        dspJumpKind();
+    }
+
+    if (showPreds)
+    {
+        printf(", preds={");
+
+        if (compiler->fgCheapPredsValid)
+        {
+            dspCheapPreds();
+        }
+        else
+        {
+            dspPreds();
+        }
+
+        printf("} succs={");
+        dspSuccs(compiler);
+        printf("}");
+    }
+
+    if (showFlags)
+    {
+        printf(" flags=%16llx: ", bbFlags);
+        dspFlags();
+    }
+
+    printf("\n");
+}
+
+const char* BasicBlock::dspToString(int blockNumPadding) const
+{
+    static char   buffers[3][64]; // static array of 3 to allow 3 concurrent calls in one printf
+    static size_t nextBufferIndex = 0;
+
+    auto& buffer    = buffers[nextBufferIndex];
+    nextBufferIndex = (nextBufferIndex + 1) % _countof(buffers);
+    _snprintf_s(buffer, _countof(buffer), _countof(buffer), FMT_BB "%*s [%04u]", bbNum, blockNumPadding, "", bbID);
+    return buffer;
+}
+
+#endif // DEBUG

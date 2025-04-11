@@ -1273,7 +1273,7 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
         if (callArgSize > outgoingArgAreaSize)
         {
             outgoingArgAreaSize = callArgSize;
-            JITDUMP("Increasing outgoingArgAreaSize to %u for call [%06u]\n", outgoingArgAreaSize, call->GetID());
+            JITDUMP("\nIncreasing outgoingArgAreaSize to %u for call [%06u]\n\n", outgoingArgAreaSize, call->GetID());
         }
     }
 #endif
@@ -1292,9 +1292,9 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
 
     for (unsigned i = 0; i < info->GetArgCount(); i++)
     {
-        JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (before):\n", i);
+        JITDUMPLIRRANGE(BlockRange(), info->GetArgInfo(i)->GetNode(), "Lowering CALL arg %u (before):\n", i);
         LowerCallArg(call, info->GetArgInfo(i));
-        JITDUMPTREE(info->GetArgInfo(i)->GetNode(), "lowering call arg %u (after):\n", i);
+        JITDUMPLIRRANGE(BlockRange(), info->GetArgInfo(i)->GetNode(), "Lowering CALL arg %u (after):\n", i);
         JITDUMP("\n");
     }
 }
@@ -1356,9 +1356,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 
 void Lowering::LowerCall(GenTreeCall* call)
 {
-    JITDUMP("lowering call (before):\n");
-    DISPTREERANGE(BlockRange(), call);
-    JITDUMP("\n");
+    JITDUMPLIRRANGE(BlockRange(), call, "\nLowering CALL (before):\n");
 
 #ifdef UNIX_AMD64_ABI
     if (!call->IsFastTailCall())
@@ -1435,8 +1433,7 @@ void Lowering::LowerCall(GenTreeCall* call)
     ContainCheckCallAddr(call);
 #endif
 
-    JITDUMP("lowering call (after):\n");
-    DISPTREERANGE(BlockRange(), call);
+    JITDUMPLIRRANGE(BlockRange(), call, "Lowering CALL (after):\n");
     JITDUMP("\n");
 }
 
@@ -1980,7 +1977,7 @@ void Lowering::LowerReturn(GenTreeUnOp* ret)
 {
     assert(ret->OperIs(GT_RETURN));
 
-    JITDUMPTREE(ret, "Lowering RETURN:\n");
+    JITDUMPLIRRANGE(BlockRange(), ret, "Lowering RETURN:\n");
 
     if (varTypeIsStruct(ret->GetType()))
     {
@@ -2961,8 +2958,7 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTree*       storeSP = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCallSiteSP, sp);
     firstBlockRange.InsertBefore(insertionPoint, sp, storeSP);
     AMD64_ONLY(sp->SetContained());
-    DISPTREERANGE(firstBlockRange, storeSP);
-#endif // !defined(TARGET_X86) && !defined(TARGET_ARM)
+#endif
 
 #ifndef TARGET_ARM
     // For arm32, CalleeSavedFP is set up by the call to CORINFO_HELP_INIT_PINVOKE_FRAME.
@@ -2970,7 +2966,6 @@ void Lowering::InsertPInvokeMethodProlog()
     GenTree* storeFP  = comp->gtNewLclStoreFld(TYP_I_IMPL, pInvokeFrameLcl, callFrameInfo.offsetOfCalleeSavedFP, fp);
     firstBlockRange.InsertBefore(insertionPoint, fp, storeFP);
     fp->SetContained();
-    DISPTREERANGE(firstBlockRange, storeFP);
 #endif
 
 #ifdef TARGET_64BIT
@@ -3424,7 +3419,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     if (AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
     {
         JITDUMP("No addressing mode:\n  ");
-        DISPNODE(addr);
+        DISPLIRNODE(addr);
         return false;
     }
 
@@ -3432,12 +3427,12 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     JITDUMP("  Base\n    ");
     if (am.base != nullptr)
     {
-        DISPNODE(am.base);
+        DISPLIRNODE(am.base);
     }
     if (am.index != nullptr)
     {
         JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
-        DISPNODE(am.index);
+        DISPLIRNODE(am.index);
     }
     else
     {
@@ -3482,7 +3477,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     }
 
     JITDUMP("New addressing mode node:\n  ");
-    DISPNODE(addrMode);
+    DISPLIRNODE(addrMode);
     JITDUMP("\n");
 
     return true;
@@ -3502,9 +3497,9 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
     if (op2->IsIntegralConst(0))
     {
         JITDUMP("Lower: optimize val + 0: ");
-        DISPNODE(node);
+        DISPLIRNODE(node);
         JITDUMP("Replaced with: ");
-        DISPNODE(op1);
+        DISPLIRNODE(op1);
 
         if (BlockRange().TryGetUse(node, &use))
         {
@@ -4288,7 +4283,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
     if (CanWidenSimd12ToSimd16(node->GetLcl()))
     {
         JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
-        DISPNODE(node);
+        DISPLIRNODE(node);
         JITDUMP("============");
 
         node->SetType(TYP_SIMD16);

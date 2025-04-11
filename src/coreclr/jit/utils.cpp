@@ -1560,38 +1560,6 @@ double PerfCounter::ElapsedTime()
 
 #endif
 
-#ifdef DEBUG
-
-/*****************************************************************************
- * Return the number of digits in a number of the given base (default base 10).
- * Used when outputting strings.
- */
-unsigned CountDigits(unsigned num, unsigned base /* = 10 */)
-{
-    assert(2 <= base && base <= 16); // sanity check
-    unsigned count = 1;
-    while (num >= base)
-    {
-        num /= base;
-        ++count;
-    }
-    return count;
-}
-
-unsigned CountDigits(float num, unsigned base /* = 10 */)
-{
-    assert(2 <= base && base <= 16); // sanity check
-    unsigned count = 1;
-    while (num >= base)
-    {
-        num /= base;
-        ++count;
-    }
-    return count;
-}
-
-#endif // DEBUG
-
 double FloatingPointUtils::convertUInt64ToDouble(uint64_t u64)
 {
     int64_t s64 = static_cast<int64_t>(u64);

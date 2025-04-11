@@ -193,7 +193,7 @@ LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenT
     SetDef(load);
 
     JITDUMP("ReplaceWithLclLoad created store :\n");
-    DISPNODE(store);
+    DISPLIRNODE(store);
 
     if (newStore != nullptr)
     {

@@ -481,8 +481,6 @@ bool Compiler::fgRemoveUnreachableBlocks(BlockSet entryBlocks)
 //
 void Compiler::phComputeReachability()
 {
-    JITDUMP("*************** In phComputeReachability\n");
-
     assert(fgComputePredsDone);
 #ifdef DEBUG
     fgVerifyHandlerTab();
@@ -686,7 +684,6 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block
 // by Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy.
 void Compiler::phComputeDoms()
 {
-    JITDUMP("*************** In phComputeDoms\n");
     assert(!fgCheapPredsValid);
 
 #ifdef DEBUG

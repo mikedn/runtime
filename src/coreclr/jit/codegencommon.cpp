@@ -406,14 +406,6 @@ void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 
 void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 {
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("*************** In genGenerateCode()\n");
-        compiler->fgDispBasicBlocks(compiler->verboseTrees);
-    }
-#endif
-
 #ifdef FEATURE_EH_FUNCLETS
     DoPhase(this, PHASE_CREATE_FUNCLETS, &CodeGen::genCreateFunclets);
 #endif
@@ -445,8 +437,6 @@ void CodeGen::genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize)
 #ifdef FEATURE_EH_FUNCLETS
 void CodeGen::genCreateFunclets()
 {
-    JITDUMP("*************** In genCreateFunclets()\n");
-
     const unsigned funcCount = compiler->ehFuncletCount() + 1;
 
     if (!FitsIn<uint16_t>(funcCount))

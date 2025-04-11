@@ -3470,14 +3470,7 @@ void SIMDCoalescingBuffer::Coalesce(Compiler* compiler, BasicBlock* block)
 
     ChangeToSIMDStore(compiler, m_firstStmt->GetRootNode(), type, compiler->gtNewLclLoad(m_lcl, m_lcl->GetType()));
 
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("Changed to a single %s store:\n", varTypeName(type));
-        compiler->gtDispStmt(m_firstStmt);
-        printf("\n");
-    }
-#endif
+    JITDUMPSTMT(m_firstStmt, "Changed to a single %s store:\n", varTypeName(type));
 
     Clear();
 }

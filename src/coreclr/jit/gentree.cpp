@@ -110,7 +110,7 @@ GenTreeKinds GenTree::OperKind(genTreeOps oper)
     return static_cast<GenTreeKinds>(kinds[oper]);
 }
 
-#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || defined(DUMP_FLOWGRAPHS)
 
 const char* GenTree::OpName(genTreeOps op)
 {
@@ -7157,20 +7157,20 @@ void Compiler::gtDispBlockStmts(BasicBlock* block)
     }
 }
 
-void Compiler::gtDispTreeRange(LIR::Range& containingRange, GenTree* tree)
+void Compiler::dmpLIRTreeRange(const LIR::Range& containingRange, GenTree* tree)
 {
-    gtDispRange(LIR::ReadOnlyRange(containingRange.FindFirstTreeLeaf(tree), tree));
+    dmpLIRRange(LIR::ReadOnlyRange(containingRange.FindFirstTreeLeaf(tree), tree));
 }
 
-void Compiler::gtDispRange(LIR::ReadOnlyRange const& range)
+void Compiler::dmpLIRRange(const LIR::ReadOnlyRange& range)
 {
     for (GenTree* node : range)
     {
-        gtDispLIRNode(node);
+        dmpLIRNode(node);
     }
 }
 
-void Compiler::gtDispLIRNode(GenTree* node)
+void Compiler::dmpLIRNode(GenTree* node)
 {
     if (GenTreeInstr* instr = node->IsInstr())
     {

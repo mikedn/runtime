@@ -116,7 +116,9 @@ using ssize_t = ptrdiff_t;
 #define FUNC_INFO_LOGGING 1 // Support dumping function info to a file. In retail, only NYIs, with no function name,
                             // are dumped.
 
-#define DUMP_FLOWGRAPHS DEBUG
+#ifdef DEBUG
+#define DUMP_FLOWGRAPHS 1
+#endif
 #define DUMP_GC_TABLES DEBUG
 
 #define VERIFY_GC_TABLES 0
@@ -172,59 +174,71 @@ using ssize_t = ptrdiff_t;
 #endif
 
 #ifdef DEBUG
+#define DBEXEC(flg, expr)                                                                                              \
+    if (flg)                                                                                                           \
+    {                                                                                                                  \
+        expr;                                                                                                          \
+    }
 #define JITDUMP(...)                                                                                                   \
     if (JitTls::GetCompiler()->verbose)                                                                                \
-        jitprintf(__VA_ARGS__);
-
+    {                                                                                                                  \
+        jitprintf(__VA_ARGS__);                                                                                        \
+    }
 #define JITDUMPTREE(tree, ...)                                                                                         \
     if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
         jitprintf(__VA_ARGS__);                                                                                        \
         JitTls::GetCompiler()->gtDispTree(tree);                                                                       \
     }
-
-#define JITDUMPRANGE(range, t, ...)                                                                                    \
+#define JITDUMPNODE(node, ...)                                                                                         \
     if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
         jitprintf(__VA_ARGS__);                                                                                        \
-        JitTls::GetCompiler()->gtDispTreeRange(range, t);                                                              \
+        JitTls::GetCompiler()->gtDispTree(node, false, false);                                                         \
     }
-
-#define DBEXEC(flg, expr)                                                                                              \
-    if (flg)                                                                                                           \
+#define JITDUMPSTMT(stmt, ...)                                                                                         \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        expr;                                                                                                          \
+        jitprintf(__VA_ARGS__);                                                                                        \
+        JitTls::GetCompiler()->gtDispStmt(stmt);                                                                       \
     }
-
-#define DISPNODE(t)                                                                                                    \
-    if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispLIRNode(t);
-#define DISPTREE(t)                                                                                                    \
-    if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispTree(t);
 #define DISPSTMT(t)                                                                                                    \
     if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispStmt(t);
-#define DISPRANGE(range)                                                                                               \
-    if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispRange(range);
-#define DISPTREERANGE(range, t)                                                                                        \
-    if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->gtDispTreeRange(range, t);
+    {                                                                                                                  \
+        JitTls::GetCompiler()->gtDispStmt(t);                                                                          \
+    }
 #define DISPBLOCK(b)                                                                                                   \
     if (JitTls::GetCompiler()->verbose)                                                                                \
-        JitTls::GetCompiler()->fgTableDispBasicBlock(b);
+    {                                                                                                                  \
+        JitTls::GetCompiler()->fgTableDispBasicBlock(b);                                                               \
+    }
+#define JITDUMPLIRRANGE(range, t, ...)                                                                                 \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
+    {                                                                                                                  \
+        jitprintf(__VA_ARGS__);                                                                                        \
+        JitTls::GetCompiler()->dmpLIRTreeRange(range, t);                                                              \
+    }
+#define DISPLIRRANGE(range, t)                                                                                         \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
+    {                                                                                                                  \
+        JitTls::GetCompiler()->dmpLIRTreeRange(range, t);                                                              \
+    }
+#define DISPLIRNODE(t)                                                                                                 \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
+    {                                                                                                                  \
+        JitTls::GetCompiler()->dmpLIRNode(t);                                                                          \
+    }
 #else // !DEBUG
+#define DBEXEC(...)
 #define JITDUMP(...)
 #define JITDUMPTREE(...)
-#define JITDUMPRANGE(...)
-#define DBEXEC(flg, expr)
-#define DISPNODE(t)
-#define DISPTREE(t)
-#define DISPSTMT(t)
-#define DISPRANGE(range)
-#define DISPTREERANGE(range, t)
-#define DISPBLOCK(b)
+#define JITDUMPNODE(...)
+#define JITDUMPSTMT(...)
+#define DISPSTMT(...)
+#define DISPBLOCK(...)
+#define JITDUMPLIRRANGE(...)
+#define DISPLIRRANGE(...)
+#define DISPLIRNODE(...)
 #endif // !DEBUG
 
 #if COUNT_BASIC_BLOCKS || COUNT_LOOPS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC

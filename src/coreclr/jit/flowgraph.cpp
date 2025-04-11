@@ -318,13 +318,7 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
         gtSetStmtOrder(trapCheckStmt);
     }
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Adding trapCheck in " FMT_BB "\n", top->bbNum);
-        gtDispTree(trapCheck);
-    }
-#endif
+    JITDUMPTREE(trapCheck, "Adding trapCheck in " FMT_BB "\n", top->bbNum);
 
     top->bbJumpDest = bottom;
     top->bbJumpKind = BBJ_COND;
@@ -778,7 +772,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
     lvaSetAddressExposed(frameLcl);
     lvaReversePInvokeFrameVar = frameLcl->GetLclNum();
 
-    // Add enter pinvoke exit callout at the start of prolog
+    // Add enter PInvoke exit callout at the start of prolog
 
     GenTreeLclAddr* pInvokeFrameVar = gtNewLclAddr(frameLcl);
     CorInfoHelpFunc reversePInvokeEnterHelper;
@@ -816,17 +810,10 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     fgNewStmtAtBeg(fgFirstBB, tree);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nReverse PInvoke method - Add reverse pinvoke enter in first basic block %s\n",
-               fgFirstBB->dspToString());
-        gtDispTree(tree);
-        printf("\n");
-    }
-#endif
+    JITDUMPTREE(tree, "\nReverse PInvoke method - Add reverse PInvoke enter in first basic block %s\n",
+                fgFirstBB->dspToString());
 
-    // Add reverse pinvoke exit callout at the end of epilog
+    // Add reverse PInvoke exit callout at the end of epilog
 
     tree = gtNewLclAddr(frameLcl);
 
@@ -840,15 +827,8 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     fgNewStmtNearEnd(genReturnBB, tree);
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\nReverse PInvoke method - Add reverse pinvoke exit in return basic block %s\n",
-               genReturnBB->dspToString());
-        gtDispTree(tree);
-        printf("\n");
-    }
-#endif
+    JITDUMPTREE(tree, "\nReverse PInvoke method - Add reverse PInvoke exit in return basic block %s\n",
+                genReturnBB->dspToString());
 }
 
 namespace
@@ -1359,11 +1339,7 @@ void Compiler::phAddInternal()
             fgEnsureFirstBBisScratch();
             fgNewStmtAtEnd(fgFirstBB, call);
 
-            if (verbose)
-            {
-                printf("\ncompGcChecks tree:\n");
-                gtDispTree(call);
-            }
+            JITDUMPTREE(call, "\ncompGcChecks tree:\n");
         }
     }
 #endif
@@ -1414,14 +1390,7 @@ void Compiler::phAddInternal()
         fgEnsureFirstBBisScratch();
         fgNewStmtAtEnd(fgFirstBB, tree);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nCopy \"this\" to lvaThisLclNum in first basic block %s\n", fgFirstBB->dspToString());
-            gtDispTree(tree);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(tree, "\nCopy \"this\" to lvaThisLclNum in first basic block %s\n", fgFirstBB->dspToString());
     }
 
     // Merge return points if required or beneficial
@@ -1551,27 +1520,20 @@ void Compiler::phAddInternal()
             tree = gtNewHelperCallNode(CORINFO_HELP_MON_ENTER, TYP_VOID, gtNewCallArgs(tree));
         }
 
-        /* Create a new basic block and stick the call in it */
+        // Create a new basic block and stick the call in it
 
         fgEnsureFirstBBisScratch();
 
         fgNewStmtAtEnd(fgFirstBB, tree);
 
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nSynchronized method - Add enterCrit statement in first basic block %s\n",
-                   fgFirstBB->dspToString());
-            gtDispTree(tree);
-            printf("\n");
-        }
-#endif
+        JITDUMPTREE(tree, "\nSynchronized method - Add enterCrit statement in first basic block %s\n",
+                    fgFirstBB->dspToString());
 
-        /* We must be generating a single exit point for this to work */
+        // We must be generating a single exit point for this to work
 
         noway_assert(genReturnBB != nullptr);
 
-        /* Create the expression "exitCrit(this)" or "exitCrit(handle)" */
+        // Create the expression "exitCrit(this)" or "exitCrit(handle)"
 
         if (info.compIsStatic)
         {

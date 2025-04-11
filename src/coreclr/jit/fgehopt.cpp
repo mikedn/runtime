@@ -1988,8 +1988,7 @@ PhaseStatus Compiler::phTailMergeThrows()
         // about already, or something new.
         BasicBlock* canonicalBlock = nullptr;
 
-        JITDUMP("\n*** Does not return call\n");
-        DISPTREE(call);
+        JITDUMPTREE(call, "\n*** Does not return call\n");
 
         // Have we found an equivalent call already?
         ThrowHelper key(block, call);

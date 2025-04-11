@@ -1070,8 +1070,7 @@ bool Compiler::optRecordLoop(BasicBlock* head,
 #ifdef DEBUG
             if (verbose && 0)
             {
-                printf("\nConstant loop initializer:\n");
-                gtDispTree(init);
+                JITDUMPTREE(init, "\nConstant loop initializer:\n");
 
                 printf("\nConstant loop body:\n");
 
@@ -1085,8 +1084,8 @@ bool Compiler::optRecordLoop(BasicBlock* head,
                         {
                             break;
                         }
-                        printf("\n");
-                        gtDispTree(stmt->GetRootNode());
+
+                        JITDUMPTREE(stmt->GetRootNode(), "\n");
                     }
                 } while (block != bottom);
             }
@@ -3486,10 +3485,7 @@ PhaseStatus Compiler::phUnrollLoops()
 #ifdef DEBUG
             if (verbose)
             {
-                printf("Whole unrolled loop:\n");
-
-                gtDispTree(initStmt->GetRootNode());
-                printf("\n");
+                JITDUMPTREE(initStmt->GetRootNode(), "Whole unrolled loop:\n");
                 fgDumpTrees(head->bbNext, insertAfter);
             }
 #endif
@@ -4080,8 +4076,6 @@ PhaseStatus Compiler::phFindLoops()
 {
     noway_assert(opts.OptimizationEnabled());
 
-    JITDUMP("*************** In optFindLoops()\n");
-
     optSetBlockWeights();
 
     /* Were there any loops in the flow graph? */
@@ -4522,15 +4516,8 @@ bool OptBoolsDsc::optOptimizeBoolsCondBlock()
 
     optOptimizeBoolsUpdateTrees();
 
-#ifdef DEBUG
-    if (m_comp->verbose)
-    {
-        printf("Folded %sboolean conditions of " FMT_BB " and " FMT_BB " to :\n", m_c2->OperIsLeaf() ? "" : "non-leaf ",
-               m_b1->bbNum, m_b2->bbNum);
-        m_comp->gtDispStmt(s1);
-        printf("\n");
-    }
-#endif
+    JITDUMPSTMT(s1, "Folded %sboolean conditions of " FMT_BB " and " FMT_BB " to :\n",
+                m_c2->OperIsLeaf() ? "" : "non-leaf ", m_b1->bbNum, m_b2->bbNum);
 
     // Return true to continue the bool optimization for the rest of the BB chain
     return true;
@@ -4938,15 +4925,8 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
 
     optOptimizeBoolsUpdateTrees();
 
-#ifdef DEBUG
-    if (m_comp->verbose)
-    {
-        printf("Folded %sboolean conditions of " FMT_BB ", " FMT_BB " and " FMT_BB " to :\n",
-               m_c2->OperIsLeaf() ? "" : "non-leaf ", m_b1->bbNum, m_b2->bbNum, m_b3->bbNum);
-        m_comp->gtDispStmt(s1);
-        printf("\n");
-    }
-#endif
+    JITDUMPSTMT(s1, "Folded %sboolean conditions of " FMT_BB ", " FMT_BB " and " FMT_BB " to :\n",
+                m_c2->OperIsLeaf() ? "" : "non-leaf ", m_b1->bbNum, m_b2->bbNum, m_b3->bbNum);
 
     // Return true to continue the bool optimization for the rest of the BB chain
     return true;

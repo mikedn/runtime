@@ -477,13 +477,7 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
     // to report the following offsets. So reset impCurStmtOffs.
     impCurStmtOffs = BAD_IL_OFFSET;
 
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("\n\n");
-        gtDispStmt(stmt);
-    }
-#endif
+    JITDUMPSTMT(stmt, "\n\n");
 
     return stmt;
 }
@@ -12666,11 +12660,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
             // confirm that the argument is a GC pointer (for debugging (GC stress))
             value = gtNewHelperCallNode(CORINFO_HELP_CHECK_OBJ, TYP_REF, value);
 
-            if (verbose)
-            {
-                printf("\ncompGcChecks tree:\n");
-                gtDispTree(value);
-            }
+            JITDUMPTREE(value, "\ncompGcChecks tree:\n");
         }
 #endif
 
@@ -16466,16 +16456,6 @@ void Importer::fgDispBasicBlocks(bool dumpTrees)
 void Importer::fgDispHandlerTab()
 {
     comp->fgDispHandlerTab();
-}
-
-void Importer::gtDispStmt(Statement* stmt)
-{
-    comp->gtDispStmt(stmt);
-}
-
-void Importer::gtDispTree(GenTree* tree)
-{
-    return comp->gtDispTree(tree);
 }
 
 #endif // DEBUG

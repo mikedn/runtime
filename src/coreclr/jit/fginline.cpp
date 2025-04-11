@@ -2236,7 +2236,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
-        DBEXEC(verbose, gtDispStmt(stmt));
+        DISPSTMT(stmt);
     }
 
     if (nullCheckThisArg != nullptr)
@@ -2246,7 +2246,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
-        DBEXEC(verbose, gtDispStmt(stmt));
+        DISPSTMT(stmt);
     }
 
     afterStmt = inlInitInlineeLocals(inlineInfo, afterStmt);
@@ -2330,8 +2330,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
             afterStmt = stmt;
 
-            JITDUMP("Argument %u init\n", argNum);
-            DBEXEC(verbose, gtDispStmt(stmt));
+            JITDUMPSTMT(stmt, "Argument %u init\n", argNum);
 
             continue;
         }
@@ -2435,8 +2434,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                 fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
                 afterStmt = stmt;
 
-                JITDUMP("Argument %u is not used, keeping side effects\n", argNum);
-                DBEXEC(verbose, gtDispStmt(stmt));
+                JITDUMPSTMT(stmt, "Argument %u is not used, keeping side effects\n", argNum);
             }
             else
             {
@@ -2609,8 +2607,7 @@ Statement* Compiler::inlInitInlineeLocals(const InlineInfo* inlineInfo, Statemen
         fgInsertStmtAfter(inlineInfo->iciBlock, afterStmt, stmt);
         afterStmt = stmt;
 
-        JITDUMP("Init inlinee local %u\n", i);
-        DBEXEC(verbose, gtDispStmt(stmt));
+        JITDUMPSTMT(stmt, "Init inlinee local %u\n", i);
     }
 
     return afterStmt;
@@ -2663,7 +2660,6 @@ void Compiler::inlNullOutInlineeGCLocals(const InlineInfo* inlineInfo, Statement
         Statement* stmt  = gtNewStmt(store, inlineInfo->iciStmt->GetILOffsetX());
         fgInsertStmtAfter(inlineInfo->iciBlock, stmtAfter, stmt);
 
-        JITDUMP("Null out inlinee local %u\n", i);
-        DBEXEC(verbose, gtDispStmt(stmt));
+        JITDUMPSTMT(stmt, "Null out inlinee local %u\n", i);
     }
 }

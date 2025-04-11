@@ -401,11 +401,9 @@ void Compiler::fgReplacePred(BasicBlock* block, BasicBlock* oldPred, BasicBlock*
     }
 }
 
-/*****************************************************************************
- *  For a block that is in a handler region, find the first block of the most-nested
- *  handler containing the block.
- */
-BasicBlock* Compiler::fgFirstBlockOfHandler(BasicBlock* block)
+// For a block that is in a handler region, find the first block of the most-nested
+// handler containing the block.
+BasicBlock* Compiler::fgFirstBlockOfHandler(const BasicBlock* block)
 {
     assert(block->hasHndIndex());
     return ehGetDsc(block->getHndIndex())->ebdHndBeg;

@@ -27,6 +27,12 @@ enum class PhaseStatus : unsigned
     MODIFIED_EVERYTHING
 };
 
+enum class PhasePosition
+{
+    PrePhase,
+    PostPhase
+};
+
 class Compiler;
 
 // A phase encapsulates a part of the compilation pipeline for a method.

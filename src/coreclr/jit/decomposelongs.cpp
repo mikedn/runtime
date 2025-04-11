@@ -43,7 +43,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
 
         if (lcl->TypeIs(TYP_LONG) && lcl->IsPromoted())
         {
-            JITDUMPRANGE(
+            JITDUMPLIRRANGE(
                 Range(), tree,
                 "Changing implicit reference to low half of LONG local to an explicit reference of its promoted "
                 "half:\n");
@@ -59,7 +59,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         return tree->gtNext;
     }
 
-    JITDUMPRANGE(Range(), tree, "Decomposing LONG tree. BEFORE:\n");
+    JITDUMPLIRRANGE(Range(), tree, "Decomposing LONG tree. BEFORE:\n");
 
     LIR::Use use;
     if (!Range().TryGetUse(tree, &use))
@@ -174,7 +174,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         DecomposeFieldList(use.User()->AsFieldList(), use.Def()->AsOp());
     }
 
-    JITDUMPRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
+    JITDUMPLIRRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
     if (!use.IsDummyUse() && use.User()->OperIs(GT_TRUNC))
     {
@@ -477,20 +477,20 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     // Save address to a temp. It is used in storeIndLow and storeIndHigh trees.
     LIR::Use address(Range(), &store->gtOp1, store);
     address.ReplaceWithLclLoad(m_compiler);
-    JITDUMPRANGE(Range(), address.Def(), "[DecomposeIndStore]: Saving address tree to a temp var:\n");
+    JITDUMPLIRRANGE(Range(), address.Def(), "[DecomposeIndStore]: Saving address tree to a temp var:\n");
 
     if (!gtLong->GetOp(0)->OperIsLeaf())
     {
         LIR::Use op1(Range(), &gtLong->gtOp1, gtLong);
         op1.ReplaceWithLclLoad(m_compiler);
-        JITDUMPRANGE(Range(), op1.Def(), "[DecomposeIndStore]: Saving low data tree to a temp var:\n");
+        JITDUMPLIRRANGE(Range(), op1.Def(), "[DecomposeIndStore]: Saving low data tree to a temp var:\n");
     }
 
     if (!gtLong->GetOp(1)->OperIsLeaf())
     {
         LIR::Use op2(Range(), &gtLong->gtOp2, gtLong);
         op2.ReplaceWithLclLoad(m_compiler);
-        JITDUMPRANGE(Range(), op2.Def(), "[DecomposeIndStore]: Saving high data tree to a temp var:\n");
+        JITDUMPLIRRANGE(Range(), op2.Def(), "[DecomposeIndStore]: Saving high data tree to a temp var:\n");
     }
 
     GenTreeLclLoad*  addrBase    = store->GetAddr()->AsLclLoad();
@@ -520,13 +520,9 @@ GenTree* DecomposeLongs::DecomposeIndLoad(LIR::Use& use)
 
     LIR::Use address(Range(), &indLow->gtOp1, indLow);
     address.ReplaceWithLclLoad(m_compiler);
-    JITDUMP("[DecomposeIndLoad]: Saving addr tree to a temp var:\n");
-    DISPTREERANGE(Range(), address.Def());
 
-    // Change the type of lower ind.
     indLow->SetType(TYP_INT);
 
-    // Create tree of ind(addr+4)
     GenTreeLclLoad* addrBase = indLow->GetAddr()->AsLclLoad();
     assert(addrBase->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
@@ -1268,8 +1264,6 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
 
     GenTree*   simdTmpVar = RepresentOpAsLclLoad(op1, node, &node->GetUse(0).NodeRef());
     LclVarDsc* simdTmpLcl = simdTmpVar->AsLclLoad()->GetLcl();
-    JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op1 tree to a temp var:\n");
-    DISPTREERANGE(Range(), simdTmpVar);
     Range().Unlink(simdTmpVar);
     op1 = node->GetOp(0);
 
@@ -1280,8 +1274,6 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     {
         indexTmpVar = RepresentOpAsLclLoad(op2, node, &node->GetUse(1).NodeRef());
         indexTmpLcl = indexTmpVar->AsLclLoad()->GetLcl();
-        JITDUMP("[DecomposeHWIntrinsicGetElement]: Saving op2 tree to a temp var:\n");
-        DISPTREERANGE(Range(), indexTmpVar);
         Range().Unlink(indexTmpVar);
         op2 = node->GetOp(1);
     }
@@ -1365,7 +1357,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
     if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
     {
         JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
-        DISPNODE(hiSrc);
+        DISPLIRNODE(hiSrc);
         Range().Remove(hiSrc, /* markOperandsUnused */ true);
     }
     else
@@ -1375,7 +1367,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
     }
 
     JITDUMP("Removing the LONG source:\n");
-    DISPNODE(src);
+    DISPLIRNODE(src);
     Range().Unlink(src);
 
     LIR::Use use;
@@ -1395,11 +1387,11 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
 
     INDEBUG(treeToDisplay = loSrc);
     JITDUMP("Removing TRUNC:\n");
-    DISPNODE(trunc);
+    DISPLIRNODE(trunc);
 
     Range().Unlink(trunc);
 
-    JITDUMPRANGE(Range(), treeToDisplay, "Final result:\n")
+    JITDUMPLIRRANGE(Range(), treeToDisplay, "Final result:\n")
 
     return nextNode;
 }

@@ -3075,8 +3075,8 @@ private:
             assert(sideEffects != relop);
 
             relop->ChangeToIntCon(*value != 0 ? 1 : 0);
-            JITDUMP("After JTRUE constant propagation:\n");
-            DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(stmt));
+
+            JITDUMPSTMT(stmt, "After JTRUE constant propagation:\n");
 
             bool folded = m_compiler->fgFoldConditional(m_block);
             assert(folded);
@@ -3330,8 +3330,7 @@ private:
                     *use = newTree;
                 }
 
-                JITDUMP("After constant propagation on " FMT_TREEID ":\n", tree->GetID());
-                DBEXEC(m_compiler->verbose, m_compiler->gtDispStmt(m_stmt));
+                JITDUMPSTMT(m_stmt, "After constant propagation on " FMT_TREEID ":\n", tree->GetID());
 
                 DEBUG_DESTROY_NODE(tree);
 

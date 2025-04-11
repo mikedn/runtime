@@ -719,7 +719,7 @@ Compiler::Compiler(ArenaAllocator*        alloc,
 
 void Compiler::compInitMethodName()
 {
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_FLOWGRAPHS
+#if defined(DEBUG) || defined(LATE_DISASM) || defined(DUMP_FLOWGRAPHS)
     // Initialize the method name and related info, as it is used early in determining whether to
     // apply stress modes, and which ones to apply.
 
@@ -3465,7 +3465,7 @@ double JitTimer::s_cyclesPerSec = CachedCyclesPerSecond();
 #endif
 #endif
 
-#if defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS
+#if defined(FEATURE_JIT_METHOD_PERF) || defined(DUMP_FLOWGRAPHS)
 const char* PhaseNames[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) string_nm,
 #include "compphases.h"
@@ -3475,7 +3475,7 @@ const LPCWSTR PhaseShortNames[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) W(short_nm),
 #include "compphases.h"
 };
-#endif // defined(FEATURE_JIT_METHOD_PERF) || DUMP_FLOWGRAPHS
+#endif
 
 #ifdef FEATURE_JIT_METHOD_PERF
 bool PhaseHasChildren[]{
@@ -4371,31 +4371,30 @@ void Compiler::dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to)
 // The versions that start with 'd' use the tlsCompiler, so don't require a Compiler*.
 //
 // Summary:
-//      cBlock,      dBlock         : Display a basic block (call fgTableDispBasicBlock()).
-//      cBlocks,     dBlocks        : Display all the basic blocks of a function (call fgDispBasicBlocks()).
-//      cBlocksV,    dBlocksV       : Display all the basic blocks of a function (call fgDispBasicBlocks(true)).
+//      cBlock,      dBlock         : Display a basic block.
+//      cBlocks,     dBlocks        : Display all the basic blocks of a function.
+//      cBlocksV,    dBlocksV       : Display all the basic blocks of a function.
 //                                    "V" means "verbose", and will dump all the trees.
-//      cStmt,       dStmt          : Display a Statement (call gtDispStmt()).
-//      cTree,       dTree          : Display a tree (call gtDispTree()).
-//      cTreeLIR,    dTreeLIR       : Display a tree in LIR form (call gtDispLIRNode()).
-//      cTrees,      dTrees         : Display all the trees in a function (call fgDumpTrees()).
-//      cEH,         dEH            : Display the EH handler table (call fgDispHandlerTab()).
-//      cVar,        dVar           : Display a local variable given its number (call lvaDumpEntry()).
-//      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc* (call lvaDumpEntry()).
-//      cVars,       dVars          : Display the local variable table (call lvaTableDump()).
-//      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors (call block->dspCheapPreds()).
-//      cBlockPreds, dBlockPreds    : Display a block's predecessors (call block->dspPreds()).
-//      cBlockSuccs, dBlockSuccs    : Display a block's successors (call block->dspSuccs(compiler)).
-//      cReach,      dReach         : Display all block reachability (call fgDispReach()).
-//      cLiveness,   dLiveness      : Display per-block variable liveness (call fgDispBBLiveness()).
+//      cStmt,       dStmt          : Display a statement.
+//      cTree,       dTree          : Display a tree.
+//      cTreeLIR,    dTreeLIR       : Display a tree in LIR form.
+//      cTrees,      dTrees         : Display all the trees in a function.
+//      cEH,         dEH            : Display the EH handler table.
+//      cVar,        dVar           : Display a local variable given its number.
+//      cVarDsc,     dVarDsc        : Display a local variable given a LclVarDsc*.
+//      cVars,       dVars          : Display the local variable table.
+//      cBlockCheapPreds, dBlockCheapPreds : Display a block's cheap predecessors.
+//      cBlockPreds, dBlockPreds    : Display a block's predecessors.
+//      cBlockSuccs, dBlockSuccs    : Display a block's successors.
+//      cReach,      dReach         : Display all block reachability.
+//      cLiveness,   dLiveness      : Display per-block variable liveness.
 //      cCVarSet,    dCVarSet       : Display a "converted" VARSET_TP: the varset is assumed to be tracked variable
-//                                    indices. These are converted to variable numbers and sorted. (Calls
-//                                    dumpConvertedVarSet()).
+//                                    indices. These are converted to variable numbers and sorted.
 //      cLoop,       dLoop          : Display the blocks of a loop, including the trees.
 //      cTreeFlags,  dTreeFlags     : Display tree flags
 //
 // The following don't require a Compiler* to work:
-//      dRegMask                    : Display a regMaskTP (call dspRegMask(mask)).
+//      dRegMask                    : Display a regMaskTP.
 //      dBlockList                  : Display a BasicBlockList*.
 
 void cBlock(Compiler* comp, BasicBlock* block)
@@ -4437,7 +4436,7 @@ void cTreeLIR(Compiler* comp, GenTree* tree)
 {
     static unsigned sequenceNumber = 0; // separate calls with a number to indicate this function has been called
     printf("===================================================================== *TreeLIR %u\n", sequenceNumber++);
-    comp->gtDispLIRNode(tree);
+    comp->dmpLIRNode(tree);
 }
 
 void cTrees(Compiler* comp)

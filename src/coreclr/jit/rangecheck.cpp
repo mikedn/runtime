@@ -386,8 +386,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
         return false;
     }
 
-    JITDUMP("Optimize: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(indexExpr, false, false));
+    JITDUMPNODE(indexExpr, "Optimize: " FMT_BB " ", block->bbNum);
 
     currentIndexExpr          = indexExpr;
     isMonotonicallyIncreasing = false;
@@ -510,8 +509,7 @@ bool RangeCheck::IsPhiMonotonicallyIncreasing(GenTreePhi* phi, bool rejectNegati
 
 bool RangeCheck::IsMonotonicallyIncreasing(GenTree* expr, bool rejectNegativeConst)
 {
-    JITDUMP("Monotony: ");
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
+    JITDUMPNODE(expr, "Monotony: ");
 
     if (!searchPath.Add(expr))
     {
@@ -593,8 +591,7 @@ bool RangeCheck::HasAddOverflow() const
 
         if (node->OperIs(GT_ADD, GT_OVF_SADD, GT_OVF_UADD))
         {
-            JITDUMP("Overflow: ");
-            DBEXEC(compiler->verbose, compiler->gtDispTree(node, false, false));
+            JITDUMPNODE(node, "Overflow: ");
 
             const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0)->SkipComma());
             const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1)->SkipComma());
@@ -863,8 +860,7 @@ Range RangeCheck::ComputeLclUseRange(BasicBlock* block, GenTreeLclUse* use)
 {
     GenTreeLclDef* def = use->GetDef();
 
-    JITDUMP("Range: " FMT_BB " ", def->GetBlock()->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
+    JITDUMPNODE(def, "Range: " FMT_BB " ", def->GetBlock()->bbNum);
 
     // Uses may perform implicit LONG to INT truncation and possibly
     // other weird conversions such as BYREF to INT, ignore for now.
@@ -1016,8 +1012,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
         GenTreeLclUse* useNode  = use.GetNode();
         Range*         useRange = rangeMap.LookupPointer(useNode);
 
-        JITDUMP("Range: " FMT_BB " ", block->bbNum);
-        DBEXEC(compiler->verbose, compiler->gtDispTree(useNode, false, false));
+        JITDUMPNODE(useNode, "Range: " FMT_BB " ", block->bbNum);
 
         if (useRange == nullptr)
         {
@@ -1033,8 +1028,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
             {
                 GenTreeLclDef* def = useNode->GetDef();
 
-                JITDUMP("Range: " FMT_BB " ", def->GetBlock()->bbNum);
-                DBEXEC(compiler->verbose, compiler->gtDispTree(def, false, false));
+                JITDUMPNODE(def, "Range: " FMT_BB " ", def->GetBlock()->bbNum);
 
                 useRange    = rangeMap.Emplace(useNode);
                 Range range = *GetRange(def->GetBlock(), def->GetValue()->SkipComma());
@@ -1179,8 +1173,7 @@ Range RangeCheck::ComputeRange(BasicBlock* block, GenTree* expr)
 
 Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 {
-    JITDUMP("Range: " FMT_BB " ", block->bbNum);
-    DBEXEC(compiler->verbose, compiler->gtDispTree(expr, false, false));
+    JITDUMPNODE(expr, "Range: " FMT_BB " ", block->bbNum);
 
     assert(!expr->OperIs(GT_COMMA));
 

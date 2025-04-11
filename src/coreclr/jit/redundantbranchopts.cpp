@@ -109,12 +109,9 @@ bool RedundantBranchesDomTreeVisitor::VisitBranch(BasicBlock* const block)
                 {
                     // The compare in "tree" is redundant.
                     // Is there a unique path from the dominating compare?
-                    //
-                    JITDUMP("\nDominator " FMT_BB " of " FMT_BB " has relop with same liberal VN:\n", domBlock->bbNum,
-                            block->bbNum);
-                    DISPTREE(domCmpTree);
-                    JITDUMP(" Redundant compare; current relop:\n");
-                    DISPTREE(compare);
+                    JITDUMPTREE(domCmpTree, "\nDominator " FMT_BB " of " FMT_BB " has relop with same liberal VN:\n",
+                                domBlock->bbNum, block->bbNum);
+                    JITDUMPTREE(compare, " Redundant compare; current relop:\n");
 
                     BasicBlock* const trueSuccessor  = domBlock->bbJumpDest;
                     BasicBlock* const falseSuccessor = domBlock->bbNext;

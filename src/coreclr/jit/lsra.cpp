@@ -4206,7 +4206,7 @@ void LinearScan::InsertUpperVectorSpill(GenTree*     before,
     }
 
     blockRange.InsertBefore(before, lclUse, spillNode);
-    DISPTREE(spillNode);
+    DISPLIRRANGE(blockRange, spillNode);
     JITDUMP("\n");
 }
 
@@ -4293,7 +4293,7 @@ void LinearScan::InsertUpperVectorUnspill(GenTree*     before,
         }
     }
 
-    DISPTREE(unspillNode);
+    DISPLIRRANGE(blockRange, unspillNode);
     JITDUMP("\n");
 }
 #endif // FEATURE_PARTIAL_SIMD_CALLEE_SAVE
@@ -7059,7 +7059,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
                                refPosIterator->rpNum);
                         break;
                     case RefTypeBB:
-                        block->dspBlockHeader(compiler);
+                        block->dspBlockHeader(compiler, true, false, true);
                         printedBlockHeader = true;
                         printf("=====\n");
                         break;
@@ -7071,7 +7071,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         }
         else
         {
-            block->dspBlockHeader(compiler);
+            block->dspBlockHeader(compiler, true, false, true);
             printf("=====\n");
         }
         if (enregisterLocalVars && mode == LSRA_DUMP_POST && block != compiler->fgFirstBB &&

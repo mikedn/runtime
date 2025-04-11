@@ -17,16 +17,16 @@ void PhaseBase::PrePhase()
     //
     // In the long run the aim is to get rid of all pre-phase checks
     // and dumps, relying instead on post-phase checks and dumps from
-    // the preceeding phase.
+    // the preceding phase.
     //
     // Currently the list is just the set of phases that have custom
     // derivations from the Phase class.
-    static const Phases s_allowlist[]{PHASE_BUILD_SSA, PHASE_RATIONALIZE, PHASE_LOWERING, PHASE_STACK_LEVEL_SETTER};
+    static const Phases allowList[]{PHASE_BUILD_SSA, PHASE_RATIONALIZE, PHASE_LOWERING, PHASE_STACK_LEVEL_SETTER};
     bool                doPrePhase = false;
 
-    for (size_t i = 0; i < _countof(s_allowlist); i++)
+    for (Phases allowed : allowList)
     {
-        if (m_phaseId == s_allowlist[i])
+        if (m_phaseId == allowed)
         {
             doPrePhase = true;
             break;
@@ -35,12 +35,6 @@ void PhaseBase::PrePhase()
 
     if (comp->verbose)
     {
-        if (doPrePhase)
-        {
-            printf("Trees before %s\n", PhaseNames[m_phaseId]);
-            comp->fgDispBasicBlocks(true);
-        }
-
         if (comp->compIsForInlining())
         {
             printf("\n*************** Inline @[%06u] Starting PHASE \"%s\"\n", comp->impInlineInfo->iciCall->GetID(),
@@ -49,6 +43,11 @@ void PhaseBase::PrePhase()
         else
         {
             printf("\n*************** Starting PHASE \"%s\"\n", PhaseNames[m_phaseId]);
+        }
+
+        if (doPrePhase)
+        {
+            comp->fgDispBasicBlocks(true);
         }
     }
 
@@ -64,8 +63,8 @@ void PhaseBase::PrePhase()
     }
 #endif // DEBUG
 
-#if DUMP_FLOWGRAPHS
-    comp->fgDumpFlowGraph(m_phaseId, Compiler::PhasePosition::PrePhase);
+#ifdef DUMP_FLOWGRAPHS
+    comp->fgDumpFlowGraph(m_phaseId, PhasePosition::PrePhase);
 #endif
 }
 
@@ -94,40 +93,40 @@ void PhaseBase::PostPhase(PhaseStatus status)
         // well as the new-style phases that have been updated to return
         // PhaseStatus from their DoPhase methods.
 
-        static const Phases s_allowlist[]{PHASE_IMPORTATION,
-                                          PHASE_IBCINSTR,
-                                          PHASE_IBCPREP,
-                                          PHASE_INCPROFILE,
-                                          PHASE_INDXCALL,
-                                          PHASE_MORPH_INLINE,
-                                          PHASE_ALLOCATE_OBJECTS,
-                                          PHASE_EMPTY_TRY,
-                                          PHASE_EMPTY_FINALLY,
-                                          PHASE_MERGE_FINALLY_CHAINS,
-                                          PHASE_CLONE_FINALLY,
-                                          PHASE_MERGE_THROWS,
-                                          PHASE_MORPH_GLOBAL,
-                                          PHASE_INVERT_LOOPS,
-                                          PHASE_OPTIMIZE_LAYOUT,
-                                          PHASE_FIND_LOOPS,
-                                          PHASE_CLONE_LOOPS,
-                                          PHASE_UNROLL_LOOPS,
-                                          PHASE_BUILD_SSA,
-                                          PHASE_EARLY_PROP,
-                                          PHASE_VALUE_NUMBER,
-                                          PHASE_VN_COPY_PROP,
-                                          PHASE_HOIST_LOOP_CODE,
-                                          PHASE_OPTIMIZE_VALNUM_CSES,
-                                          PHASE_ASSERTION_PROP_MAIN,
-                                          PHASE_OPTIMIZE_INDEX_CHECKS,
-                                          PHASE_DESTROY_SSA,
-                                          PHASE_RATIONALIZE,
-                                          PHASE_LOWERING,
-                                          PHASE_STACK_LEVEL_SETTER};
+        static const Phases allowList[]{PHASE_IMPORTATION,
+                                        PHASE_IBCINSTR,
+                                        PHASE_IBCPREP,
+                                        PHASE_INCPROFILE,
+                                        PHASE_INDXCALL,
+                                        PHASE_MORPH_INLINE,
+                                        PHASE_ALLOCATE_OBJECTS,
+                                        PHASE_EMPTY_TRY,
+                                        PHASE_EMPTY_FINALLY,
+                                        PHASE_MERGE_FINALLY_CHAINS,
+                                        PHASE_CLONE_FINALLY,
+                                        PHASE_MERGE_THROWS,
+                                        PHASE_MORPH_GLOBAL,
+                                        PHASE_INVERT_LOOPS,
+                                        PHASE_OPTIMIZE_LAYOUT,
+                                        PHASE_FIND_LOOPS,
+                                        PHASE_CLONE_LOOPS,
+                                        PHASE_UNROLL_LOOPS,
+                                        PHASE_BUILD_SSA,
+                                        PHASE_EARLY_PROP,
+                                        PHASE_VALUE_NUMBER,
+                                        PHASE_VN_COPY_PROP,
+                                        PHASE_HOIST_LOOP_CODE,
+                                        PHASE_OPTIMIZE_VALNUM_CSES,
+                                        PHASE_ASSERTION_PROP_MAIN,
+                                        PHASE_OPTIMIZE_INDEX_CHECKS,
+                                        PHASE_DESTROY_SSA,
+                                        PHASE_RATIONALIZE,
+                                        PHASE_LOWERING,
+                                        PHASE_STACK_LEVEL_SETTER};
 
-        for (size_t i = 0; i < _countof(s_allowlist); i++)
+        for (Phases allowed : allowList)
         {
-            if (m_phaseId == s_allowlist[i])
+            if (m_phaseId == allowed)
             {
                 doPostPhase = true;
                 break;
@@ -179,8 +178,8 @@ void PhaseBase::PostPhase(PhaseStatus status)
     }
 #endif // DEBUG
 
-#if DUMP_FLOWGRAPHS
-    comp->fgDumpFlowGraph(m_phaseId, Compiler::PhasePosition::PostPhase);
+#ifdef DUMP_FLOWGRAPHS
+    comp->fgDumpFlowGraph(m_phaseId, PhasePosition::PostPhase);
 #endif
 
     comp->EndPhase(m_phaseId);

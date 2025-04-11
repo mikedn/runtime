@@ -1014,7 +1014,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
     if (compiler->verbose)
     {
         dumpDefList();
-        compiler->gtDispLIRNode(tree);
+        compiler->dmpLIRNode(tree);
     }
 #endif
 
