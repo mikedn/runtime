@@ -247,6 +247,27 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             BlockRange().Unlink(node);
             break;
 
+        case GT_CALL:
+            for (GenTreeCall::Use& use : node->AsCall()->AllArgs())
+            {
+                // A call argument may be local store when the arg is just setup for a late arg.
+                // A store is not supposed to have an use and this is just an artifact of how
+                // call trees are handled in HIR, it is no longer necessary in LIR. Replace with
+                // with ARGPLACE nodes so dead store removal in liveness doesn't leave us with
+                // args that "use" removed nodes.
+
+                // TODO-MIKE-Throughput: It may be possible to use a single ARGPLACE node for all
+                // args that need this to avoid unnecessary memory allocation. It is not chained
+                // in LIR so its gtNext/gtPrev pointers are always null and it has no other distinct
+                // properties. Well, it does have the type set to the original arg type but that's
+                // pointless since nothing actually looks at these nodes.
+                if (use.GetNode()->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+                {
+                    use.SetNode(new (comp, GT_ARGPLACE) GenTree(GT_ARGPLACE, use.GetNode()->GetType()));
+                }
+            }
+            break;
+
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
             assert(!node->AsIntrinsic()->IsUserCall());
