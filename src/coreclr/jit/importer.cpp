@@ -797,7 +797,7 @@ void Importer::AddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
     if ((conv == CorInfoCallConvExtension::CMemberFunction) ||
         (conv == CorInfoCallConvExtension::StdcallMemberFunction))
     {
-        GenTreeCall::Use** lastRef = &call->m_args;
+        GenTreeCall::Use** lastRef = &call->m_uses;
 
         while ((*lastRef != nullptr) && ((*lastRef)->GetNext() != nullptr))
         {
@@ -825,10 +825,10 @@ void Importer::AddCallRetBufArg(GenTreeCall* call, GenTree* retBufAddr)
 
 #if defined(TARGET_WINDOWS) && (defined(TARGET_AMD64) || defined(TARGET_ARM64))
     // win-x64 & win-arm64 ignore stdcall/fastcall/thiscall but care about member functions.
-    if (callConvIsInstanceMethodCallConv(call->GetCallConv()) && (call->m_args != nullptr))
+    if (callConvIsInstanceMethodCallConv(call->GetCallConv()) && (call->m_uses != nullptr))
     {
         call->gtCallMoreFlags &= ~GTF_CALL_M_REQUIRES_RETBUFF_ARG;
-        comp->gtInsertNewCallArgAfter(retBufAddr, call->m_args);
+        comp->gtInsertNewCallArgAfter(retBufAddr, call->m_uses);
     }
     else
 #endif
@@ -2245,7 +2245,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
             return nullptr;
         }
 
-        GenTreeCall::Use* tokenArg = newArrayCall->m_args;
+        GenTreeCall::Use* tokenArg = newArrayCall->m_uses;
         assert(tokenArg != nullptr);
         GenTreeCall::Use* numArgsArg = tokenArg->GetNext();
         assert(numArgsArg != nullptr);
@@ -2368,7 +2368,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         GenTree* arrayLengthNode;
 
-        GenTreeCall::Use* args = newArrayCall->m_args;
+        GenTreeCall::Use* args = newArrayCall->m_uses;
 #ifdef FEATURE_READYTORUN_COMPILER
         if (newArrayCall->IsHelperCall(CORINFO_HELP_READYTORUN_NEWARR_1))
         {
@@ -2945,7 +2945,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
             if (op1->IsCall() && op1->AsCall()->IsTypeHandleToRuntimeTypeHandleHelperCall())
             {
-                assert(op1->AsCall()->m_args->GetNext() == nullptr);
+                assert(op1->AsCall()->m_uses->GetNext() == nullptr);
 
                 impPopStack();
 
@@ -2962,7 +2962,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                     helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL;
                 }
 
-                return gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->m_args);
+                return gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->m_uses);
             }
 
             break;
@@ -5108,7 +5108,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     args = ReverseCallArgs(args, call->GetCallConv() == CorInfoCallConvExtension::Thiscall);
 #endif
 
-    call->m_args = args;
+    call->m_uses = args;
 
     if (call->GetCallConv() == CorInfoCallConvExtension::Thiscall)
     {
@@ -5117,7 +5117,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
         impBashVarAddrsToI(thisArg);
     }
 
-    for (GenTreeCall::Use& argUse : call->AllArgs())
+    for (GenTreeUse& argUse : call->Uses())
     {
         GenTree* arg = argUse.GetNode();
         call->gtFlags |= arg->GetSideEffects();
@@ -6578,9 +6578,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
         }
 
-        call->m_args = PopCallArgs(sig, extraArg);
+        call->m_uses = PopCallArgs(sig, extraArg);
 
-        for (GenTreeCall::Use& use : call->AllArgs())
+        for (GenTreeUse& use : call->Uses())
         {
             call->AddSideEffects(use.GetNode()->gtFlags & GTF_GLOB_EFFECT);
         }
@@ -12119,7 +12119,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     {
         if (call->IsHelperCall(CORINFO_HELP_VIRTUAL_FUNC_PTR))
         {
-            GenTree* handleNode = call->m_args->GetNext()->GetNext()->GetNode();
+            GenTree* handleNode = call->m_uses->GetNext()->GetNext()->GetNode();
 
             if (handleNode->IsIntCon())
             {
@@ -12158,7 +12158,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
         GenTreeCall* runtimeLookupCall = qmarkNode->AsQmark()->GetThen()->AsCall();
 
         // This could be any of CORINFO_HELP_RUNTIMEHANDLE_(METHOD|CLASS)(_LOG?)
-        GenTree* tokenNode = runtimeLookupCall->m_args->GetNext()->GetNode();
+        GenTree* tokenNode = runtimeLookupCall->m_uses->GetNext()->GetNode();
         noway_assert(tokenNode->OperIs(GT_CNS_INT));
         targetMethodHnd = tokenNode->AsIntCon()->GetCompileTimeMethodHandle();
     }
@@ -13681,7 +13681,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     CORINFO_SIG_INFO        sig    = info.compMethodInfo->args;
     CORINFO_ARG_LIST_HANDLE sigArg = sig.args;
 
-    GenTreeCall::Use* argUse = pInlineInfo == nullptr ? nullptr : pInlineInfo->iciCall->AsCall()->m_args;
+    GenTreeCall::Use* argUse = pInlineInfo == nullptr ? nullptr : pInlineInfo->iciCall->AsCall()->m_uses;
 
     if ((pInlineInfo != nullptr) && pInlineInfo->iciCall->AsCall()->HasThisArg())
     {
@@ -15213,7 +15213,7 @@ public:
 
     void StoreRetExprResultsInArgs(GenTreeCall* call)
     {
-        for (GenTreeCall::Use& use : call->AllArgs())
+        for (GenTreeUse& use : call->Uses())
         {
             WalkTree(&use.NodeRef(), call);
         }
@@ -16056,10 +16056,7 @@ bool Compiler::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 
     if (GenTreeCall* call = tree->IsCall())
     {
-        // We haven't morphed calls yet.
-        assert(call->gtCallLateArgs == nullptr);
-
-        for (GenTreeUse& use : call->AllArgs())
+        for (GenTreeUse& use : call->Uses())
         {
             if (impHasLclRef(use.GetNode(), lcl))
             {

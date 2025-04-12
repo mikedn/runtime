@@ -248,41 +248,36 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             break;
 
         case GT_CALL:
-            if (GenTreeCall::Use* lateArgs = node->AsCall()->gtCallLateArgs)
+        {
+            GenTreeCall* call     = node->AsCall();
+            CallInfo*    info     = call->GetInfo();
+            unsigned     argCount = info->GetArgCount();
+
+            GenTreeCall::Use** prevUseLink = &call->m_uses;
+
+            // TODO-MIKE-Cleanup: The order of the args linked list should probably be changed to
+            // match the order of the arg info array but some code expects that all PUTARG_REGS
+            // appear after all PUTARG_STKs...
+
+            for (unsigned i = 0; i < argCount; i++)
             {
-                GenTreeCall* call        = node->AsCall();
-                CallInfo*    info        = call->GetInfo();
-                unsigned     argCount    = info->GetArgCount();
-                CallArgInfo* lastArgInfo = info->GetArgInfo(argCount - 1);
+                CallArgInfo* argInfo = info->GetArgInfo(i);
 
-                assert(lastArgInfo->use->GetNext() == nullptr);
-                lastArgInfo->use->SetNext(lateArgs);
-                call->gtCallLateArgs = nullptr;
-
-                GenTreeCall::Use** prevUseLink = &call->m_args;
-
-                // TODO-MIKE-Cleanup: The order of the args linked list should probably be changed to
-                // match the order of the arg info array but some code expects that all PUTARG_REGS
-                // appear after all PUTARG_STKs...
-
-                for (unsigned i = 0; i < argCount; i++)
+                if (GenTreeCall::Use* lateUse = argInfo->GetLateUse())
                 {
-                    CallArgInfo* argInfo = info->GetArgInfo(i);
+                    *prevUseLink = argInfo->use->GetNext();
 
-                    if (GenTreeCall::Use* lateUse = argInfo->GetLateUse())
-                    {
-                        *prevUseLink = argInfo->use->GetNext();
-
-                        argInfo->use = lateUse;
-                        argInfo->RemoveLateUse();
-                    }
-                    else
-                    {
-                        prevUseLink = &argInfo->use->NextRef();
-                    }
+                    argInfo->use = lateUse;
+                    argInfo->RemoveLateUse();
+                }
+                else
+                {
+                    prevUseLink = &argInfo->use->NextRef();
                 }
             }
+
             break;
+        }
 
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.

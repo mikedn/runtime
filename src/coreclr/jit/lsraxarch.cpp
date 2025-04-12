@@ -672,7 +672,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
     if (call->IsVarargs())
     {
         // We will need an internal int reg for any float arguments to a varArgs call.
-        for (GenTreeCall::Use& use : call->AllArgs())
+        for (GenTreeUse& use : call->Uses())
         {
             GenTree* argNode = use.GetNode();
 
@@ -696,9 +696,9 @@ void LinearScan::BuildCall(GenTreeCall* call)
     }
 #endif // WINDOWS_AMD64_ABI
 
-    for (GenTreeCall::Use& arg : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
-        GenTree* argNode = arg.GetNode();
+        GenTree* argNode = use.GetNode();
 
         INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 

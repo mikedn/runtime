@@ -4101,7 +4101,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     Emitter& emit = *GetEmitter();
 
-    for (GenTreeCall::Use& use : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
         GenTree* argNode = use.GetNode();
 

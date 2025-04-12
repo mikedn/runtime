@@ -1531,7 +1531,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // call could over-write the stack arg that is setup earlier.
     ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
 
-    for (GenTreeCall::Use& use : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
         if (use.GetNode()->OperIs(GT_PUTARG_STK))
         {
@@ -1641,7 +1641,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
         if (insertionPoint == nullptr)
         {
-            for (GenTreeCall::Use& use : call->AllArgs())
+            for (GenTreeUse& use : call->Uses())
             {
                 // TODO-MIKE-Review: What about PUTARG_SPLIT? Likely doesn't happen
                 // because ARM32 doesn't support fast tail calls and ARM64 only uses
@@ -4529,7 +4529,7 @@ void Lowering::VerifyCallArg(GenTree* arg)
 
 void Lowering::VerifyCall(GenTreeCall* call)
 {
-    for (GenTreeUse& use : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
         VerifyCallArg(use.GetNode());
     }

@@ -123,9 +123,9 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
 #endif // TARGET_ARM
 
-    for (GenTreeCall::Use& arg : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
-        GenTree* argNode = arg.GetNode();
+        GenTree* argNode = use.GetNode();
 
         INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 

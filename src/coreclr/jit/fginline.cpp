@@ -1241,7 +1241,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
     unsigned argNum = 0;
 
-    for (GenTreeUse& use : inlineInfo->iciCall->AllArgs())
+    for (GenTreeUse& use : inlineInfo->iciCall->Uses())
     {
         if (argNum == retBufArgNum)
         {

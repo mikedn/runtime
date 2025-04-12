@@ -1533,7 +1533,7 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 
     unsigned argCount = 0;
 
-    for (const auto& arg : call->AllArgs())
+    for (GenTreeUse& use : call->Uses())
     {
         argCount++;
     }
@@ -1545,15 +1545,15 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
 
     unsigned argNum = 0;
 
-    for (auto& arg : call->AllArgs())
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* argNode = arg.GetNode();
+        GenTree* argNode = use.GetNode();
 
         assert(varTypeIsIntegralOrI(argNode->GetType()));
 
         range.InsertBefore(before, argNode);
 
-        CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(&arg, argNum);
+        CallArgInfo* argInfo = new (compiler, CMK_CallInfo) CallArgInfo(&use, argNum);
         argInfo->SetArgType(argNode->GetType());
         argInfo->SetRegCount(1);
         argInfo->SetRegNum(0, argRegs[argNum++]);

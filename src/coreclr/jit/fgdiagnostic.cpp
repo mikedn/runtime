@@ -1291,7 +1291,7 @@ void Compiler::fgDebugCheckFlags(GenTree* tree)
                     // is hidden inside a COMMA/FIELD_LIST, so we'll simply check
                     // for GTF_ASG instead of a store node.
 
-                    for (GenTreeUse& use : node->AsCall()->AllArgs())
+                    for (GenTreeUse& use : node->AsCall()->Uses())
                     {
                         if (use.GetNode()->HasAnySideEffect(GTF_ASG))
                         {

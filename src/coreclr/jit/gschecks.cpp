@@ -202,22 +202,12 @@ static GenTreeWalkResult MarkPtrsAndAssignGroups(GenTree** use, GenTree* user, v
             // isn't it supposed to be set only for the this argument itself?
             state->isUnderIndir = call->HasThisArg();
 
-            for (GenTreeCall::Use& use : call->AllArgs())
+            for (GenTreeUse& use : call->Uses())
             {
                 // Skip STRUCT typed LCL_LOAD|FLD call args, previously these were wrapped in OBJs,
                 // which this code ignored. Which is probably a bug since a struct can contain
                 // pointers. Needless to say that fixing this will result in regressions due to
                 // extra copying of current method's parameters.
-                if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
-                {
-                    continue;
-                }
-
-                comp->fgWalkTreePre(&use.NodeRef(), MarkPtrsAndAssignGroups, state);
-            }
-
-            for (GenTreeCall::Use& use : call->LateArgs())
-            {
                 if (use.GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && use.GetNode()->TypeIs(TYP_STRUCT))
                 {
                     continue;

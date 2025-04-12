@@ -708,10 +708,10 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
         argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
     }
 
-    GenTreeCall::UseIterator newUse    = newCall->AllArgs().begin();
-    GenTreeCall::UseIterator newUseEnd = newCall->AllArgs().end();
-    GenTreeCall::UseIterator oldUse    = oldCall->AllArgs().begin();
-    GenTreeCall::UseIterator oldUseEnd = newCall->AllArgs().end();
+    GenTreeCall::UseIterator newUse    = newCall->Uses().begin();
+    GenTreeCall::UseIterator newUseEnd = newCall->Uses().end();
+    GenTreeCall::UseIterator oldUse    = oldCall->Uses().begin();
+    GenTreeCall::UseIterator oldUseEnd = newCall->Uses().end();
 
     for (; newUse != newUseEnd; ++newUse, ++oldUse)
     {
@@ -722,18 +722,7 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
                 argTable[i]->use = newUse.GetUse();
                 break;
             }
-        }
-    }
 
-    newUse    = newCall->LateArgs().begin();
-    newUseEnd = newCall->LateArgs().end();
-    oldUse    = oldCall->LateArgs().begin();
-    oldUseEnd = newCall->LateArgs().end();
-
-    for (; newUse != newUseEnd; ++newUse, ++oldUse)
-    {
-        for (unsigned i = 0; i < argCount; i++)
-        {
             if (argTable[i]->GetLateUse() == oldUse.GetUse())
             {
                 argTable[i]->SetLateUse(newUse.GetUse());
@@ -1218,6 +1207,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
 
 void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
 {
+    GenTreeCall::Use* lateArgUseListHead = nullptr;
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
     for (unsigned i = 0; i < argCount; i++)
@@ -1375,7 +1365,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
 
             if (lateArgUseListTail == nullptr)
             {
-                call->gtCallLateArgs = lateArgUse;
+                lateArgUseListHead = lateArgUse;
             }
             else
             {
@@ -1385,6 +1375,11 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
             lateArgUseListTail = lateArgUse;
             argInfo->SetLateUse(lateArgUse);
         }
+    }
+
+    if (lateArgUseListHead != nullptr)
+    {
+        compiler->gtAppendCallArgs(call, lateArgUseListHead);
     }
 }
 
@@ -1436,13 +1431,10 @@ GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
 //
 void Compiler::fgInitArgInfo(GenTreeCall* call)
 {
-    assert(call->GetInfo() == nullptr);
+    assert((call->GetInfo() == nullptr) && !call->HasArgsSetup());
     assert(call->RequiresRetBufArg() == call->HasRetBufArg());
 
     JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
-
-    // At this point, we should never have gtCallLateArgs, as this needs to be done before those are determined.
-    assert(call->gtCallLateArgs == nullptr);
 
 #ifdef TARGET_X86
     // These are handled by special code in LIR/lowering.
@@ -1495,7 +1487,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
     unsigned numArgs = 0;
 
-    for (GenTreeCall::Use& use : call->AllArgs())
+    for (GenTreeCall::Use& use : call->Uses())
     {
         numArgs++;
     }
@@ -1612,7 +1604,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         GenTree* target = nullptr;
         GenTree* cookie = nullptr;
 
-        for (GenTreeCall::Use* use = call->m_args; use->GetNext() != nullptr; use = use->GetNext())
+        for (GenTreeCall::Use* use = call->m_uses; use->GetNext() != nullptr; use = use->GetNext())
         {
             cookie = use->GetNode();
             target = use->GetNext()->GetNode();
@@ -1698,7 +1690,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         return firstSlot;
     };
 
-    for (GenTreeCall::Use& args : call->AllArgs())
+    for (GenTreeCall::Use& args : call->Uses())
     {
         GenTree* const  argNode = args.GetNode();
         var_types const argType = argNode->GetType();
@@ -2186,13 +2178,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 
     GenTreeFlags argsSideEffects = GTF_NONE;
 
-    for (GenTreeUse& use : call->AllArgs())
-    {
-        use.SetNode(fgMorphTree(use.GetNode()));
-        argsSideEffects |= use.GetNode()->gtFlags;
-    }
-
-    for (GenTreeUse& use : call->LateArgs())
+    for (GenTreeUse& use : call->Uses())
     {
         use.SetNode(fgMorphTree(use.GetNode()));
         argsSideEffects |= use.GetNode()->gtFlags;
@@ -2253,7 +2239,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
     // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
 
-    for (GenTreeCall::Use& argUse : call->AllArgs())
+    for (GenTreeCall::Use& argUse : call->Uses())
     {
         CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum++);
         GenTree*     arg     = argUse.GetNode();
@@ -6426,55 +6412,36 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
     Statement* tempStoreInsertionPoint  = lastStmt;
     Statement* paramStoreInsertionPoint = lastStmt;
     IL_OFFSETX ilOffset                 = lastStmt->GetILOffsetX();
-    unsigned   argIndex                 = 0;
 
-    for (GenTreeCall::Use& use : call->AllArgs())
+    for (GenTreeCall::Use& use : call->Uses())
     {
         GenTree* argNode = use.GetNode();
 
-        if (!argNode->IsNothingNode() && !argNode->OperIs(GT_ARGPLACE))
+        // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
+        // and the linear search it performs...
+
+        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
+
+        if (argInfo->HasLateUse() && (argInfo->GetLateUse() != &use))
         {
-            // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
-            // and the linear search it performs...
-
-            CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
-
-            if (argInfo->HasLateUse())
+            if (!argNode->OperIs(GT_ARGPLACE))
             {
                 // This is a setup node so we need to hoist it.
                 fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
             }
-            else
-            {
-                // This is an actual argument that needs to be stored to the corresponding caller parameter.
-                CallArgInfo* argInfo = call->GetArgInfoByArgNum(argIndex);
-                Statement*   paramStoreStmt =
-                    fgAssignRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
-                                                          paramStoreInsertionPoint);
-
-                if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
-                {
-                    // All temp assignments will happen before the first param store.
-                    tempStoreInsertionPoint = paramStoreStmt;
-                }
-            }
         }
-
-        argIndex++;
-    }
-
-    for (GenTreeCall::Use& use : call->LateArgs())
-    {
-        GenTree*     argNode = use.GetNode();
-        CallArgInfo* argInfo = call->GetArgInfoByLateArgUse(&use);
-        Statement*   paramStoreStmt =
-            fgAssignRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
-                                                  paramStoreInsertionPoint);
-
-        if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
+        else
         {
-            // All temp stores will happen before the first param store.
-            tempStoreInsertionPoint = paramStoreStmt;
+            // This is an actual argument that needs to be stored to the corresponding caller parameter.
+            Statement* paramStoreStmt =
+                fgAssignRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
+                                                      paramStoreInsertionPoint);
+
+            if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
+            {
+                // All temp assignments will happen before the first param store.
+                tempStoreInsertionPoint = paramStoreStmt;
+            }
         }
     }
 
@@ -6847,7 +6814,7 @@ GenTree* Compiler::fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
     // Either or both of the array and index arguments may have been spilled to temps by `fgSetupArgs`. Copy
     // the spill trees as well if necessary.
     GenTreeOp* argSetup = nullptr;
-    for (GenTreeCall::Use& use : call->AllArgs())
+    for (GenTreeCall::Use& use : call->Uses())
     {
         GenTree* const arg = use.GetNode();
         if (!arg->OperIs(GT_LCL_DEF, GT_LCL_STORE))

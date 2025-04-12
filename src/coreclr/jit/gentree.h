@@ -2143,7 +2143,6 @@ class GenTreeUseEdgeIterator final
 #endif
 
     GenTree** AdvanceCallArgs();
-    GenTree** AdvanceCallLateArgs();
 
     GenTree** Terminate()
     {
@@ -3991,10 +3990,7 @@ struct GenTreeCall final : public GenTree
     using UseIterator = GenTreeUseLinkIterator<Use>;
     using UseList     = GenTreeUseLinkList<Use>;
 
-    Use* m_args         = nullptr; // The list of arguments in original evaluation order
-    Use* gtCallLateArgs = nullptr; // On x86:     The register arguments in an optimal order
-                                   // On ARM/x64: - also includes any outgoing arg space arguments
-                                   //             - that were evaluated into a temp LclVar
+    Use*     m_uses     = nullptr;
     GenTree* m_callAddr = nullptr;
 
     CORINFO_METHOD_HANDLE m_methodHandle = nullptr;
@@ -4035,7 +4031,7 @@ struct GenTreeCall final : public GenTree
 public:
     GenTreeCall(var_types type, Use* args)
         : GenTree(GT_CALL, varActualType(type))
-        , m_args(args)
+        , m_uses(args)
         , m_intrinsic(NI_Illegal)
         , m_callConv(static_cast<unsigned>(CorInfoCallConvExtension::Managed))
         , m_entryPointAccessType(IAT_VALUE)
@@ -4091,22 +4087,17 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_HAS_ARGS_SETUP) != 0;
     }
 
-    UseList AllArgs()
+    UseList Uses()
     {
-        return UseList(m_args);
-    }
-
-    UseList LateArgs()
-    {
-        return UseList(gtCallLateArgs);
+        return UseList(m_uses);
     }
 
     void AddThisArg(GenTreeCall::Use* arg)
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) == 0);
 
-        arg->SetNext(m_args);
-        m_args = arg;
+        arg->SetNext(m_uses);
+        m_uses = arg;
         gtCallMoreFlags |= GTF_CALL_M_HAS_THIS_ARG;
     }
 
@@ -4114,24 +4105,24 @@ public:
     {
         assert((gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0);
 
-        return m_args;
+        return m_uses;
     }
 
     GenTreeCall::Use* HasThisArg() const
     {
-        return (gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0 ? m_args : nullptr;
+        return (gtCallMoreFlags & GTF_CALL_M_HAS_THIS_ARG) != 0 ? m_uses : nullptr;
     }
 
     void PrependArg(GenTreeCall::Use* arg)
     {
-        arg->SetNext(m_args);
-        m_args = arg;
+        arg->SetNext(m_uses);
+        m_uses = arg;
     }
 
     GenTreeCall::Use* RemoveFirstArg()
     {
-        GenTreeCall::Use* first = m_args;
-        m_args                  = first->GetNext();
+        GenTreeCall::Use* first = m_uses;
+        m_uses                  = first->GetNext();
         return first;
     }
 
@@ -4341,7 +4332,7 @@ public:
         }
         else
         {
-            return m_args;
+            return m_uses;
         }
     }
 
@@ -4359,7 +4350,7 @@ public:
         }
         else
         {
-            m_args = m_args->GetNext();
+            m_uses = m_uses->GetNext();
         }
     }
 
