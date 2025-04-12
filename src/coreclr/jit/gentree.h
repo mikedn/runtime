@@ -3781,7 +3781,8 @@ enum GenTreeCallFlags : unsigned
     GTF_CALL_M_EXPANDED_EARLY          = 0x00800000, // the Virtual Call target address is expanded in Morph rather than in Lower
 
     GTF_CALL_M_HAS_RETBUFF_ARG         = 0x01000000, // call has a return buffer arg
-    GTF_CALL_M_HAS_THIS_ARG            = 0x02000000  // call has a (managed) "this" arg
+    GTF_CALL_M_HAS_THIS_ARG            = 0x02000000, // call has a (managed) "this" arg
+    GTF_CALL_M_HAS_ARGS_SETUP          = 0x04000000  // call args have been setup
 };
 // clang-format on
 
@@ -4087,6 +4088,11 @@ public:
     }
 
     void ResetArgInfo();
+
+    bool HasArgsSetup() const
+    {
+        return (gtCallMoreFlags & GTF_CALL_M_HAS_ARGS_SETUP) != 0;
+    }
 
     UseList AllArgs()
     {
@@ -5036,7 +5042,6 @@ class CallInfo
     unsigned stackAlignPadding = 0;
     bool     stackAlignmentDone : 1;
 #endif
-    bool argsComplete : 1;
 
     void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
     void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
@@ -5075,11 +5080,6 @@ public:
     unsigned GetStackArgsSize() const
     {
         return nextSlotNum * REGSIZE_BYTES;
-    }
-
-    bool AreArgsComplete() const
-    {
-        return argsComplete;
     }
 
 #ifdef UNIX_X86_ABI

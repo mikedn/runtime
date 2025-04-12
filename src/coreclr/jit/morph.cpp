@@ -671,7 +671,6 @@ CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 #ifdef UNIX_X86_ABI
     , stackAlignmentDone(false)
 #endif
-    , argsComplete(false)
 {
 }
 
@@ -696,10 +695,9 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 #endif
 
     INDEBUG(argTableSize = oldArgInfo->argTableSize;)
-    argsComplete = false;
-    argTable     = nullptr;
+    argTable = nullptr;
 
-    assert(oldArgInfo->argsComplete);
+    assert(oldCall->HasArgsSetup());
 
     if (argCount > 0)
     {
@@ -748,8 +746,7 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
         }
     }
 
-    nextSlotNum  = oldArgInfo->nextSlotNum;
-    argsComplete = true;
+    nextSlotNum = oldArgInfo->nextSlotNum;
 }
 
 void CallInfo::AddArg(CallArgInfo* argInfo)
@@ -760,8 +757,6 @@ void CallInfo::AddArg(CallArgInfo* argInfo)
 
 unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
 {
-    assert(!argsComplete);
-
     unsigned firstSlot = roundUp(nextSlotNum, alignment);
     nextSlotNum        = firstSlot + slotCount;
     return firstSlot;
@@ -827,7 +822,7 @@ static bool HasLclHeap(Compiler* compiler, GenTree* tree)
 
 void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
 {
-    assert(!argsComplete);
+    assert(!call->HasArgsSetup());
 
     bool needsTemps = false;
     bool hasRegArgs = false;
@@ -1083,7 +1078,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         EvalArgsToTemps(compiler, call, sortedArgTable);
     }
 
-    argsComplete = true;
+    call->gtCallMoreFlags |= GTF_CALL_M_HAS_ARGS_SETUP;
 }
 
 void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
@@ -2252,7 +2247,7 @@ void Compiler::fgMorphArgs(GenTreeCall* const call)
 //
 void Compiler::fgSetupArgs(GenTreeCall* const call)
 {
-    assert((call->GetInfo() != nullptr) && !call->GetInfo()->AreArgsComplete());
+    assert((call->GetInfo() != nullptr) && !call->HasArgsSetup());
 
     JITDUMP("Setting up call [%06u] args\n", call->GetID());
 
@@ -6801,7 +6796,7 @@ GenTree* Compiler::fgMorphCall(GenTreeCall* call, Statement* stmt)
 
     fgMorphArgs(call);
 
-    if (!call->GetInfo()->AreArgsComplete())
+    if (!call->HasArgsSetup())
     {
         fgSetupArgs(call);
     }
