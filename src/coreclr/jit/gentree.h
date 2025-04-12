@@ -5035,8 +5035,8 @@ class CallInfo
 #ifdef DEBUG
     unsigned argTableSize; // size of argTable array (equal to the argCount when done with fgSetupArgs)
 #endif
-    unsigned argCount    = 0;                   // Updatable arg count value
-    unsigned nextSlotNum = INIT_ARG_STACK_SLOT; // Updatable slot count value
+    unsigned argCount           = 0;
+    unsigned stackArgsSlotCount = INIT_ARG_STACK_SLOT;
 
 #ifdef UNIX_X86_ABI
     unsigned stackAlignPadding = 0;
@@ -5052,8 +5052,6 @@ public:
 
     void AddArg(CallArgInfo* argInfo);
 
-    unsigned AllocateStackSlots(unsigned slotCount, unsigned alignment);
-
     void ArgsComplete(class Compiler* compiler, GenTreeCall* call);
 
     unsigned GetArgCount() const
@@ -5067,19 +5065,24 @@ public:
         return argTable[i];
     }
 
-    unsigned GetNextSlotNum() const
+    unsigned GetStackArgsSlotCount() const
     {
-        return nextSlotNum;
+        return stackArgsSlotCount;
+    }
+
+    void SetStackArgsSlotCount(unsigned count)
+    {
+        stackArgsSlotCount = count;
     }
 
     bool HasStackArgs() const
     {
-        return nextSlotNum != INIT_ARG_STACK_SLOT;
+        return stackArgsSlotCount != INIT_ARG_STACK_SLOT;
     }
 
     unsigned GetStackArgsSize() const
     {
-        return nextSlotNum * REGSIZE_BYTES;
+        return stackArgsSlotCount * REGSIZE_BYTES;
     }
 
 #ifdef UNIX_X86_ABI

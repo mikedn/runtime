@@ -1284,7 +1284,7 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
     // EBP based address modes have smaller encoding than ESP based ones but then this basically
     // counts arg stores and those always use ESP. What we really need is the number of non-arg
     // stack references that exist, and this has nothing to do with that.
-    if (info->GetNextSlotNum() - INIT_ARG_STACK_SLOT >= 4)
+    if (info->GetStackArgsSlotCount() - INIT_ARG_STACK_SLOT >= 4)
     {
         comp->opts.SetFramePointerRequired();
     }

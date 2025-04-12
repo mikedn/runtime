@@ -687,8 +687,8 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 {
     CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
 
-    argCount    = oldArgInfo->argCount;
-    nextSlotNum = INIT_ARG_STACK_SLOT;
+    argCount           = oldArgInfo->argCount;
+    stackArgsSlotCount = INIT_ARG_STACK_SLOT;
 #ifdef UNIX_X86_ABI
     stackAlignmentDone = oldArgInfo->stackAlignmentDone;
     stackAlignPadding  = oldArgInfo->stackAlignPadding;
@@ -746,20 +746,13 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
         }
     }
 
-    nextSlotNum = oldArgInfo->nextSlotNum;
+    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
 }
 
 void CallInfo::AddArg(CallArgInfo* argInfo)
 {
     assert(argCount < argTableSize);
     argTable[argCount++] = argInfo;
-}
-
-unsigned CallInfo::AllocateStackSlots(unsigned slotCount, unsigned alignment)
-{
-    unsigned firstSlot = roundUp(nextSlotNum, alignment);
-    nextSlotNum        = firstSlot + slotCount;
-    return firstSlot;
 }
 
 #if FEATURE_FIXED_OUT_ARGS
@@ -1708,6 +1701,13 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
     unsigned intArgRegNum = 0;
     unsigned fltArgRegNum = 0;
     unsigned argIndex     = 0;
+    unsigned nextSlotNum  = INIT_ARG_STACK_SLOT;
+
+    auto AllocateStackSlots = [&nextSlotNum](unsigned slotCount, unsigned alignment) {
+        unsigned firstSlot = roundUp(nextSlotNum, alignment);
+        nextSlotNum        = firstSlot + slotCount;
+        return firstSlot;
+    };
 
     for (GenTreeCall::Use& args : call->AllArgs())
     {
@@ -2026,7 +2026,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         if (!isRegArg)
         {
-            argInfo->SetSlots(call->fgArgInfo->AllocateStackSlots(size, argAlign), size);
+            argInfo->SetSlots(AllocateStackSlots(size, argAlign), size);
         }
         else
         {
@@ -2090,7 +2090,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
                         regCount  = MAX_REG_ARG - intArgRegNum;
                         slotCount = size - regCount;
-                        firstSlot = call->fgArgInfo->AllocateStackSlots(slotCount, 1);
+                        firstSlot = AllocateStackSlots(slotCount, 1);
                     }
 #endif
 
@@ -2177,6 +2177,8 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
         call->fgArgInfo->AddArg(argInfo);
     }
+
+    call->GetInfo()->SetStackArgsSlotCount(nextSlotNum);
 
 #ifdef DEBUG
     if (verbose)

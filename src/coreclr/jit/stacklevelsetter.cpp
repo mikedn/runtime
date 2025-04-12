@@ -190,7 +190,7 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
 
 void StackLevelSetter::PopCallArgs(GenTreeCall* call)
 {
-    PopArgs(call->GetInfo()->GetNextSlotNum());
+    PopArgs(call->GetInfo()->GetStackArgsSlotCount());
 }
 
 void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
