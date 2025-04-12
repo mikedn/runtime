@@ -1477,10 +1477,6 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         unsigned count = 0;
 
     public:
-        NonStandardArgs(CompAllocator alloc)
-        {
-        }
-
         void Add(GenTree* node, RegNum reg)
         {
             assert((node != nullptr) && (reg != REG_NA));
@@ -1502,7 +1498,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
 
             return REG_NA;
         }
-    } nonStandardArgs(getAllocator(CMK_ArrayStack));
+    } nonStandardArgs;
 
     unsigned numArgs = 0;
 
@@ -1633,7 +1629,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
     }
 
-    call->SetInfo(new (this, CMK_CallInfo) CallInfo(this, call, numArgs));
+    CallInfo* callInfo = new (this, CMK_CallInfo) CallInfo(this, call, numArgs);
 
 #ifdef TARGET_X86
     unsigned maxIntArgRegNum;
@@ -2175,16 +2171,17 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
             argInfo->SetArgType(argType);
         }
 
-        call->fgArgInfo->AddArg(argInfo);
+        callInfo->AddArg(argInfo);
     }
 
-    call->GetInfo()->SetStackArgsSlotCount(nextSlotNum);
+    callInfo->SetStackArgsSlotCount(nextSlotNum);
+    call->SetInfo(callInfo);
 
 #ifdef DEBUG
     if (verbose)
     {
         printf("Call [%06u] arg table after fgInitArgInfo:\n", call->GetID());
-        call->fgArgInfo->Dump();
+        callInfo->Dump();
         printf("\n");
     }
 #endif
