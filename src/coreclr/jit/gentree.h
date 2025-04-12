@@ -4022,15 +4022,13 @@ struct GenTreeCall final : public GenTree
     ReturnTypeDesc    m_retDesc;
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    // For non-inline candidates, track the first observation
-    // that blocks candidacy.
+    // For non-inline candidates, track the first observation that blocks candidacy.
     InlineObservation gtInlineObservation{};
     // IL offset of the call wrt its parent method.
     IL_OFFSET gtRawILOffset = BAD_IL_OFFSET;
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
 #ifdef DEBUG
-    // Used to register callsites with the EE
     CORINFO_SIG_INFO* callSig = nullptr;
 #endif
 
@@ -4055,7 +4053,6 @@ public:
         : GenTree(GT_CALL, copyFrom->GetType())
         , m_methodHandle(copyFrom->m_methodHandle)
         // The tail call info does not change after it is allocated, so a shallow copy suffices.
-        // Note that this also copies unmgdCallConv...
         , m_tailCallInfo(copyFrom->m_tailCallInfo)
         , m_retLayout(copyFrom->m_retLayout)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
@@ -5031,20 +5028,19 @@ public:
 
 class CallInfo
 {
-    CallArgInfo** argTable; // variable sized array of per argument description: (i.e. argTable[argTableSize])
+    CallArgInfo** argTable = nullptr;
 #ifdef DEBUG
-    unsigned argTableSize; // size of argTable array (equal to the argCount when done with fgSetupArgs)
+    unsigned argTableSize = 0;
 #endif
     unsigned argCount           = 0;
     unsigned stackArgsSlotCount = INIT_ARG_STACK_SLOT;
-
 #ifdef UNIX_X86_ABI
-    unsigned stackAlignPadding = 0;
-    bool     stackAlignmentDone : 1;
+    unsigned stackAlignPadding  = 0;
+    bool     stackAlignmentDone = false;
 #endif
 
     void SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
-    void EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
+    void SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const;
 
 public:
     CallInfo(class Compiler* comp, GenTreeCall* call, unsigned argCount);
@@ -5052,7 +5048,7 @@ public:
 
     void AddArg(CallArgInfo* argInfo);
 
-    void ArgsComplete(class Compiler* compiler, GenTreeCall* call);
+    void SetupArgs(class Compiler* compiler, GenTreeCall* call);
 
     unsigned GetArgCount() const
     {

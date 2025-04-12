@@ -601,13 +601,13 @@ bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
     return (i1 == end1) && (i2 == end2);
 }
 
-//--------------------------------------------------------------------------
-// ResetArgInfo: The argument info needs to be reset so it can be recomputed based on some change
-// in conditions, such as changing the return type of a call due to giving up on doing a tailcall.
-// If there is no fgArgInfo computed yet for this call, then there is nothing to reset.
-//
+// The argument info needs to be reset so it can be recomputed based on some change in
+// conditions, such as changing the return type of a call due to giving up on doing a
+// tail call.
 void GenTreeCall::ResetArgInfo()
 {
+    assert(!HasArgsSetup());
+
     if (fgArgInfo == nullptr)
     {
         return;
@@ -3892,6 +3892,7 @@ GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTreeCall::Use*& head, GenTree
 
 GenTreeCall::Use* Compiler::gtPrependNewCallArg(GenTreeCall* call, GenTree* node)
 {
+    assert(!call->HasArgsSetup());
     return gtPrependNewCallArg(call->m_args, node);
 }
 
@@ -3909,6 +3910,7 @@ void Compiler::gtAppendCallArgs(GenTreeCall::Use*& head, GenTreeCall::Use* args)
 
 void Compiler::gtAppendCallArgs(GenTreeCall* call, GenTreeCall::Use* args)
 {
+    assert(!call->HasArgsSetup());
     gtAppendCallArgs(call->m_args, args);
 }
 
@@ -3921,6 +3923,7 @@ GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall::Use*& head, GenTree*
 
 GenTreeCall::Use* Compiler::gtAppendNewCallArg(GenTreeCall* call, GenTree* node)
 {
+    assert(!call->HasArgsSetup());
     return gtAppendNewCallArg(call->m_args, node);
 }
 
@@ -7069,7 +7072,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         }
         else
         {
-            sprintf_s(buf, bufLength, "arg%d", argNum);
+            sprintf_s(buf, bufLength, "arg%u", argNum);
         }
 
         return;
@@ -7094,7 +7097,7 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree*
     }
     else
     {
-        int len = sprintf_s(buf, bufLength, "arg%d", argInfo->GetArgNum());
+        int len = sprintf_s(buf, bufLength, "arg%u", argInfo->GetArgNum());
         buf += len;
         bufLength -= len;
     }

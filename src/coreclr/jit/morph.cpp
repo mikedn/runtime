@@ -668,9 +668,6 @@ CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
 #ifdef DEBUG
     , argTableSize(numArgs)
 #endif
-#ifdef UNIX_X86_ABI
-    , stackAlignmentDone(false)
-#endif
 {
 }
 
@@ -687,66 +684,63 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 {
     CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
 
+#ifdef DEBUG
+    argTableSize = oldArgInfo->argTableSize;
+#endif
     argCount           = oldArgInfo->argCount;
-    stackArgsSlotCount = INIT_ARG_STACK_SLOT;
+    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
 #ifdef UNIX_X86_ABI
     stackAlignmentDone = oldArgInfo->stackAlignmentDone;
     stackAlignPadding  = oldArgInfo->stackAlignPadding;
 #endif
 
-    INDEBUG(argTableSize = oldArgInfo->argTableSize;)
-    argTable = nullptr;
-
     assert(oldCall->HasArgsSetup());
 
-    if (argCount > 0)
+    if (argCount == 0)
     {
-        argTable = new (compiler, CMK_CallInfo) CallArgInfo*[argCount];
+        return;
+    }
 
-        // Copy the old arg entries
+    argTable = new (compiler, CMK_CallInfo) CallArgInfo*[argCount];
+
+    for (unsigned i = 0; i < argCount; i++)
+    {
+        argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
+    }
+
+    GenTreeCall::UseIterator newUse    = newCall->AllArgs().begin();
+    GenTreeCall::UseIterator newUseEnd = newCall->AllArgs().end();
+    GenTreeCall::UseIterator oldUse    = oldCall->AllArgs().begin();
+    GenTreeCall::UseIterator oldUseEnd = newCall->AllArgs().end();
+
+    for (; newUse != newUseEnd; ++newUse, ++oldUse)
+    {
         for (unsigned i = 0; i < argCount; i++)
         {
-            argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
-        }
-
-        // The copied arg entries contain pointers to old uses, they need
-        // to be updated to point to new uses.
-        GenTreeCall::UseIterator newUse    = newCall->AllArgs().begin();
-        GenTreeCall::UseIterator newUseEnd = newCall->AllArgs().end();
-        GenTreeCall::UseIterator oldUse    = oldCall->AllArgs().begin();
-        GenTreeCall::UseIterator oldUseEnd = newCall->AllArgs().end();
-
-        for (; newUse != newUseEnd; ++newUse, ++oldUse)
-        {
-            for (unsigned i = 0; i < argCount; i++)
+            if (argTable[i]->use == oldUse.GetUse())
             {
-                if (argTable[i]->use == oldUse.GetUse())
-                {
-                    argTable[i]->use = newUse.GetUse();
-                    break;
-                }
-            }
-        }
-
-        newUse    = newCall->LateArgs().begin();
-        newUseEnd = newCall->LateArgs().end();
-        oldUse    = oldCall->LateArgs().begin();
-        oldUseEnd = newCall->LateArgs().end();
-
-        for (; newUse != newUseEnd; ++newUse, ++oldUse)
-        {
-            for (unsigned i = 0; i < argCount; i++)
-            {
-                if (argTable[i]->GetLateUse() == oldUse.GetUse())
-                {
-                    argTable[i]->SetLateUse(newUse.GetUse());
-                    break;
-                }
+                argTable[i]->use = newUse.GetUse();
+                break;
             }
         }
     }
 
-    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
+    newUse    = newCall->LateArgs().begin();
+    newUseEnd = newCall->LateArgs().end();
+    oldUse    = oldCall->LateArgs().begin();
+    oldUseEnd = newCall->LateArgs().end();
+
+    for (; newUse != newUseEnd; ++newUse, ++oldUse)
+    {
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            if (argTable[i]->GetLateUse() == oldUse.GetUse())
+            {
+                argTable[i]->SetLateUse(newUse.GetUse());
+                break;
+            }
+        }
+    }
 }
 
 void CallInfo::AddArg(CallArgInfo* argInfo)
@@ -813,7 +807,7 @@ static bool HasLclHeap(Compiler* compiler, GenTree* tree)
 }
 #endif // FEATURE_FIXED_OUT_ARGS
 
-void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
+void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
 {
     assert(!call->HasArgsSetup());
 
@@ -1068,7 +1062,7 @@ void CallInfo::ArgsComplete(Compiler* compiler, GenTreeCall* call)
         memcpy(sortedArgTable, argTable, argCount * sizeof(argTable[0]));
 
         SortArgs(compiler, call, sortedArgTable);
-        EvalArgsToTemps(compiler, call, sortedArgTable);
+        SpillArgs(compiler, call, sortedArgTable);
     }
 
     call->gtCallMoreFlags |= GTF_CALL_M_HAS_ARGS_SETUP;
@@ -1095,10 +1089,10 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     //     +------------------------------------+  <--- argTable[0]
 
     // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems that the resulting order is only
-    // used in EvalArgsToTemps so:
+    // used in SpillArgs so:
     //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
     //   - The number of args is typically low so it may be better to allocate a separate array and
-    //     pass that to EvalArgsToTemps. That would avoid the need to linear search by arg number
+    //     pass that to SpillArgs. That would avoid the need to linear search by arg number
     //     in GetArgInfoByArgNum.
     //   - Sorting isn't stable. For example, when const args are moved to the end of the table their
     //     relative order is preserved. But the args they're displacing lose their ordering relative
@@ -1222,7 +1216,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
 #endif
 }
 
-void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
+void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
 {
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
@@ -1319,8 +1313,7 @@ void CallInfo::EvalArgsToTemps(Compiler* compiler, GenTreeCall* call, CallArgInf
             }
             else if (varTypeIsSIMD(arg->GetType()))
             {
-                ClassLayout* layout = compiler->typGetVectorLayout(arg);
-                if (layout != nullptr)
+                if (ClassLayout* layout = compiler->typGetVectorLayout(arg))
                 {
                     compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
                 }
@@ -2255,7 +2248,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
 
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
-    // so if the args needs a temp EvalArgsToTemps won't be able to allocate one.
+    // so if the args needs a temp SpillArgs won't be able to allocate one.
     // Then the first pass does minimal or no morphing of the arg and the second
     // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
@@ -2354,7 +2347,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
         argsSideEffects |= argUse.GetNode()->gtFlags;
     }
 
-    call->GetInfo()->ArgsComplete(this, call);
+    call->GetInfo()->SetupArgs(this, call);
     call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
 
 #ifdef TARGET_X86
@@ -2414,9 +2407,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         if (lcl->GetPromotedFieldCount() > 1)
         {
             // If we need more than one field we need to generate a FIELD_LIST.
-            // If this argument ends up needing a temp then EvalArgsToTemps will
+            // If this argument ends up needing a temp then SpillArgs will
             // need the struct layout to create the temp and FIELD_LIST doesn't
-            // have layout. So we have to do this transform after EvalArgsToTemps.
+            // have layout. So we have to do this transform after SpillArgs.
             // On x86 we never need temps for stack args so we do it here.
             CLANG_FORMAT_COMMENT_ANCHOR;
 
@@ -3739,13 +3732,13 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* a
     // is better so for now let's keep this as it was.
     //
     // Speaking of how it was - this code was originally in fgSetupArgs so the temp was introduced before
-    // ArgsComplete/SortArgs/EvalArgsToTemps. Neither place is ideal:
-    //    - Introducing one temp before ArgsComplete is problematic because ArgsComplete can blindly
+    // SetupArgs/SortArgs/SpillArgs. Neither place is ideal:
+    //    - Introducing one temp before SetupArgs is problematic because SetupArgs can blindly
     //      introduce even more temps due to the presence of GTF_ASG.
-    //    - Introducing a temp for a promoted local after ArgsComplete "misses" the nested call args case
+    //    - Introducing a temp for a promoted local after SetupArgs "misses" the nested call args case
     //      so we risk spilling the promoted fields before the call, reload them after the call and then
     //      store them again to memory (because this temp is DNER).
-    // What may be best is to introduce the temp in ArgsComplete itself so we can do it before any nested
+    // What may be best is to introduce the temp in SetupArgs itself so we can do it before any nested
     // call and avoid unnecessary spilling. But it may not be worth the trouble:
     //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
     //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
@@ -4283,7 +4276,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 
     LclVarDsc* tempLcl = abiAllocateStructArgTemp(argLayout);
 
-    // Replace the argument with a store to the temp, EvalArgsToTemps will later add
+    // Replace the argument with a store to the temp, SpillArgs will later add
     // a use of the temp to the late arg list.
 
     // Due to single field struct promotion it is possible that the argument has SIMD
