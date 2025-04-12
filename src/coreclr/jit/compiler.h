@@ -3122,7 +3122,7 @@ public:
     void dmpVarSetDiff(const char* name, VARSET_TP from, VARSET_TP to);
     void gtDispNodeName(GenTree* tree);
     void dmpNodeRegs(GenTree* node);
-    void dmpNodeOperands(GenTree* node);
+    void dmpLIRNodeOperands(GenTree* node);
     void gtDispZeroFieldSeq(GenTree* tree);
     void gtDispCommonEndLine(GenTree* tree);
     void gtDispTree(GenTree* tree, bool header = true, bool operands = true);
@@ -3136,7 +3136,7 @@ public:
     void gtDispStmt(Statement* stmt, const char* msg = nullptr);
     void gtDispBlockStmts(BasicBlock* block);
     void gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum, char* buf, unsigned bufLength);
-    void gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree* arg, char* buf, unsigned bufLength);
+    void gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, char* buf, unsigned bufLength);
     void dmpFieldSeqFields(FieldSeqNode* fieldSeq);
 
     void dmpLIRRange(const LIR::ReadOnlyRange& range);

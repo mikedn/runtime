@@ -3974,24 +3974,6 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
     unreached();
 }
 
-CallArgInfo* GenTreeCall::GetArgInfoByLateArgUse(Use* use) const
-{
-    noway_assert(fgArgInfo != nullptr);
-    assert(use != nullptr);
-
-    for (unsigned i = 0; i < fgArgInfo->GetArgCount(); i++)
-    {
-        CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
-
-        if (argInfo->HasLateUse() && (argInfo->GetLateUse() == use))
-        {
-            return argInfo;
-        }
-    }
-
-    unreached();
-}
-
 GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr)
 {
     GenTreeIndir* indir;
@@ -5093,8 +5075,8 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 
         case GT_CALL:
             m_state   = m_node->AsCall()->m_uses;
-            m_advance = &GenTreeUseEdgeIterator::AdvanceCallArgs;
-            m_edge    = AdvanceCallArgs();
+            m_advance = &GenTreeUseEdgeIterator::AdvanceCall;
+            m_edge    = AdvanceCall();
             return;
 
         case GT_LEA:
@@ -5151,10 +5133,9 @@ GenTree** GenTreeUseEdgeIterator::AdvancePhi()
         return nullptr;
     }
 
-    GenTreePhi::Use* use  = static_cast<GenTreePhi::Use*>(m_state);
-    GenTree**        edge = &use->NodeRef();
-    m_state               = use->GetNext();
-    return edge;
+    GenTreePhi::Use* use = static_cast<GenTreePhi::Use*>(m_state);
+    m_state              = use->GetNext();
+    return &use->NodeRef();
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceFieldList()
@@ -5164,10 +5145,9 @@ GenTree** GenTreeUseEdgeIterator::AdvanceFieldList()
         return nullptr;
     }
 
-    GenTreeFieldList::Use* use  = static_cast<GenTreeFieldList::Use*>(m_state);
-    GenTree**              edge = &use->NodeRef();
-    m_state                     = use->GetNext();
-    return edge;
+    GenTreeFieldList::Use* use = static_cast<GenTreeFieldList::Use*>(m_state);
+    m_state                    = use->GetNext();
+    return &use->NodeRef();
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceArrElem()
@@ -5177,10 +5157,9 @@ GenTree** GenTreeUseEdgeIterator::AdvanceArrElem()
         return nullptr;
     }
 
-    GenTreeArrElem::Use* use  = static_cast<GenTreeArrElem::Use*>(m_state);
-    GenTree**            edge = &use->NodeRef();
-    m_state                   = use + 1;
-    return edge;
+    GenTreeUse* use = static_cast<GenTreeUse*>(m_state);
+    m_state         = use + 1;
+    return &use->NodeRef();
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceInstr()
@@ -5190,10 +5169,9 @@ GenTree** GenTreeUseEdgeIterator::AdvanceInstr()
         return nullptr;
     }
 
-    GenTreeInstr::Use* use  = static_cast<GenTreeInstr::Use*>(m_state);
-    GenTree**          edge = &use->NodeRef();
-    m_state                 = use + 1;
-    return edge;
+    GenTreeUse* use = static_cast<GenTreeUse*>(m_state);
+    m_state         = use + 1;
+    return &use->NodeRef();
 }
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -5204,10 +5182,9 @@ GenTree** GenTreeUseEdgeIterator::AdvanceHWIntrinsic()
         return nullptr;
     }
 
-    GenTreeHWIntrinsic::Use* use  = static_cast<GenTreeHWIntrinsic::Use*>(m_state);
-    GenTree**                edge = &use->NodeRef();
-    m_state                       = use + 1;
-    return edge;
+    GenTreeUse* use = static_cast<GenTreeUse*>(m_state);
+    m_state         = use + 1;
+    return &use->NodeRef();
 }
 
 GenTree** GenTreeUseEdgeIterator::AdvanceHWIntrinsicReverseOp()
@@ -5229,18 +5206,17 @@ GenTree** GenTreeUseEdgeIterator::AdvanceBinOp1()
     return &m_node->AsOp()->gtOp2;
 }
 
-GenTree** GenTreeUseEdgeIterator::AdvanceCallArgs()
+GenTree** GenTreeUseEdgeIterator::AdvanceCall()
 {
     if (m_state != nullptr)
     {
-        GenTreeCall::Use* use  = static_cast<GenTreeCall::Use*>(m_state);
-        GenTree**         edge = &use->NodeRef();
-        m_state                = use->GetNext();
-        return edge;
+        GenTreeCall::Use* use = static_cast<GenTreeCall::Use*>(m_state);
+        m_state               = use->GetNext();
+        return &use->NodeRef();
     }
 
-    m_advance               = &GenTreeUseEdgeIterator::Terminate;
-    GenTreeCall* const call = m_node->AsCall();
+    m_advance         = &GenTreeUseEdgeIterator::Terminate;
+    GenTreeCall* call = m_node->AsCall();
     return call->GetCallAddr() != nullptr ? &call->m_callAddr : nullptr;
 }
 
@@ -5369,7 +5345,7 @@ void Compiler::gtDispCommonEndLine(GenTree* tree)
     }
     else
     {
-        dmpNodeOperands(tree);
+        dmpLIRNodeOperands(tree);
     }
 
     printf("\n");
@@ -5711,7 +5687,7 @@ void Compiler::dmpNodeRegs(GenTree* node)
         }
     }
 
-    strcpy_s(buffer, bufferSize, " =");
+    strcpy_s(buffer, bufferSize, node->IsValue() ? " =" : "  ");
     printf(" %+*s", 6 + MAX_MULTIREG_COUNT * 6, message);
 }
 
@@ -6705,11 +6681,10 @@ void Compiler::gtDispTreeRec(
 #ifdef TARGET_XARCH
             if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
             {
-                printf(", %s)", PutArgStkKindName(kind));
+                printf(", %s", PutArgStkKindName(kind));
             }
-#else
-            printf(")");
 #endif
+            printf(")");
             break;
 
         case GT_FIELD_LIST:
@@ -7019,11 +6994,13 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
         return;
     }
 
-    gtGetCallArgMsg(call, call->GetArgInfoByArgNode(arg), arg, buf, bufLength);
+    gtGetCallArgMsg(call, arg, buf, bufLength);
 }
 
-void Compiler::gtGetCallArgMsg(GenTreeCall* call, CallArgInfo* argInfo, GenTree* arg, char* buf, unsigned bufLength)
+void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, char* buf, unsigned bufLength)
 {
+    CallArgInfo* argInfo = call->GetArgInfoByArgNode(arg);
+
     if (argInfo->use == call->HasThisArg())
     {
         int len = sprintf_s(buf, bufLength, "this");
@@ -7173,7 +7150,7 @@ void Compiler::dmpLIRNode(GenTree* node)
     gtDispTreeRec(node, nullptr, nullptr, true, true, true);
 }
 
-void Compiler::dmpNodeOperands(GenTree* node)
+void Compiler::dmpLIRNodeOperands(GenTree* node)
 {
     auto displayOperand = [](GenTree* operand, const char* prefix, const char* message = nullptr) {
         printf("%s", prefix);
@@ -7198,9 +7175,8 @@ void Compiler::dmpNodeOperands(GenTree* node)
 
     for (GenTree* operand : node->Operands())
     {
-        if (operand->OperIs(GT_ARGPLACE) || !operand->IsValue())
+        if (!operand->IsValue())
         {
-            // Either of these situations may happen with calls.
             continue;
         }
 
@@ -7212,9 +7188,9 @@ void Compiler::dmpNodeOperands(GenTree* node)
             }
             else
             {
-                CallArgInfo* argInfo = call->GetArgInfoByArgNode(operand);
-                gtGetCallArgMsg(call, argInfo, operand, message, sizeof(message));
-                displayOperand(operand, prefix, message);
+                displayOperand(operand, prefix);
+                gtGetCallArgMsg(call, operand, message, sizeof(message));
+                printf(" (%s)", message);
             }
         }
         else

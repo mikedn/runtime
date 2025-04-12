@@ -2134,6 +2134,7 @@ class GenTreeUseEdgeIterator final
     GenTree** AdvanceBinOp1();
     GenTree** AdvanceTernaryOp();
     GenTree** AdvanceFieldList();
+    GenTree** AdvanceCall();
     GenTree** AdvancePhi();
     GenTree** AdvanceArrElem();
     GenTree** AdvanceInstr();
@@ -2141,8 +2142,6 @@ class GenTreeUseEdgeIterator final
     GenTree** AdvanceHWIntrinsic();
     GenTree** AdvanceHWIntrinsicReverseOp();
 #endif
-
-    GenTree** AdvanceCallArgs();
 
     GenTree** Terminate()
     {
@@ -4007,13 +4006,13 @@ struct GenTreeCall final : public GenTree
         CORINFO_CLASS_HANDLE m_retClassHandle;
     };
 
-    TailCallSiteInfo* m_tailCallInfo  = nullptr;
-    ClassLayout*      m_retLayout     = nullptr;
-    GenTreeCallFlags  gtCallMoreFlags = GTF_CALL_M_NONE;
+    TailCallSiteInfo* m_tailCallInfo   = nullptr;
+    ClassLayout*      m_retLayout      = nullptr;
+    void*             m_entryPointAddr = nullptr;
+    GenTreeCallFlags  gtCallMoreFlags  = GTF_CALL_M_NONE;
     unsigned          m_intrinsic : 16;
     unsigned          m_callConv : 8;
     unsigned          m_entryPointAccessType : 8;
-    void*             m_entryPointAddr = nullptr;
     var_types         m_retSigType;
     ReturnTypeDesc    m_retDesc;
 
@@ -4051,11 +4050,11 @@ public:
         // The tail call info does not change after it is allocated, so a shallow copy suffices.
         , m_tailCallInfo(copyFrom->m_tailCallInfo)
         , m_retLayout(copyFrom->m_retLayout)
+        , m_entryPointAddr(copyFrom->m_entryPointAddr)
         , gtCallMoreFlags(copyFrom->gtCallMoreFlags)
         , m_intrinsic(copyFrom->m_intrinsic)
         , m_callConv(copyFrom->m_callConv)
         , m_entryPointAccessType(copyFrom->m_entryPointAccessType)
-        , m_entryPointAddr(copyFrom->m_entryPointAddr)
         , m_retSigType(copyFrom->m_retSigType)
         , m_retDesc(copyFrom->m_retDesc)
 #if defined(DEBUG) || defined(INLINE_DATA)
@@ -4131,7 +4130,6 @@ public:
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
-    CallArgInfo* GetArgInfoByLateArgUse(Use* use) const;
 
     void SetCallConv(CorInfoCallConvExtension callConv)
     {

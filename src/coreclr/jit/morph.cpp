@@ -1081,8 +1081,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     // used in SpillArgs so:
     //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
     //   - The number of args is typically low so it may be better to allocate a separate array and
-    //     pass that to SpillArgs. That would avoid the need to linear search by arg number
-    //     in GetArgInfoByArgNum.
+    //     pass that to SpillArgs.
     //   - Sorting isn't stable. For example, when const args are moved to the end of the table their
     //     relative order is preserved. But the args they're displacing lose their ordering relative
     //     to the non-displaced args. This would probably be a bug if it weren't for the first issue,
@@ -6418,7 +6417,7 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
         GenTree* argNode = use.GetNode();
 
         // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
-        // and the linear search it performs...
+        // and the linear search it performs. This is the only non-DEBUG code that needs it.
 
         CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
 
