@@ -253,26 +253,28 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             CallInfo*    info     = call->GetInfo();
             unsigned     argCount = info->GetArgCount();
 
-            GenTreeCall::Use** prevUseLink = &call->m_uses;
-
-            // TODO-MIKE-Cleanup: The order of the args linked list should probably be changed to
-            // match the order of the arg info array but some code expects that all PUTARG_REGS
-            // appear after all PUTARG_STKs...
-
             for (unsigned i = 0; i < argCount; i++)
             {
                 CallArgInfo* argInfo = info->GetArgInfo(i);
 
                 if (GenTreeCall::Use* lateUse = argInfo->GetLateUse())
                 {
-                    *prevUseLink = argInfo->use->GetNext();
-
-                    argInfo->use = lateUse;
+                    argInfo->use->NodeRef() = nullptr;
                     argInfo->RemoveLateUse();
+                }
+            }
+
+            GenTreeCall::Use** prevUseLink = &call->m_uses;
+
+            for (GenTreeCall::Use* use = call->m_uses; use != nullptr; use = use->GetNext())
+            {
+                if (use->NodeRef() == nullptr)
+                {
+                    *prevUseLink = use->GetNext();
                 }
                 else
                 {
-                    prevUseLink = &argInfo->use->NextRef();
+                    prevUseLink = &use->NextRef();
                 }
             }
 

@@ -1380,6 +1380,24 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
     {
         compiler->gtAppendCallArgs(call, lateArgUseListHead);
     }
+
+    GenTreeCall::Use** prevUseLink = &call->m_uses;
+
+    for (unsigned i = 0; i < argCount; i++)
+    {
+        CallArgInfo* argInfo = this->argTable[i];
+
+        if (argInfo->use->GetNode()->OperIs(GT_ARGPLACE))
+        {
+            *prevUseLink = argInfo->use->GetNext();
+
+            argInfo->RemoveLateUse();
+        }
+        else
+        {
+            prevUseLink = &argInfo->use->NextRef();
+        }
+    }
 }
 
 //------------------------------------------------------------------------------

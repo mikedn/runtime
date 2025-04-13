@@ -4715,6 +4715,8 @@ private:
 #ifdef WINDOWS_X86_ABI
     bool m_isReturn : 1;
 #endif
+    bool m_hadLateUse : 1;
+
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
     uint8_t m_regCount = 0;
@@ -4752,6 +4754,7 @@ public:
 #ifdef WINDOWS_X86_ABI
         , m_isReturn(isReturn)
 #endif
+        , m_hadLateUse(false)
     {
     }
 
@@ -4790,7 +4793,19 @@ public:
 
     void RemoveLateUse()
     {
+        assert(m_lateUse != nullptr);
+
+        use       = m_lateUse;
         m_lateUse = nullptr;
+
+        // Costing code treated "late" args differently so we need
+        // to remember that this arg had a "late" arg to avoid diffs.
+        m_hadLateUse = true;
+    }
+
+    bool HadLateUse() const
+    {
+        return m_hadLateUse;
     }
 
     bool HasLateUse() const

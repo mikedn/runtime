@@ -1457,6 +1457,14 @@ void Compiler::gtSetCallArgsCosts(GenTreeCall* call, unsigned* callCostEx, unsig
         GenTree* argNode = argInfo.use->GetNode();
         gtSetCosts(argNode);
 
+        if (argInfo.HadLateUse())
+        {
+            costEx += argNode->GetCostEx();
+            costSz += argNode->GetCostSz() + 1;
+
+            continue;
+        }
+
         if (argNode->GetCostEx() != 0)
         {
             costEx += argNode->GetCostEx();
