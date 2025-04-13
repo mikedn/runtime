@@ -1434,44 +1434,35 @@ void Compiler::gtSetCallArgsCosts(GenTreeCall* call, unsigned* callCostEx, unsig
     unsigned costEx = 0;
     unsigned costSz = 0;
 
+    for (GenTreeUse& use : call->Uses())
+    {
+        GenTree* argNode = use.GetNode();
+        gtSetCosts(argNode);
+        costEx += argNode->GetCostEx();
+        costSz += argNode->GetCostSz();
+    }
+
     CallInfo& info = *call->GetInfo();
 
     for (unsigned i = 0, count = info.GetArgCount(); i < count; i++)
     {
         CallArgInfo& argInfo = *info.GetArgInfo(i);
 
-        GenTree* argNode = argInfo.use->GetNode();
-        gtSetCosts(argNode);
-
         if (argInfo.HadLateUse())
         {
-            costEx += argNode->GetCostEx();
-            costSz += argNode->GetCostSz() + 1;
+            costSz++;
 
             continue;
         }
 
-        if (argNode->GetCostEx() != 0)
-        {
-            costEx += argNode->GetCostEx();
-            costEx += IND_COST_EX;
-        }
-
-        if (argNode->GetCostSz() != 0)
-        {
-            costSz += argNode->GetCostSz();
+        costEx += IND_COST_EX;
 #ifndef TARGET_XARCH // push is smaller than mov to reg
-            costSz += 1;
+        costSz++;
 #endif
-        }
 
         if (argInfo.HasLateUse())
         {
-            GenTree* argNode = argInfo.GetLateUse()->GetNode();
-            gtSetCosts(argNode);
-
-            costEx += argNode->GetCostEx();
-            costSz += argNode->GetCostSz() + 1;
+            costSz++;
         }
     }
 

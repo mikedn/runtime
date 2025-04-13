@@ -245,11 +245,10 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
         case GT_CALL:
         {
-            GenTreeCall* call     = node->AsCall();
-            CallInfo*    info     = call->GetInfo();
-            unsigned     argCount = info->GetArgCount();
+            GenTreeCall* call = node->AsCall();
+            CallInfo*    info = call->GetInfo();
 
-            for (unsigned i = 0; i < argCount; i++)
+            for (unsigned i = 0, argCount = info->GetArgCount(); i < argCount; i++)
             {
                 CallArgInfo* argInfo = info->GetArgInfo(i);
 
@@ -262,15 +261,15 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
 
             GenTreeCall::Use** prevUseLink = &call->m_uses;
 
-            for (GenTreeCall::Use* use = call->m_uses; use != nullptr; use = use->GetNext())
+            for (GenTreeCall::Use& use : call->Uses())
             {
-                if (use->NodeRef() == nullptr)
+                if (use.NodeRef() == nullptr)
                 {
-                    *prevUseLink = use->GetNext();
+                    *prevUseLink = use.GetNext();
                 }
                 else
                 {
-                    prevUseLink = &use->NextRef();
+                    prevUseLink = &use.NextRef();
                 }
             }
 
