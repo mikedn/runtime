@@ -687,7 +687,6 @@ AGAIN:
             case GT_CONST_ADDR:
                 return GenTreeConstAddr::Equals(op1->AsConstAddr(), op2->AsConstAddr());
             case GT_LABEL:
-            case GT_ARGPLACE:
                 return true;
             default:
                 return false;
@@ -1306,17 +1305,10 @@ public:
     {
         GenTree* node = *use;
 
-        // If we are sequencing for LIR:
-        // - Clear the reverse ops flag
-        // - If we are processing a node that does not appear in LIR, do not add it to the list.
         if (m_isLIR)
         {
+            // LIR does not use GTF_REVERSE_OPS
             node->gtFlags &= ~GTF_REVERSE_OPS;
-
-            if (node->OperIs(GT_ARGPLACE))
-            {
-                return GenTreeWalkResult::Continue;
-            }
         }
 
         node->gtPrev   = m_tail;
@@ -1375,12 +1367,6 @@ public:
 
         // GTF_REVERSE_OPS is never set in LIR.
         assert(!m_isLIR || !node->IsReverseOp());
-
-        // Placeholders are not linked in LIR.
-        if (m_isLIR && node->OperIs(GT_ARGPLACE))
-        {
-            return GenTreeWalkResult::Continue;
-        }
 
         // Check if the gtNext/gtPrev links are valid.
         assert(node->gtSeqNum == ++m_seqNum);
@@ -2575,11 +2561,6 @@ void Compiler::gtSetCosts(GenTree* tree)
                 costSz = 3;
                 break;
 
-            case GT_ARGPLACE:
-                costEx = 0;
-                costSz = 0;
-                break;
-
             case GT_CALL:
             {
                 GenTreeCall* call = tree->AsCall();
@@ -3034,7 +3015,6 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
         case GT_CNS_LNG:
 #endif
         case GT_CNS_DBL:
-        case GT_ARGPLACE:
         case GT_PHI:
             return 0;
 
@@ -4330,7 +4310,6 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 goto DONE;
 #endif
             case GT_MEMORYBARRIER:
-            case GT_ARGPLACE:
             case GT_CATCH_ARG:
             case GT_NO_OP:
             case GT_LABEL:
@@ -4955,7 +4934,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_CONST_ADDR:
-        case GT_ARGPLACE:
         case GT_REG_USE:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
@@ -6203,7 +6181,6 @@ void Compiler::gtDispLeaf(GenTree* tree)
         case GT_PROF_HOOK:
         case GT_CATCH_ARG:
         case GT_MEMORYBARRIER:
-        case GT_ARGPLACE:
         case GT_PINVOKE_PROLOG:
         case GT_JMPTABLE:
             break;

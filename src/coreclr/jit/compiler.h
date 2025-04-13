@@ -6377,7 +6377,6 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_JMPTABLE:
         case GT_CLS_VAR_ADDR:
         case GT_CONST_ADDR:
-        case GT_ARGPLACE:
         case GT_REG_USE:
         case GT_PINVOKE_PROLOG:
         case GT_PINVOKE_EPILOG:
@@ -6701,7 +6700,6 @@ public:
             case GT_JMPTABLE:
             case GT_CLS_VAR_ADDR:
             case GT_CONST_ADDR:
-            case GT_ARGPLACE:
             case GT_REG_USE:
             case GT_PINVOKE_PROLOG:
             case GT_PINVOKE_EPILOG:

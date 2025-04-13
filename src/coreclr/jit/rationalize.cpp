@@ -243,10 +243,6 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             return GenTreeWalkResult::Continue;
         }
 
-        case GT_ARGPLACE:
-            BlockRange().Unlink(node);
-            break;
-
         case GT_CALL:
         {
             GenTreeCall* call     = node->AsCall();

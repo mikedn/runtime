@@ -1204,14 +1204,14 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
 #endif
 }
 
-void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
+void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** sortedArgs) const
 {
     GenTreeCall::Use* lateArgUseListHead = nullptr;
     GenTreeCall::Use* lateArgUseListTail = nullptr;
 
     for (unsigned i = 0; i < argCount; i++)
     {
-        CallArgInfo* argInfo = argTable[i];
+        CallArgInfo* argInfo = sortedArgs[i];
 
         assert(!argInfo->HasLateUse());
 
@@ -1343,8 +1343,6 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
-            JITDUMPTREE(arg, "Creating placeholder for arg:\n");
-
             setupArg = new (compiler, GT_ARGPLACE) GenTree(GT_ARGPLACE, arg->GetType());
 
             // No temp needed - the arg tree itself is moved to the late arg list.
@@ -1355,9 +1353,12 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
         {
             if (setupArg != nullptr)
             {
-                JITDUMPTREE(setupArg, "Created arg setup/placeholder tree:\n");
+                if (!setupArg->OperIs(GT_ARGPLACE))
+                {
+                    JITDUMPTREE(setupArg, "Created arg setup tree:\n");
+                }
+
                 argInfo->use->SetNode(setupArg);
-                JITDUMP("\n");
             }
 
             GenTreeCall::Use* lateArgUse = compiler->gtNewCallArgs(lateArg);
@@ -1376,16 +1377,19 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** ar
         }
     }
 
-    if (lateArgUseListHead != nullptr)
+    if (lateArgUseListHead == nullptr)
     {
-        compiler->gtAppendCallArgs(call, lateArgUseListHead);
+        return;
     }
+
+    assert(argTable[argCount - 1]->use->GetNext() == nullptr);
+    argTable[argCount - 1]->use->SetNext(lateArgUseListHead);
 
     GenTreeCall::Use** prevUseLink = &call->m_uses;
 
     for (unsigned i = 0; i < argCount; i++)
     {
-        CallArgInfo* argInfo = this->argTable[i];
+        CallArgInfo* argInfo = argTable[i];
 
         if (argInfo->use->GetNode()->OperIs(GT_ARGPLACE))
         {
@@ -1713,7 +1717,7 @@ void Compiler::fgInitArgInfo(GenTreeCall* call)
         var_types const argType = argNode->GetType();
 
         // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_ARGPLACE, GT_FIELD_LIST, GT_LCL_STORE));
+        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
 
         unsigned     size            = 0;
         var_types    sigType         = TYP_UNDEF;
@@ -2317,7 +2321,7 @@ void Compiler::fgSetupArgs(GenTreeCall* const call)
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
 
-        assert(!argVal->OperIs(GT_FIELD_LIST, GT_ARGPLACE, GT_LCL_DEF, GT_LCL_STORE));
+        assert(!argVal->OperIs(GT_FIELD_LIST, GT_LCL_DEF, GT_LCL_STORE));
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
         if (argInfo->IsImplicitByRef())
@@ -6441,11 +6445,8 @@ void Compiler::fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCa
 
         if (argInfo->HasLateUse() && (argInfo->GetLateUse() != &use))
         {
-            if (!argNode->OperIs(GT_ARGPLACE))
-            {
-                // This is a setup node so we need to hoist it.
-                fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
-            }
+            // This is a setup node so we need to hoist it.
+            fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
         }
         else
         {

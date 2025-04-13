@@ -6552,10 +6552,6 @@ void ValueNumbering::NumberNode(GenTree* node)
             // TODO-MIKE-Review: These are missing exceptions, both from operands and NullRefException as well.
             ClearMemory(node DEBUGARG("dynamic sized init/copy block"));
             FALLTHROUGH;
-        case GT_ARGPLACE:
-            // We'll give ARGPLACE the actual argument value number when the call
-            // node itself is value numbered.
-            FALLTHROUGH;
         case GT_KEEPALIVE:
             node->SetVNP(ValueNumStore::VoidVNP());
             break;
@@ -7523,20 +7519,6 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
 
 void ValueNumbering::NumberCall(GenTreeCall* call)
 {
-    // Copy argument value numbers from actual arguments to ARGPLACE nodes.
-    // TODO-MIKE-Review: Is this actually needed?
-    CallInfo* info = call->GetInfo();
-
-    for (unsigned i = 0, count = info->GetArgCount(); i < count; i++)
-    {
-        CallArgInfo* argInfo = info->GetArgInfo(i);
-
-        if (argInfo->use->GetNode()->OperIs(GT_ARGPLACE))
-        {
-            argInfo->use->GetNode()->SetVNP(argInfo->GetNode()->GetVNP());
-        }
-    }
-
     if (call->IsHelperCall())
     {
         bool modHeap = NumberHelperCall(call);

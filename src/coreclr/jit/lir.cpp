@@ -1077,8 +1077,6 @@ GenTree* LIR::Range::FindFirstTreeLeaf(GenTree* tree) const
     do
     {
         first->VisitOperands([&markCount](GenTree* operand) {
-            assert(!operand->OperIs(GT_ARGPLACE));
-
             operand->SetLIRMark();
             markCount++;
 
@@ -1114,8 +1112,6 @@ void LIR::Range::RemoveDeadTree(GenTree* tree)
         if (firstNode->HasLIRMark())
         {
             firstNode->VisitOperands([&markCount](GenTree* operand) {
-                assert(!operand->OperIs(GT_ARGPLACE));
-
                 if (!operand->HasAnySideEffect(GTF_SIDE_EFFECT))
                 {
                     operand->SetLIRMark();

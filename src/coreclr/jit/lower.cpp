@@ -1313,7 +1313,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     GenTree* arg = argInfo->GetNode();
 
     assert(!arg->OperIsPutArg());
-    assert(!arg->OperIs(GT_LCL_STORE, GT_ARGPLACE, GT_NOP));
+    assert(arg->IsValue());
 
 #if !defined(TARGET_64BIT)
     if (arg->TypeIs(TYP_LONG))
