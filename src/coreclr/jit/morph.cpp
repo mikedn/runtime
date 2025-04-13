@@ -1208,6 +1208,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
 {
     GenTreeCall::Use* lateArgUseListHead = nullptr;
     GenTreeCall::Use* lateArgUseListTail = nullptr;
+    GenTree           placeholder(GT_NOP, TYP_VOID);
 
     for (unsigned i = 0; i < argCount; i++)
     {
@@ -1343,7 +1344,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
         }
         else if ((argInfo->GetRegCount() != 0) || argInfo->IsPlaceholderNeeded())
         {
-            setupArg = new (compiler, GT_ARGPLACE) GenTree(GT_ARGPLACE, arg->GetType());
+            setupArg = &placeholder;
 
             // No temp needed - the arg tree itself is moved to the late arg list.
             lateArg = arg;
@@ -1353,7 +1354,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
         {
             if (setupArg != nullptr)
             {
-                if (!setupArg->OperIs(GT_ARGPLACE))
+                if (setupArg != &placeholder)
                 {
                     JITDUMPTREE(setupArg, "Created arg setup tree:\n");
                 }
@@ -1391,7 +1392,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
     {
         CallArgInfo* argInfo = argTable[i];
 
-        if (argInfo->use->GetNode()->OperIs(GT_ARGPLACE))
+        if (argInfo->use->GetNode() == &placeholder)
         {
             *prevUseLink = argInfo->use->GetNext();
 
