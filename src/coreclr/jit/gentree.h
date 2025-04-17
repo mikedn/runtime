@@ -4125,6 +4125,8 @@ public:
         return first;
     }
 
+    void RemoveSetupUses();
+
     GenTree* GetFirstArg() const;
     GenTree* GetSecondArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
@@ -4686,7 +4688,7 @@ public:
     GenTreeCall::Use* use;
 
 private:
-    GenTreeCall::Use* m_lateUse = nullptr;
+    GenTreeCall::Use* m_setupUse = nullptr;
 
     // The original argument number, also specifies the IL argument evaluation order
     unsigned m_argNum;
@@ -4700,22 +4702,24 @@ private:
     // a struct is passed as a scalar type, this is that type.
     // Note that if a struct is passed by reference, this will still be the struct type.
     var_types m_argType = TYP_UNDEF;
-    // True when we force this argument's evaluation into a temp LclVar
+    // True when we force this argument's evaluation into a temp
     bool m_tempNeeded : 1;
+    bool m_isLateUse : 1;
 #if FEATURE_FIXED_OUT_ARGS
-    // True when we must replace this argument with a placeholder node
-    bool m_placeholderNeeded : 1;
+    // True when this arg must be evaluated late
+    bool m_isLateUseNeeded : 1;
 #endif
-    // True if it is an arg that is passed in a reg other than a standard arg reg, or is
-    // forced to be on the stack despite its arg list position.
-    bool m_isNonStandard : 1;
 #ifdef TARGET_64BIT
     bool m_isImplicitByRef : 1;
 #endif
 #ifdef WINDOWS_X86_ABI
     bool m_isReturn : 1;
 #endif
-    bool m_hadLateUse : 1;
+#ifdef DEBUG
+    // True if it is an arg that is passed in a reg other than a standard arg reg,
+    // or is forced to be on the stack despite its arg list position.
+    bool m_isNonStandard : 1;
+#endif
 
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
@@ -4744,30 +4748,30 @@ public:
         : use(use)
         , m_argNum(argNum)
         , m_tempNeeded(false)
+        , m_isLateUse(false)
 #if FEATURE_FIXED_OUT_ARGS
-        , m_placeholderNeeded(false)
+        , m_isLateUseNeeded(false)
 #endif
-        , m_isNonStandard(false)
 #ifdef TARGET_64BIT
         , m_isImplicitByRef(false)
 #endif
 #ifdef WINDOWS_X86_ABI
         , m_isReturn(isReturn)
 #endif
-        , m_hadLateUse(false)
+#ifdef DEBUG
+        , m_isNonStandard(false)
+#endif
     {
     }
 
-    // Get the use that corresponds to this argument.
-    // This is the "real" argument use and not the use of the setup tree.
     GenTreeCall::Use* GetUse() const
     {
-        return m_lateUse == nullptr ? use : m_lateUse;
+        return use;
     }
 
     GenTree* GetNode() const
     {
-        return GetUse()->GetNode();
+        return use->GetNode();
     }
 
     unsigned GetSigTypeNum() const
@@ -4777,40 +4781,27 @@ public:
 
     void SetNode(GenTree* node) const
     {
-        GetUse()->SetNode(node);
+        use->SetNode(node);
     }
 
-    GenTreeCall::Use* GetLateUse() const
+    void SetSetupUse(GenTreeCall::Use* use)
     {
-        return m_lateUse;
+        m_setupUse = use;
     }
 
-    void SetLateUse(GenTreeCall::Use* lateUse)
+    GenTreeCall::Use* GetSetupUse() const
     {
-        assert(lateUse != nullptr);
-        m_lateUse = lateUse;
+        return m_setupUse;
     }
 
-    void RemoveLateUse()
+    void SetIsLateUse()
     {
-        assert(m_lateUse != nullptr);
-
-        use       = m_lateUse;
-        m_lateUse = nullptr;
-
-        // Costing code treated "late" args differently so we need
-        // to remember that this arg had a "late" arg to avoid diffs.
-        m_hadLateUse = true;
+        m_isLateUse = true;
     }
 
-    bool HadLateUse() const
+    bool IsLateUse() const
     {
-        return m_hadLateUse;
-    }
-
-    bool HasLateUse() const
-    {
-        return m_lateUse != nullptr;
+        return m_isLateUse;
     }
 
     unsigned GetArgNum() const
@@ -4854,20 +4845,20 @@ public:
         m_tempNeeded = true;
     }
 
-    bool IsPlaceholderNeeded() const
+    bool IsLateUseNeeded() const
     {
 #if FEATURE_FIXED_OUT_ARGS
-        return m_placeholderNeeded;
+        return m_isLateUseNeeded;
 #else
         return false;
 #endif
     }
 
 #if FEATURE_FIXED_OUT_ARGS
-    void SetPlaceholderNeeded()
+    void SetIsLateUseNeeded()
     {
         assert(m_slotCount != 0);
-        m_placeholderNeeded = true;
+        m_isLateUseNeeded = true;
     }
 #endif
 

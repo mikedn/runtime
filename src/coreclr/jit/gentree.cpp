@@ -1448,21 +1448,23 @@ void Compiler::gtSetCallArgsCosts(GenTreeCall* call, unsigned* callCostEx, unsig
     {
         CallArgInfo& argInfo = *info.GetArgInfo(i);
 
-        if (argInfo.HadLateUse())
+        // TODO-MIKE-Review: This is dubious. The logic was probably targeted at x86,
+        // where "late" args are only register args. But on other targets we can get
+        // stack args that are "late", so this is should simply check if the arg is a
+        // register arg or a stack arg. Doing so causes some diffs, mostly due to loop
+        // inversion (which relies on the costs to decide whether to clone the loop
+        // condition.
+
+        if (argInfo.IsLateUse())
         {
             costSz++;
-
-            continue;
         }
-
-        costEx += IND_COST_EX;
-#ifndef TARGET_XARCH // push is smaller than mov to reg
-        costSz++;
-#endif
-
-        if (argInfo.HasLateUse())
+        else
         {
+            costEx += IND_COST_EX;
+#ifndef TARGET_XARCH
             costSz++;
+#endif
         }
     }
 
@@ -3939,18 +3941,43 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
     {
         CallArgInfo* argInfo = fgArgInfo->GetArgInfo(i);
 
-        if (argInfo->GetNode() == node)
+        if (argInfo->GetUse()->GetNode() == node)
         {
             return argInfo;
         }
 
-        if (argInfo->use->GetNode() == node)
+        if (GenTreeUse* setupUse = argInfo->GetSetupUse())
         {
-            return argInfo;
+            if (setupUse->GetNode() == node)
+            {
+                return argInfo;
+            }
         }
     }
 
     unreached();
+}
+
+void GenTreeCall::RemoveSetupUses()
+{
+    // TODO-MIKE-Review: Maybe this should also remove the uses from CallArgInfo,
+    // at the moment those are just simply ignored in LIR so we can get away with
+    // not doing it.
+
+    GenTreeCall::Use** prevUseLink = &m_uses;
+
+    for (GenTreeCall::Use& use : Uses())
+    {
+        assert(!use.GetNode()->OperIs(GT_COMMA));
+
+        if (!use.GetNode()->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+        {
+            *prevUseLink = &use;
+            prevUseLink  = &use.NextRef();
+        }
+    }
+
+    *prevUseLink = nullptr;
 }
 
 GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr)

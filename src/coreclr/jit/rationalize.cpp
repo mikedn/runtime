@@ -244,37 +244,8 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         }
 
         case GT_CALL:
-        {
-            GenTreeCall* call = node->AsCall();
-            CallInfo*    info = call->GetInfo();
-
-            for (unsigned i = 0, argCount = info->GetArgCount(); i < argCount; i++)
-            {
-                CallArgInfo* argInfo = info->GetArgInfo(i);
-
-                if (GenTreeCall::Use* lateUse = argInfo->GetLateUse())
-                {
-                    argInfo->use->NodeRef() = nullptr;
-                    argInfo->RemoveLateUse();
-                }
-            }
-
-            GenTreeCall::Use** prevUseLink = &call->m_uses;
-
-            for (GenTreeCall::Use& use : call->Uses())
-            {
-                if (use.NodeRef() == nullptr)
-                {
-                    *prevUseLink = use.GetNext();
-                }
-                else
-                {
-                    prevUseLink = &use.NextRef();
-                }
-            }
-
+            node->AsCall()->RemoveSetupUses();
             break;
-        }
 
         case GT_INTRINSIC:
             // Non-target intrinsics should have already been rewritten back into user calls.
