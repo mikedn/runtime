@@ -1069,13 +1069,107 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
 #endif // TARGET_XARCH
 }
 
-//------------------------------------------------------------------------
-// InsertPutArg: rewrites the tree to put an arg in a register or on the stack.
-//
-// Return Value:
-//    The new tree that was created to put the arg in the right place
-//    or the incoming arg if the arg tree was not rewritten.
-//
+#if FEATURE_ARG_SPLIT
+GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
+{
+    GenTree* arg = info->GetNode();
+
+#if FEATURE_FASTTAILCALL
+    // TODO: Need to check correctness for FastTailCall
+    if (call->IsFastTailCall())
+    {
+        NYI_ARM("lower: struct argument by fast tail call");
+    }
+#endif
+
+    GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
+    BlockRange().InsertAfter(arg, putArgSplit);
+    info->SetNode(putArgSplit);
+
+    for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
+    {
+        putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
+
+        // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
+        // and only integer registers are used. We'll just set everyting to TYP_I_IMPL
+        // here and then update with correct GC types takend from layout or field list.
+        //
+        // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
+        // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
+        // fgInitArgInfo would only need to take the GC info from the struct layout,
+        // it doesn't need to deal with FIELD_LIST.
+
+        assert(info->GetRegType(regIndex) == TYP_I_IMPL);
+
+        putArgSplit->SetRegType(regIndex, TYP_I_IMPL);
+    }
+
+    if (arg->OperIs(GT_FIELD_LIST))
+    {
+        unsigned regIndex = 0;
+        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
+        {
+            GenTree*  node    = use.GetNode();
+            var_types regType = node->GetType();
+
+            if (varTypeIsGC(regType))
+            {
+                putArgSplit->SetRegType(regIndex, regType);
+            }
+#ifdef TARGET_ARM
+            else if (regType == TYP_DOUBLE)
+            {
+                GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
+                bitcast->SetRegNum(info->GetRegNum(regIndex));
+                regIndex++;
+                bitcast->SetRegNum(1, info->GetRegNum(regIndex));
+                BlockRange().InsertAfter(node, bitcast);
+                use.SetNode(bitcast);
+            }
+#endif
+            regIndex++;
+
+            if (regIndex >= info->GetRegCount())
+            {
+                break;
+            }
+        }
+    }
+    else if (!arg->IsIntCon(0))
+    {
+        ClassLayout* layout;
+
+        if (arg->OperIs(GT_LCL_LOAD))
+        {
+            layout = arg->AsLclLoad()->GetLcl()->GetLayout();
+        }
+        else if (arg->OperIs(GT_LCL_LOAD_FLD))
+        {
+            layout = arg->AsLclLoadFld()->GetLayout(comp);
+        }
+        else
+        {
+            layout = arg->AsIndLoadObj()->GetLayout();
+        }
+
+        if (layout->HasGCPtr())
+        {
+            for (unsigned index = 0; index < info->GetRegCount(); index++)
+            {
+                if (layout->IsGCPtr(index))
+                {
+                    putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
+                }
+            }
+        }
+    }
+
+    LowerPutArgStk(putArgSplit);
+
+    return putArgSplit;
+}
+#endif // FEATURE_ARG_SPLIT
+
 GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
@@ -1093,107 +1187,16 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
     if (info->GetSlotCount() != 0)
     {
 #if FEATURE_ARG_SPLIT
-#if FEATURE_FASTTAILCALL
-        // TODO: Need to check correctness for FastTailCall
-        if (call->IsFastTailCall())
-        {
-            NYI_ARM("lower: struct argument by fast tail call");
-        }
-#endif
-
-        GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
-        BlockRange().InsertAfter(arg, putArgSplit);
-        info->SetNode(putArgSplit);
-
-        for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
-        {
-            putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
-
-            // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
-            // and only integer registers are used. We'll just set everyting to TYP_I_IMPL
-            // here and then update with correct GC types takend from layout or field list.
-            //
-            // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
-            // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
-            // fgInitArgInfo would only need to take the GC info from the struct layout,
-            // it doesn't need to deal with FIELD_LIST.
-
-            assert(info->GetRegType(regIndex) == TYP_I_IMPL);
-
-            putArgSplit->SetRegType(regIndex, TYP_I_IMPL);
-        }
-
-        if (arg->OperIs(GT_FIELD_LIST))
-        {
-            unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
-            {
-                GenTree*  node    = use.GetNode();
-                var_types regType = node->GetType();
-
-                if (varTypeIsGC(regType))
-                {
-                    putArgSplit->SetRegType(regIndex, regType);
-                }
-#ifdef TARGET_ARM
-                else if (regType == TYP_DOUBLE)
-                {
-                    GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
-                    bitcast->SetRegNum(info->GetRegNum(regIndex));
-                    regIndex++;
-                    bitcast->SetRegNum(1, info->GetRegNum(regIndex));
-                    BlockRange().InsertAfter(node, bitcast);
-                    use.SetNode(bitcast);
-                }
-#endif
-                regIndex++;
-
-                if (regIndex >= info->GetRegCount())
-                {
-                    break;
-                }
-            }
-        }
-        else if (!arg->IsIntCon(0))
-        {
-            ClassLayout* layout;
-
-            if (arg->OperIs(GT_LCL_LOAD))
-            {
-                layout = arg->AsLclLoad()->GetLcl()->GetLayout();
-            }
-            else if (arg->OperIs(GT_LCL_LOAD_FLD))
-            {
-                layout = arg->AsLclLoadFld()->GetLayout(comp);
-            }
-            else
-            {
-                layout = arg->AsIndLoadObj()->GetLayout();
-            }
-
-            if (layout->HasGCPtr())
-            {
-                for (unsigned index = 0; index < info->GetRegCount(); index++)
-                {
-                    if (layout->IsGCPtr(index))
-                    {
-                        putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
-                    }
-                }
-            }
-        }
-
-        LowerPutArgStk(putArgSplit);
-        return putArgSplit;
-#else  // !FEATURE_ARG_SPLIT
+        return InsertPutArgSplit(call, info);
+#else
         unreached();
-#endif // !FEATURE_ARG_SPLIT
+#endif
     }
 
     if (arg->OperIs(GT_FIELD_LIST))
     {
 #if FEATURE_MULTIREG_ARGS
-        unsigned int regIndex = 0;
+        unsigned regIndex = 0;
         for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
         {
             GenTree* putArgReg = InsertPutArgReg(use.GetNode(), info, regIndex);
@@ -1299,15 +1302,6 @@ void Lowering::LowerCallArgs(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// LowerCallArg: Lower one argument of a call. This entails splicing a "putarg" node between
-// the argument evaluation and the call. This is the point at which the source is
-// consumed and the value transitions from control of the register allocator to the calling
-// convention.
-//
-//    call  - The call node
-//    argInfo - Call argument info
-//
 void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
@@ -1315,7 +1309,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     assert(!arg->OperIsPutArg());
     assert(arg->IsValue());
 
-#if !defined(TARGET_64BIT)
+#ifndef TARGET_64BIT
     if (arg->TypeIs(TYP_LONG))
     {
         noway_assert(arg->OperIs(GT_LONG));
@@ -1342,7 +1336,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 
         return;
     }
-#endif // !defined(TARGET_64BIT)
+#endif
 
     assert(!arg->OperIs(GT_IND_LOAD_OBJ) || arg->TypeIs(TYP_STRUCT));
 
@@ -1414,9 +1408,8 @@ void Lowering::LowerCall(GenTreeCall* call)
     if (call->IsFastTailCall())
     {
         // Lower fast tail call can introduce new temps to set up args correctly for Callee.
-        // This involves patching LCL_VAR and LCL_VAR_ADDR nodes holding Caller stack args
-        // and replacing them with a new temp. Control expr also can contain nodes that need
-        // to be patched.
+        // This involves patching LCL_* nodes holding caller stack args and replacing them
+        // with a new temp. Control expr also can contain nodes that need to be patched.
         // Therefore lower fast tail call must be done after controlExpr is inserted into LIR.
         // There is one side effect which is flipping the order of PME and control expression
         // since LowerFastTailCall calls InsertPInvokeMethodEpilog.

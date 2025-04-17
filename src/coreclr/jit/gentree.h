@@ -4684,10 +4684,7 @@ public:
 
 class CallArgInfo
 {
-public:
-    GenTreeCall::Use* use;
-
-private:
+    GenTreeCall::Use* m_use;
     GenTreeCall::Use* m_setupUse = nullptr;
 
     // The original argument number, also specifies the IL argument evaluation order
@@ -4745,7 +4742,7 @@ public:
                 bool isReturn = false
 #endif
                 )
-        : use(use)
+        : m_use(use)
         , m_argNum(argNum)
         , m_tempNeeded(false)
         , m_isLateUse(false)
@@ -4766,22 +4763,28 @@ public:
 
     GenTreeCall::Use* GetUse() const
     {
-        return use;
+        return m_use;
+    }
+
+    void SetUse(GenTreeCall::Use* use)
+    {
+        assert(use != nullptr);
+        m_use = use;
     }
 
     GenTree* GetNode() const
     {
-        return use->GetNode();
+        return m_use->GetNode();
     }
 
     unsigned GetSigTypeNum() const
     {
-        return use->GetSigTypeNum();
+        return m_use->GetSigTypeNum();
     }
 
     void SetNode(GenTree* node) const
     {
-        use->SetNode(node);
+        m_use->SetNode(node);
     }
 
     void SetSetupUse(GenTreeCall::Use* use)

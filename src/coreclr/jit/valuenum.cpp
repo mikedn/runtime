@@ -7341,14 +7341,14 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
         return;
     }
 
-    CallInfo*    callInfo = call->GetInfo();
-    ValueNumPair vnpCallArgs[3];
-    noway_assert(callInfo->GetArgCount() <= 3);
+    CallInfo*      callInfo     = call->GetInfo();
+    const unsigned callArgCount = callInfo->GetArgCount();
+    ValueNumPair   vnpCallArgs[3];
+    noway_assert(callArgCount <= _countof(vnpCallArgs));
 
-    for (unsigned i = 0; i < callInfo->GetArgCount(); i++)
+    for (unsigned i = 0; i < callArgCount; i++)
     {
-        CallArgInfo* argInfo              = callInfo->GetArgInfo(i);
-        vnpCallArgs[argInfo->GetArgNum()] = argInfo->GetNode()->GetVNP();
+        vnpCallArgs[i] = callInfo->GetArgInfo(i)->GetNode()->GetVNP();
     }
 
     bool addUniqueArg            = false;
@@ -7450,7 +7450,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
     }
 #endif // FEATURE_READYTORUN_COMPILER
 
-    for (unsigned i = 0, count = callInfo->GetArgCount(); i < count; i++)
+    for (unsigned i = 0; i < callArgCount; i++)
     {
         ValueNumPair vnpArgExc;
         vnpArgs[vnpArgIndex++] = vnStore->UnpackExset(vnpCallArgs[i], &vnpArgExc);

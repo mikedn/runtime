@@ -717,9 +717,9 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
     {
         for (unsigned i = 0; i < argCount; i++)
         {
-            if (argTable[i]->use == oldUse.GetUse())
+            if (argTable[i]->GetUse() == oldUse.GetUse())
             {
-                argTable[i]->use = newUse.GetUse();
+                argTable[i]->SetUse(newUse.GetUse());
                 break;
             }
 
@@ -805,9 +805,9 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
 
     for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
     {
-        CallArgInfo* argInfo = argTable[argIndex];
+        CallArgInfo& argInfo = *argTable[argIndex];
 
-        if (argInfo->GetRegCount() == 0)
+        if (argInfo.GetRegCount() == 0)
         {
             assert(HasStackArgs());
 
@@ -821,22 +821,22 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
         else
         {
 #if FEATURE_ARG_SPLIT
-            assert(!argInfo->IsSplit() || HasStackArgs());
+            assert(!argInfo.IsSplit() || HasStackArgs());
 #endif
 
             hasRegArgs = true;
         }
 
-        GenTree* arg = argInfo->GetNode();
+        GenTree* arg = argInfo.GetNode();
 
-        if (argInfo->HasTemp())
+        if (argInfo.HasTemp())
         {
             needsTemps = true;
         }
-        else if (call->IsExpandedEarly() && call->IsVirtualVtable() && (argInfo->use == call->GetThisArg()) &&
+        else if (call->IsExpandedEarly() && call->IsVirtualVtable() && (argInfo.GetUse() == call->GetThisArg()) &&
                  !arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            argInfo->SetTempNeeded();
+            argInfo.SetTempNeeded();
             needsTemps = true;
         }
 
@@ -870,7 +870,7 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
 
             if (argCount > 1)
             {
-                argInfo->SetTempNeeded();
+                argInfo.SetTempNeeded();
                 needsTemps = true;
             }
 
@@ -879,11 +879,11 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
 
             for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
             {
-                CallArgInfo* prevArgInfo = argTable[prevArgIndex];
+                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
 
-                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
+                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
 
-                GenTree* node = prevArgInfo->GetNode();
+                GenTree* node = prevArgInfo.GetNode();
 
                 // Constants and local addresses obviously do not need temps.
                 // The `this` arg also does not need a temp, if it's ever stored
@@ -893,7 +893,7 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
                     !(node->OperIs(GT_LCL_LOAD) &&
                       (node->AsLclLoad()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
                 {
-                    prevArgInfo->SetTempNeeded();
+                    prevArgInfo.SetTempNeeded();
                     needsTemps = true;
                 }
             }
@@ -933,36 +933,36 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
         {
             if (argCount > 1) // If this is not the only argument
             {
-                argInfo->SetTempNeeded();
+                argInfo.SetTempNeeded();
                 needsTemps = true;
             }
             else if (varTypeIsFloating(arg->GetType()) && arg->IsCall())
             {
                 // Spill all arguments that are floating point calls
-                argInfo->SetTempNeeded();
+                argInfo.SetTempNeeded();
                 needsTemps = true;
             }
 
             // All previous arguments may need to be evaluated into temps
             for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
             {
-                CallArgInfo* prevArgInfo = argTable[prevArgIndex];
+                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
 
-                assert(prevArgInfo->GetArgNum() < argInfo->GetArgNum());
+                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
 
                 // For all previous arguments, if they have any side effect
                 // we require that they be evaluated into a temp
-                if (prevArgInfo->GetNode()->HasSideEffects())
+                if (prevArgInfo.GetNode()->HasSideEffects())
                 {
-                    prevArgInfo->SetTempNeeded();
+                    prevArgInfo.SetTempNeeded();
                     needsTemps = true;
                 }
 #if FEATURE_FIXED_OUT_ARGS
                 // Stack argument have to be moved after the call, since
                 // both calls use the same outgoing args stack are.
-                else if (prevArgInfo->GetSlotCount() != 0)
+                else if (prevArgInfo.GetSlotCount() != 0)
                 {
-                    prevArgInfo->SetIsLateUseNeeded();
+                    prevArgInfo.SetIsLateUseNeeded();
                 }
 #endif
             }
@@ -1015,14 +1015,14 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
     {
         for (unsigned i = 0; i < argCount; i++)
         {
-            CallArgInfo* argInfo = argTable[i];
+            CallArgInfo& argInfo = *argTable[i];
 
-            if (argInfo->IsTempNeeded() || argInfo->HasTemp() || (argInfo->GetRegCount() == 0))
+            if (argInfo.IsTempNeeded() || argInfo.HasTemp() || (argInfo.GetRegCount() == 0))
             {
                 continue;
             }
 
-            GenTree* arg = argInfo->GetNode();
+            GenTree* arg = argInfo.GetNode();
 
             if (arg->HasAnySideEffect(GTF_EXCEPT))
             {
@@ -1030,7 +1030,7 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
                 if (HasLclHeap(compiler, arg))
 #endif
                 {
-                    argInfo->SetTempNeeded();
+                    argInfo.SetTempNeeded();
                     needsTemps = true;
                 }
             }
@@ -1093,7 +1093,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     // Move all constant args to the end of the arg table.
     for (ssize_t i = last; i >= first; i--)
     {
-        if (argTable[i]->use->GetNode()->OperIs(GT_CNS_INT))
+        if (argTable[i]->GetNode()->OperIs(GT_CNS_INT))
         {
             std::swap(argTable[i], argTable[last]);
             last--;
@@ -1103,7 +1103,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     // Move all call args to the beginning of the arg table.
     for (ssize_t i = first; i <= last; i++)
     {
-        if (argTable[i]->use->GetNode()->HasAnySideEffect(GTF_CALL))
+        if (argTable[i]->GetNode()->HasAnySideEffect(GTF_CALL))
         {
             std::swap(argTable[i], argTable[first]);
             first++;
@@ -1124,8 +1124,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     for (ssize_t i = last; i >= first; i--)
     {
         // Ignore STRUCT locals because they were previously wrapped in OBJ(ADDR(...)) so they were treated differently.
-        if (argTable[i]->use->GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) &&
-            !argTable[i]->use->GetNode()->TypeIs(TYP_STRUCT))
+        if (argTable[i]->GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !argTable[i]->GetNode()->TypeIs(TYP_STRUCT))
         {
             std::swap(argTable[i], argTable[last]);
             last--;
@@ -1144,7 +1143,7 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
     {
         for (ssize_t i = first; i <= last; i++)
         {
-            GenTree* arg = argTable[i]->use->GetNode();
+            GenTree* arg = argTable[i]->GetNode();
 
             // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
             // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
@@ -1170,14 +1169,14 @@ void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** arg
 
         while (first < last)
         {
-            unsigned maxCost      = argTable[first]->use->GetNode()->GetCostEx();
+            unsigned maxCost      = argTable[first]->GetNode()->GetCostEx();
             ssize_t  maxCostIndex = first;
 
             for (ssize_t i = first + 1; i <= last; i++)
             {
-                if (argTable[i]->use->GetNode()->GetCostEx() > maxCost)
+                if (argTable[i]->GetNode()->GetCostEx() > maxCost)
                 {
-                    maxCost      = argTable[i]->use->GetNode()->GetCostEx();
+                    maxCost      = argTable[i]->GetNode()->GetCostEx();
                     maxCostIndex = i;
                 }
             }
@@ -1217,7 +1216,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
         // On x86 we use push instructions to pass arguments:
         //   Only the register arguments need to be replaced with placeholder nodes.
         //   Stack arguments are evaluated and pushed in order.
-        assert(!argInfo.IsPlaceholderNeeded());
+        assert(!argInfo.IsLateUseNeeded());
 
         if (argInfo.GetRegCount() == 0)
         {
@@ -1225,7 +1224,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
         }
 #endif
 
-        GenTreeCall::Use* use      = argInfo.use;
+        GenTreeCall::Use* use      = argInfo.GetUse();
         GenTree*          arg      = use->GetNode();
         GenTree*          setupArg = nullptr;
 
@@ -2659,7 +2658,8 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
                 arg = gtNewCommaNode(addrTempAssign, arg);
             }
 
-            argInfo->use->SetNode(arg);
+            argInfo->SetNode(arg);
+
             return;
         }
 #endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
@@ -2688,7 +2688,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
             if (newArg != arg)
             {
-                argInfo->use->SetNode(newArg);
+                argInfo->SetNode(newArg);
             }
 
             return;
@@ -2699,7 +2699,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     if (arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
     {
         // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
-        argInfo->use->SetNode(gtNewBitCastNode(argRegType, arg));
+        argInfo->SetNode(gtNewBitCastNode(argRegType, arg));
         return;
     }
 #endif
@@ -6542,21 +6542,10 @@ void Compiler::fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
 }
 
 // Store argument to a recursive call to the corresponding caller parameter.
-//
-// Arguments:
-//    arg  -  value to store
-//    argTabEntry  -  argument table entry corresponding to arg
-//    block  --- basic block the call is in
-//    callILOffset  -  IL offset of the call
-//    tmpStoreInsertionPoint  -  tree before which temp store should be inserted (if necessary)
-//    paramStoreInsertionPoint  -  tree before which parameter store should be inserted
-//
-// Returns the parameter store statement if one was inserted; nullptr otherwise.
-
 Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*     arg,
                                                            CallArgInfo* argInfo,
                                                            BasicBlock*  block,
-                                                           IL_OFFSETX   callILOffset,
+                                                           IL_OFFSETX   ilOffset,
                                                            Statement*   tmpStoreInsertionPoint,
                                                            Statement*   paramStoreInsertionPoint)
 {
@@ -6609,16 +6598,15 @@ Statement* Compiler::fgAssignRecursiveCallArgToCallerParam(GenTree*     arg,
         // doesn't involve any caller parameters.
         LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
 
-        GenTreeLclStore* tmpStore     = gtNewLclStore(tmpLcl, arg->GetType(), arg);
-        Statement*       tmpStoreStmt = gtNewStmt(tmpStore, callILOffset);
-        fgInsertStmtBefore(block, tmpStoreInsertionPoint, tmpStoreStmt);
+        GenTreeLclStore* tmpStore = gtNewLclStore(tmpLcl, arg->GetType(), arg);
+        fgInsertStmtBefore(block, tmpStoreInsertionPoint, gtNewStmt(tmpStore, ilOffset));
         argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
     }
 
     // Now store the temp to the parameter.
     assert(originalArgLcl->IsParam());
     GenTreeLclStore* paramStore     = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
-    Statement*       paramStoreStmt = gtNewStmt(paramStore, callILOffset);
+    Statement*       paramStoreStmt = gtNewStmt(paramStore, ilOffset);
 
     fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
 

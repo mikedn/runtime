@@ -7004,13 +7004,13 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, char* buf, unsig
 {
     CallArgInfo* argInfo = call->GetArgInfoByArgNode(arg);
 
-    if (argInfo->use == call->HasThisArg())
+    if (argInfo->GetUse() == call->HasThisArg())
     {
         int len = sprintf_s(buf, bufLength, "this");
         buf += len;
         bufLength -= len;
     }
-    else if (call->HasRetBufArg() && (argInfo->use == call->GetRetBufArg()))
+    else if (call->HasRetBufArg() && (argInfo->GetUse() == call->GetRetBufArg()))
     {
         int len = sprintf_s(buf, bufLength, "retbuf");
         buf += len;
