@@ -4911,18 +4911,14 @@ bool Importer::CallSiteCanInlinePInvoke(BasicBlock* block)
 
 void Importer::CheckPInvokeCall(GenTreeCall*          call,
                                 CORINFO_SIG_INFO*     sig,
-                                CORINFO_METHOD_HANDLE methHnd,
-                                unsigned              methFlags)
+                                CORINFO_METHOD_HANDLE methHnd DEBUGARG(unsigned methFlags))
 {
     bool                     suppressGCTransition = false;
     CorInfoCallConvExtension callConv;
 
     if (methHnd != nullptr)
     {
-        if ((methFlags & CORINFO_FLG_PINVOKE) == 0)
-        {
-            return;
-        }
+        assert((methFlags & CORINFO_FLG_PINVOKE) != 0);
 
         call->gtCallMoreFlags |= GTF_CALL_M_PINVOKE;
 
@@ -4930,10 +4926,7 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
     }
     else
     {
-        if ((sig->getCallConv() == CORINFO_CALLCONV_DEFAULT) || (sig->getCallConv() == CORINFO_CALLCONV_VARARG))
-        {
-            return;
-        }
+        assert((sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) && (sig->getCallConv() != CORINFO_CALLCONV_VARARG));
 
         callConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
     }
@@ -4960,7 +4953,7 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
 
     comp->optNativeCallCount++;
 
-    if (methHnd == nullptr && (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
+    if ((methHnd == nullptr) && (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
     {
         // PInvoke in CoreRT ABI must be always inlined. Non-inlineable CALLI cases have been
         // converted to regular method calls earlier using convertPInvokeCalliToCall.
@@ -6134,6 +6127,22 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         // This should be checked in impImportBlockCode.
         assert(!compIsForInlining() ||
                ((impInlineInfo->inlineCandidateInfo->vmRestrictions & INLINE_RESPECT_BOUNDARY) == 0));
+
+        if (sig->isVarArg())
+        {
+#if !FEATURE_VARARG
+            BADCODE("Varargs not supported.");
+#else
+            assert(!compIsForInlining());
+
+            call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
+#endif
+        }
+
+        if ((sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) && (sig->getCallConv() != CORINFO_CALLCONV_VARARG))
+        {
+            CheckPInvokeCall(call, sig, nullptr DEBUGARG(0));
+        }
     }
     else
     {
@@ -6484,22 +6493,21 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 call->RemoveNullCheck();
             }
         }
-    }
 
-    if (sig->isVarArg())
-    {
-#if !FEATURE_VARARG
-        BADCODE("Varargs not supported.");
-#else
-        assert(!compIsForInlining());
-
-        call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
-
-        // CALLI already has the correct signature, for other opcodes we need to switch to
-        // the call site signature to get the correct number of args.
-
-        if (opcode != CEE_CALLI)
+        if ((methFlags & CORINFO_FLG_PINVOKE) != 0)
         {
+            CheckPInvokeCall(call, sig, methHnd DEBUGARG(methFlags));
+        }
+
+        if (sig->isVarArg())
+        {
+#if !FEATURE_VARARG
+            BADCODE("Varargs not supported.");
+#else
+            assert(!compIsForInlining());
+
+            call->gtCallMoreFlags |= GTF_CALL_M_VARARGS;
+
             assert(retTypeSig->numArgs >= sig->numArgs);
 
             if ((sig->retTypeSigClass != NO_CLASS_HANDLE) && (sig->retTypeSigClass != retTypeSig->retTypeSigClass) &&
@@ -6519,18 +6527,9 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
             }
 
             sig = retTypeSig;
-        }
 #endif // FEATURE_VARARG
+        }
     }
-
-    //--------------------------- Inline PInvoke ------------------------------
-
-    // For inline cases we technically should look at both the current
-    // block and the call site block (or just the latter if we've
-    // fused the EH trees). However the block-related checks pertain to
-    // EH and we currently won't inline a method with EH. So for
-    // inlinees, just checking the call site block is sufficient.
-    CheckPInvokeCall(call, sig, methHnd, methFlags);
 
     if (call->IsUnmanaged())
     {
@@ -12424,7 +12423,12 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     {
         assert(constrainedResolvedToken == nullptr);
 
-        // See comment in CheckPInvokeCall
+        // For inline cases we technically should look at both the current
+        // block and the call site block (or just the latter if we've
+        // fused the EH trees). However the block-related checks pertain to
+        // EH and we currently won't inline a method with EH. So for
+        // inlinees, just checking the call site block is sufficient.
+
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
 
         if (info.compCompHnd->convertPInvokeCalliToCall(&resolvedToken, !CallSiteCanInlinePInvoke(block)))

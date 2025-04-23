@@ -2006,7 +2006,9 @@ struct Importer
 
     bool CallerCanInlinePInvoke();
     bool CallSiteCanInlinePInvoke(BasicBlock* block);
-    void CheckPInvokeCall(GenTreeCall* call, CORINFO_SIG_INFO* sig, CORINFO_METHOD_HANDLE methHnd, unsigned methFlags);
+    void CheckPInvokeCall(GenTreeCall*          call,
+                          CORINFO_SIG_INFO*     sig,
+                          CORINFO_METHOD_HANDLE methHnd DEBUGARG(unsigned methFlags));
     GenTreeCall* impImportIndirectCall(CORINFO_SIG_INFO* sig, IL_OFFSETX ilOffset = BAD_IL_OFFSET);
     void PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig);
 
