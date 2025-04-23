@@ -3456,7 +3456,7 @@ private:
             // they do exist but they're usually COMMAs where the value operand is a LCL_VAR|FLD_ADDR
             // node already.
 
-            if (node->GetSideEffects() != 0)
+            if (node->HasSideEffects())
             {
                 return false;
             }

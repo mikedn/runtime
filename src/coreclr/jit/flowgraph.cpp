@@ -702,7 +702,7 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
         // which locals are address exposed so GTF_GLOB_REF may not be present,
         // fall back to address taken.
 
-        if ((retExpr->GetSideEffects() != 0) || impHasAddressTakenLocals(retExpr))
+        if (retExpr->HasSideEffects() || impHasAddressTakenLocals(retExpr))
         {
             LclVarDsc* retTempLcl = lvaAllocTemp(true DEBUGARG("monitor 'return' temp"));
 

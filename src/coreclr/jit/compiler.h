@@ -2333,10 +2333,7 @@ struct Importer
         var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3);
 #endif // FEATURE_HW_INTRINSICS
 
-    static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
-    static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
     bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
-    bool impHasAddressTakenLocals(GenTree* tree);
 
     GenTree* gtCloneExpr(GenTree* tree);
     bool gtCanSwapOrder(GenTree* op1, GenTree* op2);
@@ -3580,8 +3577,7 @@ private:
     static LONG     jitNestingLevel;
 #endif
 
-    static GenTreeLclAddr* impIsAddressInLocal(GenTree* tree);
-    static GenTreeLclAddr* impIsLocalAddrExpr(GenTree* node);
+    static GenTreeLclAddr* impIsLocalAddress(GenTree* tree);
     bool impHasLclRef(GenTree* tree, LclVarDsc* lcl);
     bool impHasAddressTakenLocals(GenTree* tree);
 

@@ -334,7 +334,7 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         for (unsigned level = 0; level < chkLevel; level++)
         {
             GenTree* tree = verCurrentState.esStack[level].val;
-            assert(!tree->HasAnySideEffect(GTF_GLOB_EFFECT) || impIsAddressInLocal(tree));
+            assert(!tree->HasAnySideEffect(GTF_GLOB_EFFECT) || Compiler::impIsLocalAddress(tree));
         }
     }
 
@@ -350,7 +350,7 @@ void Importer::AppendStmtCheck(GenTree* tree, unsigned chkLevel)
         {
             GenTree* val = verCurrentState.esStack[level].val;
 
-            assert(!impHasLclRef(val, lcl) || impIsAddressInLocal(val));
+            assert(!impHasLclRef(val, lcl) || Compiler::impIsLocalAddress(val));
 
             // TODO-MIKE-Cleanup: Checking IsAddressExposed here is nonsense,
             // it's rarely set during import.
@@ -404,7 +404,7 @@ void Importer::SpillStack(GenTree* stmtExpr, unsigned spillDepth)
     // do here is to check for address taken locals.
     // Oddly enough, impSpillSideEffects does that already.
 
-    if (stmtExpr->OperIs(GT_LCL_STORE) && !impHasAddressTakenLocals(stmtExpr->AsLclStore()->GetValue()))
+    if (stmtExpr->OperIs(GT_LCL_STORE) && !comp->impHasAddressTakenLocals(stmtExpr->AsLclStore()->GetValue()))
     {
         GenTreeFlags srcSideEffects = stmtExpr->AsLclStore()->GetValue()->GetSideEffects();
         assert(stmtSideEffects == (srcSideEffects | GTF_ASG));
@@ -1450,7 +1450,7 @@ void Importer::ImportDup()
     GenTree*   op1 = se.val;
     GenTree*   op2 = nullptr;
 
-    if (impIsAddressInLocal(op1))
+    if (Compiler::impIsLocalAddress(op1))
     {
         // Always clone local addresses, otherwise the local will end up being address exposed.
         op2 = gtCloneExpr(op1);
@@ -1549,7 +1549,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
     {
         GenTree* tree = verCurrentState.esStack[i].val;
 
-        if (impIsAddressInLocal(tree))
+        if (Compiler::impIsLocalAddress(tree))
         {
             // Trees that represent local addresses may have spurious GLOB_REF
             // side effects but they never need to be spilled.
@@ -1562,7 +1562,7 @@ void Importer::impSpillSideEffects(GenTreeFlags spillSideEffects, unsigned spill
         // so we cannot rely on GTF_GLOB_REF being present in trees that use
         // such locals. Conservatively assume that address taken locals will be
         // address exposed and add GTF_GLOB_REF.
-        if (((spillSideEffects & GTF_GLOB_REF) != 0) && impHasAddressTakenLocals(tree))
+        if (((spillSideEffects & GTF_GLOB_REF) != 0) && comp->impHasAddressTakenLocals(tree))
         {
             treeSideEffects |= GTF_GLOB_REF;
         }
@@ -2053,7 +2053,7 @@ void Importer::impBashVarAddrsToI(GenTree* tree)
     // set its type to TYP_BYREF when we create it. We know if it can
     // be changed to TYP_I_IMPL only at the point where we use it.
 
-    if (tree->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(tree))
+    if (tree->TypeIs(TYP_BYREF) && Compiler::impIsLocalAddress(tree))
     {
         tree->SetType(TYP_I_IMPL);
     }
@@ -3803,9 +3803,10 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
     for (unsigned i = 0; i < sig->numArgs; i++)
     {
         GenTree* arg = impPopStack().val;
+
         // These are expected to be the intrinsic method's own parameters so
         // they should not have side effects and can simply be discarded.
-        assert(arg->GetSideEffects() == 0);
+        assert(!arg->HasSideEffects());
     }
 
     GenTreeCall* call = gtNewHelperCallNode(helper, TYP_VOID);
@@ -8964,11 +8965,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         GenTreeFlags valueSideEffects = op1->GetSideEffects() & GTF_GLOB_EFFECT;
 
-                        if ((valueSideEffects & (GTF_CALL | GTF_ASG)) != 0)
+                        if ((valueSideEffects & (GTF_CALL | GTF_ASG)) != GTF_NONE)
                         {
                             spillSideEffects = GTF_GLOB_EFFECT;
                         }
-                        else if (((valueSideEffects & GTF_GLOB_EFFECT) != 0) || impHasAddressTakenLocals(op1))
+                        else if (((valueSideEffects & GTF_GLOB_EFFECT) != GTF_NONE) ||
+                                 comp->impHasAddressTakenLocals(op1))
                         {
                             spillSideEffects = GTF_SIDE_EFFECT;
                         }
@@ -9016,7 +9018,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         // When "&var" is created, we assume it is a byref. If it is being assigned
                         // to a TYP_I_IMPL var, change the type to prevent unnecessary GC info.
-                        if (op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
+                        if (op1->TypeIs(TYP_BYREF) && Compiler::impIsLocalAddress(op1))
                         {
                             op1->SetType(TYP_I_IMPL);
                         }
@@ -13005,7 +13007,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
                 // We don't need to do this is the tree represents a local address, these do not need to
                 // be reported to the GC as byrefs.
 
-                if (impIsAddressInLocal(tree))
+                if (Compiler::impIsLocalAddress(tree))
                 {
                     tree->SetType(TYP_I_IMPL);
                 }
@@ -13538,7 +13540,7 @@ void Importer::Import()
     }
 }
 
-GenTreeLclAddr* Compiler::impIsAddressInLocal(GenTree* tree)
+GenTreeLclAddr* Compiler::impIsLocalAddress(GenTree* tree)
 {
     if (!tree->TypeIs(TYP_BYREF, TYP_I_IMPL))
     {
@@ -13576,30 +13578,6 @@ GenTreeLclAddr* Compiler::impIsAddressInLocal(GenTree* tree)
     }
 
     return tree->OperIs(GT_LCL_ADDR) ? tree->AsLclAddr() : nullptr;
-}
-
-// TODO-MIKE-Cleanup: This should be merged with impIsAddressInLocal
-GenTreeLclAddr* Compiler::impIsLocalAddrExpr(GenTree* node)
-{
-    while (node->OperIs(GT_ADD))
-    {
-        GenTree* op1 = node->AsOp()->GetOp(0);
-        GenTree* op2 = node->AsOp()->GetOp(1);
-
-        if (op1->OperIs(GT_CNS_INT))
-        {
-            std::swap(op1, op2);
-        }
-
-        if (!op2->OperIs(GT_CNS_INT))
-        {
-            return nullptr;
-        }
-
-        node = op1;
-    }
-
-    return node->OperIs(GT_LCL_ADDR) ? node->AsLclAddr() : nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -16772,7 +16750,7 @@ GenTree* Importer::gtNewGCBitcastNode(GenTree* op1)
 {
     assert(varTypeIsGC(op1->GetType()));
 
-    if (op1->TypeIs(TYP_BYREF) && impIsLocalAddrExpr(op1))
+    if (op1->TypeIs(TYP_BYREF) && Compiler::impIsLocalAddress(op1))
     {
         op1->SetType(TYP_I_IMPL);
     }
@@ -16978,24 +16956,9 @@ GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(
 
 #endif // FEATURE_HW_INTRINSICS
 
-GenTreeLclAddr* Importer::impIsAddressInLocal(GenTree* tree)
-{
-    return Compiler::impIsAddressInLocal(tree);
-}
-
-GenTreeLclAddr* Importer::impIsLocalAddrExpr(GenTree* node)
-{
-    return Compiler::impIsLocalAddrExpr(node);
-}
-
 bool Importer::impHasLclRef(GenTree* tree, LclVarDsc* lcl)
 {
     return comp->impHasLclRef(tree, lcl);
-}
-
-bool Importer::impHasAddressTakenLocals(GenTree* tree)
-{
-    return comp->impHasAddressTakenLocals(tree);
 }
 
 GenTree* Importer::gtCloneExpr(GenTree* tree)

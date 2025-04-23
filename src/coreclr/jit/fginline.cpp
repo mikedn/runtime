@@ -455,7 +455,7 @@ bool Compiler::inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* ca
     return result.IsSuccess();
 }
 
-void jitInlineCode(InlineInfo* inlineInfo)
+static void jitInlineCode(InlineInfo* inlineInfo)
 {
     Compiler* inlinerCompiler = inlineInfo->InlinerCompiler;
 
@@ -1411,7 +1411,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
             // But this is done only if the arg represents a local address which is BYREF
             // in spec but in reality is just a native pointer.
 
-            if (!impIsAddressInLocal(argNode))
+            if (!impIsLocalAddress(argNode))
             {
                 inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
                 return false;
@@ -1472,7 +1472,7 @@ bool Compiler::inlAnalyzeInlineeArg(InlineInfo* inlineInfo, unsigned argNum)
             JITDUMP("is aliased local");
         }
     }
-    else if (GenTreeLclAddr* lclAddr = impIsAddressInLocal(argInfo.argNode))
+    else if (GenTreeLclAddr* lclAddr = impIsLocalAddress(argInfo.argNode))
     {
         argInfo.argIsInvariant = true;
 
@@ -2339,7 +2339,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
         {
             JITDUMP("Argument %u is invariant/unaliased local\n", argNum);
 
-            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_LOAD) || impIsAddressInLocal(argNode));
+            assert(argNode->OperIsConst() || argNode->OperIs(GT_LCL_LOAD) || impIsLocalAddress(argNode));
             assert(!argInfo.paramIsAddressTaken && !argInfo.paramHasStores && !argInfo.argHasGlobRef);
 
             continue;

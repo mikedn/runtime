@@ -7620,7 +7620,7 @@ GenTree* Compiler::gtFoldTypeCompare(GenTree* tree)
                 GenTree* nullcheck = gtNewNullCheck(objOp);
                 return gtNewCommaNode(nullcheck, compareResult);
             }
-            else if (objOp->GetSideEffects() != 0)
+            else if (objOp->HasSideEffects())
             {
                 return gtNewCommaNode(objOp, compareResult);
             }
