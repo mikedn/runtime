@@ -267,7 +267,6 @@ public:
         return tail;
     }
 
-    // Make sure this provides methods that allow it to be used as a KeyFuncs type in SimplerHash.
     static int GetHashCode(FieldSeqNode fsn)
     {
         return static_cast<int>(reinterpret_cast<intptr_t>(fsn.m_fieldHnd)) ^
@@ -287,9 +286,8 @@ class FieldSeqStore
 {
     using FieldSeqNodeCanonMap = JitHashTable<FieldSeqNode, FieldSeqNode, FieldSeqNode*>;
 
-    Compiler*             m_compiler;
-    CompAllocator         m_alloc;
-    FieldSeqNodeCanonMap* m_canonMap;
+    Compiler*            m_compiler;
+    FieldSeqNodeCanonMap m_canonMap;
 
 public:
     FieldSeqStore(Compiler* compiler);

@@ -10722,23 +10722,20 @@ const CORINFO_FIELD_HANDLE FieldSeqNode::BoxedValuePseudoFieldHandle =
     reinterpret_cast<CORINFO_FIELD_HANDLE>(&FieldSeqNode::BoxedValuePseudoFieldStruct);
 
 FieldSeqStore::FieldSeqStore(Compiler* compiler)
-    : m_compiler(compiler)
-    , m_alloc(compiler->getAllocator(CMK_FieldSeqStore))
-    , m_canonMap(new (m_alloc) FieldSeqNodeCanonMap(m_alloc))
+    : m_compiler(compiler), m_canonMap(compiler->getAllocator(CMK_FieldSeqStore))
 {
 }
 
 FieldSeqNode* FieldSeqStore::CreateSingleton(CORINFO_FIELD_HANDLE fieldHnd)
 {
-    FieldSeqNode* seq = nullptr;
+    FieldSeqNode** value = m_canonMap.Emplace(fieldHnd);
 
-    if (!m_canonMap->Lookup(fieldHnd, &seq))
+    if (*value == nullptr)
     {
-        seq = new (m_alloc) FieldSeqNode(fieldHnd);
-        m_canonMap->Set(fieldHnd, seq);
+        *value = new (m_canonMap.GetAllocator()) FieldSeqNode(fieldHnd);
     }
 
-    return seq;
+    return *value;
 }
 
 FieldSeqNode* FieldSeqStore::GetArrayElement(unsigned elementTypeNum, uint8_t dataOffs)
@@ -10833,7 +10830,7 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     seq[len] = b;
 
     // Skip prefix nodes that already exist.
-    for (FieldSeqNode* p; (len != 0) && m_canonMap->Lookup({seq[len - 1], seq[len]}, &p); len--)
+    for (FieldSeqNode* p; (len != 0) && m_canonMap.Lookup({seq[len - 1], seq[len]}, &p); len--)
     {
         seq[len - 1] = p;
     }
@@ -10841,8 +10838,8 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     // Create new prefix nodes.
     for (; len != 0; len--)
     {
-        FieldSeqNode* p = new (m_alloc) FieldSeqNode(seq[len - 1], seq[len]);
-        m_canonMap->Set(*p, p);
+        FieldSeqNode* p = new (m_canonMap.GetAllocator()) FieldSeqNode(seq[len - 1], seq[len]);
+        m_canonMap.Set(*p, p);
         INDEBUG(DebugCheck(p);)
         seq[len - 1] = p;
     }
