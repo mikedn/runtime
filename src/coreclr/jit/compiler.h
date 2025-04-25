@@ -5214,7 +5214,7 @@ public:
     // whose return type is other than TYP_VOID. 2) GT_CALL node is a frequently used
     // structure and IL offset is needed only when generating debuggable code. Therefore
     // it is desirable to avoid memory size penalty in retail scenarios.
-    using CallSiteILOffsetTable = JitHashMap<GenTree*, IL_OFFSETX, JitPtrKeyFuncs<GenTree>>;
+    using CallSiteILOffsetTable                    = JitHashMap<GenTree*, IL_OFFSETX>;
     CallSiteILOffsetTable* genCallSite2ILOffsetMap = nullptr;
 
     BasicBlock* genReturnBB = nullptr; // jumped to when not optimizing for speed.
@@ -5887,7 +5887,7 @@ public:
         return compRoot->m_fieldSeqStore;
     }
 
-    using NodeToFieldSeqMap = JitHashMap<GenTree*, FieldSeqNode*, JitPtrKeyFuncs<GenTree>>;
+    using NodeToFieldSeqMap = JitHashMap<GenTree*, FieldSeqNode*>;
 
     // Some nodes of "TYP_BYREF" or "TYP_I_IMPL" actually represent the address of a field within a struct, but since
     // the offset of the field is zero, there's no "GT_ADD" node.  We normally attach a field sequence to the constant

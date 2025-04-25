@@ -1896,18 +1896,16 @@ PhaseStatus Compiler::phTailMergeThrows()
 
     struct ThrowHelper
     {
-        BasicBlock*  m_block;
-        GenTreeCall* m_call;
+        BasicBlock*  m_block = nullptr;
+        GenTreeCall* m_call  = nullptr;
 
-        ThrowHelper() : m_block(nullptr), m_call(nullptr)
-        {
-        }
+        ThrowHelper() = default;
 
         ThrowHelper(BasicBlock* block, GenTreeCall* call) : m_block(block), m_call(call)
         {
         }
 
-        static bool Equals(const ThrowHelper x, const ThrowHelper& y)
+        static bool Equals(const ThrowHelper& x, const ThrowHelper& y)
         {
             return BasicBlock::sameEHRegion(x.m_block, y.m_block) && GenTreeCall::Equals(x.m_call, y.m_call);
         }
@@ -1918,7 +1916,7 @@ PhaseStatus Compiler::phTailMergeThrows()
         }
     };
 
-    using CallToBlockMap = JitHashMap<ThrowHelper, BasicBlock*, ThrowHelper>;
+    using CallToBlockMap = JitHashMap<ThrowHelper, BasicBlock*>;
 
     CompAllocator   allocator(getAllocator(CMK_TailMergeThrows));
     CallToBlockMap  callMap(allocator);

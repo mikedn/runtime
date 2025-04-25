@@ -44,7 +44,7 @@ struct SsaMemDef
     INDEBUG(unsigned num = 0;)
 };
 
-using NodeMemDefMap = JitHashMap<GenTree*, SsaMemDef, JitPtrKeyFuncs<GenTree>>;
+using NodeMemDefMap = JitHashMap<GenTree*, SsaMemDef>;
 
 struct MemoryPhiArg
 {

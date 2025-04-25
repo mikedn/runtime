@@ -27,26 +27,14 @@
 #include "disx86.h"
 #elif defined(TARGET_ARM64)
 #include "disarm64.h"
-#else // TARGET*
+#else
 #error Unsupported or unset target architecture
 #endif
 
 class DisAssembler
 {
-#ifdef HOST_64BIT
-    template <typename T>
-    struct SizeTKeyFuncs : JitLargePrimitiveKeyFuncs<T>
-    {
-    };
-#else
-    template <typename T>
-    struct SizeTKeyFuncs : JitSmallPrimitiveKeyFuncs<T>
-    {
-    };
-#endif
-
-    using AddrToMethodHandleMap = JitHashMap<size_t, CORINFO_METHOD_HANDLE, SizeTKeyFuncs<size_t>>;
-    using AddrToAddrMap         = JitHashMap<size_t, size_t, SizeTKeyFuncs<size_t>>;
+    using AddrToMethodHandleMap = JitHashMap<size_t, CORINFO_METHOD_HANDLE>;
+    using AddrToAddrMap         = JitHashMap<size_t, size_t>;
 
 public:
     DisAssembler::DisAssembler(Compiler* compiler, CodeGen* codeGen)

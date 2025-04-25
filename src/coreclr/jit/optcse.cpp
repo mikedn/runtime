@@ -310,7 +310,7 @@ class Cse
     unsigned valueCount;
     unsigned cseCount = 0;
 
-    using NodeToNodeMap = JitHashMap<GenTree*, GenTree*, JitPtrKeyFuncs<GenTree>>;
+    using NodeToNodeMap = JitHashMap<GenTree*, GenTree*>;
 
     // Maps bound nodes to ancestor compares that should be re-numbered
     // with the bound to improve range check elimination.

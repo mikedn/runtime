@@ -833,7 +833,7 @@ private:
         unsigned toBBNum;
     };
 
-    using SplitBBNumToTargetBBNumMap = JitHashMap<unsigned, SplitEdgeInfo, JitSmallPrimitiveKeyFuncs<unsigned>>;
+    using SplitBBNumToTargetBBNumMap                       = JitHashMap<unsigned, SplitEdgeInfo>;
     SplitBBNumToTargetBBNumMap* splitBBNumToTargetBBNumMap = nullptr;
     SplitBBNumToTargetBBNumMap* getSplitBBNumToTargetBBNumMap();
     SplitEdgeInfo getSplitEdgeInfo(unsigned bbNum) const;

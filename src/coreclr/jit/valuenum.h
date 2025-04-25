@@ -107,7 +107,7 @@ struct VNFuncApp
     }
 };
 
-struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
+struct VNHandle
 {
     void*      addr;
     HandleKind kind;
@@ -121,6 +121,11 @@ struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
         return addr == y.addr && kind == y.kind;
     }
 
+    static bool Equals(const VNHandle& x, const VNHandle& y)
+    {
+        return x == y;
+    }
+
     static unsigned GetHashCode(const VNHandle& val)
     {
         return static_cast<unsigned>(reinterpret_cast<size_t>(val.addr));
@@ -131,32 +136,46 @@ struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
 // This define is used with string concatenation to put this in printf format strings
 #define FMT_VN "$%x"
 
-using NodeBlockMap = JitHashMap<GenTree*, BasicBlock*, JitPtrKeyFuncs<GenTree>>;
+using NodeBlockMap = JitHashMap<GenTree*, BasicBlock*>;
 
 class SsaOptimizer;
 class ValueNumbering;
+
+template <>
+struct JitHashFuncs<VNFunc>
+{
+    static bool Equals(VNFunc x, VNFunc y)
+    {
+        return x == y;
+    }
+
+    static unsigned GetHashCode(VNFunc func)
+    {
+        return static_cast<unsigned>(func);
+    }
+};
 
 class ValueNumStore
 {
     friend class ValueNumbering;
 
-    template <class Value, class KeyFuncs = JitLargePrimitiveKeyFuncs<Value>>
-    class VNMap : public JitHashMap<Value, ValueNum, KeyFuncs>
+    template <class Value>
+    class VNMap : public JitHashMap<Value, ValueNum>
     {
     public:
-        VNMap(CompAllocator alloc) : JitHashMap<Value, ValueNum, KeyFuncs>(alloc)
+        VNMap(CompAllocator alloc) : JitHashMap<Value, ValueNum>(alloc)
         {
         }
 
         bool Set(Value value, ValueNum vn)
         {
             assert(vn != RecursiveVN);
-            return JitHashMap<Value, ValueNum, KeyFuncs>::Set(value, vn);
+            return JitHashMap<Value, ValueNum>::Set(value, vn);
         }
 
         bool Lookup(Value value, ValueNum* vn = nullptr) const
         {
-            bool result = JitHashMap<Value, ValueNum, KeyFuncs>::Lookup(value, vn);
+            bool result = JitHashMap<Value, ValueNum>::Lookup(value, vn);
             assert(!result || *vn != RecursiveVN);
             return result;
         }
@@ -208,17 +227,19 @@ class ValueNumStore
         {
             return VNFuncDef0::operator==(y) && arg0 == y.arg0;
         }
-    };
 
-    struct VNDefFunc1ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef1>
-    {
+        static bool Equals(const VNFuncDef1& x, const VNFuncDef1& y)
+        {
+            return x == y;
+        }
+
         static unsigned GetHashCode(VNFuncDef1 val)
         {
             return (val.func << 24) + val.arg0;
         }
     };
 
-    using Func1VNMap = VNMap<VNFuncDef1, VNDefFunc1ArgKeyFuncs>;
+    using Func1VNMap = VNMap<VNFuncDef1>;
 
     struct VNFuncDef2 : public VNFuncDef1
     {
@@ -235,17 +256,19 @@ class ValueNumStore
         {
             return VNFuncDef1::operator==(y) && arg1 == y.arg1;
         }
-    };
 
-    struct VNDefFunc2ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef2>
-    {
+        static bool Equals(const VNFuncDef2& x, const VNFuncDef2& y)
+        {
+            return x == y;
+        }
+
         static unsigned GetHashCode(const VNFuncDef2& val)
         {
             return (val.func << 24) + (val.arg0 << 8) + val.arg1;
         }
     };
 
-    using Func2VNMap = VNMap<VNFuncDef2, VNDefFunc2ArgKeyFuncs>;
+    using Func2VNMap = VNMap<VNFuncDef2>;
 
     struct VNFuncDef3 : public VNFuncDef2
     {
@@ -262,17 +285,19 @@ class ValueNumStore
         {
             return VNFuncDef2::operator==(y) && arg2 == y.arg2;
         }
-    };
 
-    struct VNDefFunc3ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef3>
-    {
+        static bool Equals(const VNFuncDef3& x, const VNFuncDef3& y)
+        {
+            return x == y;
+        }
+
         static unsigned GetHashCode(const VNFuncDef3& val)
         {
             return (val.func << 24) + (val.arg0 << 16) + (val.arg1 << 8) + val.arg2;
         }
     };
 
-    using Func3VNMap = VNMap<VNFuncDef3, VNDefFunc3ArgKeyFuncs>;
+    using Func3VNMap = VNMap<VNFuncDef3>;
 
     struct VNFuncDef4 : public VNFuncDef3
     {
@@ -290,17 +315,19 @@ class ValueNumStore
         {
             return VNFuncDef3::operator==(y) && arg3 == y.arg3;
         }
-    };
 
-    struct VNDefFunc4ArgKeyFuncs : public JitKeyFuncsDefEquals<VNFuncDef4>
-    {
+        static bool Equals(const VNFuncDef4& x, const VNFuncDef4& y)
+        {
+            return x == y;
+        }
+
         static unsigned GetHashCode(const VNFuncDef4& val)
         {
             return (val.func << 24) + (val.arg0 << 16) + (val.arg1 << 8) + val.arg2 + (val.arg3 << 12);
         }
     };
 
-    using Func4VNMap = VNMap<VNFuncDef4, VNDefFunc4ArgKeyFuncs>;
+    using Func4VNMap = VNMap<VNFuncDef4>;
 
     using Int32VNMap = VNMap<int32_t>;
     using Int64VNMap = VNMap<int64_t>;
@@ -312,7 +339,7 @@ class ValueNumStore
     static constexpr int      SmallIntConstMax = 10;
     static constexpr unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
 
-    using HandleVNMap = VNMap<VNHandle, VNHandle>;
+    using HandleVNMap = VNMap<VNHandle>;
 
     using CheckedBoundVNSet = SmallHashTable<ValueNum, bool, 8U>;
 
@@ -456,7 +483,7 @@ class ValueNumStore
     // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
     unsigned m_numMapSels = 0;
 
-    JitHashMap<ValueNum, const char*, JitSmallPrimitiveKeyFuncs<ValueNum>> m_vnNameMap;
+    JitHashMap<ValueNum, const char*> m_vnNameMap;
 #endif
 
 public:

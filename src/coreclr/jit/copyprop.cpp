@@ -50,7 +50,7 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using LclSsaStackMap = JitHashMap<unsigned, SsaDefStack, JitSmallPrimitiveKeyFuncs<unsigned>>;
+    using LclSsaStackMap = JitHashMap<unsigned, SsaDefStack>;
 
     SsaOptimizer&  ssa;
     LclSsaStackMap lclSsaStackMap;

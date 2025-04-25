@@ -267,7 +267,7 @@ public:
         return tail;
     }
 
-    static int GetHashCode(FieldSeqNode fsn)
+    static int GetHashCode(const FieldSeqNode& fsn)
     {
         return static_cast<int>(reinterpret_cast<intptr_t>(fsn.m_fieldHnd)) ^
                static_cast<int>(reinterpret_cast<intptr_t>(fsn.m_next));
@@ -284,7 +284,7 @@ using FieldSeq = FieldSeqNode;
 // This class canonicalizes field sequences.
 class FieldSeqStore
 {
-    using FieldSeqNodeCanonMap = JitHashMap<FieldSeqNode, FieldSeqNode*, FieldSeqNode>;
+    using FieldSeqNodeCanonMap = JitHashMap<FieldSeqNode, FieldSeqNode*>;
 
     Compiler*            m_compiler;
     FieldSeqNodeCanonMap m_canonMap;

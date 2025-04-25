@@ -16,8 +16,8 @@ class ClassLayoutTable
     // above it are struct layouts.
     static constexpr unsigned FirstLayoutNum = TYP_UNKNOWN + 1;
 
-    typedef JitHashMap<unsigned, unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>               BlkLayoutIndexMap;
-    typedef JitHashMap<CORINFO_CLASS_HANDLE, unsigned, JitPtrKeyFuncs<CORINFO_CLASS_STRUCT_>> ObjLayoutIndexMap;
+    using BlkLayoutIndexMap = JitHashMap<unsigned, unsigned>;
+    using ObjLayoutIndexMap = JitHashMap<CORINFO_CLASS_HANDLE, unsigned>;
 
     union {
         // Up to 3 layouts can be stored "inline" and finding a layout by handle/size can be done using linear search.

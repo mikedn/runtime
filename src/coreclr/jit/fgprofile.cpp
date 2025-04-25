@@ -1935,7 +1935,7 @@ private:
 
     // Map correlating block keys to blocks.
     //
-    using KeyToBlockMap = JitHashMap<int32_t, BasicBlock*, JitSmallPrimitiveKeyFuncs<int32_t>>;
+    using KeyToBlockMap = JitHashMap<int32_t, BasicBlock*>;
     KeyToBlockMap m_keyToBlockMap;
 
     // Key for finding an edge based on schema info.

@@ -14,7 +14,7 @@ class SsaBuilder
     BitVec        m_visited;
 
     using BlockVector = jitstd::vector<BasicBlock*>;
-    using BlockDFMap  = JitHashMap<BasicBlock*, BlockVector, JitPtrKeyFuncs<BasicBlock>>;
+    using BlockDFMap  = JitHashMap<BasicBlock*, BlockVector>;
 
 public:
     SsaBuilder(SsaOptimizer& ssa);

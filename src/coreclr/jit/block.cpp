@@ -504,16 +504,15 @@ BasicBlock* BasicBlock::GetUniqueSucc() const
     }
 }
 
-unsigned JitPtrKeyFuncs<BasicBlock>::GetHashCode(const BasicBlock* ptr)
+unsigned BasicBlockNumHash::GetHashCode(BasicBlock* block)
 {
 #ifdef DEBUG
-    unsigned hash = SsaStressHashHelper();
-    if (hash != 0)
+    if (unsigned hash = SsaStressHashHelper())
     {
-        return (hash ^ (ptr->bbNum << 16) ^ ptr->bbNum);
+        return hash ^ (block->bbNum << 16) ^ block->bbNum;
     }
 #endif
-    return ptr->bbNum;
+    return block->bbNum;
 }
 
 //------------------------------------------------------------------------

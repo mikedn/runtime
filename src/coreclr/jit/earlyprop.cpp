@@ -35,7 +35,7 @@ class EarlyProp
 {
     static const int SsaChaseLimit = 5;
 
-    using DefNullCheckMap = JitHashMap<GenTreeLclDef*, GenTreeIndir*, JitPtrKeyFuncs<GenTreeLclDef>>;
+    using DefNullCheckMap = JitHashMap<GenTreeLclDef*, GenTreeIndir*>;
 
     Compiler*       compiler;
     BasicBlock*     currentBlock;

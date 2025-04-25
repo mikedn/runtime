@@ -95,11 +95,25 @@ public:
 
 extern const JitPrimeInfo jitPrimeInfo[27];
 
-template <typename Key,
-          typename Value,
-          typename KeyFuncs,
-          typename Allocator = CompAllocator,
-          typename Behavior  = JitHashTableBehavior>
+template <class T>
+struct JitHashFuncs
+{
+    static bool Equals(const T& x, const T& y)
+    {
+        return T::Equals(x, y);
+    }
+
+    static unsigned GetHashCode(const T& val)
+    {
+        return T::GetHashCode(val);
+    }
+};
+
+template <class Key,
+          class Value,
+          class HashFuncs = JitHashFuncs<Key>,
+          class Allocator = CompAllocator,
+          class Behavior  = JitHashTableBehavior>
 class JitHashMap
 {
     struct Node;
@@ -224,7 +238,7 @@ public:
         unsigned index = GetIndexForKey(k);
 
         Node* pN = m_table[index];
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
+        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
         {
             pN = pN->m_next;
         }
@@ -264,7 +278,7 @@ public:
         unsigned index = GetIndexForKey(k);
 
         Node* n = m_table[index];
-        while ((n != nullptr) && !KeyFuncs::Equals(k, n->m_value.key))
+        while ((n != nullptr) && !HashFuncs::Equals(k, n->m_value.key))
         {
             n = n->m_next;
         }
@@ -298,7 +312,7 @@ public:
 
         Node*  pN  = m_table[index];
         Node** ppN = &m_table[index];
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
+        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
         {
             ppN = &pN->m_next;
             pN  = pN->m_next;
@@ -391,7 +405,7 @@ private:
     //
     unsigned GetIndexForKey(Key k) const
     {
-        unsigned hash = KeyFuncs::GetHashCode(k);
+        unsigned hash = HashFuncs::GetHashCode(k);
 
         unsigned index = m_tableSizeInfo.magicNumberRem(hash);
 
@@ -423,12 +437,12 @@ private:
         }
 
         // Otherwise...
-        while ((pN != nullptr) && !KeyFuncs::Equals(k, pN->m_value.key))
+        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
         {
             pN = pN->m_next;
         }
 
-        assert((pN == nullptr) || KeyFuncs::Equals(k, pN->m_value.key));
+        assert((pN == nullptr) || HashFuncs::Equals(k, pN->m_value.key));
 
         // If pN != nullptr, it's the node for the key, else the key isn't mapped.
         return pN;
@@ -510,7 +524,7 @@ public:
             {
                 Node* pNext = pN->m_next;
 
-                unsigned newIndex  = newPrime.magicNumberRem(KeyFuncs::GetHashCode(pN->m_value.key));
+                unsigned newIndex  = newPrime.magicNumberRem(HashFuncs::GetHashCode(pN->m_value.key));
                 pN->m_next         = newTable[newIndex];
                 newTable[newIndex] = pN;
 
@@ -688,10 +702,10 @@ private:
     };
 };
 
-template <typename Value,
-          typename HashFuncs,
-          typename Allocator = CompAllocator,
-          typename Behavior  = JitHashTableBehavior>
+template <class Value,
+          class HashFuncs = JitHashFuncs<Value>,
+          class Allocator = CompAllocator,
+          class Behavior  = JitHashTableBehavior>
 class JitHashSet
 {
     struct Node
@@ -988,86 +1002,81 @@ private:
     }
 };
 
-// Commonly used KeyFuncs types:
-
-// Base class for types whose equality function is the same as their "==".
-template <typename T>
-struct JitKeyFuncsDefEquals
+template <>
+struct JitHashFuncs<int32_t>
 {
-    static bool Equals(const T& x, const T& y)
+    static bool Equals(int32_t x, int32_t y)
     {
         return x == y;
     }
+
+    static unsigned GetHashCode(int32_t value)
+    {
+        return static_cast<unsigned>(value);
+    };
 };
 
-template <typename T>
-struct JitPtrKeyFuncs : public JitKeyFuncsDefEquals<const T*>
+template <>
+struct JitHashFuncs<uint32_t>
 {
-public:
-    static unsigned GetHashCode(const T* ptr)
+    static bool Equals(uint32_t x, uint32_t y)
     {
-        // Using the lower 32 bits of a pointer as a hashcode should be good enough.
+        return x == y;
+    }
+
+    static unsigned GetHashCode(uint32_t value)
+    {
+        return value;
+    };
+};
+
+template <>
+struct JitHashFuncs<uint64_t>
+{
+    static bool Equals(uint64_t x, uint64_t y)
+    {
+        return x == y;
+    }
+
+    static unsigned GetHashCode(uint64_t value)
+    {
+        uint32_t upper32 = static_cast<uint32_t>(value >> 32);
+        uint32_t lower32 = static_cast<uint32_t>(value & UINT32_MAX);
+
+        return static_cast<unsigned>(upper32 ^ lower32);
+    };
+};
+
+template <>
+struct JitHashFuncs<int64_t>
+{
+    static bool Equals(int64_t x, int64_t y)
+    {
+        return x == y;
+    }
+
+    static unsigned GetHashCode(int64_t value)
+    {
+        uint32_t upper32 = static_cast<uint32_t>((value & UINT32_MAX) >> 32);
+        uint32_t lower32 = static_cast<uint32_t>(value & UINT32_MAX);
+
+        return static_cast<unsigned>(upper32 ^ lower32);
+    };
+};
+
+template <class T>
+struct JitHashFuncs<T*>
+{
+    static bool Equals(T* x, T* y)
+    {
+        return x == y;
+    }
+
+    static unsigned GetHashCode(T* value)
+    {
+        // Using the lower 32 bits of a pointer as a hash code should be good enough.
         // In fact, this should result in an unique hash code unless we allocate
         // more than 4 gigabytes or if the virtual address space is fragmented.
-        return static_cast<unsigned>(reinterpret_cast<uintptr_t>(ptr));
-    }
-};
-
-template <typename T> // Must be coercible to "unsigned" with no loss of information.
-struct JitSmallPrimitiveKeyFuncs : public JitKeyFuncsDefEquals<T>
-{
-    static unsigned GetHashCode(const T& val)
-    {
-        return static_cast<unsigned>(val);
-    }
-};
-
-template <typename T> // Assumed to be of size sizeof(UINT64).
-struct JitLargePrimitiveKeyFuncs : public JitKeyFuncsDefEquals<T>
-{
-    static unsigned GetHashCode(const T val)
-    {
-        // A static cast when T is a float or a double converts the value (i.e. 0.25 converts to 0)
-        //
-        // Instead we want to use all of the bits of a float to create the hash value
-        // So we cast the address of val to a pointer to an equivalent sized unsigned int
-        // This allows us to read the actual bit representation of a float type
-        //
-        // We can't read beyond the end of val, so we use sizeof(T) to determine
-        // exactly how many bytes to read
-        //
-        if (sizeof(T) == 8)
-        {
-            // cast &val to (UINT64 *) then deref to get the bits
-            UINT64 asUINT64 = *(reinterpret_cast<const UINT64*>(&val));
-
-            // Get the upper and lower 32-bit values from the 64-bit value
-            UINT32 upper32 = static_cast<UINT32>(asUINT64 >> 32);
-            UINT32 lower32 = static_cast<UINT32>(asUINT64 & 0xFFFFFFFF);
-
-            // Exclusive-Or the upper32 and the lower32 values
-            return static_cast<unsigned>(upper32 ^ lower32);
-        }
-        else if (sizeof(T) == 4)
-        {
-            // cast &val to (UINT32 *) then deref to get the bits
-            UINT32 asUINT32 = *(reinterpret_cast<const UINT32*>(&val));
-
-            // Just return the 32-bit value
-            return static_cast<unsigned>(asUINT32);
-        }
-        else if ((sizeof(T) == 2) || (sizeof(T) == 1))
-        {
-            // For small sizes we must have an integer type
-            // so we can just use the static_cast.
-            //
-            return static_cast<unsigned>(val);
-        }
-        else
-        {
-            // Only support Hashing for types that are 8,4,2 or 1 bytes in size
-            assert(!"Unsupported size");
-            return static_cast<unsigned>(val); // compile-time error here when we have a illegal size
-        }
-    }
+        return static_cast<unsigned>(reinterpret_cast<uintptr_t>(value));
+    };
 };

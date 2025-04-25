@@ -6,8 +6,8 @@
 #include "valuenum.h"
 #include "clr_std/type_traits"
 
-using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE, JitPtrKeyFuncs<struct CORINFO_FIELD_STRUCT_>>;
-using TypeNumSet     = JitHashSet<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
+using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE>;
+using TypeNumSet     = JitHashSet<unsigned>;
 
 struct VNLoop
 {

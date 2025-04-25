@@ -168,14 +168,14 @@ class RangeCheck
     SsaOptimizer&        ssa;
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
-    JitHashMap<GenTree*, Range, JitPtrKeyFuncs<GenTree>> rangeMap;
-    JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
-    GenTree* currentIndexExpr              = nullptr;
-    ValueNum currentLengthVN               = NoVN;
-    int      budget                        = MaxVisitBudget;
-    int      searchDepth                   = MaxSearchDepth;
-    bool     isMonotonicallyIncreasing     = false;
-    GenTree* isMonotonicallyIncreasingExpr = nullptr;
+    JitHashMap<GenTree*, Range> rangeMap;
+    JitHashSet<GenTree*> searchPath;
+    GenTree*             currentIndexExpr              = nullptr;
+    ValueNum             currentLengthVN               = NoVN;
+    int                  budget                        = MaxVisitBudget;
+    int                  searchDepth                   = MaxSearchDepth;
+    bool                 isMonotonicallyIncreasing     = false;
+    GenTree*             isMonotonicallyIncreasingExpr = nullptr;
 
 public:
     RangeCheck(SsaOptimizer& ssa)

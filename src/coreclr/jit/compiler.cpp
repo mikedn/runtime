@@ -160,9 +160,7 @@ struct FileLine
     unsigned m_line    = 0;
     char*    m_condStr = nullptr;
 
-    FileLine()
-    {
-    }
+    FileLine() = default;
 
     FileLine(const char* file, unsigned line, const char* condStr) : m_line(line)
     {
@@ -177,7 +175,7 @@ struct FileLine
 
     FileLine(const FileLine& other) = default;
 
-    static unsigned GetHashCode(FileLine fl)
+    static unsigned GetHashCode(const FileLine& fl)
     {
         assert(fl.m_file != nullptr);
         unsigned code = fl.m_line;
@@ -189,7 +187,7 @@ struct FileLine
         return code;
     }
 
-    static bool Equals(FileLine fl1, FileLine fl2)
+    static bool Equals(const FileLine& fl1, const FileLine& fl2)
     {
         return (fl1.m_line == fl2.m_line) && (0 == strcmp(fl1.m_file, fl2.m_file));
     }

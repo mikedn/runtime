@@ -1353,15 +1353,18 @@ struct BasicBlock : private LIR::Range
 #endif // DEBUG
 };
 
-template <>
-struct JitPtrKeyFuncs<BasicBlock> : public JitKeyFuncsDefEquals<const BasicBlock*>
+struct BasicBlockNumHash
 {
-public:
+    static bool Equals(BasicBlock* x, BasicBlock* y)
+    {
+        return x == y;
+    }
+
     // Make sure hashing is deterministic and not on "ptr."
-    static unsigned GetHashCode(const BasicBlock* ptr);
+    static unsigned GetHashCode(BasicBlock* block);
 };
 
-using BlockToBlockMap = JitHashMap<BasicBlock*, BasicBlock*, JitPtrKeyFuncs<BasicBlock>>;
+using BlockToBlockMap = JitHashMap<BasicBlock*, BasicBlock*, BasicBlockNumHash>;
 
 // BasicBlockIterator: forward iterator for the BasicBlock linked list.
 // It is allowed to make changes to the BasicBlock list as long as the current block remains in the list.
