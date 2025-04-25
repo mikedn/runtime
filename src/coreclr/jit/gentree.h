@@ -96,9 +96,9 @@ struct GuardedDevirtualizationCandidateInfo;
 struct ClassProfileCandidateInfo;
 class LclVarDsc;
 
-typedef unsigned AssertionIndex;
+using AssertionIndex = unsigned;
 
-static const AssertionIndex NO_ASSERTION_INDEX = 0;
+constexpr AssertionIndex NO_ASSERTION_INDEX = 0;
 
 class AssertionInfo
 {
@@ -285,7 +285,7 @@ using FieldSeq = FieldSeqNode;
 // This class canonicalizes field sequences.
 class FieldSeqStore
 {
-    typedef JitHashTable<FieldSeqNode, /*KeyFuncs*/ FieldSeqNode, FieldSeqNode*> FieldSeqNodeCanonMap;
+    using FieldSeqNodeCanonMap = JitHashTable<FieldSeqNode, FieldSeqNode, FieldSeqNode*>;
 
     Compiler*             m_compiler;
     CompAllocator         m_alloc;
@@ -323,8 +323,6 @@ public:
 
 class GenTreeUseEdgeIterator;
 class GenTreeOperandIterator;
-
-struct Statement;
 
 enum class HandleKind : uint8_t
 {
@@ -580,10 +578,6 @@ constexpr RegSpillSet GetRegSpilledSet(unsigned regIndex)
     return 1 << (regIndex * 2 + 1);
 }
 
-#ifndef HOST_64BIT
-#include <pshpack4.h>
-#endif
-
 #define FMT_TREEID "[%06u]"
 
 enum CseInfo : int16_t
@@ -613,6 +607,10 @@ constexpr unsigned GetCseIndex(CseInfo info)
 #define GTSTRUCT_0(fn, ...) struct GenTree##fn;
 #define GTSTRUCT_N(fn, ...) struct GenTree##fn;
 #include "gtstructs.h"
+
+#ifndef HOST_64BIT
+#include <pshpack4.h>
+#endif
 
 struct GenTree
 {
@@ -1174,13 +1172,11 @@ public:
         return (gtFlags & GTF_USE_FLAGS) != 0;
     }
 
-    // LIR flags
-    //   These helper methods, along with the flag values they manipulate, are defined in lir.h
-    //
     // UnusedValue indicates that, although this node produces a value, it is unused.
     void SetUnusedValue();
     void ClearUnusedValue();
     bool IsUnusedValue() const;
+
     // RegOptional indicates that codegen can still generate code even if it isn't allocated a register.
     bool IsRegOptional() const;
     void SetRegOptional();
@@ -1528,15 +1524,15 @@ public:
 
     bool IsIntCon(ssize_t value) const;
 
-    inline GenTree* gtGetOp1() const;
+    GenTree* gtGetOp1() const;
 
     // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
     // a nullptr op2, such as GT_LEA. This is more efficient than gtGetOp2IfPresent() if you know what
     // node type you have.
-    inline GenTree* gtGetOp2() const;
+    GenTree* gtGetOp2() const;
 
     // The returned pointer might be nullptr if the node is not binary, or if non-null op2 is not required.
-    inline GenTree* gtGetOp2IfPresent() const;
+    GenTree* gtGetOp2IfPresent() const;
 
     // Find the use of a node within this node.
     GenTree** FindUse(GenTree* def);
@@ -1549,21 +1545,20 @@ public:
     // Find the user of this node, and optionally capture the use so that it can be modified.
     GenTree* FindUser(GenTree*** use = nullptr);
 
-    inline GenTree* gtEffectiveVal();
+    GenTree* gtEffectiveVal();
 
     GenTree* SkipComma();
 
-    // Tunnel through any GT_RET_EXPRs
-    inline GenTree* SkipRetExpr();
+    GenTree* SkipRetExpr();
 
     // Return the child of this node if it is a GT_RELOAD or GT_COPY; otherwise simply return the node itself
-    inline GenTree* gtSkipReloadOrCopy();
+    GenTree* gtSkipReloadOrCopy();
 
     // Returns true if it is a call node returning its value in more than one register
-    inline bool IsMultiRegCall() const;
+    bool IsMultiRegCall() const;
 
     // Returns true if it is a struct lclVar node residing in multiple registers.
-    inline bool IsMultiRegLclStore() const;
+    bool IsMultiRegLclStore() const;
 
     // Returns true if it is a node returning its value in more than one register
     bool IsMultiRegNode() const;
@@ -1599,21 +1594,7 @@ public:
 
     static genTreeOps SwapRelop(genTreeOps relop);
 
-    //---------------------------------------------------------------------
-
     static bool Compare(GenTree* op1, GenTree* op2, bool swapOK = false);
-
-//---------------------------------------------------------------------
-
-#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || defined(DUMP_FLOWGRAPHS)
-    static const char* OpName(genTreeOps op);
-#endif
-
-#if MEASURE_NODE_SIZE
-    static const char* OpStructName(genTreeOps op);
-#endif
-
-    //---------------------------------------------------------------------
 
     bool IsNothingNode() const;
     void ChangeToNothingNode();
@@ -1661,11 +1642,6 @@ public:
             }
         }
     }
-
-#if NODEBASH_STATS
-    static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew);
-    static void ReportOperBashing(FILE* fp);
-#endif
 
     bool IsPartialLclFld(Compiler* comp);
     GenTreeLclAddr* IsLocalAddrExpr();
@@ -1738,17 +1714,13 @@ public:
 
     bool IsPhiDef() const;
 
-    // Returns an iterator that will produce the use edge to each operand of this node. Differs
-    // from the sequence of nodes produced by a loop over `GetChild` in its handling of call, phi,
-    // and block op nodes.
+    // Returns an iterator that will produce the use edge to each operand of this node.
     GenTreeUseEdgeIterator UseEdgesBegin();
     GenTreeUseEdgeIterator UseEdgesEnd();
 
     IteratorPair<GenTreeUseEdgeIterator> UseEdges();
 
-    // Returns an iterator that will produce each operand of this node. Differs from the sequence
-    // of nodes produced by a loop over `GetChild` in its handling of call, phi, and block op
-    // nodes.
+    // Returns an iterator that will produce each operand of this node.
     GenTreeOperandIterator OperandsBegin();
     GenTreeOperandIterator OperandsEnd();
 
@@ -1781,15 +1753,13 @@ public:
     template <typename TVisitor>
     void VisitOperands(TVisitor visitor);
 
-public:
-    bool IsReuseRegValCandidate()
+    bool IsReuseRegValCandidate() const
     {
         return OperIsConst() || IsHWIntrinsicZero();
     }
 
-    bool IsReuseRegVal()
+    bool IsReuseRegVal() const
     {
-        // This can be extended to non-constant nodes, but not to local or indir nodes.
         return ((gtFlags & GTF_REUSE_REG_VAL) != 0) && IsReuseRegValCandidate();
     }
 
@@ -1805,15 +1775,25 @@ public:
         gtFlags &= ~GTF_REUSE_REG_VAL;
     }
 
-#if MEASURE_NODE_SIZE
-    static void DumpNodeSizes(FILE* fp);
-#endif
-
 #ifdef DEBUG
     unsigned GetID() const
     {
         return gtTreeID;
     }
+#endif
+
+#if defined(DEBUG) || NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS || defined(DUMP_FLOWGRAPHS)
+    static const char* OpName(genTreeOps op);
+#endif
+
+#if MEASURE_NODE_SIZE
+    static const char* OpStructName(genTreeOps op);
+    static void DumpNodeSizes(FILE* fp);
+#endif
+
+#if NODEBASH_STATS
+    static void RecordOperBashing(genTreeOps operOld, genTreeOps operNew);
+    static void ReportOperBashing(FILE* fp);
 #endif
 };
 
@@ -1950,8 +1930,6 @@ public:
     }
 };
 
-// Represents a list of fields constituting a struct, when it is passed as an argument.
-//
 struct GenTreeFieldList : public GenTree
 {
     class Use : public GenTreeUseLink<Use>
@@ -2075,17 +2053,6 @@ public:
         m_uses = UseList();
     }
 
-    //--------------------------------------------------------------------------
-    // Equals: Check if 2 FIELD_LIST nodes are equal.
-    //
-    // Arguments:
-    //    list1 - The first FIELD_LIST node
-    //    list2 - The second FIELD_LIST node
-    //
-    // Return Value:
-    //    true if the 2 FIELD_LIST nodes have the same type, number of uses, and the
-    //    uses are equal.
-    //
     static bool Equals(GenTreeFieldList* list1, GenTreeFieldList* list2)
     {
         assert(list1->TypeIs(TYP_STRUCT));
@@ -2109,123 +2076,6 @@ public:
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldList, GenTree)
-};
-
-// An iterator that will produce each use edge of a GenTree node in the order in which they are used.
-//
-// Operand iteration is common enough in the back end of the compiler that the implementation of this type has
-// traded some simplicity for speed:
-// - As much work as is reasonable is done in the constructor rather than during operand iteration
-// - Node-specific functionality is handled by a small class of "advance" functions called by operator++
-//   rather than making operator++ itself handle all nodes
-// - Some specialization has been performed for specific node types/shapes (e.g. the advance function for
-//   binary nodes is specialized based on whether or not the node has the GTF_REVERSE_OPS flag set)
-//
-class GenTreeUseEdgeIterator final
-{
-    typedef GenTree** (GenTreeUseEdgeIterator::*AdvanceFn)();
-
-    AdvanceFn m_advance = nullptr;
-    GenTree*  m_node    = nullptr;
-    GenTree** m_edge    = nullptr;
-    void*     m_state   = nullptr;
-
-    GenTree** AdvanceBinOp0();
-    GenTree** AdvanceBinOp1();
-    GenTree** AdvanceTernaryOp();
-    GenTree** AdvanceFieldList();
-    GenTree** AdvanceCall();
-    GenTree** AdvancePhi();
-    GenTree** AdvanceArrElem();
-    GenTree** AdvanceInstr();
-#ifdef FEATURE_HW_INTRINSICS
-    GenTree** AdvanceHWIntrinsic();
-    GenTree** AdvanceHWIntrinsicReverseOp();
-#endif
-
-    GenTree** Terminate()
-    {
-        return nullptr;
-    }
-
-public:
-    GenTreeUseEdgeIterator() = default;
-    GenTreeUseEdgeIterator(GenTree* node);
-
-    GenTree** operator*() const
-    {
-        return m_edge;
-    }
-
-    GenTree** operator->() const
-    {
-        return m_edge;
-    }
-
-    GenTreeUseEdgeIterator& operator++()
-    {
-        m_edge = (this->*m_advance)();
-        return *this;
-    }
-
-    bool operator==(const GenTreeUseEdgeIterator& other) const
-    {
-        return m_edge == other.m_edge;
-    }
-
-    bool operator!=(const GenTreeUseEdgeIterator& other) const
-    {
-        return m_edge != other.m_edge;
-    }
-};
-
-//------------------------------------------------------------------------
-// GenTreeOperandIterator: an iterator that will produce each operand of a
-//                         GenTree node in the order in which they are
-//                         used. This uses `GenTreeUseEdgeIterator` under
-//                         the covers and comes with the same caveats
-//                         w.r.t. `GetChild`.
-//
-// Note: valid values of this type may be obtained by calling
-// `GenTree::OperandsBegin` and `GenTree::OperandsEnd`.
-class GenTreeOperandIterator final
-{
-    GenTreeUseEdgeIterator m_useEdges;
-
-public:
-    GenTreeOperandIterator() : m_useEdges()
-    {
-    }
-
-    GenTreeOperandIterator(GenTree* node) : m_useEdges(node)
-    {
-    }
-
-    GenTree* operator*()
-    {
-        return *(*m_useEdges);
-    }
-
-    GenTree* operator->()
-    {
-        return *(*m_useEdges);
-    }
-
-    bool operator==(const GenTreeOperandIterator& other) const
-    {
-        return m_useEdges == other.m_useEdges;
-    }
-
-    bool operator!=(const GenTreeOperandIterator& other) const
-    {
-        return !(operator==(other));
-    }
-
-    GenTreeOperandIterator& operator++()
-    {
-        ++m_useEdges;
-        return *this;
-    }
 };
 
 struct GenTreeUnOp : public GenTree
@@ -2350,6 +2200,83 @@ struct GenTreeOp : public GenTreeUnOp
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeOp, GenTreeUnOp)
+};
+
+struct GenTreeTernaryOp : public GenTreeOp
+{
+    GenTree* gtOp3;
+
+    GenTreeTernaryOp(
+        genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3 DEBUGARG(bool largeNode = false))
+        : GenTreeOp(oper, type, op1, op2 DEBUGARG(largeNode)), gtOp3(op3)
+    {
+        assert(op1 != nullptr);
+        assert(op2 != nullptr);
+        assert(op3 != nullptr);
+
+        gtFlags |= op3->GetSideEffects();
+    }
+
+    GenTreeTernaryOp(GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
+    {
+    }
+
+    GenTree* GetOp(unsigned index) const
+    {
+        switch (index)
+        {
+            case 0:
+                assert(gtOp1 != nullptr);
+                return gtOp1;
+            case 1:
+                assert(gtOp2 != nullptr);
+                return gtOp2;
+            case 2:
+                assert(gtOp3 != nullptr);
+                return gtOp3;
+            default:
+                unreached();
+        }
+    }
+
+    void SetOp(unsigned index, GenTree* op)
+    {
+        assert(op != nullptr);
+
+        switch (index)
+        {
+            case 0:
+                gtOp1 = op;
+                return;
+            case 1:
+                gtOp2 = op;
+                return;
+            case 2:
+                gtOp3 = op;
+                return;
+            default:
+                unreached();
+        }
+    }
+
+    static bool Equals(GenTreeTernaryOp* x, GenTreeTernaryOp* y)
+    {
+        return (x->GetOper() == y->GetOper()) && (x->GetType() == y->GetType()) && Compare(x->gtOp1, y->gtOp1) &&
+               Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
+    }
+
+    // Delete some inherited functions to avoid accidental use, at least when
+    // the node is accessed via GenTreeTernaryOp* rather than GenTree/Un/Op*.
+    GenTree*           gtGetOp1() const          = delete;
+    GenTree*           gtGetOp2() const          = delete;
+    GenTree*           gtGetOp2IfPresent() const = delete;
+    GenTreeUnOp*       AsUnOp()                  = delete;
+    const GenTreeUnOp* AsUnOp() const            = delete;
+    GenTreeOp*         AsOp()                    = delete;
+    const GenTreeOp*   AsOp() const              = delete;
+    bool               IsCommutative()           = delete;
+
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeTernaryOp, GenTreeOp)
 };
 
 struct GenTreeRegUse : public GenTree
@@ -2942,7 +2869,6 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclRef, GenTreeUnOp)
 };
 
-// GenTreeLclVar - load/store of local variable
 struct GenTreeLclVar : public GenTreeLclRef
 {
 protected:
@@ -3029,13 +2955,12 @@ struct GenTreeLclStore : GenTreeLclVar
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
 };
 
-// GenTreeLclFld - load/store of local variable field
 struct GenTreeLclFld : public GenTreeLclRef
 {
 private:
-    uint16_t      m_lclOffs;   // offset into the variable to access
-    uint16_t      m_layoutNum; // the class layout number for struct typed nodes
-    FieldSeqNode* m_fieldSeq;  // This LclFld node represents some sequences of accesses.
+    uint16_t      m_lclOffs;
+    uint16_t      m_layoutNum;
+    FieldSeqNode* m_fieldSeq;
 
 protected:
     GenTreeLclFld(var_types type, LclVarDsc* lcl, unsigned lclOffs)
@@ -3604,6 +3529,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeExtract, GenTreeUnOp)
 };
 
+struct Statement;
+
 struct GenTreeBox : public GenTreeUnOp
 {
     Statement* allocStmt;
@@ -3726,8 +3653,6 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldAddr, GenTreeUnOp)
 };
 
-enum class InlineObservation;
-
 // clang-format off
 enum GenTreeCallFlags : unsigned
 {
@@ -3809,8 +3734,7 @@ constexpr GenTreeCallFlags& operator&=(GenTreeCallFlags& a, GenTreeCallFlags b)
     return a = static_cast<GenTreeCallFlags>(static_cast<unsigned>(a) & static_cast<unsigned>(b));
 }
 
-// Return type descriptor of a GT_CALL node.
-enum structPassingKind : uint8_t
+enum StructPassingKind : uint8_t
 {
     SPK_Unknown,
     SPK_PrimitiveType, // The struct is passed/returned in a single register.
@@ -3823,10 +3747,10 @@ enum structPassingKind : uint8_t
 
 struct StructPassing
 {
-    structPassingKind kind;
+    StructPassingKind kind;
     var_types         type;
 
-    StructPassing(structPassingKind kind, var_types type) : kind(kind), type(type)
+    StructPassing(StructPassingKind kind, var_types type) : kind(kind), type(type)
     {
         assert(kind != SPK_Unknown);
         assert((type != TYP_UNDEF) || (kind != SPK_PrimitiveType));
@@ -3842,9 +3766,8 @@ struct StructPassing
 //    - ABI return register numbers in which the value is returned
 //    - count of return registers in which the value is returned
 //
-struct ReturnTypeDesc
+class ReturnTypeDesc
 {
-private:
 #if FEATURE_MULTIREG_RET
     uint8_t m_regCount;
 #else
@@ -3941,6 +3864,7 @@ public:
     }
 };
 
+enum class InlineObservation;
 class CallInfo;
 class CallArgInfo;
 
@@ -5106,81 +5030,50 @@ public:
 #endif
 };
 
-struct GenTreeTernaryOp : public GenTreeOp
+struct GenTreeRetExpr : public GenTree
 {
-    GenTree* gtOp3;
+private:
+    GenTreeCall*    m_call;
+    GenTree*        m_retExpr;
+    BasicBlockFlags m_retBlockIRSummary;
 
-    GenTreeTernaryOp(
-        genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3 DEBUGARG(bool largeNode = false))
-        : GenTreeOp(oper, type, op1, op2 DEBUGARG(largeNode)), gtOp3(op3)
+public:
+    GenTreeRetExpr(GenTreeCall* call);
+
+    GenTreeCall* GetCall() const
     {
-        assert(op1 != nullptr);
-        assert(op2 != nullptr);
-        assert(op3 != nullptr);
-
-        gtFlags |= op3->GetSideEffects();
+        return m_call;
     }
 
-    GenTreeTernaryOp(GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
+    ClassLayout* GetLayout() const
     {
+        return m_call->GetRetLayout();
     }
 
-    GenTree* GetOp(unsigned index) const
+    GenTree* GetRetExpr() const
     {
-        switch (index)
-        {
-            case 0:
-                assert(gtOp1 != nullptr);
-                return gtOp1;
-            case 1:
-                assert(gtOp2 != nullptr);
-                return gtOp2;
-            case 2:
-                assert(gtOp3 != nullptr);
-                return gtOp3;
-            default:
-                unreached();
-        }
+        return m_retExpr;
     }
 
-    void SetOp(unsigned index, GenTree* op)
+    BasicBlockFlags GetRetBlockIRSummary() const
     {
-        assert(op != nullptr);
-
-        switch (index)
-        {
-            case 0:
-                gtOp1 = op;
-                return;
-            case 1:
-                gtOp2 = op;
-                return;
-            case 2:
-                gtOp3 = op;
-                return;
-            default:
-                unreached();
-        }
+        return m_retBlockIRSummary;
     }
 
-    static bool Equals(GenTreeTernaryOp* x, GenTreeTernaryOp* y)
+    void SetRetExpr(GenTree* expr)
     {
-        return (x->GetOper() == y->GetOper()) && (x->GetType() == y->GetType()) && Compare(x->gtOp1, y->gtOp1) &&
-               Compare(x->gtOp2, y->gtOp2) && Compare(x->gtOp3, y->gtOp3);
+        assert(expr != nullptr);
+        m_retExpr = expr;
     }
 
-    // Delete some inherited functions to avoid accidental use, at least when
-    // the node is accessed via GenTreeTernaryOp* rather than GenTree/Un/Op*.
-    GenTree*           gtGetOp1() const          = delete;
-    GenTree*           gtGetOp2() const          = delete;
-    GenTree*           gtGetOp2IfPresent() const = delete;
-    GenTreeUnOp*       AsUnOp()                  = delete;
-    const GenTreeUnOp* AsUnOp() const            = delete;
-    GenTreeOp*         AsOp()                    = delete;
-    const GenTreeOp*   AsOp() const              = delete;
-    bool               IsCommutative()           = delete;
+    void SetRetExpr(GenTree* expr, BasicBlockFlags blockIRSummary)
+    {
+        assert(expr != nullptr);
+        m_retExpr           = expr;
+        m_retBlockIRSummary = blockIRSummary;
+    }
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeTernaryOp, GenTreeOp)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeRetExpr, GenTree)
 };
 
 struct GenTreeCmpXchg : public GenTreeTernaryOp
@@ -5333,7 +5226,6 @@ public:
 };
 
 #ifdef FEATURE_HW_INTRINSICS
-
 struct GenTreeHWIntrinsic : public GenTree
 {
     using Use = GenTreeUse;
@@ -5638,7 +5530,6 @@ public:
 };
 #endif // FEATURE_HW_INTRINSICS
 
-// Computes the address of an array element. Also checks if the array index is valid.
 struct GenTreeIndexAddr : public GenTreeOp
 {
 private:
@@ -5784,9 +5675,11 @@ struct GenTreeArrLen : public GenTreeUnOp
 
 struct GenTreeBoundsChk : public GenTreeOp
 {
+private:
     BasicBlock*     m_throwBlock;
     ThrowHelperKind m_throwKind;
 
+public:
     GenTreeBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
         : GenTreeOp(GT_BOUNDS_CHECK, TYP_VOID, index, length), m_throwBlock(nullptr), m_throwKind(kind)
     {
@@ -6134,7 +6027,6 @@ public:
         gtOp2 = value;
     }
 
-    // True if this indirection is a volatile memory operation.
     bool IsVolatile() const
     {
         return (gtFlags & GTF_IND_VOLATILE) != 0;
@@ -6145,7 +6037,6 @@ public:
         gtFlags |= GTF_IND_VOLATILE | GTF_ORDER_SIDEEFF | GTF_DONT_CSE;
     }
 
-    // True if this indirection is an unaligned memory operation.
     bool IsUnaligned() const
     {
         return (gtFlags & GTF_IND_UNALIGNED) != 0;
@@ -6207,10 +6098,6 @@ enum class StructStoreKind : uint8_t
     LargeCopy = MemCpy,
 #endif
 };
-
-// This is the base type for all of the nodes that represent block or struct values.
-// Since it can be a store, it includes gtBlkOpKind to specify the type of code
-// generation that will be used for the block operation.
 
 struct GenTreeBlk : public GenTreeIndir
 {
@@ -6278,9 +6165,6 @@ public:
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeBlk, GenTreeIndir)
 };
-
-// This node is used for block values that have a dynamic size.
-// Note that such a value can never have GC pointers.
 
 struct GenTreeDynBlk : public GenTreeTernaryOp
 {
@@ -6393,7 +6277,6 @@ struct GenTreeIndLoadObj : public GenTreeBlk
         assert(varTypeIsI(addr->GetType()));
         assert(!layout->IsBlockLayout());
 
-        // By default, indirs are assumed to access aliased memory.
         gtFlags |= GTF_GLOB_REF;
     }
 
@@ -6438,7 +6321,6 @@ struct GenTreeIndStoreObj : public GenTreeBlk
     {
         assert(!layout->IsBlockLayout());
 
-        // By default, indirs are assumed to access aliased memory.
         gtFlags |= GTF_ASG | GTF_GLOB_REF;
     }
 
@@ -6449,292 +6331,32 @@ struct GenTreeIndStoreObj : public GenTreeBlk
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStoreObj, GenTreeBlk)
 };
 
-struct GenTreeRetExpr : public GenTree
-{
-private:
-    GenTreeCall*    m_call;
-    GenTree*        m_retExpr;
-    BasicBlockFlags m_retBlockIRSummary;
-
-public:
-    GenTreeRetExpr(GenTreeCall* call);
-
-    GenTreeCall* GetCall() const
-    {
-        return m_call;
-    }
-
-    ClassLayout* GetLayout() const
-    {
-        return m_call->GetRetLayout();
-    }
-
-    GenTree* GetRetExpr() const
-    {
-        return m_retExpr;
-    }
-
-    BasicBlockFlags GetRetBlockIRSummary() const
-    {
-        return m_retBlockIRSummary;
-    }
-
-    void SetRetExpr(GenTree* expr)
-    {
-        assert(expr != nullptr);
-        m_retExpr = expr;
-    }
-
-    void SetRetExpr(GenTree* expr, BasicBlockFlags blockIRSummary)
-    {
-        assert(expr != nullptr);
-        m_retExpr           = expr;
-        m_retBlockIRSummary = blockIRSummary;
-    }
-
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeRetExpr, GenTree)
-};
-
-class InlineContext;
-
 struct GenTreeILOffset : public GenTree
 {
-    IL_OFFSETX gtStmtILoffsx;
-
-    GenTreeILOffset(IL_OFFSETX offset) : GenTree(GT_IL_OFFSET, TYP_VOID), gtStmtILoffsx(offset)
-    {
-    }
-
-    DECLARE_DEBUGGABLE_GENTREE(GenTreeILOffset, GenTree)
-};
-
-class GenTreeNodeList
-{
-    GenTree* m_head;
+private:
+    IL_OFFSETX offset;
 
 public:
-    class iterator
+    GenTreeILOffset(IL_OFFSETX offset) : GenTree(GT_IL_OFFSET, TYP_VOID), offset(offset)
     {
-        GenTree* m_node;
-
-    public:
-        iterator(GenTree* node) : m_node(node)
-        {
-        }
-
-        GenTree* operator*() const
-        {
-            return m_node;
-        }
-
-        iterator& operator++()
-        {
-            m_node = m_node->gtNext;
-            return *this;
-        }
-
-        bool operator!=(const iterator& i) const
-        {
-            return m_node != i.m_node;
-        }
-    };
-
-    GenTreeNodeList(GenTree* head) : m_head(head)
-    {
-    }
-
-    iterator begin() const
-    {
-        return iterator(m_head);
-    }
-
-    iterator end() const
-    {
-        return iterator(nullptr);
-    }
-};
-
-// We use the following format when printing the Statement number: Statement->GetID()
-// This define is used with string concatenation to put this in printf format strings  (Note that %u means unsigned int)
-#define FMT_STMT "STMT%05u"
-
-struct Statement
-{
-    // The root of the expression tree.
-    // Note: It will be the last node in evaluation order.
-    GenTree* m_rootNode;
-
-    // The node list head (for forward walks in evaluation order).
-    // The value is `nullptr` until we have set the sequencing of the nodes.
-    GenTree* m_nodeList = nullptr;
-
-    // The statement nodes are doubly-linked. The first statement node in a block points
-    // to the last node in the block via its `m_prev` link. Note that the last statement node
-    // does not point to the first: it's `m_next == nullptr`; that is, the list is not fully circular.
-    Statement* m_next = nullptr;
-    Statement* m_prev = nullptr;
-
-    InlineContext* m_inlineContext = nullptr; // The inline context for this statement.
-    IL_OFFSETX     m_ilOffsetX;               // The instr offset (if available).
-    bool           m_compilerAdded = false;   // Was the statement created by optimizer?
-
-#ifdef DEBUG
-    unsigned m_stmtID;
-#endif
-
-public:
-    Statement(GenTree* expr, IL_OFFSETX offset DEBUGARG(unsigned stmtID))
-        : m_rootNode(expr)
-        , m_ilOffsetX(offset)
-#ifdef DEBUG
-        , m_stmtID(stmtID)
-#endif
-    {
-        assert(expr != nullptr);
-    }
-
-    GenTree* GetRootNode() const
-    {
-        return m_rootNode;
-    }
-
-    GenTree** GetRootNodePointer()
-    {
-        return &m_rootNode;
-    }
-
-    void SetRootNode(GenTree* treeRoot)
-    {
-        m_rootNode = treeRoot;
-    }
-
-    GenTree* GetNodeList() const
-    {
-        return m_nodeList;
-    }
-
-    void SetNodeList(GenTree* list)
-    {
-        m_nodeList = list;
-    }
-
-    GenTreeNodeList Nodes() const
-    {
-        return GenTreeNodeList(m_nodeList);
-    }
-
-    InlineContext* GetInlineContext() const
-    {
-        return m_inlineContext;
-    }
-
-    void SetInlineContext(InlineContext* inlineContext)
-    {
-        m_inlineContext = inlineContext;
     }
 
     IL_OFFSETX GetILOffsetX() const
     {
-        return m_ilOffsetX;
+        return offset;
     }
 
-    void SetILOffsetX(IL_OFFSETX offsetX)
+    IL_OFFSETX GetILOffset() const
     {
-        m_ilOffsetX = offsetX;
+        return jitGetILoffs(offset);
     }
 
-#ifdef DEBUG
-    unsigned GetID() const
+    bool HasILOffset() const
     {
-        return m_stmtID;
-    }
-#endif
-
-    Statement* GetNextStmt() const
-    {
-        return m_next;
+        return offset != BAD_IL_OFFSET;
     }
 
-    void SetNextStmt(Statement* nextStmt)
-    {
-        m_next = nextStmt;
-    }
-
-    Statement* GetPrevStmt() const
-    {
-        return m_prev;
-    }
-
-    void SetPrevStmt(Statement* prevStmt)
-    {
-        m_prev = prevStmt;
-    }
-
-    bool IsCompilerAdded() const
-    {
-        return m_compilerAdded;
-    }
-
-    void SetCompilerAdded()
-    {
-        m_compilerAdded = true;
-    }
-
-    unsigned GetCostSz() const
-    {
-        return m_rootNode->GetCostSz();
-    }
-
-    unsigned GetCostEx() const
-    {
-        return m_rootNode->GetCostEx();
-    }
-};
-
-class StatementList
-{
-    Statement* m_head;
-
-public:
-    class iterator
-    {
-        Statement* m_stmt;
-
-    public:
-        iterator(Statement* stmt) : m_stmt(stmt)
-        {
-        }
-
-        Statement* operator*() const
-        {
-            return m_stmt;
-        }
-
-        iterator& operator++()
-        {
-            m_stmt = m_stmt->GetNextStmt();
-            return *this;
-        }
-
-        bool operator!=(const iterator& i) const
-        {
-            return m_stmt != i.m_stmt;
-        }
-    };
-
-    StatementList(Statement* head) : m_head(head)
-    {
-    }
-
-    iterator begin() const
-    {
-        return iterator(m_head);
-    }
-
-    iterator end() const
-    {
-        return iterator(nullptr);
-    }
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeILOffset, GenTree)
 };
 
 struct GenTreeClsVar : public GenTree
@@ -6801,30 +6423,23 @@ struct GenTreeConstAddr : public GenTree
     DECLARE_DEBUGGABLE_GENTREE(GenTreeConstAddr, GenTree)
 };
 
-// Argument passed on stack (GT_PUTARG_STK)
-
 struct GenTreePutArgStk : public GenTreeUnOp
 {
 #ifdef TARGET_XARCH
-    // Instruction selection: during codegen time, what code sequence we will be using
-    // to encode this operation.
-    // TODO-Throughput: The following information should be obtained from the child
-    // block node.
     enum class Kind : uint8_t{Invalid,    RepInstr,     RepInstrZero, Unroll,
                               UnrollZero, RepInstrXMM,  GCUnroll,     GCUnrollXMM,
 #ifdef TARGET_X86
                               Push,       PushAllSlots, PushZero
 #endif
     };
-#endif // TARGET_XARCH
+#endif
 
 private:
     CallArgInfo* m_argInfo;
 #if defined(DEBUG) || defined(UNIX_X86_ABI)
-    GenTreeCall* m_call; // the call node to which this argument belongs
+    GenTreeCall* m_call;
 #endif
 #if FEATURE_FASTTAILCALL
-    // Whether this arg needs to be placed in incoming arg area.
     // By default this is false and will be placed in out-going arg area.
     // Fast tail calls set this to true.
     bool m_putInIncomingArgArea;
@@ -6920,7 +6535,6 @@ public:
 };
 
 #if FEATURE_ARG_SPLIT
-// Represent the struct argument: split value in register(s) and stack
 struct GenTreePutArgSplit : public GenTreePutArgStk
 {
 private:
@@ -7120,8 +6734,6 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeRuntimeLookup, GenTreeUnOp)
 };
-
-// Represents the condition of a GT_JCC or GT_SETCC node.
 
 struct GenCondition
 {
@@ -7385,6 +6997,241 @@ public:
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeCC, GenTree)
 };
+
+// We use the following format when printing the Statement number: Statement->GetID()
+// This define is used with string concatenation to put this in printf format strings  (Note that %u means unsigned int)
+#define FMT_STMT "STMT%05u"
+
+class GenTreeNodeList
+{
+    GenTree* m_head;
+
+public:
+    class iterator
+    {
+        GenTree* m_node;
+
+    public:
+        iterator(GenTree* node) : m_node(node)
+        {
+        }
+
+        GenTree* operator*() const
+        {
+            return m_node;
+        }
+
+        iterator& operator++()
+        {
+            m_node = m_node->gtNext;
+            return *this;
+        }
+
+        bool operator!=(const iterator& i) const
+        {
+            return m_node != i.m_node;
+        }
+    };
+
+    GenTreeNodeList(GenTree* head) : m_head(head)
+    {
+    }
+
+    iterator begin() const
+    {
+        return iterator(m_head);
+    }
+
+    iterator end() const
+    {
+        return iterator(nullptr);
+    }
+};
+
+class InlineContext;
+
+struct Statement
+{
+    // The root of the expression tree.
+    // Note: It will be the last node in evaluation order.
+    GenTree* m_rootNode;
+
+    // The node list head (for forward walks in evaluation order).
+    // The value is `nullptr` until we have set the sequencing of the nodes.
+    GenTree* m_nodeList = nullptr;
+
+    // The statement nodes are doubly-linked. The first statement node in a block points
+    // to the last node in the block via its `m_prev` link. Note that the last statement node
+    // does not point to the first: it's `m_next == nullptr`; that is, the list is not fully circular.
+    Statement* m_next = nullptr;
+    Statement* m_prev = nullptr;
+
+    InlineContext* m_inlineContext = nullptr; // The inline context for this statement.
+    IL_OFFSETX     m_ilOffsetX;               // The instr offset (if available).
+    bool           m_compilerAdded = false;   // Was the statement created by optimizer?
+
+#ifdef DEBUG
+    unsigned m_stmtID;
+#endif
+
+public:
+    Statement(GenTree* expr, IL_OFFSETX offset DEBUGARG(unsigned stmtID))
+        : m_rootNode(expr)
+        , m_ilOffsetX(offset)
+#ifdef DEBUG
+        , m_stmtID(stmtID)
+#endif
+    {
+        assert(expr != nullptr);
+    }
+
+    GenTree* GetRootNode() const
+    {
+        return m_rootNode;
+    }
+
+    GenTree** GetRootNodePointer()
+    {
+        return &m_rootNode;
+    }
+
+    void SetRootNode(GenTree* treeRoot)
+    {
+        m_rootNode = treeRoot;
+    }
+
+    GenTree* GetNodeList() const
+    {
+        return m_nodeList;
+    }
+
+    void SetNodeList(GenTree* list)
+    {
+        m_nodeList = list;
+    }
+
+    GenTreeNodeList Nodes() const
+    {
+        return GenTreeNodeList(m_nodeList);
+    }
+
+    InlineContext* GetInlineContext() const
+    {
+        return m_inlineContext;
+    }
+
+    void SetInlineContext(InlineContext* inlineContext)
+    {
+        m_inlineContext = inlineContext;
+    }
+
+    IL_OFFSETX GetILOffsetX() const
+    {
+        return m_ilOffsetX;
+    }
+
+    void SetILOffsetX(IL_OFFSETX offsetX)
+    {
+        m_ilOffsetX = offsetX;
+    }
+
+#ifdef DEBUG
+    unsigned GetID() const
+    {
+        return m_stmtID;
+    }
+#endif
+
+    Statement* GetNextStmt() const
+    {
+        return m_next;
+    }
+
+    void SetNextStmt(Statement* nextStmt)
+    {
+        m_next = nextStmt;
+    }
+
+    Statement* GetPrevStmt() const
+    {
+        return m_prev;
+    }
+
+    void SetPrevStmt(Statement* prevStmt)
+    {
+        m_prev = prevStmt;
+    }
+
+    bool IsCompilerAdded() const
+    {
+        return m_compilerAdded;
+    }
+
+    void SetCompilerAdded()
+    {
+        m_compilerAdded = true;
+    }
+
+    unsigned GetCostSz() const
+    {
+        return m_rootNode->GetCostSz();
+    }
+
+    unsigned GetCostEx() const
+    {
+        return m_rootNode->GetCostEx();
+    }
+};
+
+class StatementList
+{
+    Statement* m_head;
+
+public:
+    class iterator
+    {
+        Statement* m_stmt;
+
+    public:
+        iterator(Statement* stmt) : m_stmt(stmt)
+        {
+        }
+
+        Statement* operator*() const
+        {
+            return m_stmt;
+        }
+
+        iterator& operator++()
+        {
+            m_stmt = m_stmt->GetNextStmt();
+            return *this;
+        }
+
+        bool operator!=(const iterator& i) const
+        {
+            return m_stmt != i.m_stmt;
+        }
+    };
+
+    StatementList(Statement* head) : m_head(head)
+    {
+    }
+
+    iterator begin() const
+    {
+        return iterator(m_head);
+    }
+
+    iterator end() const
+    {
+        return iterator(nullptr);
+    }
+};
+
+#ifndef HOST_64BIT
+#include <poppack.h>
+#endif
 
 inline bool GenTree::IsDblConPositiveZero() const
 {
@@ -7723,12 +7570,8 @@ inline bool GenTree::IsHelperCall()
     return IsCall() && AsCall()->IsHelperCall();
 }
 
-#ifndef HOST_64BIT
-#include <poppack.h>
-#endif
-
-const size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
-const size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
+constexpr size_t TREE_NODE_SZ_SMALL = sizeof(GenTreeLclFld);
+constexpr size_t TREE_NODE_SZ_LARGE = sizeof(GenTreeCall);
 
 enum class GenTreeWalkResult
 {
@@ -7739,3 +7582,99 @@ enum class GenTreeWalkResult
 
 using GenTreeWalkPreFn  = GenTreeWalkResult (*)(GenTree** use, GenTree* user, void* data);
 using GenTreeWalkPostFn = GenTreeWalkResult (*)(GenTree** use, GenTree* user, void* data);
+
+class GenTreeUseEdgeIterator final
+{
+    using AdvanceFn = GenTree** (GenTreeUseEdgeIterator::*)();
+
+    AdvanceFn m_advance = nullptr;
+    GenTree*  m_node    = nullptr;
+    GenTree** m_edge    = nullptr;
+    void*     m_state   = nullptr;
+
+    GenTree** AdvanceBinOp0();
+    GenTree** AdvanceBinOp1();
+    GenTree** AdvanceTernaryOp();
+    GenTree** AdvanceFieldList();
+    GenTree** AdvanceCall();
+    GenTree** AdvancePhi();
+    GenTree** AdvanceArrElem();
+    GenTree** AdvanceInstr();
+#ifdef FEATURE_HW_INTRINSICS
+    GenTree** AdvanceHWIntrinsic();
+    GenTree** AdvanceHWIntrinsicReverseOp();
+#endif
+
+    GenTree** Terminate()
+    {
+        return nullptr;
+    }
+
+public:
+    GenTreeUseEdgeIterator() = default;
+    GenTreeUseEdgeIterator(GenTree* node);
+
+    GenTree** operator*() const
+    {
+        return m_edge;
+    }
+
+    GenTree** operator->() const
+    {
+        return m_edge;
+    }
+
+    GenTreeUseEdgeIterator& operator++()
+    {
+        m_edge = (this->*m_advance)();
+        return *this;
+    }
+
+    bool operator==(const GenTreeUseEdgeIterator& other) const
+    {
+        return m_edge == other.m_edge;
+    }
+
+    bool operator!=(const GenTreeUseEdgeIterator& other) const
+    {
+        return m_edge != other.m_edge;
+    }
+};
+
+class GenTreeOperandIterator final
+{
+    GenTreeUseEdgeIterator m_useEdges;
+
+public:
+    GenTreeOperandIterator() = default;
+
+    GenTreeOperandIterator(GenTree* node) : m_useEdges(node)
+    {
+    }
+
+    GenTree* operator*()
+    {
+        return *(*m_useEdges);
+    }
+
+    GenTree* operator->()
+    {
+        return *(*m_useEdges);
+    }
+
+    bool operator==(const GenTreeOperandIterator& other) const
+    {
+        return m_useEdges == other.m_useEdges;
+    }
+
+    bool operator!=(const GenTreeOperandIterator& other) const
+    {
+        return !(operator==(other));
+    }
+
+    GenTreeOperandIterator& operator++()
+    {
+        ++m_useEdges;
+        return *this;
+    }
+};

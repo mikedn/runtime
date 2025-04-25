@@ -6212,13 +6212,13 @@ void Compiler::gtDispLeaf(GenTree* tree)
             break;
 
         case GT_IL_OFFSET:
-            if (tree->AsILOffset()->gtStmtILoffsx == BAD_IL_OFFSET)
+            if (!tree->AsILOffset()->HasILOffset())
             {
                 printf("???");
             }
             else
             {
-                printf("0x%x", jitGetILoffs(tree->AsILOffset()->gtStmtILoffsx));
+                printf("0x%x", tree->AsILOffset()->GetILOffset());
             }
             break;
 

@@ -377,7 +377,7 @@ void CodeGen::genCodeForBBlist()
                         genEnsureCodeEmitted(currentILOffset);
                     }
 
-                    currentILOffset = ilOffset->gtStmtILoffsx;
+                    currentILOffset = ilOffset->GetILOffsetX();
                     genIPmappingAdd(currentILOffset, firstMapping);
                     firstMapping = false;
                 }

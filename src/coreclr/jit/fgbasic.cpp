@@ -3501,13 +3501,14 @@ BasicBlock* Compiler::fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node)
         IL_OFFSET                   splitPointILOffset = BAD_IL_OFFSET;
         LIR::Range::ReverseIterator riter;
         LIR::Range::ReverseIterator riterEnd;
+
         for (riter = currBBRange.rbegin(), riterEnd = currBBRange.rend(); riter != riterEnd; ++riter)
         {
             if (GenTreeILOffset* ilOffset = (*riter)->IsILOffset())
             {
-                if (ilOffset->gtStmtILoffsx != BAD_IL_OFFSET)
+                if (ilOffset->HasILOffset())
                 {
-                    splitPointILOffset = jitGetILoffs(ilOffset->gtStmtILoffsx);
+                    splitPointILOffset = ilOffset->GetILOffset();
                     break;
                 }
             }
