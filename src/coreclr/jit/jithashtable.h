@@ -88,11 +88,6 @@ public:
     }
 };
 
-// Table of primes and their magic-number-divide constant.
-// For more info see the book "Hacker's Delight" chapter 10.9 "Unsigned Division by Divisors >= 1"
-// These were selected by looking for primes, each roughly twice as big as the next, having
-// 32-bit magic numbers, (because the algorithm for using 33-bit magic numbers is slightly slower).
-
 extern const JitPrimeInfo jitPrimeInfo[27];
 
 template <class T>
@@ -125,7 +120,7 @@ class JitHashMap
     unsigned     m_tableMax   = 0;
 
 public:
-    struct Pair
+    struct Entry
     {
         const Key key;
         Value     value;
@@ -355,23 +350,9 @@ public:
         m_tableMax      = 0;
     }
 
-    // Get an iterator to the first key in the table.
-    // [[deprecated]]
-    iterator Begin() const
-    {
-        return iterator(this);
-    }
-
     iterator begin() const
     {
         return iterator(this);
-    }
-
-    // Get an iterator following the last key in the table.
-    // [[deprecated]]
-    iterator End() const
-    {
-        return iterator();
     }
 
     iterator end() const
@@ -543,17 +524,6 @@ public:
             (unsigned)(newTableSize * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator);
     }
 
-    // For iteration, we use a pattern similar to the STL "forward
-    // iterator" pattern.  It basically consists of wrapping an
-    // "iteration variable" in an object, and providing pointer-like
-    // operators on the iterator. Example usage:
-    //
-    // for (JitHashTable::KeyIterator iter = foo->Begin(), end = foo->End(); !iter.Equal(end); iter++)
-    // {
-    //      // use foo, iter.
-    // }
-    // iter.Get() will yield (a reference to) the
-    // current key.  It will assert the equivalent of "iter != end."
     class iterator
     {
         friend class JitHashMap;
@@ -601,40 +571,21 @@ public:
             }
         }
 
-        Pair& operator*()
+        Entry& operator*()
         {
             return m_node->m_value;
         }
 
-        // [[deprecated]]
-        const Key& Get() const
+        Entry* operator->()
         {
-            return m_node->m_value.key;
-        }
-
-        const Key& GetKey() const
-        {
-            return m_node->m_value.key;
-        }
-
-        Value& GetValue() const
-        {
-            return m_node->m_value.value;
+            return &m_node->m_value;
         }
 
         void SetValue(const Value& value) const
         {
             m_node->m_value.value = value;
         }
-
-        // [[deprecated]]
-        bool Equal(const iterator& i) const
-        {
-            return i.m_node == m_node;
-        }
     };
-
-    using KeyIterator = iterator;
 
     //------------------------------------------------------------------------
     // operator[]: Get a reference to the value associated with the specified key.
@@ -656,34 +607,23 @@ public:
     }
 
 private:
-    //------------------------------------------------------------------------
-    // NextPrime: Get a prime number greater than or equal to the specified number.
-    //
-    // Arguments:
-    //    number - the minimum value
-    //
-    // Return Value:
-    //    A prime number.
-    //
-    static JitPrimeInfo NextPrime(unsigned number)
+    static const JitPrimeInfo& NextPrime(unsigned number)
     {
-        for (int i = 0; i < (int)(_countof(jitPrimeInfo)); i++)
+        for (const JitPrimeInfo& info : jitPrimeInfo)
         {
-            if (jitPrimeInfo[i].prime >= number)
+            if (info.prime >= number)
             {
-                return jitPrimeInfo[i];
+                return info;
             }
         }
 
-        // overflow
         Behavior::NoMemory();
     }
 
-    // The node type.
     struct Node
     {
         Node* m_next;
-        Pair  m_value;
+        Entry m_value;
 
         template <class... Args>
         Node(Node* next, Key k, Args&&... args) : m_next(next), m_value{k, Value(std::forward<Args>(args)...)}
@@ -988,13 +928,13 @@ private:
         m_maxCount  = newBucketCount * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator;
     }
 
-    static JitPrimeInfo NextPrime(unsigned number)
+    static const JitPrimeInfo& NextPrime(unsigned number)
     {
-        for (unsigned i = 0; i < _countof(jitPrimeInfo); i++)
+        for (const JitPrimeInfo& info : jitPrimeInfo)
         {
-            if (jitPrimeInfo[i].prime >= number)
+            if (info.prime >= number)
             {
-                return jitPrimeInfo[i];
+                return info;
             }
         }
 

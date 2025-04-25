@@ -331,9 +331,9 @@ public:
 
         for (auto iter = lclSsaStackMap.begin(); iter != lclSsaStackMap.end();)
         {
-            if (iter.GetValue().Top() == nullptr)
+            if (iter->value.Top() == nullptr)
             {
-                unsigned lclNum = iter.GetKey();
+                unsigned lclNum = iter->key;
                 ++iter;
                 lclSsaStackMap.Remove(lclNum);
             }

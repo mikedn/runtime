@@ -2,12 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
-
-// Table of primes and their magic-number-divide constant.
-// For more info see the book "Hacker's Delight" chapter 10.9 "Unsigned Division by Divisors >= 1"
-// These were selected by looking for primes, each roughly twice as big as the next, having
-// 32-bit magic numbers, (because the algorithm for using 33-bit magic numbers is slightly slower).
-
 #include "jithashtable.h"
 
 // Table of primes and their magic-number-divide constant.
@@ -16,7 +10,7 @@
 // 32-bit magic numbers, (because the algorithm for using 33-bit magic numbers is slightly slower).
 
 // clang-format off
-const JitPrimeInfo jitPrimeInfo[]
+const JitPrimeInfo jitPrimeInfo[27]
 {
     JitPrimeInfo(9,         0x38e38e39, 1),
     JitPrimeInfo(23,        0xb21642c9, 4),

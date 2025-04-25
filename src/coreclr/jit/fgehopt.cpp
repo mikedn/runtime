@@ -2017,14 +2017,12 @@ PhaseStatus Compiler::phTailMergeThrows()
     // Second pass.
     //
     // We walk the map rather than the block list, to save a bit of time.
-    BlockToBlockMap::KeyIterator iter(blockMap.Begin());
-    BlockToBlockMap::KeyIterator end(blockMap.End());
-    unsigned                     updateCount = 0;
+    unsigned updateCount = 0;
 
-    for (; !iter.Equal(end); ++iter)
+    for (const auto& pair : blockMap)
     {
-        BasicBlock* const nonCanonicalBlock = iter.Get();
-        BasicBlock* const canonicalBlock    = iter.GetValue();
+        BasicBlock* const nonCanonicalBlock = pair.key;
+        BasicBlock* const canonicalBlock    = pair.value;
         flowList*         nextPredEdge      = nullptr;
         bool              updated           = false;
 

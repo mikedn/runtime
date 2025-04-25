@@ -164,11 +164,11 @@ struct FileLine
 
     FileLine(const char* file, unsigned line, const char* condStr) : m_line(line)
     {
-        size_t newSize = (strlen(file) + 1) * sizeof(char);
+        size_t newSize = strlen(file) + 1;
         m_file         = HostAllocator::getHostAllocator().allocate<char>(newSize);
         strcpy_s(m_file, newSize, file);
 
-        newSize   = (strlen(condStr) + 1) * sizeof(char);
+        newSize   = strlen(condStr) + 1;
         m_condStr = HostAllocator::getHostAllocator().allocate<char>(newSize);
         strcpy_s(m_condStr, newSize, condStr);
     }
@@ -177,24 +177,24 @@ struct FileLine
 
     static unsigned GetHashCode(const FileLine& fl)
     {
-        assert(fl.m_file != nullptr);
         unsigned code = fl.m_line;
+
         for (const char* p = fl.m_file; *p != '\0'; p++)
         {
             code += *p;
         }
-        // Could also add condStr.
+
         return code;
     }
 
     static bool Equals(const FileLine& fl1, const FileLine& fl2)
     {
-        return (fl1.m_line == fl2.m_line) && (0 == strcmp(fl1.m_file, fl2.m_file));
+        return (fl1.m_line == fl2.m_line) && (strcmp(fl1.m_file, fl2.m_file) == 0);
     }
 };
 
 using FileLineToCountMap = JitHashMap<FileLine, size_t, FileLine, HostAllocator>;
-FileLineToCountMap* NowayAssertMap;
+static FileLineToCountMap* NowayAssertMap;
 
 void Compiler::RecordNowayAssert(const char* filename, unsigned line, const char* condStr)
 {
@@ -202,16 +202,9 @@ void Compiler::RecordNowayAssert(const char* filename, unsigned line, const char
     {
         NowayAssertMap = new (HostAllocator::getHostAllocator()) FileLineToCountMap(HostAllocator::getHostAllocator());
     }
-    FileLine fl(filename, line, condStr);
-    size_t*  pCount = NowayAssertMap->LookupPointer(fl);
-    if (pCount == nullptr)
-    {
-        NowayAssertMap->Set(fl, 1);
-    }
-    else
-    {
-        ++(*pCount);
-    }
+
+    // TODO-MIKE-Review: This stuff is not thread safe...
+    (*NowayAssertMap->Emplace({filename, line, condStr}, 0))++;
 }
 
 void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* condStr)
@@ -222,24 +215,6 @@ void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* co
     }
 }
 
-struct NowayAssertCountMap
-{
-    size_t   count;
-    FileLine fl;
-
-    NowayAssertCountMap() : count(0)
-    {
-    }
-
-    struct compare
-    {
-        bool operator()(const NowayAssertCountMap& elem1, const NowayAssertCountMap& elem2)
-        {
-            return (ssize_t)elem2.count < (ssize_t)elem1.count; // sort in descending order
-        }
-    };
-};
-
 static void DisplayNowayAssertMap()
 {
     if (NowayAssertMap == nullptr)
@@ -247,37 +222,36 @@ static void DisplayNowayAssertMap()
         return;
     }
 
-    FILE* fout;
+    FILE* fout = jitstdout;
 
-    LPCWSTR strJitMeasureNowayAssertFile = JitConfig.JitMeasureNowayAssertFile();
-    if (strJitMeasureNowayAssertFile != nullptr)
+    if (LPCWSTR strJitMeasureNowayAssertFile = JitConfig.JitMeasureNowayAssertFile())
     {
         fout = _wfopen(strJitMeasureNowayAssertFile, W("a"));
+
         if (fout == nullptr)
         {
             printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
             return;
         }
     }
-    else
+
+    struct NowayAssertCountMap
     {
-        fout = jitstdout;
-    }
+        size_t   count;
+        FileLine fl;
+    };
 
     // Iterate noway assert map, create sorted table by occurrence, dump it.
     unsigned             count = NowayAssertMap->GetCount();
-    NowayAssertCountMap* nacp  = new NowayAssertCountMap[count];
+    NowayAssertCountMap* nacp  = NowayAssertMap->GetAllocator().allocate<NowayAssertCountMap>(count);
     unsigned             i     = 0;
 
-    for (FileLineToCountMap::KeyIterator iter = NowayAssertMap->Begin(), end = NowayAssertMap->End(); !iter.Equal(end);
-         ++iter)
+    for (const auto& iter : *NowayAssertMap)
     {
-        nacp[i].count = iter.GetValue();
-        nacp[i].fl    = iter.Get();
-        ++i;
+        new (&nacp[i++]) NowayAssertCountMap{iter.value, iter.key};
     }
 
-    jitstd::sort(nacp, nacp + count, NowayAssertCountMap::compare());
+    jitstd::sort(nacp, nacp + count, [](const auto& x, const auto& y) { return y.count < x.count; });
 
     if (fout == jitstdout)
     {
@@ -286,7 +260,7 @@ static void DisplayNowayAssertMap()
         fprintf(fout, "count, file, line, text\n");
     }
 
-    for (i = 0; i < count; i++)
+    for (unsigned i = 0; i < count; i++)
     {
         fprintf(fout, "%u, %s, %u, \"%s\"\n", nacp[i].count, nacp[i].fl.m_file, nacp[i].fl.m_line,
                 nacp[i].fl.m_condStr);
@@ -295,7 +269,6 @@ static void DisplayNowayAssertMap()
     if (fout != jitstdout)
     {
         fclose(fout);
-        fout = nullptr;
     }
 }
 
@@ -354,7 +327,7 @@ void Compiler::compShutdown()
 
 #if MEASURE_NOWAY
     DisplayNowayAssertMap();
-#endif // MEASURE_NOWAY
+#endif
 
 #if defined(DEBUG) || defined(INLINE_DATA)
     // Finish reading and/or writing inline xml
