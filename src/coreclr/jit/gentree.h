@@ -284,7 +284,7 @@ using FieldSeq = FieldSeqNode;
 // This class canonicalizes field sequences.
 class FieldSeqStore
 {
-    using FieldSeqNodeCanonMap = JitHashTable<FieldSeqNode, FieldSeqNode, FieldSeqNode*>;
+    using FieldSeqNodeCanonMap = JitHashMap<FieldSeqNode, FieldSeqNode*, FieldSeqNode>;
 
     Compiler*            m_compiler;
     FieldSeqNodeCanonMap m_canonMap;

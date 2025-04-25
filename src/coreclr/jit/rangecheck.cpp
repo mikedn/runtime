@@ -168,7 +168,7 @@ class RangeCheck
     SsaOptimizer&        ssa;
     Compiler* const      compiler;
     ValueNumStore* const vnStore;
-    JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, Range> rangeMap;
+    JitHashMap<GenTree*, Range, JitPtrKeyFuncs<GenTree>> rangeMap;
     JitHashSet<GenTree*, JitPtrKeyFuncs<GenTree>> searchPath;
     GenTree* currentIndexExpr              = nullptr;
     ValueNum currentLengthVN               = NoVN;

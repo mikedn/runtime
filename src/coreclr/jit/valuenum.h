@@ -131,7 +131,7 @@ struct VNHandle : public JitKeyFuncsDefEquals<VNHandle>
 // This define is used with string concatenation to put this in printf format strings
 #define FMT_VN "$%x"
 
-using NodeBlockMap = JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, BasicBlock*>;
+using NodeBlockMap = JitHashMap<GenTree*, BasicBlock*, JitPtrKeyFuncs<GenTree>>;
 
 class SsaOptimizer;
 class ValueNumbering;
@@ -141,22 +141,22 @@ class ValueNumStore
     friend class ValueNumbering;
 
     template <class Value, class KeyFuncs = JitLargePrimitiveKeyFuncs<Value>>
-    class VNMap : public JitHashTable<Value, KeyFuncs, ValueNum>
+    class VNMap : public JitHashMap<Value, ValueNum, KeyFuncs>
     {
     public:
-        VNMap(CompAllocator alloc) : JitHashTable<Value, KeyFuncs, ValueNum>(alloc)
+        VNMap(CompAllocator alloc) : JitHashMap<Value, ValueNum, KeyFuncs>(alloc)
         {
         }
 
         bool Set(Value value, ValueNum vn)
         {
             assert(vn != RecursiveVN);
-            return JitHashTable<Value, KeyFuncs, ValueNum>::Set(value, vn);
+            return JitHashMap<Value, ValueNum, KeyFuncs>::Set(value, vn);
         }
 
         bool Lookup(Value value, ValueNum* vn = nullptr) const
         {
-            bool result = JitHashTable<Value, KeyFuncs, ValueNum>::Lookup(value, vn);
+            bool result = JitHashMap<Value, ValueNum, KeyFuncs>::Lookup(value, vn);
             assert(!result || *vn != RecursiveVN);
             return result;
         }
@@ -456,7 +456,7 @@ class ValueNumStore
     // and if this exceeds a limit, indicated by a COMPlus_ variable, we assert.
     unsigned m_numMapSels = 0;
 
-    JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, const char*> m_vnNameMap;
+    JitHashMap<ValueNum, const char*, JitSmallPrimitiveKeyFuncs<ValueNum>> m_vnNameMap;
 #endif
 
 public:

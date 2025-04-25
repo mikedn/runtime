@@ -310,7 +310,7 @@ class Cse
     unsigned valueCount;
     unsigned cseCount = 0;
 
-    typedef JitHashTable<GenTree*, JitPtrKeyFuncs<GenTree>, GenTree*> NodeToNodeMap;
+    using NodeToNodeMap = JitHashMap<GenTree*, GenTree*, JitPtrKeyFuncs<GenTree>>;
 
     // Maps bound nodes to ancestor compares that should be re-numbered
     // with the bound to improve range check elimination.

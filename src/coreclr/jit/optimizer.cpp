@@ -5593,7 +5593,7 @@ void Compiler::phRemoveRedundantZeroInits()
 {
     assert(fgStmtListThreaded);
 
-    using LclVarRefCounts = JitHashTable<unsigned, JitSmallPrimitiveKeyFuncs<unsigned>, unsigned>;
+    using LclVarRefCounts = JitHashMap<unsigned, unsigned, JitSmallPrimitiveKeyFuncs<unsigned>>;
 
     CompAllocator   allocator(getAllocator(CMK_ZeroInit));
     LclVarRefCounts defsInBlock(allocator);

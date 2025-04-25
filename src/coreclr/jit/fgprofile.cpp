@@ -1935,7 +1935,7 @@ private:
 
     // Map correlating block keys to blocks.
     //
-    typedef JitHashTable<int32_t, JitSmallPrimitiveKeyFuncs<int32_t>, BasicBlock*> KeyToBlockMap;
+    using KeyToBlockMap = JitHashMap<int32_t, BasicBlock*, JitSmallPrimitiveKeyFuncs<int32_t>>;
     KeyToBlockMap m_keyToBlockMap;
 
     // Key for finding an edge based on schema info.
@@ -1989,7 +1989,7 @@ private:
 
     // Map for correlating EdgeIntCount schema entries with edges
     //
-    typedef JitHashTable<EdgeKey, EdgeKey, Edge*> EdgeKeyToEdgeMap;
+    using EdgeKeyToEdgeMap = JitHashMap<EdgeKey, Edge*, EdgeKey>;
     EdgeKeyToEdgeMap m_edgeKeyToEdgeMap;
 
     // Per block data

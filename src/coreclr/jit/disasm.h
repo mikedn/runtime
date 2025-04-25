@@ -45,8 +45,8 @@ class DisAssembler
     };
 #endif
 
-    using AddrToMethodHandleMap = JitHashTable<size_t, SizeTKeyFuncs<size_t>, CORINFO_METHOD_HANDLE>;
-    using AddrToAddrMap         = JitHashTable<size_t, SizeTKeyFuncs<size_t>, size_t>;
+    using AddrToMethodHandleMap = JitHashMap<size_t, CORINFO_METHOD_HANDLE, SizeTKeyFuncs<size_t>>;
+    using AddrToAddrMap         = JitHashMap<size_t, size_t, SizeTKeyFuncs<size_t>>;
 
 public:
     DisAssembler::DisAssembler(Compiler* compiler, CodeGen* codeGen)

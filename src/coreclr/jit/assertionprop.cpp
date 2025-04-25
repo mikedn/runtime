@@ -193,7 +193,7 @@ AssertionIndex GetAssertionIndex(unsigned index)
 
 class AssertionProp
 {
-    typedef JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, ASSERT_TP> ValueNumToAssertsMap;
+    using ValueNumToAssertsMap = JitHashMap<ValueNum, ASSERT_TP, JitSmallPrimitiveKeyFuncs<ValueNum>>;
 
     SsaOptimizer&  ssa;
     Compiler*      compiler;

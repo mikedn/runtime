@@ -3,11 +3,11 @@
 
 #pragma once
 
-// JitHashTable implements a mapping from a Key type to a Value type,
+// JitHashMap implements a mapping from a Key type to a Value type,
 // via a hash table.
 
-// JitHashTable takes four template parameters:
-//    Key, KeyFuncs, Value, Allocator and Behavior.
+// JitHashMap takes four template parameters:
+//    Key, Value, KeyFuncs, Allocator and Behavior.
 // We don't assume that Key has hash or equality functions specific names;
 // rather, we assume that KeyFuncs has the following static methods
 //    int GetHashCode(Key)
@@ -25,7 +25,7 @@
 //                                              Typically inherited from default traits (3/2)
 //
 // s_density_factor_numerator
-// s_density_factor_denominator                 Maxium occupied density of table before growth
+// s_density_factor_denominator                 Maximum occupied density of table before growth
 //                                              occurs (num/denom).  Typically inherited (3/4).
 //
 // s_minimum_allocation                         Minimum table allocation count (size on first growth.)  It is
@@ -38,15 +38,15 @@
 class JitHashTableBehavior
 {
 public:
-    static const unsigned s_growth_factor_numerator   = 3;
-    static const unsigned s_growth_factor_denominator = 2;
+    static constexpr unsigned s_growth_factor_numerator   = 3;
+    static constexpr unsigned s_growth_factor_denominator = 2;
 
-    static const unsigned s_density_factor_numerator   = 3;
-    static const unsigned s_density_factor_denominator = 4;
+    static constexpr unsigned s_density_factor_numerator   = 3;
+    static constexpr unsigned s_density_factor_denominator = 4;
 
-    static const unsigned s_minimum_allocation = 7;
+    static constexpr unsigned s_minimum_allocation = 7;
 
-    inline static void DECLSPEC_NORETURN NoMemory()
+    static void DECLSPEC_NORETURN NoMemory()
     {
         NOMEM();
     }
@@ -95,15 +95,21 @@ public:
 
 extern const JitPrimeInfo jitPrimeInfo[27];
 
-// Hash table class definition
-
 template <typename Key,
-          typename KeyFuncs,
           typename Value,
+          typename KeyFuncs,
           typename Allocator = CompAllocator,
           typename Behavior  = JitHashTableBehavior>
-class JitHashTable
+class JitHashMap
 {
+    struct Node;
+
+    Allocator    m_alloc;
+    Node**       m_table = nullptr;
+    JitPrimeInfo m_tableSizeInfo;
+    unsigned     m_tableCount = 0;
+    unsigned     m_tableMax   = 0;
+
 public:
     struct Pair
     {
@@ -113,30 +119,13 @@ public:
 
     class iterator;
 
-    //------------------------------------------------------------------------
-    // JitHashTable: Construct an empty JitHashTable object.
-    //
-    // Arguments:
-    //    alloc - the allocator to be used by the new JitHashTable object
-    //
-    // Notes:
-    //    JitHashTable always starts out empty, with no allocation overhead.
-    //    Call Reallocate to prime with an initial size if desired.
-    //
-    JitHashTable(Allocator alloc) : m_alloc(alloc)
+    JitHashMap(Allocator alloc) : m_alloc(alloc)
     {
         static_assert_no_msg(Behavior::s_growth_factor_numerator > Behavior::s_growth_factor_denominator);
         static_assert_no_msg(Behavior::s_density_factor_numerator < Behavior::s_density_factor_denominator);
     }
 
-    //------------------------------------------------------------------------
-    // ~JitHashTable: Destruct the JitHashTable object.
-    //
-    // Notes:
-    //    Destructs all keys and values stored in the table and frees all
-    //    owned memory.
-    //
-    ~JitHashTable()
+    ~JitHashMap()
     {
         RemoveAll();
     }
@@ -553,18 +542,16 @@ public:
     // current key.  It will assert the equivalent of "iter != end."
     class iterator
     {
-        friend class JitHashTable;
+        friend class JitHashMap;
 
-        Node*  m_node;
+        Node*  m_node = nullptr;
         Node** m_buckets;
         Node** m_bucketsEnd;
 
-        iterator() : m_node(nullptr)
-        {
-        }
+        iterator() = default;
 
-        iterator(const JitHashTable* hash)
-            : m_node(nullptr), m_buckets(hash->m_table), m_bucketsEnd(hash->m_table + hash->m_tableSizeInfo.prime)
+        iterator(const JitHashMap* hash)
+            : m_buckets(hash->m_table), m_bucketsEnd(hash->m_table + hash->m_tableSizeInfo.prime)
         {
             if (hash->m_tableCount > 0)
             {
@@ -699,13 +686,6 @@ private:
             alloc.deallocate(p);
         }
     };
-
-    // Instance members
-    Allocator    m_alloc;           // Allocator to use in this table.
-    Node**       m_table = nullptr; // pointer to table
-    JitPrimeInfo m_tableSizeInfo;   // size of table (a prime) and information about it
-    unsigned     m_tableCount = 0;  // number of elements in table
-    unsigned     m_tableMax   = 0;  // maximum occupied count
 };
 
 template <typename Value,

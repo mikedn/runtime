@@ -1918,7 +1918,7 @@ PhaseStatus Compiler::phTailMergeThrows()
         }
     };
 
-    typedef JitHashTable<ThrowHelper, ThrowHelper, BasicBlock*> CallToBlockMap;
+    using CallToBlockMap = JitHashMap<ThrowHelper, BasicBlock*, ThrowHelper>;
 
     CompAllocator   allocator(getAllocator(CMK_TailMergeThrows));
     CallToBlockMap  callMap(allocator);

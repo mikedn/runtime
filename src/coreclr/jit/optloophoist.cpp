@@ -5,7 +5,7 @@
 #include "ssabuilder.h"
 #include "valuenum.h"
 
-using VNBoolMap = JitHashTable<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>, bool>;
+using VNBoolMap = JitHashMap<ValueNum, bool, JitSmallPrimitiveKeyFuncs<ValueNum>>;
 using VNSet     = JitHashSet<ValueNum, JitSmallPrimitiveKeyFuncs<ValueNum>>;
 class LoopHoistTreeVisitor;
 

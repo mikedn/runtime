@@ -1361,7 +1361,7 @@ public:
     static unsigned GetHashCode(const BasicBlock* ptr);
 };
 
-typedef JitHashTable<BasicBlock*, JitPtrKeyFuncs<BasicBlock>, BasicBlock*> BlockToBlockMap;
+using BlockToBlockMap = JitHashMap<BasicBlock*, BasicBlock*, JitPtrKeyFuncs<BasicBlock>>;
 
 // BasicBlockIterator: forward iterator for the BasicBlock linked list.
 // It is allowed to make changes to the BasicBlock list as long as the current block remains in the list.

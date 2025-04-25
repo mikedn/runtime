@@ -3560,8 +3560,8 @@ public:
 class GCEncoder : private GcInfoEncoder
 {
     Compiler* compiler;
-    JitHashTable<RegSlotIdKey, RegSlotIdKey, GcSlotId>     regSlotMap;
-    JitHashTable<StackSlotIdKey, StackSlotIdKey, GcSlotId> stackSlotMap;
+    JitHashMap<RegSlotIdKey, GcSlotId, RegSlotIdKey>     regSlotMap;
+    JitHashMap<StackSlotIdKey, GcSlotId, StackSlotIdKey> stackSlotMap;
     unsigned   callSiteCount = 0;
     bool       hasSlotIds    = false;
     bool const isFullyInterruptible;
