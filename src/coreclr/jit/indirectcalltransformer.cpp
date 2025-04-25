@@ -361,9 +361,8 @@ private:
 
         void FixupRetExpr()
         {
-            // If call returns a value, we need to copy it to a temp, and
-            // bash the associated GT_RET_EXPR to refer to the temp instead
-            // of the call.
+            // If call returns a value, we need to store it to a temp, and
+            // change the associated RET_EXPR to a load of the temp.
             //
             // Note implicit by-ref returns should have already been converted
             // so any struct copy we induce here should be cheap.
@@ -434,26 +433,25 @@ private:
 
                 GenTreeLclLoad* tempTree = compiler->gtNewLclLoad(returnTemp, origCall->GetType());
 
-                JITDUMP("Bashing GT_RET_EXPR [%06u] to refer to temp V%02u\n", retExpr->GetID(),
-                        returnTemp->GetLclNum());
+                JITDUMP("Changing RET_EXPR [%06u] to load V%02u\n", retExpr->GetID(), returnTemp->GetLclNum());
 
                 retExpr->ReplaceWith(tempTree);
             }
             else if (retExpr != nullptr)
             {
-                // We still oddly produce GT_RET_EXPRs for some void
-                // returning calls. Just bash the ret expr to a NOP.
+                // We still oddly produce RET_EXPRs for some VOID returning calls.
+                // Just change the ret expr to a NOP.
                 //
                 // Todo: consider bagging creation of these RET_EXPRs. The only possible
                 // benefit they provide is stitching back larger trees for failed inlines
                 // of void-returning methods. But then the calls likely sit in commas and
                 // the benefit of a larger tree is unclear.
-                JITDUMP("Bashing GT_RET_EXPR [%06u] for VOID return to NOP\n", retExpr->GetID());
+                JITDUMP("Changing RET_EXPR [%06u] for VOID return to NOP\n", retExpr->GetID());
                 retExpr->ChangeToNothingNode();
             }
             else
             {
-                // We do not produce GT_RET_EXPRs for CTOR calls, so there is nothing to patch.
+                // We do not produce RET_EXPRs for CTOR calls, so there is nothing to patch.
             }
         }
 
@@ -513,7 +511,6 @@ private:
             }
             else
             {
-                // Add the call.
                 compiler->fgNewStmtAtEnd(thenBlock, call);
 
                 // Re-establish this call as an inline candidate.
@@ -523,11 +520,10 @@ private:
                 inlineInfo->preexistingSpillTemp = returnTemp;
                 call->gtInlineCandidateInfo      = inlineInfo;
 
-                // If there was a ret expr for this call, we need to create a new one
-                // and append it just after the call.
-                //
-                // Note the original GT_RET_EXPR has been bashed to a temp.
-                // we set all this up in FixupRetExpr().
+                // If there was a RET_EXPR for this call, we need to create a new one
+                // and append it just after the call. Note that the original RET_EXPR
+                // has been changed to a temp load. We set all this up in FixupRetExpr.
+
                 if (oldRetExpr != nullptr)
                 {
                     inlineInfo->retExprPlaceholder = compiler->gtNewRetExpr(call);

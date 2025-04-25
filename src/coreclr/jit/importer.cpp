@@ -2047,7 +2047,7 @@ CORINFO_CLASS_HANDLE Compiler::impGetObjectClass()
     return objectClass;
 }
 
-void Importer::impBashVarAddrsToI(GenTree* tree)
+void Importer::RetypeLocalAddress(GenTree* tree)
 {
     // "&local" can be used either as TYP_BYREF or TYP_I_IMPL, but we
     // set its type to TYP_BYREF when we create it. We know if it can
@@ -2059,10 +2059,10 @@ void Importer::impBashVarAddrsToI(GenTree* tree)
     }
 }
 
-void Importer::impBashVarAddrsToI(GenTree* tree1, GenTree* tree2)
+void Importer::RetypeLocalAddress(GenTree* tree1, GenTree* tree2)
 {
-    impBashVarAddrsToI(tree1);
-    impBashVarAddrsToI(tree2);
+    RetypeLocalAddress(tree1);
+    RetypeLocalAddress(tree2);
 }
 
 // INT and I_IMPL can be used almost interchangeably, but we want
@@ -4774,7 +4774,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     if (transform == CORINFO_DEREF_THIS)
     {
         var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
-        impBashVarAddrsToI(thisPtr);
+        RetypeLocalAddress(thisPtr);
         GenTree* load = comp->gtNewIndLoad(type, thisPtr);
         load->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
 
@@ -5108,7 +5108,7 @@ void Importer::PopUnmanagedCallArgs(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     {
         GenTree* thisArg = args->GetNode();
         assert(thisArg->TypeIs(TYP_I_IMPL, TYP_BYREF));
-        impBashVarAddrsToI(thisArg);
+        RetypeLocalAddress(thisArg);
     }
 
     for (GenTreeUse& argUse : call->Uses())
@@ -8047,7 +8047,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
     GenTree* op1 = *pOp1;
     GenTree* op2 = *pOp2;
 
-    impBashVarAddrsToI(op1, op2);
+    RetypeLocalAddress(op1, op2);
 
 #ifdef TARGET_64BIT
     auto WidenToNativeInt = [this](GenTree* op, genTreeOps oper) -> GenTree* {
@@ -9625,7 +9625,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             CEE_SH_OP2:
                 op2 = impPopStack().val;
                 op1 = impPopStack().val; // operand to be shifted
-                impBashVarAddrsToI(op1, op2);
+                RetypeLocalAddress(op1, op2);
                 type = varActualType(op1->GetType());
                 op1  = gtNewOperNode(oper, type, op1, op2);
                 impPushOnStack(op1);
@@ -9633,7 +9633,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_NOT:
                 op1 = impPopStack().val;
-                impBashVarAddrsToI(op1);
+                RetypeLocalAddress(op1);
                 type = varActualType(op1->GetType());
                 impPushOnStack(gtNewOperNode(GT_NOT, type, op1));
                 break;
@@ -10050,7 +10050,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    impBashVarAddrsToI(op1);
+                    RetypeLocalAddress(op1);
                     type = varActualType(type);
                     oper = GT_NEG;
                 }
@@ -10102,7 +10102,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
-                impBashVarAddrsToI(op1, op2);
+                RetypeLocalAddress(op1, op2);
 
                 op2 = impImplicitR4orR8Cast(op2, lclTyp);
                 op2 = impImplicitIorI4Cast(op2, lclTyp);
@@ -10195,7 +10195,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto LDIND;
             LDIND:
                 op1 = impPopStack().val; // address to load from
-                impBashVarAddrsToI(op1);
+                RetypeLocalAddress(op1);
 
 #ifdef TARGET_64BIT
                 // Allow an upcast of op1 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
@@ -10660,7 +10660,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
-                impBashVarAddrsToI(op1);
+                RetypeLocalAddress(op1);
 
                 if (lclTyp != TYP_STRUCT)
                 {
@@ -10692,7 +10692,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 assert(op1->TypeIs(TYP_I_IMPL, TYP_BYREF));
                 assert(op2->TypeIs(TYP_I_IMPL, TYP_BYREF));
 
-                impBashVarAddrsToI(op1, op2);
+                RetypeLocalAddress(op1, op2);
 
                 if (lclTyp != TYP_STRUCT)
                 {
@@ -12639,7 +12639,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
         StackEntry se    = impPopStack();
         GenTree*   value = se.val;
 
-        impBashVarAddrsToI(value);
+        RetypeLocalAddress(value);
         value = impImplicitIorI4Cast(value, info.compRetType);
         value = impImplicitR4orR8Cast(value, info.compRetType);
 
@@ -15880,8 +15880,8 @@ GenTree* Importer::impImportPop(BasicBlock* block)
         }
         else
         {
-            // Can't bash to NOP here because op1 can be referenced from the spill
-            // clique, if we ever need to reimport we need a valid LCL_VAR on it.
+            // Can't change op1 to a NOP here because it can be referenced from the spill
+            // clique, if we ever need to reimport we need a valid LCL_LOAD for it.
             op1 = gtNewNothingNode();
         }
     }

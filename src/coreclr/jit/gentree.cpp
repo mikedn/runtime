@@ -3217,9 +3217,9 @@ GenTree* GenTree::FindUser(GenTree*** useEdge)
 GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
     : GenTree(GT_RET_EXPR, call->GetType()), m_call(call), m_retExpr(call), m_retBlockIRSummary(BBF_EMPTY)
 {
-    // GT_RET_EXPR node eventually might be bashed back to GT_CALL (when inlining is aborted for example).
-    // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it as well.
-    // For example, impImportLeave or CEE_POP need to spill GT_RET_EXPR before empty the evaluation stack.
+    // RET_EXPR node eventually might be changed back to CALL (when inlining is aborted for example).
+    // Therefore it should carry the GTF_CALL flag so that all the rules about spilling can apply to it
+    // as well. For example, impImportLeave or CEE_POP need to spill RET_EXPR before empty the evaluation stack.
     gtFlags |= GTF_CALL;
 }
 

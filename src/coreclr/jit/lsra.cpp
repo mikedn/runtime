@@ -4952,8 +4952,6 @@ void LinearScan::resolveRegisters()
     // Extract the code that does this from raAssignVars, and call it here.
     // PRECONDITIONS: Ensure that lvPromoted is set on promoted structs, if and
     // only if it is promoted on all paths.
-    // Call might be something like:
-    // compiler->BashUnusedStructLocals();
 }
 
 void LinearScan::InsertRegCopy(BasicBlock* block, GenTree* before, Interval* interval, RegNum toReg, RegNum fromReg)

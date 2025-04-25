@@ -122,8 +122,8 @@ INLINE_OBSERVATION(HAS_NEWOBJ,                bool,   "has newobj",             
 
 INLINE_OBSERVATION(ARG_HAS_NULL_THIS,         bool,   "this pointer argument is null",        FATAL,       CALLSITE)
 INLINE_OBSERVATION(ARG_IS_MKREFANY,           bool,   "argument is mkrefany",                 FATAL,       CALLSITE)
-INLINE_OBSERVATION(ARG_NO_BASH_TO_INT,        bool,   "argument can't bash to int",           FATAL,       CALLSITE)
-INLINE_OBSERVATION(ARG_NO_BASH_TO_REF,        bool,   "argument can't bash to ref",           FATAL,       CALLSITE)
+INLINE_OBSERVATION(ARG_NO_BYREF_COERCE,       bool,   "can't coerce byref argument to nint",  FATAL,       CALLSITE)
+INLINE_OBSERVATION(ARG_NO_NON_REF_COERCE,     bool,   "can't coerce non-ref argument to ref", FATAL,       CALLSITE)
 INLINE_OBSERVATION(ARG_TYPES_INCOMPATIBLE,    bool,   "argument types incompatible",          FATAL,       CALLSITE)
 INLINE_OBSERVATION(CANT_EMBED_PINVOKE_COOKIE, bool,   "can't embed pinvoke cookie",           FATAL,       CALLSITE)
 INLINE_OBSERVATION(CANT_EMBED_VARARGS_COOKIE, bool,   "can't embed varargs cookie",           FATAL,       CALLSITE)

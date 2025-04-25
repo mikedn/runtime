@@ -1292,7 +1292,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
             if (!argNode->TypeIs(TYP_REF))
             {
-                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_REF);
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_NON_REF_COERCE);
                 return false;
             }
 
@@ -1413,7 +1413,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
 
             if (!impIsLocalAddress(argNode))
             {
-                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BASH_TO_INT);
+                inlineInfo->inlineResult->NoteFatal(InlineObservation::CALLSITE_ARG_NO_BYREF_COERCE);
                 return false;
             }
 
