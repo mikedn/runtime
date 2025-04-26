@@ -217,7 +217,7 @@ PhaseStatus Compiler::phRemoveEmptyFinally()
     if (emptyCount > 0)
     {
         JITDUMP("phRemoveEmptyFinally() removed %u try-finally clauses from %u finallys\n", emptyCount, finallyCount);
-        fgOptimizedFinally = true;
+        ARM_ONLY(fgOptimizedFinally = true);
 
 #ifdef DEBUG
         if (verbose)
@@ -527,7 +527,7 @@ PhaseStatus Compiler::phRemoveEmptyTry()
     if (emptyCount > 0)
     {
         JITDUMP("phRemoveEmptyTry() optimized %u empty-try try-finally clauses\n", emptyCount);
-        fgOptimizedFinally = true;
+        ARM_ONLY(fgOptimizedFinally = true);
         return PhaseStatus::MODIFIED_EVERYTHING;
     }
 
@@ -1215,7 +1215,7 @@ PhaseStatus Compiler::phCloneFinally()
     if (cloneCount > 0)
     {
         JITDUMP("phCloneFinally() cloned %u finally handlers\n", cloneCount);
-        fgOptimizedFinally = true;
+        ARM_ONLY(fgOptimizedFinally = true);
 
 #ifdef DEBUG
         if (verbose)
@@ -1460,32 +1460,25 @@ void Compiler::fgCleanupContinuation(BasicBlock* continuation)
 #endif // !FEATURE_EH_FUNCLETS
 }
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
 
 // Recompute BBF_FINALLY_TARGET bits after EH optimizations
 PhaseStatus Compiler::phUpdateFinallyTargetFlags()
 {
     assert(opts.OptimizationEnabled());
 
-    // Any finally targetflag fixup required?
-    if (fgOptimizedFinally)
-    {
-        JITDUMP("updating finally target flag bits\n");
-        fgClearAllFinallyTargetBits();
-        fgAddFinallyTargetFlags();
-        return PhaseStatus::MODIFIED_EVERYTHING;
-    }
-    else
+    if (!fgOptimizedFinally)
     {
         JITDUMP("no finally opts, no fixup required\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
+
+    JITDUMP("updating finally target flag bits\n");
+    fgClearAllFinallyTargetBits();
+    fgAddFinallyTargetFlags();
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
-//------------------------------------------------------------------------
-// fgClearAllFinallyTargetBits: Clear all BBF_FINALLY_TARGET bits; these will need to be
-// recomputed later.
-//
 void Compiler::fgClearAllFinallyTargetBits()
 {
     JITDUMP("*************** In fgClearAllFinallyTargetBits()\n");
@@ -1500,9 +1493,6 @@ void Compiler::fgClearAllFinallyTargetBits()
     }
 }
 
-//------------------------------------------------------------------------
-// fgAddFinallyTargetFlags: Add BBF_FINALLY_TARGET bits to all finally targets.
-//
 void Compiler::fgAddFinallyTargetFlags()
 {
     JITDUMP("*************** In fgAddFinallyTargetFlags()\n");
@@ -1515,7 +1505,7 @@ void Compiler::fgAddFinallyTargetFlags()
 
     for (BasicBlock* const block : Blocks())
     {
-        if (block->isBBCallAlwaysPair())
+        if (block->IsCallFinallyAlwaysPairHead())
         {
             BasicBlock* const leave        = block->bbNext;
             BasicBlock* const continuation = leave->bbJumpDest;
@@ -1531,7 +1521,7 @@ void Compiler::fgAddFinallyTargetFlags()
     }
 }
 
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif // TARGET_ARM
 
 // Tail merge finally invocations
 //

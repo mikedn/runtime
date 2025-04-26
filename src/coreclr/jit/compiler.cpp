@@ -2369,7 +2369,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
         DoPhase(this, PHASE_EMPTY_FINALLY, &Compiler::phRemoveEmptyFinally);
         DoPhase(this, PHASE_MERGE_FINALLY_CHAINS, &Compiler::phMergeFinallyChains);
         DoPhase(this, PHASE_CLONE_FINALLY, &Compiler::phCloneFinally);
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
         DoPhase(this, PHASE_UPDATE_FINALLY_FLAGS, &Compiler::phUpdateFinallyTargetFlags);
 #endif
     }

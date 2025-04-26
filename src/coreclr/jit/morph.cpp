@@ -12509,14 +12509,14 @@ void Compiler::phGlobalMorph()
     lvaRefCountState = RCS_INVALID;
 #endif
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
     if (fgNeedToAddFinallyTargetBits)
     {
         // We previously wiped out the BBF_FINALLY_TARGET bits due to some morphing; add them back.
         fgAddFinallyTargetFlags();
         fgNeedToAddFinallyTargetBits = false;
     }
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#endif
 
     fgExpandQmarkNodes();
 

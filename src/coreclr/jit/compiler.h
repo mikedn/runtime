@@ -3728,8 +3728,10 @@ public:
     bool fgComputePredsDone = false; // Have we computed the bbPreds list
     bool fgCheapPredsValid  = false; // Is the bbCheapPreds list valid?
     bool fgDomsComputed     = false; // Have we computed the dominator sets?
+#ifdef TARGET_ARM
     bool fgOptimizedFinally = false; // Did we optimize any try-finallys?
-    bool fgHasSwitch        = false; // any BBJ_SWITCH jumps?
+#endif
+    bool fgHasSwitch = false; // any BBJ_SWITCH jumps?
 
 #ifdef DEBUG
     bool fgReachabilitySetsValid = false; // Are the bbReach sets valid?
@@ -4124,18 +4126,18 @@ public:
     };
     BasicBlock* fgRelocateEHRange(unsigned regionIndex, FG_RELOCATE_TYPE relocateType);
 
-#if defined(FEATURE_EH_FUNCLETS)
-#if defined(TARGET_ARM)
-    void fgClearFinallyTargetBit(BasicBlock* block);
-#endif // defined(TARGET_ARM)
+#ifndef FEATURE_EH_FUNCLETS
+    bool fgRelocateEHRegions();
+#else
     bool fgIsIntraHandlerPred(BasicBlock* predBlock, BasicBlock* block);
     bool fgAnyIntraHandlerPreds(BasicBlock* block);
     void fgInsertFuncletPrologBlock(BasicBlock* block);
     void fgCreateFuncletPrologBlocks();
     void phRelocateFunclets();
-#else  // !FEATURE_EH_FUNCLETS
-    bool fgRelocateEHRegions();
-#endif // !FEATURE_EH_FUNCLETS
+#ifdef TARGET_ARM
+    void fgClearFinallyTargetBit(BasicBlock* block);
+#endif
+#endif
 
     bool fgOptimizeUncondBranchToSimpleCond(BasicBlock* block, BasicBlock* target);
 
