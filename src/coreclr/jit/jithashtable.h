@@ -3,93 +3,6 @@
 
 #pragma once
 
-// JitHashMap implements a mapping from a Key type to a Value type,
-// via a hash table.
-
-// JitHashMap takes four template parameters:
-//    Key, Value, KeyFuncs, Allocator and Behavior.
-// We don't assume that Key has hash or equality functions specific names;
-// rather, we assume that KeyFuncs has the following static methods
-//    int GetHashCode(Key)
-//    bool Equals(Key, Key)
-// and use those. An instantiator can thus make a small "adaptor class"
-// to invoke existing instance method hash and/or equality functions.
-// If the implementor of a candidate Key class K understands this convention,
-// these static methods can be implemented by K, so that K can be used
-// as the actual arguments for the both Key and KeyFuncs template parameters.
-//
-// The "Behavior" parameter must provide the following static members:
-//
-// s_growth_factor_numerator
-// s_growth_factor_denominator                  Factor to grow allocation (numerator/denominator).
-//                                              Typically inherited from default traits (3/2)
-//
-// s_density_factor_numerator
-// s_density_factor_denominator                 Maximum occupied density of table before growth
-//                                              occurs (num/denom).  Typically inherited (3/4).
-//
-// s_minimum_allocation                         Minimum table allocation count (size on first growth.)  It is
-//                                              probably preferable to call Reallocate on initialization rather
-//                                              than override this from the default traits.
-//
-// NoMemory()                                   Called when the hash table is unable to grow due to potential
-//                                              overflow or the lack of a sufficiently large prime.
-
-class JitHashTableBehavior
-{
-public:
-    static constexpr unsigned s_growth_factor_numerator   = 3;
-    static constexpr unsigned s_growth_factor_denominator = 2;
-
-    static constexpr unsigned s_density_factor_numerator   = 3;
-    static constexpr unsigned s_density_factor_denominator = 4;
-
-    static constexpr unsigned s_minimum_allocation = 7;
-
-    static void DECLSPEC_NORETURN NoMemory()
-    {
-        NOMEM();
-    }
-};
-
-// Stores info about primes, including the magic number and shift amount needed
-// to implement a divide without using the divide instruction
-class JitPrimeInfo
-{
-public:
-    constexpr JitPrimeInfo()
-    {
-    }
-
-    constexpr JitPrimeInfo(unsigned p, unsigned m, unsigned s) : prime(p), magic(m), shift(s)
-    {
-    }
-
-    unsigned prime = 0;
-    unsigned magic = 0;
-    unsigned shift = 0;
-
-    // Compute `numerator` / `prime` using magic division
-    unsigned magicNumberDivide(unsigned numerator) const
-    {
-        uint64_t num     = numerator;
-        uint64_t mag     = magic;
-        uint64_t product = (num * mag) >> (32 + shift);
-        return static_cast<unsigned>(product);
-    }
-
-    // Compute `numerator` % `prime` using magic division
-    unsigned magicNumberRem(unsigned numerator) const
-    {
-        unsigned div    = magicNumberDivide(numerator);
-        unsigned result = numerator - (div * prime);
-        assert(result == numerator % prime);
-        return result;
-    }
-};
-
-extern const JitPrimeInfo jitPrimeInfo[27];
-
 template <class T>
 struct JitHashFuncs
 {
@@ -104,6 +17,66 @@ struct JitHashFuncs
     }
 };
 
+// Stores info about primes, including the magic number and shift amount needed
+// to implement a divide without using the divide instruction
+class JitPrimeInfo
+{
+    unsigned prime = 0;
+    unsigned magic = 0;
+    unsigned shift = 0;
+
+public:
+    constexpr JitPrimeInfo() = default;
+
+    constexpr JitPrimeInfo(unsigned p, unsigned m, unsigned s) : prime(p), magic(m), shift(s)
+    {
+    }
+
+    unsigned GetPrime() const
+    {
+        return prime;
+    }
+
+    unsigned Divide(unsigned numerator) const
+    {
+        uint64_t num     = numerator;
+        uint64_t mag     = magic;
+        uint64_t product = (num * mag) >> (32 + shift);
+        return static_cast<unsigned>(product);
+    }
+
+    unsigned Remainder(unsigned numerator) const
+    {
+        unsigned div    = Divide(numerator);
+        unsigned result = numerator - (div * prime);
+        assert(result == numerator % prime);
+        return result;
+    }
+};
+
+extern const JitPrimeInfo jitPrimeInfo[27];
+
+struct JitHashTableBehavior
+{
+    // Factor to grow allocation
+    static constexpr unsigned s_growth_factor_numerator   = 3;
+    static constexpr unsigned s_growth_factor_denominator = 2;
+
+    // Maximum occupied density of table before growth occurs
+    static constexpr unsigned s_density_factor_numerator   = 3;
+    static constexpr unsigned s_density_factor_denominator = 4;
+
+    // Minimum table allocation count (size on first growth).
+    // It is probably preferable to call Reallocate on initialization
+    // rather than override this from the default traits.
+    static constexpr unsigned s_minimum_allocation = 7;
+
+    static void DECLSPEC_NORETURN NoMemory()
+    {
+        NOMEM();
+    }
+};
+
 template <class Key,
           class Value,
           class HashFuncs = JitHashFuncs<Key>,
@@ -114,10 +87,10 @@ class JitHashMap
     struct Node;
 
     Allocator    m_alloc;
-    Node**       m_table = nullptr;
-    JitPrimeInfo m_tableSizeInfo;
-    unsigned     m_tableCount = 0;
-    unsigned     m_tableMax   = 0;
+    Node**       m_buckets{nullptr};
+    JitPrimeInfo m_sizeInfo;
+    unsigned     m_count{0};
+    unsigned     m_maxCount{0};
 
 public:
     struct Entry
@@ -143,7 +116,7 @@ public:
     {
         if (Node* n = FindNode(k))
         {
-            *value = n->m_value.value;
+            *value = n->value.value;
             return true;
         }
 
@@ -154,7 +127,7 @@ public:
     {
         if (Node* n = FindNode(k))
         {
-            return &n->m_value.value;
+            return &n->value.value;
         }
 
         return nullptr;
@@ -164,27 +137,27 @@ public:
     {
         Node* n = FindNode(k);
         assert(n != nullptr);
-        return n->m_value.value;
+        return n->value.value;
     }
 
     void Add(Key k, Value v)
     {
         CheckGrowth();
 
-        assert(m_tableSizeInfo.prime != 0);
+        assert(GetBucketCount() != 0);
 
-        unsigned index = GetIndexForKey(k);
+        unsigned index = GetBucketIndex(k);
 
-        for (Node* n = m_table[index]; n != nullptr; n = n->m_next)
+        for (Node* n = m_buckets[index]; n != nullptr; n = n->next)
         {
-            if (HashFuncs::Equals(k, n->m_value.key))
+            if (HashFuncs::Equals(k, n->value.key))
             {
                 unreached();
             }
         }
 
-        m_table[index] = new (m_alloc) Node(m_table[index], k, v);
-        m_tableCount++;
+        m_buckets[index] = new (m_alloc) Node(m_buckets[index], k, v);
+        m_count++;
     }
 
     template <class... Args>
@@ -192,25 +165,26 @@ public:
     {
         CheckGrowth();
 
-        assert(m_tableSizeInfo.prime != 0);
+        assert(GetBucketCount() != 0);
 
-        unsigned index = GetIndexForKey(k);
+        unsigned index = GetBucketIndex(k);
 
-        Node* n = m_table[index];
-        while ((n != nullptr) && !HashFuncs::Equals(k, n->m_value.key))
+        Node* n = m_buckets[index];
+
+        while ((n != nullptr) && !HashFuncs::Equals(k, n->value.key))
         {
-            n = n->m_next;
+            n = n->next;
         }
 
         if (n == nullptr)
         {
-            n = new (m_alloc) Node(m_table[index], k, std::forward<Args>(args)...);
+            n = new (m_alloc) Node(m_buckets[index], k, std::forward<Args>(args)...);
 
-            m_table[index] = n;
-            m_tableCount++;
+            m_buckets[index] = n;
+            m_count++;
         }
 
-        return &n->m_value.value;
+        return &n->value.value;
     }
 
     Value& operator[](Key k)
@@ -218,65 +192,48 @@ public:
         return *Emplace(k);
     }
 
-    //------------------------------------------------------------------------
-    // Remove: Remove the specified key and its associated value.
-    //
-    // Arguments:
-    //    k - the key
-    //
-    // Return Value:
-    //    `true` if the key exists, `false` otherwise.
-    //
-    // Notes:
-    //    Removing a inexistent key is not an error.
-    //
     bool Remove(Key k)
     {
-        unsigned index = GetIndexForKey(k);
+        unsigned index = GetBucketIndex(k);
 
-        Node*  pN  = m_table[index];
-        Node** ppN = &m_table[index];
-        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
+        Node*  node = m_buckets[index];
+        Node** link = &m_buckets[index];
+
+        while ((node != nullptr) && !HashFuncs::Equals(k, node->value.key))
         {
-            ppN = &pN->m_next;
-            pN  = pN->m_next;
+            link = &node->next;
+            node = node->next;
         }
-        if (pN != nullptr)
-        {
-            *ppN = pN->m_next;
-            m_tableCount--;
-            Node::operator delete(pN, m_alloc);
-            return true;
-        }
-        else
+
+        if (node == nullptr)
         {
             return false;
         }
+
+        *link = node->next;
+        m_count--;
+        Node::operator delete(node, m_alloc);
+        return true;
     }
 
-    //------------------------------------------------------------------------
-    // RemoveAll: Remove all keys and their associated values.
-    //
-    // Notes:
-    //    This also frees all the memory owned by the table.
-    //
     void RemoveAll()
     {
-        for (unsigned i = 0; i < m_tableSizeInfo.prime; i++)
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
         {
-            for (Node* pN = m_table[i]; pN != nullptr;)
+            for (Node* n = m_buckets[i]; n != nullptr;)
             {
-                Node* pNext = pN->m_next;
-                Node::operator delete(pN, m_alloc);
-                pN = pNext;
+                Node* next = n->next;
+                Node::operator delete(n, m_alloc);
+                n = next;
             }
         }
-        m_alloc.deallocate(m_table);
 
-        m_table         = nullptr;
-        m_tableSizeInfo = JitPrimeInfo();
-        m_tableCount    = 0;
-        m_tableMax      = 0;
+        m_alloc.deallocate(m_buckets);
+
+        m_buckets  = nullptr;
+        m_sizeInfo = {};
+        m_count    = 0;
+        m_maxCount = 0;
     }
 
     iterator begin() const
@@ -289,95 +246,57 @@ public:
         return iterator();
     }
 
-    // Get the number of keys currently stored in the table.
     unsigned GetCount() const
     {
-        return m_tableCount;
+        return m_count;
     }
 
-    // Get the allocator used by this hash table.
     Allocator GetAllocator()
     {
         return m_alloc;
     }
 
 private:
-    struct Node;
-
-    //------------------------------------------------------------------------
-    // GetIndexForKey: Get the bucket index for the specified key.
-    //
-    // Arguments:
-    //    k - the key
-    //
-    // Return Value:
-    //    A bucket index
-    //
-    unsigned GetIndexForKey(Key k) const
+    unsigned GetBucketCount() const
     {
-        unsigned hash = HashFuncs::GetHashCode(k);
-
-        unsigned index = m_tableSizeInfo.magicNumberRem(hash);
-
-        return index;
+        return m_sizeInfo.GetPrime();
     }
 
-    //------------------------------------------------------------------------
-    // FindNode: Return a pointer to the node having the specified key, if any.
-    //
-    // Arguments:
-    //    k - the key
-    //
-    // Return Value:
-    //    A pointer to the node or `nullptr` if the key is not found.
-    //
+    unsigned GetBucketIndex(Key k) const
+    {
+        return m_sizeInfo.Remainder(HashFuncs::GetHashCode(k));
+    }
+
     Node* FindNode(Key k) const
     {
-        if (m_tableSizeInfo.prime == 0)
+        if (GetBucketCount() == 0)
         {
             return nullptr;
         }
 
-        unsigned index = GetIndexForKey(k);
+        unsigned index = GetBucketIndex(k);
 
-        Node* pN = m_table[index];
-        if (pN == nullptr)
+        Node* n = m_buckets[index];
+
+        while ((n != nullptr) && !HashFuncs::Equals(k, n->value.key))
         {
-            return nullptr;
+            n = n->next;
         }
 
-        // Otherwise...
-        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
-        {
-            pN = pN->m_next;
-        }
-
-        assert((pN == nullptr) || HashFuncs::Equals(k, pN->m_value.key));
-
-        // If pN != nullptr, it's the node for the key, else the key isn't mapped.
-        return pN;
+        return n;
     }
 
-    //------------------------------------------------------------------------
-    // Grow: Increase the size of the bucket table.
-    //
-    // Notes:
-    //    The new size is computed based on the current population, growth factor,
-    //    and maximum density factor.
-    //
     void Grow()
     {
-        unsigned newSize =
-            (unsigned)(m_tableCount * Behavior::s_growth_factor_numerator / Behavior::s_growth_factor_denominator *
-                       Behavior::s_density_factor_denominator / Behavior::s_density_factor_numerator);
+        unsigned newSize = m_count * Behavior::s_growth_factor_numerator / Behavior::s_growth_factor_denominator *
+                           Behavior::s_density_factor_denominator / Behavior::s_density_factor_numerator;
 
         if (newSize < Behavior::s_minimum_allocation)
         {
             newSize = Behavior::s_minimum_allocation;
         }
 
-        // handle potential overflow
-        if (newSize < m_tableCount)
+        if (newSize < m_count)
         {
             Behavior::NoMemory();
         }
@@ -385,38 +304,22 @@ private:
         Reallocate(newSize);
     }
 
-    //------------------------------------------------------------------------
-    // CheckGrowth: Check if the maximum hashtable density has been reached
-    // and increase the size of the bucket table if necessary.
-    //
     void CheckGrowth()
     {
-        if (m_tableCount == m_tableMax)
+        if (m_count == m_maxCount)
         {
             Grow();
         }
     }
 
 public:
-    //------------------------------------------------------------------------
-    // Reallocate: Replace the bucket table with a larger one and copy all nodes
-    // from the existing bucket table.
-    //
-    // Notes:
-    //    The new size must be large enough to hold all existing keys in
-    //    the table without exceeding the density. Note that the actual
-    //    table size must always be a prime number; the specified size
-    //    will be increased to the next prime if necessary.
-    //
     void Reallocate(unsigned newTableSize)
     {
         assert(newTableSize >=
-               (GetCount() * Behavior::s_density_factor_denominator / Behavior::s_density_factor_numerator));
+               (m_count * Behavior::s_density_factor_denominator / Behavior::s_density_factor_numerator));
 
-        // Allocation size must be a prime number.  This is necessary so that hashes uniformly
-        // distribute to all indices, and so that chaining will visit all indices in the hash table.
         JitPrimeInfo newPrime = NextPrime(newTableSize);
-        newTableSize          = newPrime.prime;
+        newTableSize          = newPrime.GetPrime();
 
         Node** newTable = m_alloc.template allocate<Node*>(newTableSize);
 
@@ -425,32 +328,28 @@ public:
             newTable[i] = nullptr;
         }
 
-        // Move all entries over to new table (re-using the Node structures.)
-
-        for (unsigned i = 0; i < m_tableSizeInfo.prime; i++)
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
         {
-            Node* pN = m_table[i];
-            while (pN != nullptr)
+            for (Node* n = m_buckets[i]; n != nullptr;)
             {
-                Node* pNext = pN->m_next;
+                Node* next = n->next;
 
-                unsigned newIndex  = newPrime.magicNumberRem(HashFuncs::GetHashCode(pN->m_value.key));
-                pN->m_next         = newTable[newIndex];
-                newTable[newIndex] = pN;
+                unsigned newIndex  = newPrime.Remainder(HashFuncs::GetHashCode(n->value.key));
+                n->next            = newTable[newIndex];
+                newTable[newIndex] = n;
 
-                pN = pNext;
+                n = next;
             }
         }
 
-        if (m_table != nullptr)
+        if (m_buckets != nullptr)
         {
-            m_alloc.deallocate(m_table);
+            m_alloc.deallocate(m_buckets);
         }
 
-        m_table         = newTable;
-        m_tableSizeInfo = newPrime;
-        m_tableMax =
-            (unsigned)(newTableSize * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator);
+        m_buckets  = newTable;
+        m_sizeInfo = newPrime;
+        m_maxCount = newTableSize * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator;
     }
 
     class iterator
@@ -464,263 +363,7 @@ public:
         iterator() = default;
 
         iterator(const JitHashMap* hash)
-            : m_buckets(hash->m_table), m_bucketsEnd(hash->m_table + hash->m_tableSizeInfo.prime)
-        {
-            if (hash->m_tableCount > 0)
-            {
-                FindNextBucket();
-            }
-        }
-
-        void FindNextBucket()
-        {
-            while ((m_buckets < m_bucketsEnd) && ((m_node = *m_buckets++) == nullptr))
-            {
-            }
-        }
-
-    public:
-        bool operator==(const iterator& i) const
-        {
-            return i.m_node == m_node;
-        }
-
-        bool operator!=(const iterator& i) const
-        {
-            return i.m_node != m_node;
-        }
-
-        void operator++()
-        {
-            m_node = m_node->m_next;
-
-            if (m_node == nullptr)
-            {
-                FindNextBucket();
-            }
-        }
-
-        Entry& operator*()
-        {
-            return m_node->m_value;
-        }
-
-        Entry* operator->()
-        {
-            return &m_node->m_value;
-        }
-
-        void SetValue(const Value& value) const
-        {
-            m_node->m_value.value = value;
-        }
-    };
-
-private:
-    static const JitPrimeInfo& NextPrime(unsigned number)
-    {
-        for (const JitPrimeInfo& info : jitPrimeInfo)
-        {
-            if (info.prime >= number)
-            {
-                return info;
-            }
-        }
-
-        Behavior::NoMemory();
-    }
-
-    struct Node
-    {
-        Node* m_next;
-        Entry m_value;
-
-        template <class... Args>
-        Node(Node* next, Key k, Args&&... args) : m_next(next), m_value{k, Value(std::forward<Args>(args)...)}
-        {
-        }
-
-        void* operator new(size_t sz, Allocator alloc)
-        {
-            return alloc.template allocate<uint8_t>(sz);
-        }
-
-        void operator delete(void* p, Allocator alloc)
-        {
-            alloc.deallocate(p);
-        }
-    };
-};
-
-template <class Value,
-          class HashFuncs = JitHashFuncs<Value>,
-          class Allocator = CompAllocator,
-          class Behavior  = JitHashTableBehavior>
-class JitHashSet
-{
-    struct Node
-    {
-        Node* m_next;
-        Value m_value;
-
-        Node(Node* next, Value value) : m_next(next), m_value(value)
-        {
-        }
-
-        void* operator new(size_t sz, Allocator alloc)
-        {
-            return alloc.template allocate<uint8_t>(sz);
-        }
-
-        void operator delete(void* p, Allocator alloc)
-        {
-            alloc.deallocate(p);
-        }
-    };
-
-    Allocator    m_alloc;
-    Node**       m_buckets{nullptr};
-    JitPrimeInfo m_primeInfo{};
-    unsigned     m_count{0};
-    unsigned     m_maxCount{0};
-
-public:
-    JitHashSet(Allocator alloc) : m_alloc(alloc)
-    {
-    }
-
-    ~JitHashSet()
-    {
-        for (unsigned i = 0; i < GetBucketCount(); i++)
-        {
-            for (Node* node = m_buckets[i]; node != nullptr;)
-            {
-                Node* next = node->m_next;
-                Node::operator delete(node, m_alloc);
-                node = next;
-            }
-        }
-
-        m_alloc.deallocate(m_buckets);
-        m_buckets = nullptr;
-    }
-
-    bool Add(Value value)
-    {
-        if (m_count == m_maxCount)
-        {
-            Grow();
-        }
-
-        unsigned index = GetBucketIndex(value);
-        Node*    node  = m_buckets[index];
-
-        while ((node != nullptr) && !HashFuncs::Equals(value, node->m_value))
-        {
-            node = node->m_next;
-        }
-
-        if (node != nullptr)
-        {
-            return false;
-        }
-
-        m_buckets[index] = new (m_alloc) Node(m_buckets[index], value);
-        m_count++;
-
-        return true;
-    }
-
-    bool Contains(Value value) const
-    {
-        if (m_count == 0)
-        {
-            return false;
-        }
-
-        unsigned index = GetBucketIndex(value);
-        Node*    node  = m_buckets[index];
-
-        while ((node != nullptr) && !HashFuncs::Equals(value, node->m_value))
-        {
-            node = node->m_next;
-        }
-
-        return node != nullptr;
-    }
-
-    bool Remove(Value value)
-    {
-        if (m_count == 0)
-        {
-            return false;
-        }
-
-        unsigned index    = GetBucketIndex(value);
-        Node*    node     = m_buckets[index];
-        Node**   nodeLink = &m_buckets[index];
-
-        while ((node != nullptr) && !HashFuncs::Equals(value, node->m_value))
-        {
-            nodeLink = &node->m_next;
-            node     = node->m_next;
-        }
-
-        if (node == nullptr)
-        {
-            return false;
-        }
-
-        *nodeLink = node->m_next;
-        m_count--;
-        Node::operator delete(node, m_alloc);
-
-        return true;
-    }
-
-    void Clear()
-    {
-        for (unsigned i = 0; i < m_primeInfo.prime; i++)
-        {
-            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
-            {
-                next = node->m_next;
-                Node::operator delete(node, m_alloc);
-            }
-        }
-
-        m_alloc.deallocate(m_buckets);
-
-        m_buckets   = nullptr;
-        m_primeInfo = JitPrimeInfo();
-        m_count     = 0;
-        m_maxCount  = 0;
-    }
-
-    unsigned GetCount() const
-    {
-        return m_count;
-    }
-
-    Allocator GetAllocator()
-    {
-        return m_alloc;
-    }
-
-    class iterator
-    {
-        friend class JitHashSet;
-
-        Node*  m_node;
-        Node** m_buckets;
-        Node** m_bucketsEnd;
-
-        iterator() : m_node(nullptr)
-        {
-        }
-
-        iterator(const JitHashSet* hash)
-            : m_node(nullptr), m_buckets(hash->m_buckets), m_bucketsEnd(hash->m_buckets + hash->GetBucketCount())
+            : m_buckets(hash->m_buckets), m_bucketsEnd(hash->m_buckets + hash->GetBucketCount())
         {
             if (hash->m_count > 0)
             {
@@ -748,7 +391,260 @@ public:
 
         void operator++()
         {
-            m_node = m_node->m_next;
+            m_node = m_node->next;
+
+            if (m_node == nullptr)
+            {
+                FindNextBucket();
+            }
+        }
+
+        Entry& operator*()
+        {
+            return m_node->value;
+        }
+
+        Entry* operator->()
+        {
+            return &m_node->value;
+        }
+
+        void SetValue(const Value& value) const
+        {
+            m_node->value.value = value;
+        }
+    };
+
+private:
+    static const JitPrimeInfo& NextPrime(unsigned number)
+    {
+        for (const JitPrimeInfo& info : jitPrimeInfo)
+        {
+            if (info.GetPrime() >= number)
+            {
+                return info;
+            }
+        }
+
+        Behavior::NoMemory();
+    }
+
+    struct Node
+    {
+        Node* next;
+        Entry value;
+
+        template <class... Args>
+        Node(Node* next, Key k, Args&&... args) : next(next), value{k, Value(std::forward<Args>(args)...)}
+        {
+        }
+
+        void* operator new(size_t sz, Allocator alloc)
+        {
+            return alloc.template allocate<uint8_t>(sz);
+        }
+
+        void operator delete(void* p, Allocator alloc)
+        {
+            alloc.deallocate(p);
+        }
+    };
+};
+
+template <class Value,
+          class HashFuncs = JitHashFuncs<Value>,
+          class Allocator = CompAllocator,
+          class Behavior  = JitHashTableBehavior>
+class JitHashSet
+{
+    struct Node
+    {
+        Node* next;
+        Value value;
+
+        Node(Node* next, Value value) : next(next), value(value)
+        {
+        }
+
+        void* operator new(size_t sz, Allocator alloc)
+        {
+            return alloc.template allocate<uint8_t>(sz);
+        }
+
+        void operator delete(void* p, Allocator alloc)
+        {
+            alloc.deallocate(p);
+        }
+    };
+
+    Allocator    m_alloc;
+    Node**       m_buckets{nullptr};
+    JitPrimeInfo m_sizeInfo;
+    unsigned     m_count{0};
+    unsigned     m_maxCount{0};
+
+public:
+    JitHashSet(Allocator alloc) : m_alloc(alloc)
+    {
+    }
+
+    ~JitHashSet()
+    {
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
+        {
+            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
+            {
+                next = node->next;
+                Node::operator delete(node, m_alloc);
+            }
+        }
+
+        m_alloc.deallocate(m_buckets);
+        m_buckets = nullptr;
+    }
+
+    bool Add(Value value)
+    {
+        if (m_count == m_maxCount)
+        {
+            Grow();
+        }
+
+        unsigned index = GetBucketIndex(value);
+        Node*    node  = m_buckets[index];
+
+        while ((node != nullptr) && !HashFuncs::Equals(value, node->value))
+        {
+            node = node->next;
+        }
+
+        if (node != nullptr)
+        {
+            return false;
+        }
+
+        m_buckets[index] = new (m_alloc) Node(m_buckets[index], value);
+        m_count++;
+
+        return true;
+    }
+
+    bool Contains(Value value) const
+    {
+        if (m_count == 0)
+        {
+            return false;
+        }
+
+        unsigned index = GetBucketIndex(value);
+        Node*    node  = m_buckets[index];
+
+        while ((node != nullptr) && !HashFuncs::Equals(value, node->value))
+        {
+            node = node->next;
+        }
+
+        return node != nullptr;
+    }
+
+    bool Remove(Value value)
+    {
+        if (m_count == 0)
+        {
+            return false;
+        }
+
+        unsigned index    = GetBucketIndex(value);
+        Node*    node     = m_buckets[index];
+        Node**   nodeLink = &m_buckets[index];
+
+        while ((node != nullptr) && !HashFuncs::Equals(value, node->value))
+        {
+            nodeLink = &node->next;
+            node     = node->next;
+        }
+
+        if (node == nullptr)
+        {
+            return false;
+        }
+
+        *nodeLink = node->next;
+        m_count--;
+        Node::operator delete(node, m_alloc);
+
+        return true;
+    }
+
+    void Clear()
+    {
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
+        {
+            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
+            {
+                next = node->next;
+                Node::operator delete(node, m_alloc);
+            }
+        }
+
+        m_alloc.deallocate(m_buckets);
+
+        m_buckets  = nullptr;
+        m_sizeInfo = {};
+        m_count    = 0;
+        m_maxCount = 0;
+    }
+
+    unsigned GetCount() const
+    {
+        return m_count;
+    }
+
+    Allocator GetAllocator()
+    {
+        return m_alloc;
+    }
+
+    class iterator
+    {
+        friend class JitHashSet;
+
+        Node*  m_node = nullptr;
+        Node** m_buckets;
+        Node** m_bucketsEnd;
+
+        iterator() = default;
+
+        iterator(const JitHashSet* hash)
+            : m_buckets(hash->m_buckets), m_bucketsEnd(hash->m_buckets + hash->GetBucketCount())
+        {
+            if (hash->m_count > 0)
+            {
+                FindNextBucket();
+            }
+        }
+
+        void FindNextBucket()
+        {
+            while ((m_buckets < m_bucketsEnd) && ((m_node = *m_buckets++) == nullptr))
+            {
+            }
+        }
+
+    public:
+        bool operator==(const iterator& i) const
+        {
+            return i.m_node == m_node;
+        }
+
+        bool operator!=(const iterator& i) const
+        {
+            return i.m_node != m_node;
+        }
+
+        void operator++()
+        {
+            m_node = m_node->next;
 
             if (m_node == nullptr)
             {
@@ -758,7 +654,7 @@ public:
 
         const Value& operator*() const
         {
-            return m_node->m_value;
+            return m_node->value;
         }
     };
 
@@ -775,12 +671,12 @@ public:
 private:
     unsigned GetBucketCount() const
     {
-        return m_primeInfo.prime;
+        return m_sizeInfo.GetPrime();
     }
 
     unsigned GetBucketIndex(Value value) const
     {
-        return m_primeInfo.magicNumberRem(HashFuncs::GetHashCode(value));
+        return m_sizeInfo.Remainder(HashFuncs::GetHashCode(value));
     }
 
     void Grow()
@@ -793,7 +689,6 @@ private:
             newCount = Behavior::s_minimum_allocation;
         }
 
-        // handle potential overflow
         if (newCount < m_count)
         {
             Behavior::NoMemory();
@@ -807,7 +702,7 @@ private:
         assert(newCount >= m_count * Behavior::s_density_factor_denominator / Behavior::s_density_factor_numerator);
 
         JitPrimeInfo newPrimeInfo   = NextPrime(newCount);
-        unsigned     newBucketCount = newPrimeInfo.prime;
+        unsigned     newBucketCount = newPrimeInfo.GetPrime();
 
         Node** newBuckets = m_alloc.template allocate<Node*>(newBucketCount);
 
@@ -816,14 +711,14 @@ private:
             newBuckets[i] = nullptr;
         }
 
-        for (unsigned i = 0; i < GetBucketCount(); i++)
+        for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
         {
-            for (Node *next, *node = m_buckets[i]; node != nullptr; node = next)
+            for (Node *node = m_buckets[i], *next; node != nullptr; node = next)
             {
-                next = node->m_next;
+                next = node->next;
 
-                unsigned newIndex    = newPrimeInfo.magicNumberRem(HashFuncs::GetHashCode(node->m_value));
-                node->m_next         = newBuckets[newIndex];
+                unsigned newIndex    = newPrimeInfo.Remainder(HashFuncs::GetHashCode(node->value));
+                node->next           = newBuckets[newIndex];
                 newBuckets[newIndex] = node;
             }
         }
@@ -833,16 +728,16 @@ private:
             m_alloc.deallocate(m_buckets);
         }
 
-        m_buckets   = newBuckets;
-        m_primeInfo = newPrimeInfo;
-        m_maxCount  = newBucketCount * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator;
+        m_buckets  = newBuckets;
+        m_sizeInfo = newPrimeInfo;
+        m_maxCount = newBucketCount * Behavior::s_density_factor_numerator / Behavior::s_density_factor_denominator;
     }
 
     static const JitPrimeInfo& NextPrime(unsigned number)
     {
         for (const JitPrimeInfo& info : jitPrimeInfo)
         {
-            if (info.prime >= number)
+            if (info.GetPrime() >= number)
             {
                 return info;
             }
