@@ -155,7 +155,7 @@ public:
     // Requires that "*this" is not equal to the "end" position.
     inline BasicBlock* Current(Compiler* comp, BasicBlock* block);
 
-    bool IsCurrentEH()
+    bool IsCurrentEH() const
     {
         return m_remainingNormSucc == 0;
     }
@@ -1500,7 +1500,7 @@ struct BBswtDesc
         bbsCount--;
     }
 
-    BasicBlock* getDefault()
+    BasicBlock* getDefault() const
     {
         assert(bbsHasDefault);
         assert(bbsCount > 0);

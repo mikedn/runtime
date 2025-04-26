@@ -737,7 +737,7 @@ void LinearScan::setVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex, 
     bbVarToRegMap[trackedVarIndex] = static_cast<RegNumSmall>(reg);
 }
 
-RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex)
+RegNum LinearScan::getVarReg(VarToRegMap bbVarToRegMap, unsigned trackedVarIndex) const
 {
     assert(enregisterLocalVars);
     assert(trackedVarIndex < compiler->lvaTrackedCount);
@@ -7651,7 +7651,7 @@ void LinearScan::dumpRegRecords()
     rowCountSinceLastTitle++;
 }
 
-void LinearScan::dumpIntervalName(Interval* interval)
+void LinearScan::dumpIntervalName(Interval* interval) const
 {
     if (interval->isLocalVar)
     {
@@ -7671,7 +7671,7 @@ void LinearScan::dumpIntervalName(Interval* interval)
     }
 }
 
-void LinearScan::dumpEmptyRefPosition()
+void LinearScan::dumpEmptyRefPosition() const
 {
     printf(emptyRefPositionFormat, "");
 }

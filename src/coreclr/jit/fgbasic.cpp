@@ -76,50 +76,30 @@ void Compiler::fgEnsureFirstBBisScratch()
     JITDUMP("New scratch " FMT_BB "\n", block->bbNum);
 }
 
-//------------------------------------------------------------------------
-// fgFirstBBisScratch: Check if fgFirstBB is a scratch block
-//
-// Returns:
-//   true if fgFirstBB is a scratch block.
-//
-bool Compiler::fgFirstBBisScratch()
+bool Compiler::fgFirstBBisScratch() const
 {
-    if (fgFirstBBScratch != nullptr)
-    {
-        assert(fgFirstBBScratch == fgFirstBB);
-        assert(fgFirstBBScratch->bbFlags & BBF_INTERNAL);
-        assert(fgFirstBBScratch->countOfInEdges() == 1);
-
-        // Normally, the first scratch block is a fall-through block. However, if the block after it was an empty
-        // BBJ_ALWAYS block, it might get removed, and the code that removes it will make the first scratch block
-        // a BBJ_ALWAYS block.
-        assert((fgFirstBBScratch->bbJumpKind == BBJ_NONE) || (fgFirstBBScratch->bbJumpKind == BBJ_ALWAYS));
-
-        return true;
-    }
-    else
+    if (fgFirstBBScratch == nullptr)
     {
         return false;
     }
+
+    assert(fgFirstBBScratch == fgFirstBB);
+    assert(fgFirstBBScratch->bbFlags & BBF_INTERNAL);
+    assert(fgFirstBBScratch->countOfInEdges() == 1);
+
+    // Normally, the first scratch block is a fall-through block. However, if the block after it was an empty
+    // BBJ_ALWAYS block, it might get removed, and the code that removes it will make the first scratch block
+    // a BBJ_ALWAYS block.
+    assert((fgFirstBBScratch->bbJumpKind == BBJ_NONE) || (fgFirstBBScratch->bbJumpKind == BBJ_ALWAYS));
+
+    return true;
 }
 
-//------------------------------------------------------------------------
-// fgBBisScratch: Check if a given block is a scratch block.
-//
-// Arguments:
-//   block - block in question
-//
-// Returns:
-//   true if this block is the first block and is a scratch block.
-//
-bool Compiler::fgBBisScratch(BasicBlock* block)
+bool Compiler::fgBBisScratch(BasicBlock* block) const
 {
     return fgFirstBBisScratch() && (block == fgFirstBB);
 }
 
-/*
-    Removes a block from the return block list
-*/
 void Compiler::fgRemoveReturnBlock(BasicBlock* block)
 {
     if (fgReturnBlocks == nullptr)
@@ -532,7 +512,7 @@ public:
     {
         return depth >= 2 ? slot1 : FgSlot::SLOT_UNKNOWN;
     }
-    FgSlot Top(const int n = 0)
+    FgSlot Top(const int n = 0) const
     {
         if (n == 0)
         {
@@ -1866,7 +1846,7 @@ void Compiler::fgAdjustForAddressTakenOrStoredThis()
 //
 //    The crude stack model may overestimate stack depth.
 
-void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo)
+void Compiler::fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo) const
 {
     // We should be able to record inline observations.
     assert(compInlineResult != nullptr);

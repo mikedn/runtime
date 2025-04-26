@@ -877,7 +877,7 @@ public:
 
     // Print the summary information to "f".
     // This is not thread-safe; assumed to be called by only one thread.
-    void Print(FILE* f);
+    void Print(FILE* f) const;
 };
 
 // A JitTimer encapsulates a CompTimeInfo for a single compilation. It also tracks the start of compilation,
@@ -901,7 +901,7 @@ class JitTimer
 
     static CritSecObject s_csvLock; // Lock to protect the time log file.
     static FILE*         s_csvFile; // The time log file handle.
-    void PrintCsvMethodStats(Compiler* comp);
+    void PrintCsvMethodStats(Compiler* comp) const;
 
 private:
     void* operator new(size_t);
@@ -2540,13 +2540,8 @@ public:
         }
     };
 
-//-------------------------------------------------------------------------
-// Exception handling functions
-//
-
-#if !defined(FEATURE_EH_FUNCLETS)
-
-    bool ehNeedsShadowSPslots()
+#ifndef FEATURE_EH_FUNCLETS
+    bool ehNeedsShadowSPslots() const
     {
         return (info.compXcptnsCount || opts.compDbgEnC);
     }
@@ -2556,8 +2551,7 @@ public:
     // 2 for a method with a catch within a catch
     // etc.
     unsigned ehMaxHndNestingCount = 0;
-
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 
     bool bbInCatchHandlerILRange(BasicBlock* blk);
     bool bbInFilterILRange(BasicBlock* blk);
@@ -2576,7 +2570,7 @@ public:
     // Returns true if "block" is the start of a handler or filter region.
     bool bbIsHandlerBeg(BasicBlock* block);
 
-    bool ehHasCallableHandlers();
+    bool ehHasCallableHandlers() const;
 
     // Return the EH descriptor for the given region index.
     EHblkDsc* ehGetDsc(unsigned regionIndex);
@@ -2763,7 +2757,7 @@ public:
 #ifdef DEBUG
     void dispIncomingEHClause(unsigned num, const CORINFO_EH_CLAUSE& clause);
     void fgVerifyHandlerTab();
-    void fgDispHandlerTab();
+    void fgDispHandlerTab() const;
 #endif // DEBUG
 
     void verInitEHTree(unsigned numEHClauses);
@@ -3377,7 +3371,7 @@ public:
 
     // True if this is an OSR compilation and this local is potentially
     // located on the original method stack frame.
-    bool lvaIsOSRLocal(LclVarDsc* lcl);
+    bool lvaIsOSRLocal(LclVarDsc* lcl) const;
 
     //------------------------ For splitting types ----------------------------
 
@@ -3693,8 +3687,8 @@ public:
 #endif
 
     void fgEnsureFirstBBisScratch();
-    bool fgFirstBBisScratch();
-    bool fgBBisScratch(BasicBlock* block);
+    bool fgFirstBBisScratch() const;
+    bool fgBBisScratch(BasicBlock* block) const;
 
     void fgExtendEHRegionBefore(BasicBlock* block);
     void fgExtendEHRegionAfter(BasicBlock* block);
@@ -4248,7 +4242,7 @@ protected:
 
     bool fgFlowToFirstBlockOfInnerTry(BasicBlock* blkSrc, BasicBlock* blkDest, bool sibling);
 
-    void fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo);
+    void fgObserveInlineConstants(OPCODE opcode, const FgStack& stack, InlineInfo* inlineInfo) const;
 
     void fgAdjustForAddressTakenOrStoredThis();
 
@@ -5728,7 +5722,7 @@ public:
     unsigned m_totalHoistedExpressions     = 0;
 
     void AddLoopHoistStats();
-    void PrintPerMethodLoopHoistStats();
+    void PrintPerMethodLoopHoistStats() const;
 
     static CritSecObject s_loopHoistStatsLock; // This lock protects the data structures below.
     static unsigned      s_loopsConsidered;
@@ -5871,7 +5865,7 @@ public:
 #endif // MEASURE_NOWAY
 
     // Should we actually fire the noway assert body and the exception handler?
-    bool compShouldThrowOnNoway();
+    bool compShouldThrowOnNoway() const;
 
     // The "FieldSeqStore", for canonicalizing field sequences.  See the definition of FieldSeqStore for
     // operations.

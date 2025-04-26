@@ -29,7 +29,7 @@ MethodSet*          Compiler::s_pJitMethodSet;
 #if defined(_MSC_VER)
 
 #include <intrin.h>
-bool _our_GetThreadCycles(uint64_t* cycleOut)
+static bool _our_GetThreadCycles(uint64_t* cycleOut)
 {
     *cycleOut = __rdtsc();
     return true;
@@ -37,7 +37,7 @@ bool _our_GetThreadCycles(uint64_t* cycleOut)
 
 #elif defined(__GNUC__)
 
-bool _our_GetThreadCycles(uint64_t* cycleOut)
+static bool _our_GetThreadCycles(uint64_t* cycleOut)
 {
     uint32_t hi, lo;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
@@ -994,7 +994,7 @@ void DummyProfilerELTStub(UINT_PTR ProfilerHandle)
 
 #endif // PROFILING_SUPPORTED
 
-bool Compiler::compShouldThrowOnNoway()
+bool Compiler::compShouldThrowOnNoway() const
 {
     // In min opts, we don't want the noway assert to go through the exception
     // path. Instead we want it to just silently go through codegen for
@@ -3142,7 +3142,7 @@ void Compiler::compCompileFinish()
     DO8(buf, 0);                                                                                                       \
     DO8(buf, 8);
 
-unsigned adler32(unsigned adler, char* buf, unsigned int len)
+static unsigned adler32(unsigned adler, char* buf, unsigned int len)
 {
     unsigned int s1 = adler & 0xffff;
     unsigned int s2 = (adler >> 16) & 0xffff;
@@ -3174,14 +3174,12 @@ unsigned adler32(unsigned adler, char* buf, unsigned int len)
 }
 #endif
 
-unsigned getMethodBodyChecksum(__in_z char* code, int size)
-{
 #ifdef PSEUDORANDOM_NOP_INSERTION
+static unsigned getMethodBodyChecksum(char* code, int size)
+{
     return adler32(0, code, size);
-#else
-    return 0;
-#endif
 }
+#endif
 
 CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
@@ -3579,17 +3577,17 @@ void CompTimeSummaryInfo::AddInfo(CompTimeInfo& info, bool includePhases)
 #endif
 }
 
-// Static
-LPCWSTR Compiler::compJitTimeLogFilename = nullptr;
+LPCWSTR Compiler::compJitTimeLogFilename;
 
-void CompTimeSummaryInfo::Print(FILE* f)
+void CompTimeSummaryInfo::Print(FILE* f) const
 {
     if (f == nullptr)
     {
         return;
     }
-    // Otherwise...
+
     double countsPerSec = CachedCyclesPerSecond();
+
     if (countsPerSec == 0.0)
     {
         fprintf(f, "Processor does not have a high-frequency timer.\n");
@@ -4041,9 +4039,10 @@ void JitTimer::PrintCsvHeader()
     }
 }
 
-void JitTimer::PrintCsvMethodStats(Compiler* comp)
+void JitTimer::PrintCsvMethodStats(Compiler* comp) const
 {
     LPCWSTR jitTimeLogCsv = Compiler::JitTimeLogCsv();
+
     if (jitTimeLogCsv == nullptr)
     {
         return;
@@ -4188,18 +4187,22 @@ void Compiler::AddLoopHoistStats()
     s_totalHoistedExpressions += m_totalHoistedExpressions;
 }
 
-void Compiler::PrintPerMethodLoopHoistStats()
+void Compiler::PrintPerMethodLoopHoistStats() const
 {
     double pctWithHoisted = 0.0;
+
     if (m_loopsConsidered > 0)
     {
         pctWithHoisted = 100.0 * (double(m_loopsWithHoistedExpressions) / double(m_loopsConsidered));
     }
+
     double exprsPerLoopWithExpr = 0.0;
+
     if (m_loopsWithHoistedExpressions > 0)
     {
         exprsPerLoopWithExpr = double(m_totalHoistedExpressions) / double(m_loopsWithHoistedExpressions);
     }
+
     printf("Considered %d loops.  Of these, we hoisted expressions out of %d (%5.2f%%).\n", m_loopsConsidered,
            m_loopsWithHoistedExpressions, pctWithHoisted);
     printf("  A total of %d expressions were hoisted, an average of %5.2f per loop-with-hoisted-expr.\n",
@@ -4207,53 +4210,36 @@ void Compiler::PrintPerMethodLoopHoistStats()
 }
 #endif // LOOP_HOIST_STATS
 
-//------------------------------------------------------------------------
-// RecordStateAtEndOfInlining: capture timing data (if enabled) after
-// inlining as completed.
-//
-// Note:
-// Records data needed for SQM and inlining data dumps.  Should be
-// called after inlining is complete.  (We do this after inlining
+// Records data needed for inlining data dumps. Should be
+// called after inlining is complete. (We do this after inlining
 // because this marks the last point at which the JIT is likely to
 // cause type-loading and class initialization).
-
 void Compiler::RecordStateAtEndOfInlining()
 {
 #if defined(DEBUG) || defined(INLINE_DATA)
-
     m_compCyclesAtEndOfInlining    = 0;
     m_compTickCountAtEndOfInlining = 0;
-    bool b                         = CycleTimer::GetThreadCyclesS(&m_compCyclesAtEndOfInlining);
-    if (!b)
-    {
-        return; // We don't have a thread cycle counter.
-    }
-    m_compTickCountAtEndOfInlining = GetTickCount();
 
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+    if (CycleTimer::GetThreadCyclesS(&m_compCyclesAtEndOfInlining))
+    {
+        m_compTickCountAtEndOfInlining = GetTickCount();
+    }
+#endif
 }
 
-//------------------------------------------------------------------------
-// RecordStateAtEndOfCompilation: capture timing data (if enabled) after
-// compilation is completed.
-
+// Capture timing data (if enabled) after compilation is completed.
 void Compiler::RecordStateAtEndOfCompilation()
 {
 #if defined(DEBUG) || defined(INLINE_DATA)
-
-    // Common portion
     m_compCycles = 0;
-    uint64_t compCyclesAtEnd;
-    bool     b = CycleTimer::GetThreadCyclesS(&compCyclesAtEnd);
-    if (!b)
+
+    if (uint64_t compCyclesAtEnd; CycleTimer::GetThreadCyclesS(&compCyclesAtEnd))
     {
-        return; // We don't have a thread cycle counter.
+        assert(compCyclesAtEnd >= m_compCyclesAtEndOfInlining);
+
+        m_compCycles = compCyclesAtEnd - m_compCyclesAtEndOfInlining;
     }
-    assert(compCyclesAtEnd >= m_compCyclesAtEndOfInlining);
-
-    m_compCycles = compCyclesAtEnd - m_compCyclesAtEndOfInlining;
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 }
 
 #if FUNC_INFO_LOGGING
@@ -5065,18 +5051,8 @@ void dTreeFlags(GenTree* tree)
 
 const HelperCallProperties Compiler::s_helperCallProperties;
 
-//------------------------------------------------------------------------
-// lvaIsOSRLocal: check if this local var is one that requires special
-//     treatment for OSR compilations.
-//
-// Arguments:
-//    varNum     - variable of interest
-//
-// Return Value:
-//    true       - this is an OSR compile and this local requires special treatment
-//    false      - not an OSR compile, or not an interesting local for OSR
-
-bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl)
+// Check if this local var is one that requires special treatment for OSR compilations.
+bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl) const
 {
     if (!opts.IsOSR())
     {

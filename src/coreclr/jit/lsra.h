@@ -843,7 +843,7 @@ private:
     VarToRegMap getInVarToRegMap(unsigned bbNum) const;
     VarToRegMap getOutVarToRegMap(BasicBlock* block) const;
     void setVarReg(VarToRegMap map, unsigned trackedVarIndex, RegNum reg);
-    RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex);
+    RegNum getVarReg(VarToRegMap map, unsigned trackedVarIndex) const;
 
     RegNum getTempRegForResolution(BasicBlock* fromBlock, BasicBlock* toBlock, var_types type);
 
@@ -920,9 +920,9 @@ private:
     // An abbreviated RefPosition dump for printing with column-based register state
     void dumpRefPositionShort(RefPosition* refPosition, BasicBlock* currentBlock);
     // Print the number of spaces occupied by a dumpRefPositionShort()
-    void dumpEmptyRefPosition();
+    void dumpEmptyRefPosition() const;
     // A dump of Referent, in exactly regColumnWidth characters
-    void dumpIntervalName(Interval* interval);
+    void dumpIntervalName(Interval* interval) const;
 
     // Events during the allocation phase that cause some dump output
     enum LsraDumpEvent

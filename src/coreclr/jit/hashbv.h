@@ -128,7 +128,7 @@ public:
     bool getBit(indexType base);
     void clrBit(indexType base);
     bool anySet();
-    bool belongsIn(indexType index);
+    bool belongsIn(indexType index) const;
     int  countBits();
     bool anyBits();
     void foreachBit(bitAction x);

@@ -106,7 +106,7 @@ _Next:
     }
 }
 
-SM_STATE_ID CodeSeqSM::GetDestState(SM_STATE_ID srcState, SM_OPCODE opcode)
+SM_STATE_ID CodeSeqSM::GetDestState(SM_STATE_ID srcState, SM_OPCODE opcode) const
 {
     assert(opcode < SM_COUNT);
 

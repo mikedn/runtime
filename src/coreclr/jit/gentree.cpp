@@ -275,7 +275,7 @@ void GenTree::ReplaceWith(GenTree* src)
 
 #define BASH_HASH_SIZE 211
 
-inline unsigned hashme(genTreeOps op1, genTreeOps op2)
+static unsigned hashme(genTreeOps op1, genTreeOps op2)
 {
     return ((op1 * 104729) ^ (op2 * 56569)) % BASH_HASH_SIZE;
 }

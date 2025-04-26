@@ -777,7 +777,7 @@ Histogram::Histogram(const unsigned* const sizeTable) : m_sizeTable(sizeTable)
     memset(m_counts, 0, (m_sizeCount + 1) * sizeof(*m_counts));
 }
 
-void Histogram::dump(FILE* output)
+void Histogram::dump(FILE* output) const
 {
     unsigned t = 0;
     for (unsigned i = 0; i < m_sizeCount; i++)
@@ -1545,17 +1545,17 @@ bool PerfCounter::Start()
     {
         return result;
     }
-    freq = (double)beg.QuadPart / 1000.0;
-    (void)QueryPerformanceCounter(&beg);
+    freq = static_cast<double>(beg.QuadPart) / 1000.0;
+    QueryPerformanceCounter(&beg);
     return result;
 }
 
 // Return elapsed time from Start() in millis.
-double PerfCounter::ElapsedTime()
+double PerfCounter::ElapsedTime() const
 {
     LARGE_INTEGER li;
-    (void)QueryPerformanceCounter(&li);
-    return (double)(li.QuadPart - beg.QuadPart) / freq;
+    QueryPerformanceCounter(&li);
+    return static_cast<double>(li.QuadPart - beg.QuadPart) / freq;
 }
 
 #endif

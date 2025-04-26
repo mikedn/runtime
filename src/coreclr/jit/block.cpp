@@ -690,7 +690,7 @@ unsigned BasicBlock::NumSucc(Compiler* comp) const
 
             assert(hndBeg->bbCatchTyp == BBCT_FAULT);
 
-            FALLTHROUGH;
+            return 0;
         }
 
         case BBJ_THROW:

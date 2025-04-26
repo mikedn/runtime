@@ -245,7 +245,7 @@ void ArenaAllocator::MemStats::Print(FILE* f)
     PrintByKind(f);
 }
 
-void ArenaAllocator::MemStats::PrintByKind(FILE* f)
+void ArenaAllocator::MemStats::PrintByKind(FILE* f) const
 {
     fprintf(f, "\nAlloc'd bytes by kind:\n  %20s | %10s | %7s\n", "kind", "size", "pct");
     fprintf(f, "  %20s-+-%10s-+-%7s\n", "--------------------", "----------", "-------");

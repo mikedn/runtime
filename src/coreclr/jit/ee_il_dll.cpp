@@ -126,7 +126,7 @@ static JitTls* GetJitTls()
     return gJitTls;
 }
 
-void SetJitTls(JitTls* value)
+static void SetJitTls(JitTls* value)
 {
     gJitTls = value;
 }
@@ -176,7 +176,7 @@ static Compiler* GetJitTls()
     return gJitTls;
 }
 
-void SetJitTls(Compiler* value)
+static void SetJitTls(Compiler* value)
 {
     gJitTls = value;
 }

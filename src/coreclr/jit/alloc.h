@@ -77,8 +77,8 @@ private:
             allocSzByKind[cmk] += sz;
         }
 
-        void Print(FILE* f);       // Print these stats to file.
-        void PrintByKind(FILE* f); // Do just the by-kind histogram part.
+        void Print(FILE* f);             // Print these stats to file.
+        void PrintByKind(FILE* f) const; // Do just the by-kind histogram part.
     };
 
     struct AggregateMemStats : public MemStats

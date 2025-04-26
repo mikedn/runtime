@@ -529,25 +529,17 @@ bool Compiler::bbIsHandlerBeg(BasicBlock* block)
     return (ehDsc != nullptr) && ((block == ehDsc->ebdHndBeg) || (ehDsc->HasFilter() && (block == ehDsc->ebdFilter)));
 }
 
-bool Compiler::ehHasCallableHandlers()
+bool Compiler::ehHasCallableHandlers() const
 {
-#if defined(FEATURE_EH_FUNCLETS)
-
-    // Any EH in the function?
-
+#ifdef FEATURE_EH_FUNCLETS
     return compHndBBtabCount > 0;
-
-#else // !FEATURE_EH_FUNCLETS
-
+#else
     return ehNeedsShadowSPslots();
-
-#endif // !FEATURE_EH_FUNCLETS
+#endif
 }
 
-/******************************************************************************************
- * Determine if 'block' is the last block of an EH 'try' or handler (ignoring filters). If so,
- * return the EH descriptor pointer for that EH region. Otherwise, return nullptr.
- */
+// Determine if 'block' is the last block of an EH 'try' or handler (ignoring filters). If so,
+// return the EH descriptor pointer for that EH region. Otherwise, return nullptr.
 EHblkDsc* Compiler::ehIsBlockTryLast(BasicBlock* block)
 {
     EHblkDsc* HBtab = ehGetBlockTryDsc(block);
@@ -3321,7 +3313,7 @@ void Compiler::fgVerifyHandlerTab()
     }
 }
 
-void Compiler::fgDispHandlerTab()
+void Compiler::fgDispHandlerTab() const
 {
     printf("\n***************  Exception Handling table");
 
@@ -3332,9 +3324,9 @@ void Compiler::fgDispHandlerTab()
     }
 
     printf("\nindex  ");
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
     printf("nest, ");
-#endif // !FEATURE_EH_FUNCLETS
+#endif
     printf("eTry, eHnd\n");
 
     unsigned  XTnum;

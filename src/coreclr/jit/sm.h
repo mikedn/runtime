@@ -30,7 +30,7 @@ public:
     void End();
     void Run(SM_OPCODE opcode DEBUGARG(int level));
 
-    SM_STATE_ID GetDestState(SM_STATE_ID srcState, SM_OPCODE opcode);
+    SM_STATE_ID GetDestState(SM_STATE_ID srcState, SM_OPCODE opcode) const;
 
     // Matched a termination state
     inline void TermStateMatch(SM_STATE_ID stateID DEBUGARG(bool verbose))

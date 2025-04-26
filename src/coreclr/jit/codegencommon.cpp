@@ -381,7 +381,7 @@ StackAddrMode CodeGen::GetStackAddrMode(SpillTemp* spillTemp)
     return {spillTemp->GetNum(), 0};
 }
 
-void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
+static void DoPhase(CodeGen* codeGen, Phases phaseId, void (CodeGen::*action)())
 {
     class CodeGenPhase final : public Phase<CodeGenPhase>
     {
@@ -1406,7 +1406,7 @@ void CodeGen::genPrologMoveParamRegs(
 }
 
 // Map a parameter register to a parameter register index.
-unsigned genGetParamRegIndex(regNumber regNum)
+static unsigned genGetParamRegIndex(regNumber regNum)
 {
     if (IsFloatReg(regNum))
     {

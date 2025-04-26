@@ -762,7 +762,7 @@ public:
     bool Start();
 
     // Return time elapsed from start in millis, if Start returned true.
-    double ElapsedTime();
+    double ElapsedTime() const;
 };
 
 #endif // FEATURE_JIT_METHOD_PERF

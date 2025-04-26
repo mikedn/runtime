@@ -3,15 +3,6 @@
 
 #include "jitpch.h"
 
-#ifdef DEBUG
-void hashBvNode::dump()
-{
-    printf("base: %d { ", baseIndex);
-    this->foreachBit(pBit);
-    printf("}\n");
-}
-#endif // DEBUG
-
 void hashBvNode::Reconstruct(indexType base)
 {
     baseIndex = base;
@@ -96,7 +87,7 @@ void hashBvNode::clrBit(indexType base)
     elements[elem] &= ~(indexType(1) << posi);
 }
 
-bool hashBvNode::belongsIn(indexType index)
+bool hashBvNode::belongsIn(indexType index) const
 {
     if (index < baseIndex)
     {
@@ -109,29 +100,6 @@ bool hashBvNode::belongsIn(indexType index)
     return true;
 }
 
-int countBitsInWord(uint32_t bits)
-{
-    // In-place adder tree: perform 16 1-bit adds, 8 2-bit adds,
-    // 4 4-bit adds, 2 8=bit adds, and 1 16-bit add.
-    bits = ((bits >> 1) & 0x55555555) + (bits & 0x55555555);
-    bits = ((bits >> 2) & 0x33333333) + (bits & 0x33333333);
-    bits = ((bits >> 4) & 0x0F0F0F0F) + (bits & 0x0F0F0F0F);
-    bits = ((bits >> 8) & 0x00FF00FF) + (bits & 0x00FF00FF);
-    bits = ((bits >> 16) & 0x0000FFFF) + (bits & 0x0000FFFF);
-    return (int)bits;
-}
-
-int countBitsInWord(uint64_t bits)
-{
-    bits = ((bits >> 1) & 0x5555555555555555) + (bits & 0x5555555555555555);
-    bits = ((bits >> 2) & 0x3333333333333333) + (bits & 0x3333333333333333);
-    bits = ((bits >> 4) & 0x0F0F0F0F0F0F0F0F) + (bits & 0x0F0F0F0F0F0F0F0F);
-    bits = ((bits >> 8) & 0x00FF00FF00FF00FF) + (bits & 0x00FF00FF00FF00FF);
-    bits = ((bits >> 16) & 0x0000FFFF0000FFFF) + (bits & 0x0000FFFF0000FFFF);
-    bits = ((bits >> 32) & 0x00000000FFFFFFFF) + (bits & 0x00000000FFFFFFFF);
-    return (int)bits;
-}
-
 int hashBvNode::countBits()
 {
     int result = 0;
@@ -140,7 +108,7 @@ int hashBvNode::countBits()
     {
         elemType bits = elements[i];
 
-        result += countBitsInWord(bits);
+        result += genCountBits(bits);
 
         result += (int)bits;
     }
@@ -1641,13 +1609,6 @@ void hashBv::copyFrom(hashBv* other, Compiler* comp)
 #endif
 }
 
-int nodeSort(const void* x, const void* y)
-{
-    hashBvNode* a = (hashBvNode*)x;
-    hashBvNode* b = (hashBvNode*)y;
-    return (int)(b->baseIndex - a->baseIndex);
-}
-
 void hashBv::InorderTraverse(nodeAction n)
 {
     int hts = hashtable_size();
@@ -1958,3 +1919,12 @@ more_data:
         goto more_data;
     }
 }
+
+#ifdef DEBUG
+void hashBvNode::dump()
+{
+    printf("base: %d { ", baseIndex);
+    this->foreachBit(pBit);
+    printf("}\n");
+}
+#endif
