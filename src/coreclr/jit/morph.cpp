@@ -12273,6 +12273,56 @@ bool Compiler::fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
     return true;
 }
 
+void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
+{
+    JITDUMP("Converting " FMT_BB " to BBJ_THROW\n", block->bbNum);
+
+    // Ordering of the following operations matters.
+    // First, note if we are looking at the first block of a call always pair.
+    const bool isCallAlwaysPair = block->IsCallFinallyAlwaysPairHead();
+
+    // Scrub this block from the pred lists of any successors
+    fgRemoveBlockAsPred(block);
+
+    // Update jump kind after the scrub.
+    block->bbJumpKind = BBJ_THROW;
+
+    // Any block with a throw is rare
+    block->bbSetRunRarely();
+
+    // If we've converted a BBJ_CALLFINALLY block to a BBJ_THROW block,
+    // then mark the subsequent BBJ_ALWAYS block as unreferenced.
+    //
+    // Must do this after we update bbJumpKind of block.
+    if (isCallAlwaysPair)
+    {
+        BasicBlock* leaveBlk = block->bbNext;
+        noway_assert(leaveBlk->bbJumpKind == BBJ_ALWAYS);
+
+        // leaveBlk is now unreachable, so scrub the pred lists.
+        leaveBlk->bbFlags &= ~BBF_DONT_REMOVE;
+        leaveBlk->bbRefs  = 0;
+        leaveBlk->bbPreds = nullptr;
+
+#ifdef TARGET_ARM
+        // This function can be called before the predecessor lists are created (e.g., in phGlobalMorph).
+        // The fgClearFinallyTargetBit() function to update the BBF_FINALLY_TARGET bit depends on these
+        // predecessor lists. If there are no predecessor lists, we immediately clear all BBF_FINALLY_TARGET
+        // bits (to allow subsequent dead code elimination to delete such blocks without asserts), and set
+        // a flag to recompute them later, before they are required.
+        if (fgComputePredsDone)
+        {
+            fgClearFinallyTargetBit(leaveBlk->bbJumpDest);
+        }
+        else
+        {
+            fgClearAllFinallyTargetBits();
+            fgNeedToAddFinallyTargetBits = true;
+        }
+#endif // TARGET_ARM
+    }
+}
+
 //------------------------------------------------------------------------
 // fgMorphBlockStmt: morph a single statement in a block.
 //

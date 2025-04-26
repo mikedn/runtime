@@ -2039,6 +2039,28 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 }
 
+var_types Compiler::mangleVarArgsType(var_types type)
+{
+    if (!opts.UseSoftFP()
+#ifdef TARGET_WINDOWS
+        && !info.compIsVarArgs
+#endif
+        )
+    {
+        return type;
+    }
+
+    switch (type)
+    {
+        case TYP_FLOAT:
+            return TYP_INT;
+        case TYP_DOUBLE:
+            return TYP_LONG;
+        default:
+            return type;
+    }
+}
+
 void CodeGen::GenJmp(GenTreeJmp* jmp)
 {
     assert(compiler->compJmpOpUsed);

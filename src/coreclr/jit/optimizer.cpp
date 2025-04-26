@@ -3536,6 +3536,50 @@ static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTree* user, vo
     return GenTreeWalkResult::Continue;
 }
 
+// TODO-Cleanup: Replace calls to IsSharedStaticHelper with new HelperCallProperties
+bool Compiler::IsSharedStaticHelper(GenTree* tree)
+{
+    if (!tree->OperIs(GT_CALL) || !tree->AsCall()->IsHelperCall())
+    {
+        return false;
+    }
+
+    CorInfoHelpFunc helper = eeGetHelperNum(tree->AsCall()->GetMethodHandle());
+
+    bool result1 =
+        // More helpers being added to IsSharedStaticHelper (that have similar behaviors but are not true
+        // ShareStaticHelperts)
+        helper == CORINFO_HELP_STRCNS || helper == CORINFO_HELP_BOX ||
+
+        // helpers being added to IsSharedStaticHelper
+        helper == CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT || helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS ||
+        helper == CORINFO_HELP_GETGENERICS_GCSTATIC_BASE || helper == CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE ||
+        helper == CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE ||
+        helper == CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE ||
+
+        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE || helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE ||
+        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR ||
+        helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR ||
+        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS ||
+        helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS ||
+        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE ||
+        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE ||
+        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR ||
+        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR ||
+        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS ||
+        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS ||
+#ifdef FEATURE_READYTORUN_COMPILER
+        helper == CORINFO_HELP_READYTORUN_STATIC_BASE || helper == CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE ||
+#endif
+        helper == CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS;
+#if 0
+    // See above TODO-Cleanup
+    bool result2 = s_helperCallProperties.IsPure(helper) && s_helperCallProperties.NonNullReturn(helper);
+    assert(result1 == result2);
+#endif
+    return result1;
+}
+
 //-----------------------------------------------------------------------------
 // optInvertWhileLoop: modify flow and duplicate code so that for/while loops are
 //   entered at top and tested at bottom (aka loop rotation or bottom testing).
@@ -5559,6 +5603,80 @@ void Compiler::optAddCopies()
 
         JITDUMPTREE(stmt->GetRootNode(), "\nIntroduced a copy for V%02u\n", lcl->GetLclNum());
     }
+}
+
+//------------------------------------------------------------------------------
+// fgVarNeedsExplicitZeroInit : Check whether the variable needs an explicit zero initialization.
+//
+// Arguments:
+//    varNum     -       local var number
+//    bbInALoop  -       true if the basic block may be in a loop
+//    bbIsReturn -       true if the basic block always returns
+//
+// Returns:
+//             true if the var needs explicit zero-initialization in this basic block;
+//             false otherwise
+//
+// Notes:
+//     If the variable is not being initialized in a loop, we can avoid explicit zero initialization if
+//      - the variable is a gc pointer, or
+//      - the variable is a struct with gc pointer fields and either all fields are gc pointer fields
+//           or the struct is big enough to guarantee block initialization, or
+//      - compInitMem is set and the variable has a long lifetime or has gc fields.
+//     In these cases we will insert zero-initialization in the prolog if necessary.
+
+bool Compiler::fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool bbInALoop, bool bbIsReturn)
+{
+    if (lcl->IsDependentPromotedField(this))
+    {
+        // Fields of dependently promoted structs may only be initialized in the prolog
+        // when the whole struct is initialized in the prolog.
+        lcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+    }
+
+    if (bbInALoop && !bbIsReturn)
+    {
+        return true;
+    }
+
+    if (lvaIsNeverZeroInitializedInProlog(lcl))
+    {
+        return true;
+    }
+
+    if (varTypeIsGC(lcl->GetType()))
+    {
+        return false;
+    }
+
+    if (lcl->TypeIs(TYP_STRUCT) && lcl->HasGCPtr())
+    {
+        ClassLayout* layout = lcl->GetLayout();
+        if (layout->GetSlotCount() == layout->GetGCPtrCount())
+        {
+            return false;
+        }
+
+        // Below conditions guarantee block initialization, which will initialize
+        // all struct fields. If the logic for block initialization in CodeGen::CheckUseBlockInit()
+        // changes, these conditions need to be updated.
+        unsigned intSlots = roundUp(lcl->GetFrameSize(), REGSIZE_BYTES) / 4;
+
+#ifndef TARGET_64BIT
+        if (intSlots > 4)
+#elif defined(TARGET_AMD64)
+        // We can clear using aligned SIMD so the threshold is lower,
+        // and clears in order which is better for auto-prefetching
+        if (intSlots > 4)
+#else
+        if (intSlots > 8)
+#endif
+        {
+            return false;
+        }
+    }
+
+    return !info.compInitMem || (lcl->lvIsTemp && !lcl->HasGCPtr());
 }
 
 // Remove redundant zero initializations.
