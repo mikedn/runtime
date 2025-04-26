@@ -3568,7 +3568,6 @@ private:
 
 #ifdef DEBUG
     static unsigned jitTotalMethodCompiled;
-    static LONG     jitNestingLevel;
 #endif
 
     static GenTreeLclAddr* impIsLocalAddress(GenTree* tree);
@@ -5409,12 +5408,7 @@ public:
 
     CompilerOptions opts;
 
-    static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
-
 #ifdef DEBUG
-    static AssemblyNamesList2* s_pJitDisasmIncludeAssembliesList;
-    static MethodSet*          s_pJitMethodSet;
-
 // silence warning of cast to greater size. It is easier to silence than construct code the compiler is happy with, and
 // it is safe in this case
 #pragma warning(push)

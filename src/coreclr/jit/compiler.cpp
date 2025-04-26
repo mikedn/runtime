@@ -9,12 +9,13 @@
 
 extern ICorJitHost* g_jitHost;
 
-AssemblyNamesList2* Compiler::s_pAltJitExcludeAssembliesList;
+static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
 #ifdef DEBUG
-unsigned            Compiler::jitTotalMethodCompiled;
-LONG                Compiler::jitNestingLevel;
-AssemblyNamesList2* Compiler::s_pJitDisasmIncludeAssembliesList;
-MethodSet*          Compiler::s_pJitMethodSet;
+static AssemblyNamesList2* s_pJitDisasmIncludeAssembliesList;
+static MethodSet*          s_pJitMethodSet;
+static LONG                s_jitNestingLevel;
+
+unsigned Compiler::jitTotalMethodCompiled;
 #endif
 
 // Little helpers to grab the current cycle counter value; this is done
@@ -2255,7 +2256,7 @@ void Compiler::compFunctionTraceStart()
 
     if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
     {
-        LONG newJitNestingLevel = InterlockedIncrement(&Compiler::jitNestingLevel);
+        LONG newJitNestingLevel = InterlockedIncrement(&s_jitNestingLevel);
         if (newJitNestingLevel <= 0)
         {
             printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
@@ -2277,7 +2278,7 @@ void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, b
 
     if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
     {
-        LONG newJitNestingLevel = InterlockedDecrement(&Compiler::jitNestingLevel);
+        LONG newJitNestingLevel = InterlockedDecrement(&s_jitNestingLevel);
         if (newJitNestingLevel < 0)
         {
             printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
