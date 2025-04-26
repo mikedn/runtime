@@ -160,24 +160,31 @@ class ValueNumStore
     friend class ValueNumbering;
 
     template <class Value>
-    class VNMap : public JitHashMap<Value, ValueNum>
+    class VNMap : JitHashMap<Value, ValueNum>
     {
     public:
-        VNMap(CompAllocator alloc) : JitHashMap<Value, ValueNum>(alloc)
-        {
-        }
+        using JitHashMap<Value, ValueNum>::JitHashMap;
 
-        void Set(Value value, ValueNum vn)
+        void Add(Value value, ValueNum vn)
         {
             assert(vn != RecursiveVN);
             JitHashMap<Value, ValueNum>::Add(value, vn);
         }
 
-        bool Lookup(Value value, ValueNum* vn = nullptr) const
+        ValueNum* Emplace(Value value, ValueNum vn)
         {
-            bool result = JitHashMap<Value, ValueNum>::Lookup(value, vn);
-            assert(!result || *vn != RecursiveVN);
-            return result;
+            assert(vn != RecursiveVN);
+            return JitHashMap<Value, ValueNum>::Emplace(value, vn);
+        }
+
+        bool Find(Value value, ValueNum* vn) const
+        {
+            return JitHashMap<Value, ValueNum>::Lookup(value, vn);
+        }
+
+        ValueNum* Find(Value value) const
+        {
+            return JitHashMap<Value, ValueNum>::LookupPointer(value);
         }
     };
 

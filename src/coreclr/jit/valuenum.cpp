@@ -810,7 +810,7 @@ ValueNum ValueNumStore::HasFunc(var_types type, VNFunc func, ValueNum arg0)
         return false;
     }
 
-    ValueNum* funcVN = m_func1VNMap->LookupPointer({func, arg0});
+    ValueNum* funcVN = m_func1VNMap->Find({func, arg0});
     return funcVN == nullptr ? NoVN : *funcVN;
 }
 
@@ -888,14 +888,14 @@ ValueNum ValueNumStore::VNForFunc(var_types type, VNFunc func, ValueNum arg0, Va
     VNFuncDef2 func2(func, arg0, arg1);
     ValueNum   vn;
 
-    if (!m_func2VNMap->Lookup(func2, &vn))
+    if (!m_func2VNMap->Find(func2, &vn))
     {
         vn = EvalUsingMathIdentity(type, func, arg0, arg1);
 
         if (vn == NoVN)
         {
             vn = GetAllocChunk(type, ChunkKind::Func2)->AllocVN(func2);
-            m_func2VNMap->Set(func2, vn);
+            m_func2VNMap->Add(func2, vn);
         }
         else
         {
@@ -1003,7 +1003,7 @@ TailCall:
     {
         m_func2VNMap = new (alloc) Func2VNMap(alloc);
     }
-    else if (ValueNum* cached = m_func2VNMap->LookupPointer(fstruct))
+    else if (ValueNum* cached = m_func2VNMap->Find(fstruct))
     {
         return *cached;
     }
@@ -1016,7 +1016,7 @@ TailCall:
         // that permits the BasicBlock attribution.
         // TODO-MIKE-Review: This should probably be MapSelect from the current map.
         ValueNum uniqueVN = VNForExpr(nullptr, select.type);
-        m_func2VNMap->Set(fstruct, uniqueVN);
+        m_func2VNMap->Add(fstruct, uniqueVN);
         return uniqueVN;
     }
 
@@ -1159,7 +1159,7 @@ TailCall:
                 // result if, e.g., this block is in a multi-entry loop.
                 if (!*pUsedRecursiveVN)
                 {
-                    m_func2VNMap->Set(fstruct, sameValueVN);
+                    m_func2VNMap->Add(fstruct, sameValueVN);
                 }
 
                 return sameValueVN;
