@@ -186,27 +186,24 @@ static const AssertionDsc::Range& GetSmallTypeRange(var_types type)
     return ranges[type - TYP_BOOL];
 }
 
-AssertionIndex GetAssertionIndex(unsigned index)
+static AssertionIndex GetAssertionIndex(unsigned index)
 {
     return static_cast<AssertionIndex>(index + 1);
 }
 
 class AssertionProp
 {
-    using ValueNumToAssertsMap = JitHashMap<ValueNum, ASSERT_TP>;
-
     SsaOptimizer&  ssa;
     Compiler*      compiler;
     ValueNumStore* vnStore;
-
-    AssertionDsc*         assertionTable;
-    AssertionIndex        assertionTableSize;
-    AssertionIndex        assertionCount;
-    BitVecTraits          sizeTraits;
-    BitVecTraits          countTraits;
-    uint16_t*             invertedAssertions;
-    ValueNumToAssertsMap* vnAssertionMap;
-    bool                  stmtMorphPending;
+    AssertionIndex assertionTableSize;
+    AssertionIndex assertionCount = 0;
+    AssertionDsc*  assertionTable;
+    uint16_t*      invertedAssertions;
+    BitVecTraits   sizeTraits;
+    BitVecTraits   countTraits;
+    JitHashMap<ValueNum, ASSERT_TP> vnAssertionMap;
+    bool stmtMorphPending;
 #ifdef DEBUG
     bool        verbose;
     GenTree*    currentNode  = nullptr;
@@ -218,8 +215,12 @@ public:
         : ssa(ssa)
         , compiler(ssa.GetCompiler())
         , vnStore(ssa.GetVNStore())
-        , sizeTraits(0, compiler)
+        , assertionTableSize(GetMaxAssertionCount(compiler))
+        , assertionTable(new (compiler->getAllocator(CMK_AssertionProp)) AssertionDsc[assertionTableSize])
+        , invertedAssertions(new (compiler->getAllocator(CMK_AssertionProp)) uint16_t[assertionTableSize]())
+        , sizeTraits(BitVecTraits(assertionTableSize, compiler))
         , countTraits(0, compiler)
+        , vnAssertionMap(compiler->getAllocator(CMK_AssertionProp))
 #ifdef DEBUG
         , verbose(compiler->verbose)
 #endif
@@ -228,7 +229,6 @@ public:
 
     bool Run()
     {
-        Init();
         GenerateAssertions();
 
         ssa.SetAssertionTable(assertionTable, assertionCount);
@@ -252,7 +252,7 @@ public:
     }
 
 private:
-    void Init()
+    static unsigned GetMaxAssertionCount(Compiler* compiler)
     {
         // Use a function countFunc to determine a proper maximum assertion count for the
         // method being compiled. The function is linear to the IL size for small and
@@ -260,19 +260,12 @@ private:
         // more than 64 assertions.
         // Note this tracks at most only 256 assertions.
 
-        static const AssertionIndex countFunc[]{64, 128, 256, 64};
+        static constexpr AssertionIndex countFunc[]{64, 128, 256, 64};
 
         const unsigned upperBound = _countof(countFunc) - 1;
         const unsigned codeSize   = compiler->info.compILCodeSize / 512;
 
-        CompAllocator allocator = compiler->getAllocator(CMK_AssertionProp);
-
-        assertionTableSize = countFunc[Min(upperBound, codeSize)];
-        assertionTable     = new (allocator) AssertionDsc[assertionTableSize];
-        invertedAssertions = new (allocator) uint16_t[assertionTableSize]();
-        vnAssertionMap     = new (allocator) ValueNumToAssertsMap(allocator);
-        sizeTraits         = BitVecTraits(assertionTableSize, compiler);
-        assertionCount     = 0;
+        return countFunc[Min(upperBound, codeSize)];
     }
 
     const AssertionDsc& GetAssertion(AssertionIndex index) const
@@ -775,7 +768,7 @@ private:
 
     void AddVNAssertion(ValueNum vn, AssertionIndex index)
     {
-        ASSERT_TP* set = vnAssertionMap->Emplace(vn);
+        ASSERT_TP* set = vnAssertionMap.Emplace(vn);
 
         if (*set == BitVecOps::UninitVal())
         {
@@ -789,7 +782,7 @@ private:
 
     const ASSERT_TP GetVNAssertions(ValueNum vn) const
     {
-        ASSERT_TP* set = vnAssertionMap->Find(vn);
+        ASSERT_TP* set = vnAssertionMap.Find(vn);
 
         return set == nullptr ? BitVecOps::UninitVal() : *set;
     }

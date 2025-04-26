@@ -391,7 +391,7 @@ bool RangeCheck::OptimizeRangeCheck(BasicBlock* block, GenTreeBoundsChk* boundsC
     currentIndexExpr          = indexExpr;
     isMonotonicallyIncreasing = false;
     searchDepth               = MaxSearchDepth;
-    rangeMap.RemoveAll();
+    rangeMap.Clear();
 
     Range range = ComputeRange(block, indexExpr);
 

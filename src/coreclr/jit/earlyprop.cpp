@@ -35,13 +35,11 @@ class EarlyProp
 {
     static const int SsaChaseLimit = 5;
 
-    using DefNullCheckMap = JitHashMap<GenTreeLclDef*, GenTreeIndir*>;
-
-    Compiler*       compiler;
-    BasicBlock*     currentBlock;
-    Statement*      currentStatement;
-    DefNullCheckMap nullCheckMap;
-    bool            madeChanges = false;
+    Compiler*   compiler;
+    BasicBlock* currentBlock;
+    Statement*  currentStatement;
+    JitHashMap<GenTreeLclDef*, GenTreeIndir*> nullCheckMap;
+    bool madeChanges = false;
 
 public:
     EarlyProp(Compiler* compiler) : compiler(compiler), nullCheckMap(compiler->getAllocator(CMK_EarlyProp))
@@ -85,7 +83,7 @@ private:
                 continue;
             }
 
-            nullCheckMap.RemoveAll();
+            nullCheckMap.Clear();
             currentBlock = block;
 
             for (Statement *stmt = block->firstStmt(), *next; stmt != nullptr; stmt = next)

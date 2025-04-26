@@ -23,7 +23,8 @@ class ClassLayoutTable
         // Up to 3 layouts can be stored "inline" and finding a layout by handle/size can be done using linear search.
         // Most methods need no more than 2 layouts.
         ClassLayout* m_layoutArray[3];
-        // Otherwise a dynamic array is allocated and hashtables are used to map from handle/size to layout array index.
+        // Otherwise a dynamic array is allocated and hash tables are used to map from handle/size to layout array
+        // index.
         struct
         {
             ClassLayout**      m_layoutLargeArray;

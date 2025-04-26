@@ -44,8 +44,6 @@ struct SsaMemDef
     INDEBUG(unsigned num = 0;)
 };
 
-using NodeMemDefMap = JitHashMap<GenTree*, SsaMemDef>;
-
 struct MemoryPhiArg
 {
     SsaMemDef*    m_def;
@@ -71,15 +69,15 @@ struct MemoryPhiArg
 class SsaOptimizer
 {
     Compiler* const compiler;
-    NodeMemDefMap   memoryDefMap;
-    LoopDsc*        loopTable      = nullptr;
-    unsigned        loopCount      = 0;
-    DomTreeNode*    domTree        = nullptr;
-    GenTreeLclDef*  initLclDefs    = nullptr;
-    SsaMemDef*      initMemDef     = nullptr;
-    ValueNumStore*  vnStore        = nullptr;
-    AssertionDsc*   assertionTable = nullptr;
-    AssertionIndex  assertionCount = 0;
+    JitHashMap<GenTree*, SsaMemDef> memoryDefMap;
+    LoopDsc*       loopTable      = nullptr;
+    unsigned       loopCount      = 0;
+    DomTreeNode*   domTree        = nullptr;
+    GenTreeLclDef* initLclDefs    = nullptr;
+    SsaMemDef*     initMemDef     = nullptr;
+    ValueNumStore* vnStore        = nullptr;
+    AssertionDsc*  assertionTable = nullptr;
+    AssertionIndex assertionCount = 0;
     INDEBUG(unsigned memDefCount = 0;)
 
 public:

@@ -109,7 +109,7 @@ public:
 
     ~JitHashMap()
     {
-        RemoveAll();
+        Clear();
     }
 
     bool Find(Key k, Value* value) const
@@ -216,7 +216,7 @@ public:
         return true;
     }
 
-    void RemoveAll()
+    void Clear()
     {
         for (unsigned i = 0, count = GetBucketCount(); i < count; i++)
         {

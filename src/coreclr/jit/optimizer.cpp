@@ -5591,21 +5591,19 @@ void Compiler::phRemoveRedundantZeroInits()
 {
     assert(fgStmtListThreaded);
 
-    using LclVarRefCounts = JitHashMap<unsigned, unsigned>;
-
-    CompAllocator   allocator(getAllocator(CMK_ZeroInit));
-    LclVarRefCounts defsInBlock(allocator);
-    BitVecTraits    bitVecTraits(lvaCount, this);
-    BitVec          zeroInitLocals   = BitVecOps::MakeEmpty(bitVecTraits);
-    BitVec          referencedLocals = BitVecOps::MakeEmpty(bitVecTraits);
-    bool            hasGCSafePoint   = false;
-    bool            canThrow         = false;
+    CompAllocator allocator(getAllocator(CMK_ZeroInit));
+    JitHashMap<unsigned, unsigned> defsInBlock(allocator);
+    BitVecTraits bitVecTraits(lvaCount, this);
+    BitVec       zeroInitLocals   = BitVecOps::MakeEmpty(bitVecTraits);
+    BitVec       referencedLocals = BitVecOps::MakeEmpty(bitVecTraits);
+    bool         hasGCSafePoint   = false;
+    bool         canThrow         = false;
 
     for (BasicBlock* block = fgFirstBB; (block != nullptr) && ((block->bbFlags & BBF_MARKED) == 0);
          block             = block->GetUniqueSucc())
     {
         block->bbFlags |= BBF_MARKED;
-        defsInBlock.RemoveAll();
+        defsInBlock.Clear();
         bool removedTrackedDefs = false;
 
         for (Statement *next, *stmt = block->FirstNonPhiDef(); stmt != nullptr; stmt = next)

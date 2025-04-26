@@ -59,7 +59,7 @@ void SsaOptimizer::Reset()
     vnStore           = nullptr;
     compiler->vnStore = nullptr;
 
-    memoryDefMap.RemoveAll();
+    memoryDefMap.Clear();
     assertionCount = 0;
     assertionTable = nullptr;
 

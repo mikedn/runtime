@@ -50,14 +50,12 @@
 
 class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
 {
-    using LclSsaStackMap = JitHashMap<unsigned, SsaDefStack>;
-
-    SsaOptimizer&  ssa;
-    LclSsaStackMap lclSsaStackMap;
-    SsaDefStack*   stackListTail = nullptr;
-    SsaDefStack    freeStack{nullptr};
-    LclVarDsc*     thisParamLcl  = nullptr;
-    unsigned       copyPropCount = 0;
+    SsaOptimizer& ssa;
+    JitHashMap<unsigned, SsaDefStack> lclSsaStackMap;
+    SsaDefStack* stackListTail = nullptr;
+    SsaDefStack  freeStack{nullptr};
+    LclVarDsc*   thisParamLcl  = nullptr;
+    unsigned     copyPropCount = 0;
 
     template <class... Args>
     SsaDefStackNode* AllocStackNode(Args&&... args)

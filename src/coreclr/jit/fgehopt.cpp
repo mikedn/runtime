@@ -1635,7 +1635,7 @@ PhaseStatus Compiler::phMergeFinallyChains()
         ehGetCallFinallyBlockRange(XTnum, &firstCallFinallyRangeBlock, &endCallFinallyRangeBlock);
 
         // Clear out any stale entries in the continuation map
-        continuationMap.RemoveAll();
+        continuationMap.Clear();
 
         // Build a map from each continuation to the "canonical"
         // callfinally for that continuation.

@@ -5,8 +5,7 @@
 #include "ssabuilder.h"
 #include "valuenum.h"
 
-using VNBoolMap = JitHashMap<ValueNum, bool>;
-using VNSet     = JitHashSet<ValueNum>;
+using VNSet = JitHashSet<ValueNum>;
 class LoopHoistTreeVisitor;
 
 class LoopHoist
@@ -52,9 +51,9 @@ class LoopHoist
     unsigned const       loopCount;
     VNSet*               hoistedInCurrentLoop = nullptr;
     VNSet                hoistedInParentLoops;
-    VNBoolMap            loopInvariantCache;
-    LoopStats            stats;
-    unsigned             hoistedCount = 0;
+    JitHashMap<ValueNum, bool> loopInvariantCache;
+    LoopStats stats;
+    unsigned  hoistedCount = 0;
 
 public:
     LoopHoist(SsaOptimizer& ssa)
@@ -268,7 +267,7 @@ void LoopHoist::HoistLoop(unsigned lnum)
     unsigned endn = tail->bbNum;
 
     // Ensure the per-loop sets/tables are empty.
-    loopInvariantCache.RemoveAll();
+    loopInvariantCache.Clear();
 
 #ifdef DEBUG
     if (compiler->verbose)

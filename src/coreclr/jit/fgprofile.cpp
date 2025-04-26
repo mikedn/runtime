@@ -1921,10 +1921,10 @@ private:
     unsigned      m_zeroEdges;
 
     // Map a block into its schema key.
-    //
     static int32_t BlockToKey(BasicBlock* block)
     {
-        int32_t key = (int32_t)block->bbCodeOffs;
+        int32_t key = static_cast<int32_t>(block->bbCodeOffs);
+
         if ((block->bbFlags & BBF_INTERNAL) == BBF_INTERNAL)
         {
             key = block->bbNum | IL_OFFSETX_CALLINSTRUCTIONBIT;
@@ -1934,12 +1934,9 @@ private:
     }
 
     // Map correlating block keys to blocks.
-    //
-    using KeyToBlockMap = JitHashMap<int32_t, BasicBlock*>;
-    KeyToBlockMap m_keyToBlockMap;
+    JitHashMap<int32_t, BasicBlock*> m_keyToBlockMap;
 
     // Key for finding an edge based on schema info.
-    //
     struct EdgeKey
     {
         int32_t const m_sourceKey;
@@ -1961,57 +1958,35 @@ private:
 
         static unsigned GetHashCode(const EdgeKey& e)
         {
-            return (unsigned)(e.m_sourceKey ^ (e.m_targetKey << 16));
+            return static_cast<unsigned>(e.m_sourceKey ^ (e.m_targetKey << 16));
         }
     };
 
-    // Per edge info
-    //
     struct Edge
     {
-        BasicBlock::weight_t m_weight;
         BasicBlock*          m_sourceBlock;
         BasicBlock*          m_targetBlock;
-        Edge*                m_nextOutgoingEdge;
-        Edge*                m_nextIncomingEdge;
-        bool                 m_weightKnown;
+        Edge*                m_nextOutgoingEdge = nullptr;
+        Edge*                m_nextIncomingEdge = nullptr;
+        bool                 m_weightKnown      = false;
+        BasicBlock::weight_t m_weight           = BB_ZERO_WEIGHT;
 
-        Edge(BasicBlock* source, BasicBlock* target)
-            : m_weight(BB_ZERO_WEIGHT)
-            , m_sourceBlock(source)
-            , m_targetBlock(target)
-            , m_nextOutgoingEdge(nullptr)
-            , m_nextIncomingEdge(nullptr)
-            , m_weightKnown(false)
+        Edge(BasicBlock* source, BasicBlock* target) : m_sourceBlock(source), m_targetBlock(target)
         {
         }
     };
 
     // Map for correlating EdgeIntCount schema entries with edges
-    //
-    using EdgeKeyToEdgeMap = JitHashMap<EdgeKey, Edge*, EdgeKey>;
-    EdgeKeyToEdgeMap m_edgeKeyToEdgeMap;
+    JitHashMap<EdgeKey, Edge*> m_edgeKeyToEdgeMap;
 
-    // Per block data
-    //
     struct BlockInfo
     {
-        BasicBlock::weight_t m_weight;
-        Edge*                m_incomingEdges;
-        Edge*                m_outgoingEdges;
-        int                  m_incomingUnknown;
-        int                  m_outgoingUnknown;
-        bool                 m_weightKnown;
-
-        BlockInfo()
-            : m_weight(BB_ZERO_WEIGHT)
-            , m_incomingEdges(nullptr)
-            , m_outgoingEdges(nullptr)
-            , m_incomingUnknown(0)
-            , m_outgoingUnknown(0)
-            , m_weightKnown(false)
-        {
-        }
+        Edge*                m_incomingEdges   = nullptr;
+        Edge*                m_outgoingEdges   = nullptr;
+        int                  m_incomingUnknown = 0;
+        int                  m_outgoingUnknown = 0;
+        bool                 m_weightKnown     = false;
+        BasicBlock::weight_t m_weight          = BB_ZERO_WEIGHT;
     };
 
     // Map a block to its info

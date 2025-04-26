@@ -33,9 +33,6 @@
 
 class DisAssembler
 {
-    using AddrToMethodHandleMap = JitHashMap<size_t, CORINFO_METHOD_HANDLE>;
-    using AddrToAddrMap         = JitHashMap<size_t, size_t>;
-
 public:
     DisAssembler::DisAssembler(Compiler* compiler, CodeGen* codeGen)
         : disComp(compiler)
@@ -110,13 +107,13 @@ private:
     CodeGen*  codeGen;
 
     // Map of instruction addresses to call target method handles for normal calls.
-    AddrToMethodHandleMap addrToMethodHandleMap;
+    JitHashMap<size_t, CORINFO_METHOD_HANDLE> addrToMethodHandleMap;
 
     // Map of instruction addresses to call target method handles for JIT helper calls.
-    AddrToMethodHandleMap helperAddrToMethodHandleMap;
+    JitHashMap<size_t, CORINFO_METHOD_HANDLE> helperAddrToMethodHandleMap;
 
     // Map of relocation addresses to relocation target.
-    AddrToAddrMap relocationMap;
+    JitHashMap<size_t, size_t> relocationMap;
 
     const char* disGetMethodFullName(size_t addr);
 
