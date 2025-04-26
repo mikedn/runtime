@@ -1444,10 +1444,12 @@ void Compiler::compInitOptions()
 
     if (compStressCompile(STRESS_NULL_OBJECT_CHECK, 30))
     {
-        compMaxUncheckedOffsetForNullObject = (size_t)JitConfig.JitMaxUncheckedOffset();
+        // eeInfo is this Compiler's own copy so we can modify it
+        const_cast<CORINFO_EE_INFO*>(eeInfo)->maxUncheckedOffsetForNullObject =
+            static_cast<size_t>(JitConfig.JitMaxUncheckedOffset());
 
-        JITDUMP("STRESS_NULL_OBJECT_CHECK: compMaxUncheckedOffsetForNullObject=0x%X\n",
-                compMaxUncheckedOffsetForNullObject);
+        JITDUMP("STRESS_NULL_OBJECT_CHECK: maxUncheckedOffsetForNullObject=0x%X\n",
+                eeInfo->maxUncheckedOffsetForNullObject);
     }
 
     if (verbose)
@@ -2726,8 +2728,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         jitFlags->SetInstructionSetFlags(defaultArm64Flags);
 #endif
     }
-
-    compMaxUncheckedOffsetForNullObject = eeGetEEInfo()->maxUncheckedOffsetForNullObject;
 
     info.compProfilerCallback = false; // Assume false until we are told to hook this method.
 

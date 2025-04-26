@@ -4581,9 +4581,9 @@ private:
 
     TypeProducerKind gtGetTypeProducerKind(GenTree* tree);
 
-    inline bool fgIsBigOffset(size_t offset) const
+    bool fgIsBigOffset(size_t offset) const
     {
-        return offset > compMaxUncheckedOffsetForNullObject;
+        return offset > eeInfo->maxUncheckedOffsetForNullObject;
     }
 
     /*
@@ -5775,8 +5775,6 @@ protected:
     bool  compProfilerMethHndIndirected; // Whether compProfilerHandle is pointer to the handle or is an actual handle
     void* compProfilerMethHnd; // Profiler handle of the method being compiled. Passed as param to ELT callbacks
 #endif
-
-    size_t compMaxUncheckedOffsetForNullObject;
 
 public:
     CompAllocator getAllocator(CompMemKind cmk) const
