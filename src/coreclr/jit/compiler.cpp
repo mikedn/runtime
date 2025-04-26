@@ -3219,11 +3219,6 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
 
     if (JitConfig.JitAggressiveInlining())
     {
-        compDoAggressiveInlining = true;
-    }
-
-    if (compDoAggressiveInlining)
-    {
         info.compFlags |= CORINFO_FLG_FORCEINLINE;
     }
 

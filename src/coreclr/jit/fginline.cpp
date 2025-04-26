@@ -569,7 +569,6 @@ void Compiler::inlMain()
 
     jitFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
 
-    compDoAggressiveInlining = inliner->compDoAggressiveInlining;
 #ifdef FEATURE_SIMD
     featureSIMD = inliner->featureSIMD;
 #endif
@@ -629,7 +628,7 @@ void Compiler::inlMain()
 
     compInitPgo();
 
-    if (compDoAggressiveInlining
+    if (JitConfig.JitAggressiveInlining()
 #ifdef DEBUG
         || compStressCompile(STRESS_FORCE_INLINE, 0)
 #endif

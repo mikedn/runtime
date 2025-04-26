@@ -14329,8 +14329,7 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
     }
 #endif
 
-    // Check for COMPlus_AggressiveInlining
-    if (comp->compDoAggressiveInlining)
+    if (JitConfig.JitAggressiveInlining())
     {
         methodAttr |= CORINFO_FLG_FORCEINLINE;
     }

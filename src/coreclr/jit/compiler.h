@@ -5368,8 +5368,7 @@ public:
     */
 
 public:
-    bool compDoAggressiveInlining = false; // If true, mark every method as CORINFO_FLG_FORCEINLINE
-    bool compJmpOpUsed            = false; // Does the method do a JMP
+    bool compJmpOpUsed = false; // Does the method do a JMP
 #ifndef TARGET_64BIT
     bool compLongUsed = false; // Does the method use TYP_LONG
 #endif
