@@ -1916,11 +1916,24 @@ PhaseStatus Compiler::phTailMergeThrows()
         }
     };
 
-    using CallToBlockMap = JitHashMap<ThrowHelper, BasicBlock*>;
+    JitHashMap<ThrowHelper, BasicBlock*> callMap(getAllocator(CMK_TailMergeThrows));
 
-    CompAllocator   allocator(getAllocator(CMK_TailMergeThrows));
-    CallToBlockMap  callMap(allocator);
-    BlockToBlockMap blockMap(allocator);
+    // Use the basic block number to make the enumeration order of the hash map deterministic.
+    struct BasicBlockNumHash : JitHashFuncs<BasicBlock*>
+    {
+        static unsigned GetHashCode(BasicBlock* block)
+        {
+#ifdef DEBUG
+            if (unsigned hash = SsaStressHashHelper())
+            {
+                return hash ^ (block->bbNum << 16) ^ block->bbNum;
+            }
+#endif
+            return block->bbNum;
+        }
+    };
+
+    JitHashMap<BasicBlock*, BasicBlock*, BasicBlockNumHash> blockMap(getAllocator(CMK_TailMergeThrows));
 
     // We run two passes here.
     //

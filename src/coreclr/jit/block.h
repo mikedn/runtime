@@ -1353,18 +1353,11 @@ struct BasicBlock : private LIR::Range
 #endif // DEBUG
 };
 
-struct BasicBlockNumHash
-{
-    static bool Equals(BasicBlock* x, BasicBlock* y)
-    {
-        return x == y;
-    }
+#ifdef DEBUG
+unsigned SsaStressHashHelper();
+#endif
 
-    // Make sure hashing is deterministic and not on "ptr."
-    static unsigned GetHashCode(BasicBlock* block);
-};
-
-using BlockToBlockMap = JitHashMap<BasicBlock*, BasicBlock*, BasicBlockNumHash>;
+using BlockToBlockMap = JitHashMap<BasicBlock*, BasicBlock*>;
 
 // BasicBlockIterator: forward iterator for the BasicBlock linked list.
 // It is allowed to make changes to the BasicBlock list as long as the current block remains in the list.

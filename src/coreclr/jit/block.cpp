@@ -27,7 +27,7 @@ static flowList* ShuffleHelper(unsigned hash, flowList* res)
     return head;
 }
 
-static unsigned SsaStressHashHelper()
+unsigned SsaStressHashHelper()
 {
     // hash = 0: turned off, hash = 1: use method hash, hash = *: use custom hash.
     unsigned hash = JitConfig.JitSsaStress();
@@ -502,17 +502,6 @@ BasicBlock* BasicBlock::GetUniqueSucc() const
     {
         return nullptr;
     }
-}
-
-unsigned BasicBlockNumHash::GetHashCode(BasicBlock* block)
-{
-#ifdef DEBUG
-    if (unsigned hash = SsaStressHashHelper())
-    {
-        return hash ^ (block->bbNum << 16) ^ block->bbNum;
-    }
-#endif
-    return block->bbNum;
 }
 
 //------------------------------------------------------------------------
