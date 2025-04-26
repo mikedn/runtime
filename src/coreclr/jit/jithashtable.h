@@ -28,7 +28,7 @@ class JitPrimeInfo
 public:
     constexpr JitPrimeInfo() = default;
 
-    constexpr JitPrimeInfo(unsigned p, unsigned m, unsigned s) : prime(p), magic(m), shift(s)
+    constexpr JitPrimeInfo(unsigned p, unsigned m, unsigned s) : prime(p), magic(m), shift(s + 32)
     {
     }
 
@@ -41,7 +41,7 @@ public:
     {
         uint64_t num     = numerator;
         uint64_t mag     = magic;
-        uint64_t product = (num * mag) >> (32 + shift);
+        uint64_t product = (num * mag) >> shift;
         return static_cast<unsigned>(product);
     }
 
