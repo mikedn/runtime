@@ -200,31 +200,14 @@ public:
         }
     }
 
-    //------------------------------------------------------------------------
-    // Set: Associate the specified value with the specified key.
-    //
-    // Arguments:
-    //    k - the key
-    //    v - the value
-    //    kind - Normal, we are not allowed to overwrite
-    //           Overwrite, we are allowed to overwrite
-    //           currently only used by CHK/DBG builds in an assert.
-    //
-    // Return Value:
-    //    `true` if the key exists and was overwritten,
-    //    `false` otherwise.
-    //
-    // Notes:
-    //    If the key already exists and kind is Normal
-    //    this method will assert
-    //
-    enum SetKind
+    Value& at(Key k) const
     {
-        None,
-        Overwrite
-    };
+        Value* p = LookupPointer(k);
+        assert(p);
+        return *p;
+    }
 
-    bool Set(Key k, Value v, SetKind kind = None)
+    void Add(Key k, Value v)
     {
         CheckGrowth();
 
@@ -232,37 +215,18 @@ public:
 
         unsigned index = GetIndexForKey(k);
 
-        Node* pN = m_table[index];
-        while ((pN != nullptr) && !HashFuncs::Equals(k, pN->m_value.key))
+        for (Node* n = m_table[index]; n != nullptr; n = n->m_next)
         {
-            pN = pN->m_next;
+            if (HashFuncs::Equals(k, n->m_value.key))
+            {
+                unreached();
+            }
         }
-        if (pN != nullptr)
-        {
-            assert(kind == Overwrite);
-            pN->m_value.value = v;
-            return true;
-        }
-        else
-        {
-            Node* pNewNode = new (m_alloc) Node(m_table[index], k, v);
-            m_table[index] = pNewNode;
-            m_tableCount++;
-            return false;
-        }
+
+        m_table[index] = new (m_alloc) Node(m_table[index], k, v);
+        m_tableCount++;
     }
 
-    //------------------------------------------------------------------------
-    // Emplace: Associates the specified key with a value constructed in-place
-    // using the supplied args if the key is not already present.
-    //
-    // Arguments:
-    //    k - the key
-    //    args - the args used to construct the value
-    //
-    // Return Value:
-    //    A pointer to the existing or newly constructed value.
-    //
     template <class... Args>
     Value* Emplace(Key k, Args&&... args)
     {
@@ -287,6 +251,11 @@ public:
         }
 
         return &n->m_value.value;
+    }
+
+    Value& operator[](Key k)
+    {
+        return *Emplace(k);
     }
 
     //------------------------------------------------------------------------
@@ -586,25 +555,6 @@ public:
             m_node->m_value.value = value;
         }
     };
-
-    //------------------------------------------------------------------------
-    // operator[]: Get a reference to the value associated with the specified key.
-    //
-    // Arguments:
-    //    k - the key
-    //
-    // Return Value:
-    //    A reference to the value associated with the specified key.
-    //
-    // Notes:
-    //    The specified key must exist.
-    //
-    Value& operator[](Key k) const
-    {
-        Value* p = LookupPointer(k);
-        assert(p);
-        return *p;
-    }
 
 private:
     static const JitPrimeInfo& NextPrime(unsigned number)

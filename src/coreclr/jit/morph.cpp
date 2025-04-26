@@ -13256,7 +13256,7 @@ void Compiler::CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to)
 {
     if (FieldSeqNode* fieldSeq = GetZeroOffsetFieldSeq(from))
     {
-        m_zeroOffsetFieldMap->Set(to, fieldSeq);
+        m_zeroOffsetFieldMap->Add(to, fieldSeq);
     }
 }
 
@@ -13312,7 +13312,7 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
         m_zeroOffsetFieldMap = new (alloc) NodeToFieldSeqMap(alloc);
     }
 
-    m_zeroOffsetFieldMap->Set(addr, fieldSeq, NodeToFieldSeqMap::Overwrite);
+    (*m_zeroOffsetFieldMap)[addr] = fieldSeq;
 }
 
 // Check that statements after the tail call stmt candidate are in one of expected forms:

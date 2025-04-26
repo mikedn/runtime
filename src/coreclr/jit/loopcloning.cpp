@@ -1098,7 +1098,7 @@ void Compiler::optEnsureUniqueHead(unsigned loopNum, BasicBlock::weight_t ambien
 
     // Redirect paths from preds of "e" to go to "h2" instead of "e".
     BlockToBlockMap blockMap(getAllocator(CMK_LoopClone));
-    blockMap.Set(e, h2);
+    blockMap.Add(e, h2);
 
     for (BasicBlock* const predBlock : e->PredBlocks())
     {
@@ -1311,7 +1311,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
             newFirst = newBlk;
         }
         newPred = newBlk;
-        blockMap.Set(blk, newBlk);
+        blockMap.Add(blk, newBlk);
     }
 
     // Perform the static optimizations on the fast path.

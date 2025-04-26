@@ -1269,7 +1269,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 
     // MemoryVN now describes the most constraining loop memory dependence we know of. Update the map.
     JITDUMP("      ==> Updating loop memory dependence of [%06u] to " FMT_LP "\n", node->GetID(), updateLoopNum);
-    m_nodeToLoopMemoryBlockMap->Set(node, loopTable[updateLoopNum].lpEntry, NodeBlockMap::Overwrite);
+    (*m_nodeToLoopMemoryBlockMap)[node] = loopTable[updateLoopNum].lpEntry;
 }
 
 // Record that tree's loop memory dependence is the same as some other tree.
@@ -1278,7 +1278,7 @@ void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
     BasicBlock* block;
     if ((m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(fromNode, &block))
     {
-        m_nodeToLoopMemoryBlockMap->Set(toNode, block);
+        m_nodeToLoopMemoryBlockMap->Add(toNode, block);
     }
 }
 
@@ -2457,7 +2457,7 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
             name = varTypeName(static_cast<var_types>(typeNum));
         }
 
-        m_vnNameMap.Set(vn, name);
+        m_vnNameMap.Add(vn, name);
     }
 #endif
 
@@ -2476,7 +2476,7 @@ ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
         size_t      length    = strlen(className) + strlen(fieldName) + 3;
         char*       name      = m_vnNameMap.GetAllocator().allocate<char>(length);
         _snprintf_s(name, length, _TRUNCATE, "%s::%s", className, fieldName);
-        m_vnNameMap.Set(vn, name);
+        m_vnNameMap.Add(vn, name);
     }
 #endif
 

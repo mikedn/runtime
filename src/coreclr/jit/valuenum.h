@@ -167,10 +167,10 @@ class ValueNumStore
         {
         }
 
-        bool Set(Value value, ValueNum vn)
+        void Set(Value value, ValueNum vn)
         {
             assert(vn != RecursiveVN);
-            return JitHashMap<Value, ValueNum>::Set(value, vn);
+            JitHashMap<Value, ValueNum>::Add(value, vn);
         }
 
         bool Lookup(Value value, ValueNum* vn = nullptr) const

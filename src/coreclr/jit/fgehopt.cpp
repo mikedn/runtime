@@ -1001,7 +1001,7 @@ PhaseStatus Compiler::phCloneFinally()
             assert(cloneBBCount <= regionBBCount);
 
             insertAfter = newBlock;
-            blockMap.Set(block, newBlock);
+            blockMap.Add(block, newBlock);
 
             clonedOk = BasicBlock::CloneBlockState(this, newBlock, block);
 
@@ -1043,15 +1043,15 @@ PhaseStatus Compiler::phCloneFinally()
         // We should have cloned all the finally region blocks.
         assert(cloneBBCount == regionBBCount);
 
-        JITDUMP("Cloned finally blocks are: " FMT_BB " ... " FMT_BB "\n", blockMap[firstBlock]->bbNum,
-                blockMap[lastBlock]->bbNum);
+        JITDUMP("Cloned finally blocks are: " FMT_BB " ... " FMT_BB "\n", blockMap.at(firstBlock)->bbNum,
+                blockMap.at(lastBlock)->bbNum);
 
         // Redirect redirect any branches within the newly-cloned
         // finally, and any finally returns to jump to the return
         // point.
         for (BasicBlock* block = firstBlock; block != nextBlock; block = block->bbNext)
         {
-            BasicBlock* newBlock = blockMap[block];
+            BasicBlock* newBlock = blockMap.at(block);
 
             if (block->bbJumpKind == BBJ_EHFINALLYRET)
             {
@@ -1073,7 +1073,7 @@ PhaseStatus Compiler::phCloneFinally()
         // Modify the targeting call finallys to branch to the cloned
         // finally. Make a note if we see some calls that can't be
         // retargeted (since they want to return to other places).
-        BasicBlock* const    firstCloneBlock    = blockMap[firstBlock];
+        BasicBlock* const    firstCloneBlock    = blockMap.at(firstBlock);
         bool                 retargetedAllCalls = true;
         BasicBlock*          currentBlock       = firstCallFinallyRangeBlock;
         BasicBlock::weight_t retargetedWeight   = BB_ZERO_WEIGHT;
@@ -1153,7 +1153,7 @@ PhaseStatus Compiler::phCloneFinally()
         }
 
         // Modify first block of cloned finally to be a "normal" block.
-        BasicBlock* firstClonedBlock = blockMap[firstBlock];
+        BasicBlock* firstClonedBlock = blockMap.at(firstBlock);
         firstClonedBlock->bbCatchTyp = BBCT_NONE;
 
         // Cleanup the continuation
@@ -1200,7 +1200,7 @@ PhaseStatus Compiler::phCloneFinally()
                     }
 #endif
 
-                    BasicBlock* const clonedBlock = blockMap[block];
+                    BasicBlock* const clonedBlock = blockMap.at(block);
                     clonedBlock->setBBProfileWeight(blockWeight * clonedScale);
                     JITDUMP("Set weight of " FMT_BB " to " FMT_WT "\n", clonedBlock->bbNum, clonedBlock->bbWeight);
                 }
@@ -1663,10 +1663,7 @@ PhaseStatus Compiler::phMergeFinallyChains()
                 // If this is the first time we've seen this
                 // continuation, register this callfinally as the
                 // canonical one.
-                if (!continuationMap.Lookup(continuationBlock))
-                {
-                    continuationMap.Set(continuationBlock, currentBlock);
-                }
+                continuationMap.Emplace(continuationBlock, currentBlock);
             }
         }
 
@@ -1779,7 +1776,7 @@ bool Compiler::fgRetargetBranchesToCanonicalCallFinally(BasicBlock*      block,
     BasicBlock* const continuationBlock = leaveBlock->bbJumpDest;
 
     // Find the canonical callfinally for that continuation.
-    BasicBlock* const canonicalCallFinally = continuationMap[continuationBlock];
+    BasicBlock* const canonicalCallFinally = continuationMap.at(continuationBlock);
     assert(canonicalCallFinally != nullptr);
 
     // If the block already jumps to the canoncial call finally, no work needed.
@@ -2007,14 +2004,14 @@ PhaseStatus Compiler::phTailMergeThrows()
         {
             // Yes, this one can be optimized away...
             JITDUMP("    in " FMT_BB " can be dup'd to canonical " FMT_BB "\n", block->bbNum, canonicalBlock->bbNum);
-            blockMap.Set(block, canonicalBlock);
+            blockMap.Add(block, canonicalBlock);
             numCandidates++;
         }
         else
         {
             // No, add this as the canonical example
             JITDUMP("    in " FMT_BB " is unique, marking it as canonical\n", block->bbNum);
-            callMap.Set(key, block);
+            callMap.Add(key, block);
         }
     }
 

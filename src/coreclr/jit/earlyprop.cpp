@@ -316,8 +316,7 @@ private:
 
         if (indir->OperIs(GT_NULLCHECK) && indir->AsIndir()->GetAddr()->IsLclUse())
         {
-            nullCheckMap.Set(indir->AsIndir()->GetAddr()->AsLclUse()->GetDef(), indir->AsIndir(),
-                             DefNullCheckMap::SetKind::Overwrite);
+            nullCheckMap[indir->AsIndir()->GetAddr()->AsLclUse()->GetDef()] = indir->AsIndir();
         }
     }
 

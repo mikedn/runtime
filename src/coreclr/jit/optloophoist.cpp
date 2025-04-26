@@ -1063,7 +1063,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
         }
     }
 
-    loopInvariantCache.Set(vn, invariant);
+    loopInvariantCache.Add(vn, invariant);
     return invariant;
 }
 

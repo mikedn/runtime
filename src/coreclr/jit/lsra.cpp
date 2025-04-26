@@ -5706,7 +5706,7 @@ void LinearScan::resolveEdges()
                     assert((succBBNum <= bbNumMaxBeforeResolution) && (predBBNum <= bbNumMaxBeforeResolution));
                 }
 
-                getSplitBBNumToTargetBBNumMap()->Set(block->bbNum, {predBBNum, succBBNum});
+                getSplitBBNumToTargetBBNumMap()->Add(block->bbNum, {predBBNum, succBBNum});
 
                 // Set both the live-in and live-out to the live-in of the successor (by construction liveness
                 // doesn't change in a split block).

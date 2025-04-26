@@ -2165,7 +2165,7 @@ void EfficientEdgeCountReconstructor::Prepare()
     //
     for (BasicBlock* const block : m_comp->Blocks())
     {
-        m_keyToBlockMap.Set(BlockToKey(block), block);
+        m_keyToBlockMap.Add(BlockToKey(block), block);
         BlockInfo* const info = new (m_allocator) BlockInfo();
         SetBlockInfo(block, info);
 
@@ -2231,8 +2231,7 @@ void EfficientEdgeCountReconstructor::Prepare()
                 edge->m_weightKnown = true;
                 edge->m_weight      = weight;
 
-                EdgeKey edgeKey(schemaEntry.ILOffset, schemaEntry.Other);
-                m_edgeKeyToEdgeMap.Set(edgeKey, edge);
+                m_edgeKeyToEdgeMap.Add({schemaEntry.ILOffset, schemaEntry.Other}, edge);
 
                 m_edges++;
             }

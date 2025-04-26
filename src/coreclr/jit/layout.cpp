@@ -318,7 +318,7 @@ private:
         }
 
         unsigned index = AddLayoutLarge(compiler, layout);
-        m_blkLayoutMap->Set(layout->GetSize(), index);
+        m_blkLayoutMap->Add(layout->GetSize(), index);
         return index;
     }
 
@@ -369,7 +369,7 @@ private:
         }
 
         unsigned index = AddLayoutLarge(compiler, layout);
-        m_objLayoutMap->Set(layout->GetClassHandle(), index);
+        m_objLayoutMap->Add(layout->GetClassHandle(), index);
         return index;
     }
 
@@ -393,11 +393,11 @@ private:
 
                     if (l->IsBlockLayout())
                     {
-                        blkLayoutMap->Set(l->GetSize(), i);
+                        blkLayoutMap->Add(l->GetSize(), i);
                     }
                     else
                     {
-                        objLayoutMap->Set(l->GetClassHandle(), i);
+                        objLayoutMap->Add(l->GetClassHandle(), i);
                     }
                 }
 

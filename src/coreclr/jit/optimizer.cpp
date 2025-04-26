@@ -2624,7 +2624,7 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
 
     // Redirect the "bottom" of the current loop to "newT".
     BlockToBlockMap blockMap(getAllocator(CMK_LoopOpt));
-    blockMap.Set(t, newT);
+    blockMap.Add(t, newT);
     optRedirectBlock(b, blockMap);
 
     // Redirect non-loop preds of "t" to also go to "newT". Inner loops that also branch to "t" should continue
@@ -3366,7 +3366,7 @@ PhaseStatus Compiler::phUnrollLoops()
                 {
                     BasicBlock* newBlock = insertAfter =
                         fgNewBBafter(block->bbJumpKind, insertAfter, /*extendRegion*/ true);
-                    blockMap.Set(block, newBlock, BlockToBlockMap::Overwrite);
+                    blockMap[block] = newBlock;
 
                     if (!BasicBlock::CloneBlockState(this, newBlock, block, llvar, lval))
                     {
@@ -3415,7 +3415,7 @@ PhaseStatus Compiler::phUnrollLoops()
                 // Now redirect any branches within the newly-cloned iteration
                 for (BasicBlock* block = head->bbNext; block != bottom; block = block->bbNext)
                 {
-                    BasicBlock* newBlock = blockMap[block];
+                    BasicBlock* newBlock = blockMap.at(block);
                     optCopyBlkDest(block, newBlock);
                     optRedirectBlock(newBlock, blockMap);
                 }
@@ -3901,7 +3901,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         if (!blockMapInitialized)
         {
             blockMapInitialized = true;
-            blockMap.Set(bTest, bNewCond);
+            blockMap.Add(bTest, bNewCond);
         }
 
         // Redirect the predecessor to the new block.

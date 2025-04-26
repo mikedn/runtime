@@ -829,7 +829,7 @@ public:
                 // record this in the map so we can update the compare VN if the bound
                 // node gets CSEd.
 
-                checkedBoundMap.Set(bound, compare);
+                checkedBoundMap.Add(bound, compare);
             }
         }
     }

@@ -4507,7 +4507,7 @@ void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, Reg
         {
             if (!found)
             {
-                regSlotMap.Set(slotKey, GetRegisterSlotId(reg, slotFlags));
+                regSlotMap.Add(slotKey, GetRegisterSlotId(reg, slotFlags));
             }
         }
         else
@@ -4557,7 +4557,7 @@ void GCEncoder::AddTrackedStackSlots(StackSlotLifetime* firstStackSlotLifetime)
         {
             if (!found)
             {
-                stackSlotMap.Set(slotKey, GetStackSlotId(slotOffs, slotFlags, slotBaseReg));
+                stackSlotMap.Add(slotKey, GetStackSlotId(slotOffs, slotFlags, slotBaseReg));
             }
         }
         else
@@ -4585,7 +4585,7 @@ void GCEncoder::AddCallArgStackSlot(RegArgChange* argChange)
     {
         if (!found)
         {
-            stackSlotMap.Set(slotKey, GetStackSlotId(argChange->argOffset, slotFlags, GC_SP_REL));
+            stackSlotMap.Add(slotKey, GetStackSlotId(argChange->argOffset, slotFlags, GC_SP_REL));
         }
     }
     else

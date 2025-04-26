@@ -3727,7 +3727,7 @@ GenTreeCall* Compiler::gtNewCallNode(
             genCallSite2ILOffsetMap = new (this, CMK_DebugInfo) CallSiteILOffsetTable(getAllocator(CMK_DebugInfo));
         }
 
-        genCallSite2ILOffsetMap->Set(node, ilOffset, CallSiteILOffsetTable::None);
+        genCallSite2ILOffsetMap->Add(node, ilOffset);
     }
 
     return node;
@@ -10839,7 +10839,7 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     for (; len != 0; len--)
     {
         FieldSeqNode* p = new (m_canonMap.GetAllocator()) FieldSeqNode(seq[len - 1], seq[len]);
-        m_canonMap.Set(*p, p);
+        m_canonMap.Add(*p, p);
         INDEBUG(DebugCheck(p);)
         seq[len - 1] = p;
     }
