@@ -1245,15 +1245,14 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 
     // If we already have a recorded a loop entry block for this tree,
     // see if the new update is for a more closely nested loop.
-    BasicBlock* mapBlock = nullptr;
 
     if (m_nodeToLoopMemoryBlockMap == nullptr)
     {
         m_nodeToLoopMemoryBlockMap = new (alloc) NodeBlockMap(alloc);
     }
-    else if (m_nodeToLoopMemoryBlockMap->Lookup(node, &mapBlock))
+    else if (BasicBlock** mapBlock = m_nodeToLoopMemoryBlockMap->Find(node))
     {
-        unsigned const mapLoopNum = mapBlock->GetLoopNum();
+        unsigned const mapLoopNum = (*mapBlock)->GetLoopNum();
 
         // If the update loop contains the existing map loop,
         // the existing map loop is more constraining.
@@ -1276,7 +1275,7 @@ void ValueNumStore::RecordLoopMemoryDependence(GenTree* node, BasicBlock* block,
 void ValueNumStore::CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode)
 {
     BasicBlock* block;
-    if ((m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(fromNode, &block))
+    if ((m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Find(fromNode, &block))
     {
         m_nodeToLoopMemoryBlockMap->Add(toNode, block);
     }
@@ -2444,7 +2443,7 @@ ValueNum ValueNumStore::VNForTypeNum(unsigned typeNum)
     ValueNum vn = VNForIntCon(static_cast<int32_t>(typeNum));
 
 #ifdef DEBUG
-    if (compiler->verbose && !m_vnNameMap.Lookup(vn))
+    if (compiler->verbose && (m_vnNameMap.Find(vn) == nullptr))
     {
         const char* name;
 
@@ -2469,7 +2468,7 @@ ValueNum ValueNumStore::VNForFieldSeqHandle(CORINFO_FIELD_HANDLE fieldHandle)
     ValueNum vn = VNForHostPtr(fieldHandle);
 
 #ifdef DEBUG
-    if (compiler->verbose && !m_vnNameMap.Lookup(vn))
+    if (compiler->verbose && (m_vnNameMap.Find(vn) == nullptr))
     {
         const char* className;
         const char* fieldName = compiler->eeGetFieldName(fieldHandle, &className);
@@ -5213,7 +5212,7 @@ void ValueNumStore::DumpMapSelect(const VNFuncApp& mapSelect)
     Print(mapVN, 0);
     printf(", ");
     Print(indexVN, 0);
-    if (const char** name = m_vnNameMap.LookupPointer(indexVN))
+    if (const char** name = m_vnNameMap.Find(indexVN))
     {
         printf(" (%s)", *name);
     }
@@ -5233,7 +5232,7 @@ void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
     Print(mapVN, 0);
     printf(", ");
     Print(indexVN, 0);
-    if (const char** name = m_vnNameMap.LookupPointer(indexVN))
+    if (const char** name = m_vnNameMap.Find(indexVN))
     {
         printf(" (%s)", *name);
     }

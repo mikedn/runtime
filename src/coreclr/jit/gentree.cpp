@@ -10830,7 +10830,7 @@ FieldSeqNode* FieldSeqStore::Append(FieldSeqNode* a, FieldSeqNode* b)
     seq[len] = b;
 
     // Skip prefix nodes that already exist.
-    for (FieldSeqNode* p; (len != 0) && m_canonMap.Lookup({seq[len - 1], seq[len]}, &p); len--)
+    for (FieldSeqNode* p; (len != 0) && m_canonMap.Find({seq[len - 1], seq[len]}, &p); len--)
     {
         seq[len - 1] = p;
     }

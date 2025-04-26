@@ -1021,7 +1021,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
         return true;
     }
 
-    if (bool* cached = loopInvariantCache.LookupPointer(vn))
+    if (bool* cached = loopInvariantCache.Find(vn))
     {
         return *cached;
     }

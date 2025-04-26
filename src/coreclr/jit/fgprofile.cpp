@@ -2098,7 +2098,7 @@ public:
         //
         EdgeKey key(source, target);
 
-        if (m_edgeKeyToEdgeMap.Lookup(key))
+        if (m_edgeKeyToEdgeMap.Find(key) != nullptr)
         {
             JITDUMP("Did not expect tree edge " FMT_BB " -> " FMT_BB " to be present in the schema (key %08x, %08x)\n",
                     source->bbNum, target->bbNum, key.m_sourceKey, key.m_targetKey);
@@ -2130,11 +2130,8 @@ public:
         //
         // If not, assume we have a partial schema. We could add a zero count edge,
         // but such edges don't impact the solving algorithm, so we can omit them.
-        //
-        EdgeKey key(source, target);
-        Edge*   edge = nullptr;
 
-        if (m_edgeKeyToEdgeMap.Lookup(key, &edge))
+        if (Edge * edge; m_edgeKeyToEdgeMap.Find({source, target}, &edge))
         {
             BlockInfo* const sourceInfo = BlockToInfo(source);
             edge->m_nextOutgoingEdge    = sourceInfo->m_outgoingEdges;
@@ -2201,7 +2198,7 @@ void EfficientEdgeCountReconstructor::Prepare()
                 //
                 BasicBlock* sourceBlock = nullptr;
 
-                if (!m_keyToBlockMap.Lookup(schemaEntry.ILOffset, &sourceBlock))
+                if (!m_keyToBlockMap.Find(schemaEntry.ILOffset, &sourceBlock))
                 {
                     JITDUMP("Could not find source block for schema entry %d (IL offset/key %08x\n", iSchema,
                             schemaEntry.ILOffset);
@@ -2209,7 +2206,7 @@ void EfficientEdgeCountReconstructor::Prepare()
 
                 BasicBlock* targetBlock = nullptr;
 
-                if (!m_keyToBlockMap.Lookup(schemaEntry.Other, &targetBlock))
+                if (!m_keyToBlockMap.Find(schemaEntry.Other, &targetBlock))
                 {
                     JITDUMP("Could not find target block for schema entry %d (IL offset/key %08x\n", iSchema,
                             schemaEntry.ILOffset);

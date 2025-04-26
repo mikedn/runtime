@@ -4501,7 +4501,7 @@ void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, Reg
 
         RegSlotIdKey slotKey(reg, slotFlags);
         GcSlotId     slotId;
-        bool         found = regSlotMap.Lookup(slotKey, &slotId);
+        bool         found = regSlotMap.Find(slotKey, &slotId);
 
         if (!hasSlotIds)
         {
@@ -4551,7 +4551,7 @@ void GCEncoder::AddTrackedStackSlots(StackSlotLifetime* firstStackSlotLifetime)
 
         StackSlotIdKey slotKey(slotOffs, slotFlags, slotBaseReg);
         GcSlotId       slotId;
-        bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+        bool           found = stackSlotMap.Find(slotKey, &slotId);
 
         if (!hasSlotIds)
         {
@@ -4579,7 +4579,7 @@ void GCEncoder::AddCallArgStackSlot(RegArgChange* argChange)
     GcSlotFlags    slotFlags = argChange->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
     StackSlotIdKey slotKey(argChange->argOffset, slotFlags, GC_SP_REL);
     GcSlotId       slotId;
-    bool           found = stackSlotMap.Lookup(slotKey, &slotId);
+    bool           found = stackSlotMap.Find(slotKey, &slotId);
 
     if (!hasSlotIds)
     {
@@ -4611,7 +4611,7 @@ void GCEncoder::RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* first
 
         GcSlotFlags slotFlags = change->gcType == GCT_BYREF ? GC_SLOT_INTERIOR : GC_SLOT_BASE;
         GcSlotId    slotId;
-        bool        found = stackSlotMap.Lookup({change->argOffset, slotFlags, GC_SP_REL}, &slotId);
+        bool        found = stackSlotMap.Find({change->argOffset, slotFlags, GC_SP_REL}, &slotId);
         assert(found);
         SetSlotState(codeOffset, slotId, GC_SLOT_DEAD);
     }

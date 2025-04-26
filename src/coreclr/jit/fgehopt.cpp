@@ -2000,7 +2000,7 @@ PhaseStatus Compiler::phTailMergeThrows()
 
         // Have we found an equivalent call already?
         ThrowHelper key(block, call);
-        if (callMap.Lookup(key, &canonicalBlock))
+        if (callMap.Find(key, &canonicalBlock))
         {
             // Yes, this one can be optimized away...
             JITDUMP("    in " FMT_BB " can be dup'd to canonical " FMT_BB "\n", block->bbNum, canonicalBlock->bbNum);

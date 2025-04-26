@@ -593,8 +593,8 @@ bool RangeCheck::HasAddOverflow() const
         {
             JITDUMPNODE(node, "Overflow: ");
 
-            const Range* r1 = rangeMap.LookupPointer(node->AsOp()->GetOp(0)->SkipComma());
-            const Range* r2 = rangeMap.LookupPointer(node->AsOp()->GetOp(1)->SkipComma());
+            const Range* r1 = rangeMap.Find(node->AsOp()->GetOp(0)->SkipComma());
+            const Range* r2 = rangeMap.Find(node->AsOp()->GetOp(1)->SkipComma());
 
             if (AddOverflows(r1->max, r2->max))
             {
@@ -1010,7 +1010,7 @@ Range RangeCheck::ComputePhiRange(BasicBlock* block, GenTreePhi* phi)
     for (GenTreePhi::Use& use : phi->Uses())
     {
         GenTreeLclUse* useNode  = use.GetNode();
-        Range*         useRange = rangeMap.LookupPointer(useNode);
+        Range*         useRange = rangeMap.Find(useNode);
 
         JITDUMPNODE(useNode, "Range: " FMT_BB " ", block->bbNum);
 
@@ -1177,7 +1177,7 @@ Range* RangeCheck::GetRange(BasicBlock* block, GenTree* expr)
 
     assert(!expr->OperIs(GT_COMMA));
 
-    Range* range = rangeMap.LookupPointer(expr);
+    Range* range = rangeMap.Find(expr);
 
     if (range == nullptr)
     {

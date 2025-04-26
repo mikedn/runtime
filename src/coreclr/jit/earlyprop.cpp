@@ -342,7 +342,7 @@ private:
         GenTreeLclDef* addrDef   = addrUse->GetDef();
         GenTreeIndir*  nullCheck = nullptr;
 
-        if (!nullCheckMap.Lookup(addrDef, &nullCheck))
+        if (!nullCheckMap.Find(addrDef, &nullCheck))
         {
             // We can only check for NULLCHECK exception interference if the
             // NULLCHECK is in the same block as the indir.

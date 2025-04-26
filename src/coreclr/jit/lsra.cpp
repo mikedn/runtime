@@ -657,8 +657,7 @@ LinearScan::SplitEdgeInfo LinearScan::getSplitEdgeInfo(unsigned bbNum) const
     assert(bbNum > bbNumMaxBeforeResolution);
     assert(splitBBNumToTargetBBNumMap != nullptr);
 
-    SplitEdgeInfo splitEdgeInfo;
-    splitBBNumToTargetBBNumMap->Lookup(bbNum, &splitEdgeInfo);
+    const SplitEdgeInfo& splitEdgeInfo = splitBBNumToTargetBBNumMap->at(bbNum);
 
     assert(splitEdgeInfo.toBBNum <= bbNumMaxBeforeResolution);
     assert(splitEdgeInfo.fromBBNum <= bbNumMaxBeforeResolution);
@@ -7081,10 +7080,7 @@ void LinearScan::TupleStyleDump(LsraTupleDumpMode mode)
         }
         if (block->bbNum > bbNumMaxBeforeResolution)
         {
-            SplitEdgeInfo splitEdgeInfo;
-            splitBBNumToTargetBBNumMap->Lookup(block->bbNum, &splitEdgeInfo);
-            assert(splitEdgeInfo.toBBNum <= bbNumMaxBeforeResolution);
-            assert(splitEdgeInfo.fromBBNum <= bbNumMaxBeforeResolution);
+            const SplitEdgeInfo& splitEdgeInfo = splitBBNumToTargetBBNumMap->at(block->bbNum);
             printf("New block introduced for resolution from " FMT_BB " to " FMT_BB "\n", splitEdgeInfo.fromBBNum,
                    splitEdgeInfo.toBBNum);
         }

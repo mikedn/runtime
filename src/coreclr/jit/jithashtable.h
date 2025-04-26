@@ -139,72 +139,32 @@ public:
         RemoveAll();
     }
 
-    //------------------------------------------------------------------------
-    // Lookup: Get the value associated to the specified key, if any.
-    //
-    // Arguments:
-    //    k    - the key
-    //    pVal - pointer to a location used to store the associated value
-    //
-    // Return Value:
-    //    `true` if the key exists, `false` otherwise
-    //
-    // Notes:
-    //    If the key does not exist *pVal is not updated. pVal may be nullptr
-    //    so this function can be used to simply check if the key exists.
-    //
-    bool Lookup(Key k, Value* pVal = nullptr) const
+    bool Find(Key k, Value* value) const
     {
-        Node* pN = FindNode(k);
-
-        if (pN != nullptr)
+        if (Node* n = FindNode(k))
         {
-            if (pVal != nullptr)
-            {
-                *pVal = pN->m_value.value;
-            }
+            *value = n->m_value.value;
             return true;
         }
-        else
-        {
-            return false;
-        }
+
+        return false;
     }
 
-    //------------------------------------------------------------------------
-    // Lookup: Get a pointer to the value associated to the specified key.
-    // if any.
-    //
-    // Arguments:
-    //    k - the key
-    //
-    // Return Value:
-    //    A pointer to the value associated with the specified key or nullptr
-    //    if the key is not found
-    //
-    // Notes:
-    //    This is similar to `Lookup` but avoids copying the value and allows
-    //    updating the value without using `Set`.
-    //
-    Value* LookupPointer(Key k) const
+    Value* Find(Key k) const
     {
-        Node* pN = FindNode(k);
+        if (Node* n = FindNode(k))
+        {
+            return &n->m_value.value;
+        }
 
-        if (pN != nullptr)
-        {
-            return &(pN->m_value.value);
-        }
-        else
-        {
-            return nullptr;
-        }
+        return nullptr;
     }
 
     Value& at(Key k) const
     {
-        Value* p = LookupPointer(k);
-        assert(p);
-        return *p;
+        Node* n = FindNode(k);
+        assert(n != nullptr);
+        return n->m_value.value;
     }
 
     void Add(Key k, Value v)

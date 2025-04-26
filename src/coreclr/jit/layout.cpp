@@ -268,8 +268,8 @@ private:
         else
         {
             unsigned index = 0;
-            if ((layout->IsBlockLayout() && m_blkLayoutMap->Lookup(layout->GetSize(), &index)) ||
-                m_objLayoutMap->Lookup(layout->GetClassHandle(), &index))
+            if ((layout->IsBlockLayout() && m_blkLayoutMap->Find(layout->GetSize(), &index)) ||
+                m_objLayoutMap->Find(layout->GetClassHandle(), &index))
             {
                 return index;
             }
@@ -294,10 +294,9 @@ private:
         }
         else
         {
-            unsigned index;
-            if (m_blkLayoutMap->Lookup(blockSize, &index))
+            if (unsigned* index = m_blkLayoutMap->Find(blockSize))
             {
-                return index;
+                return *index;
             }
         }
 
@@ -338,10 +337,9 @@ private:
         }
         else
         {
-            unsigned index;
-            if (m_objLayoutMap->Lookup(classHandle, &index))
+            if (unsigned* index = m_objLayoutMap->Find(classHandle))
             {
-                return index;
+                return *index;
             }
         }
 

@@ -2528,7 +2528,7 @@ public:
 
         GenTree* cmp;
 
-        if (!checkedBoundMap.Lookup(expr, &cmp))
+        if (!checkedBoundMap.Find(expr, &cmp))
         {
             return;
         }

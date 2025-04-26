@@ -450,7 +450,7 @@ void SsaBuilder::ComputeDominanceFrontiers(BasicBlock** postOrder, int count, Bl
             BasicBlock* b = postOrder[i];
             printf("Block " FMT_BB " := {", b->bbNum);
 
-            BlockVector* bDF = mapDF->LookupPointer(b);
+            BlockVector* bDF = mapDF->Find(b);
             if (bDF != nullptr)
             {
                 int index = 0;
@@ -469,7 +469,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
 {
     assert(bIDF->empty());
 
-    BlockVector* bDF = mapDF->LookupPointer(b);
+    BlockVector* bDF = mapDF->Find(b);
 
     if (bDF != nullptr)
     {
@@ -491,7 +491,7 @@ void SsaBuilder::ComputeIteratedDominanceFrontier(BasicBlock* b, const BlockDFMa
         for (size_t newIndex = 0; newIndex < bIDF->size(); newIndex++)
         {
             BasicBlock*  f   = (*bIDF)[newIndex];
-            BlockVector* fDF = mapDF->LookupPointer(f);
+            BlockVector* fDF = mapDF->Find(f);
 
             if (fDF != nullptr)
             {

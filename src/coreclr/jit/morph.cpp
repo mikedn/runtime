@@ -13248,7 +13248,7 @@ FieldSeqNode* Compiler::GetZeroOffsetFieldSeq(GenTree* node)
         return nullptr;
     }
 
-    FieldSeqNode** fieldSeq = m_zeroOffsetFieldMap->LookupPointer(node);
+    FieldSeqNode** fieldSeq = m_zeroOffsetFieldMap->Find(node);
     return fieldSeq == nullptr ? nullptr : *fieldSeq;
 }
 

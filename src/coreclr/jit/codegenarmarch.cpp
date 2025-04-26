@@ -1928,7 +1928,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     // Managed Retval sequence points needs to be generated while generating debug info for debuggable code.
     if ((compiler->genCallSite2ILOffsetMap != nullptr) && !call->IsTailCall())
     {
-        if (IL_OFFSETX* ilOffset = compiler->genCallSite2ILOffsetMap->LookupPointer(call))
+        if (IL_OFFSETX* ilOffset = compiler->genCallSite2ILOffsetMap->Find(call))
         {
             assert(*ilOffset != BAD_IL_OFFSET);
             genIPmappingAdd(*ilOffset, false);

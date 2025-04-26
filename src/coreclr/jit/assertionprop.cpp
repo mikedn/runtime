@@ -789,7 +789,7 @@ private:
 
     const ASSERT_TP GetVNAssertions(ValueNum vn) const
     {
-        ASSERT_TP* set = vnAssertionMap->LookupPointer(vn);
+        ASSERT_TP* set = vnAssertionMap->Find(vn);
 
         return set == nullptr ? BitVecOps::UninitVal() : *set;
     }

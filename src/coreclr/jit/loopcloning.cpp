@@ -1321,10 +1321,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     // and updating the preds lists.
     for (BasicBlock* const blk : loop.LoopBlocks())
     {
-        BasicBlock* newblk = nullptr;
-        bool        b      = blockMap.Lookup(blk, &newblk);
-        assert(b && newblk != nullptr);
-
+        BasicBlock* newblk = blockMap.at(blk);
         assert(blk->bbJumpKind == newblk->bbJumpKind);
 
         // First copy the jump destination(s) from "blk".
@@ -1367,9 +1364,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     JITDUMP("Preds after loop copy:\n");
     for (BasicBlock* const blk : loop.LoopBlocks())
     {
-        BasicBlock* newblk = nullptr;
-        bool        b      = blockMap.Lookup(blk, &newblk);
-        assert(b && newblk != nullptr);
+        BasicBlock* newblk = blockMap.at(blk);
         JITDUMP(FMT_BB ":", newblk->bbNum);
         for (BasicBlock* const predBlock : newblk->PredBlocks())
         {
@@ -1404,7 +1399,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
 
     // If all the conditions are true, go to E2.
     BasicBlock* e2      = nullptr;
-    bool        foundIt = blockMap.Lookup(loop.lpEntry, &e2);
+    bool        foundIt = blockMap.Find(loop.lpEntry, &e2);
 
     // We're going to replace the fall-through path from "h".
     if (h->bbJumpKind == BBJ_NONE)

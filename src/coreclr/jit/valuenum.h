@@ -179,12 +179,12 @@ class ValueNumStore
 
         bool Find(Value value, ValueNum* vn) const
         {
-            return JitHashMap<Value, ValueNum>::Lookup(value, vn);
+            return JitHashMap<Value, ValueNum>::Find(value, vn);
         }
 
         ValueNum* Find(Value value) const
         {
-            return JitHashMap<Value, ValueNum>::LookupPointer(value);
+            return JitHashMap<Value, ValueNum>::Find(value);
         }
     };
 
@@ -514,8 +514,8 @@ public:
     BasicBlock* GetLoopMemoryBlock(GenTree* node)
     {
         BasicBlock* block;
-        return (m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Lookup(node, &block) ? block
-                                                                                                           : nullptr;
+        return (m_nodeToLoopMemoryBlockMap != nullptr) && m_nodeToLoopMemoryBlockMap->Find(node, &block) ? block
+                                                                                                         : nullptr;
     }
 
     void CopyLoopMemoryDependence(GenTree* fromNode, GenTree* toNode);

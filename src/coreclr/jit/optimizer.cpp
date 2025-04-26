@@ -2401,7 +2401,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, const BlockToBlockMap& redirect
         case BBJ_CALLFINALLY:
         case BBJ_COND:
             // All of these have a single jump destination to update.
-            if (BasicBlock * newJumpDest; redirectMap.Lookup(blk->bbJumpDest, &newJumpDest))
+            if (BasicBlock * newJumpDest; redirectMap.Find(blk->bbJumpDest, &newJumpDest))
             {
                 if (updatePreds)
                 {
@@ -2418,7 +2418,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, const BlockToBlockMap& redirect
             for (unsigned i = 0; i < blk->bbJumpSwt->bbsCount; i++)
             {
                 BasicBlock* switchDest = blk->bbJumpSwt->bbsDstTab[i];
-                if (BasicBlock * newJumpDest; redirectMap.Lookup(switchDest, &newJumpDest))
+                if (BasicBlock * newJumpDest; redirectMap.Find(switchDest, &newJumpDest))
                 {
                     if (updatePreds)
                     {
@@ -5721,7 +5721,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                         if (lcl->HasLiveness())
                                         {
                                             removedTrackedDefs = true;
-                                            (*defsInBlock.LookupPointer(lclNum))--;
+                                            (*defsInBlock.Find(lclNum))--;
                                         }
                                     }
                                 }

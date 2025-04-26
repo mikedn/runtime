@@ -151,7 +151,7 @@ public:
 
     SsaMemDef* GetMemoryDef(GenTree* node) const
     {
-        return memoryDefMap.LookupPointer(node);
+        return memoryDefMap.Find(node);
     }
 
     SsaMemDef* GetInitMemoryDef() const
