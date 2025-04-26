@@ -104,11 +104,11 @@ class CopyPropDomTreeVisitor : public DomTreeVisitor<CopyPropDomTreeVisitor>
     {
         printf("{ ");
         const char* prefix = "";
-        for (const auto& pair : lclSsaStackMap)
+        for (const auto & [ lclNum, ssaStack ] : lclSsaStackMap)
         {
-            if (GenTreeLclDef* def = pair.value.Top()->lclDef)
+            if (GenTreeLclDef* def = ssaStack.Top()->lclDef)
             {
-                printf("%sV%02u [%06u] " FMT_VN, prefix, pair.key, def->GetID(), def->GetConservativeVN());
+                printf("%sV%02u [%06u] " FMT_VN, prefix, lclNum, def->GetID(), def->GetConservativeVN());
                 prefix = ", ";
             }
         }
@@ -247,9 +247,9 @@ public:
         // that can be done with readily available information and in a cheap manner.
         // Oh well, this approach to copy propagation seems to be doomed.
 
-        for (const auto& pair : lclSsaStackMap)
+        for (const auto & [ newLclNum, ssaStack ] : lclSsaStackMap)
         {
-            GenTreeLclDef* newDef = pair.value.Top()->lclDef;
+            GenTreeLclDef* newDef = ssaStack.Top()->lclDef;
 
             if ((newDef == nullptr) || (newDef->GetConservativeVN() != defVN))
             {
@@ -297,7 +297,7 @@ public:
                 continue;
             }
 
-            if (!IsThisParam(newLcl) && (pair.value.Top()->block != block) &&
+            if (!IsThisParam(newLcl) && (ssaStack.Top()->block != block) &&
                 !VarSetOps::IsMember(m_compiler, block->bbLiveIn, newLcl->GetLivenessBitIndex()))
             {
                 continue;

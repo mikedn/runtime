@@ -208,23 +208,17 @@ void Compiler::optMarkLoopBlocks(BasicBlock* begBlk, BasicBlock* endBlk, bool ex
     }
 }
 
-/*****************************************************************************
- *
- *   Unmark the blocks between 'begBlk' and 'endBlk' as part of a loop.
- */
-
+// Unmark the blocks between 'begBlk' and 'endBlk' as part of a loop.
 void Compiler::optUnmarkLoopBlocks(BasicBlock* begBlk, BasicBlock* endBlk)
 {
-    /* A set of blocks that were previously marked as a loop are now
-       to be unmarked, since we have decided that for some reason this
-       loop no longer exists.
-       Basically we are just reseting the blocks bbWeight to their
-       previous values.
-    */
+    // A set of blocks that were previously marked as a loop are now
+    // to be unmarked, since we have decided that for some reason this
+    // loop no longer exists.
+    // Basically we are just resetting the blocks bbWeight to their
+    // previous values.
 
     noway_assert(begBlk->bbNum <= endBlk->bbNum);
     noway_assert(begBlk->isLoopHead());
-
     noway_assert(!opts.MinOpts());
 
     unsigned backEdgeCount = 0;
@@ -1242,7 +1236,7 @@ namespace
 //   TOP     - the target of the backward edge from BOTTOM. In most cases FIRST and TOP are the same.
 //   BOTTOM  - the lexically last block in the loop (i.e. the block from which we jump to the top)
 //   EXIT    - the predecessor of loop's unique exit edge, if it has a unique exit edge; else nullptr
-//   ENTRY   - the entry in the loop (not necessarly the TOP), but there must be only one entry
+//   ENTRY   - the entry in the loop (not necessarily the TOP), but there must be only one entry
 //
 //   We (currently) require the body of a loop to be a contiguous (in bbNext order) sequence of basic blocks.
 //   When the loop is identified, blocks will be moved out to make it a compact contiguous region if possible,
@@ -1387,7 +1381,7 @@ public:
     //            be called (which is the caller's responsibility).
     //    false - The flow graph has not been modified by this LoopSearch.
     //
-    bool ChangedFlowGraph()
+    bool ChangedFlowGraph() const
     {
         return changedFlowGraph;
     }
@@ -1720,7 +1714,7 @@ private:
     //    When the given block is a new one created during loop compaction,
     //    the number of its unique predecessor is returned.
     //
-    unsigned int PositionNum(BasicBlock* block)
+    unsigned PositionNum(BasicBlock* block) const
     {
         if (block->bbNum > oldBlockMaxNum)
         {
@@ -2205,7 +2199,7 @@ void Compiler::optFindNaturalLoops()
                 // Found a loop; record it and see if we've hit the limit.
                 bool recordedLoop = search.RecordLoop();
 
-                (void)recordedLoop; // avoid unusued variable warnings in COUNT_LOOPS and !DEBUG
+                (void)recordedLoop; // avoid unused variable warnings in COUNT_LOOPS and !DEBUG
 
 #if COUNT_LOOPS
                 if (!hasMethodLoops)
@@ -4910,7 +4904,7 @@ bool OptBoolsDsc::optOptimizeBoolsReturnBlock(BasicBlock* b3)
 
     if ((foldOp == GT_AND || cmpOp == GT_NE) && (!m_testInfo1.isBool || !m_testInfo2.isBool))
     {
-        // x == 1 && y == 1: Skip cases where x or y is greather than 1, e.g., x=3, y=1
+        // x == 1 && y == 1: Skip cases where x or y is greater than 1, e.g., x=3, y=1
         // x == 0 || y == 0: Skip cases where x and y have opposite bits set, e.g., x=2, y=1
         // x == 1 || y == 1: Skip cases where either x or y is greater than 1, e.g., x=2, y=0
         return false;
@@ -5642,7 +5636,7 @@ void Compiler::phRemoveRedundantZeroInits()
 
                         if (lcl->HasLiveness())
                         {
-                            (*defsInBlock.Emplace(lclNum, 0))++;
+                            defsInBlock[lclNum]++;
                         }
                         else if (lcl->IsPromoted() &&
                                  (lclNode->OperIs(GT_LCL_STORE) || !lclNode->IsPartialLclFld(this)))
@@ -5651,7 +5645,7 @@ void Compiler::phRemoveRedundantZeroInits()
                             {
                                 if (fieldLcl->HasLiveness())
                                 {
-                                    (*defsInBlock.Emplace(fieldLcl->GetLclNum(), 0))++;
+                                    defsInBlock[fieldLcl->GetLclNum()]++;
                                 }
                             }
                         }
@@ -5719,7 +5713,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                         if (lcl->HasLiveness())
                                         {
                                             removedTrackedDefs = true;
-                                            (*defsInBlock.Find(lclNum))--;
+                                            defsInBlock.at(lclNum)--;
                                         }
                                     }
                                 }
@@ -5743,7 +5737,7 @@ void Compiler::phRemoveRedundantZeroInits()
                                 // The local hasn't been used and won't be reported to the gc between
                                 // the prolog and this explicit initialization. Therefore, it doesn't
                                 // require zero initialization in the prolog.
-                                lcl->lvHasExplicitInit = 1;
+                                lcl->lvHasExplicitInit = true;
 
                                 // If the local is the only field of a promoted struct local then the
                                 // promoted struct local also doesn't require zero initialization in
@@ -5754,7 +5748,7 @@ void Compiler::phRemoveRedundantZeroInits()
 
                                     if (parentLcl->GetLayout()->GetSize() == varTypeSize(lcl->GetType()))
                                     {
-                                        parentLcl->lvHasExplicitInit = 1;
+                                        parentLcl->lvHasExplicitInit = true;
                                     }
                                 }
 
@@ -5773,11 +5767,11 @@ void Compiler::phRemoveRedundantZeroInits()
 
         if (removedTrackedDefs)
         {
-            for (const auto& pair : defsInBlock)
+            for (const auto & [ lclNum, count ] : defsInBlock)
             {
-                if (pair.value == 0)
+                if (count == 0)
                 {
-                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(pair.key)->GetLivenessBitIndex());
+                    VarSetOps::RemoveElemD(this, block->bbVarDef, lvaGetDesc(lclNum)->GetLivenessBitIndex());
                 }
             }
         }

@@ -237,8 +237,8 @@ static void DisplayNowayAssertMap()
 
     struct NowayAssertCountMap
     {
-        size_t   count;
         FileLine fl;
+        size_t   count;
     };
 
     // Iterate noway assert map, create sorted table by occurrence, dump it.
@@ -246,9 +246,9 @@ static void DisplayNowayAssertMap()
     NowayAssertCountMap* nacp  = NowayAssertMap->GetAllocator().allocate<NowayAssertCountMap>(count);
     unsigned             i     = 0;
 
-    for (const auto& iter : *NowayAssertMap)
+    for (const auto & [ fl, count ] : *NowayAssertMap)
     {
-        new (&nacp[i++]) NowayAssertCountMap{iter.value, iter.key};
+        new (&nacp[i++]) NowayAssertCountMap{fl, count};
     }
 
     jitstd::sort(nacp, nacp + count, [](const auto& x, const auto& y) { return y.count < x.count; });

@@ -1744,7 +1744,7 @@ static void DestroyExtract(Statement* stmt, GenTreeExtract* extract)
     LclVarDsc* lcl;
 
     // TODO-MIKE-SSA: Initially the source is always SSA_USE but during
-    // destruction we'll tipically encounter the corresponding SSA_DEF
+    // destruction we'll typically encounter the corresponding SSA_DEF
     // first and change the source to LCL_VAR (or maybe LCL_FLD?)
     // And once optimizations are running again we might see something
     // else here (e.g. an INT 0 resulting from struct init propagation)

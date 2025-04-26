@@ -1930,8 +1930,6 @@ PhaseStatus Compiler::phTailMergeThrows()
         }
     };
 
-    JitHashMap<BasicBlock*, BasicBlock*, BasicBlockNumHash> blockMap(getAllocator(CMK_TailMergeThrows));
-
     // We run two passes here.
     //
     // The first pass finds candidate blocks. The first candidate for
@@ -1942,7 +1940,8 @@ PhaseStatus Compiler::phTailMergeThrows()
     // The second pass modifies flow so that predecessors of
     // non-canonical throw blocks now transfer control to the
     // appropriate canonical block.
-    int numCandidates = 0;
+
+    JitHashMap<BasicBlock*, BasicBlock*, BasicBlockNumHash> blockMap(getAllocator(CMK_TailMergeThrows));
 
     // First pass
     //
@@ -1952,12 +1951,13 @@ PhaseStatus Compiler::phTailMergeThrows()
     // Walk blocks from last to first so that any branches we
     // introduce to the canonical blocks end up lexically forward
     // and there is less jumbled flow to sort out later.
+
     for (BasicBlock* block = fgLastBB; block != nullptr; block = block->bbPrev)
     {
         // Workaround: don't consider try entry blocks as candidates
         // for merging; if the canonical throw is later in the same try,
         // we'll create invalid flow.
-        if ((block->bbFlags & BBF_TRY_BEG) != 0)
+        if (block->IsTryEntry())
         {
             continue;
         }
@@ -1969,98 +1969,72 @@ PhaseStatus Compiler::phTailMergeThrows()
         // won't try merging those as we'd need to match up all the
         // prior statements or split the block at this point, etc.
         //
-        Statement* const stmt = block->firstStmt();
+        Statement* const stmt = block->GetFirstStatement();
 
         if (stmt == nullptr)
         {
             continue;
         }
 
-        // ...that is a call
-        GenTree* const tree = stmt->GetRootNode();
+        GenTreeCall* const call = stmt->GetRootNode()->IsCall();
 
-        if (!tree->IsCall())
+        if ((call == nullptr) || !call->IsNoReturn())
         {
             continue;
         }
-
-        // ...that does not return
-        GenTreeCall* const call = tree->AsCall();
-
-        if (!call->IsNoReturn())
-        {
-            continue;
-        }
-
-        // Ok, we've found a suitable call. See if this is one we know
-        // about already, or something new.
-        BasicBlock* canonicalBlock = nullptr;
 
         JITDUMPTREE(call, "\n*** Does not return call\n");
 
-        // Have we found an equivalent call already?
-        ThrowHelper key(block, call);
-        if (callMap.Find(key, &canonicalBlock))
+        if (BasicBlock*& canonicalBlock = callMap[{block, call}])
         {
-            // Yes, this one can be optimized away...
             JITDUMP("    in " FMT_BB " can be dup'd to canonical " FMT_BB "\n", block->bbNum, canonicalBlock->bbNum);
             blockMap.Add(block, canonicalBlock);
-            numCandidates++;
         }
         else
         {
-            // No, add this as the canonical example
             JITDUMP("    in " FMT_BB " is unique, marking it as canonical\n", block->bbNum);
-            callMap.Add(key, block);
+            canonicalBlock = block;
         }
     }
 
-    // Bail if no candidates were found
-    if (numCandidates == 0)
+    if (blockMap.GetCount() == 0)
     {
         JITDUMP("\n*************** no throws can be tail merged, sorry\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
 
-    JITDUMP("\n*** found %d merge candidates, rewriting flow\n\n", numCandidates);
+    JITDUMP("\n*** found %d merge candidates, rewriting flow\n\n", blockMap.GetCount());
 
     // Second pass.
     //
     // We walk the map rather than the block list, to save a bit of time.
     unsigned updateCount = 0;
 
-    for (const auto& pair : blockMap)
+    for (auto[nonCanonicalBlock, canonicalBlock] : blockMap)
     {
-        BasicBlock* const nonCanonicalBlock = pair.key;
-        BasicBlock* const canonicalBlock    = pair.value;
-        flowList*         nextPredEdge      = nullptr;
-        bool              updated           = false;
+        FlowEdge* nextPredEdge = nullptr;
+        bool      updated      = false;
 
         // Walk pred list of the non canonical block, updating flow to target
         // the canonical block instead.
-        for (flowList* predEdge = nonCanonicalBlock->bbPreds; predEdge != nullptr; predEdge = nextPredEdge)
+        for (FlowEdge* predEdge = nonCanonicalBlock->bbPreds; predEdge != nullptr; predEdge = nextPredEdge)
         {
             BasicBlock* const predBlock = predEdge->getBlock();
             nextPredEdge                = predEdge->flNext;
 
-            switch (predBlock->bbJumpKind)
+            switch (predBlock->GetKind())
             {
                 case BBJ_NONE:
-                {
                     fgTailMergeThrowsFallThroughHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
                     updated = true;
-                }
-                break;
+                    break;
 
                 case BBJ_ALWAYS:
-                {
                     fgTailMergeThrowsJumpToHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
                     updated = true;
-                }
-                break;
+                    break;
 
                 case BBJ_COND:
-                {
                     // Flow to non canonical block could be via fall through or jump or both.
                     if (predBlock->bbNext == nonCanonicalBlock)
                     {
@@ -2072,16 +2046,13 @@ PhaseStatus Compiler::phTailMergeThrows()
                         fgTailMergeThrowsJumpToHelper(predBlock, nonCanonicalBlock, canonicalBlock, predEdge);
                     }
                     updated = true;
-                }
-                break;
+                    break;
 
                 case BBJ_SWITCH:
-                {
                     JITDUMP("*** " FMT_BB " now branching to " FMT_BB "\n", predBlock->bbNum, canonicalBlock->bbNum);
                     fgReplaceSwitchJumpTarget(predBlock, canonicalBlock, nonCanonicalBlock);
                     updated = true;
-                }
-                break;
+                    break;
 
                 default:
                     // We don't expect other kinds of preds, and it is safe to ignore them
@@ -2165,7 +2136,7 @@ void Compiler::fgTailMergeThrowsFallThroughHelper(BasicBlock* predBlock,
 }
 
 //------------------------------------------------------------------------
-// fgTailMergeThrowsJumpToHelper: fixup flow for jumps to mergable throws
+// fgTailMergeThrowsJumpToHelper: fixup flow for jumps to mergeable throws
 //
 // Arguments:
 //    predBlock - block jumping to the throw helper

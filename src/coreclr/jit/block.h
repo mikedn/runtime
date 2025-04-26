@@ -542,6 +542,11 @@ struct BasicBlock : private LIR::Range
         return (bbFlags & BBF_THROW_HELPER) != 0;
     }
 
+    bool IsTryEntry() const
+    {
+        return (bbFlags & BBF_TRY_BEG) != 0;
+    }
+
 #ifdef DEBUG
     void     dspFlags() const;
     unsigned dspCheapPreds() const;

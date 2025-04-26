@@ -240,7 +240,7 @@ class ValueNumStore
             return x == y;
         }
 
-        static unsigned GetHashCode(VNFuncDef1 val)
+        static unsigned GetHashCode(const VNFuncDef1& val)
         {
             return (val.func << 24) + val.arg0;
         }

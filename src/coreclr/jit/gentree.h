@@ -267,10 +267,10 @@ public:
         return tail;
     }
 
-    static int GetHashCode(const FieldSeqNode& fsn)
+    static unsigned GetHashCode(const FieldSeqNode& fsn)
     {
-        return static_cast<int>(reinterpret_cast<intptr_t>(fsn.m_fieldHnd)) ^
-               static_cast<int>(reinterpret_cast<intptr_t>(fsn.m_next));
+        return static_cast<unsigned>(reinterpret_cast<uintptr_t>(fsn.m_fieldHnd)) ^
+               static_cast<unsigned>(reinterpret_cast<uintptr_t>(fsn.m_next));
     }
 
     static bool Equals(const FieldSeqNode& fsn1, const FieldSeqNode& fsn2)
