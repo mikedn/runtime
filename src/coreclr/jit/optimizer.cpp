@@ -2371,8 +2371,7 @@ void Compiler::optIdentifyLoopsForAlignment()
 #endif
 }
 
-//------------------------------------------------------------------------
-// optRedirectBlock: Replace the branch successors of a block based on a block map.
+// Replace the branch successors of a block based on a block map.
 //
 // Updates the successors of `blk`: if `blk2` is a branch successor of `blk`, and there is a mapping
 // for `blk2->blk3` in `redirectMap`, change `blk` so that `blk3` is this branch successor.
@@ -2384,9 +2383,8 @@ void Compiler::optIdentifyLoopsForAlignment()
 //     redirectMap  - block->block map specifying how the `blk` target will be redirected.
 //     updatePreds  - if `true`, update the predecessor lists to match.
 //
-void Compiler::optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, const bool updatePreds)
+void Compiler::optRedirectBlock(BasicBlock* blk, const BlockToBlockMap& redirectMap, bool updatePreds)
 {
-    BasicBlock* newJumpDest = nullptr;
     switch (blk->bbJumpKind)
     {
         case BBJ_NONE:
@@ -2403,7 +2401,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, c
         case BBJ_CALLFINALLY:
         case BBJ_COND:
             // All of these have a single jump destination to update.
-            if (redirectMap->Lookup(blk->bbJumpDest, &newJumpDest))
+            if (BasicBlock * newJumpDest; redirectMap.Lookup(blk->bbJumpDest, &newJumpDest))
             {
                 if (updatePreds)
                 {
@@ -2420,7 +2418,7 @@ void Compiler::optRedirectBlock(BasicBlock* blk, BlockToBlockMap* redirectMap, c
             for (unsigned i = 0; i < blk->bbJumpSwt->bbsCount; i++)
             {
                 BasicBlock* switchDest = blk->bbJumpSwt->bbsDstTab[i];
-                if (redirectMap->Lookup(switchDest, &newJumpDest))
+                if (BasicBlock * newJumpDest; redirectMap.Lookup(switchDest, &newJumpDest))
                 {
                     if (updatePreds)
                     {
@@ -2625,8 +2623,8 @@ bool Compiler::optCanonicalizeLoop(unsigned loopInd)
     // a call to fgUpdateChangedFlowGraph which will recompute the reachability sets anyway.
 
     // Redirect the "bottom" of the current loop to "newT".
-    BlockToBlockMap* blockMap = new (getAllocator(CMK_LoopOpt)) BlockToBlockMap(getAllocator(CMK_LoopOpt));
-    blockMap->Set(t, newT);
+    BlockToBlockMap blockMap(getAllocator(CMK_LoopOpt));
+    blockMap.Set(t, newT);
     optRedirectBlock(b, blockMap);
 
     // Redirect non-loop preds of "t" to also go to "newT". Inner loops that also branch to "t" should continue
@@ -3419,10 +3417,10 @@ PhaseStatus Compiler::phUnrollLoops()
                 {
                     BasicBlock* newBlock = blockMap[block];
                     optCopyBlkDest(block, newBlock);
-                    optRedirectBlock(newBlock, &blockMap);
+                    optRedirectBlock(newBlock, blockMap);
                 }
 
-                /* update the new value for the unrolled iterator */
+                // update the new value for the unrolled iterator
 
                 switch (iterOper)
                 {
@@ -3909,7 +3907,7 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
         // Redirect the predecessor to the new block.
         JITDUMP("Redirecting non-loop " FMT_BB " -> " FMT_BB " to " FMT_BB " -> " FMT_BB "\n", predBlock->bbNum,
                 bTest->bbNum, predBlock->bbNum, bNewCond->bbNum);
-        optRedirectBlock(predBlock, &blockMap, /*updatePreds*/ true);
+        optRedirectBlock(predBlock, blockMap, /*updatePreds*/ true);
     }
 
     // If we have profile data for all blocks and we know that we are cloning the

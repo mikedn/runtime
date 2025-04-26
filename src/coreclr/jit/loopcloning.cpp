@@ -1097,8 +1097,8 @@ void Compiler::optEnsureUniqueHead(unsigned loopNum, BasicBlock::weight_t ambien
     fgAddRefPred(e, h2);
 
     // Redirect paths from preds of "e" to go to "h2" instead of "e".
-    BlockToBlockMap* blockMap = new (getAllocator(CMK_LoopClone)) BlockToBlockMap(getAllocator(CMK_LoopClone));
-    blockMap->Set(e, h2);
+    BlockToBlockMap blockMap(getAllocator(CMK_LoopClone));
+    blockMap.Set(e, h2);
 
     for (BasicBlock* const predBlock : e->PredBlocks())
     {
@@ -1267,9 +1267,9 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     }
 
     // Now we'll clone the blocks of the loop body. These cloned blocks will be the slow path.
-    BasicBlock* newFirst = nullptr;
+    BasicBlock*     newFirst = nullptr;
+    BlockToBlockMap blockMap(alloc);
 
-    BlockToBlockMap* blockMap = new (alloc) BlockToBlockMap(alloc);
     for (BasicBlock* const blk : loop.LoopBlocks())
     {
         BasicBlock* newBlk = compiler->fgNewBBafter(blk->bbJumpKind, newPred, /*extendRegion*/ true);
@@ -1311,7 +1311,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
             newFirst = newBlk;
         }
         newPred = newBlk;
-        blockMap->Set(blk, newBlk);
+        blockMap.Set(blk, newBlk);
     }
 
     // Perform the static optimizations on the fast path.
@@ -1322,7 +1322,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     for (BasicBlock* const blk : loop.LoopBlocks())
     {
         BasicBlock* newblk = nullptr;
-        bool        b      = blockMap->Lookup(blk, &newblk);
+        bool        b      = blockMap.Lookup(blk, &newblk);
         assert(b && newblk != nullptr);
 
         assert(blk->bbJumpKind == newblk->bbJumpKind);
@@ -1368,7 +1368,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
     for (BasicBlock* const blk : loop.LoopBlocks())
     {
         BasicBlock* newblk = nullptr;
-        bool        b      = blockMap->Lookup(blk, &newblk);
+        bool        b      = blockMap.Lookup(blk, &newblk);
         assert(b && newblk != nullptr);
         JITDUMP(FMT_BB ":", newblk->bbNum);
         for (BasicBlock* const predBlock : newblk->PredBlocks())
@@ -1404,7 +1404,7 @@ void LoopCloneContext::CloneLoop(unsigned loopNum)
 
     // If all the conditions are true, go to E2.
     BasicBlock* e2      = nullptr;
-    bool        foundIt = blockMap->Lookup(loop.lpEntry, &e2);
+    bool        foundIt = blockMap.Lookup(loop.lpEntry, &e2);
 
     // We're going to replace the fall-through path from "h".
     if (h->bbJumpKind == BBJ_NONE)

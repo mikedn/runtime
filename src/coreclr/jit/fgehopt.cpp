@@ -1066,7 +1066,7 @@ PhaseStatus Compiler::phCloneFinally()
             else
             {
                 optCopyBlkDest(block, newBlock);
-                optRedirectBlock(newBlock, &blockMap);
+                optRedirectBlock(newBlock, blockMap);
             }
         }
 
