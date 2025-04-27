@@ -5383,8 +5383,6 @@ public:
 #pragma warning(pop)
 
     const char* pgoSourceToString(ICorJitInfo::PgoSource p);
-    const char* devirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail);
-
 #endif // DEBUG
 
 // clang-format off

@@ -602,6 +602,24 @@ inline GenTreeAddrMode* GenTree::ChangeToAddrMode(GenTree* base, GenTree* index,
     return addrMode;
 }
 
+// Helper to change tree oper to a NULLCHECK.
+//
+// The function should not be called after lowering for platforms that do not support
+// emitting NULLCHECK nodes, like arm32. Use `Lowering::TransformUnusedIndirection`
+// that handles it and calls this function when appropriate.
+//
+inline void Compiler::gtChangeOperToNullCheck(GenTree* tree)
+{
+    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
+
+    // TODO-MIKE-Cleanup: There are multiple places that have special handling for FIELD_ADDR.
+    // All that could probably done here instead. See impImportPop, inlInitInlineeArgs and
+    // gtTryRemoveBoxUpstreamEffects.
+
+    tree->ChangeOper(GT_NULLCHECK);
+    tree->SetType(TYP_INT);
+}
+
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -1196,6 +1196,27 @@ void Compiler::lvaAlignPreSpillParams(regMaskTP doubleAlignMask)
 }
 #endif // TARGET_ARM
 
+// Check if this local var is one that requires special treatment for OSR compilations.
+bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl) const
+{
+    if (!opts.IsOSR())
+    {
+        return false;
+    }
+
+    if (lcl->GetLclNum() < info.compLocalsCount)
+    {
+        return true;
+    }
+
+    if (lcl->IsPromotedField())
+    {
+        return lcl->GetPromotedFieldParentLclNum() < info.compLocalsCount;
+    }
+
+    return false;
+}
+
 void Compiler::lvaInitVarDsc(LclVarDsc* lcl, CorInfoType corType, CORINFO_CLASS_HANDLE typeHnd)
 {
     switch (corType)

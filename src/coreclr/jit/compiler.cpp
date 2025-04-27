@@ -18,6 +18,8 @@ static LONG                s_jitNestingLevel;
 unsigned Compiler::jitTotalMethodCompiled;
 #endif
 
+const HelperCallProperties Compiler::s_helperCallProperties;
+
 // Little helpers to grab the current cycle counter value; this is done
 // differently based on target architecture, host toolchain, etc. The
 // main thing is to keep the overhead absolutely minimal; in fact, on
@@ -4995,103 +4997,3 @@ void dTreeFlags(GenTree* tree)
 }
 
 #endif // DEBUG
-
-const HelperCallProperties Compiler::s_helperCallProperties;
-
-// Check if this local var is one that requires special treatment for OSR compilations.
-bool Compiler::lvaIsOSRLocal(LclVarDsc* lcl) const
-{
-    if (!opts.IsOSR())
-    {
-        return false;
-    }
-
-    if (lcl->GetLclNum() < info.compLocalsCount)
-    {
-        return true;
-    }
-
-    if (lcl->IsPromotedField())
-    {
-        return (lcl->GetPromotedFieldParentLclNum() < info.compLocalsCount);
-    }
-
-    return false;
-}
-
-//------------------------------------------------------------------------------
-// gtChangeOperToNullCheck: helper to change tree oper to a NULLCHECK.
-//
-// Notes:
-//    the function should not be called after lowering for platforms that do not support
-//    emitting NULLCHECK nodes, like arm32. Use `Lowering::TransformUnusedIndirection`
-//    that handles it and calls this function when appropriate.
-//
-void Compiler::gtChangeOperToNullCheck(GenTree* tree)
-{
-    assert(tree->OperIs(GT_FIELD_ADDR, GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_LOAD_BLK));
-
-    // TODO-MIKE-Cleanup: There are multiple places that have special handling for FIELD_ADDR.
-    // All that could probably done here instead. See impImportPop, inlInitInlineeArgs and
-    // gtTryRemoveBoxUpstreamEffects.
-
-    tree->ChangeOper(GT_NULLCHECK);
-    tree->SetType(TYP_INT);
-}
-
-#if defined(DEBUG)
-//------------------------------------------------------------------------------
-// devirtualizationDetailToString: describe the detailed devirtualization reason
-//
-// Arguments:
-//    detail - detail to describe
-//
-// Returns:
-//    descriptive string
-//
-const char* Compiler::devirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail)
-{
-    switch (detail)
-    {
-        case CORINFO_DEVIRTUALIZATION_UNKNOWN:
-            return "unknown";
-        case CORINFO_DEVIRTUALIZATION_SUCCESS:
-            return "success";
-        case CORINFO_DEVIRTUALIZATION_FAILED_CANON:
-            return "object class was canonical";
-        case CORINFO_DEVIRTUALIZATION_FAILED_COM:
-            return "object class was com";
-        case CORINFO_DEVIRTUALIZATION_FAILED_CAST:
-            return "object class could not be cast to interface class";
-        case CORINFO_DEVIRTUALIZATION_FAILED_LOOKUP:
-            return "interface method could not be found";
-        case CORINFO_DEVIRTUALIZATION_FAILED_DIM:
-            return "interface method was default interface method";
-        case CORINFO_DEVIRTUALIZATION_FAILED_SUBCLASS:
-            return "object not subclass of base class";
-        case CORINFO_DEVIRTUALIZATION_FAILED_SLOT:
-            return "virtual method installed via explicit override";
-        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE:
-            return "devirtualization crossed version bubble";
-        case CORINFO_DEVIRTUALIZATION_MULTIPLE_IMPL:
-            return "object class has multiple implementations of interface";
-        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_CLASS_DECL:
-            return "decl method is defined on class and decl method not in version bubble, and decl method not in "
-                   "type closest to version bubble";
-        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_INTERFACE_DECL:
-            return "decl method is defined on interface and not in version bubble, and implementation type not "
-                   "entirely defined in bubble";
-        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL:
-            return "object class not defined within version bubble";
-        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL_NOT_REFERENCEABLE:
-            return "object class cannot be referenced from R2R code due to missing tokens";
-        case CORINFO_DEVIRTUALIZATION_FAILED_DUPLICATE_INTERFACE:
-            return "crossgen2 virtual method algorithm and runtime algorithm differ in the presence of duplicate "
-                   "interface implementations";
-        case CORINFO_DEVIRTUALIZATION_FAILED_DECL_NOT_REPRESENTABLE:
-            return "Decl method cannot be represented in R2R image";
-        default:
-            return "undefined";
-    }
-}
-#endif // defined(DEBUG)

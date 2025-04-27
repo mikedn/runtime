@@ -14502,6 +14502,54 @@ bool Compiler::IsMathIntrinsic(NamedIntrinsic intrinsic)
     return (NI_SYSTEM_MATH_START < intrinsic) && (intrinsic < NI_SYSTEM_MATH_END);
 }
 
+#ifdef DEBUG
+static const char* DevirtualizationDetailToString(CORINFO_DEVIRTUALIZATION_DETAIL detail)
+{
+    switch (detail)
+    {
+        case CORINFO_DEVIRTUALIZATION_UNKNOWN:
+            return "unknown";
+        case CORINFO_DEVIRTUALIZATION_SUCCESS:
+            return "success";
+        case CORINFO_DEVIRTUALIZATION_FAILED_CANON:
+            return "object class was canonical";
+        case CORINFO_DEVIRTUALIZATION_FAILED_COM:
+            return "object class was com";
+        case CORINFO_DEVIRTUALIZATION_FAILED_CAST:
+            return "object class could not be cast to interface class";
+        case CORINFO_DEVIRTUALIZATION_FAILED_LOOKUP:
+            return "interface method could not be found";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DIM:
+            return "interface method was default interface method";
+        case CORINFO_DEVIRTUALIZATION_FAILED_SUBCLASS:
+            return "object not subclass of base class";
+        case CORINFO_DEVIRTUALIZATION_FAILED_SLOT:
+            return "virtual method installed via explicit override";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE:
+            return "devirtualization crossed version bubble";
+        case CORINFO_DEVIRTUALIZATION_MULTIPLE_IMPL:
+            return "object class has multiple implementations of interface";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_CLASS_DECL:
+            return "decl method is defined on class and decl method not in version bubble, and decl method not in "
+                   "type closest to version bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_INTERFACE_DECL:
+            return "decl method is defined on interface and not in version bubble, and implementation type not "
+                   "entirely defined in bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL:
+            return "object class not defined within version bubble";
+        case CORINFO_DEVIRTUALIZATION_FAILED_BUBBLE_IMPL_NOT_REFERENCEABLE:
+            return "object class cannot be referenced from R2R code due to missing tokens";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DUPLICATE_INTERFACE:
+            return "crossgen2 virtual method algorithm and runtime algorithm differ in the presence of duplicate "
+                   "interface implementations";
+        case CORINFO_DEVIRTUALIZATION_FAILED_DECL_NOT_REPRESENTABLE:
+            return "Decl method cannot be represented in R2R image";
+        default:
+            return "undefined";
+    }
+}
+#endif // DEBUG
+
 // Attempt to change a virtual vtable call into a normal call
 //
 // Virtual calls in IL will always "invoke" the base class method.
@@ -14759,7 +14807,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 
     if (derivedMethod == nullptr)
     {
-        JITDUMP("--- no derived method: %s\n", devirtualizationDetailToString(dvInfo.detail));
+        JITDUMP("--- no derived method: %s\n", DevirtualizationDetailToString(dvInfo.detail));
     }
     else
     {
@@ -14804,7 +14852,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         if (!isLateDevirtualization && (isExact || objClassIsFinal) && JitConfig.JitNoteFailedExactDevirtualization())
         {
             printf("@@@ Exact/Final devirt failure in %s at [%06u] $ %s\n", info.compFullName, call->GetID(),
-                   devirtualizationDetailToString(dvInfo.detail));
+                   DevirtualizationDetailToString(dvInfo.detail));
         }
 #endif
 
