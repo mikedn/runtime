@@ -1218,7 +1218,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
     else
 #endif
     {
-        addr = compiler->compGetHelperFtn(helper, &pAddr);
+        addr = GetHelperCallAddr(helper, &pAddr);
     }
 
     RegNum addrReg = REG_NA;

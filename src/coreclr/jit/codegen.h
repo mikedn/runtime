@@ -481,7 +481,9 @@ public:
                          unsigned       ilVarNum,
                          DbgInfoVarLoc* varLoc);
 
-protected:
+private:
+    void* GetHelperCallAddr(CorInfoHelpFunc helper, void** indirection);
+
 #ifdef LATE_DISASM
     struct TrnslLocalVarInfo
     {
@@ -713,8 +715,7 @@ protected:
     void RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias);
 #endif
 
-#if defined(UNIX_X86_ABI)
-
+#ifdef UNIX_X86_ABI
     unsigned curNestedAlignment = 0; // Keep track of alignment adjustment required during codegen.
     unsigned maxNestedAlignment = 0; // The maximum amount of alignment adjustment required.
 
@@ -744,7 +745,6 @@ protected:
             maxNestedAlignment = curNestedAlignment;
         }
     }
-
 #endif
 
 #ifndef TARGET_X86

@@ -4000,7 +4000,7 @@ bool CodeGen::genEmitOptimizedGCWriteBarrier(GCInfo::WriteBarrierForm writeBarri
 void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retRegAttr)
 {
     void*     pAddr  = nullptr;
-    void*     addr   = compiler->compGetHelperFtn(helper, &pAddr);
+    void*     addr   = GetHelperCallAddr(helper, &pAddr);
     insFormat format = IF_METHOD;
 
     if (addr == nullptr)
@@ -4028,7 +4028,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retReg
 void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum tempReg)
 {
     void*     pAddr   = nullptr;
-    void*     addr    = compiler->compGetHelperFtn(helper, &pAddr);
+    void*     addr    = GetHelperCallAddr(helper, &pAddr);
     RegNum    addrReg = REG_NA;
     insFormat format  = IF_METHOD;
 

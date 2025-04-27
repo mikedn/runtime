@@ -707,24 +707,11 @@ void Compiler::compInit()
 #endif
 }
 
-void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum, void** ppIndirection)
-{
-    if (!info.compMatchedVM)
-    {
-        // If we don't have a matched VM, we won't get valid results when asking for a helper function.
-        return UlongToPtr(0xCA11CA11); // "callcall"
-    }
-
-    return info.compCompHnd->getHelperFtn(ftnNum, ppIndirection);
-}
-
 void Compiler::compSetProcessor()
 {
     assert(!compIsForInlining());
 
-    //
     // NOTE: This function needs to be kept in sync with EEJitManager::SetCpuInfo() in vm\codeman.cpp
-    //
 
     const JitFlags& jitFlags = *opts.jitFlags;
 

@@ -5531,3 +5531,14 @@ uint32_t CodeGen::ehCodeOffset(BasicBlock* block)
 {
     return ehEmitLabel(block)->GetCodeOffset();
 }
+
+void* CodeGen::GetHelperCallAddr(CorInfoHelpFunc helper, void** indirection)
+{
+    if (!compiler->info.compMatchedVM)
+    {
+        // If we don't have a matched VM, we won't get valid results when asking for a helper function.
+        return reinterpret_cast<void*>(static_cast<uintptr_t>(0xCA11CA11u));
+    }
+
+    return compiler->info.compCompHnd->getHelperFtn(helper, indirection);
+}

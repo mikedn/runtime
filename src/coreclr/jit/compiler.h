@@ -5605,16 +5605,13 @@ public:
     void compInitMethodName();
     void compInit();
 
-    //------------ Some utility functions --------------
-
-    void* compGetHelperFtn(CorInfoHelpFunc ftnNum,         /* IN  */
-                           void**          ppIndirection); /* OUT */
-
-    // Components used by the compiler may write unit test suites, and
-    // have them run within this method.  They will be run only once per process, and only
-    // in debug.  (Perhaps should be under the control of a COMPlus_ flag.)
+#ifdef DEBUG
+    // Components used by the compiler may write unit test suites, and have them run
+    // within this method. They will be run only once per process, and only in debug.
+    // (Perhaps should be under the control of a COMPlus_ flag.)
     // These should fail by asserting.
-    INDEBUG(void compDoComponentUnitTestsOnce();)
+    void compDoComponentUnitTestsOnce();
+#endif
 
     CorJitResult compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
     void compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);

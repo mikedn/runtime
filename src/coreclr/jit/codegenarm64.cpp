@@ -3365,7 +3365,7 @@ bool CodeGenInterface::IsSaveFpLrWithAllCalleeSavedRegisters() const
 void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum tempReg)
 {
     void*  pAddr   = nullptr;
-    void*  addr    = compiler->compGetHelperFtn(helper, &pAddr);
+    void*  addr    = GetHelperCallAddr(helper, &pAddr);
     RegNum addrReg = REG_NA;
 
     if (addr == nullptr)
