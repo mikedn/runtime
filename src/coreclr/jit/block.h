@@ -486,6 +486,9 @@ inline bool handlerGetsXcptnObj(unsigned hndTyp)
     return (hndTyp != BBCT_NONE) && (hndTyp != BBCT_FAULT) && (hndTyp != BBCT_FINALLY);
 }
 
+// Type used to hold block and edge weights
+using weight_t = float;
+
 //------------------------------------------------------------------------
 // BasicBlock: describes a basic block in the flowgraph.
 //
@@ -557,8 +560,7 @@ struct BasicBlock : private LIR::Range
     const char* dspToString(int blockNumPadding = 0) const;
 #endif
 
-    // Type used to hold block and edge weights
-    using weight_t = float;
+    using weight_t = ::weight_t;
 
 #define BB_UNITY_WEIGHT 100.0f       // how much a normal execute once block weighs
 #define BB_UNITY_WEIGHT_UNSIGNED 100 // how much a normal execute once block weighs

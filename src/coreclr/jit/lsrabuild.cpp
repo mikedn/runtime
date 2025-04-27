@@ -2243,68 +2243,76 @@ static CanDoubleAlign getCanDoubleAlign(Compiler* compiler)
 #endif
 }
 
-//------------------------------------------------------------------------
-// shouldDoubleAlign: Determine whether to double-align the frame
+// Returns true if this method estimates that a double-aligned frame would be beneficial
 //
 // Arguments:
-//    refCntStk       - sum of     ref counts for all stack based variables
-//    refCntEBP       - sum of     ref counts for EBP enregistered variables
-//    refCntWtdEBP    - sum of wtd ref counts for EBP enregistered variables
-//    refCntStkParam  - sum of     ref counts for all stack based parameters
-//    refCntWtdStkDbl - sum of wtd ref counts for stack based doubles (including structs
-//                      with double fields).
+//    stackRefCount        - sum of ref counts for all stack based variables
+//    enregRefCount        - sum of ref counts for all enregistered variables
+//    enregRefWeight       - sum of ref weights for all enregistered variables
+//    stackParamRefCount   - sum of ref counts for all stack based parameters
+//    stackDoubleRefWeight - sum of ref weights for stack based doubles (including structs with double fields)
 //
-// Return Value:
-//    Returns true if this method estimates that a double-aligned frame would be beneficial
-//
-// Notes:
-//    The impact of a double-aligned frame is computed as follows:
-//    - We save a byte of code for each parameter reference (they are frame-pointer relative)
-//    - We pay a byte of code for each non-parameter stack reference.
-//    - We save the misalignment penalty and possible cache-line crossing penalty.
-//      This is estimated as 0 for SMALL_CODE, 16 for FAST_CODE and 4 otherwise.
-//    - We pay 7 extra bytes for:
-//        MOV EBP,ESP,
-//        LEA ESP,[EBP-offset]
-//        AND ESP,-8 to double align ESP
-//    - We pay one extra memory reference for each variable that could have been enregistered in EBP (refCntWtdEBP).
-//
-//    If the misalignment penalty is estimated to be less than the bytes used, we don't double align.
-//    Otherwise, we compare the weighted ref count of ebp-enregistered variables against double the
-//    ref count for double-aligned values.
-//
-bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
-                                 unsigned             refCntEBP,
-                                 BasicBlock::weight_t refCntWtdEBP,
-                                 unsigned             refCntStkParam,
-                                 BasicBlock::weight_t refCntWtdStkDbl)
+static bool shouldDoubleAlign(Compiler*      compiler,
+                              const unsigned stackRefCount,
+                              const unsigned enregRefCount,
+                              const weight_t enregRefWeight,
+                              const unsigned stackParamRefCount,
+                              const weight_t stackDoubleRefWeight)
 {
-    bool           doDoubleAlign        = false;
-    const unsigned DBL_ALIGN_SETUP_SIZE = 7;
+    // The impact of a double-aligned frame is computed as follows:
+    //   - We save a byte of code for each parameter reference (they are frame-pointer relative)
+    //   - We pay a byte of code for each non-parameter stack reference.
+    //   - We save the misalignment penalty and possible cache-line crossing penalty.
+    //     This is estimated as 0 for SMALL_CODE, 16 for FAST_CODE and 4 otherwise.
+    //   - We pay 7 extra bytes for:
+    //       MOV EBP,ESP,
+    //       LEA ESP,[EBP-offset]
+    //       AND ESP,-8 to double align ESP
+    //   - We pay one extra memory reference for each variable that could have been enregistered in EBP (ebpRefWeight).
+    //
+    // If the misalignment penalty is estimated to be less than the bytes used, we don't double align.
+    // Otherwise, we compare the weighted ref count of ebp-enregistered variables against double the
+    // ref count for double-aligned values.
 
-    unsigned bytesUsed         = refCntStk + refCntEBP - refCntStkParam + DBL_ALIGN_SETUP_SIZE;
-    unsigned misaligned_weight = 4;
+    constexpr unsigned DBL_ALIGN_SETUP_SIZE = 7;
 
-    if (compCodeOpt() == SMALL_CODE)
+    // TODO-CQ: Fine-tune this:
+    // In the legacy reg predictor, this runs after allocation, and then demotes any locals
+    // allocated to the frame pointer, which is probably the wrong order.
+    // However, because it runs after allocation, it can determine the impact of demoting
+    // the local allocated to the frame pointer.
+    // Here, estimate of the EBP ref count and weight is a wild guess.
+    const unsigned ebpRefCount  = enregRefCount / 8;
+    const weight_t ebpRefWeight = enregRefWeight / 8;
+
+    const unsigned bytesUsed = stackRefCount + ebpRefCount - stackParamRefCount + DBL_ALIGN_SETUP_SIZE;
+    unsigned       misalignedWeight;
+
+    switch (compiler->compCodeOpt())
     {
-        misaligned_weight = 0;
-    }
-
-    if (compCodeOpt() == FAST_CODE)
-    {
-        misaligned_weight *= 4;
+        case SMALL_CODE:
+            misalignedWeight = 0;
+            break;
+        case FAST_CODE:
+            misalignedWeight = 16;
+            break;
+        default:
+            misalignedWeight = 4;
+            break;
     }
 
     JITDUMP("\nDouble alignment:\n");
-    JITDUMP("  Bytes that could be saved by not using EBP frame: %i\n", bytesUsed);
-    JITDUMP("  Sum of weighted ref counts for EBP enregistered variables: %f\n", refCntWtdEBP);
-    JITDUMP("  Sum of weighted ref counts for weighted stack based doubles: %f\n", refCntWtdStkDbl);
+    JITDUMP("Bytes that could be saved by not using EBP frame: %i\n", bytesUsed);
+    JITDUMP("Sum of weighted ref counts for EBP enregistered variables: %f\n", ebpRefWeight);
+    JITDUMP("Sum of weighted ref counts for weighted stack based doubles: %f\n", stackDoubleRefWeight);
 
-    if (((BasicBlock::weight_t)bytesUsed) > ((refCntWtdStkDbl * misaligned_weight) / BB_UNITY_WEIGHT))
+    if (static_cast<BasicBlock::weight_t>(bytesUsed) > (stackDoubleRefWeight * misalignedWeight / BB_UNITY_WEIGHT))
     {
-        JITDUMP("    Predicting not to double-align ESP to save %d bytes of code.\n", bytesUsed);
+        JITDUMP("Predicting not to double-align ESP to save %d bytes of code.\n\n", bytesUsed);
+        return false;
     }
-    else if (refCntWtdEBP > refCntWtdStkDbl * 2)
+
+    if (ebpRefWeight > stackDoubleRefWeight * 2)
     {
         // TODO-CQ: On P4 2 Proc XEON's, SciMark.FFT degrades if SciMark.FFT.transform_internal is
         // not double aligned.
@@ -2313,15 +2321,12 @@ bool Compiler::shouldDoubleAlign(unsigned             refCntStk,
         //     refCntWtdEBP    = 0x1a4
         // We think we do need to change the heuristic to be in favor of double-align.
 
-        JITDUMP("    Predicting not to double-align ESP to allow EBP to be used to enregister variables.\n");
+        JITDUMP("Predicting not to double-align ESP to allow EBP to be used to enregister variables.\n\n");
+        return false;
     }
-    else
-    {
-        // OK we passed all of the benefit tests, so we'll predict a double aligned frame.
-        JITDUMP("    Predicting to create a double-aligned frame\n");
-        doDoubleAlign = true;
-    }
-    return doDoubleAlign;
+
+    JITDUMP("Predicting to create a double-aligned frame\n\n");
+    return true;
 }
 
 #endif // DOUBLE_ALIGN
@@ -2393,11 +2398,11 @@ void LinearScan::identifyCandidates()
     }
 
 #if DOUBLE_ALIGN
-    unsigned             refCntStk       = 0;
-    unsigned             refCntReg       = 0;
-    BasicBlock::weight_t refCntWtdReg    = 0;
-    unsigned             refCntStkParam  = 0; // sum of     ref counts for all stack based parameters
-    BasicBlock::weight_t refCntWtdStkDbl = 0; // sum of wtd ref counts for stack based doubles
+    unsigned refCntStk       = 0;
+    unsigned refCntReg       = 0;
+    weight_t refCntWtdReg    = 0;
+    unsigned refCntStkParam  = 0; // sum of ref counts for all stack based parameters
+    weight_t refCntWtdStkDbl = 0; // sum of ref weights for stack based doubles
 
     doDoubleAlign         = false;
     bool checkDoubleAlign = true;
@@ -2621,20 +2626,10 @@ void LinearScan::identifyCandidates()
 #if DOUBLE_ALIGN
     if (checkDoubleAlign)
     {
-        // TODO-CQ: Fine-tune this:
-        // In the legacy reg predictor, this runs after allocation, and then demotes any lclVars
-        // allocated to the frame pointer, which is probably the wrong order.
-        // However, because it runs after allocation, it can determine the impact of demoting
-        // the lclVars allocated to the frame pointer.
-        // => Here, estimate of the EBP refCnt and weighted refCnt is a wild guess.
-        //
-        unsigned             refCntEBP    = refCntReg / 8;
-        BasicBlock::weight_t refCntWtdEBP = refCntWtdReg / 8;
-
         doDoubleAlign =
-            compiler->shouldDoubleAlign(refCntStk, refCntEBP, refCntWtdEBP, refCntStkParam, refCntWtdStkDbl);
+            shouldDoubleAlign(compiler, refCntStk, refCntReg, refCntWtdReg, refCntStkParam, refCntWtdStkDbl);
     }
-#endif // DOUBLE_ALIGN
+#endif
 
     // The factors we consider to determine which set of fp vars to use as candidates for callee save
     // registers current include the number of fp vars, whether there are loops, and whether there are

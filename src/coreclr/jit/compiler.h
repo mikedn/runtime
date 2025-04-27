@@ -5183,16 +5183,6 @@ public:
 
     BasicBlock* genReturnBB = nullptr; // jumped to when not optimizing for speed.
 
-#if DOUBLE_ALIGN
-    bool shouldDoubleAlign(unsigned             refCntStk,
-                           unsigned             refCntReg,
-                           BasicBlock::weight_t refCntWtdReg,
-                           unsigned             refCntStkParam,
-                           BasicBlock::weight_t refCntWtdStkDbl);
-#endif // DOUBLE_ALIGN
-
-    // LIVENESS
-
     // Gets a register mask that represent the kill set for a helper call since
     // not all JIT Helper calls follow the standard ABI on the target architecture.
     static regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
