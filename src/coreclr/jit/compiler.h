@@ -1502,7 +1502,7 @@ struct Importer
     };
 
     Compiler* const              comp;
-    CORINFO_CONTEXT_HANDLE const impTokenLookupContextHandle;
+    CORINFO_CONTEXT_HANDLE const tokenContext;
     InlineInfo* const            impInlineInfo;
     InlineResult* const          compInlineResult;
 #ifdef DEBUG
@@ -1554,17 +1554,17 @@ struct Importer
 
     Importer(Compiler* compiler);
 
-    CompAllocator getAllocator(CompMemKind kind);
+    CompAllocator getAllocator(CompMemKind kind) const;
 
     void InitDebuggingInfo();
     void eeGetStmtOffsets();
 
-    codeOptimize compCodeOpt();
-    bool IsTargetAbi(CORINFO_RUNTIME_ABI abi);
-    bool      compIsForInlining();
-    bool      compDonotInline();
+    codeOptimize compCodeOpt() const;
+    bool IsTargetAbi(CORINFO_RUNTIME_ABI abi) const;
+    bool      compIsForInlining() const;
+    bool      compDonotInline() const;
     Compiler* impInlineRoot();
-    bool      supportSIMDTypes();
+    bool      supportSIMDTypes() const;
     bool      IsBaselineSimdIsaSupported();
     bool compExactlyDependsOn(CORINFO_InstructionSet isa);
     bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
@@ -1984,8 +1984,8 @@ struct Importer
 
     bool impIsPrimitive(CorInfoType type);
 
-    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
-    CORINFO_CLASS_HANDLE impResolveClassToken(const BYTE* addr, CorInfoTokenKind kind = CORINFO_TOKENKIND_Class);
+    void ResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
+    CORINFO_CLASS_HANDLE ResolveClassToken(const uint8_t* addr, CorInfoTokenKind kind = CORINFO_TOKENKIND_Class);
 
     void impPushOnStack(GenTree* tree, typeInfo ti = typeInfo());
     StackEntry impPopStack();
@@ -3494,11 +3494,9 @@ public:
 
     bool impIsThis(GenTree* obj);
 
-    BoxPattern impBoxPatternMatch(const BYTE* codeAddr, const BYTE* codeEnd, unsigned* patternSize);
-
-    bool impILConsumesAddr(const BYTE* codeAddr);
-
-    void impResolveToken(const BYTE* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
+    BoxPattern impBoxPatternMatch(const uint8_t* codeAddr, const uint8_t* codeEnd, unsigned* patternSize);
+    bool impILConsumesAddr(const uint8_t* codeAddr);
+    void impResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind);
 
     void impDevirtualizeCall(GenTreeCall*            call,
                              CORINFO_RESOLVED_TOKEN* pResolvedToken,
@@ -3558,10 +3556,6 @@ public:
     static bool IsMathIntrinsic(NamedIntrinsic intrinsic);
 
 private:
-    //----------------- Importing the method ----------------------------------
-
-    CORINFO_CONTEXT_HANDLE impTokenLookupContextHandle; // The context used for looking up tokens.
-
 #ifdef TARGET_ARMARCH
     var_types mangleVarArgsType(var_types type);
 #endif
@@ -3580,7 +3574,7 @@ private:
                         uint32_t              methAttr,
                         InlineResult*         inlineResult);
 
-    bool impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening);
+    bool impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening) const;
 
     bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
 
@@ -5109,7 +5103,7 @@ public:
 
     const CORINFO_EE_INFO* eeInfo;
 
-    const CORINFO_EE_INFO* eeGetEEInfo()
+    const CORINFO_EE_INFO* eeGetEEInfo() const
     {
         return eeInfo;
     }
@@ -5120,12 +5114,12 @@ public:
     static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
 
     // Returns the page size for the target machine as reported by the EE.
-    target_size_t eeGetPageSize()
+    target_size_t eeGetPageSize() const
     {
-        return (target_size_t)eeGetEEInfo()->osPageSize;
+        return static_cast<target_size_t>(eeGetEEInfo()->osPageSize);
     }
 
-    bool IsTargetAbi(CORINFO_RUNTIME_ABI abi)
+    bool IsTargetAbi(CORINFO_RUNTIME_ABI abi) const
     {
         return eeGetEEInfo()->targetAbi == abi;
     }
@@ -5264,7 +5258,7 @@ public:
 
     // Should we recognize SIMD types?
     // We always do this on ARM64 to support HVA types.
-    bool supportSIMDTypes()
+    bool supportSIMDTypes() const
     {
 #ifdef TARGET_ARM64
         return true;

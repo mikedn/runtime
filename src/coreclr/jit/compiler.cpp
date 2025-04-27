@@ -2732,9 +2732,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
 
     info.compProfilerCallback = false; // Assume false until we are told to hook this method.
 
-    // Set the context for token lookup.
-    impTokenLookupContextHandle = METHOD_BEING_COMPILED_CONTEXT();
-
     info.compClassHnd  = info.compCompHnd->getMethodClass(info.compMethodHnd);
     info.compClassAttr = info.compCompHnd->getClassAttribs(info.compClassHnd);
 

@@ -469,7 +469,7 @@ static void jitInlineCode(InlineInfo* inlineInfo)
         return;
     }
 
-    JITLOG(LL_INFO100000, "INLINER: tokenLookupContextHandle for %s is 0x%p:\n",
+    JITLOG(LL_INFO100000, "INLINER: tokenContext for %s is 0x%p:\n",
            inlinerCompiler->eeGetMethodFullName(inlineInfo->iciCall->GetMethodHandle()),
            inlinerCompiler->dspPtr(inlineInfo->inlineCandidateInfo->exactContextHnd));
 
@@ -591,9 +591,6 @@ void Compiler::inlMain()
     info.compCallConv         = CorInfoCallConvExtension::Managed;
     info.compMatchedVM        = inliner->info.compMatchedVM;
 
-    // Set the context for token lookup.
-    impTokenLookupContextHandle = impInlineInfo->inlineCandidateInfo->exactContextHnd;
-
     assert(impInlineInfo->inlineCandidateInfo->clsHandle == info.compCompHnd->getMethodClass(info.compMethodHnd));
     info.compClassHnd = impInlineInfo->inlineCandidateInfo->clsHandle;
 
@@ -637,8 +634,8 @@ void Compiler::inlMain()
         info.compFlags |= CORINFO_FLG_FORCEINLINE;
     }
 
-    JITLOG(LL_INFO100000, "\nINLINER impTokenLookupContextHandle for %s is 0x%p.\n",
-           eeGetMethodFullName(info.compMethodHnd), dspPtr(impTokenLookupContextHandle));
+    JITLOG(LL_INFO100000, "\nINLINER TokenLookupContextHandle for %s is 0x%p.\n",
+           eeGetMethodFullName(info.compMethodHnd), dspPtr(impInlineInfo->inlineCandidateInfo->exactContextHnd));
 
 #ifdef DEBUG
     if (verbose)

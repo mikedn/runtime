@@ -68,64 +68,9 @@ typeInfo Importer::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
     }
 }
 
-// helper function that will tell us if the IL instruction at the addr passed
-// by param consumes an address at the top of the stack. We use it to save
-// us lvAddrTaken
-bool Compiler::impILConsumesAddr(const uint8_t* codeAddr)
+void Importer::ResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
 {
-    assert(!compIsForInlining());
-
-    OPCODE opcode;
-
-    opcode = (OPCODE)getU1LittleEndian(codeAddr);
-
-    switch (opcode)
-    {
-        // case CEE_LDFLDA: We're taking this one out as if you have a sequence
-        // like
-        //
-        //          ldloca.0
-        //          ldflda whatever
-        //
-        // of a primitivelike struct, you end up after morphing with addr of a local
-        // that's not marked as addrtaken, which is wrong. Also ldflda is usually used
-        // for structs that contain other structs, which isnt a case we handle very
-        // well now for other reasons.
-
-        case CEE_LDFLD:
-        {
-            // We won't collapse small fields. This is probably not the right place to have this
-            // check, but we're only using the function for this purpose, and is easy to factor
-            // out if we need to do so.
-
-            CORINFO_RESOLVED_TOKEN resolvedToken;
-            impResolveToken(codeAddr + 1, &resolvedToken, CORINFO_TOKENKIND_Field);
-
-            var_types lclTyp = CorTypeToVarType(info.compCompHnd->getFieldType(resolvedToken.hField));
-
-            // Preserve 'small' int types
-            if (!varTypeIsSmall(lclTyp))
-            {
-                lclTyp = varActualType(lclTyp);
-            }
-
-            if (varTypeIsSmall(lclTyp))
-            {
-                return false;
-            }
-
-            return true;
-        }
-        default:
-            break;
-    }
-
-    return false;
-}
-
-void Compiler::impResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
-{
-    resolvedToken->tokenContext = impTokenLookupContextHandle;
+    resolvedToken->tokenContext = tokenContext;
     resolvedToken->tokenScope   = info.compScopeHnd;
     resolvedToken->token        = getU4LittleEndian(addr);
     resolvedToken->tokenType    = kind;
@@ -2813,7 +2758,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
             // TODO-MIKE-Review: Can't we just use the existing resolvedToken?
             CORINFO_RESOLVED_TOKEN rt;
-            rt.tokenContext = impTokenLookupContextHandle;
+            rt.tokenContext = tokenContext;
             rt.tokenScope   = info.compScopeHnd;
             rt.token        = resolvedToken->token;
             rt.tokenType    = CORINFO_TOKENKIND_Method;
@@ -3869,7 +3814,7 @@ GenTree* Importer::ImportArrayAccessIntrinsic(
     if ((name != NI_CORINFO_INTRINSIC_Array_Get) && (elemType == TYP_REF) && ((prefixFlags & PREFIX_READONLY) == 0))
     {
         CORINFO_SIG_INFO callSig;
-        eeGetCallSiteSig(memberRef, info.compScopeHnd, impTokenLookupContextHandle, &callSig);
+        eeGetCallSiteSig(memberRef, info.compScopeHnd, tokenContext, &callSig);
         assert(callSig.hasThis());
 
         CORINFO_CLASS_HANDLE accessClsHnd;
@@ -4279,7 +4224,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
         case BoxPattern::BoxUnbox:
             assert(codeAddr + 1 + sizeof(mdToken) <= codeEnd);
 
-            unboxClass = impResolveClassToken(codeAddr + 1);
+            unboxClass = ResolveClassToken(codeAddr + 1);
 
             if (jitInfo->compareTypesForEquality(unboxClass, boxClass) != TypeCompareState::Must)
             {
@@ -4325,7 +4270,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
 
             if (boxHelper == CORINFO_HELP_BOX)
             {
-                isinstClass = impResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
+                isinstClass = ResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
 
                 TypeCompareState castResult = jitInfo->compareTypesForCast(boxClass, isinstClass);
 
@@ -4348,7 +4293,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
                 // "ldc.i4.0 + brtrue/brfalse" in case if the underlying type is not castable to
                 // the target type.
 
-                isinstClass = impResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
+                isinstClass = ResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
 
                 CORINFO_CLASS_HANDLE underlyingCls = info.compCompHnd->getTypeForBox(boxClass);
 
@@ -4391,14 +4336,14 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
             nextCodeAddr = codeAddr + 1 + sizeof(mdToken);
             assert((nextCodeAddr + 1 + sizeof(mdToken)) <= codeEnd);
 
-            isinstClass = impResolveClassToken(codeAddr + 1);
+            isinstClass = ResolveClassToken(codeAddr + 1);
 
             if (jitInfo->compareTypesForEquality(isinstClass, boxClass) != TypeCompareState::Must)
             {
                 return false;
             }
 
-            unboxClass = impResolveClassToken(nextCodeAddr + 1);
+            unboxClass = ResolveClassToken(nextCodeAddr + 1);
 
             if (jitInfo->compareTypesForEquality(unboxClass, boxClass) != TypeCompareState::Must)
             {
@@ -5521,10 +5466,8 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         return field;
     }
 
-    CorInfoInitClassResult initClass =
-        info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
-
-    if ((initClass & CORINFO_INITCLASS_USE_HELPER) == 0)
+    if ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
+         CORINFO_INITCLASS_USE_HELPER) == 0)
     {
         return field;
     }
@@ -5646,20 +5589,16 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
 
     GenTree* helperNode = nullptr;
 
-    if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
+    if (((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0) &&
+        ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
+          CORINFO_INITCLASS_USE_HELPER) != 0))
     {
-        CorInfoInitClassResult initClass =
-            info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
+        helperNode = CreateClassInitTree(resolvedToken);
 
-        if ((initClass & CORINFO_INITCLASS_USE_HELPER) != 0)
+        if (helperNode == nullptr)
         {
-            helperNode = CreateClassInitTree(resolvedToken);
-
-            if (helperNode == nullptr)
-            {
-                assert(compDonotInline());
-                return nullptr;
-            }
+            assert(compDonotInline());
+            return nullptr;
         }
     }
 
@@ -5776,15 +5715,11 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
     // Replace static read-only fields with constant if possible
     if ((opcode == CEE_LDSFLD) && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) != 0) &&
         ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) == 0) &&
-        (varTypeIsIntegral(type) || varTypeIsFloating(type)))
+        (varTypeIsIntegral(type) || varTypeIsFloating(type)) &&
+        ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
+          CORINFO_INITCLASS_INITIALIZED) != 0))
     {
-        CorInfoInitClassResult initClassResult =
-            info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, impTokenLookupContextHandle);
-
-        if ((initClassResult & CORINFO_INITCLASS_INITIALIZED) != 0)
-        {
-            return impImportStaticReadOnlyField(fldAddr, type);
-        }
+        return impImportStaticReadOnlyField(fldAddr, type);
     }
 
 #ifdef TARGET_64BIT
@@ -6030,7 +5965,7 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
 // so that callee can be tail called. Note that here we don't check
 // compatibility in IL Verifier sense, but on the lines of return type
 // sizes are equal and get returned in the same return register(s).
-bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening)
+bool Compiler::impTailCallRetTypeCompatible(GenTreeCall* call, bool allowWidening) const
 {
     if (!varTypeIsStruct(call->GetRetSigType()))
     {
@@ -8690,7 +8625,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PREFIX;
 
             case CEE_CONSTRAINED:
-                impResolveToken(codeAddr, &constrainedResolvedToken, CORINFO_TOKENKIND_Constrained);
+                ResolveToken(codeAddr, &constrainedResolvedToken, CORINFO_TOKENKIND_Constrained);
                 codeAddr += 4;
                 JITDUMP(" (%08X) ", constrainedResolvedToken.token);
 
@@ -9232,7 +9167,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDELEMA:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
@@ -9272,7 +9207,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDELEM:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
@@ -9374,7 +9309,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             // stelem for reference and value types
             case CEE_STELEM:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
@@ -10245,7 +10180,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDFLD:
             case CEE_LDFLDA:
             {
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
                                &fieldInfo);
@@ -10389,7 +10324,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_STFLD:
             {
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
@@ -10498,7 +10433,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_LDSFLD:
             case CEE_LDSFLDA:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDSFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
                                &fieldInfo);
@@ -10528,7 +10463,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_STSFLD:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
                 eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
@@ -10575,7 +10510,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
             case CEE_UNBOX:
             case CEE_UNBOX_ANY:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if ((opcode == CEE_UNBOX_ANY) && !info.compCompHnd->isValueClass(resolvedToken.hClass))
@@ -10594,14 +10529,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_SIZEOF:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 impPushOnStack(gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass)));
                 break;
 
             case CEE_CASTCLASS:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 ImportCastClass(resolvedToken, false);
@@ -10643,7 +10578,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_INITOBJ:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
@@ -10673,7 +10608,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_CPOBJ:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
@@ -10706,7 +10641,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_STOBJ:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (info.compCompHnd->isValueClass(resolvedToken.hClass))
@@ -10761,7 +10696,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 break;
 
             case CEE_LDOBJ:
-                impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+                ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
                 if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
@@ -10904,7 +10839,7 @@ void Importer::ImportMkRefAny(const uint8_t* codeAddr)
     comp->fgNoStructPromotion = true;
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
     JITDUMP(" %08X", resolvedToken.token);
 
     GenTree* op2 = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
@@ -10978,7 +10913,7 @@ void Importer::ImportRefAnyVal(const uint8_t* codeAddr)
     }
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
     JITDUMP(" %08X", resolvedToken.token);
 
     GenTree* op2 = impTokenToHandle(&resolvedToken);
@@ -11105,7 +11040,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
 void Importer::ImportIsInst(const uint8_t* codeAddr)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
     JITDUMP(" %08X", resolvedToken.token);
 
     GenTree* op2 = nullptr;
@@ -11494,7 +11429,7 @@ LOAD_VALUE:
 int Importer::ImportBox(const uint8_t* codeAddr, const uint8_t* codeEnd)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Box);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Box);
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_HELPER_DESC          calloutHelper;
@@ -11524,7 +11459,7 @@ int Importer::ImportBox(const uint8_t* codeAddr, const uint8_t* codeEnd)
 void Importer::ImportLdToken(const uint8_t* codeAddr)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Ldtoken);
     JITDUMP(" %08X", resolvedToken.token);
     assert(resolvedToken.hClass != nullptr);
 
@@ -11580,8 +11515,7 @@ void Importer::ImportJmp(const uint8_t* codeAddr, BasicBlock* block)
     }
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
-
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
 
     // The signature of the target has to be identical to ours.
@@ -11609,7 +11543,7 @@ void Importer::ImportJmp(const uint8_t* codeAddr, BasicBlock* block)
 void Importer::ImportLdFtn(const uint8_t* codeAddr, CORINFO_RESOLVED_TOKEN& constrainedResolvedToken, int prefixFlags)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
@@ -11641,7 +11575,7 @@ void Importer::ImportLdFtn(const uint8_t* codeAddr, CORINFO_RESOLVED_TOKEN& cons
 void Importer::ImportLdVirtFtn(const uint8_t* codeAddr)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
@@ -11700,7 +11634,7 @@ void Importer::ImportLdVirtFtn(const uint8_t* codeAddr)
 void Importer::ImportNewArr(const uint8_t* codeAddr, BasicBlock* block)
 {
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Newarr);
     JITDUMP(" %08X", resolvedToken.token);
 
     GenTree* handleOp = nullptr;
@@ -11800,7 +11734,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     }
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_NewObj);
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
@@ -12315,7 +12249,7 @@ void Importer::ImportCallI(const uint8_t* codeAddr, int prefixFlags)
     CORINFO_CALL_INFO      callInfo{};
 
     resolvedToken.token        = getU4LittleEndian(codeAddr);
-    resolvedToken.tokenContext = impTokenLookupContextHandle;
+    resolvedToken.tokenContext = tokenContext;
     resolvedToken.tokenScope   = info.compScopeHnd;
     JITDUMP(" %08X", resolvedToken.token);
 
@@ -12332,7 +12266,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     assert((opcode == CEE_CALL) || (opcode == CEE_CALLVIRT));
 
     CORINFO_RESOLVED_TOKEN resolvedToken;
-    impResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
+    ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Method);
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
@@ -12741,7 +12675,7 @@ void Importer::impAddPendingEHSuccessors(BasicBlock* block)
                 else
                 {
                     CORINFO_RESOLVED_TOKEN resolvedToken;
-                    resolvedToken.tokenContext = impTokenLookupContextHandle;
+                    resolvedToken.tokenContext = tokenContext;
                     resolvedToken.tokenScope   = info.compScopeHnd;
                     resolvedToken.token        = ehDesc->ebdTyp;
                     resolvedToken.tokenType    = CORINFO_TOKENKIND_Class;
@@ -13994,8 +13928,6 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
                 return;
             }
 
-            // Speculatively check if initClass() can be done.
-            // If it can be done, we will try to inline the method.
             CorInfoInitClassResult initClassResult =
                 comp->info.compCompHnd->initClass(nullptr, param->fncHandle, param->exactContextHnd);
 
@@ -16179,7 +16111,7 @@ bool Compiler::impIsThis(GenTree* obj)
 
 bool Importer::impIsPrimitive(CorInfoType jitType)
 {
-    return ((CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || jitType == CORINFO_TYPE_PTR);
+    return (CORINFO_TYPE_BOOL <= jitType && jitType <= CORINFO_TYPE_DOUBLE) || (jitType == CORINFO_TYPE_PTR);
 }
 
 Importer::StackEntry* Compiler::impAllocStack(unsigned size)
@@ -16205,7 +16137,8 @@ Importer::Stack::Stack(Compiler* compiler)
 
 Importer::Importer(Compiler* comp)
     : comp(comp)
-    , impTokenLookupContextHandle(comp->impTokenLookupContextHandle)
+    , tokenContext(comp->compIsForInlining() ? comp->impInlineInfo->inlineCandidateInfo->exactContextHnd
+                                             : METHOD_BEING_COMPILED_CONTEXT())
     , impInlineInfo(comp->impInlineInfo)
     , compInlineResult(comp->compInlineResult)
 #ifdef DEBUG
@@ -16217,27 +16150,27 @@ Importer::Importer(Compiler* comp)
 {
 }
 
-CompAllocator Importer::getAllocator(CompMemKind kind)
+CompAllocator Importer::getAllocator(CompMemKind kind) const
 {
     return comp->getAllocator(kind);
 }
 
-codeOptimize Importer::compCodeOpt()
+codeOptimize Importer::compCodeOpt() const
 {
     return comp->compCodeOpt();
 }
 
-bool Importer::IsTargetAbi(CORINFO_RUNTIME_ABI abi)
+bool Importer::IsTargetAbi(CORINFO_RUNTIME_ABI abi) const
 {
     return comp->IsTargetAbi(abi);
 }
 
-bool Importer::compIsForInlining()
+bool Importer::compIsForInlining() const
 {
     return impInlineInfo != nullptr;
 }
 
-bool Importer::compDonotInline()
+bool Importer::compDonotInline() const
 {
     return compIsForInlining() ? compInlineResult->IsFailure() : false;
 }
@@ -16248,7 +16181,7 @@ Compiler* Importer::impInlineRoot()
 }
 
 #ifdef FEATURE_SIMD
-bool Importer::supportSIMDTypes()
+bool Importer::supportSIMDTypes() const
 {
     return comp->supportSIMDTypes();
 }
@@ -17030,17 +16963,12 @@ bool Importer::inlImportReturn(InlineInfo* inlineInfo, GenTree* op, CORINFO_CLAS
     return comp->inlImportReturn(*this, inlineInfo, op, retClsHnd);
 }
 
-void Importer::impResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolvedToken, CorInfoTokenKind kind)
-{
-    comp->impResolveToken(addr, resolvedToken, kind);
-}
-
-CORINFO_CLASS_HANDLE Importer::impResolveClassToken(const uint8_t* addr, CorInfoTokenKind kind)
+CORINFO_CLASS_HANDLE Importer::ResolveClassToken(const uint8_t* addr, CorInfoTokenKind kind)
 {
     assert((kind == CORINFO_TOKENKIND_Class) || (kind == CORINFO_TOKENKIND_Casting));
 
     CORINFO_RESOLVED_TOKEN token{};
-    comp->impResolveToken(addr, &token, kind);
+    ResolveToken(addr, &token, kind);
     return token.hClass;
 }
 

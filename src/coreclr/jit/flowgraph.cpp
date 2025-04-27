@@ -1313,11 +1313,8 @@ void Compiler::phAddInternal()
 {
     noway_assert(!compIsForInlining());
 
-    // Insert call to class constructor as the first basic block if
-    // we were asked to do so.
-    if (info.compCompHnd->initClass(nullptr /* field */, nullptr /* method */,
-                                    impTokenLookupContextHandle /* context */) &
-        CORINFO_INITCLASS_USE_HELPER)
+    if ((info.compCompHnd->initClass(nullptr, nullptr, METHOD_BEING_COMPILED_CONTEXT()) &
+         CORINFO_INITCLASS_USE_HELPER) != 0)
     {
         fgEnsureFirstBBisScratch();
         fgNewStmtAtBeg(fgFirstBB, gtNewInitThisClassHelperCall());
