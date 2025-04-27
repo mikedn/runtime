@@ -2813,11 +2813,13 @@ void Compiler::compCompileFinish()
     if (FILE* funcInfoFile = compJitFuncInfoFile)
     {
         assert(!compIsForInlining());
-#ifdef DEBUG // We only have access to info.compFullName in DEBUG builds.
-        fprintf(funcInfoFile, "%s\n", info.compFullName);
-#elif FEATURE_SIMD
-        fprintf(funcInfoFile, " %s\n", eeGetMethodFullName(info.compMethodHnd));
+        fprintf(funcInfoFile, "%s\n",
+#ifdef DEBUG
+                info.compFullName
+#else
+                eeGetMethodFullName(info.compMethodHnd)
 #endif
+                );
         fflush(funcInfoFile);
     }
 #endif // FUNC_INFO_LOGGING

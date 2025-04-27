@@ -23,10 +23,10 @@ class CILJit : public ICorJitCompiler
                                CORINFO_METHOD_INFO* methodInfo,
                                unsigned             flags,
                                uint8_t**            nativeEntry,
-                               uint32_t*            nativeSizeOfCode);
-    void ProcessShutdownWork(ICorStaticInfo* statInfo);
-    void getVersionIdentifier(GUID* versionIdentifier);
-    unsigned getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags);
+                               uint32_t*            nativeSizeOfCode) override;
+    void ProcessShutdownWork(ICorStaticInfo* statInfo) override;
+    void getVersionIdentifier(GUID* versionIdentifier) override;
+    unsigned getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags) override;
 };
 
 extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
@@ -374,17 +374,6 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 #endif
 
     return length;
-}
-
-unsigned Compiler::eeGetArrayDataOffset(var_types type)
-{
-    return OFFSETOF__CORINFO_Array__data;
-}
-
-unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
-{
-    assert(rank > 0);
-    return eeGetArrayDataOffset(type) + 2 * varTypeSize(TYP_INT) * rank;
 }
 
 void Compiler::eeGetVars()
@@ -812,12 +801,7 @@ CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE cont
     return info.compCompHnd->getMethodClass(reinterpret_cast<CORINFO_METHOD_HANDLE>(context));
 }
 
-/*****************************************************************************
- *
- *                      Utility functions
- */
-
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
+#if defined(DEBUG) || FUNC_INFO_LOGGING
 
 static bool eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
 {
@@ -828,6 +812,35 @@ static CORINFO_METHOD_HANDLE eeGetMethodHandleForNative(CORINFO_METHOD_HANDLE me
 {
     assert((reinterpret_cast<uintptr_t>(method) & 0x3) == 0x2);
     return reinterpret_cast<CORINFO_METHOD_HANDLE>(reinterpret_cast<uintptr_t>(method) & ~0x3);
+}
+
+const char* Compiler::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
+{
+    const char* className;
+
+    if (!eeRunWithSPMIErrorTrap([&] { className = info.compCompHnd->getClassName(clsHnd); }))
+    {
+        className = "hackishClassName";
+    }
+
+    return className;
+}
+
+const char* Compiler::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
+{
+    const char* fieldName;
+
+    if (!eeRunWithSPMIErrorTrap([&] { fieldName = info.compCompHnd->getFieldName(field, className); }))
+    {
+        if (className != nullptr)
+        {
+            *className = "hackishClassName";
+        }
+
+        fieldName = "hackishFieldName";
+    }
+
+    return fieldName;
 }
 
 const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className)
@@ -883,57 +896,6 @@ const char* Compiler::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
 
     return methodName;
 }
-
-const char* Compiler::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
-{
-    const char* fieldName;
-
-    if (!eeRunWithSPMIErrorTrap([&] { fieldName = info.compCompHnd->getFieldName(field, className); }))
-    {
-        if (className != nullptr)
-        {
-            *className = "hackishClassName";
-        }
-
-        fieldName = "hackishFieldName";
-    }
-
-    return fieldName;
-}
-
-const char* Compiler::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
-{
-    const char* className;
-
-    if (!eeRunWithSPMIErrorTrap([&] { className = info.compCompHnd->getClassName(clsHnd); }))
-    {
-        className = "hackishClassName";
-    }
-
-    return className;
-}
-
-const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
-{
-    const char* className;
-
-    if (!eeRunWithSPMIErrorTrap([&] {
-            if (info.compCompHnd->getTypeInstantiationArgument(clsHnd, 0) == NO_CLASS_HANDLE)
-            {
-                className = info.compCompHnd->getClassNameFromMetadata(clsHnd, nullptr);
-            }
-            else
-            {
-                className = info.compCompHnd->getClassName(clsHnd);
-            }
-        }))
-    {
-        className = "hackishClassName";
-    }
-
-    return className;
-}
-
 const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
 {
     const char* className;
@@ -1119,6 +1081,27 @@ const char* Compiler::eeGetMethodFullName(CORINFO_METHOD_HANDLE method)
 #endif // DEBUG || FEATURE_JIT_METHOD_PERF || FEATURE_SIMD
 
 #ifdef DEBUG
+
+const char* Compiler::eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd)
+{
+    const char* className;
+
+    if (!eeRunWithSPMIErrorTrap([&] {
+            if (info.compCompHnd->getTypeInstantiationArgument(clsHnd, 0) == NO_CLASS_HANDLE)
+            {
+                className = info.compCompHnd->getClassNameFromMetadata(clsHnd, nullptr);
+            }
+            else
+            {
+                className = info.compCompHnd->getClassName(clsHnd);
+            }
+        }))
+    {
+        className = "hackishClassName";
+    }
+
+    return className;
+}
 
 const WCHAR* Compiler::eeGetCPString(void* strHandle)
 {

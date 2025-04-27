@@ -2378,11 +2378,11 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     if (isMDArray)
     {
-        dataOffset = eeGetMDArrayDataOffset(elementType, rank);
+        dataOffset = Compiler::eeGetMDArrayDataOffset(elementType, rank);
     }
     else
     {
-        dataOffset = eeGetArrayDataOffset(elementType);
+        dataOffset = Compiler::eeGetArrayDataOffset(elementType);
     }
 
     GenTree*    srcAddr = gtNewIconHandleNode(initData, HandleKind::ConstData);
@@ -16493,34 +16493,26 @@ void Importer::GetVMFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
     info.compCompHnd->getFieldInfo(resolvedToken, info.compMethodHnd, flags, result);
 }
 
-const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
-{
-    return comp->eeGetFieldName(field, className);
-}
-
+#ifdef DEBUG
 const char* Importer::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
 {
     return comp->eeGetClassName(clsHnd);
+}
+
+const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
+{
+    return comp->eeGetFieldName(field, className);
 }
 
 const char* Importer::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className)
 {
     return comp->eeGetMethodName(method, className);
 }
+#endif
 
 CORINFO_METHOD_HANDLE Importer::eeFindHelper(unsigned helper)
 {
     return Compiler::eeFindHelper(helper);
-}
-
-unsigned Importer::eeGetArrayDataOffset(var_types type)
-{
-    return Compiler::eeGetArrayDataOffset(type);
-}
-
-unsigned Importer::eeGetMDArrayDataOffset(var_types type, unsigned rank)
-{
-    return Compiler::eeGetMDArrayDataOffset(type, rank);
 }
 
 bool Importer::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)

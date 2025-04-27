@@ -1452,8 +1452,9 @@ enum class BoxPattern
     BoxCastUnbox
 };
 
-struct Importer
+class Importer
 {
+public:
     struct StackEntry
     {
         GenTree* val;
@@ -2177,12 +2178,13 @@ struct Importer
     void GetVMMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner = nullptr);
     void GetVMFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_ACCESS_FLAGS flags, CORINFO_FIELD_INFO* result);
 
-    const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
+#ifdef DEBUG
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
+    const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
+#endif
+
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
-    static unsigned eeGetArrayDataOffset(var_types type);
-    static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
 
     bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
 
@@ -2400,18 +2402,16 @@ class Compiler
     friend class VNConstPropVisitor;
     friend class StructPromotionHelper;
     friend class AssertionProp;
-    friend struct Importer;
+    friend class Importer;
     friend class SIMDCoalescingBuffer;
     friend class ValueNumbering;
     friend class LoopHoist;
-
 #ifdef FEATURE_HW_INTRINSICS
     friend struct HWIntrinsicInfo;
-#endif // FEATURE_HW_INTRINSICS
-
+#endif
 #ifndef TARGET_64BIT
     friend class DecomposeLongs;
-#endif // !TARGET_64BIT
+#endif
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
@@ -5068,10 +5068,16 @@ protected:
     */
 
 public:
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
+#if defined(DEBUG) || FUNC_INFO_LOGGING
+    const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
+    const char* eeGetFieldName(CORINFO_FIELD_HANDLE fieldHnd, const char** classNamePtr = nullptr);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className);
     const char* eeGetMethodFullName(CORINFO_METHOD_HANDLE method);
+#endif
+#ifdef DEBUG
+    const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
     unsigned compMethodHash(CORINFO_METHOD_HANDLE methodHandle);
+    const WCHAR* eeGetCPString(void* stringHandle);
 #endif
 
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
@@ -5084,9 +5090,17 @@ public:
     }
 
     // Gets the offset of a SDArray's first element
-    static unsigned eeGetArrayDataOffset(var_types type);
+    static unsigned eeGetArrayDataOffset(var_types type)
+    {
+        return OFFSETOF__CORINFO_Array__data;
+    }
+
     // Gets the offset of a MDArray's first element
-    static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank);
+    static unsigned eeGetMDArrayDataOffset(var_types type, unsigned rank)
+    {
+        assert(rank > 0);
+        return eeGetArrayDataOffset(type) + 2 * varTypeSize(TYP_INT) * rank;
+    }
 
     // Returns the page size for the target machine as reported by the EE.
     target_size_t eeGetPageSize() const
@@ -5115,9 +5129,6 @@ public:
 #if defined(DEBUG) && defined(UNIX_AMD64_ABI)
     static void dumpSystemVClassificationType(SystemVClassificationType ct);
 #endif
-#ifdef DEBUG
-    const WCHAR* eeGetCPString(void* stringHandle);
-#endif
 
     template <typename ParamType>
     bool eeRunWithErrorTrap(void (*function)(ParamType*), ParamType* param)
@@ -5134,10 +5145,6 @@ public:
     }
 
     bool eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param);
-
-    const char* eeGetFieldName(CORINFO_FIELD_HANDLE fieldHnd, const char** classNamePtr = nullptr);
-    const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
-    const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
