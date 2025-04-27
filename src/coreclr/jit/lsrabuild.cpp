@@ -1801,7 +1801,7 @@ static bool MustUseFramePointer(Compiler* compiler)
         result = true;
     }
 #ifndef TARGET_AMD64
-    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
+    else if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_FRAMED))
     {
         // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons:
         // (1) the COMPlus_JitFramed variable is set, or

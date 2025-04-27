@@ -3074,7 +3074,7 @@ bool Compiler::fgOptimizeBranch(BasicBlock* bJump)
     // we are willing to have more code expansion since we
     // won't be running code from this page
     //
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         if (rareJump)
         {

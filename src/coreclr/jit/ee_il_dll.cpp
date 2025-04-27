@@ -315,15 +315,14 @@ CorJitResult CILJit::compileMethod(ICorJitInfo*         jitInfo,
     CORJIT_FLAGS corJitFlags;
     uint32_t     corJitFlagsSize = jitInfo->getJitFlags(&corJitFlags, sizeof(corJitFlags));
     assert(corJitFlagsSize == sizeof(corJitFlags));
-    JitFlags jitFlags;
-    jitFlags.SetFromFlags(corJitFlags);
+    JitFlags jitFlags(corJitFlags);
 
     void* nativeCode = nullptr;
     int   result     = jitNativeCode(jitInfo, methodInfo, &nativeCode, nativeCodeSize, &jitFlags);
 
     if (result == CORJIT_OK)
     {
-        *entryAddress = static_cast<BYTE*>(nativeCode);
+        *entryAddress = static_cast<uint8_t*>(nativeCode);
     }
 
     return static_cast<CorJitResult>(result);
@@ -347,8 +346,7 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
     unsigned length = 16;
 
 #ifdef TARGET_XARCH
-    JitFlags jitFlags;
-    jitFlags.SetFromFlags(cpuCompileFlags);
+    JitFlags jitFlags(cpuCompileFlags);
 
     if (!jitFlags.IsSet(JitFlags::JIT_FLAG_PREJIT) && jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD) &&
         jitFlags.GetInstructionSetFlags().HasInstructionSet(InstructionSet_AVX2))

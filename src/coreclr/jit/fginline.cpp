@@ -555,23 +555,6 @@ void Compiler::inlMain()
 
     Compiler* inliner = impInlineRoot();
 
-    JitFlags jitFlags = *inliner->opts.jitFlags;
-
-    // The following flags are lost when inlining.
-    jitFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
-    jitFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
-    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
-    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
-    jitFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
-    jitFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
-    jitFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
-    jitFlags.Clear(JitFlags::JIT_FLAG_OSR);
-
-    jitFlags.Set(JitFlags::JIT_FLAG_SKIP_VERIFICATION);
-
-#ifdef FEATURE_SIMD
-    featureSIMD = inliner->featureSIMD;
-#endif
 #ifdef DEBUG
     verbose          = inliner->verbose;
     verboseTrees     = inliner->verboseTrees;
@@ -580,10 +563,9 @@ void Compiler::inlMain()
     compBasicBlockID = inliner->compBasicBlockID;
 #endif
 
-    info.compIsStatic  = (info.compFlags & CORINFO_FLG_STATIC) != 0;
-    info.compInitMem   = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
-    info.compIsVarArgs = false;
-
+    info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
+    info.compInitMem          = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
+    info.compIsVarArgs        = false;
     info.compILEntry          = 0;
     info.compPatchpointInfo   = nullptr;
     info.compProfilerCallback = false;
@@ -597,11 +579,20 @@ void Compiler::inlMain()
     assert(impInlineInfo->inlineCandidateInfo->clsAttr == info.compCompHnd->getClassAttribs(info.compClassHnd));
     info.compClassAttr = impInlineInfo->inlineCandidateInfo->clsAttr;
 
-    opts.jitFlags        = &jitFlags;
-    opts.compSupportsISA = inliner->opts.compSupportsISA;
-    opts.optFlags        = inliner->opts.optFlags;
-    opts.compCodeOpt     = inliner->opts.compCodeOpt;
-    opts.compDbgCode     = inliner->opts.compDbgCode;
+    JitFlags jitFlags(inliner->opts.GetJitFlags());
+    jitFlags.Clear(JitFlags::JIT_FLAG_BBINSTR);
+    jitFlags.Clear(JitFlags::JIT_FLAG_PROF_ENTERLEAVE);
+    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_EnC);
+    jitFlags.Clear(JitFlags::JIT_FLAG_DEBUG_INFO);
+    jitFlags.Clear(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+    jitFlags.Clear(JitFlags::JIT_FLAG_TRACK_TRANSITIONS);
+    jitFlags.Clear(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+    jitFlags.Clear(JitFlags::JIT_FLAG_OSR);
+    opts.SetJitFlags(jitFlags.GetFlagRaw(), inliner->opts.compSupportsISA);
+
+    opts.optFlags    = inliner->opts.optFlags;
+    opts.compCodeOpt = inliner->opts.compCodeOpt;
+    opts.compDbgCode = inliner->opts.compDbgCode;
 
     assert(!inliner->opts.MinOpts());
     opts.SetMinOpts(false);

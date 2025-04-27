@@ -611,7 +611,7 @@ instrDescSmall* EmitterBase::AllocAnyInstr(unsigned sz, bool updateLastIns)
     //     ARM - This is currently broken on TARGET_ARM
     //     When nopSize is odd we misalign currentIGCodeSize
     //
-    if (!compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && !isInsertingRandomNop &&
+    if (!compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && !isInsertingRandomNop &&
         !currentIG->IsPrologOrEpilog() &&
         enableRandomNops // sometimes we turn off where exact codegen is needed (pinvoke inline)
         )
@@ -2469,7 +2469,7 @@ void Encoder::Encode(ArchEmitter& emit)
 #ifdef TARGET_XARCH
     // For x64/x86, align methods that are "optimizations enabled" to 32 byte
     // boundaries if they are larger than 16 bytes and contain a loop.
-    if (compiler->opts.OptimizationEnabled() && !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+    if (compiler->opts.OptimizationEnabled() && !compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) &&
         (hotCodeSize > 16) && compiler->fgHasLoops)
     {
         allocMemFlag = CORJIT_ALLOCMEM_FLG_32BYTE_ALIGN;

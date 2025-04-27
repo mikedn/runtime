@@ -465,8 +465,7 @@ void BlockCountInstrumentor::InstrumentMethodEntry(Schema& schema, uint8_t* prof
     CompiledMethodInfo& info = m_comp->info;
 
     // Nothing to do, if not prejitting.
-    //
-    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         return;
     }
@@ -1532,8 +1531,8 @@ PhaseStatus Compiler::fgPrepareToInstrumentMethod()
     //
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-    const bool prejit = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool osr    = (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0));
+    const bool prejit = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool osr    = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0);
     const bool useEdgeProfiles = (JitConfig.JitEdgeProfiling() > 0) && !prejit && !osr;
 
     if (useEdgeProfiles)
@@ -1621,7 +1620,7 @@ PhaseStatus Compiler::phInstrumentMethod()
     //
     bool minimalProbeMode = false;
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         minimalProbeMode = (JitConfig.JitMinimalPrejitProfiling() > 0);
     }
@@ -1714,7 +1713,7 @@ PhaseStatus Compiler::phIncorporateProfileData()
 
     if (!fgHaveProfileData())
     {
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
+        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT))
         {
             JITDUMP("BBOPT set, but no profile data available (hr=%08x)\n", fgPgoQueryResult);
         }

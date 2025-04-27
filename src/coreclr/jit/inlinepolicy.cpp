@@ -90,8 +90,8 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
         return new (compiler, CMK_Inlining) ProfilePolicy(compiler, isPrejitRoot);
     }
 
-    const bool isPrejit   = compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool isSpeedOpt = compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_SPEED_OPT);
+    const bool isPrejit   = compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool isSpeedOpt = compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_SPEED_OPT);
 
     if ((JitConfig.JitExtDefaultPolicy() != 0))
     {

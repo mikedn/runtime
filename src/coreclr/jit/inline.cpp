@@ -1369,7 +1369,7 @@ void InlineStrategy::DumpDataEnsurePolicyIsSet()
     // successful policy, so fake one up.
     if (m_LastSuccessfulPolicy == nullptr)
     {
-        const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+        const bool isPrejitRoot = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
         m_LastSuccessfulPolicy  = InlinePolicy::GetPolicy(m_Compiler, isPrejitRoot);
 
         // Add in a bit of data....
@@ -1512,7 +1512,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     const CompilerOptions&    opts    = m_Compiler->opts;
     const CodeGenInterface&   codeGen = *m_Compiler->codeGen;
 
-    const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool isPrejitRoot = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
 
     // We'd really like the method identifier to be unique and
     // durable across crossgen invocations. Not clear how to

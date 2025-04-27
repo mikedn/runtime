@@ -723,8 +723,8 @@ ILLabelSet Compiler::fgFindJumpTargets(ILStats* ilStats)
         inlineResult->Note(InlineObservation::CALLEE_BEGIN_OPCODE_SCAN);
     }
 
-    const bool     isPreJit      = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool     isTier1       = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    const bool     isPreJit      = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool     isTier1       = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER1);
     const bool     preciseScan   = (inlineResult != nullptr) && inlineResult->GetPolicy()->RequiresPreciseScan();
     const bool     resolveTokens = preciseScan && (isPreJit || isTier1);
     OPCODE         opcode        = CEE_NOP;
@@ -2093,19 +2093,11 @@ void Compiler::fgLinkBasicBlocks()
     }
 }
 
-//------------------------------------------------------------------------
-// fgMakeBasicBlocks: walk the IL creating basic blocks, and look for
-//   operations that might get optimized if this method were to be inlined.
+// Walk the IL creating basic blocks, and look for operations that
+// might get optimized if this method were to be inlined.
 //
-// Arguments:
-//   jumpTarget -- [in] bit vector of jump targets found by fgFindJumpTargets
+// Returns the number of return blocks (BBJ_RETURN) in the method (may be zero).
 //
-// Returns:
-//   number of return blocks (BBJ_RETURN) in the method (may be zero)
-//
-// Notes:
-//   Invoked for prejited and jitted methods, and for all inlinees
-
 unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
 {
     DBEXEC(verbose, dmpILJumpTargets(jumpTargets);)
@@ -2129,14 +2121,14 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
         }
     }
 
-    InlineInfo* const    inlineInfo         = impInlineInfo;
-    InlineResult* const  inlineResult       = compInlineResult;
-    const IL_OFFSET      codeSize           = info.compILCodeSize;
-    const uint8_t* const codeBegin          = info.compCode;
-    const uint8_t* const codeEnd            = codeBegin + codeSize;
-    const uint8_t*       codeAddr           = codeBegin;
-    unsigned             retBlocks          = 0;
-    unsigned             currentBlockOffset = 0;
+    InlineInfo* const    inlineInfo          = impInlineInfo;
+    InlineResult* const  inlineResult        = compInlineResult;
+    const IL_OFFSET      codeSize            = info.compILCodeSize;
+    const uint8_t* const codeBegin           = info.compCode;
+    const uint8_t* const codeEnd             = codeBegin + codeSize;
+    const uint8_t*       codeAddr            = codeBegin;
+    unsigned             retBlocks           = 0;
+    unsigned             currentBlockOffset  = 0;
 
     do
     {
@@ -2285,13 +2277,7 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
                                  static_cast<unsigned>(codeAddr - codeBegin));
                     }
 
-                    if (compCanSwitchToOptimized() && fgMayExplicitTailCall())
-                    {
-                        // Method has an explicit tail call that may run like a loop or may not be generated as a tail
-                        // call in tier 0, switch to optimized to avoid spending too much time running slower code and
-                        // to avoid stack overflow from recursion
-                        compSwitchToOptimized();
-                    }
+                    impHasExplicitTailCall = true;
                 }
 #ifdef DEBUG
                 else if (compTailCallStress() && (inlineInfo == nullptr))

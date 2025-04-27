@@ -2496,7 +2496,7 @@ GenTree* Lowering::LowerDirectUnmanagedCall(GenTreeCall* call)
     // to turn fAllowRel32 off globally.
     // TODO-MIKE-Review: Does this apply to x86?
     if ((entryPoint.accessType == IAT_VALUE) && IsCallTargetInRange(entryPoint.addr) &&
-        (!call->IsSuppressGCTransition() || comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT)))
+        (!call->IsSuppressGCTransition() || comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT)))
     {
         call->m_entryPointAccessType = IAT_VALUE;
         call->m_entryPointAddr       = entryPoint.addr;
@@ -2964,7 +2964,7 @@ void Lowering::InsertPInvokeMethodProlog()
 #ifdef TARGET_64BIT
     // On 32-bit targets, CORINFO_HELP_INIT_PINVOKE_FRAME initializes the PInvoke frame and then pushes it onto
     // the current thread's Frame stack. On 64-bit targets, it only initializes the PInvoke frame.
-    if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+    if (comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         // Push a frame - if we are NOT in an IL stub, this is done right before the call
         // The init routine sets InlinedCallFrame's m_pNext, so we just set the thead's top-of-stack
@@ -3022,8 +3022,8 @@ void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_64BIT
-    if (comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
-#endif // TARGET_64BIT
+    if (comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
+#endif
     {
         InsertFrameLinkUpdate(BlockRange(), insertionPoint, PopFrame);
     }
@@ -3151,7 +3151,7 @@ void Lowering::InsertUnmanagedCallProlog(GenTreeCall* call)
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_64BIT
-    if (!comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+    if (!comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         // Set the TCB's frame to be the one we just created.
         // Note the init routine for the InlinedCallFrame (CORINFO_HELP_INIT_PINVOKE_FRAME)
@@ -3203,7 +3203,7 @@ void Lowering::InsertUnmanagedCallEpilog(GenTreeCall* call)
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_64BIT
-    if (!comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+    if (!comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         InsertFrameLinkUpdate(BlockRange(), insertionPoint, PopFrame);
     }

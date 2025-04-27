@@ -107,7 +107,7 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
 {
     Compiler* compiler = JitTls::GetCompiler();
 
-    if ((compiler == nullptr) || (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT)))
+    if ((compiler == nullptr) || (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT)))
     {
 #ifdef DEBUG
         noWayAssertBodyConditional(msg, filename, line);
@@ -322,7 +322,7 @@ void assertAbort(const char* why, const char* file, unsigned line)
 
     Compiler* comp = JitTls::GetCompiler();
 
-    if ((comp != nullptr) && comp->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if ((comp != nullptr) && comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         // If we hit an assert, and we got here, it's either because the user hit "ignore" on the
         // dialog pop-up, or they set COMPlus_ContinueOnAssert=1 to not emit a pop-up, but just continue.

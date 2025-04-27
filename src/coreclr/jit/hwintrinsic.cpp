@@ -241,7 +241,7 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
 
 bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa)
 {
-    return JitConfig.EnableHWIntrinsic() && (featureSIMD || HWIntrinsicInfo::isScalarIsa(isa)) &&
+    return JitConfig.EnableHWIntrinsic() && (featureSIMD() || HWIntrinsicInfo::isScalarIsa(isa)) &&
            (
 #ifdef DEBUG
                JitConfig.EnableIncompleteISAClass() ||
@@ -411,7 +411,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 
-    if ((retLayout != nullptr) && comp->featureSIMD)
+    if ((retLayout != nullptr) && comp->featureSIMD())
     {
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())

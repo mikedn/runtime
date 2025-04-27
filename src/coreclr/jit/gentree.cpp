@@ -2601,7 +2601,7 @@ void Compiler::gtSetCosts(GenTree* tree)
                             costSz += 2;
                         }
                     }
-                    else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+                    else if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
                     {
                         costEx += 2;
                         costSz += 6;

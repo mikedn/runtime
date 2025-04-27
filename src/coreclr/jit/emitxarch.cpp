@@ -6150,7 +6150,7 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
     // we expect the same alignment as the size of the constant.
     // TODO-MIKE-Review: Figure out why this check is disabled in crossgen.
     assert(((addr & (align - 1)) == 0) || ((compiler->compCodeOpt() == SMALL_CODE) && ((addr & 3) == 0)) ||
-           compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT));
+           compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT));
 #endif // DEBUG
 
     disp += addr;

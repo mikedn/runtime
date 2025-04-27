@@ -582,15 +582,15 @@ void CodeGen::DumpDisasmHeader() const
 
     printf("\n");
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0))
     {
         printf("; Tier-0 compilation\n");
     }
-    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
+    else if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER1))
     {
         printf("; Tier-1 compilation\n");
     }
-    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN))
+    else if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_READYTORUN))
     {
         printf("; ReadyToRun compilation\n");
     }
@@ -617,11 +617,11 @@ void CodeGen::DumpDisasmHeader() const
         printf("; unknown optimization flags\n");
     }
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         printf("; instrumented for collecting profile data\n");
     }
-    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && compiler->fgHaveProfileData())
+    else if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT) && compiler->fgHaveProfileData())
     {
         printf("; optimized using profile data\n");
     }
@@ -663,7 +663,7 @@ void CodeGen::DumpDisasmHeader() const
                compiler->fgPgoInlineePgo, compiler->fgPgoInlineeNoPgoSingleBlock, compiler->fgPgoInlineeNoPgo);
     }
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         printf("; invoked as altjit\n");
     }

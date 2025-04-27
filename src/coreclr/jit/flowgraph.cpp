@@ -363,47 +363,6 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     return bottom;
 }
 
-//------------------------------------------------------------------------
-// fgMayExplicitTailCall: Estimates conservatively for an explicit tail call, if the importer may actually use a tail
-// call.
-//
-// Return Value:
-//    - False if a tail call will not be generated
-//    - True if a tail call *may* be generated
-//
-// Assumptions:
-//    - compInitOptions() has been called
-//    - info.compIsVarArgs has been initialized
-//    - An explicit tail call has been seen
-//    - compSetOptimizationLevel() has not been called
-
-bool Compiler::fgMayExplicitTailCall()
-{
-    assert(!compIsForInlining());
-
-    if (info.compFlags & CORINFO_FLG_SYNCH)
-    {
-        // Caller is synchronized
-        return false;
-    }
-
-    if (opts.IsReversePInvoke())
-    {
-        // Reverse P/Invoke
-        return false;
-    }
-
-#if !FEATURE_FIXED_OUT_ARGS
-    if (info.compIsVarArgs)
-    {
-        // Caller is varargs
-        return false;
-    }
-#endif // FEATURE_FIXED_OUT_ARGS
-
-    return true;
-}
-
 /*****************************************************************************
  * This function returns true for blocks that are in different hot-cold regions.
  * It returns false when the blocks are both in the same regions
@@ -770,7 +729,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     GenTreeCall::Use* args;
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS))
     {
         reversePInvokeEnterHelper = CORINFO_HELP_JIT_REVERSE_PINVOKE_ENTER_TRACK_TRANSITIONS;
 
@@ -808,7 +767,7 @@ void Compiler::fgAddReversePInvokeEnterExit()
 
     tree = gtNewLclAddr(frameLcl);
 
-    CorInfoHelpFunc reversePInvokeExitHelper = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
+    CorInfoHelpFunc reversePInvokeExitHelper = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TRACK_TRANSITIONS)
                                                    ? CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT_TRACK_TRANSITIONS
                                                    : CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT;
 
@@ -1466,7 +1425,7 @@ void Compiler::phAddInternal()
         lvaInlinedPInvokeFrameVar = frameLcl->GetLclNum();
     }
 
-    if (opts.compDbgCode && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB))
+    if (opts.compDbgCode && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         CORINFO_JUST_MY_CODE_HANDLE* jmcFlagAddr = nullptr;
         CORINFO_JUST_MY_CODE_HANDLE  jmcFlag = info.compCompHnd->getJustMyCodeHandle(info.compMethodHnd, &jmcFlagAddr);

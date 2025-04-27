@@ -84,7 +84,7 @@ void CodeGen::genMov32RelocatableDisplacement(insGroup* label, regNumber reg)
     GetEmitter()->emitIns_R_L(INS_movw, reg, label);
     GetEmitter()->emitIns_R_L(INS_movt, reg, label);
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
         GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
@@ -95,7 +95,7 @@ void CodeGen::genMov32RelocatableDataLabel(RegNum reg, ConstData* data)
     GetEmitter()->emitIns_R_D(INS_movw, reg, data);
     GetEmitter()->emitIns_R_D(INS_movt, reg, data);
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
         GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }
@@ -125,7 +125,7 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movw, reg, addr);
     GetEmitter()->emitIns_MovRelocatableImmediate(INS_movt, reg, addr);
 
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
         GetEmitter()->emitIns_R_R_R(INS_add, EA_4BYTE, reg, reg, REG_PC);
     }

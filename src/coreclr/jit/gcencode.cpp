@@ -4434,7 +4434,7 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
     // trying to deduce that from other conditions that imply that all slots are untracked.
 
     const bool noTrackedGCSlots = compiler->codeGen->isFramePointerUsed() && compiler->opts.MinOpts() &&
-                                  !compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+                                  !compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) &&
                                   !JitConfig.JitMinOptsTrackGCrefs();
 
     for (CallSite* call = firstCallSite; call != nullptr; call = call->next)

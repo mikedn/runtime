@@ -195,13 +195,31 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
     return NI_Illegal;
 }
 
-GenTree* Importer::impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
-                                                CORINFO_CLASS_HANDLE  clsHnd,
-                                                CORINFO_METHOD_HANDLE method,
-                                                CORINFO_SIG_INFO*     sig,
-                                                bool                  isNewObj)
+bool Importer::IsSysNumVecIntrinsicSupported()
 {
-    bool isSupported = comp->featureSIMD && IsBaselineSimdIsaSupported();
+#ifndef FEATURE_SIMD
+    return false;
+#else
+
+#if defined(TARGET_XARCH)
+    CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
+#elif defined(TARGET_ARM64)
+    CORINFO_InstructionSet minimumIsa = InstructionSet_AdvSimd;
+#else
+#error Unsupported platform
+#endif
+
+    return JitConfig.EnableHWIntrinsic() && comp->featureSIMD() && comp->compOpportunisticallyDependsOn(minimumIsa);
+#endif
+}
+
+GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
+                                            CORINFO_CLASS_HANDLE  clsHnd,
+                                            CORINFO_METHOD_HANDLE method,
+                                            CORINFO_SIG_INFO*     sig,
+                                            bool                  isNewObj)
+{
+    bool isSupported = IsSysNumVecIntrinsicSupported();
 
     if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH

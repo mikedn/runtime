@@ -1888,7 +1888,7 @@ static FILE* OpenFlowGraphFile(Compiler* compiler, bool* wbDontClose, Phases pha
     CompiledMethodInfo& info = compiler->info;
 
 #ifdef DEBUG
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         dumpFunction =
             JitConfig.NgenDumpFg().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args);

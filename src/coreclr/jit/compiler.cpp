@@ -668,6 +668,7 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
 #error Unsupported or unset target architecture
 #endif
     , compIsVarArgs(false)
+    , compProfilerCallback(false)
     , compHasNextCallRetAddr(false)
 {
 }
@@ -739,26 +740,18 @@ void Compiler::compInit()
 #endif
 }
 
-void Compiler::compSetProcessor()
+static CORINFO_InstructionSetFlags FilterInstructionSet(
+    CORINFO_InstructionSetFlags instructionSetFlags ARM64_ARG(bool matchedVM))
 {
-    assert(!compIsForInlining());
+// NOTE: This function needs to be kept in sync with EEJitManager::SetCpuInfo() in vm\codeman.cpp
 
-    // NOTE: This function needs to be kept in sync with EEJitManager::SetCpuInfo() in vm\codeman.cpp
-
-    const JitFlags& jitFlags = *opts.jitFlags;
-
-    // The VM will set the ISA flags depending on actual hardware support.
-    // We then select which ISAs to leave enabled based on the JIT config.
-    // The exception to this is the dummy Vector64/128/256 ISAs, which must be added explicitly.
-    CORINFO_InstructionSetFlags instructionSetFlags = jitFlags.GetInstructionSetFlags();
-    opts.compSupportsISA                            = 0;
-    opts.compSupportsISAReported                    = 0;
-    opts.compSupportsISAExactly                     = 0;
+// The VM will set the ISA flags depending on actual hardware support.
+// We then select which ISAs to leave enabled based on the JIT config.
+// The exception to this is the dummy Vector64/128/256 ISAs, which must be added explicitly.
 
 #ifdef TARGET_XARCH
     if (JitConfig.EnableHWIntrinsic())
     {
-        // Dummy ISAs for simplifying the JIT code
         instructionSetFlags.AddInstructionSet(InstructionSet_Vector128);
         instructionSetFlags.AddInstructionSet(InstructionSet_Vector256);
     }
@@ -790,7 +783,7 @@ void Compiler::compSetProcessor()
     }
 
     // We need to additionally check that COMPlus_EnableSSE3_4 is set, as that
-    // is a prexisting config flag that controls the SSE3+ ISAs
+    // is a pre-existing config flag that controls the SSE3+ ISAs
     if (!JitConfig.EnableSSE3() || !JitConfig.EnableSSE3_4())
     {
         instructionSetFlags.RemoveInstructionSet(InstructionSet_SSE3);
@@ -850,7 +843,7 @@ void Compiler::compSetProcessor()
         instructionSetFlags.RemoveInstructionSet(InstructionSet_LZCNT);
 #ifdef TARGET_AMD64
         instructionSetFlags.RemoveInstructionSet(InstructionSet_LZCNT_X64);
-#endif // TARGET_AMD64
+#endif
     }
 
     if (!JitConfig.EnableBMI1())
@@ -858,7 +851,7 @@ void Compiler::compSetProcessor()
         instructionSetFlags.RemoveInstructionSet(InstructionSet_BMI1);
 #ifdef TARGET_AMD64
         instructionSetFlags.RemoveInstructionSet(InstructionSet_BMI1_X64);
-#endif // TARGET_AMD64
+#endif
     }
 
     if (!JitConfig.EnableBMI2())
@@ -866,14 +859,24 @@ void Compiler::compSetProcessor()
         instructionSetFlags.RemoveInstructionSet(InstructionSet_BMI2);
 #ifdef TARGET_AMD64
         instructionSetFlags.RemoveInstructionSet(InstructionSet_BMI2_X64);
-#endif // TARGET_AMD64
+#endif
+    }
+#endif // TARGET_XARCH
+
+#ifdef TARGET_ARM64
+    if (!matchedVM)
+    {
+        // The x86/x64 architecture capabilities flags overlap with the ARM64 ones. Set a reasonable architecture
+        // target default. Currently this is disabling all ARM64 architecture features except FP and SIMD, but this
+        // should be altered to possibly enable all of them, when they are known to all work.
+        instructionSetFlags = {};
+        instructionSetFlags.AddInstructionSet(InstructionSet_ArmBase);
+        instructionSetFlags.AddInstructionSet(InstructionSet_AdvSimd);
+        instructionSetFlags.Set64BitInstructionSetVariants();
     }
 
-#endif // TARGET_XARCH
-#if defined(TARGET_ARM64)
     if (JitConfig.EnableHWIntrinsic())
     {
-        // Dummy ISAs for simplifying the JIT code
         instructionSetFlags.AddInstructionSet(InstructionSet_Vector64);
         instructionSetFlags.AddInstructionSet(InstructionSet_Vector128);
     }
@@ -909,17 +912,17 @@ void Compiler::compSetProcessor()
         instructionSetFlags.RemoveInstructionSet(InstructionSet_AdvSimd);
         instructionSetFlags.RemoveInstructionSet(InstructionSet_AdvSimd_Arm64);
     }
-#endif
+#endif // TARGET_ARM64
 
-    instructionSetFlags = EnsureInstructionSetFlagsAreValid(instructionSetFlags);
-    opts.setSupportedISAs(instructionSetFlags);
+    return EnsureInstructionSetFlagsAreValid(instructionSetFlags);
+}
+
+void Compiler::compSetProcessor()
+{
+    assert(!compIsForInlining());
 
 #ifdef TARGET_XARCH
     codeGen->SetUseVEXEncoding(canUseVexEncoding());
-#endif
-
-#ifdef FEATURE_SIMD
-    featureSIMD = jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
 #endif
 }
 
@@ -951,13 +954,13 @@ void Compiler::compInitAltJit()
     assert(!compIsForInlining());
 
     const JitConfigValues::MethodSet& altJitMethods =
-        opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
+        opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? JitConfig.AltJitNgen() : JitConfig.AltJit();
 
     // Some options don't affect the real jit when an altjit is present. The real jit has no way to know
     // if an altjit is present so we simply assume it is present if the altjit method list is not empty.
     INDEBUG(opts.isAltJitPresent = !altJitMethods.isEmpty());
 
-    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         return;
     }
@@ -1048,7 +1051,7 @@ void Compiler::compInitConfigOptions()
         const auto  methodName   = info.compMethodName;
         const auto  methodParams = &info.compMethodInfo->args;
 
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
         {
             opts.dspOrder     = (cfg.NgenOrder() & 1) == 1;
             opts.dspGCtbls    = cfg.NgenGCDump().contains(methodName, className, methodParams);
@@ -1106,8 +1109,8 @@ void Compiler::compInitConfigOptions()
         opts.disAddr      = cfg.JitDasmWithAddress() != 0;
         opts.disAlignment = cfg.JitDasmWithAlignmentBoundaries() != 0;
 
-        const auto& dumpNameSet = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
-        const int   dumpHash = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
+        const auto& dumpNameSet = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
+        const int   dumpHash    = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
 
         if (dumpNameSet.contains(methodName, className, methodParams) ||
             ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash())))
@@ -1167,47 +1170,39 @@ void Compiler::compInitOptions()
 {
     assert(!compIsForInlining());
 
-    JitFlags* jitFlags = opts.jitFlags;
-
     opts.optFlags = CLFLG_MAXOPT; // Default value is for full optimization
 
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE) || jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) ||
-        jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_DEBUG_CODE) || opts.IsJitFlagSet(JitFlags::JIT_FLAG_MIN_OPT) ||
+        opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0))
     {
         opts.optFlags = CLFLG_MINOPT;
     }
     // Don't optimize .cctors (except prejit) or if we're an inlinee
-    else if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    else if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
     {
         opts.optFlags = CLFLG_MINOPT;
     }
 
     // Default value is to generate a blend of size and speed optimizations
-    //
     opts.compCodeOpt = BLENDED_CODE;
 
     // If the EE sets SIZE_OPT or if we are compiling a Class constructor
     // we will optimize for code size at the expense of speed
-    //
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT) || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_SIZE_OPT) || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
     {
         opts.compCodeOpt = SMALL_CODE;
     }
-    //
     // If the EE sets SPEED_OPT we will optimize for speed at the expense of code size
-    //
-    else if (jitFlags->IsSet(JitFlags::JIT_FLAG_SPEED_OPT) ||
-             (jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1) && !jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT)))
+    else if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_SPEED_OPT) ||
+             (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER1) && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_MIN_OPT)))
     {
         opts.compCodeOpt = FAST_CODE;
-        assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_SIZE_OPT));
+        assert(!opts.IsJitFlagSet(JitFlags::JIT_FLAG_SIZE_OPT));
     }
 
-    //-------------------------------------------------------------------------
-
-    opts.compDbgCode = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_CODE);
-    opts.compDbgInfo = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_INFO);
-    opts.compDbgEnC  = jitFlags->IsSet(JitFlags::JIT_FLAG_DEBUG_EnC);
+    opts.compDbgCode = opts.IsJitFlagSet(JitFlags::JIT_FLAG_DEBUG_CODE);
+    opts.compDbgInfo = opts.IsJitFlagSet(JitFlags::JIT_FLAG_DEBUG_INFO);
+    opts.compDbgEnC  = opts.IsJitFlagSet(JitFlags::JIT_FLAG_DEBUG_EnC);
 
 #if REGEN_SHORTCUTS || REGEN_CALLPAT
     // We never want to have debugging enabled when regenerating GC encoding patterns
@@ -1215,8 +1210,6 @@ void Compiler::compInitOptions()
     opts.compDbgInfo = false;
     opts.compDbgEnC  = false;
 #endif
-
-    compSetProcessor();
 
     lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
 
@@ -1270,10 +1263,10 @@ void Compiler::compInitOptions()
 #endif // DEBUG
 
 #ifdef PROFILING_SUPPORTED
-    opts.compNoPInvokeInlineCB = jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_NO_PINVOKE_INLINE);
+    opts.compNoPInvokeInlineCB = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROF_NO_PINVOKE_INLINE);
 
     // Cache the profiler handle
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE))
     {
         bool hookNeeded;
         bool indirected;
@@ -1281,7 +1274,7 @@ void Compiler::compInitOptions()
         compProfilerHookNeeded = hookNeeded;
 
         // TODO-MIKE-Review: All the compProfilerMethHndIndirected code is dead,
-        // crossgen2 does not support profiling like ngen did.
+        // CrossGen2 does not support profiling like NGen did.
         compProfilerMethHndIndirected = indirected;
     }
     else
@@ -1291,19 +1284,16 @@ void Compiler::compInitOptions()
         compProfilerMethHndIndirected = false;
     }
 
-    // Honour COMPlus_JitELTHookEnabled or STRESS_PROFILER_CALLBACKS stress mode
+    // Honor COMPlus_JitELTHookEnabled or STRESS_PROFILER_CALLBACKS stress mode
     // only if VM has not asked us to generate profiler hooks in the first place.
     // That is, override VM only if it hasn't asked for a profiler callback for this method.
     // Don't run this stress mode when pre-JITing, as we would need to emit a relocation
     // for the call to the fake ELT hook, which wouldn't make sense, as we can't store that
     // in the pre-JIT image.
-    if (!compProfilerHookNeeded)
+    if (!compProfilerHookNeeded && (JitConfig.JitELTHookEnabled() || (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) &&
+                                                                      compStressCompile(STRESS_PROFILER_CALLBACKS, 5))))
     {
-        if ((JitConfig.JitELTHookEnabled() != 0) ||
-            (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) && compStressCompile(STRESS_PROFILER_CALLBACKS, 5)))
-        {
-            opts.compJitELTHookEnabled = true;
-        }
+        opts.compJitELTHookEnabled = true;
     }
 
     // TBD: Exclude PInvoke stubs
@@ -1314,13 +1304,13 @@ void Compiler::compInitOptions()
     }
 #endif // PROFILING_SUPPORTED
 
-    ARM_ONLY(opts.compUseSoftFP = jitFlags->IsSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
+    ARM_ONLY(opts.compUseSoftFP = opts.IsJitFlagSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)
 
-    opts.compReloc = jitFlags->IsSet(JitFlags::JIT_FLAG_RELOC);
+    opts.compReloc = opts.IsJitFlagSet(JitFlags::JIT_FLAG_RELOC);
 
 #ifndef TARGET_ARM64
     // TODO-ARM64-NYI: enable hot/cold splitting
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_PROCSPLIT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROCSPLIT))
     {
         // Note that opts.compdbgCode is true under ngen for checked assemblies!
         opts.compProcedureSplitting = !opts.compDbgCode;
@@ -1379,7 +1369,7 @@ void Compiler::compInitOptions()
 
 void Compiler::compInitPgo()
 {
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT))
     {
         fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
                                                                           &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
@@ -1444,14 +1434,53 @@ void Compiler::compInitPgo()
     }
 }
 
+// Estimates conservatively for an explicit tail call,
+// if the importer may actually use a tail call.
+//
+// Return Value:
+//    - False if a tail call will not be generated
+//    - True if a tail call *may* be generated
+//
+// Assumptions:
+//    - compInitOptions() has been called
+//    - info.compIsVarArgs has been initialized
+//    - An explicit tail call has been seen
+//    - compSetOptimizationLevel() has not been called
+//
+bool Compiler::compMayExplicitTailCall()
+{
+    assert(!compIsForInlining());
+
+    if (info.IsSynchronized())
+    {
+        return false;
+    }
+
+    if (opts.IsReversePInvoke())
+    {
+        return false;
+    }
+
+#if !FEATURE_FIXED_OUT_ARGS
+    if (info.compIsVarArgs)
+    {
+        return false;
+    }
+#endif
+
+    return true;
+}
+
 // Determines if conditions are met to allow switching the opt level to optimized
 // This method is to be called at some point before compSetOptimizationLevel to determine
 // if the opt level may be changed based on information gathered in early phases.
 // It is assumed that compInitOptions has already been called.
 bool Compiler::compCanSwitchToOptimized() const
 {
-    bool result = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) &&
-                  !opts.compDbgCode && !compIsForInlining();
+    assert(!compIsForInlining());
+
+    bool result = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_MIN_OPT) &&
+                  !opts.compDbgCode;
     if (result)
     {
         // Ensure that it would be safe to change the opt level
@@ -1467,19 +1496,18 @@ bool Compiler::compCanSwitchToOptimized() const
 // the opt level to optimized based on information gathered in early phases.
 void Compiler::compSwitchToOptimized()
 {
-    assert(compCanSwitchToOptimized());
-
-    // Switch to optimized and re-init options
     JITDUMP("****\n**** JIT Tier0 jit request switching to Tier1 because of loop\n****\n");
-    assert(opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0));
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER0);
-    opts.jitFlags->Clear(JitFlags::JIT_FLAG_BBINSTR);
+
+    assert(compCanSwitchToOptimized());
+    assert(opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0));
+
+    opts.ClearJitFlag(JitFlags::JIT_FLAG_TIER0);
+    opts.ClearJitFlag(JitFlags::JIT_FLAG_BBINSTR);
 
     INDEBUG(compSwitchedToOptimized = true);
 
     compInitOptions();
 
-    // Notify the VM of the change
     info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_OPTIMIZED);
 }
 
@@ -1620,7 +1648,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     }
     // For PREJIT we never drop down to MinOpts
     // unless unless CLFLG_MINOPT is set
-    else if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    else if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         if (JitConfig.JitMinOptsCodeSize() < info.compILCodeSize)
         {
@@ -1664,7 +1692,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     // Retail check if we should force Minopts due to the complexity of the method
     // For PREJIT we never drop down to MinOpts
     // unless unless CLFLG_MINOPT is set
-    if (!theMinOptsValue && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
+    if (!theMinOptsValue && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) &&
         ((DEFAULT_MIN_OPTS_CODE_SIZE < info.compILCodeSize) || (DEFAULT_MIN_OPTS_INSTR_COUNT < ilStats.instrCount) ||
          (DEFAULT_MIN_OPTS_BB_COUNT < fgBBcount) || (DEFAULT_MIN_OPTS_LV_NUM_COUNT < lvaCount) ||
          (DEFAULT_MIN_OPTS_LV_REF_COUNT < ilStats.lclRefCount)))
@@ -1715,11 +1743,11 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     opts.SetMinOpts(theMinOptsValue);
 
     // Notify the VM if MinOpts is being used when not requested
-    if (theMinOptsValue && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) &&
-        !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) && !opts.compDbgCode)
+    if (theMinOptsValue && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) &&
+        !opts.IsJitFlagSet(JitFlags::JIT_FLAG_MIN_OPT) && !opts.compDbgCode)
     {
         info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_MIN_OPT);
-        opts.jitFlags->Clear(JitFlags::JIT_FLAG_TIER1);
+        opts.ClearJitFlag(JitFlags::JIT_FLAG_TIER1);
         INDEBUG(compSwitchedToMinOpts = true);
     }
 
@@ -1730,7 +1758,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
         opts.optFlags = CLFLG_MINOPT;
     }
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // The JIT doesn't currently support loop alignment for prejitted images.
         // (The JIT doesn't know the final address of the code, hence
@@ -1769,20 +1797,20 @@ void Compiler::EndPhase(Phases phase)
     mostRecentlyActivePhase = phase;
 }
 
-void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
+void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize)
 {
     assert(!compIsForInlining());
 
     DoPhase(this, PHASE_INCPROFILE, &Compiler::phIncorporateProfileData);
 
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
     }
 
     DoPhase(this, PHASE_IMPORTATION, &Compiler::phImport);
 
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR))
     {
         DoPhase(this, PHASE_IBCINSTR, &Compiler::phInstrumentMethod);
     }
@@ -2011,11 +2039,11 @@ void Compiler::generatePatchpointInfo()
 
 CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
+    assert(!compIsForInlining());
+
     // Verification isn't supported
     assert(jitFlags->IsSet(JitFlags::JIT_FLAG_SKIP_VERIFICATION));
     assert(!jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY));
-
-    assert(!compIsForInlining());
 
     assert(s_helperCallProperties.IsPure(CORINFO_HELP_GETSHARED_GCSTATIC_BASE));
     assert(!s_helperCallProperties.IsPure(CORINFO_HELP_GETFIELDOBJ)); // quick sanity check
@@ -2031,7 +2059,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         // retail builds. Do not call the regular Config helper here as it would pull
         // in a copy of the config parser into the clrjit.dll.
         InterlockedCompareExchangeT(&Compiler::compJitTimeLogFilename,
-                                    (LPCWSTR)info.compCompHnd->getJitTimeLogFilename(), NULL);
+                                    (LPCWSTR)info.compCompHnd->getJitTimeLogFilename(), nullptr);
 
         // At a process or module boundary clear the file and start afresh.
         JitTimer::PrintCsvHeader();
@@ -2045,13 +2073,8 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
     }
 #endif // FEATURE_JIT_METHOD_PERF
 
-    // Set this early so we can use it without relying on random memory values
-    INDEBUG(verbose = false);
-
 #if FUNC_INFO_LOGGING
-    LPCWSTR tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile();
-
-    if (tmpJitFuncInfoFilename != nullptr)
+    if (LPCWSTR tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile())
     {
         LPCWSTR oldFuncInfoFileName =
             InterlockedCompareExchangeT(&compJitFuncInfoFilename, tmpJitFuncInfoFilename, nullptr);
@@ -2063,20 +2086,13 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
 
             if (compJitFuncInfoFile == nullptr)
             {
-#if defined(DEBUG) && !defined(HOST_UNIX) // no 'perror' in the PAL
+#if defined(DEBUG) && !defined(HOST_UNIX)
                 perror("Failed to open JitFuncInfoLogFile");
 #endif
             }
         }
     }
 #endif // FUNC_INFO_LOGGING
-
-    if (jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
-    {
-        info.compPatchpointInfo = info.compCompHnd->getOSRInfo(&info.compILEntry);
-
-        assert(info.compPatchpointInfo != nullptr);
-    }
 
     {
         constexpr uint32_t IMAGE_FILE_MACHINE_TARGET =
@@ -2105,34 +2121,16 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
                              (eeGetEEInfo()->osType == CORINFO_OS_TARGET);
     }
 
-    // If we are not compiling for a matched VM, then we are getting JIT flags that don't match our target
-    // architecture. The two main examples here are an ARM targeting altjit hosted on x86 and an ARM64
-    // targeting altjit hosted on x64. (Though with cross-bitness work, the host doesn't necessarily need
-    // to be of the same bitness.) In these cases, we need to fix up the JIT flags to be appropriate for
-    // the target, as the VM's expected target may overlap bit flags with different meaning to our target.
-    // Note that it might be better to do this immediately when setting the JIT flags in CILJit::compileMethod()
-    // (when JitFlags::SetFromFlags() is called), but this is close enough. (To move this logic to
-    // CILJit::compileMethod() would require moving the info.compMatchedVM computation there as well.)
+    opts.SetJitFlags(jitFlags->GetFlagRaw(),
+                     FilterInstructionSet(jitFlags->GetInstructionSetFlags() ARM64_ARG(info.compMatchedVM))
+                         .GetFlagsRaw());
 
-    if (!info.compMatchedVM)
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_OSR))
     {
-#ifdef TARGET_ARM
-// Currently there are no ARM flags that conflict with other flags.
-#endif
+        info.compPatchpointInfo = info.compCompHnd->getOSRInfo(&info.compILEntry);
 
-#ifdef TARGET_ARM64
-        // The x86/x64 architecture capabilities flags overlap with the ARM64 ones. Set a reasonable architecture
-        // target default. Currently this is disabling all ARM64 architecture features except FP and SIMD, but this
-        // should be altered to possibly enable all of them, when they are known to all work.
-        CORINFO_InstructionSetFlags defaultArm64Flags;
-        defaultArm64Flags.AddInstructionSet(InstructionSet_ArmBase);
-        defaultArm64Flags.AddInstructionSet(InstructionSet_AdvSimd);
-        defaultArm64Flags.Set64BitInstructionSetVariants();
-        jitFlags->SetInstructionSetFlags(defaultArm64Flags);
-#endif
+        assert(info.compPatchpointInfo != nullptr);
     }
-
-    info.compProfilerCallback = false; // Assume false until we are told to hook this method.
 
     info.compClassHnd  = info.compCompHnd->getMethodClass(info.compMethodHnd);
     info.compClassAttr = info.compCompHnd->getClassAttribs(info.compClassHnd);
@@ -2144,7 +2142,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         // to these APIs being unimplemented. So disable this extra info for pre-jit mode.
         // See https://github.com/dotnet/runtime/issues/48888.
 
-        if (!jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+        if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
         {
             // Get the assembly name, to aid finding any particular SuperPMI method context function.
             info.compCompHnd->getAssemblyName(
@@ -2177,7 +2175,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         Compiler*    compiler;
         void**       nativeCode;
         uint32_t*    nativeCodeSize;
-        JitFlags*    jitFlags;
         CorJitResult result = CORJIT_INTERNALERROR;
     } param;
 
@@ -2185,11 +2182,10 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
     param.compiler       = this;
     param.nativeCode     = nativeCode;
     param.nativeCodeSize = nativeCodeSize;
-    param.jitFlags       = jitFlags;
 
     PAL_TRY(Param&, p, param)
     {
-        p.result = p.compiler->compCompileHelper(p.nativeCode, p.nativeCodeSize, p.jitFlags);
+        p.result = p.compiler->compCompileHelper(p.nativeCode, p.nativeCodeSize);
     }
     PAL_FINALLY
     {
@@ -2199,7 +2195,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
     return param.result;
 }
 
-CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
+CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize)
 {
     assert(!compIsForInlining());
 
@@ -2212,15 +2208,15 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
 
     info.compFlags = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
 #ifdef PSEUDORANDOM_NOP_INSERTION
-    info.compChecksum = getMethodBodyChecksum((char*)methodInfo->ILCode, methodInfo->ILCodeSize);
+    info.compChecksum = getMethodBodyChecksum(methodInfo->ILCode, methodInfo->ILCodeSize);
 #endif
 
-    opts.jitFlags = jitFlags;
     compInitAltJit();
     compInitConfigOptions();
+    compSetProcessor();
     compInitOptions();
 
-    if (!opts.altJit && opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT))
+    if (!opts.altJit && opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT))
     {
         // We're an altjit, but the COMPlus_AltJit configuration did not say to compile this method,
         // so skip it.
@@ -2249,7 +2245,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
 
     info.compIsStatic         = (info.compFlags & CORINFO_FLG_STATIC) != 0;
     info.compInitMem          = (info.compMethodInfo->options & CORINFO_OPT_INIT_LOCALS) != 0;
-    info.compPublishStubParam = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
+    info.compPublishStubParam = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PUBLISH_SECRET_PARAM);
 
     if (opts.IsReversePInvoke())
     {
@@ -2272,7 +2268,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
 
     ILStats ilStats;
 
-    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         // We are jitting the root method.
         compCreateBasicBlocks(ilStats);
@@ -2342,10 +2338,16 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         }
     }
 
-    if (compHasBackwardJump && (info.compFlags & CORINFO_FLG_DISABLE_TIER0_FOR_LOOPS) != 0 &&
+    if (
+        // Method has an explicit tail call that may run like a loop or may not be generated as a tail
+        // call in tier 0, switch to optimized to avoid spending too much time running slower code and
+        // to avoid stack overflow from recursion
+        ((impHasExplicitTailCall && compMayExplicitTailCall()) ||
+         // Method likely has a loop, switch to the OptimizedTier to avoid spending too much time running slower code
+         (compHasBackwardJump && ((info.compFlags & CORINFO_FLG_DISABLE_TIER0_FOR_LOOPS) != 0))) &&
         compCanSwitchToOptimized())
     {
-        // Method likely has a loop, switch to the OptimizedTier to avoid spending too much time running slower code
+
         compSwitchToOptimized();
     }
 
@@ -2387,7 +2389,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
 #endif
 
     INDEBUG(compFunctionTraceStart());
-    compCompile(nativeCode, nativeCodeSize, jitFlags);
+    compCompile(nativeCode, nativeCodeSize);
     INDEBUG(compFunctionTraceEnd(*nativeCode, *nativeCodeSize, false));
     compCompileFinish();
 
@@ -2400,7 +2402,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     }
 
 #ifdef DEBUG
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_ALT_JIT) && (JitConfig.RunAltJitCode() == 0))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT) && (JitConfig.RunAltJitCode() == 0))
     {
         return CORJIT_SKIPPED;
     }
@@ -2684,7 +2686,7 @@ void Compiler::compCompileFinish()
     // For ngen the int3 or breakpoint instruction will be right at the
     // start of the ngen method and we will stop when we execute it.
     //
-    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         if (compJitHaltMethod())
         {
@@ -3559,7 +3561,7 @@ void JitTimer::Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includeP
     DO8(buf, 0);                                                                                                       \
     DO8(buf, 8);
 
-static unsigned adler32(unsigned adler, char* buf, unsigned int len)
+static unsigned adler32(unsigned adler, uint8_t* buf, unsigned int len)
 {
     unsigned int s1 = adler & 0xffff;
     unsigned int s2 = (adler >> 16) & 0xffff;
@@ -3590,7 +3592,7 @@ static unsigned adler32(unsigned adler, char* buf, unsigned int len)
     return (s2 << 16) | s1;
 }
 
-static unsigned getMethodBodyChecksum(char* code, int size)
+static unsigned getMethodBodyChecksum(uint8_t* code, int size)
 {
     return adler32(0, code, size);
 }
@@ -3603,11 +3605,11 @@ void Compiler::compDumpOptions()
     // If we are compiling for a specific tier, make that very obvious in the output.
     // Note that we don't expect multiple TIER flags to be set at one time, but there
     // is nothing preventing that.
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0))
     {
         printf("OPTIONS: Tier-0 compilation (set COMPlus_TieredCompilation=0 to disable)\n");
     }
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER1))
     {
         printf("OPTIONS: Tier-1 compilation\n");
     }
@@ -3620,7 +3622,7 @@ void Compiler::compDumpOptions()
         printf("OPTIONS: Tier-1/FullOpts compilation, switched to MinOpts\n");
     }
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_OSR))
     {
         printf("OPTIONS: OSR variant with entry point 0x%x\n", info.compILEntry);
     }
@@ -3637,7 +3639,7 @@ void Compiler::compDumpOptions()
     printf("OPTIONS: compProcedureSplitting   = %s\n", dspBool(opts.compProcedureSplitting));
     printf("OPTIONS: compProcedureSplittingEH = %s\n", dspBool(opts.compProcedureSplittingEH));
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
     {
         printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
     }
@@ -3647,7 +3649,7 @@ void Compiler::compDumpOptions()
         printf("OPTIONS: %s\n", fgPgoFailReason);
     }
 
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
         printf("OPTIONS: Jit invoked for ngen\n");
     }
@@ -3858,8 +3860,8 @@ bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
 //
 const char* Compiler::compGetTieringName(bool wantShortName) const
 {
-    const bool tier0 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0);
-    const bool tier1 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    const bool tier0 = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0);
+    const bool tier1 = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER1);
     assert(!tier0 || !tier1); // We don't expect multiple TIER flags to be set at one time.
 
     if (tier0)
@@ -3868,7 +3870,7 @@ const char* Compiler::compGetTieringName(bool wantShortName) const
     }
     else if (tier1)
     {
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_OSR))
         {
             return "Tier1-OSR";
         }

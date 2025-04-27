@@ -412,7 +412,7 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
     impStmtListAppend(stmt);
 
 #ifdef FEATURE_SIMD
-    if (opts.OptimizationEnabled() && comp->featureSIMD)
+    if (opts.OptimizationEnabled() && comp->featureSIMD())
     {
         m_impSIMDCoalescingBuffer.Mark(comp, stmt);
     }
@@ -2546,7 +2546,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                 // Instead, they provide software fallbacks that will be executed instead.
 
                 assert(!mustExpand);
-                return impImportSysNumSimdIntrinsic(ni, clsHnd, method, sig, false);
+                return ImportSysNumVecIntrinsic(ni, clsHnd, method, sig, false);
             }
 #endif // FEATURE_HW_INTRINSICS
         }
@@ -3207,7 +3207,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
         assert(varTypeIsFloating(callType));
 
 #ifdef TARGET_XARCH
-        if (compExactlyDependsOn(InstructionSet_FMA) && supportSIMDTypes())
+        if (compExactlyDependsOn(InstructionSet_FMA) && comp->supportSIMDTypes())
         {
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
@@ -4847,8 +4847,7 @@ bool Importer::CallSiteCanInlinePInvoke(BasicBlock* block)
     // ILStub. In this case, we have to inline the raw pinvoke call into the stub,
     // otherwise we would end up with a stub that recursively calls itself, and end
     // up with a stack overflow.
-    return !block->hasTryIndex() ||
-           (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers());
+    return !block->hasTryIndex() || (opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers());
 #else
     return true;
 #endif
@@ -4898,7 +4897,7 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
 
     comp->optNativeCallCount++;
 
-    if ((methHnd == nullptr) && (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
+    if ((methHnd == nullptr) && (opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) || IsTargetAbi(CORINFO_CORERT_ABI)))
     {
         // PInvoke in CoreRT ABI must be always inlined. Non-inlineable CALLI cases have been
         // converted to regular method calls earlier using convertPInvokeCalliToCall.
@@ -4918,7 +4917,7 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
         // inlining in CoreRT. Skip the ambient conditions checks and profitability checks.
         if (!IsTargetAbi(CORINFO_CORERT_ABI) || (info.compFlags & CORINFO_FLG_PINVOKE) == 0)
         {
-            if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers())
+            if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) && opts.ShouldUsePInvokeHelpers())
             {
                 // Raw PInvoke call in PInvoke IL stub generated must be inlined to avoid infinite
                 // recursive calls to the stub.
@@ -11821,7 +11820,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
             if (ni != NI_Illegal)
             {
-                GenTree* intrinsic = impImportSysNumSimdIntrinsic(ni, classHandle, methodHandle, &callInfo.sig, true);
+                GenTree* intrinsic = ImportSysNumVecIntrinsic(ni, classHandle, methodHandle, &callInfo.sig, true);
 
                 // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
                 // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
@@ -12769,7 +12768,7 @@ void Importer::impImportBlock(BasicBlock* block)
     // Are there any places in the method where we might add a patchpoint?
     if (comp->compHasBackwardJump)
     {
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
+        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
         {
             // We don't inline at Tier0, if we do, we may need rethink our approach.
             // Could probably support inlines that don't introduce flow.
@@ -14607,9 +14606,9 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         // contains calls requiring class profiling. Ideally perhaps
         // we'd just keep track of the calls themselves, so we don't
         // have to search for them later.
-        if ((call->IsVirtualVtable() || call->IsVirtualStubDirect()) &&
-            opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBINSTR) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT) &&
-            (JitConfig.JitClassProfiling() > 0) && !isLateDevirtualization)
+        if ((call->IsVirtualVtable() || call->IsVirtualStubDirect()) && opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR) &&
+            !opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && (JitConfig.JitClassProfiling() > 0) &&
+            !isLateDevirtualization)
         {
             JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", call->GetID(),
                     importer->currentBlock->bbNum);
@@ -14924,7 +14923,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                 // at different times....?
                 // Also, AOT may have a more nuanced notion of class equality.
 
-                if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+                if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
                 {
                     bool mismatch = true;
 
@@ -16309,18 +16308,6 @@ bool Importer::compDonotInline() const
 Compiler* Importer::impInlineRoot()
 {
     return comp->impInlineRoot();
-}
-
-#ifdef FEATURE_SIMD
-bool Importer::supportSIMDTypes() const
-{
-    return comp->supportSIMDTypes();
-}
-#endif
-
-bool Importer::IsBaselineSimdIsaSupported()
-{
-    return comp->IsBaselineSimdIsaSupported();
 }
 
 bool Importer::compExactlyDependsOn(CORINFO_InstructionSet isa)

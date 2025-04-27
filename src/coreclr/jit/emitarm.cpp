@@ -1349,7 +1349,7 @@ bool ArmImm::IsBlImm(ssize_t addr, Compiler* compiler)
     {
         // If we are running the altjit for NGEN, then assume we can use the "BL" instruction.
         // This matches the usual behavior for NGEN, since we normally do generate "BL".
-        return compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+        return compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
     }
 
     return compiler->eeIsThumbBranch24TargetAddress(reinterpret_cast<void*>(addr));
@@ -4608,7 +4608,7 @@ uint8_t* ArmEncoder::EncodeIT(uint8_t* dst, instruction ins, insFormat fmt, uint
 // absolute/relocative relocations mode are used for code section.
 void ArmEncoder::RecordPCRelativeMov32Relocation(void* location, void* target)
 {
-    if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
+    if (compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_RELATIVE_CODE_RELOCS))
     {
         RecordRelocation(location, target, IMAGE_REL_BASED_REL_THUMB_MOV32_PCREL);
     }

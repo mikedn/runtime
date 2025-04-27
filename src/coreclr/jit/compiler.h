@@ -1148,10 +1148,11 @@ enum OptFlags : uint8_t
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
-struct CompilerOptions
+class CompilerOptions
 {
-    JitFlags* jitFlags; // all flags passed from the EE
+    uint64_t jitFlags;
 
+public:
     // The instruction sets that the compiler is allowed to emit.
     uint64_t compSupportsISA;
     // The instruction sets that were reported to the VM as being used by the current method. Subset of
@@ -1163,9 +1164,25 @@ struct CompilerOptions
     // used via explicit hardware intrinsics.
     uint64_t compSupportsISAExactly;
 
-    void setSupportedISAs(CORINFO_InstructionSetFlags isas)
+    bool IsJitFlagSet(JitFlags::JitFlag flag) const
     {
-        compSupportsISA = isas.GetFlagsRaw();
+        return (jitFlags & (1ULL << flag)) != 0;
+    }
+
+    void ClearJitFlag(JitFlags::JitFlag flag)
+    {
+        jitFlags &= ~(1ULL << flag);
+    }
+
+    uint64_t GetJitFlags() const
+    {
+        return jitFlags;
+    }
+
+    void SetJitFlags(uint64_t flags, uint64_t isas)
+    {
+        jitFlags        = flags;
+        compSupportsISA = isas;
     }
 
 #ifdef TARGET_ARM64
@@ -1235,7 +1252,7 @@ struct CompilerOptions
     bool IsReadyToRun() const
     {
 #ifdef FEATURE_READYTORUN_COMPILER
-        return jitFlags->IsSet(JitFlags::JIT_FLAG_READYTORUN);
+        return IsJitFlagSet(JitFlags::JIT_FLAG_READYTORUN);
 #else
         return false;
 #endif
@@ -1244,7 +1261,7 @@ struct CompilerOptions
     bool IsOSR() const
     {
 #ifdef FEATURE_ON_STACK_REPLACEMENT
-        return jitFlags->IsSet(JitFlags::JIT_FLAG_OSR);
+        return IsJitFlagSet(JitFlags::JIT_FLAG_OSR);
 #else
         return false;
 #endif
@@ -1257,15 +1274,14 @@ struct CompilerOptions
     // safely be pushed/popped while the thread is in a preemptive state.).
     bool ShouldUsePInvokeHelpers() const
     {
-        return jitFlags->IsSet(JitFlags::JIT_FLAG_USE_PINVOKE_HELPERS) ||
-               jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+        return IsJitFlagSet(JitFlags::JIT_FLAG_USE_PINVOKE_HELPERS) || IsJitFlagSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
 
     // true if we should use insert the REVERSE_PINVOKE_{ENTER,EXIT} helpers in the method
     // prolog/epilog
     bool IsReversePInvoke() const
     {
-        return jitFlags->IsSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
+        return IsJitFlagSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
 
     bool IsFramePointerRequired() const
@@ -1340,7 +1356,9 @@ struct CompilerOptions
     bool compFastTailCalls : 1;
 #endif
 
-    ARM_ONLY(bool compUseSoftFP : 1;)
+#ifdef TARGET_ARM
+    bool compUseSoftFP : 1;
+#endif
 
 // Default numbers used to perform loop alignment. All the numbers are choosen
 // based on experimenting with various benchmarks.
@@ -1564,8 +1582,7 @@ public:
     bool      compIsForInlining() const;
     bool      compDonotInline() const;
     Compiler* impInlineRoot();
-    bool      supportSIMDTypes() const;
-    bool      IsBaselineSimdIsaSupported();
+    bool      IsSysNumVecIntrinsicSupported();
     bool compExactlyDependsOn(CORINFO_InstructionSet isa);
     bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
@@ -1862,11 +1879,11 @@ public:
 
     GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
 
-    GenTree* impImportSysNumSimdIntrinsic(NamedIntrinsic        intrinsic,
-                                          CORINFO_CLASS_HANDLE  clsHnd,
-                                          CORINFO_METHOD_HANDLE method,
-                                          CORINFO_SIG_INFO*     sig,
-                                          bool                  isNewObj);
+    GenTree* ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
+                                      CORINFO_CLASS_HANDLE  clsHnd,
+                                      CORINFO_METHOD_HANDLE method,
+                                      CORINFO_SIG_INFO*     sig,
+                                      bool                  isNewObj);
 
     GenTree* impVector234TOne(const HWIntrinsicSignature& sig);
     GenTree* impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout);
@@ -4219,8 +4236,6 @@ protected:
     void        fgInitBBLookup();
     BasicBlock* fgLookupBB(unsigned addr);
 
-    bool fgMayExplicitTailCall();
-
     ILLabelSet fgFindJumpTargets(ILStats* ilStats = nullptr);
 
     void fgMarkBackwardJump(BasicBlock* startBlock, BasicBlock* endBlock);
@@ -5170,48 +5185,32 @@ public:
     // not all JIT Helper calls follow the standard ABI on the target architecture.
     static regMaskTP compHelperCallKillSet(CorInfoHelpFunc helper);
 
-    /*
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XX                                                                           XX
-    XX                               SIMD                                        XX
-    XX                                                                           XX
-    XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
-    XX   that contains the distinguished, well-known SIMD type definitions).     XX
-    XX                                                                           XX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-    */
+/*
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XX                                                                           XX
+XX                               SIMD                                        XX
+XX                                                                           XX
+XX   Info about SIMD types, methods and the SIMD assembly (i.e. the assembly XX
+XX   that contains the distinguished, well-known SIMD type definitions).     XX
+XX                                                                           XX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+*/
 
-    bool IsBaselineSimdIsaSupported()
-    {
 #ifdef FEATURE_SIMD
-#if defined(TARGET_XARCH)
-        CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
-#elif defined(TARGET_ARM64)
-        CORINFO_InstructionSet minimumIsa = InstructionSet_AdvSimd;
-#else
-#error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
-
-        return compOpportunisticallyDependsOn(minimumIsa) && JitConfig.EnableHWIntrinsic();
-#else
-        return false;
-#endif
+    bool featureSIMD() const
+    {
+        return opts.IsJitFlagSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
     }
 
-#ifdef FEATURE_SIMD
-    // Should we support SIMD intrinsics?
-    bool featureSIMD;
-
-    // Should we recognize SIMD types?
-    // We always do this on ARM64 to support HVA types.
     bool supportSIMDTypes() const
     {
 #ifdef TARGET_ARM64
+        // We always enable this on ARM64 to support HVA types.
         return true;
 #else
-        return featureSIMD;
+        return featureSIMD();
 #endif
     }
 
@@ -5332,6 +5331,7 @@ public:
     bool     fgNoStructParamPromotion = false; // Set to true to turn off struct promotion of this method's params.
 #endif
 
+    bool impHasExplicitTailCall    = false;
     bool fgNoStructPromotion       = false; // Set to true to turn off struct promotion for this method.
     bool optLoopsMarked            = false;
     bool csePhase                  = false; // True when we are executing the CSE phase
@@ -5473,7 +5473,7 @@ public:
         // Do not stress tailcalls in IL stubs as the runtime creates several IL
         // stubs to implement the tailcall mechanism, which would then
         // recursively create more IL stubs.
-        return !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB) &&
+        return !opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) &&
                (JitConfig.TailcallStress() != 0 || compStressCompile(STRESS_TAILCALL, 5));
     }
 
@@ -5566,7 +5566,6 @@ public:
     unsigned typGetLargestSimdTypeSize();
 #endif
 
-public:
 #ifdef DEBUG
     unsigned compMethodID;
     unsigned compGenTreeID    = 0;
@@ -5585,10 +5584,8 @@ public:
     bool eeLclHasDebugInfo(unsigned lclNum) const;
     unsigned eeMapLclNumToDebugInfoVarNum(unsigned lclNum) const;
 
-    //-------------------------------------------------------------------------
-
-    static void compStartup();  // One-time initialization
-    static void compShutdown(); // One-time finalization
+    static void compStartup();
+    static void compShutdown();
 
     Compiler(ArenaAllocator*        alloc,
              const CORINFO_EE_INFO* eeInfo,
@@ -5607,9 +5604,9 @@ public:
 #endif
 
     CorJitResult compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
-    void compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
-    void         compCompileFinish();
-    CorJitResult compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags);
+    CorJitResult compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize);
+    void compCompile(void** nativeCode, uint32_t* nativeCodeSize);
+    void compCompileFinish();
 
     void        phRemoveNotImportedBlocks();
     PhaseStatus phMorphAllocObj();
@@ -5636,6 +5633,11 @@ public:
     ArenaAllocator* compGetArenaAllocator() const
     {
         return compArenaAllocator;
+    }
+
+    CompAllocator getAllocator(CompMemKind cmk) const
+    {
+        return {compArenaAllocator, cmk};
     }
 
     void generatePatchpointInfo();
@@ -5667,7 +5669,6 @@ public:
 
     bool compIsProfilerHookNeeded() const;
 
-public:
 #ifdef DEBUG
     void compFunctionTraceStart();
     void compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI);
@@ -5677,13 +5678,16 @@ protected:
     void compInitAltJit();
     void compInitConfigOptions();
     void compInitOptions();
-    INDEBUG(void compDumpOptions();)
+#ifdef DEBUG
+    void compDumpOptions();
+#endif
     void compInitPgo();
     bool compCanSwitchToOptimized() const;
     void compSwitchToOptimized();
     void compSetProcessor();
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
+    bool compMayExplicitTailCall();
 
 #ifdef PROFILING_SUPPORTED
     // Data required for generating profiler Enter/Leave/TailCall hooks
@@ -5694,11 +5698,6 @@ protected:
 #endif
 
 public:
-    CompAllocator getAllocator(CompMemKind cmk) const
-    {
-        return {compArenaAllocator, cmk};
-    }
-
 #ifdef DEBUG
     bool compDebugBreak = false;
 
@@ -5714,7 +5713,7 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
-public:
+
     unsigned* gsLclShadowMap = nullptr;
 
     void gsGSChecksInitCookie();   // Grabs cookie variable
@@ -5759,7 +5758,7 @@ private:
     uint64_t m_compCycles;                // Net cycle count for current compilation
     DWORD m_compTickCountAtEndOfInlining; // The result of GetTickCount() (# ms since some epoch marker) at the end of
                                           // the inlining phase in the current compilation.
-#endif                                    // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
     // Records the SQM-relevant (cycles and tick count).  Should be called after inlining is complete.
     // (We do this after inlining because this marks the last point at which the JIT is likely to cause
