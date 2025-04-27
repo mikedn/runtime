@@ -1785,23 +1785,23 @@ void LinearScan::buildIntervals()
 #endif // DEBUG
 }
 
-bool Compiler::rpMustCreateEBPFrame()
+static bool MustUseFramePointer(Compiler* compiler)
 {
     bool result = false;
     INDEBUG(const char* reason = nullptr);
 
-    if (opts.IsFramePointerRequired())
+    if (compiler->opts.IsFramePointerRequired())
     {
         INDEBUG(reason = "FramePointerRequired");
         result = true;
     }
-    else if (opts.OptimizationDisabled())
+    else if (compiler->opts.OptimizationDisabled())
     {
         INDEBUG(reason = "Debug Code");
         result = true;
     }
 #ifndef TARGET_AMD64
-    else if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
+    else if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_FRAMED))
     {
         // The VM sets JitFlags::JIT_FLAG_FRAMED for two reasons:
         // (1) the COMPlus_JitFramed variable is set, or
@@ -1814,33 +1814,33 @@ bool Compiler::rpMustCreateEBPFrame()
     }
 #endif
 #if ETW_EBP_FRAMED
-    else if (info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE)
+    else if (compiler->info.compMethodInfo->ILCodeSize > DEFAULT_MAX_INLINE_SIZE)
     {
         INDEBUG(reason = "IL Code Size");
         result = true;
     }
-    else if (fgBBcount > 3)
+    else if (compiler->fgBBcount > 3)
     {
         INDEBUG(reason = "BasicBlock Count");
         result = true;
     }
-    else if (fgHasLoops)
+    else if (compiler->fgHasLoops)
     {
         INDEBUG(reason = "Method has Loops");
         result = true;
     }
-    else if (optCallCount >= 2)
+    else if (compiler->optCallCount >= 2)
     {
         INDEBUG(reason = "Call Count");
         result = true;
     }
-    else if (optIndirectCallCount >= 1)
+    else if (compiler->optIndirectCallCount >= 1)
     {
         INDEBUG(reason = "Indirect Call");
         result = true;
     }
 #endif
-    else if (optNativeCallCount != 0)
+    else if (compiler->optNativeCallCount != 0)
     {
         // VM wants to identify the containing frame of an InlinedCallFrame always
         // via the frame register never the stack register so we need a frame.
@@ -1860,7 +1860,7 @@ bool Compiler::rpMustCreateEBPFrame()
 #ifdef DEBUG
     if (result)
     {
-        JITDUMP("; Decided to create an EBP based frame, reason = '%s'\n", reason);
+        JITDUMP("; Decided to use a frame pointer based frame, reason = '%s'\n", reason);
     }
 #endif
 
@@ -1884,7 +1884,7 @@ void LinearScan::setFrameType()
     }
     else
 #endif
-        if (compiler->rpMustCreateEBPFrame())
+        if (MustUseFramePointer(compiler))
     {
         compiler->codeGen->setFramePointerUsed();
         removeMask |= RBM_FPBASE;
@@ -2229,7 +2229,7 @@ enum CanDoubleAlign
     MUST_DOUBLE_ALIGN
 };
 
-static CanDoubleAlign getCanDoubleAlign(Compiler* compiler)
+static CanDoubleAlign CanAlignDoubleLocals(Compiler* compiler)
 {
 #ifdef DEBUG
     if (compiler->compStressCompile(Compiler::STRESS_DBL_ALN, 20))
@@ -2252,12 +2252,12 @@ static CanDoubleAlign getCanDoubleAlign(Compiler* compiler)
 //    stackParamRefCount   - sum of ref counts for all stack based parameters
 //    stackDoubleRefWeight - sum of ref weights for stack based doubles (including structs with double fields)
 //
-static bool shouldDoubleAlign(Compiler*      compiler,
-                              const unsigned stackRefCount,
-                              const unsigned enregRefCount,
-                              const weight_t enregRefWeight,
-                              const unsigned stackParamRefCount,
-                              const weight_t stackDoubleRefWeight)
+static bool ShouldAlignDoubleLocals(Compiler*      compiler,
+                                    const unsigned stackRefCount,
+                                    const unsigned enregRefCount,
+                                    const weight_t enregRefWeight,
+                                    const unsigned stackParamRefCount,
+                                    const weight_t stackDoubleRefWeight)
 {
     // The impact of a double-aligned frame is computed as follows:
     //   - We save a byte of code for each parameter reference (they are frame-pointer relative)
@@ -2306,7 +2306,7 @@ static bool shouldDoubleAlign(Compiler*      compiler,
     JITDUMP("Sum of weighted ref counts for EBP enregistered variables: %f\n", ebpRefWeight);
     JITDUMP("Sum of weighted ref counts for weighted stack based doubles: %f\n", stackDoubleRefWeight);
 
-    if (static_cast<BasicBlock::weight_t>(bytesUsed) > (stackDoubleRefWeight * misalignedWeight / BB_UNITY_WEIGHT))
+    if (static_cast<weight_t>(bytesUsed) > (stackDoubleRefWeight * misalignedWeight / BB_UNITY_WEIGHT))
     {
         JITDUMP("Predicting not to double-align ESP to save %d bytes of code.\n\n", bytesUsed);
         return false;
@@ -2413,7 +2413,7 @@ void LinearScan::identifyCandidates()
     }
     else
     {
-        switch (getCanDoubleAlign(compiler))
+        switch (CanAlignDoubleLocals(compiler))
         {
             case MUST_DOUBLE_ALIGN:
                 doDoubleAlign    = true;
@@ -2627,7 +2627,7 @@ void LinearScan::identifyCandidates()
     if (checkDoubleAlign)
     {
         doDoubleAlign =
-            shouldDoubleAlign(compiler, refCntStk, refCntReg, refCntWtdReg, refCntStkParam, refCntWtdStkDbl);
+            ShouldAlignDoubleLocals(compiler, refCntStk, refCntReg, refCntWtdReg, refCntStkParam, refCntWtdStkDbl);
     }
 #endif
 
