@@ -52,8 +52,6 @@ class IndentStack;
 void* __cdecl operator new(size_t n, Compiler* context, CompMemKind cmk);
 void* __cdecl operator new[](size_t n, Compiler* context, CompMemKind cmk);
 
-unsigned ReinterpretHexAsDecimal(unsigned in);
-
 const unsigned FLG_CCTOR = (CORINFO_FLG_CONSTRUCTOR | CORINFO_FLG_STATIC);
 
 #ifdef DEBUG
@@ -5699,7 +5697,7 @@ protected:
     void compInitOptions();
     INDEBUG(void compDumpOptions();)
     void compInitPgo();
-    bool compCanSwitchToOptimized();
+    bool compCanSwitchToOptimized() const;
     void compSwitchToOptimized();
     void compSetProcessor();
     void compInitDebuggingInfo();

@@ -9,6 +9,8 @@
 
 extern ICorJitHost* g_jitHost;
 
+const HelperCallProperties Compiler::s_helperCallProperties;
+
 static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
 #ifdef DEBUG
 static AssemblyNamesList2* s_pJitDisasmIncludeAssembliesList;
@@ -17,55 +19,6 @@ static LONG                s_jitNestingLevel;
 
 unsigned Compiler::jitTotalMethodCompiled;
 #endif
-
-const HelperCallProperties Compiler::s_helperCallProperties;
-
-// Little helpers to grab the current cycle counter value; this is done
-// differently based on target architecture, host toolchain, etc. The
-// main thing is to keep the overhead absolutely minimal; in fact, on
-// x86/x64 we use RDTSC even though it's not thread-safe; GetThreadCycles
-// (which is monotonous) is just too expensive.
-#ifdef FEATURE_JIT_METHOD_PERF
-
-#if defined(HOST_X86) || defined(HOST_AMD64)
-
-#if defined(_MSC_VER)
-
-#include <intrin.h>
-static bool _our_GetThreadCycles(uint64_t* cycleOut)
-{
-    *cycleOut = __rdtsc();
-    return true;
-}
-
-#elif defined(__GNUC__)
-
-static bool _our_GetThreadCycles(uint64_t* cycleOut)
-{
-    uint32_t hi, lo;
-    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-    *cycleOut = (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
-    return true;
-}
-
-#else // neither _MSC_VER nor __GNUC__
-
-// The following *might* work - might as well try.
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-
-#endif
-
-#elif defined(HOST_ARM) || defined(HOST_ARM64)
-// If this doesn't work please see ../gc/gc.cpp for additional ARM
-// info (and possible solutions).
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-#else // not x86/x64 and not ARM
-// Don't know what this target is, but let's give it a try; if
-// someone really wants to make this work, please add the right
-// code here.
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-#endif
-#endif // FEATURE_JIT_METHOD_PERF
 
 #if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
 static unsigned genMethodCnt;  // total number of methods JIT'ted
@@ -90,8 +43,8 @@ static const unsigned memUsedHistBuckets[]{16, 32, 64, 128, 192, 256, 512, 1024,
 Histogram             memUsedHist(memUsedHistBuckets);
 #endif
 
-// Variables to keep track of total code amounts.
 #if DISPLAY_SIZES
+// Variables to keep track of total code amounts.
 size_t grossVMsize; // Total IL code size
 size_t grossNCsize; // Native code + data size
 size_t totalNCsize; // Native code + data + GC info size (TODO-Cleanup: GC info size only accurate for JIT32_GCENCODER)
@@ -124,12 +77,12 @@ static const unsigned bbSizeBuckets[]{1, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 
 Histogram             bbOneBBSizeTable(bbSizeBuckets);
 #endif
 
+#if COUNT_LOOPS
 // Used by optFindNaturalLoops to gather statistical information such as
 //  - total number of natural loops
 //  - number of loops with 1, 2, ... exit conditions
 //  - number of loops that have an iterator (for like)
 //  - number of loops that have a constant iterator
-#if COUNT_LOOPS
 unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
 unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
 unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
@@ -150,12 +103,12 @@ static const unsigned loopExitCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 0};
 Histogram             loopExitCountTable(loopExitCountBuckets);
 #endif
 
-// MEASURE_NOWAY: code to measure and rank dynamic occurrences of noway_assert.
-// (Just the appearances of noway_assert, whether the assert is true or false.)
-// This might help characterize the cost of noway_assert in non-DEBUG builds,
-// or determine which noway_assert should be simple DEBUG-only asserts.
-
 #if MEASURE_NOWAY
+
+// Code to measure and rank dynamic occurrences of noway_assert (just the appearances
+// of noway_assert, whether the assert is true or false). This might help characterize
+// the cost of noway_assert in non-DEBUG builds, or determine which noway_assert should
+// be simple DEBUG-only asserts.
 
 struct FileLine
 {
@@ -277,8 +230,8 @@ static void DisplayNowayAssertMap()
 
 #endif // MEASURE_NOWAY
 
-// Variables to keep track of how many iterations we go in a dataflow pass
 #if DATAFLOW_ITER
+// Variables to keep track of how many iterations we go in a dataflow pass
 unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
 unsigned CFiterCount;  // counts the # of iteration for the Const Folding dataflow
 #endif
@@ -288,13 +241,20 @@ size_t genFlowNodeSize;
 size_t genFlowNodeCnt;
 #endif
 
-#ifdef DEBUG
-// We keep track of methods we've already compiled to produce unique label names.
-LONG Compiler::s_compMethodsCount;
+#if FUNC_INFO_LOGGING
+LPCWSTR Compiler::compJitFuncInfoFilename;
+FILE*   Compiler::compJitFuncInfoFile;
 #endif
 
 #ifndef PROFILING_SUPPORTED
 const bool Compiler::Options::compNoPInvokeInlineCB;
+#endif
+
+#ifdef DEBUG
+// We keep track of methods we've already compiled to produce unique label names.
+LONG Compiler::s_compMethodsCount;
+
+ConfigMethodRange fJitStressRange;
 #endif
 
 void Compiler::compStartup()
@@ -653,8 +613,6 @@ void Compiler::compShutdown()
 #endif // MEASURE_FATAL
 }
 
-INDEBUG(ConfigMethodRange fJitStressRange;)
-
 CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
                                        ICorJitInfo*           jitInfo,
                                        const CORINFO_EE_INFO* eeInfo)
@@ -749,43 +707,16 @@ void Compiler::compInit()
 #endif
 }
 
-void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum,        /* IN  */
-                                 void**          ppIndirection) /* OUT */
+void* Compiler::compGetHelperFtn(CorInfoHelpFunc ftnNum, void** ppIndirection)
 {
-    void* addr;
-
-    if (info.compMatchedVM)
-    {
-        addr = info.compCompHnd->getHelperFtn(ftnNum, ppIndirection);
-    }
-    else
+    if (!info.compMatchedVM)
     {
         // If we don't have a matched VM, we won't get valid results when asking for a helper function.
-        addr = UlongToPtr(0xCA11CA11); // "callcall"
+        return UlongToPtr(0xCA11CA11); // "callcall"
     }
 
-    return addr;
+    return info.compCompHnd->getHelperFtn(ftnNum, ppIndirection);
 }
-
-#ifdef DEBUG
-static bool DidComponentUnitTests = false;
-
-void Compiler::compDoComponentUnitTestsOnce()
-{
-    if (!JitConfig.RunComponentUnitTests())
-    {
-        return;
-    }
-
-    if (!DidComponentUnitTests)
-    {
-        DidComponentUnitTests = true;
-        RunValueNumStoreTests(this);
-        BitSetSupport::TestSuite(getAllocator(CMK_DebugOnly));
-    }
-}
-
-#endif // DEBUG
 
 void Compiler::compSetProcessor()
 {
@@ -981,21 +912,12 @@ bool Compiler::notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool suppor
 }
 
 #ifdef PROFILING_SUPPORTED
-// A Dummy routine to receive Enter/Leave/Tailcall profiler callbacks.
-// These are used when complus_JitEltHookEnabled=1
-#ifdef TARGET_AMD64
-void DummyProfilerELTStub(UINT_PTR ProfilerHandle, UINT_PTR callerSP)
+// A dummy function to receive Enter/Leave/Tailcall profiler callbacks.
+// These are used when JitEltHookEnabled=1
+static void DummyProfilerELTStub(UINT_PTR ProfilerHandle AMD64_ARG(UINT_PTR callerSP))
 {
-    return;
 }
-#else  //! TARGET_AMD64
-void DummyProfilerELTStub(UINT_PTR ProfilerHandle)
-{
-    return;
-}
-#endif //! TARGET_AMD64
-
-#endif // PROFILING_SUPPORTED
+#endif
 
 bool Compiler::compShouldThrowOnNoway() const
 {
@@ -1003,32 +925,6 @@ bool Compiler::compShouldThrowOnNoway() const
     // path. Instead we want it to just silently go through codegen for
     // compat reasons.
     return !opts.MinOpts();
-}
-
-// ConfigInteger does not offer an option for decimal flags.  Any numbers are interpreted as hex.
-// I could add the decimal option to ConfigInteger or I could write a function to reinterpret this
-// value as the user intended.
-unsigned ReinterpretHexAsDecimal(unsigned in)
-{
-    // ex: in: 0x100 returns: 100
-    unsigned result = 0;
-    unsigned index  = 1;
-
-    // default value
-    if (in == INT_MAX)
-    {
-        return in;
-    }
-
-    while (in)
-    {
-        unsigned digit = in % 16;
-        in >>= 4;
-        assert(digit < 10);
-        result += digit * index;
-        index *= 10;
-    }
-    return result;
 }
 
 void Compiler::compInitAltJit()
@@ -1462,63 +1358,6 @@ void Compiler::compInitOptions()
 #endif
 }
 
-#ifdef DEBUG
-void Compiler::compDumpOptions()
-{
-    // If we are compiling for a specific tier, make that very obvious in the output.
-    // Note that we don't expect multiple TIER flags to be set at one time, but there
-    // is nothing preventing that.
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
-    {
-        printf("OPTIONS: Tier-0 compilation (set COMPlus_TieredCompilation=0 to disable)\n");
-    }
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
-    {
-        printf("OPTIONS: Tier-1 compilation\n");
-    }
-    if (compSwitchedToOptimized)
-    {
-        printf("OPTIONS: Tier-0 compilation, switched to FullOpts\n");
-    }
-    if (compSwitchedToMinOpts)
-    {
-        printf("OPTIONS: Tier-1/FullOpts compilation, switched to MinOpts\n");
-    }
-
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
-    {
-        printf("OPTIONS: OSR variant with entry point 0x%x\n", info.compILEntry);
-    }
-
-    printf("OPTIONS: compCodeOpt = %s\n", (opts.compCodeOpt == BLENDED_CODE)
-                                              ? "BLENDED_CODE"
-                                              : (opts.compCodeOpt == SMALL_CODE)
-                                                    ? "SMALL_CODE"
-                                                    : (opts.compCodeOpt == FAST_CODE) ? "FAST_CODE" : "UNKNOWN_CODE");
-
-    printf("OPTIONS: compDbgCode = %s\n", dspBool(opts.compDbgCode));
-    printf("OPTIONS: compDbgInfo = %s\n", dspBool(opts.compDbgInfo));
-    printf("OPTIONS: compDbgEnC  = %s\n", dspBool(opts.compDbgEnC));
-    printf("OPTIONS: compProcedureSplitting   = %s\n", dspBool(opts.compProcedureSplitting));
-    printf("OPTIONS: compProcedureSplittingEH = %s\n", dspBool(opts.compProcedureSplittingEH));
-
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
-    {
-        printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
-    }
-
-    if (fgPgoFailReason != nullptr)
-    {
-        printf("OPTIONS: %s\n", fgPgoFailReason);
-    }
-
-    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-    {
-        printf("OPTIONS: Jit invoked for ngen\n");
-    }
-}
-#endif // DEBUG
-
 void Compiler::compInitPgo()
 {
     if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT))
@@ -1586,21 +1425,11 @@ void Compiler::compInitPgo()
     }
 }
 
-//------------------------------------------------------------------------
 // Determines if conditions are met to allow switching the opt level to optimized
-//
-// Return Value:
-//    True if the opt level may be switched from tier 0 to optimized, false otherwise
-//
-// Assumptions:
-//    - compInitOptions has been called
-//    - compSetOptimizationLevel has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to determine if the opt level may be
-//    changed based on information gathered in early phases.
-//
-bool Compiler::compCanSwitchToOptimized()
+// This method is to be called at some point before compSetOptimizationLevel to determine
+// if the opt level may be changed based on information gathered in early phases.
+// It is assumed that compInitOptions has already been called.
+bool Compiler::compCanSwitchToOptimized() const
 {
     bool result = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0) && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_MIN_OPT) &&
                   !opts.compDbgCode && !compIsForInlining();
@@ -1614,17 +1443,9 @@ bool Compiler::compCanSwitchToOptimized()
     return result;
 }
 
-//------------------------------------------------------------------------
 // Switch the opt level from tier 0 to optimized
-//
-// Assumptions:
-//    - compCanSwitchToOptimized is true
-//    - compSetOptimizationLevel has not been called
-//
-// Notes:
-//    This method is to be called at some point before compSetOptimizationLevel() to switch the opt level to optimized
-//    based on information gathered in early phases.
-//
+// This method is to be called at some point before compSetOptimizationLevel to switch
+// the opt level to optimized based on information gathered in early phases.
 void Compiler::compSwitchToOptimized()
 {
     assert(compCanSwitchToOptimized());
@@ -1642,185 +1463,6 @@ void Compiler::compSwitchToOptimized()
     // Notify the VM of the change
     info.compCompHnd->setMethodAttribs(info.compMethodHnd, CORINFO_FLG_SWITCHED_TO_OPTIMIZED);
 }
-
-#ifdef DEBUG
-
-bool Compiler::compJitHaltMethod()
-{
-    /* This method returns true when we use an INS_BREAKPOINT to allow us to step into the generated native code */
-    /* Note that this these two "Jit" environment variables also work for ngen images */
-
-    if (JitConfig.JitHalt().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-    {
-        return true;
-    }
-
-    /* Use this Hash variant when there are a lot of method with the same name and different signatures */
-
-    unsigned fJitHashHaltVal = (unsigned)JitConfig.JitHashHalt();
-    if ((fJitHashHaltVal != (unsigned)-1) && (fJitHashHaltVal == info.compMethodHash()))
-    {
-        return true;
-    }
-
-    return false;
-}
-
-// Should we use a "stress-mode" for the given stressArea. We have different
-//   areas to allow the areas to be mixed in different combinations in
-//   different methods.
-// 'weight' indicates how often (as a percentage) the area should be stressed.
-//    It should reflect the usefulness:overhead ratio.
-const LPCWSTR Compiler::s_compStressModeNames[STRESS_COUNT + 1]{
-#define STRESS_MODE(mode) W("STRESS_") W(#mode),
-    STRESS_MODES
-#undef STRESS_MODE
-};
-
-//------------------------------------------------------------------------
-// compStressCompile: determine if a stress mode should be enabled
-//
-// Arguments:
-//   stressArea - stress mode to possibly enable
-//   weight - percent of time this mode should be turned on
-//     (range 0 to 100); weight 0 effectively disables
-//
-// Returns:
-//   true if this stress mode is enabled
-//
-// Notes:
-//   Methods may be excluded from stress via name or hash.
-//
-//   Particular stress modes may be disabled or forcibly enabled.
-//
-//   With JitStress=2, some stress modes are enabled regardless of weight;
-//   these modes are the ones after COUNT_VARN in the enumeration.
-//
-//   For other modes or for nonzero JitStress values, stress will be
-//   enabled selectively for roughly weight% of methods.
-//
-bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
-{
-    // This can be called early, before info is fully set up.
-    if ((info.compMethodName == nullptr) || (info.compFullName == nullptr))
-    {
-        return false;
-    }
-
-    // Inlinees defer to the root method for stress, so that we can
-    // more easily isolate methods that cause stress failures.
-    if (compIsForInlining())
-    {
-        return impInlineRoot()->compStressCompile(stressArea, weight);
-    }
-
-    const bool doStress = compStressCompileHelper(stressArea, weight);
-
-    if (doStress && !compActiveStressModes[stressArea])
-    {
-        JITDUMP("\n\n*** JitStress: %ws ***\n\n", s_compStressModeNames[stressArea]);
-        compActiveStressModes[stressArea] = true;
-    }
-
-    return doStress;
-}
-
-//------------------------------------------------------------------------
-// compStressCompileHelper: helper to determine if a stress mode should be enabled
-//
-// Arguments:
-//   stressArea - stress mode to possibly enable
-//   weight - percent of time this mode should be turned on
-//     (range 0 to 100); weight 0 effectively disables
-//
-// Returns:
-//   true if this stress mode is enabled
-//
-// Notes:
-//   See compStressCompile
-//
-bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weight)
-{
-    if (!bRangeAllowStress)
-    {
-        return false;
-    }
-
-    if (!JitConfig.JitStressOnly().isEmpty() &&
-        !JitConfig.JitStressOnly().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
-    {
-        return false;
-    }
-
-    // Does user explicitly prevent using this STRESS_MODE through the command line?
-    const WCHAR* strStressModeNamesNot = JitConfig.JitStressModeNamesNot();
-    if ((strStressModeNamesNot != nullptr) &&
-        (wcsstr(strStressModeNamesNot, s_compStressModeNames[stressArea]) != nullptr))
-    {
-        return false;
-    }
-
-    // Does user explicitly set this STRESS_MODE through the command line?
-    const WCHAR* strStressModeNames = JitConfig.JitStressModeNames();
-    if (strStressModeNames != nullptr)
-    {
-        if (wcsstr(strStressModeNames, s_compStressModeNames[stressArea]) != nullptr)
-        {
-            return true;
-        }
-
-        // This stress mode name did not match anything in the stress
-        // mode allowlist. If user has requested only enable mode,
-        // don't allow this stress mode to turn on.
-        const bool onlyEnableMode = JitConfig.JitStressModeNamesOnly() != 0;
-
-        if (onlyEnableMode)
-        {
-            return false;
-        }
-    }
-
-    // 0:   No stress (Except when explicitly set in complus_JitStressModeNames)
-    // !=2: Vary stress. Performance will be slightly/moderately degraded
-    // 2:   Check-all stress. Performance will be REALLY horrible
-    const int stressLevel = JitConfig.JitStress();
-
-    assert(weight <= MAX_STRESS_WEIGHT);
-
-    // Check for boundary conditions
-    if (stressLevel == 0 || weight == 0)
-    {
-        return false;
-    }
-
-    // Should we allow unlimited stress ?
-    if ((stressArea > STRESS_COUNT_VARN) && (stressLevel == 2))
-    {
-        return true;
-    }
-
-    if (weight == MAX_STRESS_WEIGHT)
-    {
-        return true;
-    }
-
-    // Get a hash which can be compared with 'weight'
-    assert(stressArea != 0);
-    const unsigned hash = (info.compMethodHash() ^ stressArea ^ stressLevel) % MAX_STRESS_WEIGHT;
-
-    assert(hash < MAX_STRESS_WEIGHT && weight <= MAX_STRESS_WEIGHT);
-    return (hash < weight);
-}
-
-// Helper to determine if the local should not be promoted under a stress mode.
-// Rejects ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
-bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
-{
-    return compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50) &&
-           (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
-}
-
-#endif // DEBUG
 
 void Compiler::compInitDebuggingInfo()
 {
@@ -2091,188 +1733,14 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
 #endif
 }
 
-#ifdef DEBUG
-//------------------------------------------------------------------------
-// compGetTieringName: get a string describing tiered compilation settings
-//   for this method
-//
-// Arguments:
-//   wantShortName - true if a short name is ok (say for using in file names)
-//
-// Returns:
-//   String describing tiering decisions for this method, including cases
-//   where the jit codegen will differ from what the runtime requested.
-//
-const char* Compiler::compGetTieringName(bool wantShortName) const
-{
-    const bool tier0 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0);
-    const bool tier1 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
-    assert(!tier0 || !tier1); // We don't expect multiple TIER flags to be set at one time.
-
-    if (tier0)
-    {
-        return "Tier0";
-    }
-    else if (tier1)
-    {
-        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
-        {
-            return "Tier1-OSR";
-        }
-        else
-        {
-            return "Tier1";
-        }
-    }
-    else if (opts.OptimizationEnabled())
-    {
-        if (compSwitchedToOptimized)
-        {
-            return wantShortName ? "Tier0-FullOpts" : "Tier-0 switched to FullOpts";
-        }
-        else
-        {
-            return "FullOpts";
-        }
-    }
-    else if (opts.MinOpts())
-    {
-        if (compSwitchedToMinOpts)
-        {
-            if (compSwitchedToOptimized)
-            {
-                return wantShortName ? "Tier0-FullOpts-MinOpts" : "Tier-0 switched to FullOpts, then to MinOpts";
-            }
-            else
-            {
-                return wantShortName ? "Tier0-MinOpts" : "Tier-0 switched MinOpts";
-            }
-        }
-        else
-        {
-            return "MinOpts";
-        }
-    }
-    else if (opts.compDbgCode)
-    {
-        return "Debug";
-    }
-    else
-    {
-        return wantShortName ? "Unknown" : "Unknown optimization level";
-    }
-}
-
-//------------------------------------------------------------------------
-// compGetStressMessage: get a string describing jitstress capability
-//   for this method
-//
-// Returns:
-//   An empty string if stress is not enabled, else a string describing
-//   if this method is subject to stress or is excluded by name or hash.
-//
-const char* Compiler::compGetStressMessage() const
-{
-    // Add note about stress where appropriate
-    const char* stressMessage = "";
-
-    // Is stress enabled via mode name or level?
-    if ((JitConfig.JitStressModeNames() != nullptr) || (JitConfig.JitStress() > 0))
-    {
-        // Is the method being jitted excluded from stress via range?
-        if (bRangeAllowStress)
-        {
-            // Or is it excluded via name?
-            if (!JitConfig.JitStressOnly().isEmpty() ||
-                !JitConfig.JitStressOnly().contains(info.compMethodName, info.compClassName,
-                                                    &info.compMethodInfo->args))
-            {
-                // Not excluded -- stress can happen
-                stressMessage = " JitStress";
-            }
-            else
-            {
-                stressMessage = " NoJitStress(Only)";
-            }
-        }
-        else
-        {
-            stressMessage = " NoJitStress(Range)";
-        }
-    }
-
-    return stressMessage;
-}
-
-void Compiler::compFunctionTraceStart()
-{
-    assert(!compIsForInlining());
-
-    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
-    {
-        LONG newJitNestingLevel = InterlockedIncrement(&s_jitNestingLevel);
-        if (newJitNestingLevel <= 0)
-        {
-            printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
-        }
-
-        for (LONG i = 0; i < newJitNestingLevel - 1; i++)
-        {
-            printf("  ");
-        }
-        printf("{ Start Jitting Method %4d %s (MethodHash=%08x) %s\n", Compiler::jitTotalMethodCompiled,
-               info.compFullName, info.compMethodHash(),
-               compGetTieringName()); /* } editor brace matching workaround for this printf */
-    }
-}
-
-void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI)
-{
-    assert(!compIsForInlining());
-
-    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
-    {
-        LONG newJitNestingLevel = InterlockedDecrement(&s_jitNestingLevel);
-        if (newJitNestingLevel < 0)
-        {
-            printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
-        }
-
-        for (LONG i = 0; i < newJitNestingLevel; i++)
-        {
-            printf("  ");
-        }
-
-        // Note: that is incorrect if we are compiling several methods at the same time.
-        unsigned methodNumber = Compiler::jitTotalMethodCompiled - 1;
-
-        /* { editor brace-matching workaround for following printf */
-        printf("} Jitted Method %4d at" FMT_ADDR "method %s size %08x%s%s\n", methodNumber, DBG_ADDR(methodCodePtr),
-               info.compFullName, methodCodeSize, isNYI ? " NYI" : "", opts.altJit ? " altjit" : "");
-    }
-}
-#endif // DEBUG
-
-//------------------------------------------------------------------------
-// BeginPhase: begin execution of a phase
-//
-// Arguments:
-//    phase - the phase that is about to begin
-//
 void Compiler::BeginPhase(Phases phase)
 {
     mostRecentlyActivePhase = phase;
 }
 
-//------------------------------------------------------------------------
-// EndPhase: finish execution of a phase
-//
-// Arguments:
-//    phase - the phase that has just finished
-//
 void Compiler::EndPhase(Phases phase)
 {
-#if defined(FEATURE_JIT_METHOD_PERF)
+#ifdef FEATURE_JIT_METHOD_PERF
     if (pCompJitTimer != nullptr)
     {
         pCompJitTimer->EndPhase(this, phase);
@@ -2452,10 +1920,6 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize, JitFlags
     INDEBUG(++Compiler::jitTotalMethodCompiled);
 }
 
-//------------------------------------------------------------------------
-// generatePatchpointInfo: allocate and fill in patchpoint info data,
-//    and report it to the VM
-//
 void Compiler::generatePatchpointInfo()
 {
     assert(doesMethodHavePatchpoints());
@@ -2525,41 +1989,6 @@ void Compiler::generatePatchpointInfo()
     // Register this with the runtime.
     info.compCompHnd->setPatchpointInfo(patchpointInfo);
 }
-
-#ifdef DEBUG
-
-bool CompiledMethodInfo::SkipMethod() const
-{
-    static ConfigMethodRange fJitRange;
-    fJitRange.EnsureInit(JitConfig.JitRange());
-    assert(!fJitRange.Error());
-
-    // Normally JitConfig.JitRange() is null, we don't want to skip
-    // jitting any methods.
-    //
-    // So, the logic below relies on the fact that a null range string
-    // passed to ConfigMethodRange represents the set of all methods.
-
-    if (!fJitRange.Contains(compMethodHash()))
-    {
-        return true;
-    }
-
-    if (JitConfig.JitExclude().contains(compMethodName, compClassName, &compMethodInfo->args))
-    {
-        return true;
-    }
-
-    if (!JitConfig.JitInclude().isEmpty() &&
-        !JitConfig.JitInclude().contains(compMethodName, compClassName, &compMethodInfo->args))
-    {
-        return true;
-    }
-
-    return false;
-}
-
-#endif
 
 CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
@@ -2750,390 +2179,6 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
 
     return param.result;
 }
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-//------------------------------------------------------------------------
-// compMethodHash: get hash code for currently jitted method
-//
-// Returns:
-//    Hash based on method's full name
-//
-unsigned CompiledMethodInfo::compMethodHash() const
-{
-    if (compMethodHashPrivate == 0)
-    {
-        // compMethodHashPrivate = compCompHnd->getMethodHash(compMethodHnd);
-        assert(compFullName != nullptr);
-        assert(*compFullName != 0);
-        COUNT_T hash = HashStringA(compFullName); // Use compFullName to generate the hash, as it contains the signature
-                                                  // and return type
-        compMethodHashPrivate = hash;
-    }
-    return compMethodHashPrivate;
-}
-
-//------------------------------------------------------------------------
-// compMethodHash: get hash code for specified method
-//
-// Arguments:
-//    methodHnd - method of interest
-//
-// Returns:
-//    Hash based on method's full name
-//
-unsigned Compiler::compMethodHash(CORINFO_METHOD_HANDLE methodHnd)
-{
-    // If this is the root method, delegate to the caching version
-    //
-    if (methodHnd == info.compMethodHnd)
-    {
-        return info.compMethodHash();
-    }
-
-    // Else compute from scratch. Might consider caching this too.
-    //
-    unsigned    methodHash = 0;
-    const char* calleeName = eeGetMethodFullName(methodHnd);
-
-    if (calleeName != nullptr)
-    {
-        methodHash = HashStringA(calleeName);
-    }
-    else
-    {
-        methodHash = info.compCompHnd->getMethodHash(methodHnd);
-    }
-
-    return methodHash;
-}
-
-#endif // defined(DEBUG) || defined(INLINE_DATA)
-
-void Compiler::compCompileFinish()
-{
-#if FUNC_INFO_LOGGING
-    if (FILE* funcInfoFile = compJitFuncInfoFile)
-    {
-        assert(!compIsForInlining());
-        fprintf(funcInfoFile, "%s\n",
-#ifdef DEBUG
-                info.compFullName
-#else
-                eeGetMethodFullName(info.compMethodHnd)
-#endif
-                );
-        fflush(funcInfoFile);
-    }
-#endif // FUNC_INFO_LOGGING
-
-#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
-    genMethodCnt++;
-#endif
-
-#if MEASURE_MEM_ALLOC
-    {
-        compArenaAllocator->finishMemStats();
-        memAllocHist.record((unsigned)((compArenaAllocator->getTotalBytesAllocated() + 1023) / 1024));
-        memUsedHist.record((unsigned)((compArenaAllocator->getTotalBytesUsed() + 1023) / 1024));
-    }
-
-#ifdef DEBUG
-    if (verbose || JitConfig.DisplayMemStats())
-    {
-        printf("\nAllocations for %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
-        compArenaAllocator->dumpMemStats(jitstdout);
-    }
-#endif // DEBUG
-#endif // MEASURE_MEM_ALLOC
-
-#if LOOP_HOIST_STATS
-    AddLoopHoistStats();
-#endif // LOOP_HOIST_STATS
-
-#if MEASURE_NODE_SIZE
-    genTreeNcntHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeCnt));
-    genTreeNsizHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeSize));
-#endif
-
-#ifdef DEBUG
-    // Small methods should fit in ArenaAllocator::getDefaultPageSize(), or else
-    // we should bump up ArenaAllocator::getDefaultPageSize()
-
-    if ((info.compILCodeSize <= 32) &&    // Is it a reasonably small method?
-        (codeGen->GetCodeSize() < 512) && // Some trivial methods generate huge native code. eg. pushing a single
-                                          // huge struct
-        (compInlinedCodeSize <= 128) &&   // Is the the inlining reasonably bounded?
-                                          // Small methods cannot meaningfully have a big number of locals
-                                          // or arguments. We always track arguments at the start of
-                                          // the prolog which requires memory
-        (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
-        (JitConfig.JitStress() == 0) &&                      // We need extra memory for stress
-        !opts.optRepeat &&                                   // We need extra memory to repeat opts
-        !compArenaAllocator->bypassHostAllocator() && // ArenaAllocator::getDefaultPageSize() is artificially low for
-                                                      // DirectAlloc
-        // Factor of 2x is because data-structures are bigger under DEBUG
-        (compArenaAllocator->getTotalBytesAllocated() > (2 * ArenaAllocator::getDefaultPageSize())) &&
-        // RyuJIT backend needs memory tuning! TODO-Cleanup: remove this case when memory tuning is complete.
-        (compArenaAllocator->getTotalBytesAllocated() > (10 * ArenaAllocator::getDefaultPageSize())) &&
-        !verbose) // We allocate lots of memory to convert sets to strings for JitDump
-    {
-        genSmallMethodsNeedingExtraMemoryCnt++;
-
-        // Less than 1% of all methods should run into this.
-        // We cannot be more strict as there are always degenerate cases where we
-        // would need extra memory (like huge structs as locals - see lvaSetStruct()).
-        assert((genMethodCnt < 500) || (genSmallMethodsNeedingExtraMemoryCnt < (genMethodCnt / 100)));
-    }
-#endif // DEBUG
-
-#if defined(DEBUG) || defined(INLINE_DATA)
-
-    m_inlineStrategy->DumpData();
-
-    if (JitConfig.JitInlineDumpXmlFile() != nullptr)
-    {
-        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
-        if (file != nullptr)
-        {
-            m_inlineStrategy->DumpXml(file);
-            fclose(file);
-        }
-        else
-        {
-            m_inlineStrategy->DumpXml();
-        }
-    }
-    else
-    {
-        m_inlineStrategy->DumpXml();
-    }
-
-#endif
-
-#ifdef DEBUG
-    if (opts.dspOrder)
-    {
-        // mdMethodDef __stdcall CEEInfo::getMethodDefFromMethod(CORINFO_METHOD_HANDLE hMethod)
-        mdMethodDef currentMethodToken = info.compCompHnd->getMethodDefFromMethod(info.compMethodHnd);
-
-        static bool headerPrinted = false;
-        if (!headerPrinted)
-        {
-            // clang-format off
-            headerPrinted = true;
-            printf("         |  Profiled   | Method   |   Method has    |   calls   | Num |LclV |AProp| CSE |   Perf  |bytes | %3s codesize| \n", Target::CpuName());
-            printf(" mdToken |  CNT |  RGN |    Hash  | EH | FRM | LOOP | NRM | IND | BBs | Cnt | Cnt | Cnt |  Score  |  IL  |   HOT | CLD | method name \n");
-            printf("---------+------+------+----------+----+-----+------+-----+-----+-----+-----+-----+-----+---------+------+-------+-----+\n");
-            //      06001234 | 1234 |  HOT | 0f1e2d3c | EH | ebp | LOOP |  15 |   6 |  12 |  17 |  12 |   8 | 1234.56 |  145 |  1234 | 123 | System.Example(int)
-            // clang-format on
-        }
-
-        printf("%08X | ", currentMethodToken);
-
-        if (fgHaveProfileData())
-        {
-            if (fgCalledCount < 1000)
-            {
-                printf("%4.0f | ", fgCalledCount);
-            }
-            else if (fgCalledCount < 1000000)
-            {
-                printf("%3.0fK | ", fgCalledCount / 1000);
-            }
-            else
-            {
-                printf("%3.0fM | ", fgCalledCount / 1000000);
-            }
-        }
-        else
-        {
-            printf("     | ");
-        }
-
-        CorInfoRegionKind regionKind = info.compMethodInfo->regionKind;
-
-        if (opts.altJit)
-        {
-            printf("ALT | ");
-        }
-        else if (regionKind == CORINFO_REGION_NONE)
-        {
-            printf("     | ");
-        }
-        else if (regionKind == CORINFO_REGION_HOT)
-        {
-            printf(" HOT | ");
-        }
-        else if (regionKind == CORINFO_REGION_COLD)
-        {
-            printf("COLD | ");
-        }
-        else if (regionKind == CORINFO_REGION_JIT)
-        {
-            printf(" JIT | ");
-        }
-        else
-        {
-            printf("UNKN | ");
-        }
-
-        printf("%08x | ", info.compMethodHash());
-
-        if (compHndBBtabCount > 0)
-        {
-            printf("EH | ");
-        }
-        else
-        {
-            printf("   | ");
-        }
-
-        if (codeGen->isFramePointerUsed())
-        {
-            printf("%3s | ", STR_FPBASE);
-        }
-#if DOUBLE_ALIGN
-        else if (codeGen->doDoubleAlign())
-        {
-            printf("dbl | ");
-        }
-#endif
-        else
-        {
-            printf("%3s | ", STR_SPBASE);
-        }
-
-        if (fgHasLoops)
-        {
-            printf("LOOP |");
-        }
-        else
-        {
-            printf("     |");
-        }
-
-        printf(" %3d |", optCallCount);
-        printf(" %3d |", optIndirectCallCount);
-        printf(" %3d |", fgBBcount);
-        printf(" %3d |", lvaCount);
-
-        if (opts.MinOpts())
-        {
-            printf("  MinOpts  |");
-        }
-        else
-        {
-            printf(" %3d |", apAssertionCount);
-            printf(" %3d |", cseCount);
-        }
-
-        if (codeGen->GetPerfScore() < 9999.995)
-        {
-            printf(" %7.2f |", codeGen->GetPerfScore());
-        }
-        else
-        {
-            printf(" %7.0f |", codeGen->GetPerfScore());
-        }
-
-        printf(" %4d |", info.compMethodInfo->ILCodeSize);
-        printf(" %5d |", codeGen->GetHotCodeSize());
-        printf(" %3d |", codeGen->GetColdCodeSize());
-
-        printf(" %s\n", eeGetMethodFullName(info.compMethodHnd));
-        printf(""); // in our logic this causes a flush
-    }
-
-    if (verbose)
-    {
-        printf("****** DONE compiling %s\n", info.compFullName);
-        printf(""); // in our logic this causes a flush
-    }
-
-    // Only call _DbgBreakCheck when we are jitting, not when we are ngen-ing
-    // For ngen the int3 or breakpoint instruction will be right at the
-    // start of the ngen method and we will stop when we execute it.
-    //
-    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
-    {
-        if (compJitHaltMethod())
-        {
-#if !defined(HOST_UNIX)
-            // TODO-UNIX: re-enable this when we have an OS that supports a pop-up dialog
-
-            // Don't do an assert, but just put up the dialog box so we get just-in-time debugger
-            // launching.  When you hit 'retry' it will continue and naturally stop at the INT 3
-            // that the JIT put in the code
-            _DbgBreakCheck(__FILE__, __LINE__, "JitHalt");
-#endif
-        }
-    }
-#endif // DEBUG
-}
-
-#ifdef PSEUDORANDOM_NOP_INSERTION
-// this is zlib adler32 checksum.  source came from windows base
-
-#define BASE 65521L // largest prime smaller than 65536
-#define NMAX 5552
-// NMAX is the largest n such that 255n(n+1)/2 + (n+1)(BASE-1) <= 2^32-1
-
-#define DO1(buf, i)                                                                                                    \
-    {                                                                                                                  \
-        s1 += buf[i];                                                                                                  \
-        s2 += s1;                                                                                                      \
-    }
-#define DO2(buf, i)                                                                                                    \
-    DO1(buf, i);                                                                                                       \
-    DO1(buf, i + 1);
-#define DO4(buf, i)                                                                                                    \
-    DO2(buf, i);                                                                                                       \
-    DO2(buf, i + 2);
-#define DO8(buf, i)                                                                                                    \
-    DO4(buf, i);                                                                                                       \
-    DO4(buf, i + 4);
-#define DO16(buf)                                                                                                      \
-    DO8(buf, 0);                                                                                                       \
-    DO8(buf, 8);
-
-static unsigned adler32(unsigned adler, char* buf, unsigned int len)
-{
-    unsigned int s1 = adler & 0xffff;
-    unsigned int s2 = (adler >> 16) & 0xffff;
-    int          k;
-
-    if (buf == NULL)
-        return 1L;
-
-    while (len > 0)
-    {
-        k = len < NMAX ? len : NMAX;
-        len -= k;
-        while (k >= 16)
-        {
-            DO16(buf);
-            buf += 16;
-            k -= 16;
-        }
-        if (k != 0)
-            do
-            {
-                s1 += *buf++;
-                s2 += s1;
-            } while (--k);
-        s1 %= BASE;
-        s2 %= BASE;
-    }
-    return (s2 << 16) | s1;
-}
-#endif
-
-#ifdef PSEUDORANDOM_NOP_INSERTION
-static unsigned getMethodBodyChecksum(char* code, int size)
-{
-    return adler32(0, code, size);
-}
-#endif
 
 CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCodeSize, JitFlags* jitFlags)
 {
@@ -3343,6 +2388,336 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     return CORJIT_OK;
 }
 
+// Records data needed for inlining data dumps. Should be
+// called after inlining is complete. (We do this after inlining
+// because this marks the last point at which the JIT is likely to
+// cause type-loading and class initialization).
+void Compiler::RecordStateAtEndOfInlining()
+{
+#if defined(DEBUG) || defined(INLINE_DATA)
+    m_compCyclesAtEndOfInlining    = 0;
+    m_compTickCountAtEndOfInlining = 0;
+
+    if (CycleTimer::GetThreadCyclesS(&m_compCyclesAtEndOfInlining))
+    {
+        m_compTickCountAtEndOfInlining = GetTickCount();
+    }
+#endif
+}
+
+// Capture timing data (if enabled) after compilation is completed.
+void Compiler::RecordStateAtEndOfCompilation()
+{
+#if defined(DEBUG) || defined(INLINE_DATA)
+    m_compCycles = 0;
+
+    if (uint64_t compCyclesAtEnd; CycleTimer::GetThreadCyclesS(&compCyclesAtEnd))
+    {
+        assert(compCyclesAtEnd >= m_compCyclesAtEndOfInlining);
+
+        m_compCycles = compCyclesAtEnd - m_compCyclesAtEndOfInlining;
+    }
+#endif
+}
+
+void Compiler::compCompileFinish()
+{
+#if FUNC_INFO_LOGGING
+    if (FILE* funcInfoFile = compJitFuncInfoFile)
+    {
+        assert(!compIsForInlining());
+        fprintf(funcInfoFile, "%s\n",
+#ifdef DEBUG
+                info.compFullName
+#else
+                eeGetMethodFullName(info.compMethodHnd)
+#endif
+                );
+        fflush(funcInfoFile);
+    }
+#endif // FUNC_INFO_LOGGING
+
+#if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
+    genMethodCnt++;
+#endif
+
+#if MEASURE_MEM_ALLOC
+    {
+        compArenaAllocator->finishMemStats();
+        memAllocHist.record((unsigned)((compArenaAllocator->getTotalBytesAllocated() + 1023) / 1024));
+        memUsedHist.record((unsigned)((compArenaAllocator->getTotalBytesUsed() + 1023) / 1024));
+    }
+
+#ifdef DEBUG
+    if (verbose || JitConfig.DisplayMemStats())
+    {
+        printf("\nAllocations for %s (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
+        compArenaAllocator->dumpMemStats(jitstdout);
+    }
+#endif // DEBUG
+#endif // MEASURE_MEM_ALLOC
+
+#if LOOP_HOIST_STATS
+    AddLoopHoistStats();
+#endif
+
+#if MEASURE_NODE_SIZE
+    genTreeNcntHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeCnt));
+    genTreeNsizHist.record(static_cast<unsigned>(genNodeSizeStatsPerFunc.genTreeNodeSize));
+#endif
+
+#ifdef DEBUG
+    // Small methods should fit in ArenaAllocator::getDefaultPageSize(), or else
+    // we should bump up ArenaAllocator::getDefaultPageSize()
+
+    if ((info.compILCodeSize <= 32) &&    // Is it a reasonably small method?
+        (codeGen->GetCodeSize() < 512) && // Some trivial methods generate huge native code. eg. pushing a single
+        // huge struct
+        (compInlinedCodeSize <= 128) && // Is the the inlining reasonably bounded?
+        // Small methods cannot meaningfully have a big number of locals
+        // or arguments. We always track arguments at the start of
+        // the prolog which requires memory
+        (info.compLocalsCount <= 32) && (!opts.MinOpts()) && // We may have too many local variables, etc
+        (JitConfig.JitStress() == 0) &&                      // We need extra memory for stress
+        !opts.optRepeat &&                                   // We need extra memory to repeat opts
+        !compArenaAllocator->bypassHostAllocator() && // ArenaAllocator::getDefaultPageSize() is artificially low for
+                                                      // DirectAlloc
+        // Factor of 2x is because data-structures are bigger under DEBUG
+        (compArenaAllocator->getTotalBytesAllocated() > (2 * ArenaAllocator::getDefaultPageSize())) &&
+        // RyuJIT backend needs memory tuning! TODO-Cleanup: remove this case when memory tuning is complete.
+        (compArenaAllocator->getTotalBytesAllocated() > (10 * ArenaAllocator::getDefaultPageSize())) &&
+        !verbose) // We allocate lots of memory to convert sets to strings for JitDump
+    {
+        genSmallMethodsNeedingExtraMemoryCnt++;
+
+        // Less than 1% of all methods should run into this.
+        // We cannot be more strict as there are always degenerate cases where we
+        // would need extra memory (like huge structs as locals - see lvaSetStruct()).
+        assert((genMethodCnt < 500) || (genSmallMethodsNeedingExtraMemoryCnt < (genMethodCnt / 100)));
+    }
+#endif // DEBUG
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+    m_inlineStrategy->DumpData();
+
+    if (JitConfig.JitInlineDumpXmlFile() != nullptr)
+    {
+        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
+        if (file != nullptr)
+        {
+            m_inlineStrategy->DumpXml(file);
+            fclose(file);
+        }
+        else
+        {
+            m_inlineStrategy->DumpXml();
+        }
+    }
+    else
+    {
+        m_inlineStrategy->DumpXml();
+    }
+#endif
+
+#ifdef DEBUG
+    if (opts.dspOrder)
+    {
+        // mdMethodDef __stdcall CEEInfo::getMethodDefFromMethod(CORINFO_METHOD_HANDLE hMethod)
+        mdMethodDef currentMethodToken = info.compCompHnd->getMethodDefFromMethod(info.compMethodHnd);
+
+        static bool headerPrinted = false;
+        if (!headerPrinted)
+        {
+            // clang-format off
+            headerPrinted = true;
+            printf("         |  Profiled   | Method   |   Method has    |   calls   | Num |LclV |AProp| CSE |   Perf  |bytes | %3s codesize| \n", Target::CpuName());
+            printf(" mdToken |  CNT |  RGN |    Hash  | EH | FRM | LOOP | NRM | IND | BBs | Cnt | Cnt | Cnt |  Score  |  IL  |   HOT | CLD | method name \n");
+            printf("---------+------+------+----------+----+-----+------+-----+-----+-----+-----+-----+-----+---------+------+-------+-----+\n");
+            //      06001234 | 1234 |  HOT | 0f1e2d3c | EH | ebp | LOOP |  15 |   6 |  12 |  17 |  12 |   8 | 1234.56 |  145 |  1234 | 123 | System.Example(int)
+            // clang-format on
+        }
+
+        printf("%08X | ", currentMethodToken);
+
+        if (fgHaveProfileData())
+        {
+            if (fgCalledCount < 1000)
+            {
+                printf("%4.0f | ", fgCalledCount);
+            }
+            else if (fgCalledCount < 1000000)
+            {
+                printf("%3.0fK | ", fgCalledCount / 1000);
+            }
+            else
+            {
+                printf("%3.0fM | ", fgCalledCount / 1000000);
+            }
+        }
+        else
+        {
+            printf("     | ");
+        }
+
+        CorInfoRegionKind regionKind = info.compMethodInfo->regionKind;
+
+        if (opts.altJit)
+        {
+            printf("ALT | ");
+        }
+        else if (regionKind == CORINFO_REGION_NONE)
+        {
+            printf("     | ");
+        }
+        else if (regionKind == CORINFO_REGION_HOT)
+        {
+            printf(" HOT | ");
+        }
+        else if (regionKind == CORINFO_REGION_COLD)
+        {
+            printf("COLD | ");
+        }
+        else if (regionKind == CORINFO_REGION_JIT)
+        {
+            printf(" JIT | ");
+        }
+        else
+        {
+            printf("UNKN | ");
+        }
+
+        printf("%08x | ", info.compMethodHash());
+
+        if (compHndBBtabCount > 0)
+        {
+            printf("EH | ");
+        }
+        else
+        {
+            printf("   | ");
+        }
+
+        if (codeGen->isFramePointerUsed())
+        {
+            printf("%3s | ", STR_FPBASE);
+        }
+#if DOUBLE_ALIGN
+        else if (codeGen->doDoubleAlign())
+        {
+            printf("dbl | ");
+        }
+#endif
+        else
+        {
+            printf("%3s | ", STR_SPBASE);
+        }
+
+        if (fgHasLoops)
+        {
+            printf("LOOP |");
+        }
+        else
+        {
+            printf("     |");
+        }
+
+        printf(" %3d |", optCallCount);
+        printf(" %3d |", optIndirectCallCount);
+        printf(" %3d |", fgBBcount);
+        printf(" %3d |", lvaCount);
+
+        if (opts.MinOpts())
+        {
+            printf("  MinOpts  |");
+        }
+        else
+        {
+            printf(" %3d |", apAssertionCount);
+            printf(" %3d |", cseCount);
+        }
+
+        if (codeGen->GetPerfScore() < 9999.995)
+        {
+            printf(" %7.2f |", codeGen->GetPerfScore());
+        }
+        else
+        {
+            printf(" %7.0f |", codeGen->GetPerfScore());
+        }
+
+        printf(" %4d |", info.compMethodInfo->ILCodeSize);
+        printf(" %5d |", codeGen->GetHotCodeSize());
+        printf(" %3d |", codeGen->GetColdCodeSize());
+
+        printf(" %s\n", eeGetMethodFullName(info.compMethodHnd));
+        printf(""); // in our logic this causes a flush
+    }
+
+    if (verbose)
+    {
+        printf("****** DONE compiling %s\n", info.compFullName);
+        printf(""); // in our logic this causes a flush
+    }
+
+    // Only call _DbgBreakCheck when we are jitting, not when we are ngen-ing
+    // For ngen the int3 or breakpoint instruction will be right at the
+    // start of the ngen method and we will stop when we execute it.
+    //
+    if (!opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        if (compJitHaltMethod())
+        {
+#ifndef HOST_UNIX
+            // TODO-UNIX: re-enable this when we have an OS that supports a pop-up dialog
+
+            // Don't do an assert, but just put up the dialog box so we get just-in-time debugger
+            // launching.  When you hit 'retry' it will continue and naturally stop at the INT 3
+            // that the JIT put in the code
+            _DbgBreakCheck(__FILE__, __LINE__, "JitHalt");
+#endif
+        }
+    }
+#endif // DEBUG
+}
+
+#if defined(DEBUG) || defined(INLINE_DATA)
+// Get a hash code of the currently jitted method's full name.
+unsigned CompiledMethodInfo::compMethodHash() const
+{
+    if (compMethodHashPrivate == 0)
+    {
+        assert((compFullName != nullptr) && (compFullName[0] != 0));
+        // Use compFullName to generate the hash, as it contains the signature and return type
+        compMethodHashPrivate = HashStringA(compFullName);
+    }
+
+    return compMethodHashPrivate;
+}
+
+// Get a hash code of the currently jitted method's full name.
+unsigned Compiler::compMethodHash(CORINFO_METHOD_HANDLE methodHnd)
+{
+    if (methodHnd == info.compMethodHnd)
+    {
+        return info.compMethodHash();
+    }
+
+    unsigned    methodHash = 0;
+    const char* calleeName = eeGetMethodFullName(methodHnd);
+
+    if (calleeName != nullptr)
+    {
+        methodHash = HashStringA(calleeName);
+    }
+    else
+    {
+        methodHash = info.compCompHnd->getMethodHash(methodHnd);
+    }
+
+    return methodHash;
+}
+#endif // defined(DEBUG) || defined(INLINE_DATA)
+
 #if MEASURE_CLRAPI_CALLS
 
 struct WrapICorJitInfo : public ICorJitInfo
@@ -3373,16 +2748,6 @@ public:
 
 #endif // MEASURE_CLRAPI_CALLS
 
-// JIT time end to end, and by phases.
-
-#ifdef FEATURE_JIT_METHOD_PERF
-CritSecObject       CompTimeSummaryInfo::s_compTimeSummaryLock;
-CompTimeSummaryInfo CompTimeSummaryInfo::s_compTimeSummary;
-#if MEASURE_CLRAPI_CALLS
-double JitTimer::s_cyclesPerSec = CachedCyclesPerSecond();
-#endif
-#endif
-
 #if defined(FEATURE_JIT_METHOD_PERF) || defined(DUMP_FLOWGRAPHS)
 const char* PhaseNames[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) string_nm,
@@ -3410,6 +2775,12 @@ bool PhaseReportsIRSize[]{
 #define CompPhaseNameMacro(enum_nm, string_nm, short_nm, hasChildren, parent, measureIR) measureIR,
 #include "compphases.h"
 };
+
+CritSecObject       CompTimeSummaryInfo::s_compTimeSummaryLock;
+CompTimeSummaryInfo CompTimeSummaryInfo::s_compTimeSummary;
+#if MEASURE_CLRAPI_CALLS
+double JitTimer::s_cyclesPerSec = CachedCyclesPerSecond();
+#endif
 
 bool CompTimeSummaryInfo::IncludedInFilteredData(CompTimeInfo& info)
 {
@@ -3758,6 +3129,50 @@ void CompTimeSummaryInfo::Print(FILE* f) const
 
     fprintf(f, "\n");
 }
+
+// Little helpers to grab the current cycle counter value; this is done
+// differently based on target architecture, host toolchain, etc. The
+// main thing is to keep the overhead absolutely minimal; in fact, on
+// x86/x64 we use RDTSC even though it's not thread-safe; GetThreadCycles
+// (which is monotonous) is just too expensive.
+
+#if defined(HOST_X86) || defined(HOST_AMD64)
+#if defined(_MSC_VER)
+
+#include <intrin.h>
+static bool _our_GetThreadCycles(uint64_t* cycleOut)
+{
+    *cycleOut = __rdtsc();
+    return true;
+}
+
+#elif defined(__GNUC__)
+
+static bool _our_GetThreadCycles(uint64_t* cycleOut)
+{
+    uint32_t hi, lo;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    *cycleOut = (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
+    return true;
+}
+
+#else // neither _MSC_VER nor __GNUC__
+
+// The following *might* work - might as well try.
+#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
+
+#endif
+
+#elif defined(HOST_ARM) || defined(HOST_ARM64)
+// If this doesn't work please see ../gc/gc.cpp for additional ARM
+// info (and possible solutions).
+#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
+#else // not x86/x64 and not ARM
+// Don't know what this target is, but let's give it a try; if
+// someone really wants to make this work, please add the right
+// code here.
+#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
+#endif
 
 JitTimer::JitTimer(unsigned byteCodeSize) : m_info(byteCodeSize)
 {
@@ -4159,44 +3574,507 @@ void Compiler::PrintPerMethodLoopHoistStats() const
 }
 #endif // LOOP_HOIST_STATS
 
-// Records data needed for inlining data dumps. Should be
-// called after inlining is complete. (We do this after inlining
-// because this marks the last point at which the JIT is likely to
-// cause type-loading and class initialization).
-void Compiler::RecordStateAtEndOfInlining()
-{
-#if defined(DEBUG) || defined(INLINE_DATA)
-    m_compCyclesAtEndOfInlining    = 0;
-    m_compTickCountAtEndOfInlining = 0;
+#ifdef PSEUDORANDOM_NOP_INSERTION
+// this is zlib adler32 checksum.  source came from windows base
 
-    if (CycleTimer::GetThreadCyclesS(&m_compCyclesAtEndOfInlining))
-    {
-        m_compTickCountAtEndOfInlining = GetTickCount();
+#define BASE 65521L // largest prime smaller than 65536
+#define NMAX 5552
+// NMAX is the largest n such that 255n(n+1)/2 + (n+1)(BASE-1) <= 2^32-1
+
+#define DO1(buf, i)                                                                                                    \
+    {                                                                                                                  \
+        s1 += buf[i];                                                                                                  \
+        s2 += s1;                                                                                                      \
     }
-#endif
+#define DO2(buf, i)                                                                                                    \
+    DO1(buf, i);                                                                                                       \
+    DO1(buf, i + 1);
+#define DO4(buf, i)                                                                                                    \
+    DO2(buf, i);                                                                                                       \
+    DO2(buf, i + 2);
+#define DO8(buf, i)                                                                                                    \
+    DO4(buf, i);                                                                                                       \
+    DO4(buf, i + 4);
+#define DO16(buf)                                                                                                      \
+    DO8(buf, 0);                                                                                                       \
+    DO8(buf, 8);
+
+static unsigned adler32(unsigned adler, char* buf, unsigned int len)
+{
+    unsigned int s1 = adler & 0xffff;
+    unsigned int s2 = (adler >> 16) & 0xffff;
+    int          k;
+
+    if (buf == NULL)
+        return 1L;
+
+    while (len > 0)
+    {
+        k = len < NMAX ? len : NMAX;
+        len -= k;
+        while (k >= 16)
+        {
+            DO16(buf);
+            buf += 16;
+            k -= 16;
+        }
+        if (k != 0)
+            do
+            {
+                s1 += *buf++;
+                s2 += s1;
+            } while (--k);
+        s1 %= BASE;
+        s2 %= BASE;
+    }
+    return (s2 << 16) | s1;
 }
 
-// Capture timing data (if enabled) after compilation is completed.
-void Compiler::RecordStateAtEndOfCompilation()
+static unsigned getMethodBodyChecksum(char* code, int size)
 {
-#if defined(DEBUG) || defined(INLINE_DATA)
-    m_compCycles = 0;
-
-    if (uint64_t compCyclesAtEnd; CycleTimer::GetThreadCyclesS(&compCyclesAtEnd))
-    {
-        assert(compCyclesAtEnd >= m_compCyclesAtEndOfInlining);
-
-        m_compCycles = compCyclesAtEnd - m_compCyclesAtEndOfInlining;
-    }
-#endif
+    return adler32(0, code, size);
 }
-
-#if FUNC_INFO_LOGGING
-LPCWSTR Compiler::compJitFuncInfoFilename;
-FILE*   Compiler::compJitFuncInfoFile;
-#endif
+#endif // PSEUDORANDOM_NOP_INSERTION
 
 #ifdef DEBUG
+
+void Compiler::compDumpOptions()
+{
+    // If we are compiling for a specific tier, make that very obvious in the output.
+    // Note that we don't expect multiple TIER flags to be set at one time, but there
+    // is nothing preventing that.
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0))
+    {
+        printf("OPTIONS: Tier-0 compilation (set COMPlus_TieredCompilation=0 to disable)\n");
+    }
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1))
+    {
+        printf("OPTIONS: Tier-1 compilation\n");
+    }
+    if (compSwitchedToOptimized)
+    {
+        printf("OPTIONS: Tier-0 compilation, switched to FullOpts\n");
+    }
+    if (compSwitchedToMinOpts)
+    {
+        printf("OPTIONS: Tier-1/FullOpts compilation, switched to MinOpts\n");
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+    {
+        printf("OPTIONS: OSR variant with entry point 0x%x\n", info.compILEntry);
+    }
+
+    printf("OPTIONS: compCodeOpt = %s\n", (opts.compCodeOpt == BLENDED_CODE)
+                                              ? "BLENDED_CODE"
+                                              : (opts.compCodeOpt == SMALL_CODE)
+                                                    ? "SMALL_CODE"
+                                                    : (opts.compCodeOpt == FAST_CODE) ? "FAST_CODE" : "UNKNOWN_CODE");
+
+    printf("OPTIONS: compDbgCode = %s\n", dspBool(opts.compDbgCode));
+    printf("OPTIONS: compDbgInfo = %s\n", dspBool(opts.compDbgInfo));
+    printf("OPTIONS: compDbgEnC  = %s\n", dspBool(opts.compDbgEnC));
+    printf("OPTIONS: compProcedureSplitting   = %s\n", dspBool(opts.compProcedureSplitting));
+    printf("OPTIONS: compProcedureSplittingEH = %s\n", dspBool(opts.compProcedureSplittingEH));
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_BBOPT) && fgHaveProfileData())
+    {
+        printf("OPTIONS: optimized using %s profile data\n", pgoSourceToString(fgPgoSource));
+    }
+
+    if (fgPgoFailReason != nullptr)
+    {
+        printf("OPTIONS: %s\n", fgPgoFailReason);
+    }
+
+    if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT))
+    {
+        printf("OPTIONS: Jit invoked for ngen\n");
+    }
+}
+
+void Compiler::compDoComponentUnitTestsOnce()
+{
+    static bool DidComponentUnitTests;
+
+    if (!JitConfig.RunComponentUnitTests())
+    {
+        return;
+    }
+
+    if (!DidComponentUnitTests)
+    {
+        DidComponentUnitTests = true;
+        RunValueNumStoreTests(this);
+        BitSetSupport::TestSuite(getAllocator(CMK_DebugOnly));
+    }
+}
+
+bool Compiler::compJitHaltMethod()
+{
+    /* This method returns true when we use an INS_BREAKPOINT to allow us to step into the generated native code */
+    /* Note that this these two "Jit" environment variables also work for ngen images */
+
+    if (JitConfig.JitHalt().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+    {
+        return true;
+    }
+
+    /* Use this Hash variant when there are a lot of method with the same name and different signatures */
+
+    unsigned fJitHashHaltVal = (unsigned)JitConfig.JitHashHalt();
+    if ((fJitHashHaltVal != (unsigned)-1) && (fJitHashHaltVal == info.compMethodHash()))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+// Should we use a "stress-mode" for the given stressArea. We have different
+//   areas to allow the areas to be mixed in different combinations in
+//   different methods.
+// 'weight' indicates how often (as a percentage) the area should be stressed.
+//    It should reflect the usefulness:overhead ratio.
+const LPCWSTR Compiler::s_compStressModeNames[STRESS_COUNT + 1]{
+#define STRESS_MODE(mode) W("STRESS_") W(#mode),
+    STRESS_MODES
+#undef STRESS_MODE
+};
+
+//------------------------------------------------------------------------
+// compStressCompile: determine if a stress mode should be enabled
+//
+// Arguments:
+//   stressArea - stress mode to possibly enable
+//   weight - percent of time this mode should be turned on
+//     (range 0 to 100); weight 0 effectively disables
+//
+// Returns:
+//   true if this stress mode is enabled
+//
+// Notes:
+//   Methods may be excluded from stress via name or hash.
+//
+//   Particular stress modes may be disabled or forcibly enabled.
+//
+//   With JitStress=2, some stress modes are enabled regardless of weight;
+//   these modes are the ones after COUNT_VARN in the enumeration.
+//
+//   For other modes or for nonzero JitStress values, stress will be
+//   enabled selectively for roughly weight% of methods.
+//
+bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
+{
+    // This can be called early, before info is fully set up.
+    if ((info.compMethodName == nullptr) || (info.compFullName == nullptr))
+    {
+        return false;
+    }
+
+    // Inlinees defer to the root method for stress, so that we can
+    // more easily isolate methods that cause stress failures.
+    if (compIsForInlining())
+    {
+        return impInlineRoot()->compStressCompile(stressArea, weight);
+    }
+
+    const bool doStress = compStressCompileHelper(stressArea, weight);
+
+    if (doStress && !compActiveStressModes[stressArea])
+    {
+        JITDUMP("\n\n*** JitStress: %ws ***\n\n", s_compStressModeNames[stressArea]);
+        compActiveStressModes[stressArea] = true;
+    }
+
+    return doStress;
+}
+
+//------------------------------------------------------------------------
+// compStressCompileHelper: helper to determine if a stress mode should be enabled
+//
+// Arguments:
+//   stressArea - stress mode to possibly enable
+//   weight - percent of time this mode should be turned on
+//     (range 0 to 100); weight 0 effectively disables
+//
+// Returns:
+//   true if this stress mode is enabled
+//
+// Notes:
+//   See compStressCompile
+//
+bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weight)
+{
+    if (!bRangeAllowStress)
+    {
+        return false;
+    }
+
+    if (!JitConfig.JitStressOnly().isEmpty() &&
+        !JitConfig.JitStressOnly().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
+    {
+        return false;
+    }
+
+    // Does user explicitly prevent using this STRESS_MODE through the command line?
+    const WCHAR* strStressModeNamesNot = JitConfig.JitStressModeNamesNot();
+    if ((strStressModeNamesNot != nullptr) &&
+        (wcsstr(strStressModeNamesNot, s_compStressModeNames[stressArea]) != nullptr))
+    {
+        return false;
+    }
+
+    // Does user explicitly set this STRESS_MODE through the command line?
+    const WCHAR* strStressModeNames = JitConfig.JitStressModeNames();
+    if (strStressModeNames != nullptr)
+    {
+        if (wcsstr(strStressModeNames, s_compStressModeNames[stressArea]) != nullptr)
+        {
+            return true;
+        }
+
+        // This stress mode name did not match anything in the stress
+        // mode allowlist. If user has requested only enable mode,
+        // don't allow this stress mode to turn on.
+        const bool onlyEnableMode = JitConfig.JitStressModeNamesOnly() != 0;
+
+        if (onlyEnableMode)
+        {
+            return false;
+        }
+    }
+
+    // 0:   No stress (Except when explicitly set in complus_JitStressModeNames)
+    // !=2: Vary stress. Performance will be slightly/moderately degraded
+    // 2:   Check-all stress. Performance will be REALLY horrible
+    const int stressLevel = JitConfig.JitStress();
+
+    assert(weight <= MAX_STRESS_WEIGHT);
+
+    // Check for boundary conditions
+    if (stressLevel == 0 || weight == 0)
+    {
+        return false;
+    }
+
+    // Should we allow unlimited stress ?
+    if ((stressArea > STRESS_COUNT_VARN) && (stressLevel == 2))
+    {
+        return true;
+    }
+
+    if (weight == MAX_STRESS_WEIGHT)
+    {
+        return true;
+    }
+
+    // Get a hash which can be compared with 'weight'
+    assert(stressArea != 0);
+    const unsigned hash = (info.compMethodHash() ^ stressArea ^ stressLevel) % MAX_STRESS_WEIGHT;
+
+    assert(hash < MAX_STRESS_WEIGHT && weight <= MAX_STRESS_WEIGHT);
+    return (hash < weight);
+}
+
+// Helper to determine if the local should not be promoted under a stress mode.
+// Rejects ~50% of the potential promotions if STRESS_PROMOTE_FEWER_STRUCTS is active.
+bool Compiler::compPromoteFewerStructs(LclVarDsc* lcl)
+{
+    return compStressCompile(STRESS_PROMOTE_FEWER_STRUCTS, 50) &&
+           (((info.compMethodHash() ^ lcl->GetLclNum()) & 1) == 0);
+}
+
+//------------------------------------------------------------------------
+// compGetTieringName: get a string describing tiered compilation settings
+//   for this method
+//
+// Arguments:
+//   wantShortName - true if a short name is ok (say for using in file names)
+//
+// Returns:
+//   String describing tiering decisions for this method, including cases
+//   where the jit codegen will differ from what the runtime requested.
+//
+const char* Compiler::compGetTieringName(bool wantShortName) const
+{
+    const bool tier0 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER0);
+    const bool tier1 = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER1);
+    assert(!tier0 || !tier1); // We don't expect multiple TIER flags to be set at one time.
+
+    if (tier0)
+    {
+        return "Tier0";
+    }
+    else if (tier1)
+    {
+        if (opts.jitFlags->IsSet(JitFlags::JIT_FLAG_OSR))
+        {
+            return "Tier1-OSR";
+        }
+        else
+        {
+            return "Tier1";
+        }
+    }
+    else if (opts.OptimizationEnabled())
+    {
+        if (compSwitchedToOptimized)
+        {
+            return wantShortName ? "Tier0-FullOpts" : "Tier-0 switched to FullOpts";
+        }
+        else
+        {
+            return "FullOpts";
+        }
+    }
+    else if (opts.MinOpts())
+    {
+        if (compSwitchedToMinOpts)
+        {
+            if (compSwitchedToOptimized)
+            {
+                return wantShortName ? "Tier0-FullOpts-MinOpts" : "Tier-0 switched to FullOpts, then to MinOpts";
+            }
+            else
+            {
+                return wantShortName ? "Tier0-MinOpts" : "Tier-0 switched MinOpts";
+            }
+        }
+        else
+        {
+            return "MinOpts";
+        }
+    }
+    else if (opts.compDbgCode)
+    {
+        return "Debug";
+    }
+    else
+    {
+        return wantShortName ? "Unknown" : "Unknown optimization level";
+    }
+}
+
+//------------------------------------------------------------------------
+// compGetStressMessage: get a string describing jitstress capability
+//   for this method
+//
+// Returns:
+//   An empty string if stress is not enabled, else a string describing
+//   if this method is subject to stress or is excluded by name or hash.
+//
+const char* Compiler::compGetStressMessage() const
+{
+    // Add note about stress where appropriate
+    const char* stressMessage = "";
+
+    // Is stress enabled via mode name or level?
+    if ((JitConfig.JitStressModeNames() != nullptr) || (JitConfig.JitStress() > 0))
+    {
+        // Is the method being jitted excluded from stress via range?
+        if (bRangeAllowStress)
+        {
+            // Or is it excluded via name?
+            if (!JitConfig.JitStressOnly().isEmpty() ||
+                !JitConfig.JitStressOnly().contains(info.compMethodName, info.compClassName,
+                                                    &info.compMethodInfo->args))
+            {
+                // Not excluded -- stress can happen
+                stressMessage = " JitStress";
+            }
+            else
+            {
+                stressMessage = " NoJitStress(Only)";
+            }
+        }
+        else
+        {
+            stressMessage = " NoJitStress(Range)";
+        }
+    }
+
+    return stressMessage;
+}
+
+void Compiler::compFunctionTraceStart()
+{
+    assert(!compIsForInlining());
+
+    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
+    {
+        LONG newJitNestingLevel = InterlockedIncrement(&s_jitNestingLevel);
+        if (newJitNestingLevel <= 0)
+        {
+            printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
+        }
+
+        for (LONG i = 0; i < newJitNestingLevel - 1; i++)
+        {
+            printf("  ");
+        }
+        printf("{ Start Jitting Method %4d %s (MethodHash=%08x) %s\n", Compiler::jitTotalMethodCompiled,
+               info.compFullName, info.compMethodHash(),
+               compGetTieringName()); /* } editor brace matching workaround for this printf */
+    }
+}
+
+void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, bool isNYI)
+{
+    assert(!compIsForInlining());
+
+    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
+    {
+        LONG newJitNestingLevel = InterlockedDecrement(&s_jitNestingLevel);
+        if (newJitNestingLevel < 0)
+        {
+            printf("{ Illegal nesting level %d }\n", newJitNestingLevel);
+        }
+
+        for (LONG i = 0; i < newJitNestingLevel; i++)
+        {
+            printf("  ");
+        }
+
+        // Note: that is incorrect if we are compiling several methods at the same time.
+        unsigned methodNumber = Compiler::jitTotalMethodCompiled - 1;
+
+        /* { editor brace-matching workaround for following printf */
+        printf("} Jitted Method %4d at" FMT_ADDR "method %s size %08x%s%s\n", methodNumber, DBG_ADDR(methodCodePtr),
+               info.compFullName, methodCodeSize, isNYI ? " NYI" : "", opts.altJit ? " altjit" : "");
+    }
+}
+
+bool CompiledMethodInfo::SkipMethod() const
+{
+    static ConfigMethodRange fJitRange;
+    fJitRange.EnsureInit(JitConfig.JitRange());
+    assert(!fJitRange.Error());
+
+    // Normally JitConfig.JitRange() is null, we don't want to skip
+    // jitting any methods.
+    //
+    // So, the logic below relies on the fact that a null range string
+    // passed to ConfigMethodRange represents the set of all methods.
+
+    if (!fJitRange.Contains(compMethodHash()))
+    {
+        return true;
+    }
+
+    if (JitConfig.JitExclude().contains(compMethodName, compClassName, &compMethodInfo->args))
+    {
+        return true;
+    }
+
+    if (!JitConfig.JitInclude().isEmpty() &&
+        !JitConfig.JitInclude().contains(compMethodName, compClassName, &compMethodInfo->args))
+    {
+        return true;
+    }
+
+    return false;
+}
 
 // dumpConvertedVarSet() dumps the varset bits that are tracked
 // variable indices, and we convert them to variable numbers, sort the variable numbers, and

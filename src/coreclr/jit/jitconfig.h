@@ -102,3 +102,7 @@ public:
 };
 
 extern JitConfigValues JitConfig;
+
+#ifdef DEBUG
+unsigned ReinterpretHexAsDecimal(unsigned in);
+#endif

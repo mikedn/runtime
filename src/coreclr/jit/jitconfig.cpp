@@ -421,3 +421,31 @@ void JitConfigValues::destroy(ICorJitHost* host)
 
     m_isInitialized = false;
 }
+
+#ifdef DEBUG
+// ConfigInteger does not offer an option for decimal flags. Any numbers are interpreted as hex.
+// I could add the decimal option to ConfigInteger or I could write a function to reinterpret this
+// value as the user intended.
+unsigned ReinterpretHexAsDecimal(unsigned in)
+{
+    // ex: in: 0x100 returns: 100
+    unsigned result = 0;
+    unsigned index  = 1;
+
+    // default value
+    if (in == INT_MAX)
+    {
+        return in;
+    }
+
+    while (in)
+    {
+        unsigned digit = in % 16;
+        in >>= 4;
+        assert(digit < 10);
+        result += digit * index;
+        index *= 10;
+    }
+    return result;
+}
+#endif // DEBUG
