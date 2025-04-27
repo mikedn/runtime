@@ -13341,6 +13341,90 @@ bool Importer::impAddSpillCliquePredMember(BasicBlock* block)
     return true;
 }
 
+void Importer::InitDebuggingInfo()
+{
+    // We can only report debug info for EnC at places where the stack is empty.
+    // Actually, at places where there are not live temps. Else, we won't be able
+    // to map between the old and the new versions correctly as we won't have
+    // any info for the live temps.
+
+    assert(!opts.compDbgEnC || !opts.compDbgInfo ||
+           ((compStmtOffsetsImplicit & ~ICorDebugInfo::STACK_EMPTY_BOUNDARIES) == 0));
+
+    if (opts.compDbgInfo)
+    {
+        eeGetStmtOffsets();
+
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("info.compStmtOffsetsCount    = %d\n", compStmtOffsetsCount);
+            printf("info.compStmtOffsetsImplicit = %04Xh", compStmtOffsetsImplicit);
+
+            if (compStmtOffsetsImplicit)
+            {
+                printf(" ( ");
+                if (compStmtOffsetsImplicit & ICorDebugInfo::STACK_EMPTY_BOUNDARIES)
+                {
+                    printf("STACK_EMPTY ");
+                }
+                if (compStmtOffsetsImplicit & ICorDebugInfo::NOP_BOUNDARIES)
+                {
+                    printf("NOP ");
+                }
+                if (compStmtOffsetsImplicit & ICorDebugInfo::CALL_SITE_BOUNDARIES)
+                {
+                    printf("CALL_SITE ");
+                }
+                printf(")");
+            }
+            printf("\n");
+            IL_OFFSET* pOffs = compStmtOffsets;
+            for (unsigned i = 0; i < compStmtOffsetsCount; i++, pOffs++)
+            {
+                printf("%02d) IL_%04Xh\n", i, *pOffs);
+            }
+        }
+#endif
+    }
+}
+
+void Importer::eeGetStmtOffsets()
+{
+    assert(!compIsForInlining());
+
+    unsigned                     offsetsCount;
+    uint32_t*                    offsets;
+    ICorDebugInfo::BoundaryTypes offsetsImplicit;
+
+    info.compCompHnd->getBoundaries(info.compMethodHnd, &offsetsCount, &offsets, &offsetsImplicit);
+
+    compStmtOffsetsImplicit = offsetsImplicit;
+
+    if (offsetsCount == 0)
+    {
+        assert(compStmtOffsetsCount == 0);
+        return;
+    }
+
+    IL_OFFSET* offsetsCopy      = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
+    unsigned   offsetsCopyCount = 0;
+    IL_OFFSET  maxOffset        = info.compILCodeSize;
+
+    for (unsigned i = 0; i < offsetsCount; i++)
+    {
+        if (offsets[i] <= maxOffset)
+        {
+            offsetsCopy[offsetsCopyCount++] = offsets[i];
+        }
+    }
+
+    info.compCompHnd->freeArray(offsets);
+
+    compStmtOffsets      = offsetsCopy;
+    compStmtOffsetsCount = offsetsCopyCount;
+}
+
 // Convert the instrs ("import") into our internal format (trees).
 // The basic flowgraph has already been constructed and is passed in.
 void Importer::Import()
@@ -16139,6 +16223,14 @@ Importer::Importer(Compiler* comp)
     , info(comp->info)
     , verCurrentState(comp)
 {
+}
+
+PhaseStatus Compiler::phImport()
+{
+    Importer importer(this);
+    importer.Import();
+
+    return PhaseStatus::MODIFIED_EVERYTHING;
 }
 
 CompAllocator Importer::getAllocator(CompMemKind kind) const

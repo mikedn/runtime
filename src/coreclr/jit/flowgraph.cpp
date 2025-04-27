@@ -404,15 +404,6 @@ bool Compiler::fgMayExplicitTailCall()
     return true;
 }
 
-// Read the IL for the method and create jit IR
-PhaseStatus Compiler::phImport()
-{
-    Importer importer(this);
-    importer.Import();
-
-    return PhaseStatus::MODIFIED_EVERYTHING;
-}
-
 /*****************************************************************************
  * This function returns true for blocks that are in different hot-cold regions.
  * It returns false when the blocks are both in the same regions

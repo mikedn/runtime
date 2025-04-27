@@ -387,42 +387,6 @@ unsigned Compiler::eeGetMDArrayDataOffset(var_types type, unsigned rank)
     return eeGetArrayDataOffset(type) + 2 * varTypeSize(TYP_INT) * rank;
 }
 
-void Importer::eeGetStmtOffsets()
-{
-    assert(!compIsForInlining());
-
-    unsigned                     offsetsCount;
-    uint32_t*                    offsets;
-    ICorDebugInfo::BoundaryTypes offsetsImplicit;
-
-    info.compCompHnd->getBoundaries(info.compMethodHnd, &offsetsCount, &offsets, &offsetsImplicit);
-
-    compStmtOffsetsImplicit = offsetsImplicit;
-
-    if (offsetsCount == 0)
-    {
-        assert(compStmtOffsetsCount == 0);
-        return;
-    }
-
-    IL_OFFSET* offsetsCopy      = new (comp, CMK_DebugInfo) IL_OFFSET[offsetsCount];
-    unsigned   offsetsCopyCount = 0;
-    IL_OFFSET  maxOffset        = info.compILCodeSize;
-
-    for (unsigned i = 0; i < offsetsCount; i++)
-    {
-        if (offsets[i] <= maxOffset)
-        {
-            offsetsCopy[offsetsCopyCount++] = offsets[i];
-        }
-    }
-
-    info.compCompHnd->freeArray(offsets);
-
-    compStmtOffsets      = offsetsCopy;
-    compStmtOffsetsCount = offsetsCopyCount;
-}
-
 void Compiler::eeGetVars()
 {
     ICorDebugInfo::ILVarInfo* varTable;
