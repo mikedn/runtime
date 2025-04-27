@@ -1288,7 +1288,7 @@ struct CompilerOptions
     // This option helps make the JIT behave as if it is running under a profiler.
     bool compJitELTHookEnabled : 1;
 #else
-    static const bool compNoPInvokeInlineCB;
+    static constexpr bool compNoPInvokeInlineCB = false;
 #endif
 
     bool compReloc : 1;              // Generate relocs for pointers in code, true for all ngen/prejit codegen
@@ -5566,16 +5566,9 @@ public:
     unsigned typGetLargestSimdTypeSize();
 #endif
 
-//-------------------------- Global Compiler Data ------------------------------------
-
-#ifdef DEBUG
-private:
-    static LONG s_compMethodsCount; // to produce unique label names
-#endif
-
 public:
 #ifdef DEBUG
-    LONG     compMethodID;
+    unsigned compMethodID;
     unsigned compGenTreeID    = 0;
     unsigned compStatementID  = 0;
     unsigned compBasicBlockID = 0;
@@ -5653,16 +5646,8 @@ public:
     unsigned m_loopsWithHoistedExpressions = 0;
     unsigned m_totalHoistedExpressions     = 0;
 
-    void AddLoopHoistStats();
-    void PrintPerMethodLoopHoistStats() const;
-
-    static CritSecObject s_loopHoistStatsLock; // This lock protects the data structures below.
-    static unsigned      s_loopsConsidered;
-    static unsigned      s_loopsWithHoistedExpressions;
-    static unsigned      s_totalHoistedExpressions;
-
-    static void PrintAggregateLoopHoistStats(FILE* f);
-#endif // LOOP_HOIST_STATS
+    void AddLoopHoistStats() const;
+#endif
 
     bool compIsForInlining() const
     {
@@ -5785,14 +5770,12 @@ private:
 
 public:
 #if FUNC_INFO_LOGGING
-    static LPCWSTR compJitFuncInfoFilename; // If a log file for per-function information is required, this is the
-                                            // filename to write it to.
-    static FILE* compJitFuncInfoFile;       // And this is the actual FILE* to write to.
-#endif                                      // FUNC_INFO_LOGGING
+    static FILE* compJitFuncInfoFile;
+#endif
 
 #if MEASURE_NOWAY
     void RecordNowayAssert(const char* filename, unsigned line, const char* condStr);
-#endif // MEASURE_NOWAY
+#endif
 
     // Should we actually fire the noway assert body and the exception handler?
     bool compShouldThrowOnNoway() const;

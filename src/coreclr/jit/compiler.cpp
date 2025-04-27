@@ -230,6 +230,45 @@ static void DisplayNowayAssertMap()
 
 #endif // MEASURE_NOWAY
 
+#if LOOP_HOIST_STATS
+static CritSecObject s_loopHoistStatsLock;
+static unsigned      s_loopsConsidered;
+static unsigned      s_loopsWithHoistedExpressions;
+static unsigned      s_totalHoistedExpressions;
+
+static void PrintAggregateLoopHoistStats(FILE* f)
+{
+    fprintf(f, "\n");
+    fprintf(f, "---------------------------------------------------\n");
+    fprintf(f, "Loop hoisting stats\n");
+    fprintf(f, "---------------------------------------------------\n");
+
+    double pctWithHoisted = 0.0;
+    if (s_loopsConsidered > 0)
+    {
+        pctWithHoisted = 100.0 * (double(s_loopsWithHoistedExpressions) / double(s_loopsConsidered));
+    }
+    double exprsPerLoopWithExpr = 0.0;
+    if (s_loopsWithHoistedExpressions > 0)
+    {
+        exprsPerLoopWithExpr = double(s_totalHoistedExpressions) / double(s_loopsWithHoistedExpressions);
+    }
+    fprintf(f, "Considered %d loops.  Of these, we hoisted expressions out of %d (%6.2f%%).\n", s_loopsConsidered,
+            s_loopsWithHoistedExpressions, pctWithHoisted);
+    fprintf(f, "  A total of %d expressions were hoisted, an average of %5.2f per loop-with-hoisted-expr.\n",
+            s_totalHoistedExpressions, exprsPerLoopWithExpr);
+}
+
+void Compiler::AddLoopHoistStats() const
+{
+    CritSecHolder statsLock(s_loopHoistStatsLock);
+
+    s_loopsConsidered += m_loopsConsidered;
+    s_loopsWithHoistedExpressions += m_loopsWithHoistedExpressions;
+    s_totalHoistedExpressions += m_totalHoistedExpressions;
+}
+#endif // LOOP_HOIST_STATS
+
 #if DATAFLOW_ITER
 // Variables to keep track of how many iterations we go in a dataflow pass
 unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
@@ -242,18 +281,11 @@ size_t genFlowNodeCnt;
 #endif
 
 #if FUNC_INFO_LOGGING
-LPCWSTR Compiler::compJitFuncInfoFilename;
-FILE*   Compiler::compJitFuncInfoFile;
-#endif
-
-#ifndef PROFILING_SUPPORTED
-const bool Compiler::Options::compNoPInvokeInlineCB;
+static LPCWSTR compJitFuncInfoFilename;
+FILE*          Compiler::compJitFuncInfoFile;
 #endif
 
 #ifdef DEBUG
-// We keep track of methods we've already compiled to produce unique label names.
-LONG Compiler::s_compMethodsCount;
-
 ConfigMethodRange fJitStressRange;
 #endif
 
@@ -2341,7 +2373,9 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     }
     else
     {
-        compMethodID = InterlockedIncrement(&s_compMethodsCount);
+        static LONG s_compMethodsCount;
+
+        compMethodID = static_cast<unsigned>(InterlockedIncrement(&s_compMethodsCount));
     }
 
     if (JitConfig.DumpJittedMethods() == 1)
@@ -3499,67 +3533,6 @@ void JitTimer::Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includeP
     sum.AddInfo(m_info, includePhases);
 }
 #endif // FEATURE_JIT_METHOD_PERF
-
-#if LOOP_HOIST_STATS
-CritSecObject Compiler::s_loopHoistStatsLock;
-unsigned      Compiler::s_loopsConsidered;
-unsigned      Compiler::s_loopsWithHoistedExpressions;
-unsigned      Compiler::s_totalHoistedExpressions;
-
-void Compiler::PrintAggregateLoopHoistStats(FILE* f)
-{
-    fprintf(f, "\n");
-    fprintf(f, "---------------------------------------------------\n");
-    fprintf(f, "Loop hoisting stats\n");
-    fprintf(f, "---------------------------------------------------\n");
-
-    double pctWithHoisted = 0.0;
-    if (s_loopsConsidered > 0)
-    {
-        pctWithHoisted = 100.0 * (double(s_loopsWithHoistedExpressions) / double(s_loopsConsidered));
-    }
-    double exprsPerLoopWithExpr = 0.0;
-    if (s_loopsWithHoistedExpressions > 0)
-    {
-        exprsPerLoopWithExpr = double(s_totalHoistedExpressions) / double(s_loopsWithHoistedExpressions);
-    }
-    fprintf(f, "Considered %d loops.  Of these, we hoisted expressions out of %d (%6.2f%%).\n", s_loopsConsidered,
-            s_loopsWithHoistedExpressions, pctWithHoisted);
-    fprintf(f, "  A total of %d expressions were hoisted, an average of %5.2f per loop-with-hoisted-expr.\n",
-            s_totalHoistedExpressions, exprsPerLoopWithExpr);
-}
-
-void Compiler::AddLoopHoistStats()
-{
-    CritSecHolder statsLock(s_loopHoistStatsLock);
-
-    s_loopsConsidered += m_loopsConsidered;
-    s_loopsWithHoistedExpressions += m_loopsWithHoistedExpressions;
-    s_totalHoistedExpressions += m_totalHoistedExpressions;
-}
-
-void Compiler::PrintPerMethodLoopHoistStats() const
-{
-    double pctWithHoisted = 0.0;
-
-    if (m_loopsConsidered > 0)
-    {
-        pctWithHoisted = 100.0 * (double(m_loopsWithHoistedExpressions) / double(m_loopsConsidered));
-    }
-
-    double exprsPerLoopWithExpr = 0.0;
-
-    if (m_loopsWithHoistedExpressions > 0)
-    {
-        exprsPerLoopWithExpr = double(m_totalHoistedExpressions) / double(m_loopsWithHoistedExpressions);
-    }
-
-    printf("Considered %d loops.  Of these, we hoisted expressions out of %d (%5.2f%%).\n", m_loopsConsidered,
-           m_loopsWithHoistedExpressions, pctWithHoisted);
-    printf("  A total of %d expressions were hoisted, an average of %5.2f per loop-with-hoisted-expr.\n",
-           m_totalHoistedExpressions, exprsPerLoopWithExpr);
-}
-#endif // LOOP_HOIST_STATS
 
 #ifdef PSEUDORANDOM_NOP_INSERTION
 // this is zlib adler32 checksum.  source came from windows base
