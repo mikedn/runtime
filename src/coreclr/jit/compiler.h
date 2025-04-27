@@ -5104,8 +5104,6 @@ public:
     void eeGetVars();
     void eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers);
 
-// ICorJitInfo wrappers
-
 #ifdef TARGET_AMD64
     bool IsRIPRelativeAddress(GenTreeIntCon* intCon) const;
     bool eeIsRIPRelativeAddress(void* addr) const;
@@ -5114,12 +5112,11 @@ public:
     bool eeIsThumbBranch24TargetAddress(void* target);
 #endif
 
-    // ICorStaticInfo wrapper functions
-
-    bool eeTryResolveToken(CORINFO_RESOLVED_TOKEN* resolvedToken);
-
 #if defined(DEBUG) && defined(UNIX_AMD64_ABI)
     static void dumpSystemVClassificationType(SystemVClassificationType ct);
+#endif
+#ifdef DEBUG
+    const WCHAR* eeGetCPString(void* stringHandle);
 #endif
 
     template <typename ParamType>
@@ -5138,11 +5135,7 @@ public:
 
     bool eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param);
 
-    // Utility functions
-
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE fieldHnd, const char** classNamePtr = nullptr);
-
-    INDEBUG(const WCHAR* eeGetCPString(void* stringHandle);)
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetSimpleClassName(CORINFO_CLASS_HANDLE clsHnd);
 
