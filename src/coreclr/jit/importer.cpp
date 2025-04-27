@@ -32,12 +32,12 @@ typeInfo Importer::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
     {
         case CORINFO_TYPE_CLASS:
         case CORINFO_TYPE_STRING:
-            assert(!info.compCompHnd->isValueClass(classHandle));
+            assert(!vm->isValueClass(classHandle));
             return typeInfo(TI_REF, classHandle);
 
         case CORINFO_TYPE_VALUECLASS:
         case CORINFO_TYPE_REFANY:
-            assert(info.compCompHnd->isValueClass(classHandle));
+            assert(vm->isValueClass(classHandle));
             return typeInfo(TI_STRUCT, classHandle);
 
         case CORINFO_TYPE_BYREF:
@@ -53,9 +53,9 @@ typeInfo Importer::impMakeTypeInfo(CorInfoType type, CORINFO_CLASS_HANDLE classH
             return typeInfo();
 
         default:
-            assert(info.compCompHnd->isValueClass(classHandle));
+            assert(vm->isValueClass(classHandle));
 
-            if (info.compCompHnd->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF)
+            if (vm->getTypeForPrimitiveValueClass(classHandle) == CORINFO_TYPE_UNDEF)
             {
                 // This is a "normed type", a struct type with a single field that the VM claims
                 // to be a primitive type. We need to record the fact that it is really a struct
@@ -75,7 +75,7 @@ void Importer::ResolveToken(const uint8_t* addr, CORINFO_RESOLVED_TOKEN* resolve
     resolvedToken->token        = getU4LittleEndian(addr);
     resolvedToken->tokenType    = kind;
 
-    info.compCompHnd->resolveToken(resolvedToken);
+    vm->resolveToken(resolvedToken);
 }
 
 Importer::StackEntry Importer::impPopStack()
@@ -510,7 +510,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
     for (unsigned i = 0, paramCount = sig->numArgs; i < paramCount; i++)
     {
         CORINFO_CLASS_HANDLE paramClass;
-        CorInfoType          paramCorType = strip(info.compCompHnd->getArgType(sig, param, &paramClass));
+        CorInfoType          paramCorType = strip(vm->getArgType(sig, param, &paramClass));
         var_types            paramType    = varActualType(CorTypeToVarType(paramCorType));
 
         if (paramType != varActualType(arg->GetNode()->GetType()))
@@ -531,7 +531,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
         if ((paramCorType != CORINFO_TYPE_CLASS) && (paramCorType != CORINFO_TYPE_BYREF) &&
             (paramCorType != CORINFO_TYPE_PTR))
         {
-            CORINFO_CLASS_HANDLE realParamClass = info.compCompHnd->getArgClass(sig, param);
+            CORINFO_CLASS_HANDLE realParamClass = vm->getArgClass(sig, param);
 
             if (realParamClass != nullptr)
             {
@@ -540,13 +540,13 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
                 // methods, all valuetypes in the method signature are already loaded.
                 // We need to be able to find the size of the valuetypes, but we cannot
                 // do a class-load from within GC.
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(realParamClass);
+                vm->classMustBeLoadedBeforeCodeIsRun(realParamClass);
             }
         }
 
         if (i + 1 < paramCount)
         {
-            param = info.compCompHnd->getArgNext(param);
+            param = vm->getArgNext(param);
             arg   = arg->GetNext();
         }
     }
@@ -559,7 +559,7 @@ GenTreeCall::Use* Importer::PopCallArgs(CORINFO_SIG_INFO* sig, GenTree* extraArg
         // methods, all valuetypes in the method signature are already loaded.
         // We need to be able to find the size of the valuetypes, but we cannot
         // do a class-load from within GC.
-        info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
+        vm->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
     }
 
 #ifndef TARGET_X86
@@ -1025,7 +1025,7 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
                                     unsigned             curLevel,
                                     bool                 willDereference)
 {
-    assert(varTypeIsStruct(value->GetType()) || info.compCompHnd->isValueClass(structHnd));
+    assert(varTypeIsStruct(value->GetType()) || vm->isValueClass(structHnd));
 
     if (value->OperIs(GT_LCL_LOAD))
     {
@@ -1109,7 +1109,7 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                     bool*                   runtimeLookup)
 {
     CORINFO_GENERICHANDLE_RESULT embedInfo;
-    info.compCompHnd->embedGenericHandle(resolvedToken, importParent, &embedInfo);
+    vm->embedGenericHandle(resolvedToken, importParent, &embedInfo);
 
     if (runtimeLookup != nullptr)
     {
@@ -1123,15 +1123,15 @@ GenTree* Importer::impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
             switch (embedInfo.handleType)
             {
                 case CORINFO_HANDLETYPE_CLASS:
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(
+                    vm->classMustBeLoadedBeforeCodeIsRun(
                         reinterpret_cast<CORINFO_CLASS_HANDLE>(embedInfo.compileTimeHandle));
                     break;
                 case CORINFO_HANDLETYPE_FIELD:
-                    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(info.compCompHnd->getFieldClass(
-                        reinterpret_cast<CORINFO_FIELD_HANDLE>(embedInfo.compileTimeHandle)));
+                    vm->classMustBeLoadedBeforeCodeIsRun(
+                        vm->getFieldClass(reinterpret_cast<CORINFO_FIELD_HANDLE>(embedInfo.compileTimeHandle)));
                     break;
                 case CORINFO_HANDLETYPE_METHOD:
-                    info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(
+                    vm->methodMustBeLoadedBeforeCodeIsRun(
                         reinterpret_cast<CORINFO_METHOD_HANDLE>(embedInfo.compileTimeHandle));
                     break;
                 default:
@@ -2183,7 +2183,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
     if (isMDArray)
     {
-        rank = info.compCompHnd->getArrayRank(arrayClsHnd);
+        rank = vm->getArrayRank(arrayClsHnd);
 
         if (rank == 0)
         {
@@ -2335,14 +2335,14 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
 
         numElements = S_SIZE_T(arrayLengthNode->AsIntCon()->GetValue());
 
-        if (!info.compCompHnd->isSDArray(arrayClsHnd))
+        if (!vm->isSDArray(arrayClsHnd))
         {
             return nullptr;
         }
     }
 
     CORINFO_CLASS_HANDLE elemClsHnd;
-    var_types            elementType = CorTypeToVarType(info.compCompHnd->getChildType(arrayClsHnd, &elemClsHnd));
+    var_types            elementType = CorTypeToVarType(vm->getChildType(arrayClsHnd, &elemClsHnd));
 
     // Note that varTypeSize will return zero for non primitive types, which is exactly
     // what we want (size will then be 0, and we will catch this in the conditional below).
@@ -2360,7 +2360,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         return nullptr;
     }
 
-    void* initData = info.compCompHnd->getArrayInitializationData(fieldHandle, size.Value());
+    void* initData = vm->getArrayInitializationData(fieldHandle, size.Value());
     if (initData == nullptr)
     {
         return nullptr;
@@ -2467,7 +2467,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
     if ((methodFlags & CORINFO_FLG_INTRINSIC) != 0)
     {
-        intrinsicId = info.compCompHnd->getIntrinsicID(method, &mustExpand);
+        intrinsicId = vm->getIntrinsicID(method, &mustExpand);
         assert((intrinsicId == CORINFO_INTRINSIC_Illegal) || (intrinsicId < CORINFO_INTRINSIC_Count));
 
         // These intrinsics must be supported regardless of DbgCode and MinOpts.
@@ -2700,7 +2700,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             // If so, instead of boxing and then extracting the type, just
             // construct the type directly.
             if ((callInfo->thisTransform == CORINFO_BOX_THIS) &&
-                info.compCompHnd->getBoxHelper(constrainedResolvedToken->hClass) == CORINFO_HELP_BOX)
+                vm->getBoxHelper(constrainedResolvedToken->hClass) == CORINFO_HELP_BOX)
             {
                 impPopStack();
 
@@ -2729,7 +2729,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             // to the call to the first slot of the ByReference struct.
             op1 = impPopStack().val;
 
-            CORINFO_FIELD_HANDLE fldHnd = info.compCompHnd->getFieldInClass(clsHnd, 0);
+            CORINFO_FIELD_HANDLE fldHnd = vm->getFieldInClass(clsHnd, 0);
             GenTreeIndir* store = comp->gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
             GenTree*      byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
@@ -2749,8 +2749,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
         case NI_CORINFO_INTRINSIC_ByReference_Value:
             op1 = impPopStack().val;
 
-            return comp->gtNewFieldLoad(TYP_BYREF,
-                                        gtNewFieldAddr(op1, info.compCompHnd->getFieldInClass(clsHnd, 0), 0));
+            return comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(op1, vm->getFieldInClass(clsHnd, 0), 0));
 
         case NI_CORINFO_INTRINSIC_GetRawHandle:
         {
@@ -2764,7 +2763,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             rt.tokenType    = CORINFO_TOKENKIND_Method;
 
             CORINFO_GENERICHANDLE_RESULT embedInfo;
-            info.compCompHnd->expandRawHandleIntrinsic(&rt, &embedInfo);
+            vm->expandRawHandleIntrinsic(&rt, &embedInfo);
 
             GenTree* rawHandle =
                 impLookupToTree(&rt, &embedInfo.lookup, TokenToHandleKind(rt.token), embedInfo.compileTimeHandle);
@@ -2834,13 +2833,13 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             assert(sig->numArgs == 1);
 
             CORINFO_CLASS_HANDLE spanElemHnd = sig->sigInst.classInst[0];
-            const unsigned       elemSize    = info.compCompHnd->getClassSize(spanElemHnd);
+            const unsigned       elemSize    = vm->getClassSize(spanElemHnd);
             assert(elemSize > 0);
 
             const bool isReadOnly = (ni == NI_System_ReadOnlySpan_get_Item);
 
             JITDUMP("\nimpIntrinsic: Expanding %sSpan<T>.get_Item, T=%s, sizeof(T)=%u\n", isReadOnly ? "ReadOnly" : "",
-                    info.compCompHnd->getClassName(spanElemHnd), elemSize);
+                    vm->getClassName(spanElemHnd), elemSize);
 
             GenTree* index    = impPopStack().val;
             GenTree* spanAddr = impPopStack().val;
@@ -2857,8 +2856,8 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             impMakeMultiUse(spanAddr, 2, spanAddrUses, CHECK_SPILL_ALL DEBUGARG("span addr temp"));
 
             // Bounds check
-            CORINFO_FIELD_HANDLE lengthHnd    = info.compCompHnd->getFieldInClass(clsHnd, 1);
-            const unsigned       lengthOffset = info.compCompHnd->getFieldOffset(lengthHnd);
+            CORINFO_FIELD_HANDLE lengthHnd    = vm->getFieldInClass(clsHnd, 1);
+            const unsigned       lengthOffset = vm->getFieldOffset(lengthHnd);
             GenTree* length = comp->gtNewFieldLoad(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
             GenTree* boundsCheck = gtNewBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
             GenTree* indexOffset;
@@ -2875,8 +2874,8 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                 indexOffset          = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
             }
 
-            CORINFO_FIELD_HANDLE ptrHnd    = info.compCompHnd->getFieldInClass(clsHnd, 0);
-            const unsigned       ptrOffset = info.compCompHnd->getFieldOffset(ptrHnd);
+            CORINFO_FIELD_HANDLE ptrHnd    = vm->getFieldInClass(clsHnd, 0);
+            const unsigned       ptrOffset = vm->getFieldOffset(ptrHnd);
             FieldSeqNode*        ptrField  = GetByReferenceValueField(ptrHnd);
 
             GenTree* pointer = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
@@ -2982,9 +2981,9 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                     {
                         impPopStack(); // drop CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE call
 
-                        return gtNewIconNode(info.compCompHnd->isValueClass(hClass) &&
+                        return gtNewIconNode(vm->isValueClass(hClass) &&
                                              // pointers are not value types (e.g. typeof(int*).IsValueType is false)
-                                             info.compCompHnd->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
+                                             vm->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
                     }
                 }
             }
@@ -3112,8 +3111,8 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                 impPopStack();
 
                 CORINFO_CLASS_HANDLE argClass;
-                var_types argType = CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, sig->args, &argClass)));
-                unsigned  popCount;
+                var_types            argType = CorTypeToVarType(strip(vm->getArgType(sig, sig->args, &argClass)));
+                unsigned             popCount;
 
                 if (argType == TYP_LONG)
                 {
@@ -3174,7 +3173,7 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
             return nullptr;
         }
 
-        TypeCompareState castResult = info.compCompHnd->compareTypesForCast(hClassFrom, hClassTo);
+        TypeCompareState castResult = vm->compareTypesForCast(hClassFrom, hClassTo);
         if (castResult == TypeCompareState::May)
         {
             // requires runtime check
@@ -3283,7 +3282,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = impPopStack().val;
 
             param     = sig->args;
-            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            paramType = varActualType(CorTypeToVarType(strip(vm->getArgType(sig, param, &tmpClass))));
 
             if (op1->GetType() != paramType)
             {
@@ -3301,7 +3300,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = impPopStack().val;
 
             param     = sig->args;
-            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            paramType = varActualType(CorTypeToVarType(strip(vm->getArgType(sig, param, &tmpClass))));
 
             if (op1->GetType() != paramType)
             {
@@ -3309,8 +3308,8 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
                 op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
             }
 
-            param     = info.compCompHnd->getArgNext(param);
-            paramType = varActualType(CorTypeToVarType(strip(info.compCompHnd->getArgType(sig, param, &tmpClass))));
+            param     = vm->getArgNext(param);
+            paramType = varActualType(CorTypeToVarType(strip(vm->getArgType(sig, param, &tmpClass))));
 
             if (op2->GetType() != paramType)
             {
@@ -3807,14 +3806,14 @@ GenTree* Importer::ImportArrayAccessIntrinsic(
     }
 
     CORINFO_CLASS_HANDLE elemClsHnd = nullptr;
-    var_types            elemType   = CorTypeToVarType(info.compCompHnd->getChildType(clsHnd, &elemClsHnd));
+    var_types            elemType   = CorTypeToVarType(vm->getChildType(clsHnd, &elemClsHnd));
 
     // For the ref case, we will only be able to inline if the types match
     // and the type is final (so we don't need to do the cast).
     if ((name != NI_CORINFO_INTRINSIC_Array_Get) && (elemType == TYP_REF) && ((prefixFlags & PREFIX_READONLY) == 0))
     {
         CORINFO_SIG_INFO callSig;
-        eeGetCallSiteSig(memberRef, info.compScopeHnd, tokenContext, &callSig);
+        GetVMCallSiteSig(memberRef, info.compScopeHnd, tokenContext, &callSig);
         assert(callSig.hasThis());
 
         CORINFO_CLASS_HANDLE accessClsHnd;
@@ -3825,23 +3824,23 @@ GenTree* Importer::ImportArrayAccessIntrinsic(
             CORINFO_ARG_LIST_HANDLE arg = callSig.args;
             for (unsigned r = 0; r < rank; r++)
             {
-                arg = info.compCompHnd->getArgNext(arg);
+                arg = vm->getArgNext(arg);
             }
 
-            assert(strip(info.compCompHnd->getArgType(&callSig, arg, &accessClsHnd)) == CORINFO_TYPE_CLASS);
+            assert(strip(vm->getArgType(&callSig, arg, &accessClsHnd)) == CORINFO_TYPE_CLASS);
 
-            accessClsHnd = info.compCompHnd->getArgClass(&callSig, arg);
+            accessClsHnd = vm->getArgClass(&callSig, arg);
         }
         else
         {
             assert(name == NI_CORINFO_INTRINSIC_Array_Address);
             assert(callSig.retType == CORINFO_TYPE_BYREF);
 
-            info.compCompHnd->getChildType(callSig.retTypeClass, &accessClsHnd);
+            vm->getChildType(callSig.retTypeClass, &accessClsHnd);
         }
 
         // if it's not final, we can't do the optimization
-        if ((info.compCompHnd->getClassAttribs(accessClsHnd) & CORINFO_FLG_FINAL) == 0)
+        if ((vm->getClassAttribs(accessClsHnd) & CORINFO_FLG_FINAL) == 0)
         {
             return nullptr;
         }
@@ -3852,7 +3851,7 @@ GenTree* Importer::ImportArrayAccessIntrinsic(
     {
         assert(elemClsHnd != NO_CLASS_HANDLE);
 
-        elemSize = info.compCompHnd->getClassSize(elemClsHnd);
+        elemSize = vm->getClassSize(elemClsHnd);
     }
     else
     {
@@ -3969,7 +3968,7 @@ bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
     // for calli, VerifyOrReturn that this is not a virtual method
     if (opcode == CEE_CALLI)
     {
-        eeGetSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
+        GetVMSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
 
         // We don't know the target method, so we have to infer the flags, or assume the worst-case.
         mflags = sig.hasThis() ? 0 : CORINFO_FLG_STATIC;
@@ -3978,16 +3977,16 @@ bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
     {
         methodHnd = resolvedToken.hMethod;
 
-        mflags = info.compCompHnd->getMethodAttribs(methodHnd);
+        mflags = vm->getMethodAttribs(methodHnd);
 
         // When verifying generic code we pair the method handle with its
         // owning class to get the exact method signature.
         methodClassHnd = resolvedToken.hClass;
         assert(methodClassHnd);
 
-        eeGetMethodSig(methodHnd, &sig, methodClassHnd);
+        GetVMMethodSig(methodHnd, &sig, methodClassHnd);
 
-        methodClassAttrs = info.compCompHnd->getClassAttribs(methodClassHnd);
+        methodClassAttrs = vm->getClassAttribs(methodClassHnd);
     }
 
     // We must have got the methodClassHnd if opcode is not CEE_CALLI
@@ -3995,22 +3994,22 @@ bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
 
     if (sig.getCallConv() == CORINFO_CALLCONV_VARARG)
     {
-        eeGetCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
+        GetVMCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
     }
 
     // check compatibility of the arguments
     CORINFO_ARG_LIST_HANDLE args = sig.args;
 
-    for (unsigned i = 0; i < sig.numArgs; i++, args = info.compCompHnd->getArgNext(args))
+    for (unsigned i = 0; i < sig.numArgs; i++, args = vm->getArgNext(args))
     {
         // For unsafe code, we might have parameters containing pointer to the stack location.
         // Disallow the tailcall for this kind.
         CORINFO_CLASS_HANDLE paramClass;
-        CorInfoType          argCorType = strip(info.compCompHnd->getArgType(&sig, args, &paramClass));
+        CorInfoType          argCorType = strip(vm->getArgType(&sig, args, &paramClass));
 
         if ((argCorType == CORINFO_TYPE_PTR) || (argCorType == CORINFO_TYPE_BYREF) ||
             ((argCorType == CORINFO_TYPE_VALUECLASS) &&
-             ((info.compCompHnd->getClassAttribs(paramClass) & CORINFO_FLG_CONTAINS_STACK_PTR) != 0)))
+             ((vm->getClassAttribs(paramClass) & CORINFO_FLG_CONTAINS_STACK_PTR) != 0)))
         {
             return false;
         }
@@ -4036,7 +4035,7 @@ bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
         else
         {
             // If it's a value class then it may be a local so we can't tailcall.
-            if (info.compCompHnd->isValueClass(methodClassHnd))
+            if (vm->isValueClass(methodClassHnd))
             {
                 return false;
             }
@@ -4065,7 +4064,7 @@ bool Importer::verCheckTailCallConstraint(OPCODE                        opcode,
         if ((methodClassAttrs & CORINFO_FLG_ARRAY) != 0)
         {
             assert(opcode != CEE_CALLI);
-            eeGetCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
+            GetVMCallSiteSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &sig);
         }
 
         typeInfo calleeRetType = verMakeTypeInfo(sig.retType, sig.retTypeClass);
@@ -4211,7 +4210,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
     assert(codeAddr < codeEnd);
 
     CORINFO_CLASS_HANDLE boxClass = resolvedToken->hClass;
-    ICorJitInfo*         jitInfo  = info.compCompHnd;
+    ICorJitInfo*         jitInfo  = vm;
 
     switch (pattern)
     {
@@ -4295,7 +4294,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
 
                 isinstClass = ResolveClassToken(codeAddr + 1, CORINFO_TOKENKIND_Casting);
 
-                CORINFO_CLASS_HANDLE underlyingCls = info.compCompHnd->getTypeForBox(boxClass);
+                CORINFO_CLASS_HANDLE underlyingCls = jitInfo->getTypeForBox(boxClass);
 
                 TypeCompareState castResult = jitInfo->compareTypesForCast(underlyingCls, isinstClass);
 
@@ -4391,7 +4390,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
     StackEntry           se         = impPopStack();
     CORINFO_CLASS_HANDLE valueClass = se.seTypeInfo.GetClassHandle();
     GenTree*             value      = se.val;
-    CorInfoHelpFunc      boxHelper  = info.compCompHnd->getBoxHelper(resolvedToken->hClass);
+    CorInfoHelpFunc      boxHelper  = vm->getBoxHelper(resolvedToken->hClass);
 
     // Determine what expansion to prefer.
     //
@@ -4507,7 +4506,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
                 type = TYP_I_IMPL;
             }
 
-            CorInfoType jitType = info.compCompHnd->asCorInfoType(resolvedToken->hClass);
+            CorInfoType jitType = vm->asCorInfoType(resolvedToken->hClass);
 
             if (impIsPrimitive(jitType))
             {
@@ -4584,7 +4583,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
         boxed = gtNewHelperCallNode(boxHelper, TYP_REF, handle, addr);
     }
 
-    impPushOnStack(boxed, typeInfo(TI_REF, info.compCompHnd->getTypeForBox(resolvedToken->hClass)));
+    impPushOnStack(boxed, typeInfo(TI_REF, vm->getTypeForBox(resolvedToken->hClass)));
 }
 
 // Build and import `new` of multi-dimensional array
@@ -4718,7 +4717,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
 {
     if (transform == CORINFO_DEREF_THIS)
     {
-        var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
+        var_types type = CorTypeToVarType(vm->asCorInfoType(constrainedResolvedToken->hClass));
         RetypeLocalAddress(thisPtr);
         GenTree* load = comp->gtNewIndLoad(type, thisPtr);
         load->AddSideEffects(GTF_EXCEPT | GTF_GLOB_REF);
@@ -4737,7 +4736,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     // TODO-MIKE-Review: Object/ValueType do not implement any interfaces. Is this
     // dead code?
 
-    var_types type = CorTypeToVarType(info.compCompHnd->asCorInfoType(constrainedResolvedToken->hClass));
+    var_types type = CorTypeToVarType(vm->asCorInfoType(constrainedResolvedToken->hClass));
     GenTree*  load;
 
     if (type == TYP_STRUCT)
@@ -4752,7 +4751,7 @@ GenTree* Importer::impTransformThis(GenTree*                thisPtr,
     load->AddSideEffects(GTF_EXCEPT);
 
     if ((type == TYP_STRUCT) ||
-        (info.compCompHnd->getTypeForPrimitiveValueClass(constrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
+        (vm->getTypeForPrimitiveValueClass(constrainedResolvedToken->hClass) == CORINFO_TYPE_UNDEF))
     {
         impPushOnStack(load, typeInfo(TI_STRUCT, constrainedResolvedToken->hClass));
     }
@@ -4868,13 +4867,13 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
 
         call->gtCallMoreFlags |= GTF_CALL_M_PINVOKE;
 
-        callConv = info.compCompHnd->getUnmanagedCallConv(methHnd, nullptr, &suppressGCTransition);
+        callConv = vm->getUnmanagedCallConv(methHnd, nullptr, &suppressGCTransition);
     }
     else
     {
         assert((sig->getCallConv() != CORINFO_CALLCONV_DEFAULT) && (sig->getCallConv() != CORINFO_CALLCONV_VARARG));
 
-        callConv = info.compCompHnd->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
+        callConv = vm->getUnmanagedCallConv(nullptr, sig, &suppressGCTransition);
     }
 
     // TODO-MIKE-Review: Should be set on calls that aren't actually unmanaged?
@@ -4941,7 +4940,7 @@ void Importer::CheckPInvokeCall(GenTreeCall*          call,
         }
 
         // The expensive check should be last
-        if (info.compCompHnd->pInvokeMarshalingRequired(methHnd, sig))
+        if (vm->pInvokeMarshalingRequired(methHnd, sig))
         {
             return;
         }
@@ -5197,7 +5196,7 @@ GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      add
         field->SetLayoutNum(0);
     }
 
-    if ((info.compCompHnd->getClassAttribs(resolvedToken.hClass) & CORINFO_FLG_OVERLAPPING_FIELDS) != 0)
+    if ((vm->getClassAttribs(resolvedToken.hClass) & CORINFO_FLG_OVERLAPPING_FIELDS) != 0)
     {
         field->SetMayOverlap();
     }
@@ -5282,7 +5281,7 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
 #ifdef FEATURE_READYTORUN_COMPILER
             if (opts.IsReadyToRun())
             {
-                uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
+                uint32_t classAttribs = vm->getClassAttribs(resolvedToken->hClass);
 
                 addr =
                     comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_STATIC_BASE, fieldInfo.fieldLookup, TYP_BYREF);
@@ -5307,10 +5306,10 @@ GenTree* Importer::impImportStaticFieldAddressHelper(OPCODE                    o
             assert(!compIsForInlining());
 
             CORINFO_LOOKUP_KIND kind;
-            info.compCompHnd->getLocationOfThisType(info.compMethodHnd, &kind);
+            vm->getLocationOfThisType(info.compMethodHnd, &kind);
             assert(kind.needsRuntimeLookup);
 
-            uint32_t classAttribs = info.compCompHnd->getClassAttribs(resolvedToken->hClass);
+            uint32_t classAttribs = vm->getClassAttribs(resolvedToken->hClass);
 
             GenTree* ctxTree = gtNewRuntimeContextTree(kind.runtimeLookupKind);
             addr = comp->gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE, fieldInfo.fieldLookup,
@@ -5377,7 +5376,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
             assert(opcode == CEE_LDSFLD);
             {
                 void*          pValue;
-                InfoAccessType iat = info.compCompHnd->emptyStringLiteral(&pValue);
+                InfoAccessType iat = vm->emptyStringLiteral(&pValue);
                 return gtNewStringLiteralNode(iat, pValue);
             }
 
@@ -5411,7 +5410,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
         if ((opcode == CEE_LDSFLD) && (fieldType == TYP_STRUCT) && (fieldInfo.structType != NO_CLASS_HANDLE))
         {
-            if ((info.compCompHnd->getTypeForPrimitiveValueClass(fieldInfo.structType) == CORINFO_TYPE_UNDEF) &&
+            if ((vm->getTypeForPrimitiveValueClass(fieldInfo.structType) == CORINFO_TYPE_UNDEF) &&
                 ((info.compFlags & CORINFO_FLG_FORCEINLINE) == 0))
             {
                 // TODO-MIKE-Review: This is suspect. Struct static fields don't always need
@@ -5466,8 +5465,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         return field;
     }
 
-    if ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
-         CORINFO_INITCLASS_USE_HELPER) == 0)
+    if ((vm->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) & CORINFO_INITCLASS_USE_HELPER) == 0)
     {
         return field;
     }
@@ -5590,8 +5588,7 @@ GenTree* Importer::impImportStSFld(GenTree*                  value,
     GenTree* helperNode = nullptr;
 
     if (((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0) &&
-        ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
-          CORINFO_INITCLASS_USE_HELPER) != 0))
+        ((vm->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) & CORINFO_INITCLASS_USE_HELPER) != 0))
     {
         helperNode = CreateClassInitTree(resolvedToken);
 
@@ -5708,7 +5705,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
     ClassLayout* layout = type != TYP_STRUCT ? nullptr : typGetObjLayout(fieldInfo.structType);
 
     void* pFldAddr = nullptr;
-    void* fldAddr  = info.compCompHnd->getFieldAddress(resolvedToken->hField, &pFldAddr);
+    void* fldAddr  = vm->getFieldAddress(resolvedToken->hField, &pFldAddr);
     // We should always be able to access this static's address directly
     assert(pFldAddr == nullptr);
 
@@ -5716,8 +5713,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
     if ((opcode == CEE_LDSFLD) && ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_FINAL) != 0) &&
         ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC_IN_HEAP) == 0) &&
         (varTypeIsIntegral(type) || varTypeIsFloating(type)) &&
-        ((info.compCompHnd->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) &
-          CORINFO_INITCLASS_INITIALIZED) != 0))
+        ((vm->initClass(resolvedToken->hField, info.compMethodHnd, tokenContext) & CORINFO_INITCLASS_INITIALIZED) != 0))
     {
         return impImportStaticReadOnlyField(fldAddr, type);
     }
@@ -5725,7 +5721,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
 #ifdef TARGET_64BIT
     bool isStaticReadOnlyInited = false;
     bool isSpeculative          = true;
-    if (info.compCompHnd->getStaticFieldCurrentClass(resolvedToken->hField, &isSpeculative) != NO_CLASS_HANDLE)
+    if (vm->getStaticFieldCurrentClass(resolvedToken->hField, &isSpeculative) != NO_CLASS_HANDLE)
     {
         isStaticReadOnlyInited = !isSpeculative;
 
@@ -5931,16 +5927,15 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
         switch (argInfo.argType)
         {
             case CORINFO_HELPER_ARG_TYPE_Field:
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(
-                    info.compCompHnd->getFieldClass(argInfo.fieldHandle));
+                vm->classMustBeLoadedBeforeCodeIsRun(vm->getFieldClass(argInfo.fieldHandle));
                 argValue = gtNewIconEmbFldHndNode(argInfo.fieldHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Method:
-                info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(argInfo.methodHandle);
+                vm->methodMustBeLoadedBeforeCodeIsRun(argInfo.methodHandle);
                 argValue = gtNewIconEmbMethHndNode(argInfo.methodHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Class:
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(argInfo.classHandle);
+                vm->classMustBeLoadedBeforeCodeIsRun(argInfo.classHandle);
                 argValue = gtNewIconEmbClsHndNode(argInfo.classHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Module:
@@ -6056,7 +6051,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode],
                 callInfo->kind, varTypeName(callRetTyp),
-                callRetTyp == TYP_STRUCT ? info.compCompHnd->getClassSize(callInfo->sig.retTypeSigClass) : 0);
+                callRetTyp == TYP_STRUCT ? vm->getClassSize(callInfo->sig.retTypeSigClass) : 0);
 
         call = impImportIndirectCall(&callInfo->sig, ilOffset);
 
@@ -6093,7 +6088,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
         if ((((clsFlags & CORINFO_FLG_ARRAY) != 0) && (callInfo->sig.retType != CORINFO_TYPE_VOID)) ||
             callInfo->sig.isVarArg())
         {
-            eeGetCallSiteSig(resolvedToken->token, resolvedToken->tokenScope, resolvedToken->tokenContext,
+            GetVMCallSiteSig(resolvedToken->token, resolvedToken->tokenScope, resolvedToken->tokenContext,
                              &callSiteSig);
 
             retTypeSig = &callSiteSig;
@@ -6105,7 +6100,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
 
         JITDUMP("\nimpImportCall: opcode %s, kind %d, retType %s, retStructSize %u\n", opcodeNames[opcode],
                 callInfo->kind, varTypeName(callRetTyp),
-                callRetTyp == TYP_STRUCT ? info.compCompHnd->getClassSize(callInfo->sig.retTypeSigClass) : 0);
+                callRetTyp == TYP_STRUCT ? vm->getClassSize(callInfo->sig.retTypeSigClass) : 0);
 
         if (compIsForInlining())
         {
@@ -6459,7 +6454,7 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 // use the call site signature and due to type equivalence the return type
                 // of the method's signature may be different, so we handle it here.
                 // TODO-MIKE-Review: What about param types, can't those be different too?
-                info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
+                vm->classMustBeLoadedBeforeCodeIsRun(sig->retTypeSigClass);
             }
 
             sig = retTypeSig;
@@ -6701,7 +6696,7 @@ PUSH_VALUE:
 
 GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
 {
-    if (!info.compCompHnd->canGetCookieForPInvokeCalliSig(sig))
+    if (!vm->canGetCookieForPInvokeCalliSig(sig))
     {
         // Normally this only happens with inlining.
         // However, a generic method (or type) being NGENd into another module
@@ -6717,7 +6712,7 @@ GenTree* Importer::CreateCallICookie(GenTreeCall* call, CORINFO_SIG_INFO* sig)
     }
 
     void* valueAddr;
-    void* value = info.compCompHnd->GetCookieForPInvokeCalliSig(sig, &valueAddr);
+    void* value = vm->GetCookieForPInvokeCalliSig(sig, &valueAddr);
 
     GenTree* cookie = gtNewConstLookupTree(value, valueAddr, HandleKind::ConstData, nullptr);
     cookie->SetDoNotCSE();
@@ -6738,14 +6733,14 @@ GenTree* Importer::CreateVarargsCallArgHandle(GenTreeCall* call, CORINFO_SIG_INF
 {
     assert(!compIsForInlining());
 
-    if (!info.compCompHnd->canGetVarArgsHandle(sig))
+    if (!vm->canGetVarArgsHandle(sig))
     {
         compInlineResult->NoteFatal(InlineObservation::CALLSITE_CANT_EMBED_VARARGS_COOKIE);
         return nullptr;
     }
 
     void* handleAddr;
-    void* handle = info.compCompHnd->getVarArgsHandle(sig, &handleAddr);
+    void* handle = vm->getVarArgsHandle(sig, &handleAddr);
     return gtNewConstLookupTree(handle, handleAddr, HandleKind::ConstData, nullptr);
 }
 
@@ -6813,7 +6808,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
         }
 #endif
 
-        info.compCompHnd->methodMustBeLoadedBeforeCodeIsRun(exactMethodHandle);
+        vm->methodMustBeLoadedBeforeCodeIsRun(exactMethodHandle);
         return gtNewIconEmbMethHndNode(exactMethodHandle);
     }
 
@@ -6869,7 +6864,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
     }
 #endif
 
-    info.compCompHnd->classMustBeLoadedBeforeCodeIsRun(exactClassHandle);
+    vm->classMustBeLoadedBeforeCodeIsRun(exactClassHandle);
     return gtNewIconEmbClsHndNode(exactClassHandle);
 }
 
@@ -6994,8 +6989,7 @@ void Importer::SetupTailCall(GenTreeCall*            call,
         JITDUMP("\nRejecting %splicit tail call for [%06u], reason: '%s'\n", isExplicitTailCall ? "ex" : "im",
                 call->GetID(), reason);
 
-        info.compCompHnd->reportTailCallDecision(info.compMethodHnd, methodHandle, isExplicitTailCall, TAILCALL_FAIL,
-                                                 reason);
+        vm->reportTailCallDecision(info.compMethodHnd, methodHandle, isExplicitTailCall, TAILCALL_FAIL, reason);
 
         return;
     }
@@ -7003,7 +6997,7 @@ void Importer::SetupTailCall(GenTreeCall*            call,
     // True virtual or indirect calls, shouldn't pass in a callee handle.
     CORINFO_METHOD_HANDLE exactCalleeHnd = (!call->IsUserCall() || call->IsVirtual()) ? nullptr : methodHandle;
 
-    if (!info.compCompHnd->canTailCall(info.compMethodHnd, methodHandle, exactCalleeHnd, isExplicitTailCall))
+    if (!vm->canTailCall(info.compMethodHnd, methodHandle, exactCalleeHnd, isExplicitTailCall))
     {
         JITDUMP("\ninfo.compCompHnd->canTailCall returned false for call [%06u]\n", call->GetID());
 
@@ -8215,11 +8209,11 @@ GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
     {
         CORINFO_CLASS_HANDLE toClass = pResolvedToken->hClass;
         JITDUMP("\nConsidering optimization of %s from %s%p (%s) to %p (%s)\n", isCastClass ? "castclass" : "isinst",
-                isExact ? "exact " : "", dspPtr(fromClass), info.compCompHnd->getClassName(fromClass), dspPtr(toClass),
-                info.compCompHnd->getClassName(toClass));
+                isExact ? "exact " : "", dspPtr(fromClass), vm->getClassName(fromClass), dspPtr(toClass),
+                vm->getClassName(toClass));
 
         // Perhaps we know if the cast will succeed or fail.
-        TypeCompareState castResult = info.compCompHnd->compareTypesForCast(fromClass, toClass);
+        TypeCompareState castResult = vm->compareTypesForCast(fromClass, toClass);
 
         if (castResult == TypeCompareState::Must)
         {
@@ -8318,7 +8312,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     // Pessimistically assume the jit cannot expand this as an inline test
     bool                  canExpandInline = false;
-    const CorInfoHelpFunc helper          = info.compCompHnd->getCastingHelper(resolvedToken, isCastClass);
+    const CorInfoHelpFunc helper          = vm->getCastingHelper(resolvedToken, isCastClass);
 
     // Legality check.
     //
@@ -9172,9 +9166,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 clsHnd = resolvedToken.hClass;
 
                 // If it's a value class array we just do a simple address-of
-                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (vm->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(clsHnd));
                     goto LDELEM;
                 }
 
@@ -9211,9 +9205,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
-                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (vm->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(clsHnd));
                     goto LDELEM;
                 }
 
@@ -9296,8 +9290,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
 
                 if ((opcode == CEE_LDELEM) &&
-                    ((lclTyp == TYP_STRUCT) ||
-                     (info.compCompHnd->getTypeForPrimitiveValueClass(clsHnd) == CORINFO_TYPE_UNDEF)))
+                    ((lclTyp == TYP_STRUCT) || (vm->getTypeForPrimitiveValueClass(clsHnd) == CORINFO_TYPE_UNDEF)))
                 {
                     impPushOnStack(op1, typeInfo(TI_STRUCT, clsHnd));
                 }
@@ -9313,9 +9306,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 JITDUMP(" %08X", resolvedToken.token);
                 clsHnd = resolvedToken.hClass;
 
-                if (info.compCompHnd->isValueClass(clsHnd))
+                if (vm->isValueClass(clsHnd))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(clsHnd));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(clsHnd));
                     goto STELEM;
                 }
 
@@ -10182,7 +10175,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
-                eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
+                GetVMFieldInfo(&resolvedToken, (opcode == CEE_LDFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
                                &fieldInfo);
 
                 typeInfo tiObj = impStackTop().seTypeInfo;
@@ -10266,7 +10259,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     // to the JIT so we can end up with an INT/LONG value and a field sequence
                     // for a field that doesn't exist as far as the JIT is concerned.
                     if (varTypeIsArithmetic(lclTyp) &&
-                        (lclTyp == CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass))))
+                        (lclTyp == CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass))))
                     {
                         if (opcode == CEE_LDFLDA)
                         {
@@ -10326,7 +10319,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
-                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
+                GetVMFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
                 // TODO-MIKE-Review: This code uses both the value class handle and the field class handle,
                 // in would make more sense to use only the field class handle. In theory they should be
@@ -10435,7 +10428,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_LDSFLDA:
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
-                eeGetFieldInfo(&resolvedToken, (opcode == CEE_LDSFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
+                GetVMFieldInfo(&resolvedToken, (opcode == CEE_LDSFLDA) ? CORINFO_ACCESS_ADDRESS : CORINFO_ACCESS_GET,
                                &fieldInfo);
 
                 // Raise InvalidProgramException if static load accesses non-static field
@@ -10465,7 +10458,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             case CEE_STSFLD:
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Field);
                 JITDUMP(" %08X", resolvedToken.token);
-                eeGetFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
+                GetVMFieldInfo(&resolvedToken, CORINFO_ACCESS_SET, &fieldInfo);
 
                 if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_STATIC) == 0)
                 {
@@ -10513,7 +10506,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if ((opcode == CEE_UNBOX_ANY) && !info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if ((opcode == CEE_UNBOX_ANY) && !vm->isValueClass(resolvedToken.hClass))
                 {
                     JITDUMP("\n Importing UNBOX.ANY(refClass) as CASTCLASS\n");
                     ImportCastClass(resolvedToken, true);
@@ -10532,7 +10525,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                impPushOnStack(gtNewIconNode(info.compCompHnd->getClassSize(resolvedToken.hClass)));
+                impPushOnStack(gtNewIconNode(vm->getClassSize(resolvedToken.hClass)));
                 break;
 
             case CEE_CASTCLASS:
@@ -10581,9 +10574,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (vm->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -10611,9 +10604,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (vm->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -10644,9 +10637,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (vm->isValueClass(resolvedToken.hClass))
                 {
-                    lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                    lclTyp = CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass));
                 }
                 else
                 {
@@ -10699,7 +10692,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
+                if (!vm->isValueClass(resolvedToken.hClass))
                 {
                     lclTyp = TYP_REF;
                     opcode = CEE_LDIND_REF;
@@ -10720,7 +10713,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
-                lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+                lclTyp = CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass));
                 op2    = op1;
 
                 if (lclTyp == TYP_STRUCT)
@@ -10752,7 +10745,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Fix: This doesn't check for volatile. prefix...
 
                 if ((lclTyp == TYP_STRUCT) ||
-                    (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
+                    (vm->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
                 {
                     impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
                 }
@@ -10850,7 +10843,7 @@ void Importer::ImportMkRefAny(const uint8_t* codeAddr)
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* op1 = impPopStack().val;
@@ -11057,7 +11050,7 @@ void Importer::ImportIsInst(const uint8_t* codeAddr)
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* op1 = impPopStack().val;
@@ -11130,7 +11123,7 @@ void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnb
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* op1     = impPopStack().val;
@@ -11194,7 +11187,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* op1 = impPopStack().val;
@@ -11202,7 +11195,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
     // TODO-MIKE-Review: This should be BADCODE.
     assert(op1->TypeIs(TYP_REF));
 
-    CorInfoHelpFunc helper = info.compCompHnd->getUnBoxHelper(resolvedToken.hClass);
+    CorInfoHelpFunc helper = vm->getUnBoxHelper(resolvedToken.hClass);
     assert(helper == CORINFO_HELP_UNBOX || helper == CORINFO_HELP_UNBOX_NULLABLE);
 
     // Check legality and profitability of inline expansion for unboxing.
@@ -11217,10 +11210,10 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         CORINFO_CLASS_HANDLE clsHnd    = gtGetClassHandle(op1, &isExact, &isNonNull);
 
         // We can skip the "exact" bit here as we are comparing to a value class.
-        // compareTypesForEquality should bail on comparisions for shared value classes.
+        // compareTypesForEquality should bail on comparisons for shared value classes.
         if (clsHnd != NO_CLASS_HANDLE)
         {
-            const TypeCompareState compare = info.compCompHnd->compareTypesForEquality(resolvedToken.hClass, clsHnd);
+            const TypeCompareState compare = vm->compareTypesForEquality(resolvedToken.hClass, clsHnd);
 
             if (compare == TypeCompareState::Must)
             {
@@ -11391,7 +11384,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
     }
 
 LOAD_VALUE:
-    var_types lclTyp = CorTypeToVarType(info.compCompHnd->asCorInfoType(resolvedToken.hClass));
+    var_types lclTyp = CorTypeToVarType(vm->asCorInfoType(resolvedToken.hClass));
     op2              = op1;
 
     if (lclTyp == TYP_STRUCT)
@@ -11415,8 +11408,7 @@ LOAD_VALUE:
         op1->AddSideEffects(GTF_EXCEPT);
     }
 
-    if ((lclTyp == TYP_STRUCT) ||
-        (info.compCompHnd->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
+    if ((lclTyp == TYP_STRUCT) || (vm->getTypeForPrimitiveValueClass(resolvedToken.hClass) == CORINFO_TYPE_UNDEF))
     {
         impPushOnStack(op1, typeInfo(TI_STRUCT, resolvedToken.hClass));
     }
@@ -11434,10 +11426,10 @@ int Importer::ImportBox(const uint8_t* codeAddr, const uint8_t* codeEnd)
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    if (!info.compCompHnd->isValueClass(resolvedToken.hClass))
+    if (!vm->isValueClass(resolvedToken.hClass))
     {
         // Boxing a reference type has no effect.
         return 0;
@@ -11463,7 +11455,7 @@ void Importer::ImportLdToken(const uint8_t* codeAddr)
     JITDUMP(" %08X", resolvedToken.token);
     assert(resolvedToken.hClass != nullptr);
 
-    CORINFO_CLASS_HANDLE tokenType = info.compCompHnd->getTokenTypeAsHandle(&resolvedToken);
+    CORINFO_CLASS_HANDLE tokenType = vm->getTokenTypeAsHandle(&resolvedToken);
     GenTree*             token     = impTokenToHandle(&resolvedToken, /* mustRestoreHandle */ true);
 
     if (token == nullptr)
@@ -11522,7 +11514,7 @@ void Importer::ImportJmp(const uint8_t* codeAddr, BasicBlock* block)
     // At least check that argCnt and returnType match
 
     CORINFO_SIG_INFO sig;
-    eeGetMethodSig(resolvedToken.hMethod, &sig);
+    GetVMMethodSig(resolvedToken.hMethod, &sig);
     if ((sig.numArgs != info.compMethodInfo->args.numArgs) || (sig.retType != info.compMethodInfo->args.retType) ||
         (sig.callConv != info.compMethodInfo->args.callConv))
     {
@@ -11547,7 +11539,7 @@ void Importer::ImportLdFtn(const uint8_t* codeAddr, CORINFO_RESOLVED_TOKEN& cons
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
+    GetVMCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? &constrainedResolvedToken : nullptr,
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
@@ -11579,7 +11571,7 @@ void Importer::ImportLdVirtFtn(const uint8_t* codeAddr)
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, nullptr,
+    GetVMCallInfo(&resolvedToken, nullptr,
                   CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_LDFTN | CORINFO_CALLINFO_CALLVIRT, &callInfo);
 
     // This check really only applies to intrinsic Array.Address methods
@@ -11653,7 +11645,7 @@ void Importer::ImportNewArr(const uint8_t* codeAddr, BasicBlock* block)
 
     CORINFO_HELPER_DESC          calloutHelper;
     CorInfoIsAccessAllowedResult accessAllowedResult =
-        info.compCompHnd->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
+        vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
     GenTree* lengthOp = impPopStack().val;
@@ -11706,7 +11698,7 @@ void Importer::ImportNewArr(const uint8_t* codeAddr, BasicBlock* block)
     if (call == nullptr)
 #endif
     {
-        CorInfoHelpFunc helper = info.compCompHnd->getNewArrHelper(resolvedToken.hClass);
+        CorInfoHelpFunc helper = vm->getNewArrHelper(resolvedToken.hClass);
 
         // Create a call to 'new'. Note that this only works for shared generic
         // code because the same helper is used for all reference array types.
@@ -11738,7 +11730,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM,
+    GetVMCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_SECURITYCHECKS | CORINFO_CALLINFO_ALLOWINSTPARAM,
                   &callInfo);
 
     if ((callInfo.methodFlags & (CORINFO_FLG_STATIC | CORINFO_FLG_ABSTRACT)) != 0)
@@ -11808,7 +11800,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     // The lookup of the code pointer will be handled by CALL in this case.
     else if ((classFlags & CORINFO_FLG_VALUECLASS) != 0)
     {
-        CorInfoType  corType = info.compCompHnd->asCorInfoType(classHandle);
+        CorInfoType  corType = vm->asCorInfoType(classHandle);
         ClassLayout* layout  = impIsPrimitive(corType) ? nullptr : typGetObjLayout(classHandle);
 
 #ifdef FEATURE_SIMD
@@ -11822,8 +11814,8 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             const char*           className          = nullptr;
             const char*           namespaceName      = nullptr;
             const char*           enclosingClassName = nullptr;
-            const char*           methodName = info.compCompHnd->getMethodNameFromMetadata(methodHandle, &className,
-                                                                                 &namespaceName, &enclosingClassName);
+            const char*           methodName =
+                vm->getMethodNameFromMetadata(methodHandle, &className, &namespaceName, &enclosingClassName);
 
             NamedIntrinsic ni = impFindSysNumSimdIntrinsic(methodHandle, className, methodName, enclosingClassName);
 
@@ -11911,7 +11903,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
     else
     {
         bool            hasSideEffects = false;
-        CorInfoHelpFunc newHelper = info.compCompHnd->getNewHelper(&resolvedToken, info.compMethodHnd, &hasSideEffects);
+        CorInfoHelpFunc newHelper      = vm->getNewHelper(&resolvedToken, info.compMethodHnd, &hasSideEffects);
 
         if (hasSideEffects)
         {
@@ -12038,7 +12030,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
     noway_assert(call->IsUserCall());
 
     CORINFO_METHOD_HANDLE methHnd      = call->GetMethodHandle();
-    CORINFO_CLASS_HANDLE  clsHnd       = info.compCompHnd->getMethodClass(methHnd);
+    CORINFO_CLASS_HANDLE  clsHnd       = vm->getMethodClass(methHnd);
     GenTree*              targetMethod = call->GetThisArg()->GetNext()->GetNext()->GetNode();
 
     noway_assert(targetMethod->TypeIs(TYP_I_IMPL));
@@ -12135,7 +12127,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                 CORINFO_LOOKUP       pLookup;
                 CORINFO_CONST_LOOKUP entryPoint;
 
-                info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &pLookup);
+                vm->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &pLookup);
 
                 if (!pLookup.lookupKind.needsRuntimeLookup)
                 {
@@ -12147,8 +12139,8 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
                     assert(!targetMethod->IsMethodAddr());
 
                     CORINFO_CONST_LOOKUP genericLookup;
-                    info.compCompHnd->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind,
-                                                          CORINFO_HELP_READYTORUN_GENERIC_HANDLE, &genericLookup);
+                    vm->getReadyToRunHelper(ldftnToken, &pLookup.lookupKind, CORINFO_HELP_READYTORUN_GENERIC_HANDLE,
+                                            &genericLookup);
                     GenTree* ctxTree = gtNewRuntimeContextTree(pLookup.lookupKind.runtimeLookupKind);
                     helperArgs       = comp->gtNewCallArgs(thisPointer, targetObjPointers, ctxTree);
                     entryPoint       = genericLookup;
@@ -12164,7 +12156,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
             JITDUMP("optimized\n");
 
             CORINFO_LOOKUP entryPoint;
-            info.compCompHnd->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
+            vm->getReadyToRunDelegateCtorHelper(ldftnToken, clsHnd, &entryPoint);
             assert(!entryPoint.lookupKind.needsRuntimeLookup);
 
             GenTree*          thisPointer       = call->GetFirstArg();
@@ -12184,8 +12176,7 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
         if (targetMethodHnd != nullptr)
     {
         DelegateCtorArgs      ctorData{info.compMethodHnd};
-        CORINFO_METHOD_HANDLE alternateCtor =
-            info.compCompHnd->GetDelegateCtor(methHnd, clsHnd, targetMethodHnd, &ctorData);
+        CORINFO_METHOD_HANDLE alternateCtor = vm->GetDelegateCtor(methHnd, clsHnd, targetMethodHnd, &ctorData);
 
         if (alternateCtor != methHnd)
         {
@@ -12253,7 +12244,7 @@ void Importer::ImportCallI(const uint8_t* codeAddr, int prefixFlags)
     resolvedToken.tokenScope   = info.compScopeHnd;
     JITDUMP(" %08X", resolvedToken.token);
 
-    eeGetSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &callInfo.sig);
+    GetVMSig(resolvedToken.token, resolvedToken.tokenScope, resolvedToken.tokenContext, &callInfo.sig);
 
     ImportCall(codeAddr, CEE_CALLI, resolvedToken, nullptr, callInfo, prefixFlags);
 }
@@ -12270,7 +12261,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
     JITDUMP(" %08X", resolvedToken.token);
 
     CORINFO_CALL_INFO callInfo;
-    eeGetCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? constrainedResolvedToken : nullptr,
+    GetVMCallInfo(&resolvedToken, (prefixFlags & PREFIX_CONSTRAINED) ? constrainedResolvedToken : nullptr,
                   CORINFO_CALLINFO_ALLOWINSTPARAM | CORINFO_CALLINFO_SECURITYCHECKS |
                       ((opcode == CEE_CALLVIRT) ? CORINFO_CALLINFO_CALLVIRT : CORINFO_CALLINFO_NONE),
                   &callInfo);
@@ -12318,7 +12309,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
                         ? nullptr
                         : callInfo.hMethod;
 
-                if (info.compCompHnd->canTailCall(info.compMethodHnd, callInfo.hMethod, exactMethod, false))
+                if (vm->canTailCall(info.compMethodHnd, callInfo.hMethod, exactMethod, false))
                 {
                     JITDUMP(" (Tailcall stress: prefixFlags |= PREFIX_TAILCALL_EXPLICIT)");
 
@@ -12367,9 +12358,9 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 
         BasicBlock* block = compIsForInlining() ? impInlineInfo->iciBlock : currentBlock;
 
-        if (info.compCompHnd->convertPInvokeCalliToCall(&resolvedToken, !CallSiteCanInlinePInvoke(block)))
+        if (vm->convertPInvokeCalliToCall(&resolvedToken, !CallSiteCanInlinePInvoke(block)))
         {
-            eeGetCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &callInfo);
+            GetVMCallInfo(&resolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &callInfo);
             opcode = CEE_CALL;
         }
     }
@@ -12413,7 +12404,7 @@ GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedTok
     if (opts.IsReadyToRun())
     {
         helper             = CORINFO_HELP_READYTORUN_NEW;
-        isReadyToRunHelper = info.compCompHnd->getReadyToRunHelper(resolvedToken, nullptr, helper, &entryPoint);
+        isReadyToRunHelper = vm->getReadyToRunHelper(resolvedToken, nullptr, helper, &entryPoint);
     }
 #endif
 
@@ -12424,8 +12415,7 @@ GenTreeAllocObj* Importer::gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedTok
     }
 
     bool            helperHasSideEffects;
-    CorInfoHelpFunc helperTemp =
-        info.compCompHnd->getNewHelper(resolvedToken, info.compMethodHnd, &helperHasSideEffects);
+    CorInfoHelpFunc helperTemp = vm->getNewHelper(resolvedToken, info.compMethodHnd, &helperHasSideEffects);
 
     if (!isReadyToRunHelper)
     {
@@ -12679,7 +12669,7 @@ void Importer::impAddPendingEHSuccessors(BasicBlock* block)
                     resolvedToken.tokenScope   = info.compScopeHnd;
                     resolvedToken.token        = ehDesc->ebdTyp;
                     resolvedToken.tokenType    = CORINFO_TOKENKIND_Class;
-                    info.compCompHnd->resolveToken(&resolvedToken);
+                    vm->resolveToken(&resolvedToken);
 
                     clsHnd = resolvedToken.hClass;
                 }
@@ -13596,6 +13586,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     // Inspect callee's arguments (and the actual values at the callsite for them)
     CORINFO_SIG_INFO        sig    = info.compMethodInfo->args;
     CORINFO_ARG_LIST_HANDLE sigArg = sig.args;
+    ICorJitInfo*            vm     = info.compCompHnd;
 
     GenTreeCall::Use* argUse = pInlineInfo == nullptr ? nullptr : pInlineInfo->iciCall->AsCall()->m_uses;
 
@@ -13607,12 +13598,12 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
     for (unsigned i = 0; i < info.compMethodInfo->args.numArgs; i++)
     {
         CORINFO_CLASS_HANDLE sigClass;
-        CorInfoType          corType = strip(info.compCompHnd->getArgType(&sig, sigArg, &sigClass));
+        CorInfoType          corType = strip(vm->getArgType(&sig, sigArg, &sigClass));
         GenTree*             argNode = argUse == nullptr ? nullptr : argUse->GetNode();
 
         if (corType == CORINFO_TYPE_CLASS)
         {
-            sigClass = info.compCompHnd->getArgClass(&sig, sigArg);
+            sigClass = vm->getArgClass(&sig, sigArg);
         }
         else if (corType == CORINFO_TYPE_VALUECLASS)
         {
@@ -13620,8 +13611,8 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         }
         else if (corType == CORINFO_TYPE_BYREF)
         {
-            sigClass = info.compCompHnd->getArgClass(&sig, sigArg);
-            corType  = info.compCompHnd->getChildType(sigClass, &sigClass);
+            sigClass = vm->getArgClass(&sig, sigArg);
+            corType  = vm->getChildType(sigClass, &sigClass);
         }
 
         if (argNode != nullptr)
@@ -13631,7 +13622,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
             CORINFO_CLASS_HANDLE argCls    = gtGetClassHandle(argNode, &isExact, &isNonNull);
             if (argCls != nullptr)
             {
-                const bool isArgValueType = info.compCompHnd->isValueClass(argCls);
+                const bool isArgValueType = vm->isValueClass(argCls);
                 // Exact class of the arg is known
                 if (isExact && !isArgValueType)
                 {
@@ -13655,7 +13646,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
             }
             argUse = argUse->GetNext();
         }
-        sigArg = info.compCompHnd->getArgNext(sigArg);
+        sigArg = vm->getArgNext(sigArg);
     }
 
     // Note if the callee's return type is a value type
@@ -13895,7 +13886,8 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
     // If that happens, just don't inline the method.
     bool success = comp->eeRunWithErrorTrap<Param>(
         [](Param* param) {
-            Compiler* comp = param->comp;
+            Compiler*    comp = param->comp;
+            ICorJitInfo* vm   = comp->info.compCompHnd;
 
 #ifdef DEBUG
             const char* className;
@@ -13911,7 +13903,7 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
             // Try to get the code address/size for the method
 
             CORINFO_METHOD_INFO methInfo;
-            if (!comp->info.compCompHnd->getMethodInfo(param->fncHandle, &methInfo))
+            if (!vm->getMethodInfo(param->fncHandle, &methInfo))
             {
                 param->result->NoteFatal(InlineObservation::CALLEE_NO_METHOD_INFO);
                 return;
@@ -13928,8 +13920,7 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
                 return;
             }
 
-            CorInfoInitClassResult initClassResult =
-                comp->info.compCompHnd->initClass(nullptr, param->fncHandle, param->exactContextHnd);
+            CorInfoInitClassResult initClassResult = vm->initClass(nullptr, param->fncHandle, param->exactContextHnd);
 
             if ((initClassResult & CORINFO_INITCLASS_DONT_INLINE) != 0)
             {
@@ -13938,8 +13929,7 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
             }
 
             uint32_t      vmRestrictions = 0;
-            CorInfoInline vmResult =
-                comp->info.compCompHnd->canInline(comp->info.compMethodHnd, param->fncHandle, &vmRestrictions);
+            CorInfoInline vmResult       = vm->canInline(comp->info.compMethodHnd, param->fncHandle, &vmRestrictions);
 
             if (vmResult == INLINE_FAIL)
             {
@@ -13970,8 +13960,8 @@ InlineCandidateInfo* Importer::CheckCanInline(GenTreeCall*           call,
                 }
             }
 
-            CORINFO_CLASS_HANDLE clsHandle = comp->info.compCompHnd->getMethodClass(param->fncHandle);
-            uint32_t             clsAttr   = comp->info.compCompHnd->getClassAttribs(clsHandle);
+            CORINFO_CLASS_HANDLE clsHandle = vm->getMethodClass(param->fncHandle);
+            uint32_t             clsAttr   = vm->getClassAttribs(clsHandle);
 
 #ifdef DEBUG
             var_types fncRetType     = param->call->GetType();
@@ -14237,7 +14227,7 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
             methodHandle = gdvInfo->guardedMethodHandle;
         }
 
-        methodAttr = info.compCompHnd->getMethodAttribs(methodHandle);
+        methodAttr = vm->getMethodAttribs(methodHandle);
     }
     else
     {
@@ -14250,7 +14240,7 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
         }
         else
         {
-            methodAttr = info.compCompHnd->getMethodAttribs(methodHandle);
+            methodAttr = vm->getMethodAttribs(methodHandle);
         }
     }
 
@@ -14508,26 +14498,27 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         return;
     }
 
-    Compiler* const rootCompiler = impInlineRoot();
-    const bool      doPrint      = JitConfig.JitPrintDevirtualizedMethods().contains(rootCompiler->info.compMethodName,
+    Compiler*  rootCompiler = impInlineRoot();
+    const bool doPrint      = JitConfig.JitPrintDevirtualizedMethods().contains(rootCompiler->info.compMethodName,
                                                                            rootCompiler->info.compClassName,
                                                                            &rootCompiler->info.compMethodInfo->args);
-#endif // DEBUG
+#endif
 
     // Fetch information about the virtual method we're calling.
+    ICorJitInfo*          vm                = info.compCompHnd;
     CORINFO_METHOD_HANDLE baseMethod        = *method;
     unsigned              baseMethodAttribs = *methodFlags;
 
     if (baseMethodAttribs == 0)
     {
         // For late devirt we may not have method attributes, so fetch them.
-        baseMethodAttribs = info.compCompHnd->getMethodAttribs(baseMethod);
+        baseMethodAttribs = vm->getMethodAttribs(baseMethod);
     }
     else
     {
 #ifdef DEBUG
         // Validate that callInfo has up to date method flags
-        const uint32_t freshBaseMethodAttribs = info.compCompHnd->getMethodAttribs(baseMethod);
+        const uint32_t freshBaseMethodAttribs = vm->getMethodAttribs(baseMethod);
 
         // All the base method attributes should agree, save that
         // CORINFO_FLG_DONT_INLINE may have changed from 0 to 1
@@ -14563,8 +14554,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
     // Fetch information about the class that introduced the virtual method.
-    CORINFO_CLASS_HANDLE baseClass        = info.compCompHnd->getMethodClass(baseMethod);
-    const uint32_t       baseClassAttribs = info.compCompHnd->getClassAttribs(baseClass);
+    CORINFO_CLASS_HANDLE baseClass        = vm->getMethodClass(baseMethod);
+    const uint32_t       baseClassAttribs = vm->getClassAttribs(baseClass);
     const bool           isInterface      = (baseClassAttribs & CORINFO_FLG_INTERFACE) != 0;
 
     // See what we know about the type of 'this' in the call.
@@ -14591,7 +14582,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
     // If the objClass is sealed (final), then we may be able to devirtualize.
-    const uint32_t objClassAttribs = info.compCompHnd->getClassAttribs(objClass);
+    const uint32_t objClassAttribs = vm->getClassAttribs(objClass);
     const bool     objClassIsFinal = (objClassAttribs & CORINFO_FLG_FINAL) != 0;
 
 #ifdef DEBUG
@@ -14604,8 +14595,8 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     if (verbose || doPrint)
     {
         objClassNote   = isExact ? " [exact]" : objClassIsFinal ? " [final]" : "";
-        objClassName   = info.compCompHnd->getClassName(objClass);
-        baseClassName  = info.compCompHnd->getClassName(baseClass);
+        objClassName   = vm->getClassName(objClass);
+        baseClassName  = vm->getClassName(baseClass);
         baseMethodName = eeGetMethodName(baseMethod, nullptr);
 
         JITDUMP("\nimpDevirtualizeCall: Trying to devirtualize %s call:\n"
@@ -14652,7 +14643,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     dvInfo.detail                      = CORINFO_DEVIRTUALIZATION_UNKNOWN;
     dvInfo.pResolvedTokenVirtualMethod = resolvedToken;
 
-    info.compCompHnd->resolveVirtualMethod(&dvInfo);
+    vm->resolveVirtualMethod(&dvInfo);
 
     CORINFO_METHOD_HANDLE   derivedMethod        = dvInfo.devirtualizedMethod;
     CORINFO_CONTEXT_HANDLE  exactContext         = dvInfo.exactContext;
@@ -14689,7 +14680,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     else
     {
         // Fetch method attributes to see if method is marked final.
-        derivedMethodAttribs = info.compCompHnd->getMethodAttribs(derivedMethod);
+        derivedMethodAttribs = vm->getMethodAttribs(derivedMethod);
         derivedMethodIsFinal = (derivedMethodAttribs & CORINFO_FLG_FINAL) != 0;
 
 #ifdef DEBUG
@@ -14818,7 +14809,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
                             break;
                         }
 
-                        parentClass = info.compCompHnd->getParentType(parentClass);
+                        parentClass = vm->getParentType(parentClass);
                     }
 
                     if (mismatch || (numberOfClasses != 1) || (likelihood != 100))
@@ -14839,7 +14830,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     // unboxed entry. This effectively inlines the normally un-inlineable wrapper stub
     // and exposes the potentially inlinable unboxed entry method.
 
-    if (info.compCompHnd->isValueClass(derivedClass))
+    if (vm->isValueClass(derivedClass))
     {
         impUnboxCall(call, thisObj, isExplicitTailCall, dvInfo, derivedMethod, derivedResolvedToken,
                      derivedMethodAttribs);
@@ -14853,13 +14844,12 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        // For R2R, getCallInfo triggers bookkeeping on the zap
-        // side and acquires the actual symbol to call so we need to call it here.
         CORINFO_CALL_INFO derivedCallInfo;
-        eeGetCallInfo(derivedResolvedToken, nullptr, CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
+        info.compCompHnd->getCallInfo(derivedResolvedToken, nullptr, info.compMethodHnd,
+                                      CORINFO_CALLINFO_ALLOWINSTPARAM, &derivedCallInfo);
         call->SetR2REntryPoint(derivedCallInfo.codePointerLookup.constLookup);
     }
-#endif // FEATURE_READYTORUN_COMPILER
+#endif
 }
 
 void Compiler::impUnboxCall(GenTreeCall*                   call,
@@ -15404,7 +15394,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
         bool requiresInstMethodTableArg = false;
 
         if (CORINFO_METHOD_HANDLE unboxedEntryMethodHandle =
-                info.compCompHnd->getUnboxedEntry(methodHandle, &requiresInstMethodTableArg))
+                vm->getUnboxedEntry(methodHandle, &requiresInstMethodTableArg))
         {
             JITDUMP("    ... updating GDV candidate with unboxed entry info\n");
 
@@ -15536,13 +15526,13 @@ bool Importer::impCanSkipCovariantStoreCheck(GenTree* value, GenTree* array)
 
     // There are some methods in corelib where we're storing to an array but the IL
     // doesn't reflect this (see SZArrayHelper). Avoid.
-    if ((info.compCompHnd->getClassAttribs(arrayHandle) & CORINFO_FLG_ARRAY) == 0)
+    if ((vm->getClassAttribs(arrayHandle) & CORINFO_FLG_ARRAY) == 0)
     {
         return false;
     }
 
     CORINFO_CLASS_HANDLE arrayElementHandle = nullptr;
-    CorInfoType          arrayElemType      = info.compCompHnd->getChildType(arrayHandle, &arrayElementHandle);
+    CorInfoType          arrayElemType      = vm->getChildType(arrayHandle, &arrayElementHandle);
 
     // Verify array type handle is really an array of ref type
     assert(arrayElemType == CORINFO_TYPE_CLASS);
@@ -15834,7 +15824,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     GenTree* addr     = gtNewHelperCallNode(fieldInfo.helper, TYP_BYREF, fieldHnd);
 #else
     void**   pIdAddr = nullptr;
-    unsigned IdValue = info.compCompHnd->getFieldThreadLocalStoreID(resolvedToken->hField, (void**)&pIdAddr);
+    unsigned IdValue = vm->getFieldThreadLocalStoreID(resolvedToken->hField, (void**)&pIdAddr);
 
     // If we can we access the TLS DLL index ID value directly
     // then pIdAddr will be NULL and
@@ -16137,6 +16127,7 @@ Importer::Stack::Stack(Compiler* compiler)
 
 Importer::Importer(Compiler* comp)
     : comp(comp)
+    , vm(comp->info.compCompHnd)
     , tokenContext(comp->compIsForInlining() ? comp->impInlineInfo->inlineCandidateInfo->exactContextHnd
                                              : METHOD_BEING_COMPILED_CONTEXT())
     , impInlineInfo(comp->impInlineInfo)
@@ -16371,40 +16362,43 @@ void Importer::fgDispHandlerTab()
 
 #endif // DEBUG
 
-void Importer::eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+void Importer::GetVMCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
                              CORINFO_RESOLVED_TOKEN* constrainedToken,
                              CORINFO_CALLINFO_FLAGS  flags,
                              CORINFO_CALL_INFO*      result)
 {
-    return comp->eeGetCallInfo(resolvedToken, constrainedToken, flags, result);
+    return vm->getCallInfo(resolvedToken, constrainedToken, info.compMethodHnd, flags, result);
 }
 
-void Importer::eeGetSig(unsigned               sigTok,
+void Importer::GetVMSig(unsigned               sigTok,
                         CORINFO_MODULE_HANDLE  scope,
                         CORINFO_CONTEXT_HANDLE context,
                         CORINFO_SIG_INFO*      retSig)
 {
-    comp->eeGetSig(sigTok, scope, context, retSig);
+    vm->findSig(scope, sigTok, context, retSig);
+    assert(!varTypeIsComposite(CorTypeToVarType(retSig->retType)) || (retSig->retTypeClass != nullptr));
 }
 
-void Importer::eeGetCallSiteSig(unsigned               sigTok,
+void Importer::GetVMCallSiteSig(unsigned               sigTok,
                                 CORINFO_MODULE_HANDLE  scope,
                                 CORINFO_CONTEXT_HANDLE context,
                                 CORINFO_SIG_INFO*      retSig)
 {
-    comp->eeGetCallSiteSig(sigTok, scope, context, retSig);
+    vm->findCallSiteSig(scope, sigTok, context, retSig);
+    assert(!varTypeIsComposite(CorTypeToVarType(retSig->retType)) || (retSig->retTypeClass != nullptr));
 }
 
-void Importer::eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner)
+void Importer::GetVMMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner)
 {
-    comp->eeGetMethodSig(methHnd, retSig, owner);
+    vm->getMethodSig(methHnd, retSig, owner);
+    assert(!varTypeIsComposite(CorTypeToVarType(retSig->retType)) || (retSig->retTypeClass != nullptr));
 }
 
-void Importer::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+void Importer::GetVMFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
                               CORINFO_ACCESS_FLAGS    flags,
                               CORINFO_FIELD_INFO*     result)
 {
-    return comp->eeGetFieldInfo(resolvedToken, flags, result);
+    info.compCompHnd->getFieldInfo(resolvedToken, info.compMethodHnd, flags, result);
 }
 
 const char* Importer::eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className)
@@ -16487,12 +16481,12 @@ CORINFO_CLASS_HANDLE Importer::impGetObjectClass()
 
 CORINFO_CLASS_HANDLE Importer::impGetTypeHandleClass()
 {
-    CORINFO_CLASS_HANDLE typeHandleClass = info.compCompHnd->getBuiltinClass(CLASSID_TYPE_HANDLE);
+    CORINFO_CLASS_HANDLE typeHandleClass = vm->getBuiltinClass(CLASSID_TYPE_HANDLE);
     assert(typeHandleClass != (CORINFO_CLASS_HANDLE) nullptr);
     return typeHandleClass;
 }
 
-var_types Importer::GetRuntimeHandleUnderlyingType()
+var_types Importer::GetRuntimeHandleUnderlyingType() const
 {
     // RuntimeTypeHandle is backed by raw pointer on CoreRT and by object reference on other runtimes
     return IsTargetAbi(CORINFO_CORERT_ABI) ? TYP_I_IMPL : TYP_REF;
@@ -16578,7 +16572,7 @@ void Importer::lvaSetAddressExposed(LclVarDsc* lcl)
     comp->lvaSetAddressExposed(lcl);
 }
 
-bool Importer::lvaHaveManyLocals()
+bool Importer::lvaHaveManyLocals() const
 {
     return comp->lvaHaveManyLocals();
 }

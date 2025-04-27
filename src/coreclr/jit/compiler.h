@@ -1502,6 +1502,7 @@ struct Importer
     };
 
     Compiler* const              comp;
+    ICorJitInfo* const           vm;
     CORINFO_CONTEXT_HANDLE const tokenContext;
     InlineInfo* const            impInlineInfo;
     InlineResult* const          compInlineResult;
@@ -2161,20 +2162,21 @@ struct Importer
     void fgDispHandlerTab();
 #endif
 
-    void eeGetCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
+    void GetVMCallInfo(CORINFO_RESOLVED_TOKEN* resolvedToken,
                        CORINFO_RESOLVED_TOKEN* constrainedToken,
                        CORINFO_CALLINFO_FLAGS  flags,
                        CORINFO_CALL_INFO*      result);
-    void eeGetSig(unsigned               sigTok,
+    void GetVMSig(unsigned               sigTok,
                   CORINFO_MODULE_HANDLE  scope,
                   CORINFO_CONTEXT_HANDLE context,
                   CORINFO_SIG_INFO*      retSig);
-    void eeGetCallSiteSig(unsigned               sigTok,
+    void GetVMCallSiteSig(unsigned               sigTok,
                           CORINFO_MODULE_HANDLE  scope,
                           CORINFO_CONTEXT_HANDLE context,
                           CORINFO_SIG_INFO*      retSig);
-    void eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner = nullptr);
-    void eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_ACCESS_FLAGS flags, CORINFO_FIELD_INFO* result);
+    void GetVMMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner = nullptr);
+    void GetVMFieldInfo(CORINFO_RESOLVED_TOKEN* resolvedToken, CORINFO_ACCESS_FLAGS flags, CORINFO_FIELD_INFO* result);
+
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
     const char* eeGetClassName(CORINFO_CLASS_HANDLE clsHnd);
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE handle, const char** className);
@@ -2209,7 +2211,7 @@ struct Importer
     CORINFO_CLASS_HANDLE impGetRefAnyClass();
     CORINFO_CLASS_HANDLE impGetObjectClass();
     CORINFO_CLASS_HANDLE impGetTypeHandleClass();
-    var_types            GetRuntimeHandleUnderlyingType();
+    var_types            GetRuntimeHandleUnderlyingType() const;
 
     CORINFO_CLASS_HANDLE gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull);
 
@@ -2230,7 +2232,7 @@ struct Importer
     LclVarDsc* lvaNewTemp(CORINFO_CLASS_HANDLE classHandle, bool shortLifetime DEBUGARG(const char* reason));
     LclVarDsc* lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGARG(const char* reason));
     void lvaSetAddressExposed(LclVarDsc* lcl);
-    bool lvaHaveManyLocals();
+    bool lvaHaveManyLocals() const;
     bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn);
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
@@ -5066,17 +5068,6 @@ protected:
     */
 
 public:
-    // Get handles
-
-    void eeGetCallInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                       CORINFO_RESOLVED_TOKEN* pConstrainedToken,
-                       CORINFO_CALLINFO_FLAGS  flags,
-                       CORINFO_CALL_INFO*      pResult);
-
-    void eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                        CORINFO_ACCESS_FLAGS    flags,
-                        CORINFO_FIELD_INFO*     pResult);
-
 #if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(TRACK_LSRA_STATS)
     const char* eeGetMethodName(CORINFO_METHOD_HANDLE method, const char** className);
     const char* eeGetMethodFullName(CORINFO_METHOD_HANDLE method);
@@ -5084,22 +5075,6 @@ public:
 #endif
 
     CORINFO_CLASS_HANDLE eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context);
-
-    // VOM info, method sigs
-
-    void eeGetSig(unsigned               sigTok,
-                  CORINFO_MODULE_HANDLE  scope,
-                  CORINFO_CONTEXT_HANDLE context,
-                  CORINFO_SIG_INFO*      retSig);
-
-    void eeGetCallSiteSig(unsigned               sigTok,
-                          CORINFO_MODULE_HANDLE  scope,
-                          CORINFO_CONTEXT_HANDLE context,
-                          CORINFO_SIG_INFO*      retSig);
-
-    void eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* retSig, CORINFO_CLASS_HANDLE owner = nullptr);
-
-    // Method entry-points, instrs
 
     const CORINFO_EE_INFO* eeInfo;
 

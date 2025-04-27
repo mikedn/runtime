@@ -3,75 +3,7 @@
 
 extern ICorJitHost* g_jitHost;
 
-inline var_types CorTypeToVarType(CorInfoType type);
-
 constexpr int VPTR_OFFS = 0; // offset of vtable pointer from obj ptr
-
-FORCEINLINE
-void Compiler::eeGetCallInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                             CORINFO_RESOLVED_TOKEN* pConstrainedToken,
-                             CORINFO_CALLINFO_FLAGS  flags,
-                             CORINFO_CALL_INFO*      pResult)
-{
-    info.compCompHnd->getCallInfo(pResolvedToken, pConstrainedToken, info.compMethodHnd, flags, pResult);
-}
-
-FORCEINLINE
-void Compiler::eeGetFieldInfo(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                              CORINFO_ACCESS_FLAGS    accessFlags,
-                              CORINFO_FIELD_INFO*     pResult)
-{
-    info.compCompHnd->getFieldInfo(pResolvedToken, info.compMethodHnd, accessFlags, pResult);
-}
-
-FORCEINLINE
-void Compiler::eeGetSig(unsigned               sigTok,
-                        CORINFO_MODULE_HANDLE  scope,
-                        CORINFO_CONTEXT_HANDLE context,
-                        CORINFO_SIG_INFO*      retSig)
-{
-    info.compCompHnd->findSig(scope, sigTok, context, retSig);
-
-    assert(!varTypeIsComposite(CorTypeToVarType(retSig->retType)) || retSig->retTypeClass != nullptr);
-}
-
-FORCEINLINE
-void Compiler::eeGetMethodSig(CORINFO_METHOD_HANDLE methHnd, CORINFO_SIG_INFO* sigRet, CORINFO_CLASS_HANDLE owner)
-{
-    info.compCompHnd->getMethodSig(methHnd, sigRet, owner);
-
-    assert(!varTypeIsComposite(CorTypeToVarType(sigRet->retType)) || sigRet->retTypeClass != nullptr);
-}
-
-FORCEINLINE
-void Compiler::eeGetCallSiteSig(unsigned               sigTok,
-                                CORINFO_MODULE_HANDLE  scope,
-                                CORINFO_CONTEXT_HANDLE context,
-                                CORINFO_SIG_INFO*      sigRet)
-{
-    info.compCompHnd->findCallSiteSig(scope, sigTok, context, sigRet);
-
-    assert(!varTypeIsComposite(CorTypeToVarType(sigRet->retType)) || sigRet->retTypeClass != nullptr);
-}
-
-inline CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context)
-{
-    if (context == METHOD_BEING_COMPILED_CONTEXT())
-    {
-        return impInlineRoot()->info.compClassHnd;
-    }
-
-    size_t contextBits = reinterpret_cast<size_t>(context);
-
-    if ((contextBits & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS)
-    {
-        return reinterpret_cast<CORINFO_CLASS_HANDLE>(contextBits & ~CORINFO_CONTEXTFLAGS_MASK);
-    }
-
-    assert((contextBits & CORINFO_CONTEXTFLAGS_MASK) == 0);
-
-    return info.compCompHnd->getMethodClass(reinterpret_cast<CORINFO_METHOD_HANDLE>(context));
-}
 
 inline var_types CorTypeToVarType(CorInfoType type)
 {

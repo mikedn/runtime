@@ -5943,10 +5943,10 @@ GenTree* Compiler::fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
             }
 
             CORINFO_CALL_INFO callInfo;
-            eeGetCallInfo(tailCallInfo->GetToken(), nullptr, flags, &callInfo);
-            GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
+            info.compCompHnd->getCallInfo(tailCallInfo->GetToken(), nullptr, info.compMethodHnd, flags, &callInfo);
 
-            addr = getVirtMethodPointerTree(thisLoad, tailCallInfo->GetToken(), &callInfo);
+            GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
+            addr              = getVirtMethodPointerTree(thisLoad, tailCallInfo->GetToken(), &callInfo);
         }
         else if (!call->IsIndirectCall())
         {

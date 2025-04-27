@@ -49,7 +49,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 
 #if DEBUG
     CORINFO_SIG_INFO sig;
-    comp->eeGetMethodSig(callHnd, &sig);
+    comp->info.compCompHnd->getMethodSig(callHnd, &sig, nullptr);
     assert(CorTypeToVarType(sig.retType) == tree->GetType());
 #endif
 

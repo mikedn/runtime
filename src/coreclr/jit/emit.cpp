@@ -3336,7 +3336,7 @@ void Encoder::RecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CO
 
         if (Compiler::eeGetHelperNum(methodHandle) == CORINFO_HELP_UNDEF)
         {
-            compiler->eeGetMethodSig(methodHandle, &sigInfo);
+            jitInfo->getMethodSig(methodHandle, &sigInfo, nullptr);
             callSig = &sigInfo;
         }
     }

@@ -839,6 +839,25 @@ bool Compiler::eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param)
     return info.compCompHnd->runWithSPMIErrorTrap(function, param);
 }
 
+CORINFO_CLASS_HANDLE Compiler::eeGetClassFromContext(CORINFO_CONTEXT_HANDLE context)
+{
+    if (context == METHOD_BEING_COMPILED_CONTEXT())
+    {
+        return impInlineRoot()->info.compClassHnd;
+    }
+
+    size_t contextBits = reinterpret_cast<size_t>(context);
+
+    if ((contextBits & CORINFO_CONTEXTFLAGS_MASK) == CORINFO_CONTEXTFLAGS_CLASS)
+    {
+        return reinterpret_cast<CORINFO_CLASS_HANDLE>(contextBits & ~CORINFO_CONTEXTFLAGS_MASK);
+    }
+
+    assert((contextBits & CORINFO_CONTEXTFLAGS_MASK) == 0);
+
+    return info.compCompHnd->getMethodClass(reinterpret_cast<CORINFO_METHOD_HANDLE>(context));
+}
+
 /*****************************************************************************
  *
  *                      Utility functions

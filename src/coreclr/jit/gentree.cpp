@@ -10242,8 +10242,8 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
                     if (CORINFO_CONTEXT_HANDLE context = inlineInfo->exactContextHnd)
                     {
                         CORINFO_SIG_INFO sig;
-                        eeGetMethodSig(call->GetMethodHandle(), &sig, eeGetClassFromContext(context));
-                        assert(sig.retType == CORINFO_TYPE_CLASS);
+                        info.compCompHnd->getMethodSig(call->GetMethodHandle(), &sig, eeGetClassFromContext(context));
+                        assert((sig.retType == CORINFO_TYPE_CLASS) && (sig.retTypeClass != nullptr));
                         retClass = sig.retTypeClass;
                     }
                 }
@@ -10260,7 +10260,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
                 CORINFO_METHOD_HANDLE method = call->GetMethodHandle();
 
                 CORINFO_SIG_INFO sig;
-                eeGetMethodSig(method, &sig, /*exactClass*/ nullptr);
+                info.compCompHnd->getMethodSig(method, &sig, nullptr);
 
                 if (sig.retType == CORINFO_TYPE_VOID)
                 {
@@ -10274,7 +10274,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bo
                     return info.compCompHnd->getMethodClass(method);
                 }
 
-                assert(sig.retType == CORINFO_TYPE_CLASS);
+                assert((sig.retType == CORINFO_TYPE_CLASS) && (sig.retTypeClass != nullptr));
                 return sig.retTypeClass;
             }
 
