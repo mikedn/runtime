@@ -6783,13 +6783,14 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
 #endif
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_H(INS_push, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_H(INS_push, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
+        int32_t profilerMethodAddr =
+            static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->opts.compProfilerMethHnd));
 
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
@@ -6847,13 +6848,14 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     AddNestedAlignment(0xC);
 #endif
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_H(INS_push, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_H(INS_push, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        int32_t profilerMethodAddr = static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->compProfilerMethHnd));
+        int32_t profilerMethodAddr =
+            static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->opts.compProfilerMethHnd));
 
         GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
@@ -6930,16 +6932,16 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     // Emit profiler EnterCallback(ProfilerMethHnd, caller's SP)
     // RCX = ProfilerMethHnd
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        // Profiler hooks enabled during Ngen time.
+        // Profiler hooks enabled during NGen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
         GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -7003,16 +7005,16 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     // Emit profiler EnterCallback(ProfilerMethHnd, caller's SP)
     // R14 = ProfilerMethHnd
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_PROFILER_ENTER_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_PROFILER_ENTER_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
         GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // R15 = caller's SP
@@ -7073,16 +7075,16 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // return shift which could be an obj ref.
 
     // RCX = ProfilerMethHnd
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of an address.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
         GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -7117,14 +7119,14 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 #else // !defined(UNIX_AMD64_ABI)
 
     // RDI = ProfilerMethHnd
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->compProfilerMethHnd);
+        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
         GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RSI = caller's SP

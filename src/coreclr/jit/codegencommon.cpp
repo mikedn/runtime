@@ -2869,7 +2869,7 @@ void CodeGen::MarkGCTrackedSlots(int&       minBlockInitOffset,
 
         if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
         {
-            assert(compiler->lvaEnregEHVars && lcl->lvLiveInOutOfHndlr);
+            assert(compiler->opts.lvaEnregEHVars && lcl->lvLiveInOutOfHndlr);
 
             continue;
         }

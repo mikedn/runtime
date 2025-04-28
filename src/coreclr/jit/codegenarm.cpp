@@ -1209,11 +1209,11 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
 
 #if defined(DEBUG) && defined(PROFILING_SUPPORTED)
     // Don't ask VM if it hasn't requested ELT hooks
-    if (!compiler->compProfilerHookNeeded && compiler->opts.compJitELTHookEnabled &&
+    if (!compiler->opts.compProfilerHookNeeded && compiler->opts.compJitELTHookEnabled &&
         (helper == CORINFO_HELP_PROF_FCN_ENTER || helper == CORINFO_HELP_PROF_FCN_LEAVE ||
          helper == CORINFO_HELP_PROF_FCN_TAILCALL))
     {
-        addr = compiler->compProfilerMethHnd;
+        addr = compiler->opts.compProfilerMethHnd;
     }
     else
 #endif
@@ -1297,14 +1297,14 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     assert((preSpillParamRegs & genRegMask(argReg)) != RBM_NONE);
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Addr(argReg, compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Addr(argReg, compiler->opts.compProfilerMethHnd);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, argReg, argReg, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        instGen_Set_Reg_To_Imm(EA_4BYTE, argReg, reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     GenHelperCall(CORINFO_HELP_PROF_FCN_ENTER);
@@ -1381,14 +1381,14 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         liveness.TransferGCRegType(REG_PROFILER_RET_SCRATCH, REG_R0);
     }
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Addr(REG_R0, compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Addr(REG_R0, compiler->opts.compProfilerMethHnd);
         GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R0, REG_R0, 0);
     }
     else
     {
-        instGen_Set_Reg_To_Imm(EA_4BYTE, REG_R0, reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+        instGen_Set_Reg_To_Imm(EA_4BYTE, REG_R0, reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     liveness.RemoveGCRegs(RBM_R0);

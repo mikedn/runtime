@@ -1542,7 +1542,7 @@ void Compiler::lvaSetLiveInOutOfHandler(LclVarDsc* lcl)
     lcl->lvLiveInOutOfHndlr = true;
 
     // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
-    if (!lvaEnregEHVars || !lcl->lvSingleDefRegCandidate || (lcl->GetRefCount() <= 1))
+    if (!opts.lvaEnregEHVars || !lcl->lvSingleDefRegCandidate || (lcl->GetRefCount() <= 1))
     {
         lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LiveInOutOfHandler));
     }
@@ -1560,10 +1560,10 @@ void Compiler::lvaSetLiveInOutOfHandler(LclVarDsc* lcl)
     {
         for (LclVarDsc* fieldLcl : PromotedFields(lcl))
         {
-            fieldLcl->lvLiveInOutOfHndlr = 1;
+            fieldLcl->lvLiveInOutOfHndlr = true;
 
             // For now, only enregister an EH Var if it is a single def and whose refCount > 1.
-            if (!lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || (fieldLcl->GetRefCount() <= 1))
+            if (!opts.lvaEnregEHVars || !fieldLcl->lvSingleDefRegCandidate || (fieldLcl->GetRefCount() <= 1))
             {
                 lvaSetDoNotEnregister(fieldLcl DEBUGARG(DNER_LiveInOutOfHandler));
             }
@@ -5401,7 +5401,7 @@ void Compiler::lvaDumpEntry(LclVarDsc* lcl, size_t refWeightWidth)
         {
             printf("S");
         }
-        if (lvaEnregEHVars && lcl->lvLiveInOutOfHndlr)
+        if (opts.lvaEnregEHVars && lcl->lvLiveInOutOfHndlr)
         {
             printf("%c", lcl->lvSingleDefDisqualifyReason);
         }

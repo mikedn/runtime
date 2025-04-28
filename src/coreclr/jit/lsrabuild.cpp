@@ -1240,7 +1240,7 @@ void LinearScan::insertZeroInitRefPositions()
     }
 
     // We must also insert zero-inits for any finallyVars if they are refs or if compInitMem is true.
-    if (compiler->lvaEnregEHVars && (compiler->compHndBBtabCount > 0))
+    if (compiler->opts.lvaEnregEHVars && (compiler->compHndBBtabCount > 0))
     {
         for (VarSetOps::Enumerator e(compiler, finallyVars); e.MoveNext();)
         {

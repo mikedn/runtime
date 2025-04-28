@@ -1531,8 +1531,8 @@ PhaseStatus Compiler::fgPrepareToInstrumentMethod()
     //
     CLANG_FORMAT_COMMENT_ANCHOR;
 
-    const bool prejit = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool osr    = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0);
+    const bool prejit          = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool osr             = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0);
     const bool useEdgeProfiles = (JitConfig.JitEdgeProfiling() > 0) && !prejit && !osr;
 
     if (useEdgeProfiles)

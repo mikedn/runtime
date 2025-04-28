@@ -411,9 +411,9 @@ void Compiler::eeGetVars()
         scopes[i].endOffset   = info.compILCodeSize;
     }
 
-    info.compVarScopesCount = info.compLocalsCount;
-    info.compVarScopes      = scopes;
-    compVarScopeExtended    = true;
+    info.compVarScopesCount   = info.compLocalsCount;
+    info.compVarScopes        = scopes;
+    info.compVarScopeExtended = true;
 }
 
 void Compiler::eeGetVars(ICorDebugInfo::ILVarInfo* varInfoTable, uint32_t varInfoCount, bool extendOthers)
@@ -602,7 +602,7 @@ VarScopeDsc* Compiler::compGetNextEnterScope(unsigned offs, unsigned* nextEnterS
 {
     if (*nextEnterScope < info.compVarScopesCount)
     {
-        if (compVarScopeExtended)
+        if (info.compVarScopeExtended)
         {
             if (offs == 0)
             {
@@ -628,7 +628,7 @@ VarScopeDsc* Compiler::compGetNextExitScope(unsigned offs, unsigned* nextExitSco
 {
     if (*nextExitScope < info.compVarScopesCount)
     {
-        if (compVarScopeExtended)
+        if (info.compVarScopeExtended)
         {
             if (offs == info.compILCodeSize)
             {
@@ -654,11 +654,12 @@ VarScopeDsc* Compiler::compGetNextEnterScopeScan(unsigned offs, unsigned* nextEn
 {
     if (*nextEnterScope < info.compVarScopesCount)
     {
-        if (compVarScopeExtended)
+        if (info.compVarScopeExtended)
         {
             return &info.compVarScopes[(*nextEnterScope)++];
         }
-        else if (offs >= compEnterScopeList[*nextEnterScope]->startOffset)
+
+        if (offs >= compEnterScopeList[*nextEnterScope]->startOffset)
         {
             return compEnterScopeList[(*nextEnterScope)++];
         }
@@ -671,7 +672,7 @@ VarScopeDsc* Compiler::compGetNextExitScopeScan(unsigned offs, unsigned* nextExi
 {
     if (*nextExitScope < info.compVarScopesCount)
     {
-        if (compVarScopeExtended)
+        if (info.compVarScopeExtended)
         {
             if (offs >= info.compILCodeSize)
             {

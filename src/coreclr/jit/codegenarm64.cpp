@@ -3519,15 +3519,15 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
         return;
     }
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Addr(REG_PROFILER_ENTER_ARG_FUNC_ID, compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Addr(REG_PROFILER_ENTER_ARG_FUNC_ID, compiler->opts.compProfilerMethHnd);
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, REG_PROFILER_ENTER_ARG_FUNC_ID, REG_PROFILER_ENTER_ARG_FUNC_ID);
     }
     else
     {
         instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_ENTER_ARG_FUNC_ID,
-                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                               reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     int callerSPOffset = compiler->lvaToCallerSPRelativeOffset(0, isFramePointerUsed());
@@ -3553,15 +3553,15 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
     compiler->info.compProfilerCallback = true;
 
-    if (compiler->compProfilerMethHndIndirected)
+    if (compiler->opts.compProfilerMethHndIndirected)
     {
-        instGen_Set_Reg_To_Addr(REG_PROFILER_LEAVE_ARG_FUNC_ID, compiler->compProfilerMethHnd);
+        instGen_Set_Reg_To_Addr(REG_PROFILER_LEAVE_ARG_FUNC_ID, compiler->opts.compProfilerMethHnd);
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, REG_PROFILER_LEAVE_ARG_FUNC_ID, REG_PROFILER_LEAVE_ARG_FUNC_ID);
     }
     else
     {
         instGen_Set_Reg_To_Imm(EA_8BYTE, REG_PROFILER_LEAVE_ARG_FUNC_ID,
-                               reinterpret_cast<ssize_t>(compiler->compProfilerMethHnd));
+                               reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     liveness.RemoveGCRegs(RBM_PROFILER_LEAVE_ARG_FUNC_ID);

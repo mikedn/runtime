@@ -2108,7 +2108,7 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
     unsigned nextEnterScope = 0;
     unsigned nextExitScope  = 0;
 
-    if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
+    if (opts.compDbgCode && (info.compVarScopesCount > 0) && !info.compVarScopeExtended)
     {
         // Ignore scopes beginning at offset 0
 
@@ -2121,14 +2121,14 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
         }
     }
 
-    InlineInfo* const    inlineInfo          = impInlineInfo;
-    InlineResult* const  inlineResult        = compInlineResult;
-    const IL_OFFSET      codeSize            = info.compILCodeSize;
-    const uint8_t* const codeBegin           = info.compCode;
-    const uint8_t* const codeEnd             = codeBegin + codeSize;
-    const uint8_t*       codeAddr            = codeBegin;
-    unsigned             retBlocks           = 0;
-    unsigned             currentBlockOffset  = 0;
+    InlineInfo* const    inlineInfo         = impInlineInfo;
+    InlineResult* const  inlineResult       = compInlineResult;
+    const IL_OFFSET      codeSize           = info.compILCodeSize;
+    const uint8_t* const codeBegin          = info.compCode;
+    const uint8_t* const codeEnd            = codeBegin + codeSize;
+    const uint8_t*       codeAddr           = codeBegin;
+    unsigned             retBlocks          = 0;
+    unsigned             currentBlockOffset = 0;
 
     do
     {
@@ -2318,7 +2318,7 @@ unsigned Compiler::fgMakeBasicBlocks(ILLabelSet jumpTargets)
         unsigned nextBlockOffset = static_cast<unsigned>(codeAddr - codeBegin);
         bool     foundScope      = false;
 
-        if (opts.compDbgCode && (info.compVarScopesCount > 0) && !compVarScopeExtended)
+        if (opts.compDbgCode && (info.compVarScopesCount > 0) && !info.compVarScopeExtended)
         {
             while (compGetNextEnterScope(nextBlockOffset, &nextEnterScope))
             {

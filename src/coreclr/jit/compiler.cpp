@@ -670,6 +670,7 @@ CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
     , compIsVarArgs(false)
     , compProfilerCallback(false)
     , compHasNextCallRetAddr(false)
+    , compVarScopeExtended(false)
 {
 }
 
@@ -1204,10 +1205,10 @@ void Compiler::compInitOptions()
     opts.compDbgEnC  = false;
 #endif
 
-    lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
+    opts.lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
 
 #if DEBUG
-    if (lvaEnregEHVars)
+    if (opts.lvaEnregEHVars)
     {
         unsigned methHash   = info.compMethodHash();
         char*    lostr      = getenv("JitEHWTHashLo");
@@ -1227,7 +1228,7 @@ void Compiler::compInitOptions()
         }
         if (methHash < methHashLo || methHash > methHashHi)
         {
-            lvaEnregEHVars = false;
+            opts.lvaEnregEHVars = false;
         }
         else if (dump)
         {
@@ -1260,18 +1261,18 @@ void Compiler::compInitOptions()
     {
         bool hookNeeded;
         bool indirected;
-        info.compCompHnd->GetProfilingHandle(&hookNeeded, &compProfilerMethHnd, &indirected);
-        compProfilerHookNeeded = hookNeeded;
+        info.compCompHnd->GetProfilingHandle(&hookNeeded, &opts.compProfilerMethHnd, &indirected);
+        opts.compProfilerHookNeeded = hookNeeded;
 
         // TODO-MIKE-Review: All the compProfilerMethHndIndirected code is dead,
         // CrossGen2 does not support profiling like NGen did.
-        compProfilerMethHndIndirected = indirected;
+        opts.compProfilerMethHndIndirected = indirected;
     }
     else
     {
-        compProfilerHookNeeded        = false;
-        compProfilerMethHnd           = nullptr;
-        compProfilerMethHndIndirected = false;
+        opts.compProfilerHookNeeded        = false;
+        opts.compProfilerMethHndIndirected = false;
+        opts.compProfilerMethHnd           = nullptr;
     }
 
     // Honor COMPlus_JitELTHookEnabled or STRESS_PROFILER_CALLBACKS stress mode
@@ -1280,14 +1281,15 @@ void Compiler::compInitOptions()
     // Don't run this stress mode when pre-JITing, as we would need to emit a relocation
     // for the call to the fake ELT hook, which wouldn't make sense, as we can't store that
     // in the pre-JIT image.
-    if (!compProfilerHookNeeded && (JitConfig.JitELTHookEnabled() || (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) &&
-                                                                      compStressCompile(STRESS_PROFILER_CALLBACKS, 5))))
+    if (!opts.compProfilerHookNeeded &&
+        (JitConfig.JitELTHookEnabled() ||
+         (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && compStressCompile(STRESS_PROFILER_CALLBACKS, 5))))
     {
         opts.compJitELTHookEnabled = true;
 
         // TBD: Exclude PInvoke stubs
-        compProfilerMethHnd           = (void*)DummyProfilerELTStub;
-        compProfilerMethHndIndirected = false;
+        opts.compProfilerMethHnd           = (void*)DummyProfilerELTStub;
+        opts.compProfilerMethHndIndirected = false;
     }
 #endif // PROFILING_SUPPORTED
 

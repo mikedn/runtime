@@ -1066,10 +1066,13 @@ struct CompiledMethodInfo
     bool compMatchedVM : 1;          // true if the VM is "matched": either the JIT is a cross-compiler
                                      // and the VM expects that, or the JIT is a "self-host" compiler
                                      // (e.g., x86 hosted targeting x86) and the VM expects that.
+    bool compVarScopeExtended : 1;
 
     var_types      compRetType; // Return type of the method as declared in IL
     ReturnTypeDesc retDesc;
     ClassLayout*   retLayout;
+
+    CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);
 
     var_types GetRetSigType() const
     {
@@ -1122,9 +1125,9 @@ struct CompiledMethodInfo
         return compUnmanagedCallCountWithGCTransition > 0;
     }
 
-    INDEBUG(bool SkipMethod() const;)
-
-    CompiledMethodInfo(CORINFO_METHOD_INFO* methodInfo, ICorJitInfo* jitInfo, const CORINFO_EE_INFO* eeInfo);
+#ifdef DEBUG
+    bool SkipMethod() const;
+#endif
 };
 
 enum codeOptimize : uint8_t
@@ -1198,8 +1201,12 @@ public:
     bool compDbgEnC : 1;
     bool compReloc : 1;
     bool compProcedureSplitting : 1;
+    bool lvaEnregEHVars : 1;
+
     bool altJit : 1;
 #ifdef PROFILING_SUPPORTED
+    bool compProfilerHookNeeded : 1;
+    bool compProfilerMethHndIndirected : 1;
     bool compJitELTHookEnabled : 1;
 #endif
 #ifdef TARGET_ARM
@@ -1221,6 +1228,10 @@ public:
     uint16_t compJitAlignLoopBoundary;
     // Padding limit to align a loop.
     uint16_t compJitAlignPaddingLimit;
+
+#ifdef PROFILING_SUPPORTED
+    void* compProfilerMethHnd; // Profiler handle of the method being compiled. Passed as param to ELT callbacks
+#endif
 
 #ifdef DEBUG
     bool         compMinOptsIsSet : 1;
@@ -3167,12 +3178,12 @@ public:
 
 public:
     RefCountState lvaRefCountState = RCS_INVALID; // Current local ref count state
-    bool          lvaEnregEHVars;
-    bool          lvaAddressExposedLocalsMarked = false;
+
+    bool lvaAddressExposedLocalsMarked = false;
+    bool lvaGenericsContextInUse       = false;
 #if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
-    bool lvaHasImplicitByRefParams;
+    bool lvaHasImplicitByRefParams = false;
 #endif
-    bool lvaGenericsContextInUse = false;
     // The highest frame layout state that we've completed. During frame
     // layout calculations, this is the level we are currently computing.
     FrameLayoutState lvaDoneFrameLayout = NO_FRAME_LAYOUT;
@@ -5625,8 +5636,6 @@ public:
     VarScopeDsc** compEnterScopeList; // List has the offsets where variables enter scope, sorted by instr offset
     VarScopeDsc** compExitScopeList;  // List has the offsets where variables go out of scope, sorted by instr offset
 
-    bool compVarScopeExtended = false;
-
     void         compInitSortedScopeLists();
     VarScopeDsc* compGetNextEnterScope(unsigned offs, unsigned* nextEnterScope);
     VarScopeDsc* compGetNextExitScope(unsigned offs, unsigned* nextExitScope);
@@ -5654,14 +5663,6 @@ protected:
     void compInitDebuggingInfo();
     void compSetOptimizationLevel(const ILStats& ilStats);
     bool compMayExplicitTailCall();
-
-#ifdef PROFILING_SUPPORTED
-    // Data required for generating profiler Enter/Leave/TailCall hooks
-
-    bool  compProfilerHookNeeded; // Whether profiler Enter/Leave/TailCall hook needs to be generated for the method
-    bool  compProfilerMethHndIndirected; // Whether compProfilerHandle is pointer to the handle or is an actual handle
-    void* compProfilerMethHnd; // Profiler handle of the method being compiled. Passed as param to ELT callbacks
-#endif
 
 public:
 #ifdef DEBUG
