@@ -1148,6 +1148,30 @@ enum OptFlags : uint8_t
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_TREETRANS | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
+#define DEFAULT_MIN_OPTS_CODE_SIZE 60000
+#define DEFAULT_MIN_OPTS_INSTR_COUNT 20000
+#define DEFAULT_MIN_OPTS_BB_COUNT 2000
+#define DEFAULT_MIN_OPTS_LV_NUM_COUNT 2000
+#define DEFAULT_MIN_OPTS_LV_REF_COUNT 8000
+
+// Maximum number of locals before turning off the inlining
+#define MAX_LV_NUM_COUNT_FOR_INLINING 512
+
+// Default numbers used to perform loop alignment. All the numbers are choosen
+// based on experimenting with various benchmarks.
+
+// Default minimum loop block weight required to enable loop alignment.
+#define DEFAULT_ALIGN_LOOP_MIN_BLOCK_WEIGHT 4
+
+// By default a loop will be aligned at 32B address boundary to get better
+// performance as per architecture manuals.
+#define DEFAULT_ALIGN_LOOP_BOUNDARY 0x20
+
+// For non-adaptive loop alignment, by default, only align a loop whose size is
+// at most 3 times the alignment block size. If the loop is bigger than that, it is most
+// likely complicated enough that loop alignment will not impact performance.
+#define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
+
 class CompilerOptions
 {
     uint64_t jitFlags;
@@ -1163,6 +1187,96 @@ public:
     // The instruction sets available in compSupportsISA and not available in compSupportsISAExactly can be only
     // used via explicit hardware intrinsics.
     uint64_t compSupportsISAExactly;
+
+    OptFlags     optFlags : 6;
+    bool         framePointerRequired : 1;
+    codeOptimize compCodeOpt;
+
+    bool compMinOpts : 1;
+    bool compDbgCode : 1;
+    bool compDbgInfo : 1;
+    bool compDbgEnC : 1;
+#ifdef PROFILING_SUPPORTED
+    bool compNoPInvokeInlineCB : 1;
+    bool compJitELTHookEnabled : 1;
+#else
+    static constexpr bool compNoPInvokeInlineCB = false;
+#endif
+    bool compReloc : 1;
+    bool compProcedureSplitting : 1;
+    bool altJit : 1;
+    bool compExpandCallsEarly : 1;
+#if FEATURE_TAILCALL_OPT
+    bool compTailCallLoopOpt : 1;
+#endif
+#if FEATURE_FASTTAILCALL
+    bool compFastTailCalls : 1;
+#endif
+#ifdef TARGET_ARM
+    bool compUseSoftFP : 1;
+#endif
+    bool alignLoops : 1;
+#ifdef DEBUG
+    // If set, for non-adaptive alignment, ensure loop jmps are not on or cross alignment boundary.
+    bool compJitAlignLoopForJcc : 1;
+#endif
+    // If set, perform adaptive loop alignment that limits number of padding based on loop size.
+    bool compJitAlignLoopAdaptive : 1;
+    // For non-adaptive alignment, minimum loop size (in bytes) for which alignment will be done.
+    uint16_t compJitAlignLoopMaxCodeSize;
+    // Minimum weight needed for the first block of a loop to make it a candidate for alignment.
+    uint16_t compJitAlignLoopMinBlockWeight;
+    // For non-adaptive alignment, address boundary (power of 2) at which loop alignment should
+    // be done. By default, 32B.
+    uint16_t compJitAlignLoopBoundary;
+    // Padding limit to align a loop.
+    uint16_t compJitAlignPaddingLimit;
+
+#ifdef DEBUG
+    bool         compMinOptsIsSet : 1;
+    mutable bool compMinOptsIsUsed : 1;
+    bool         isAltJitPresent : 1;
+    bool         compGcChecks : 1;             // Check arguments and return values to ensure they are sane
+    bool         compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
+    bool         dspEHTable : 1;               // Display the EH table reported to the VM
+    bool         dspDebugInfo : 1;             // Display the Debug info reported to the VM
+    bool         disAsm : 1;                   // Display native code as it is generated
+    bool         disasmWithGC : 1;             // Display GC info interleaved with disassembly.
+    bool         disDiffable : 1;              // Makes the Disassembly code 'diff-able'
+    bool         disAddr : 1;                  // Display process address next to each instruction in disassembly code
+    bool         disAlignment : 1;             // Display alignment boundaries in disassembly code
+    bool         dspOrder : 1;                 // Display names of each of the methods that we NGen/jit
+    bool         dspUnwind : 1;                // Display the unwind info output
+    bool         dspDiffable : 1;              // Makes the Jit Dump 'diff-able' (currently same as disDiffable)
+    bool         dspGCtbls : 1;                // Display the GC tables
+#ifdef TARGET_XARCH
+    bool compStackCheckOnRet : 1; // Check stack pointer on return to ensure it is correct.
+#endif
+#ifdef TARGET_X86
+    bool compStackCheckOnCall : 1; // Check stack pointer after call to ensure it is correct.
+#endif
+#ifdef TARGET_AMD64
+    bool enableRIPRelativeAddressing : 1;
+#endif
+#ifdef TARGET_ARM64
+    int compJitSaveFpLrWithCalleeSavedRegisters;
+#endif
+#else // !DEBUG
+#ifdef TARGET_ARM64
+    static constexpr int  compJitSaveFpLrWithCalleeSavedRegisters = 0;
+#endif
+#if DUMP_GC_TABLES
+#pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
+    static constexpr bool dspGCtbls = true;
+#endif
+#endif // !DEBUG
+
+#ifdef OPT_CONFIG
+    bool optRepeat : 1; // Repeat optimizer phases k times
+#endif
+#ifdef LATE_DISASM
+    bool doLateDisasm : 1;
+#endif
 
     bool IsJitFlagSet(JitFlags::JitFlag flag) const
     {
@@ -1184,33 +1298,6 @@ public:
         jitFlags        = flags;
         compSupportsISA = isas;
     }
-
-#ifdef TARGET_ARM64
-    // Decision about whether to save FP/LR registers with callee-saved registers (see
-    // COMPlus_JitSaveFpLrWithCalleSavedRegisters).
-    int compJitSaveFpLrWithCalleeSavedRegisters;
-#endif
-
-    OptFlags     optFlags : 6;
-    bool         framePointerRequired : 1;
-    codeOptimize compCodeOpt; // what type of code optimizations
-
-// optimize maximally and/or favor speed over size?
-
-#define DEFAULT_MIN_OPTS_CODE_SIZE 60000
-#define DEFAULT_MIN_OPTS_INSTR_COUNT 20000
-#define DEFAULT_MIN_OPTS_BB_COUNT 2000
-#define DEFAULT_MIN_OPTS_LV_NUM_COUNT 2000
-#define DEFAULT_MIN_OPTS_LV_REF_COUNT 8000
-
-// Maximun number of locals before turning off the inlining
-#define MAX_LV_NUM_COUNT_FOR_INLINING 512
-
-    bool compMinOpts : 1;
-#ifdef DEBUG
-    bool         compMinOptsIsSet : 1;
-    mutable bool compMinOptsIsUsed : 1;
-#endif
 
     bool MinOpts() const
     {
@@ -1267,18 +1354,17 @@ public:
 #endif
     }
 
-    // true if we should use the PINVOKE_{BEGIN,END} helpers instead of generating
-    // PInvoke transitions inline. Normally used by R2R, but also used when generating a reverse pinvoke frame, as
-    // the current logic for frame setup initializes and pushes
-    // the InlinedCallFrame before performing the Reverse PInvoke transition, which is invalid (as frames cannot
-    // safely be pushed/popped while the thread is in a preemptive state.).
+    // true if we should use the PINVOKE_{BEGIN,END} helpers instead of generating PInvoke
+    // transitions inline. Normally used by R2R, but also used when generating a reverse
+    // PInvoke frame, as the current logic for frame setup initializes and pushes the
+    // InlinedCallFrame before performing the Reverse PInvoke transition, which is invalid
+    // (as frames cannot safely be pushed/popped while the thread is in a preemptive state).
     bool ShouldUsePInvokeHelpers() const
     {
         return IsJitFlagSet(JitFlags::JIT_FLAG_USE_PINVOKE_HELPERS) || IsJitFlagSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
     }
 
-    // true if we should use insert the REVERSE_PINVOKE_{ENTER,EXIT} helpers in the method
-    // prolog/epilog
+    // true if we should insert the REVERSE_PINVOKE_{ENTER,EXIT} helpers in the method prolog/epilog
     bool IsReversePInvoke() const
     {
         return IsJitFlagSet(JitFlags::JIT_FLAG_REVERSE_PINVOKE);
@@ -1293,116 +1379,6 @@ public:
     {
         framePointerRequired = true;
     }
-
-    bool compDbgCode : 1; // Generate debugger-friendly code?
-    bool compDbgInfo : 1; // Gather debugging info?
-    bool compDbgEnC : 1;
-
-#ifdef PROFILING_SUPPORTED
-    bool compNoPInvokeInlineCB : 1;
-    // Whether to emit Enter/Leave/TailCall hooks using a dummy stub (DummyProfilerELTStub()).
-    // This option helps make the JIT behave as if it is running under a profiler.
-    bool compJitELTHookEnabled : 1;
-#else
-    static constexpr bool compNoPInvokeInlineCB = false;
-#endif
-
-    bool compReloc : 1;              // Generate relocs for pointers in code, true for all ngen/prejit codegen
-    bool compProcedureSplitting : 1; // Separate cold code from hot code
-    bool altJit : 1;                 // True if we are an altjit and are compiling this method
-
-#ifdef OPT_CONFIG
-    bool optRepeat : 1; // Repeat optimizer phases k times
-#endif
-
-#ifdef DEBUG
-    // Check arguments and return values to ensure they are sane
-    bool compGcChecks : 1;
-#ifdef TARGET_XARCH
-    // Check stack pointer on return to ensure it is correct.
-    bool compStackCheckOnRet : 1;
-#endif
-    // Check stack pointer after call to ensure it is correct.
-    X86_ONLY(bool compStackCheckOnCall : 1;)
-    // Whether absolute addr be encoded as RIP relative displacement where possible
-    AMD64_ONLY(bool enableRIPRelativeAddressing : 1;)
-    bool compProcedureSplittingEH : 1; // Separate cold code from hot code for functions with EH
-    bool dspEHTable : 1;               // Display the EH table reported to the VM
-    bool dspDebugInfo : 1;             // Display the Debug info reported to the VM
-    bool disAsm : 1;                   // Display native code as it is generated
-    bool disasmWithGC : 1;             // Display GC info interleaved with disassembly.
-    bool disDiffable : 1;              // Makes the Disassembly code 'diff-able'
-    bool disAddr : 1;                  // Display process address next to each instruction in disassembly code
-    bool disAlignment : 1;             // Display alignment boundaries in disassembly code
-    bool dspOrder : 1;                 // Display names of each of the methods that we ngen/jit
-    bool dspUnwind : 1;                // Display the unwind info output
-    bool dspDiffable : 1;     // Makes the Jit Dump 'diff-able' (currently uses same COMPlus_* flag as disDiffable)
-    bool dspGCtbls : 1;       // Display the GC tables
-    bool isAltJitPresent : 1; // And AltJit may be present, dump options apply only to it.
-#endif
-#ifdef LATE_DISASM
-    bool doLateDisasm : 1; // Run the late disassembler
-#endif
-
-    bool compExpandCallsEarly : 1; // True if we should expand virtual call targets early for this method
-
-#if FEATURE_TAILCALL_OPT
-    // Whether optimization of transforming a recursive tail call into a loop is enabled.
-    bool compTailCallLoopOpt : 1;
-#endif
-
-#if FEATURE_FASTTAILCALL
-    // Whether fast tail calls are allowed.
-    bool compFastTailCalls : 1;
-#endif
-
-#ifdef TARGET_ARM
-    bool compUseSoftFP : 1;
-#endif
-
-// Default numbers used to perform loop alignment. All the numbers are choosen
-// based on experimenting with various benchmarks.
-
-// Default minimum loop block weight required to enable loop alignment.
-#define DEFAULT_ALIGN_LOOP_MIN_BLOCK_WEIGHT 4
-
-// By default a loop will be aligned at 32B address boundary to get better
-// performance as per architecture manuals.
-#define DEFAULT_ALIGN_LOOP_BOUNDARY 0x20
-
-// For non-adaptive loop alignment, by default, only align a loop whose size is
-// at most 3 times the alignment block size. If the loop is bigger than that, it is most
-// likely complicated enough that loop alignment will not impact performance.
-#define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
-
-    bool alignLoops : 1;
-
-#ifdef DEBUG
-    // Loop alignment variables
-
-    // If set, for non-adaptive alignment, ensure loop jmps are not on or cross alignment boundary.
-    bool compJitAlignLoopForJcc : 1;
-#endif
-    // If set, perform adaptive loop alignment that limits number of padding based on loop size.
-    bool compJitAlignLoopAdaptive : 1;
-
-    // For non-adaptive alignment, minimum loop size (in bytes) for which alignment will be done.
-    uint16_t compJitAlignLoopMaxCodeSize;
-
-    // Minimum weight needed for the first block of a loop to make it a candidate for alignment.
-    uint16_t compJitAlignLoopMinBlockWeight;
-
-    // For non-adaptive alignment, address boundary (power of 2) at which loop alignment should
-    // be done. By default, 32B.
-    uint16_t compJitAlignLoopBoundary;
-
-    // Padding limit to align a loop.
-    uint16_t compJitAlignPaddingLimit;
-
-#if DUMP_GC_TABLES && !defined(DEBUG)
-#pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
-    static const bool dspGCtbls = true;
-#endif
 
     bool UseSoftFP()
     {
