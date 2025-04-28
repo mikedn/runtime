@@ -1179,13 +1179,13 @@ class CompilerOptions
 public:
     // The instruction sets that the compiler is allowed to emit.
     uint64_t compSupportsISA;
-    // The instruction sets that were reported to the VM as being used by the current method. Subset of
-    // compSupportsISA.
+    // The instruction sets that were reported to the VM as being used by the current method.
+    // Subset of compSupportsISA.
     uint64_t compSupportsISAReported;
     // The instruction sets that the compiler is allowed to take advantage of implicitly during optimizations.
     // Subset of compSupportsISA.
-    // The instruction sets available in compSupportsISA and not available in compSupportsISAExactly can be only
-    // used via explicit hardware intrinsics.
+    // The instruction sets available in compSupportsISA and not available in compSupportsISAExactly
+    // can be only used via explicit hardware intrinsics.
     uint64_t compSupportsISAExactly;
 
     OptFlags     optFlags : 6;
@@ -1196,21 +1196,11 @@ public:
     bool compDbgCode : 1;
     bool compDbgInfo : 1;
     bool compDbgEnC : 1;
-#ifdef PROFILING_SUPPORTED
-    bool compNoPInvokeInlineCB : 1;
-    bool compJitELTHookEnabled : 1;
-#else
-    static constexpr bool compNoPInvokeInlineCB = false;
-#endif
     bool compReloc : 1;
     bool compProcedureSplitting : 1;
     bool altJit : 1;
-    bool compExpandCallsEarly : 1;
-#if FEATURE_TAILCALL_OPT
-    bool compTailCallLoopOpt : 1;
-#endif
-#if FEATURE_FASTTAILCALL
-    bool compFastTailCalls : 1;
+#ifdef PROFILING_SUPPORTED
+    bool compJitELTHookEnabled : 1;
 #endif
 #ifdef TARGET_ARM
     bool compUseSoftFP : 1;
@@ -1997,7 +1987,7 @@ public:
 
     void ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CORINFO_CALL_INFO* callInfo);
 
-    bool CallerCanInlinePInvoke();
+    bool CallerCanInlinePInvoke() const;
     bool CallSiteCanInlinePInvoke(BasicBlock* block);
     void CheckPInvokeCall(GenTreeCall*          call,
                           CORINFO_SIG_INFO*     sig,

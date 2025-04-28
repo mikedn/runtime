@@ -599,13 +599,7 @@ void Compiler::inlMain()
 
 #ifdef DEBUG
     opts.dspDiffable = inliner->opts.dspDiffable;
-#endif
-#if FEATURE_FASTTAILCALL
-    opts.compFastTailCalls = inliner->opts.compFastTailCalls;
-#endif
-    opts.compExpandCallsEarly = inliner->opts.compExpandCallsEarly;
 
-#ifdef DEBUG
     unsigned methAttrOld   = impInlineInfo->inlineCandidateInfo->methAttr;
     unsigned methAttrNew   = info.compCompHnd->getMethodAttribs(info.compMethodHnd);
     unsigned flagsToIgnore = CORINFO_FLG_DONT_INLINE | CORINFO_FLG_FORCEINLINE;

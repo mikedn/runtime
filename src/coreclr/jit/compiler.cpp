@@ -1028,13 +1028,6 @@ void Compiler::compInitConfigOptions()
 
     assert(isPow2(opts.compJitAlignLoopBoundary));
 
-#if FEATURE_TAILCALL_OPT
-    opts.compTailCallLoopOpt = JitConfig.TailCallLoopOpt() != 0;
-#endif
-#if FEATURE_FASTTAILCALL
-    opts.compFastTailCalls = JitConfig.FastTailCalls() != 0;
-#endif
-
 #ifdef DEBUG
     const WCHAR* functionFileName = JitConfig.JitFunctionFile();
 
@@ -1263,9 +1256,6 @@ void Compiler::compInitOptions()
 #endif // DEBUG
 
 #ifdef PROFILING_SUPPORTED
-    opts.compNoPInvokeInlineCB = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROF_NO_PINVOKE_INLINE);
-
-    // Cache the profiler handle
     if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROF_ENTERLEAVE))
     {
         bool hookNeeded;
@@ -1294,11 +1284,8 @@ void Compiler::compInitOptions()
                                                                       compStressCompile(STRESS_PROFILER_CALLBACKS, 5))))
     {
         opts.compJitELTHookEnabled = true;
-    }
 
-    // TBD: Exclude PInvoke stubs
-    if (opts.compJitELTHookEnabled)
-    {
+        // TBD: Exclude PInvoke stubs
         compProfilerMethHnd           = (void*)DummyProfilerELTStub;
         compProfilerMethHndIndirected = false;
     }
@@ -1312,7 +1299,7 @@ void Compiler::compInitOptions()
     // TODO-ARM64-NYI: enable hot/cold splitting
     if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROCSPLIT))
     {
-        // Note that opts.compdbgCode is true under ngen for checked assemblies!
+        // Note that opts.compDbgCode is true under NGen for checked assemblies!
         opts.compProcedureSplitting = !opts.compDbgCode;
 
 #ifdef DEBUG
@@ -1770,14 +1757,6 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     {
         opts.alignLoops = JitConfig.JitAlignLoops() == 1;
     }
-
-#if TARGET_ARM
-    // A single JitStress=1 Linux ARM32 test fails when we expand virtual calls early
-    // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
-    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() == 2);
-#else
-    opts.compExpandCallsEarly = (JitConfig.JitExpandCallsEarly() != 0);
-#endif
 }
 
 void Compiler::BeginPhase(Phases phase)

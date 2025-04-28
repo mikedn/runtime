@@ -4780,10 +4780,12 @@ static bool InlinePInvokeEnabled()
 }
 
 // Check whether PInvoke inlining should enabled in current method.
-bool Importer::CallerCanInlinePInvoke()
+bool Importer::CallerCanInlinePInvoke() const
 {
-    return InlinePInvokeEnabled() && !opts.compDbgCode && (compCodeOpt() != SMALL_CODE) &&
-           !opts.compNoPInvokeInlineCB // profiler is preventing inline PInvoke
+    return InlinePInvokeEnabled() && !opts.compDbgCode && (compCodeOpt() != SMALL_CODE)
+#ifdef PROFILING_SUPPORTED
+           && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_PROF_NO_PINVOKE_INLINE)
+#endif
         ;
 }
 
@@ -6229,7 +6231,13 @@ GenTreeCall* Importer::impImportCall(OPCODE                  opcode,
                 call = gtNewUserCallNode(callInfo->hMethod, callRetTyp, nullptr, ilOffset);
                 call->gtFlags |= GTF_CALL_VIRT_VTABLE;
 
-                if (opts.compExpandCallsEarly)
+#if TARGET_ARM
+                // A single JitStress=1 Linux ARM32 test fails when we expand virtual calls early
+                // JIT\HardwareIntrinsics\General\Vector128_1\Vector128_1_ro
+                if (JitConfig.JitExpandCallsEarly() == 2)
+#else
+                if (JitConfig.JitExpandCallsEarly() != 0)
+#endif
                 {
                     call->SetExpandedEarly();
                 }

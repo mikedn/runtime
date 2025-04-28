@@ -4986,7 +4986,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* call, const char** failReason)
 #endif // DEBUG
     };
 
-    if (!opts.compFastTailCalls)
+    if (JitConfig.FastTailCalls() == 0)
     {
         reportFastTailCallDecision("Configuration doesn't allow fast tail calls");
         return false;
@@ -5483,7 +5483,7 @@ GenTree* Compiler::fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
         // fgMorphRecursiveFastTailCallIntoLoop() is not handling update of generic context while transforming
         // a recursive call into a loop.  Another option is to modify gtIsRecursiveCall() to check that the
         // generic type parameters of both caller and callee generic method are the same.
-        fastTailCallToLoop = opts.compTailCallLoopOpt && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
+        fastTailCallToLoop = JitConfig.TailCallLoopOpt() && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
                              !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam &&
                              !varTypeIsStruct(call->GetType());
 #endif
