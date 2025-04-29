@@ -583,8 +583,8 @@ void SsaBuilder::InsertPhiFunctions()
     // now, at least forget the results of the first. Note that this does not clear fgDomTreePreOrder
     // and fgDomTreePostOrder nor does the subsequent code call fgNumberDomTree once the new dominator
     // tree is built. The pre/post order numbers that were generated previously and used for loop
-    // recognition are still being used by optPerformHoistExpr via fgCreateLoopPreHeader. That's rather
-    // odd, considering that SetupBBRoot may have added a new block.
+    // recognition are still being used by loop hoisting via fgCreateLoopPreHeader. That's rather odd,
+    // considering that SetupBBRoot may have added a new block.
     for (BasicBlock* const block : compiler->Blocks())
     {
         block->bbIDom         = nullptr;
@@ -913,7 +913,8 @@ public:
             }
         }
 
-        compiler->optMethodFlags &= ~(OMF_HAS_ARRAYREF | OMF_HAS_NEWARRAY | OMF_HAS_NULLCHECK);
+        compiler->optMethodFlags &=
+            ~(Compiler::OMF_HAS_ARRAYREF | Compiler::OMF_HAS_NEWARRAY | Compiler::OMF_HAS_NULLCHECK);
     }
 
     void PreOrderVisit(BasicBlock* block)
@@ -1353,17 +1354,17 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
 
     if ((earlyPropBlockSummary & BBF_HAS_NULLCHECK) != 0)
     {
-        m_compiler->optMethodFlags |= OMF_HAS_NULLCHECK;
+        m_compiler->optMethodFlags |= Compiler::OMF_HAS_NULLCHECK;
     }
 
     if ((earlyPropBlockSummary & BBF_HAS_IDX_LEN) != 0)
     {
-        m_compiler->optMethodFlags |= OMF_HAS_ARRAYREF;
+        m_compiler->optMethodFlags |= Compiler::OMF_HAS_ARRAYREF;
     }
 
     if ((earlyPropBlockSummary & BBF_HAS_NEWARRAY) != 0)
     {
-        m_compiler->optMethodFlags |= OMF_HAS_NEWARRAY;
+        m_compiler->optMethodFlags |= Compiler::OMF_HAS_NEWARRAY;
     }
 
     // If the block defines memory, allocate an SSA variable for the final memory state in the block.

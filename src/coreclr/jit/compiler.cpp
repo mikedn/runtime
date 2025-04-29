@@ -169,22 +169,20 @@ void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* co
     }
 }
 
-static void DisplayNowayAssertMap()
+static void DisplayNowayAssertMap(FILE* fout)
 {
     if (NowayAssertMap == nullptr)
     {
         return;
     }
 
-    FILE* fout = jitstdout;
-
-    if (LPCWSTR strJitMeasureNowayAssertFile = JitConfig.JitMeasureNowayAssertFile())
+    if (const WCHAR* nowayFileName = JitConfig.JitMeasureNowayAssertFile())
     {
-        fout = _wfopen(strJitMeasureNowayAssertFile, W("a"));
+        fout = _wfopen(nowayFileName, W("a"));
 
         if (fout == nullptr)
         {
-            printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", strJitMeasureNowayAssertFile);
+            printf("Failed to open JitMeasureNowayAssertFile \"%ws\"\n", nowayFileName);
             return;
         }
     }
@@ -273,8 +271,8 @@ size_t genFlowNodeCnt;
 #endif
 
 #if FUNC_INFO_LOGGING
-static LPCWSTR compJitFuncInfoFilename;
-FILE*          Compiler::compJitFuncInfoFile;
+static const WCHAR* compJitFuncInfoFilename;
+FILE*               Compiler::compJitFuncInfoFile;
 #endif
 
 #ifdef DEBUG
@@ -285,10 +283,6 @@ void Compiler::compStartup()
 {
 #ifdef JIT32_GCENCODER
     InitGCEncoderLookupTable();
-#endif
-
-#if DISPLAY_SIZES
-    grossVMsize = grossNCsize = totalNCsize = 0;
 #endif
 
 #if MEASURE_NODE_SIZE
@@ -313,15 +307,13 @@ void Compiler::compShutdown()
 #endif
 
 #if MEASURE_NOWAY
-    DisplayNowayAssertMap();
+    DisplayNowayAssertMap(jitstdout);
 #endif
 
 #if defined(DEBUG) || defined(INLINE_DATA)
-    // Finish reading and/or writing inline xml
-    if (JitConfig.JitInlineDumpXmlFile() != nullptr)
+    if (const WCHAR* inlineDumpFileName = JitConfig.JitInlineDumpXmlFile())
     {
-        FILE* file = _wfopen(JitConfig.JitInlineDumpXmlFile(), W("a"));
-        if (file != nullptr)
+        if (FILE* file = _wfopen(inlineDumpFileName, W("a")))
         {
             InlineStrategy::FinalizeXml(file);
             fclose(file);
@@ -331,7 +323,7 @@ void Compiler::compShutdown()
             InlineStrategy::FinalizeXml();
         }
     }
-#endif // defined(DEBUG) || defined(INLINE_DATA)
+#endif
 
 #if defined(DEBUG) || MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || DISPLAY_SIZES
     if (genMethodCnt == 0)
@@ -340,31 +332,36 @@ void Compiler::compShutdown()
     }
 #endif
 
-#if NODEBASH_STATS
-    GenTree::ReportOperBashing(jitstdout);
-#endif
-
 #ifdef FEATURE_JIT_METHOD_PERF
-    if (compJitTimeLogFilename != nullptr)
+    if (const WCHAR* logFileName = compJitTimeLogFilename)
     {
-        if (FILE* jitTimeLogFile = _wfopen(compJitTimeLogFilename, W("a")))
+        if (FILE* file = _wfopen(logFileName, W("a")))
         {
-            CompTimeSummaryInfo::s_compTimeSummary.Print(jitTimeLogFile);
-            fclose(jitTimeLogFile);
+            CompTimeSummaryInfo::s_compTimeSummary.Print(file);
+            fclose(file);
         }
     }
 
     JitTimer::Shutdown();
-#endif // FEATURE_JIT_METHOD_PERF
+#endif
 
-    FILE* const fout = jitstdout;
+    compDumpStats(jitstdout);
+}
+
+void Compiler::compDumpStats(FILE* fout)
+{
+#if NODEBASH_STATS
+    GenTree::ReportOperBashing(fout);
+#endif
 
 #if COUNT_AST_OPERS
-
     // Add up all the counts so that we can show percentages of total
     unsigned gtc = 0;
+
     for (unsigned op = 0; op < GT_COUNT; op++)
+    {
         gtc += GenTree::s_gtNodeCounts[op];
+    }
 
     if (gtc > 0)
     {
@@ -413,38 +410,31 @@ void Compiler::compShutdown()
                 100.0 * tot_small / gtc, 100.0 * tot_large / gtc);
         fprintf(fout, "\n");
     }
-
 #endif // COUNT_AST_OPERS
 
 #if DISPLAY_SIZES
-
     if (grossVMsize && grossNCsize)
     {
         fprintf(fout, "\n");
         fprintf(fout, "--------------------------------------\n");
         fprintf(fout, "Function and GC info size stats\n");
         fprintf(fout, "--------------------------------------\n");
-
         fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, grossNCsize, Target::CpuName(),
                 100 * grossNCsize / grossVMsize, "Total (excluding GC info)");
-
         fprintf(fout, "[%7u VM, %8u %6s %4u%%] %s\n", grossVMsize, totalNCsize, Target::CpuName(),
                 100 * totalNCsize / grossVMsize, "Total (including GC info)");
 
         if (gcHeaderISize || gcHeaderNSize)
         {
             fprintf(fout, "\n");
-
             fprintf(fout, "GC tables   : [%7uI,%7uN] %7u byt  (%u%% of IL, %u%% of %s).\n",
                     gcHeaderISize + gcPtrMapISize, gcHeaderNSize + gcPtrMapNSize, totalNCsize - grossNCsize,
                     100 * (totalNCsize - grossNCsize) / grossVMsize, 100 * (totalNCsize - grossNCsize) / grossNCsize,
                     Target::CpuName());
-
             fprintf(fout, "GC headers  : [%7uI,%7uN] %7u byt, [%4.1fI,%4.1fN] %4.1f byt/meth\n", gcHeaderISize,
                     gcHeaderNSize, gcHeaderISize + gcHeaderNSize, (float)gcHeaderISize / (genMethodICnt + 0.001),
                     (float)gcHeaderNSize / (genMethodNCnt + 0.001),
                     (float)(gcHeaderISize + gcHeaderNSize) / genMethodCnt);
-
             fprintf(fout, "GC ptr maps : [%7uI,%7uN] %7u byt, [%4.1fI,%4.1fN] %4.1f byt/meth\n", gcPtrMapISize,
                     gcPtrMapNSize, gcPtrMapISize + gcPtrMapNSize, (float)gcPtrMapISize / (genMethodICnt + 0.001),
                     (float)gcPtrMapNSize / (genMethodNCnt + 0.001),
@@ -453,13 +443,11 @@ void Compiler::compShutdown()
         else
         {
             fprintf(fout, "\n");
-
             fprintf(fout, "GC tables   take up %u bytes (%u%% of instr, %u%% of %6s code).\n",
                     totalNCsize - grossNCsize, 100 * (totalNCsize - grossNCsize) / grossVMsize,
                     100 * (totalNCsize - grossNCsize) / grossNCsize, Target::g_tgtCPUName);
         }
     }
-
 #endif // DISPLAY_SIZES
 
 #if COUNT_BASIC_BLOCKS
@@ -467,10 +455,7 @@ void Compiler::compShutdown()
     fprintf(fout, "Basic block count frequency table:\n");
     fprintf(fout, "--------------------------------------------------\n");
     bbCntTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-
-    fprintf(fout, "\n");
-
+    fprintf(fout, "--------------------------------------------------\n\n");
     fprintf(fout, "--------------------------------------------------\n");
     fprintf(fout, "IL method size frequency table for methods with a single basic block:\n");
     fprintf(fout, "--------------------------------------------------\n");
@@ -479,9 +464,7 @@ void Compiler::compShutdown()
 #endif // COUNT_BASIC_BLOCKS
 
 #if COUNT_LOOPS
-
-    fprintf(fout, "\n");
-    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "\n---------------------------------------------------\n");
     fprintf(fout, "Loop stats\n");
     fprintf(fout, "---------------------------------------------------\n");
     fprintf(fout, "Total number of methods with loops is %5u\n", totalLoopMethods);
@@ -493,7 +476,6 @@ void Compiler::compShutdown()
     fprintf(fout, "Total number of loops with an         iterator is %5u\n", iterLoopCount);
     fprintf(fout, "Total number of loops with a simple   iterator is %5u\n", simpleTestLoopCount);
     fprintf(fout, "Total number of loops with a constant iterator is %5u\n", constIterLoopCount);
-
     fprintf(fout, "--------------------------------------------------\n");
     fprintf(fout, "Loop count frequency table:\n");
     fprintf(fout, "--------------------------------------------------\n");
@@ -503,118 +485,90 @@ void Compiler::compShutdown()
     fprintf(fout, "--------------------------------------------------\n");
     loopExitCountTable.dump(fout);
     fprintf(fout, "--------------------------------------------------\n");
-
 #endif // COUNT_LOOPS
 
 #if MEASURE_NODE_SIZE
-
-    fprintf(fout, "\n");
-    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "\n---------------------------------------------------\n");
     fprintf(fout, "GenTree node allocation stats\n");
     fprintf(fout, "---------------------------------------------------\n");
-
     fprintf(fout, "Allocated %6I64u tree nodes (%7I64u bytes total, avg %4I64u bytes per method)\n",
             genNodeSizeStats.genTreeNodeCnt, genNodeSizeStats.genTreeNodeSize,
             genNodeSizeStats.genTreeNodeSize / genMethodCnt);
-
     fprintf(fout, "Allocated %7I64u bytes of unused tree node space (%3.2f%%)\n",
             genNodeSizeStats.genTreeNodeSize - genNodeSizeStats.genTreeNodeActualSize,
-            (float)(100 * (genNodeSizeStats.genTreeNodeSize - genNodeSizeStats.genTreeNodeActualSize)) /
+            (100.0 * (genNodeSizeStats.genTreeNodeSize - genNodeSizeStats.genTreeNodeActualSize)) /
                 genNodeSizeStats.genTreeNodeSize);
-
     fprintf(fout, "\n");
     fprintf(fout, "---------------------------------------------------\n");
     fprintf(fout, "Distribution of per-method GenTree node counts:\n");
     genTreeNcntHist.dump(fout);
-
     fprintf(fout, "\n");
     fprintf(fout, "---------------------------------------------------\n");
     fprintf(fout, "Distribution of per-method GenTree node  allocations (in bytes):\n");
     genTreeNsizHist.dump(fout);
-
 #endif // MEASURE_NODE_SIZE
 
 #if MEASURE_BLOCK_SIZE
-
-    fprintf(fout, "\n");
-    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "\n---------------------------------------------------\n");
     fprintf(fout, "BasicBlock and flowList/BasicBlockList allocation stats\n");
     fprintf(fout, "---------------------------------------------------\n");
-
     fprintf(fout, "Allocated %6u basic blocks (%7u bytes total, avg %4u bytes per method)\n", BasicBlock::s_Count,
             BasicBlock::s_Size, BasicBlock::s_Size / genMethodCnt);
     fprintf(fout, "Allocated %6u flow nodes (%7u bytes total, avg %4u bytes per method)\n", genFlowNodeCnt,
             genFlowNodeSize, genFlowNodeSize / genMethodCnt);
-
 #endif // MEASURE_BLOCK_SIZE
 
 #if MEASURE_MEM_ALLOC
-
     if (JitConfig.DisplayMemStats())
     {
         fprintf(fout, "\nAll allocations:\n");
         ArenaAllocator::dumpAggregateMemStats(jitstdout);
-
         fprintf(fout, "\nLargest method:\n");
         ArenaAllocator::dumpMaxMemStats(jitstdout);
-
-        fprintf(fout, "\n");
-        fprintf(fout, "---------------------------------------------------\n");
+        fprintf(fout, "\n---------------------------------------------------\n");
         fprintf(fout, "Distribution of total memory allocated per method (in KB):\n");
         memAllocHist.dump(fout);
-
-        fprintf(fout, "\n");
-        fprintf(fout, "---------------------------------------------------\n");
+        fprintf(fout, "\n---------------------------------------------------\n");
         fprintf(fout, "Distribution of total memory used      per method (in KB):\n");
         memUsedHist.dump(fout);
     }
-
 #endif // MEASURE_MEM_ALLOC
 
 #if LOOP_HOIST_STATS
 #ifdef DEBUG // Always display loop stats in retail
     if (JitConfig.DisplayLoopHoistStats() != 0)
-#endif // DEBUG
+#endif
     {
         PrintAggregateLoopHoistStats(jitstdout);
     }
 #endif // LOOP_HOIST_STATS
 
 #if MEASURE_PTRTAB_SIZE
-
-    fprintf(fout, "\n");
-    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "\n---------------------------------------------------\n");
     fprintf(fout, "GC pointer table stats\n");
     fprintf(fout, "---------------------------------------------------\n");
-
     fprintf(fout, "Reg pointer descriptor size (internal): %8u (avg %4u per method)\n", GCInfo::s_gcRegPtrDscSize,
             GCInfo::s_gcRegPtrDscSize / genMethodCnt);
-
     fprintf(fout, "Total pointer table size: %8u (avg %4u per method)\n", GCInfo::s_gcTotalPtrTabSize,
             GCInfo::s_gcTotalPtrTabSize / genMethodCnt);
-
 #endif // MEASURE_PTRTAB_SIZE
 
 #if MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || MEASURE_PTRTAB_SIZE || DISPLAY_SIZES
-
     if (genMethodCnt != 0)
     {
-        fprintf(fout, "\n");
-        fprintf(fout, "A total of %6u methods compiled", genMethodCnt);
+        fprintf(fout, "\nA total of %6u methods compiled", genMethodCnt);
 #if DISPLAY_SIZES
         if (genMethodICnt || genMethodNCnt)
         {
             fprintf(fout, " (%u interruptible, %u non-interruptible)", genMethodICnt, genMethodNCnt);
         }
-#endif // DISPLAY_SIZES
+#endif
         fprintf(fout, ".\n");
     }
-
 #endif // MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || MEASURE_PTRTAB_SIZE || DISPLAY_SIZES
 
 #if MEASURE_FATAL
-    fprintf(fout, "\n");
-    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "\n---------------------------------------------------\n");
     fprintf(fout, "Fatal errors stats\n");
     fprintf(fout, "---------------------------------------------------\n");
     fprintf(fout, "   badCode:             %u\n", fatal_badCode);
@@ -624,7 +578,7 @@ void Compiler::compShutdown()
     fprintf(fout, "   noWayAssertBody:     %u\n", fatal_noWayAssertBody);
 #ifdef DEBUG
     fprintf(fout, "   noWayAssertBodyArgs: %u\n", fatal_noWayAssertBodyArgs);
-#endif // DEBUG
+#endif
     fprintf(fout, "   NYI:                 %u\n", fatal_NYI);
 #endif // MEASURE_FATAL
 }
@@ -1156,7 +1110,7 @@ void Compiler::compInitOptions()
         opts.optFlags = CLFLG_MINOPT;
     }
     // Don't optimize .cctors (except prejit) or if we're an inlinee
-    else if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    else if (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && info.IsCCtor())
     {
         opts.optFlags = CLFLG_MINOPT;
     }
@@ -1166,7 +1120,7 @@ void Compiler::compInitOptions()
 
     // If the EE sets SIZE_OPT or if we are compiling a Class constructor
     // we will optimize for code size at the expense of speed
-    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_SIZE_OPT) || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_SIZE_OPT) || info.IsCCtor())
     {
         opts.compCodeOpt = SMALL_CODE;
     }
@@ -1420,7 +1374,7 @@ void Compiler::compInitPgo()
 //    - An explicit tail call has been seen
 //    - compSetOptimizationLevel() has not been called
 //
-bool Compiler::compMayExplicitTailCall()
+bool Compiler::compMayExplicitTailCall() const
 {
     assert(!compIsForInlining());
 
@@ -2024,7 +1978,7 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         // retail builds. Do not call the regular Config helper here as it would pull
         // in a copy of the config parser into the clrjit.dll.
         InterlockedCompareExchangeT(&Compiler::compJitTimeLogFilename,
-                                    (LPCWSTR)info.compCompHnd->getJitTimeLogFilename(), nullptr);
+                                    (const WCHAR*)info.compCompHnd->getJitTimeLogFilename(), nullptr);
 
         // At a process or module boundary clear the file and start afresh.
         JitTimer::PrintCsvHeader();
@@ -2032,16 +1986,16 @@ CorJitResult Compiler::compCompileMain(void** nativeCode, uint32_t* nativeCodeSi
         checkedForJitTimeLog = true;
     }
 
-    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
+    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitConfig.JitTimeLogCsv() != nullptr))
     {
         pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
     }
 #endif // FEATURE_JIT_METHOD_PERF
 
 #if FUNC_INFO_LOGGING
-    if (LPCWSTR tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile())
+    if (const WCHAR* tmpJitFuncInfoFilename = JitConfig.JitFuncInfoFile())
     {
-        LPCWSTR oldFuncInfoFileName =
+        const WCHAR* oldFuncInfoFileName =
             InterlockedCompareExchangeT(&compJitFuncInfoFilename, tmpJitFuncInfoFilename, nullptr);
 
         if (oldFuncInfoFileName == nullptr)
@@ -2885,7 +2839,7 @@ void CompTimeSummaryInfo::AddInfo(CompTimeInfo& info, bool includePhases)
 #endif
 }
 
-LPCWSTR Compiler::compJitTimeLogFilename;
+const WCHAR* Compiler::compJitTimeLogFilename;
 
 void CompTimeSummaryInfo::Print(FILE* f) const
 {
@@ -3326,15 +3280,10 @@ CritSecObject JitTimer::s_csvLock;
 // when the process exits. This should be accessed under the s_csvLock.
 FILE* JitTimer::s_csvFile = nullptr;
 
-LPCWSTR Compiler::JitTimeLogCsv()
-{
-    LPCWSTR jitTimeLogCsv = JitConfig.JitTimeLogCsv();
-    return jitTimeLogCsv;
-}
-
 void JitTimer::PrintCsvHeader()
 {
-    LPCWSTR jitTimeLogCsv = Compiler::JitTimeLogCsv();
+    const WCHAR* jitTimeLogCsv = JitConfig.JitTimeLogCsv();
+
     if (jitTimeLogCsv == nullptr)
     {
         return;
@@ -3346,54 +3295,57 @@ void JitTimer::PrintCsvHeader()
     {
         s_csvFile = _wfopen(jitTimeLogCsv, W("a"));
     }
-    if (s_csvFile != nullptr)
+    if (s_csvFile == nullptr)
     {
-        // Seek to the end of the file s.t. `ftell` doesn't lie to us on Windows
-        fseek(s_csvFile, 0, SEEK_END);
+        return;
+    }
 
-        // Write the header if the file is empty
-        if (ftell(s_csvFile) == 0)
-        {
-            fprintf(s_csvFile, "\"Method Name\",");
-            fprintf(s_csvFile, "\"Assembly or SPMI Index\",");
-            fprintf(s_csvFile, "\"IL Bytes\",");
-            fprintf(s_csvFile, "\"Basic Blocks\",");
-            fprintf(s_csvFile, "\"Min Opts\",");
-            fprintf(s_csvFile, "\"Loops\",");
-            fprintf(s_csvFile, "\"Loops Cloned\",");
-#if FEATURE_LOOP_ALIGN
-#ifdef DEBUG
-            fprintf(s_csvFile, "\"Alignment Candidates\",");
-            fprintf(s_csvFile, "\"Loops Aligned\",");
-#endif // DEBUG
-#endif // FEATURE_LOOP_ALIGN
-            for (int i = 0; i < PHASE_NUMBER_OF; i++)
-            {
-                fprintf(s_csvFile, "\"%s\",", PhaseNames[i]);
-                if ((JitConfig.JitMeasureIR() != 0) && PhaseReportsIRSize[i])
-                {
-                    fprintf(s_csvFile, "\"Node Count After %s\",", PhaseNames[i]);
-                }
-            }
+    // Seek to the end of the file s.t. `ftell` doesn't lie to us on Windows
+    fseek(s_csvFile, 0, SEEK_END);
 
-            InlineStrategy::DumpCsvHeader(s_csvFile);
+    // Write the header if the file is empty
+    if (ftell(s_csvFile) != 0)
+    {
+        return;
+    }
 
-            fprintf(s_csvFile, "\"Executable Code Bytes\",");
-#ifdef JIT32_GCENCODER
-            fprintf(s_csvFile, "\"GC Info Bytes\",");
+    fprintf(s_csvFile, "\"Method Name\",");
+    fprintf(s_csvFile, "\"Assembly or SPMI Index\",");
+    fprintf(s_csvFile, "\"IL Bytes\",");
+    fprintf(s_csvFile, "\"Basic Blocks\",");
+    fprintf(s_csvFile, "\"Min Opts\",");
+    fprintf(s_csvFile, "\"Loops\",");
+    fprintf(s_csvFile, "\"Loops Cloned\",");
+#if FEATURE_LOOP_ALIGN && defined(DEBUG)
+    fprintf(s_csvFile, "\"Alignment Candidates\",");
+    fprintf(s_csvFile, "\"Loops Aligned\",");
 #endif
-            fprintf(s_csvFile, "\"Total Bytes Allocated\",");
-            fprintf(s_csvFile, "\"Total Cycles\",");
-            fprintf(s_csvFile, "\"CPS\"\n");
 
-            fflush(s_csvFile);
+    for (int i = 0; i < PHASE_NUMBER_OF; i++)
+    {
+        fprintf(s_csvFile, "\"%s\",", PhaseNames[i]);
+        if ((JitConfig.JitMeasureIR() != 0) && PhaseReportsIRSize[i])
+        {
+            fprintf(s_csvFile, "\"Node Count After %s\",", PhaseNames[i]);
         }
     }
+
+    InlineStrategy::DumpCsvHeader(s_csvFile);
+
+    fprintf(s_csvFile, "\"Executable Code Bytes\",");
+#ifdef JIT32_GCENCODER
+    fprintf(s_csvFile, "\"GC Info Bytes\",");
+#endif
+    fprintf(s_csvFile, "\"Total Bytes Allocated\",");
+    fprintf(s_csvFile, "\"Total Cycles\",");
+    fprintf(s_csvFile, "\"CPS\"\n");
+
+    fflush(s_csvFile);
 }
 
 void JitTimer::PrintCsvMethodStats(Compiler* comp) const
 {
-    LPCWSTR jitTimeLogCsv = Compiler::JitTimeLogCsv();
+    const WCHAR* jitTimeLogCsv = JitConfig.JitTimeLogCsv();
 
     if (jitTimeLogCsv == nullptr)
     {
@@ -3441,13 +3393,13 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp) const
     fprintf(s_csvFile, "%u,", comp->opts.MinOpts());
     fprintf(s_csvFile, "%u,", comp->optLoopCount);
     fprintf(s_csvFile, "%u,", comp->optLoopsCloned);
-#if FEATURE_LOOP_ALIGN
-#ifdef DEBUG
+#if FEATURE_LOOP_ALIGN && defined(DEBUG)
     fprintf(s_csvFile, "%u,", comp->loopAlignCandidates);
     fprintf(s_csvFile, "%u,", comp->loopsAligned);
-#endif // DEBUG
-#endif // FEATURE_LOOP_ALIGN
+#endif
+
     uint64_t totCycles = 0;
+
     for (int i = 0; i < PHASE_NUMBER_OF; i++)
     {
         if (!PhaseHasChildren[i])
@@ -3669,29 +3621,19 @@ const LPCWSTR Compiler::s_compStressModeNames[STRESS_COUNT + 1]{
 #undef STRESS_MODE
 };
 
-//------------------------------------------------------------------------
-// compStressCompile: determine if a stress mode should be enabled
+// Determine if a stress mode should be enabled
 //
-// Arguments:
-//   stressArea - stress mode to possibly enable
-//   weight - percent of time this mode should be turned on
-//     (range 0 to 100); weight 0 effectively disables
+// Methods may be excluded from stress via name or hash.
 //
-// Returns:
-//   true if this stress mode is enabled
+// Particular stress modes may be disabled or forcibly enabled.
 //
-// Notes:
-//   Methods may be excluded from stress via name or hash.
+// With JitStress=2, some stress modes are enabled regardless of weight;
+// these modes are the ones after COUNT_VARN in the enumeration.
 //
-//   Particular stress modes may be disabled or forcibly enabled.
+// For other modes or for nonzero JitStress values, stress will be
+// enabled selectively for roughly weight% of methods.
 //
-//   With JitStress=2, some stress modes are enabled regardless of weight;
-//   these modes are the ones after COUNT_VARN in the enumeration.
-//
-//   For other modes or for nonzero JitStress values, stress will be
-//   enabled selectively for roughly weight% of methods.
-//
-bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
+bool Compiler::compStressCompile(StressArea stressArea, unsigned percentage)
 {
     // This can be called early, before info is fully set up.
     if ((info.compMethodName == nullptr) || (info.compFullName == nullptr))
@@ -3703,10 +3645,10 @@ bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
     // more easily isolate methods that cause stress failures.
     if (compIsForInlining())
     {
-        return impInlineRoot()->compStressCompile(stressArea, weight);
+        return impInlineRoot()->compStressCompile(stressArea, percentage);
     }
 
-    const bool doStress = compStressCompileHelper(stressArea, weight);
+    const bool doStress = compStressCompileHelper(stressArea, percentage);
 
     if (doStress && !compActiveStressModes[stressArea])
     {
@@ -3717,21 +3659,8 @@ bool Compiler::compStressCompile(compStressArea stressArea, unsigned weight)
     return doStress;
 }
 
-//------------------------------------------------------------------------
-// compStressCompileHelper: helper to determine if a stress mode should be enabled
-//
-// Arguments:
-//   stressArea - stress mode to possibly enable
-//   weight - percent of time this mode should be turned on
-//     (range 0 to 100); weight 0 effectively disables
-//
-// Returns:
-//   true if this stress mode is enabled
-//
-// Notes:
-//   See compStressCompile
-//
-bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weight)
+// Helper to determine if a stress mode should be enabled
+bool Compiler::compStressCompileHelper(StressArea stressArea, unsigned percentage)
 {
     if (!bRangeAllowStress)
     {
@@ -3753,8 +3682,7 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
     }
 
     // Does user explicitly set this STRESS_MODE through the command line?
-    const WCHAR* strStressModeNames = JitConfig.JitStressModeNames();
-    if (strStressModeNames != nullptr)
+    if (const WCHAR* strStressModeNames = JitConfig.JitStressModeNames())
     {
         if (wcsstr(strStressModeNames, s_compStressModeNames[stressArea]) != nullptr)
         {
@@ -3777,10 +3705,9 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
     // 2:   Check-all stress. Performance will be REALLY horrible
     const int stressLevel = JitConfig.JitStress();
 
-    assert(weight <= MAX_STRESS_WEIGHT);
+    assert(percentage <= 100);
 
-    // Check for boundary conditions
-    if (stressLevel == 0 || weight == 0)
+    if (stressLevel == 0 || percentage == 0)
     {
         return false;
     }
@@ -3791,17 +3718,18 @@ bool Compiler::compStressCompileHelper(compStressArea stressArea, unsigned weigh
         return true;
     }
 
-    if (weight == MAX_STRESS_WEIGHT)
+    if (percentage == 100)
     {
         return true;
     }
 
-    // Get a hash which can be compared with 'weight'
+    // Get a hash which can be compared with percentage
     assert(stressArea != 0);
-    const unsigned hash = (info.compMethodHash() ^ stressArea ^ stressLevel) % MAX_STRESS_WEIGHT;
 
-    assert(hash < MAX_STRESS_WEIGHT && weight <= MAX_STRESS_WEIGHT);
-    return (hash < weight);
+    const unsigned hash = (info.compMethodHash() ^ stressArea ^ stressLevel) % 100;
+    assert((hash < 100) && (percentage <= 100));
+
+    return hash < percentage;
 }
 
 // Helper to determine if the local should not be promoted under a stress mode.

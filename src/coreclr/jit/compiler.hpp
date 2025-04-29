@@ -753,9 +753,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 // should we try to replace integer multiplication with lea/add/shift sequences?
-inline bool Compiler::optAvoidIntMult(void)
+inline bool Compiler::optAvoidIntMult(void) const
 {
-    return (compCodeOpt() != SMALL_CODE);
+    return compCodeOpt() != SMALL_CODE;
 }
 
 #include "ee_il_dll.hpp"
@@ -791,7 +791,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
 #ifndef DEBUG
-inline bool Compiler::compStressCompile(compStressArea stressArea, unsigned weightPercentage)
+inline bool Compiler::compStressCompile(StressArea stressArea, unsigned percentage)
 {
     return false;
 }

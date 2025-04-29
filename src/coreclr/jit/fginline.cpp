@@ -547,7 +547,7 @@ void Compiler::inlMain()
 
 #ifdef FEATURE_JIT_METHOD_PERF
     // TODO-MIKE-Review: Is this used when inlining?
-    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitTimeLogCsv() != nullptr))
+    if ((Compiler::compJitTimeLogFilename != nullptr) || (JitConfig.JitTimeLogCsv() != nullptr))
     {
         pCompJitTimer = JitTimer::Create(this, info.compMethodInfo->ILCodeSize);
     }

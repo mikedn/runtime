@@ -194,19 +194,18 @@ void Compiler::fgApplyProfileScale()
 // Returns:
 //   true if data was found
 //
-bool Compiler::fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::weight_t* weightWB)
+bool Compiler::fgGetProfileWeightForBasicBlock(IL_OFFSET offset, weight_t* weightWB)
 {
     noway_assert(weightWB != nullptr);
-    BasicBlock::weight_t weight = 0;
+    weight_t weight = 0;
 
 #ifdef DEBUG
-    unsigned hashSeed = fgStressBBProf();
-    if (hashSeed != 0)
+    if (unsigned hashSeed = fgStressBBProf())
     {
         unsigned hash = (info.compMethodHash() * hashSeed) ^ (offset * 1027);
 
-        // We need to especially stress the procedure splitting codepath.  Therefore
-        // one third the time we should return a weight of zero.
+        // We need to especially stress the procedure splitting code path.
+        // Therefore one third the time we should return a weight of zero.
         // Otherwise we should return some random weight (usually between 0 and 288).
         // The below gives a weight of zero, 44% of the time
 
@@ -216,17 +215,17 @@ bool Compiler::fgGetProfileWeightForBasicBlock(IL_OFFSET offset, BasicBlock::wei
         }
         else if (hash % 11 == 0)
         {
-            weight = (BasicBlock::weight_t)(hash % 23) * (hash % 29) * (hash % 31);
+            weight = (weight_t)(hash % 23) * (hash % 29) * (hash % 31);
         }
         else
         {
-            weight = (BasicBlock::weight_t)(hash % 17) * (hash % 19);
+            weight = (weight_t)(hash % 17) * (hash % 19);
         }
 
         // The first block is never given a weight of zero
         if ((offset == 0) && (weight == BB_ZERO_WEIGHT))
         {
-            weight = (BasicBlock::weight_t)1 + (hash % 5);
+            weight = (weight_t)1 + (hash % 5);
         }
 
         *weightWB = weight;

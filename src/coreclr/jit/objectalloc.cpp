@@ -165,7 +165,7 @@ inline bool ObjectAllocator::DoesLclVarPointToStack(unsigned lclNum)
 //
 PhaseStatus ObjectAllocator::Run()
 {
-    if ((comp->optMethodFlags & OMF_HAS_NEWOBJ) == 0)
+    if ((comp->optMethodFlags & Compiler::OMF_HAS_NEWOBJ) == 0)
     {
         JITDUMP("no newobjs in this method; punting\n");
         return PhaseStatus::MODIFIED_NOTHING;
@@ -614,7 +614,7 @@ bool ObjectAllocator::MorphAllocObjNodes()
                     MarkLclVarAsDefinitelyStackPointing(lclNum);
                     MarkLclVarAsPossiblyStackPointing(lclNum);
                     stmt->GetRootNode()->ChangeToNothingNode();
-                    comp->optMethodFlags |= OMF_HAS_OBJSTACKALLOC;
+                    comp->optMethodFlags |= Compiler::OMF_HAS_OBJSTACKALLOC;
                     didStackAllocate = true;
 
                     continue;

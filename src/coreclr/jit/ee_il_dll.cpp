@@ -72,7 +72,7 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
         assert(jitstdout != nullptr);
         setvbuf(jitstdout, nullptr, _IOFBF, 65536);
     }
-#endif // DEBUG
+#endif
 
     if (jitstdout == nullptr)
     {

@@ -59,9 +59,9 @@ public:
 private:
     bool DoEarlyPropForFunc()
     {
-        bool hasNewArray    = (compiler->optMethodFlags & OMF_HAS_NEWARRAY) != 0;
-        bool hasArrayLength = (compiler->optMethodFlags & OMF_HAS_ARRAYREF) != 0;
-        bool hasNullCheck   = (compiler->optMethodFlags & OMF_HAS_NULLCHECK) != 0;
+        bool hasNewArray    = (compiler->optMethodFlags & Compiler::OMF_HAS_NEWARRAY) != 0;
+        bool hasArrayLength = (compiler->optMethodFlags & Compiler::OMF_HAS_ARRAYREF) != 0;
+        bool hasNullCheck   = (compiler->optMethodFlags & Compiler::OMF_HAS_NULLCHECK) != 0;
 
         return (hasArrayLength && hasNewArray) || hasNullCheck;
     }

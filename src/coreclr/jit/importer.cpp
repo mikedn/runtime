@@ -4455,7 +4455,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
         }
 
         currentBlock->bbFlags |= BBF_HAS_NEWOBJ;
-        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= Compiler::OMF_HAS_NEWOBJ;
 
         GenTree*   allocStore = comp->gtNewLclStore(impBoxTempLcl, TYP_REF, alloc);
         Statement* allocStmt  = impSpillNoneAppendTree(allocStore);
@@ -11715,7 +11715,7 @@ void Importer::ImportNewArr(const uint8_t* codeAddr, BasicBlock* block)
     call->m_retClassHandle = resolvedToken.hClass;
 
     block->bbFlags |= BBF_HAS_NEWARRAY;
-    comp->optMethodFlags |= OMF_HAS_NEWARRAY;
+    comp->optMethodFlags |= Compiler::OMF_HAS_NEWARRAY;
 
     impPushOnStack(call, typeInfo(TI_REF, resolvedToken.hClass));
 }
@@ -11791,7 +11791,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
-        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= Compiler::OMF_HAS_NEWOBJ;
     }
     // This is the normal case where the size of the object is fixed.
     // Allocate the memory and call the constructor.
@@ -11935,7 +11935,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
-        comp->optMethodFlags |= OMF_HAS_NEWOBJ;
+        comp->optMethodFlags |= Compiler::OMF_HAS_NEWOBJ;
 
         assert(!lcl->lvSingleDef);
         lcl->lvSingleDef = true;
@@ -13811,7 +13811,7 @@ void Compiler::impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, I
         frequency = InlineCallsiteFrequency::WARM;
     }
     // Now modify the multiplier based on where we're called from.
-    else if (pInlineInfo->iciBlock->isRunRarely() || ((info.compFlags & FLG_CCTOR) == FLG_CCTOR))
+    else if (pInlineInfo->iciBlock->isRunRarely() || info.IsCCtor())
     {
         frequency = InlineCallsiteFrequency::RARE;
     }

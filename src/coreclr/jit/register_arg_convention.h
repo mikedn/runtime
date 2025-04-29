@@ -3,8 +3,9 @@
 
 #pragma once
 
-struct ParamAllocInfo
+class ParamAllocInfo
 {
+public:
     const unsigned intRegCount;
     const unsigned floatRegCount;
     unsigned       lclNum        = 0;
@@ -16,7 +17,6 @@ struct ParamAllocInfo
     regMaskTP floatAlignPadMask = RBM_NONE;
 #endif
 
-public:
     ParamAllocInfo(unsigned intRegCount, unsigned floatRegCount)
         : intRegCount(intRegCount), floatRegCount(floatRegCount)
     {

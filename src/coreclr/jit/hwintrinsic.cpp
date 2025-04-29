@@ -239,7 +239,14 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
     return gtNewCommaNode(check, immOpUses[0]);
 }
 
-bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa)
+bool Compiler::compHWIntrinsicDependsOn(CORINFO_InstructionSet isa) const
+{
+    // Report intent to use the ISA to the EE
+    compExactlyDependsOn(isa);
+    return (opts.compSupportsISA & (1ULL << isa)) != 0;
+}
+
+bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa) const
 {
     return JitConfig.EnableHWIntrinsic() && (featureSIMD() || HWIntrinsicInfo::isScalarIsa(isa)) &&
            (

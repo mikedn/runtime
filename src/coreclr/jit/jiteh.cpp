@@ -918,7 +918,7 @@ bool Compiler::ehAnyFunclets() const
  *  EH table, it is accurate at any time.
  */
 
-unsigned Compiler::ehFuncletCount()
+unsigned Compiler::ehFuncletCount() const
 {
     unsigned funcletCnt = 0;
 

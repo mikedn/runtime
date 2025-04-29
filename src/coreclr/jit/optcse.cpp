@@ -1652,7 +1652,7 @@ public:
         // Invalid value, check if JitStress is ON.
         if (bias > 100)
         {
-            if (!compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, MAX_STRESS_WEIGHT))
+            if (!compiler->compStressCompile(Compiler::STRESS_MAKE_CSE, 100))
             {
                 // JitStress is OFF for CSE, nothing to do.
                 return 0;

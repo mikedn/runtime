@@ -159,7 +159,7 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
 #if MEASURE_BLOCK_SIZE
         genFlowNodeCnt += 1;
         genFlowNodeSize += sizeof(flowList);
-#endif // MEASURE_BLOCK_SIZE
+#endif
     }
 
     // Now add all blocks handled by this handler (except for second blocks of BBJ_CALLFINALLY/BBJ_ALWAYS pairs;
@@ -179,17 +179,16 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
 #if MEASURE_BLOCK_SIZE
             genFlowNodeCnt += 1;
             genFlowNodeSize += sizeof(flowList);
-#endif // MEASURE_BLOCK_SIZE
+#endif
         }
     }
 
 #ifdef DEBUG
-    unsigned hash = SsaStressHashHelper();
-    if (hash != 0)
+    if (unsigned hash = SsaStressHashHelper())
     {
         res = ShuffleHelper(hash, res);
     }
-#endif // DEBUG
+#endif
 
     blk->bbPredsWithEH = res == nullptr ? &emptyBlockPredsWithEH : res;
 
