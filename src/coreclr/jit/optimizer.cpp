@@ -3574,7 +3574,7 @@ bool Compiler::IsSharedStaticHelper(GenTree* tree)
         helper == CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS;
 #if 0
     // See above TODO-Cleanup
-    bool result2 = s_helperCallProperties.IsPure(helper) && s_helperCallProperties.NonNullReturn(helper);
+    bool result2 = helperCallInfo.IsPure(helper) && helperCallInfo.NonNullReturn(helper);
     assert(result1 == result2);
 #endif
     return result1;

@@ -12230,7 +12230,7 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
 
 GenTreeCall* Compiler::fgIsThrow(GenTree* tree)
 {
-    return tree->IsHelperCall() && s_helperCallProperties.AlwaysThrow(eeGetHelperNum(tree->AsCall()->GetMethodHandle()))
+    return tree->IsHelperCall() && HelperCallProperties::AlwaysThrow(eeGetHelperNum(tree->AsCall()->GetMethodHandle()))
                ? tree->AsCall()
                : nullptr;
 }

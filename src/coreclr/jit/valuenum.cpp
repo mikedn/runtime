@@ -7401,7 +7401,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
             break;
 
         default:
-            assert(Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(call->GetMethodHandle())));
+            assert(HelperCallProperties::IsPure(Compiler::eeGetHelperNum(call->GetMethodHandle())));
             break;
     }
 
@@ -7494,11 +7494,11 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
     {
         CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
 
-        if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
+        if (HelperCallProperties::MutatesHeap(helpFunc))
         {
             summary.AddMemoryHavoc();
         }
-        else if (Compiler::s_helperCallProperties.MayRunCctor(helpFunc))
+        else if (HelperCallProperties::MayRunCctor(helpFunc))
         {
             // If the call is labeled as "Hoistable", then we've checked the
             // class that would be constructed, and it is not precise-init, so
@@ -7548,7 +7548,7 @@ void ValueNumbering::NumberCall(GenTreeCall* call)
 
 VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 {
-    assert(Compiler::s_helperCallProperties.IsPure(helpFunc) || Compiler::s_helperCallProperties.IsAllocator(helpFunc));
+    assert(HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::IsAllocator(helpFunc));
 
     switch (helpFunc)
     {
@@ -7753,11 +7753,11 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
 {
     const CorInfoHelpFunc helpFunc    = Compiler::eeGetHelperNum(call->GetMethodHandle());
-    const bool            pure        = Compiler::s_helperCallProperties.IsPure(helpFunc);
-    const bool            isAlloc     = Compiler::s_helperCallProperties.IsAllocator(helpFunc);
-    const bool            mayRunCctor = Compiler::s_helperCallProperties.MayRunCctor(helpFunc);
-    const bool            noThrow     = Compiler::s_helperCallProperties.NoThrow(helpFunc);
-    bool                  modHeap     = Compiler::s_helperCallProperties.MutatesHeap(helpFunc);
+    const bool            pure        = HelperCallProperties::IsPure(helpFunc);
+    const bool            isAlloc     = HelperCallProperties::IsAllocator(helpFunc);
+    const bool            mayRunCctor = HelperCallProperties::MayRunCctor(helpFunc);
+    const bool            noThrow     = HelperCallProperties::NoThrow(helpFunc);
+    bool                  modHeap     = HelperCallProperties::MutatesHeap(helpFunc);
 
     ValueNumPair exset;
 

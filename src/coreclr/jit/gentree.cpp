@@ -433,7 +433,7 @@ void GenTreeFieldList::InsertFieldLIR(
 // performed.
 bool GenTreeCall::IsPure() const
 {
-    return IsHelperCall() && Compiler::s_helperCallProperties.IsPure(Compiler::eeGetHelperNum(m_methodHandle));
+    return IsHelperCall() && HelperCallProperties::IsPure(Compiler::eeGetHelperNum(m_methodHandle));
 }
 
 // Returns true if this call has any side effects. All non-helpers are considered to have side-effects. Only helpers
@@ -448,31 +448,30 @@ bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
         return true;
     }
 
-    CorInfoHelpFunc             helper           = Compiler::eeGetHelperNum(m_methodHandle);
-    const HelperCallProperties& helperProperties = Compiler::s_helperCallProperties;
+    CorInfoHelpFunc helper = Compiler::eeGetHelperNum(m_methodHandle);
 
     // We definitely care about the side effects if MutatesHeap is true
-    if (helperProperties.MutatesHeap(helper))
+    if (HelperCallProperties::MutatesHeap(helper))
     {
         return true;
     }
 
     // Unless we have been instructed to ignore cctors (CSE, for example, ignores cctors), consider them side effects.
-    if (!ignoreCctors && helperProperties.MayRunCctor(helper))
+    if (!ignoreCctors && HelperCallProperties::MayRunCctor(helper))
     {
         return true;
     }
 
     // If we also care about exceptions then check if the helper can throw
-    if (!ignoreExceptions && !helperProperties.NoThrow(helper))
+    if (!ignoreExceptions && !HelperCallProperties::NoThrow(helper))
     {
         return true;
     }
 
     // If this is not a Pure helper call or an allocator (that will not need to run a finalizer)
     // then this call has side effects.
-    return !helperProperties.IsPure(helper) &&
-           (!helperProperties.IsAllocator(helper) || ((gtCallMoreFlags & GTF_CALL_M_ALLOC_SIDE_EFFECTS) != 0));
+    return !HelperCallProperties::IsPure(helper) &&
+           (!HelperCallProperties::IsAllocator(helper) || ((gtCallMoreFlags & GTF_CALL_M_ALLOC_SIDE_EFFECTS) != 0));
 }
 
 bool GenTreeCall::HasNonStandardAddedArgs(Compiler* compiler) const
@@ -3592,7 +3591,7 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
     GenTreeCall* call = gtNewCallNode(CT_DIRECT, eeFindHelper(helper), type, args);
-    call->gtFlags |= s_helperCallProperties.NoThrow(helper) ? GTF_NONE : GTF_EXCEPT;
+    call->gtFlags |= HelperCallProperties::NoThrow(helper) ? GTF_NONE : GTF_EXCEPT;
     INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
     return call;
 }
@@ -4682,7 +4681,7 @@ bool GenTree::IndirMayThrow(Compiler* comp) const
 bool GenTree::CallMayThrow(Compiler* comp) const
 {
     return !AsCall()->IsHelperCall() ||
-           !Compiler::s_helperCallProperties.NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
+           !HelperCallProperties::NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
 }
 
 bool GenTree::DivModMayThrow(Compiler* comp) const

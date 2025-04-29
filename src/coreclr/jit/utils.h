@@ -566,74 +566,22 @@ private:
 #endif
 };
 
-class HelperCallProperties
+struct HelperCallProperties
 {
-public:
-    struct Properties
-    {
-        // true if the result only depends upon input args and not any global state
-        bool isPure : 1;
-        // true if the helper will never throw
-        bool noThrow : 1;
-        // true if the helper will always throw
-        bool alwaysThrow : 1;
-        // true if the result will never be null or zero
-        bool nonNullReturn : 1;
-        // true if the result is usually a newly created heap item, or may throw OutOfMemory
-        bool isAllocator : 1;
-        // true if any previous heap objects [are|can be] modified
-        bool mutatesHeap : 1;
-        // true if the helper call may cause a static constructor to be run
-        bool mayRunCctor : 1;
-    };
-
-private:
-    Properties m_props[CORINFO_HELP_COUNT];
-
-public:
-    constexpr HelperCallProperties();
-
-    bool IsPure(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].isPure;
-    }
-
-    bool NoThrow(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].noThrow;
-    }
-
-    bool AlwaysThrow(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].alwaysThrow;
-    }
-
-    bool NonNullReturn(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].nonNullReturn;
-    }
-
-    bool IsAllocator(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].isAllocator;
-    }
-
-    bool MutatesHeap(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].mutatesHeap;
-    }
-
-    bool MayRunCctor(CorInfoHelpFunc helper) const
-    {
-        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
-        return m_props[helper].mayRunCctor;
-    }
+    // The result only depends upon input args and not any global state
+    static bool IsPure(CorInfoHelpFunc helper);
+    // Call never throws an exception
+    static bool NoThrow(CorInfoHelpFunc helper);
+    // Call always throws an exception
+    static bool AlwaysThrow(CorInfoHelpFunc helper);
+    // The result will never be null or zero
+    static bool NonNullReturn(CorInfoHelpFunc helper);
+    // The result is usually a newly created heap item, or may throw OutOfMemory
+    static bool IsAllocator(CorInfoHelpFunc helper);
+    // The call my modify heap objects
+    static bool MutatesHeap(CorInfoHelpFunc helper);
+    // The call may cause a static constructor to be run
+    static bool MayRunCctor(CorInfoHelpFunc helper);
 };
 
 //*****************************************************************************

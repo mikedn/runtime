@@ -696,8 +696,7 @@ public:
                     if (GenTreeCall* call = tree->AsOp()->GetOp(0)->IsCall())
                     {
                         if (call->IsHelperCall() &&
-                            Compiler::s_helperCallProperties.MayRunCctor(
-                                Compiler::eeGetHelperNum(call->GetMethodHandle())))
+                            HelperCallProperties::MayRunCctor(Compiler::eeGetHelperNum(call->GetMethodHandle())))
                         {
                             // Hoisting the comma is ok because it would hoist the initialization along
                             // with the static field reference.
@@ -740,12 +739,11 @@ public:
                 {
                     CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
 
-                    if (!Compiler::s_helperCallProperties.IsPure(helpFunc))
+                    if (!HelperCallProperties::IsPure(helpFunc))
                     {
                         treeIsHoistable = false;
                     }
-                    else if (Compiler::s_helperCallProperties.MayRunCctor(helpFunc) &&
-                             ((call->gtFlags & GTF_CALL_HOISTABLE) == 0))
+                    else if (HelperCallProperties::MayRunCctor(helpFunc) && ((call->gtFlags & GTF_CALL_HOISTABLE) == 0))
                     {
                         treeIsHoistable = false;
                     }
@@ -816,12 +814,11 @@ public:
                 {
                     CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
 
-                    if (Compiler::s_helperCallProperties.MutatesHeap(helpFunc))
+                    if (HelperCallProperties::MutatesHeap(helpFunc))
                     {
                         m_beforeSideEffect = false;
                     }
-                    else if (Compiler::s_helperCallProperties.MayRunCctor(helpFunc) &&
-                             (call->gtFlags & GTF_CALL_HOISTABLE) == 0)
+                    else if (HelperCallProperties::MayRunCctor(helpFunc) && (call->gtFlags & GTF_CALL_HOISTABLE) == 0)
                     {
                         m_beforeSideEffect = false;
                     }
@@ -833,7 +830,7 @@ public:
                         assert(treeIsHoistable == false);
 
                         // Does this helper call throw?
-                        if (!Compiler::s_helperCallProperties.NoThrow(helpFunc))
+                        if (!HelperCallProperties::NoThrow(helpFunc))
                         {
                             m_beforeSideEffect = false;
                         }

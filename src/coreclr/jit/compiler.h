@@ -5803,8 +5803,6 @@ public:
         return fieldStore->Append(fieldStore->CreateSingleton(byRefFieldHandle), valueFieldHandle);
     }
 
-    const static HelperCallProperties s_helperCallProperties;
-
     bool abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg);
     void abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg);
     void abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* mkrefany);

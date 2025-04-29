@@ -282,7 +282,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
             {
                 CorInfoHelpFunc helpFunc = eeGetHelperNum(call->GetMethodHandle());
 
-                if (!s_helperCallProperties.MutatesHeap(helpFunc) && !s_helperCallProperties.MayRunCctor(helpFunc))
+                if (!HelperCallProperties::MutatesHeap(helpFunc) && !HelperCallProperties::MayRunCctor(helpFunc))
                 {
                     modHeap = false;
                 }

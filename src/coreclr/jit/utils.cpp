@@ -7,6 +7,7 @@
 
 #include "jitpch.h"
 #include "opcode.h"
+#include "jitstd/array.h"
 
 const char* Target::PlatformName()
 {
@@ -889,9 +890,25 @@ void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size)
 
 #endif // DEBUG
 
-static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
+struct HelperCallInfo
 {
-    HelperCallProperties::Properties props{};
+    bool isPure : 1;
+    bool noThrow : 1;
+    bool alwaysThrow : 1;
+    bool nonNullReturn : 1;
+    bool isAllocator : 1;
+    bool mutatesHeap : 1;
+    bool mayRunCctor : 1;
+
+    constexpr HelperCallInfo()
+        : isPure{}, noThrow{}, alwaysThrow{}, nonNullReturn{}, isAllocator{}, mutatesHeap{}, mayRunCctor{}
+    {
+    }
+};
+
+static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
+{
+    HelperCallInfo info;
 
     switch (helper)
     {
@@ -911,8 +928,8 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_FLTROUND:
         case CORINFO_HELP_DBLROUND:
 
-            props.isPure  = true;
-            props.noThrow = true;
+            info.isPure  = true;
+            info.noThrow = true;
             break;
 
         // Arithmetic helpers that *can* throw.
@@ -920,7 +937,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         // This (or these) are not pure, in that they have "VM side effects"...but they don't mutate the heap.
         case CORINFO_HELP_ENDCATCH:
 
-            props.noThrow = true;
+            info.noThrow = true;
             break;
 
         // Arithmetic helpers that may throw
@@ -942,7 +959,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_DBL2UINT_OVF:
         case CORINFO_HELP_DBL2ULNG_OVF:
 
-            props.isPure = true;
+            info.isPure = true;
             break;
 
         // Heap Allocation helpers, these all never return null
@@ -955,9 +972,9 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_READYTORUN_NEW:
         case CORINFO_HELP_BOX:
 
-            props.isAllocator   = true;
-            props.nonNullReturn = true;
-            props.noThrow       = true; // only can throw OutOfMemory
+            info.isAllocator   = true;
+            info.nonNullReturn = true;
+            info.noThrow       = true; // only can throw OutOfMemory
             break;
 
         // These allocation helpers do some checks on the size (and lower bound) inputs,
@@ -969,17 +986,17 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_NEWARR_1_OBJ:
         case CORINFO_HELP_READYTORUN_NEWARR_1:
 
-            props.isAllocator   = true;
-            props.nonNullReturn = true;
+            info.isAllocator   = true;
+            info.nonNullReturn = true;
             break;
 
         // Heap Allocation helpers that are also pure
         case CORINFO_HELP_STRCNS:
 
-            props.isPure        = true;
-            props.isAllocator   = true;
-            props.nonNullReturn = true;
-            props.noThrow       = true; // only can throw OutOfMemory
+            info.isPure        = true;
+            info.isAllocator   = true;
+            info.nonNullReturn = true;
+            info.noThrow       = true; // only can throw OutOfMemory
             break;
 
         case CORINFO_HELP_BOX_NULLABLE:
@@ -989,8 +1006,8 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
             // So two calls to Box Nullable that pass the same address (with the same Value Number)
             // will produce different results when the contents of the memory pointed to by the Byref changes
             //
-            props.isAllocator = true;
-            props.noThrow     = true; // only can throw OutOfMemory
+            info.isAllocator = true;
+            info.noThrow     = true; // only can throw OutOfMemory
             break;
 
         case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
@@ -999,9 +1016,9 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
         case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
             // logging helpers are not technically pure but can be optimized away
-            props.isPure        = true;
-            props.noThrow       = true;
-            props.nonNullReturn = true;
+            info.isPure        = true;
+            info.noThrow       = true;
+            info.nonNullReturn = true;
             break;
 
         // type casting helpers
@@ -1013,14 +1030,14 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
 
-            props.isPure  = true;
-            props.noThrow = true; // These return null for a failing cast
+            info.isPure  = true;
+            info.noThrow = true; // These return null for a failing cast
             break;
 
         case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
         case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
-            props.isPure  = true;
-            props.noThrow = true;
+            info.isPure  = true;
+            info.noThrow = true;
             break;
 
         // type casting helpers that throw
@@ -1033,7 +1050,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
 
             // These throw for a failing cast
             // But if given a null input arg will return null
-            props.isPure = true;
+            info.isPure = true;
             break;
 
         // helpers returning addresses, these can also throw
@@ -1041,15 +1058,15 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_GETREFANY:
         case CORINFO_HELP_LDELEMA_REF:
 
-            props.isPure = true;
+            info.isPure = true;
             break;
 
         // helpers that return internal handle
         case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
         case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
 
-            props.isPure  = true;
-            props.noThrow = true;
+            info.isPure  = true;
+            info.noThrow = true;
             break;
 
         // Helpers that load the base address for static variables.
@@ -1076,9 +1093,9 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
             // These may invoke static class constructors
             // These can throw InvalidProgram exception if the class can not be constructed
             //
-            props.isPure        = true;
-            props.nonNullReturn = true;
-            props.mayRunCctor   = true;
+            info.isPure        = true;
+            info.nonNullReturn = true;
+            info.mayRunCctor   = true;
             break;
 
         case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
@@ -1088,9 +1105,9 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
 
             // These do not invoke static class constructors
             //
-            props.isPure        = true;
-            props.noThrow       = true;
-            props.nonNullReturn = true;
+            info.isPure        = true;
+            info.noThrow       = true;
+            info.nonNullReturn = true;
             break;
 
         // GC Write barrier support
@@ -1101,7 +1118,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_ASSIGN_BYREF:
         case CORINFO_HELP_ASSIGN_STRUCT:
 
-            props.mutatesHeap = true;
+            info.mutatesHeap = true;
             break;
 
         // Accessing fields (write)
@@ -1113,7 +1130,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_SETFIELDDOUBLE:
         case CORINFO_HELP_ARRADDR_ST:
 
-            props.mutatesHeap = true;
+            info.mutatesHeap = true;
             break;
 
         // These helper calls always throw an exception
@@ -1134,7 +1151,7 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
         case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
 
-            props.alwaysThrow = true;
+            info.alwaysThrow = true;
             break;
 
         // These helper calls may throw an exception
@@ -1144,8 +1161,8 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
 
         // This is a debugging aid; it simply returns a constant address.
         case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
-            props.isPure  = true;
-            props.noThrow = true;
+            info.isPure  = true;
+            info.noThrow = true;
             break;
 
         case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
@@ -1161,30 +1178,76 @@ static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
         case CORINFO_HELP_JIT_PINVOKE_BEGIN:
         case CORINFO_HELP_JIT_PINVOKE_END:
 
-            props.noThrow = true;
+            info.noThrow = true;
             break;
 
         // Not sure how to handle optimization involving the rest of these  helpers
         default:
 
             // The most pessimistic results are returned for these helpers
-            props.mutatesHeap = true;
+            info.mutatesHeap = true;
             break;
     }
 
-    return props;
+    return info;
 }
 
-constexpr HelperCallProperties::HelperCallProperties() : m_props{}
+static constexpr auto GetHelperCallInfo()
 {
+    jitstd::array<HelperCallInfo, CORINFO_HELP_COUNT> info;
+
     for (CorInfoHelpFunc helper = CORINFO_HELP_UNDEF; helper < CORINFO_HELP_COUNT;
          helper                 = static_cast<CorInfoHelpFunc>(helper + 1))
     {
-        m_props[helper] = GetHelperCallProperties(helper);
+        info[helper] = GetHelperCallInfo(helper);
     }
+
+    return info;
 }
 
-constexpr HelperCallProperties Compiler::s_helperCallProperties;
+static constexpr auto helperCallInfo = GetHelperCallInfo();
+
+bool HelperCallProperties::IsPure(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].isPure;
+}
+
+bool HelperCallProperties::NoThrow(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].noThrow;
+}
+
+bool HelperCallProperties::AlwaysThrow(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].alwaysThrow;
+}
+
+bool HelperCallProperties::NonNullReturn(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].nonNullReturn;
+}
+
+bool HelperCallProperties::IsAllocator(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].isAllocator;
+}
+
+bool HelperCallProperties::MutatesHeap(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].mutatesHeap;
+}
+
+bool HelperCallProperties::MayRunCctor(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].mayRunCctor;
+}
 
 //=============================================================================
 // AssemblyNamesList2

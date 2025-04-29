@@ -65,8 +65,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // If we don't mark CALL ALLOC_HELPER as a CSE candidate, we are able
             // to use IND_LOAD(x) in [2] as a CSE def.
             return node->IsHelperCall() &&
-                   !Compiler::s_helperCallProperties.IsAllocator(
-                       Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
+                   !HelperCallProperties::IsAllocator(Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle())) &&
                    !compiler->gtTreeHasSideEffects(node, GTF_PERSISTENT_SIDE_EFFECTS, true);
 
         case GT_IND_LOAD:
