@@ -563,73 +563,76 @@ private:
     bool m_initialized; // true once the variable has been initialized, that is, written once.
     bool m_writePhase;  // true if we are in the (initial) "write" phase. Once the value is read, this changes to false,
                         // and can't be changed back.
-#endif                  // DEBUG
+#endif
 };
 
 class HelperCallProperties
 {
-private:
-    struct
+public:
+    struct Properties
     {
-        bool m_isPure : 1;
-        bool m_noThrow : 1;
-        bool m_alwaysThrow : 1;
-        bool m_nonNullReturn : 1;
-        bool m_isAllocator : 1;
-        bool m_mutatesHeap : 1;
-        bool m_mayRunCctor : 1;
-    } m_props[CORINFO_HELP_COUNT];
+        // true if the result only depends upon input args and not any global state
+        bool isPure : 1;
+        // true if the helper will never throw
+        bool noThrow : 1;
+        // true if the helper will always throw
+        bool alwaysThrow : 1;
+        // true if the result will never be null or zero
+        bool nonNullReturn : 1;
+        // true if the result is usually a newly created heap item, or may throw OutOfMemory
+        bool isAllocator : 1;
+        // true if any previous heap objects [are|can be] modified
+        bool mutatesHeap : 1;
+        // true if the helper call may cause a static constructor to be run
+        bool mayRunCctor : 1;
+    };
+
+private:
+    Properties m_props[CORINFO_HELP_COUNT];
 
 public:
-    HelperCallProperties();
+    constexpr HelperCallProperties();
 
-    bool IsPure(CorInfoHelpFunc helperId) const
+    bool IsPure(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_isPure;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].isPure;
     }
 
-    bool NoThrow(CorInfoHelpFunc helperId) const
+    bool NoThrow(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_noThrow;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].noThrow;
     }
 
-    bool AlwaysThrow(CorInfoHelpFunc helperId) const
+    bool AlwaysThrow(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_alwaysThrow;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].alwaysThrow;
     }
 
-    bool NonNullReturn(CorInfoHelpFunc helperId) const
+    bool NonNullReturn(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_nonNullReturn;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].nonNullReturn;
     }
 
-    bool IsAllocator(CorInfoHelpFunc helperId) const
+    bool IsAllocator(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_isAllocator;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].isAllocator;
     }
 
-    bool MutatesHeap(CorInfoHelpFunc helperId) const
+    bool MutatesHeap(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_mutatesHeap;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].mutatesHeap;
     }
 
-    bool MayRunCctor(CorInfoHelpFunc helperId) const
+    bool MayRunCctor(CorInfoHelpFunc helper) const
     {
-        assert(helperId > CORINFO_HELP_UNDEF);
-        assert(helperId < CORINFO_HELP_COUNT);
-        return m_props[helperId].m_mayRunCctor;
+        assert((CORINFO_HELP_UNDEF < helper) && (helper < CORINFO_HELP_COUNT));
+        return m_props[helper].mayRunCctor;
     }
 };
 

@@ -889,308 +889,302 @@ void hexDump(FILE* dmpf, const char* name, BYTE* addr, size_t size)
 
 #endif // DEBUG
 
-HelperCallProperties::HelperCallProperties()
+static constexpr auto GetHelperCallProperties(CorInfoHelpFunc helper)
+{
+    HelperCallProperties::Properties props{};
+
+    switch (helper)
+    {
+        // Arithmetic helpers that cannot throw
+        case CORINFO_HELP_LLSH:
+        case CORINFO_HELP_LRSH:
+        case CORINFO_HELP_LRSZ:
+        case CORINFO_HELP_LMUL:
+        case CORINFO_HELP_LNG2DBL:
+        case CORINFO_HELP_ULNG2DBL:
+        case CORINFO_HELP_DBL2INT:
+        case CORINFO_HELP_DBL2LNG:
+        case CORINFO_HELP_DBL2UINT:
+        case CORINFO_HELP_DBL2ULNG:
+        case CORINFO_HELP_FLTREM:
+        case CORINFO_HELP_DBLREM:
+        case CORINFO_HELP_FLTROUND:
+        case CORINFO_HELP_DBLROUND:
+
+            props.isPure  = true;
+            props.noThrow = true;
+            break;
+
+        // Arithmetic helpers that *can* throw.
+
+        // This (or these) are not pure, in that they have "VM side effects"...but they don't mutate the heap.
+        case CORINFO_HELP_ENDCATCH:
+
+            props.noThrow = true;
+            break;
+
+        // Arithmetic helpers that may throw
+        case CORINFO_HELP_LMOD: // Mods throw div-by zero, and signed mods have problems with the smallest integer
+        // mod -1,
+        case CORINFO_HELP_MOD: // which is not representable as a positive integer.
+        case CORINFO_HELP_UMOD:
+        case CORINFO_HELP_ULMOD:
+
+        case CORINFO_HELP_UDIV: // Divs throw divide-by-zero.
+        case CORINFO_HELP_DIV:
+        case CORINFO_HELP_LDIV:
+        case CORINFO_HELP_ULDIV:
+
+        case CORINFO_HELP_LMUL_OVF:
+        case CORINFO_HELP_ULMUL_OVF:
+        case CORINFO_HELP_DBL2INT_OVF:
+        case CORINFO_HELP_DBL2LNG_OVF:
+        case CORINFO_HELP_DBL2UINT_OVF:
+        case CORINFO_HELP_DBL2ULNG_OVF:
+
+            props.isPure = true;
+            break;
+
+        // Heap Allocation helpers, these all never return null
+        case CORINFO_HELP_NEWSFAST:
+        case CORINFO_HELP_NEWSFAST_ALIGN8:
+        case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
+        case CORINFO_HELP_NEWFAST:
+        case CORINFO_HELP_NEWSFAST_FINALIZE:
+        case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
+        case CORINFO_HELP_READYTORUN_NEW:
+        case CORINFO_HELP_BOX:
+
+            props.isAllocator   = true;
+            props.nonNullReturn = true;
+            props.noThrow       = true; // only can throw OutOfMemory
+            break;
+
+        // These allocation helpers do some checks on the size (and lower bound) inputs,
+        // and can throw exceptions other than OOM.
+        case CORINFO_HELP_NEWARR_1_VC:
+        case CORINFO_HELP_NEWARR_1_ALIGN8:
+        case CORINFO_HELP_NEW_MDARR:
+        case CORINFO_HELP_NEWARR_1_DIRECT:
+        case CORINFO_HELP_NEWARR_1_OBJ:
+        case CORINFO_HELP_READYTORUN_NEWARR_1:
+
+            props.isAllocator   = true;
+            props.nonNullReturn = true;
+            break;
+
+        // Heap Allocation helpers that are also pure
+        case CORINFO_HELP_STRCNS:
+
+            props.isPure        = true;
+            props.isAllocator   = true;
+            props.nonNullReturn = true;
+            props.noThrow       = true; // only can throw OutOfMemory
+            break;
+
+        case CORINFO_HELP_BOX_NULLABLE:
+            // Box Nullable is not a 'pure' function
+            // It has a Byref argument that it reads the contents of.
+            //
+            // So two calls to Box Nullable that pass the same address (with the same Value Number)
+            // will produce different results when the contents of the memory pointed to by the Byref changes
+            //
+            props.isAllocator = true;
+            props.noThrow     = true; // only can throw OutOfMemory
+            break;
+
+        case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
+        case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
+        case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
+        case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
+        case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
+            // logging helpers are not technically pure but can be optimized away
+            props.isPure        = true;
+            props.noThrow       = true;
+            props.nonNullReturn = true;
+            break;
+
+        // type casting helpers
+        case CORINFO_HELP_ISINSTANCEOFINTERFACE:
+        case CORINFO_HELP_ISINSTANCEOFARRAY:
+        case CORINFO_HELP_ISINSTANCEOFCLASS:
+        case CORINFO_HELP_ISINSTANCEOFANY:
+        case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
+        case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
+
+            props.isPure  = true;
+            props.noThrow = true; // These return null for a failing cast
+            break;
+
+        case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
+        case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
+            props.isPure  = true;
+            props.noThrow = true;
+            break;
+
+        // type casting helpers that throw
+        case CORINFO_HELP_CHKCASTINTERFACE:
+        case CORINFO_HELP_CHKCASTARRAY:
+        case CORINFO_HELP_CHKCASTCLASS:
+        case CORINFO_HELP_CHKCASTANY:
+        case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
+        case CORINFO_HELP_READYTORUN_CHKCAST:
+
+            // These throw for a failing cast
+            // But if given a null input arg will return null
+            props.isPure = true;
+            break;
+
+        // helpers returning addresses, these can also throw
+        case CORINFO_HELP_UNBOX:
+        case CORINFO_HELP_GETREFANY:
+        case CORINFO_HELP_LDELEMA_REF:
+
+            props.isPure = true;
+            break;
+
+        // helpers that return internal handle
+        case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
+        case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
+
+            props.isPure  = true;
+            props.noThrow = true;
+            break;
+
+        // Helpers that load the base address for static variables.
+        // We divide these between those that may and may not invoke
+        // static class constructors.
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
+        case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
+        case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
+        case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
+        case CORINFO_HELP_READYTORUN_STATIC_BASE:
+        case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
+
+            // These may invoke static class constructors
+            // These can throw InvalidProgram exception if the class can not be constructed
+            //
+            props.isPure        = true;
+            props.nonNullReturn = true;
+            props.mayRunCctor   = true;
+            break;
+
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+
+            // These do not invoke static class constructors
+            //
+            props.isPure        = true;
+            props.noThrow       = true;
+            props.nonNullReturn = true;
+            break;
+
+        // GC Write barrier support
+        // TODO-ARM64-Bug?: Can these throw or not?
+        case CORINFO_HELP_ASSIGN_REF:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
+        case CORINFO_HELP_ASSIGN_BYREF:
+        case CORINFO_HELP_ASSIGN_STRUCT:
+
+            props.mutatesHeap = true;
+            break;
+
+        // Accessing fields (write)
+        case CORINFO_HELP_SETFIELD32:
+        case CORINFO_HELP_SETFIELD64:
+        case CORINFO_HELP_SETFIELDOBJ:
+        case CORINFO_HELP_SETFIELDSTRUCT:
+        case CORINFO_HELP_SETFIELDFLOAT:
+        case CORINFO_HELP_SETFIELDDOUBLE:
+        case CORINFO_HELP_ARRADDR_ST:
+
+            props.mutatesHeap = true;
+            break;
+
+        // These helper calls always throw an exception
+        case CORINFO_HELP_OVERFLOW:
+        case CORINFO_HELP_VERIFICATION:
+        case CORINFO_HELP_RNGCHKFAIL:
+        case CORINFO_HELP_THROWDIVZERO:
+        case CORINFO_HELP_THROWNULLREF:
+        case CORINFO_HELP_THROW:
+        case CORINFO_HELP_RETHROW:
+        case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
+        case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
+        case CORINFO_HELP_THROW_NOT_IMPLEMENTED:
+        case CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED:
+        case CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED:
+        case CORINFO_HELP_FAIL_FAST:
+        case CORINFO_HELP_METHOD_ACCESS_EXCEPTION:
+        case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
+        case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
+
+            props.alwaysThrow = true;
+            break;
+
+        // These helper calls may throw an exception
+        case CORINFO_HELP_MON_EXIT_STATIC:
+
+            break;
+
+        // This is a debugging aid; it simply returns a constant address.
+        case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
+            props.isPure  = true;
+            props.noThrow = true;
+            break;
+
+        case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
+        case CORINFO_HELP_BBT_FCN_ENTER:
+        case CORINFO_HELP_POLL_GC:
+        case CORINFO_HELP_MON_ENTER:
+        case CORINFO_HELP_MON_EXIT:
+        case CORINFO_HELP_MON_ENTER_STATIC:
+        case CORINFO_HELP_JIT_REVERSE_PINVOKE_ENTER:
+        case CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT:
+        case CORINFO_HELP_GETFIELDADDR:
+        case CORINFO_HELP_INIT_PINVOKE_FRAME:
+        case CORINFO_HELP_JIT_PINVOKE_BEGIN:
+        case CORINFO_HELP_JIT_PINVOKE_END:
+
+            props.noThrow = true;
+            break;
+
+        // Not sure how to handle optimization involving the rest of these  helpers
+        default:
+
+            // The most pessimistic results are returned for these helpers
+            props.mutatesHeap = true;
+            break;
+    }
+
+    return props;
+}
+
+constexpr HelperCallProperties::HelperCallProperties() : m_props{}
 {
     for (CorInfoHelpFunc helper = CORINFO_HELP_UNDEF; helper < CORINFO_HELP_COUNT;
          helper                 = static_cast<CorInfoHelpFunc>(helper + 1))
     {
-        // Generally you want initialize these to their most typical/safest result
-        bool isPure        = false; // true if the result only depends upon input args and not any global state
-        bool noThrow       = false; // true if the helper will never throw
-        bool alwaysThrow   = false; // true if the helper will always throw
-        bool nonNullReturn = false; // true if the result will never be null or zero
-        bool isAllocator   = false; // true if the result is usually a newly created heap item, or may throw OutOfMemory
-        bool mutatesHeap   = false; // true if any previous heap objects [are|can be] modified
-        bool mayRunCctor   = false; // true if the helper call may cause a static constructor to be run.
-
-        switch (helper)
-        {
-            // Arithmetic helpers that cannot throw
-            case CORINFO_HELP_LLSH:
-            case CORINFO_HELP_LRSH:
-            case CORINFO_HELP_LRSZ:
-            case CORINFO_HELP_LMUL:
-            case CORINFO_HELP_LNG2DBL:
-            case CORINFO_HELP_ULNG2DBL:
-            case CORINFO_HELP_DBL2INT:
-            case CORINFO_HELP_DBL2LNG:
-            case CORINFO_HELP_DBL2UINT:
-            case CORINFO_HELP_DBL2ULNG:
-            case CORINFO_HELP_FLTREM:
-            case CORINFO_HELP_DBLREM:
-            case CORINFO_HELP_FLTROUND:
-            case CORINFO_HELP_DBLROUND:
-
-                isPure  = true;
-                noThrow = true;
-                break;
-
-            // Arithmetic helpers that *can* throw.
-
-            // This (or these) are not pure, in that they have "VM side effects"...but they don't mutate the heap.
-            case CORINFO_HELP_ENDCATCH:
-
-                noThrow = true;
-                break;
-
-            // Arithmetic helpers that may throw
-            case CORINFO_HELP_LMOD: // Mods throw div-by zero, and signed mods have problems with the smallest integer
-                                    // mod -1,
-            case CORINFO_HELP_MOD:  // which is not representable as a positive integer.
-            case CORINFO_HELP_UMOD:
-            case CORINFO_HELP_ULMOD:
-
-            case CORINFO_HELP_UDIV: // Divs throw divide-by-zero.
-            case CORINFO_HELP_DIV:
-            case CORINFO_HELP_LDIV:
-            case CORINFO_HELP_ULDIV:
-
-            case CORINFO_HELP_LMUL_OVF:
-            case CORINFO_HELP_ULMUL_OVF:
-            case CORINFO_HELP_DBL2INT_OVF:
-            case CORINFO_HELP_DBL2LNG_OVF:
-            case CORINFO_HELP_DBL2UINT_OVF:
-            case CORINFO_HELP_DBL2ULNG_OVF:
-
-                isPure = true;
-                break;
-
-            // Heap Allocation helpers, these all never return null
-            case CORINFO_HELP_NEWSFAST:
-            case CORINFO_HELP_NEWSFAST_ALIGN8:
-            case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
-            case CORINFO_HELP_NEWFAST:
-            case CORINFO_HELP_NEWSFAST_FINALIZE:
-            case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
-            case CORINFO_HELP_READYTORUN_NEW:
-            case CORINFO_HELP_BOX:
-
-                isAllocator   = true;
-                nonNullReturn = true;
-                noThrow       = true; // only can throw OutOfMemory
-                break;
-
-            // These allocation helpers do some checks on the size (and lower bound) inputs,
-            // and can throw exceptions other than OOM.
-            case CORINFO_HELP_NEWARR_1_VC:
-            case CORINFO_HELP_NEWARR_1_ALIGN8:
-            case CORINFO_HELP_NEW_MDARR:
-            case CORINFO_HELP_NEWARR_1_DIRECT:
-            case CORINFO_HELP_NEWARR_1_OBJ:
-            case CORINFO_HELP_READYTORUN_NEWARR_1:
-
-                isAllocator   = true;
-                nonNullReturn = true;
-                break;
-
-            // Heap Allocation helpers that are also pure
-            case CORINFO_HELP_STRCNS:
-
-                isPure        = true;
-                isAllocator   = true;
-                nonNullReturn = true;
-                noThrow       = true; // only can throw OutOfMemory
-                break;
-
-            case CORINFO_HELP_BOX_NULLABLE:
-                // Box Nullable is not a 'pure' function
-                // It has a Byref argument that it reads the contents of.
-                //
-                // So two calls to Box Nullable that pass the same address (with the same Value Number)
-                // will produce different results when the contents of the memory pointed to by the Byref changes
-                //
-                isAllocator = true;
-                noThrow     = true; // only can throw OutOfMemory
-                break;
-
-            case CORINFO_HELP_RUNTIMEHANDLE_METHOD:
-            case CORINFO_HELP_RUNTIMEHANDLE_CLASS:
-            case CORINFO_HELP_RUNTIMEHANDLE_METHOD_LOG:
-            case CORINFO_HELP_RUNTIMEHANDLE_CLASS_LOG:
-            case CORINFO_HELP_READYTORUN_GENERIC_HANDLE:
-                // logging helpers are not technically pure but can be optimized away
-                isPure        = true;
-                noThrow       = true;
-                nonNullReturn = true;
-                break;
-
-            // type casting helpers
-            case CORINFO_HELP_ISINSTANCEOFINTERFACE:
-            case CORINFO_HELP_ISINSTANCEOFARRAY:
-            case CORINFO_HELP_ISINSTANCEOFCLASS:
-            case CORINFO_HELP_ISINSTANCEOFANY:
-            case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
-            case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
-            case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
-
-                isPure  = true;
-                noThrow = true; // These return null for a failing cast
-                break;
-
-            case CORINFO_HELP_ARE_TYPES_EQUIVALENT:
-            case CORINFO_HELP_GETCURRENTMANAGEDTHREADID:
-                isPure  = true;
-                noThrow = true;
-                break;
-
-            // type casting helpers that throw
-            case CORINFO_HELP_CHKCASTINTERFACE:
-            case CORINFO_HELP_CHKCASTARRAY:
-            case CORINFO_HELP_CHKCASTCLASS:
-            case CORINFO_HELP_CHKCASTANY:
-            case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
-            case CORINFO_HELP_READYTORUN_CHKCAST:
-
-                // These throw for a failing cast
-                // But if given a null input arg will return null
-                isPure = true;
-                break;
-
-            // helpers returning addresses, these can also throw
-            case CORINFO_HELP_UNBOX:
-            case CORINFO_HELP_GETREFANY:
-            case CORINFO_HELP_LDELEMA_REF:
-
-                isPure = true;
-                break;
-
-            // helpers that return internal handle
-            case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
-            case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
-
-                isPure  = true;
-                noThrow = true;
-                break;
-
-            // Helpers that load the base address for static variables.
-            // We divide these between those that may and may not invoke
-            // static class constructors.
-            case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-            case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-            case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-            case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-            case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
-            case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
-            case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-            case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-            case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
-            case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-            case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
-            case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
-            case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
-            case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
-            case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
-            case CORINFO_HELP_READYTORUN_STATIC_BASE:
-            case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
-
-                // These may invoke static class constructors
-                // These can throw InvalidProgram exception if the class can not be constructed
-                //
-                isPure        = true;
-                nonNullReturn = true;
-                mayRunCctor   = true;
-                break;
-
-            case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
-            case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
-            case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
-            case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-
-                // These do not invoke static class constructors
-                //
-                isPure        = true;
-                noThrow       = true;
-                nonNullReturn = true;
-                break;
-
-            // GC Write barrier support
-            // TODO-ARM64-Bug?: Can these throw or not?
-            case CORINFO_HELP_ASSIGN_REF:
-            case CORINFO_HELP_CHECKED_ASSIGN_REF:
-            case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
-            case CORINFO_HELP_ASSIGN_BYREF:
-            case CORINFO_HELP_ASSIGN_STRUCT:
-
-                mutatesHeap = true;
-                break;
-
-            // Accessing fields (write)
-            case CORINFO_HELP_SETFIELD32:
-            case CORINFO_HELP_SETFIELD64:
-            case CORINFO_HELP_SETFIELDOBJ:
-            case CORINFO_HELP_SETFIELDSTRUCT:
-            case CORINFO_HELP_SETFIELDFLOAT:
-            case CORINFO_HELP_SETFIELDDOUBLE:
-            case CORINFO_HELP_ARRADDR_ST:
-
-                mutatesHeap = true;
-                break;
-
-            // These helper calls always throw an exception
-            case CORINFO_HELP_OVERFLOW:
-            case CORINFO_HELP_VERIFICATION:
-            case CORINFO_HELP_RNGCHKFAIL:
-            case CORINFO_HELP_THROWDIVZERO:
-            case CORINFO_HELP_THROWNULLREF:
-            case CORINFO_HELP_THROW:
-            case CORINFO_HELP_RETHROW:
-            case CORINFO_HELP_THROW_ARGUMENTEXCEPTION:
-            case CORINFO_HELP_THROW_ARGUMENTOUTOFRANGEEXCEPTION:
-            case CORINFO_HELP_THROW_NOT_IMPLEMENTED:
-            case CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED:
-            case CORINFO_HELP_THROW_TYPE_NOT_SUPPORTED:
-            case CORINFO_HELP_FAIL_FAST:
-            case CORINFO_HELP_METHOD_ACCESS_EXCEPTION:
-            case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
-            case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
-
-                alwaysThrow = true;
-                break;
-
-            // These helper calls may throw an exception
-            case CORINFO_HELP_MON_EXIT_STATIC:
-
-                break;
-
-            // This is a debugging aid; it simply returns a constant address.
-            case CORINFO_HELP_LOOP_CLONE_CHOICE_ADDR:
-                isPure  = true;
-                noThrow = true;
-                break;
-
-            case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
-            case CORINFO_HELP_BBT_FCN_ENTER:
-            case CORINFO_HELP_POLL_GC:
-            case CORINFO_HELP_MON_ENTER:
-            case CORINFO_HELP_MON_EXIT:
-            case CORINFO_HELP_MON_ENTER_STATIC:
-            case CORINFO_HELP_JIT_REVERSE_PINVOKE_ENTER:
-            case CORINFO_HELP_JIT_REVERSE_PINVOKE_EXIT:
-            case CORINFO_HELP_GETFIELDADDR:
-            case CORINFO_HELP_INIT_PINVOKE_FRAME:
-            case CORINFO_HELP_JIT_PINVOKE_BEGIN:
-            case CORINFO_HELP_JIT_PINVOKE_END:
-
-                noThrow = true;
-                break;
-
-            // Not sure how to handle optimization involving the rest of these  helpers
-            default:
-
-                // The most pessimistic results are returned for these helpers
-                mutatesHeap = true;
-                break;
-        }
-
-        m_props[helper].m_isPure        = isPure;
-        m_props[helper].m_noThrow       = noThrow;
-        m_props[helper].m_alwaysThrow   = alwaysThrow;
-        m_props[helper].m_nonNullReturn = nonNullReturn;
-        m_props[helper].m_isAllocator   = isAllocator;
-        m_props[helper].m_mutatesHeap   = mutatesHeap;
-        m_props[helper].m_mayRunCctor   = mayRunCctor;
+        m_props[helper] = GetHelperCallProperties(helper);
     }
 }
+
+constexpr HelperCallProperties Compiler::s_helperCallProperties;
 
 //=============================================================================
 // AssemblyNamesList2

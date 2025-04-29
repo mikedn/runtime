@@ -9,8 +9,6 @@
 
 extern ICorJitHost* g_jitHost;
 
-const HelperCallProperties Compiler::s_helperCallProperties;
-
 static AssemblyNamesList2* s_pAltJitExcludeAssembliesList;
 #ifdef DEBUG
 static AssemblyNamesList2* s_pJitDisasmIncludeAssembliesList;
