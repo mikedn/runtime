@@ -7083,12 +7083,6 @@ extern Histogram loopCountTable;         // Histogram of loop counts
 extern Histogram loopExitCountTable;     // Histogram of loop exit counts
 #endif
 
-// Variables to keep track of how many iterations we go in a dataflow pass
-#if DATAFLOW_ITER
-extern unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
-extern unsigned CFiterCount;  // counts the # of iteration for the Const Folding dataflow
-#endif
-
 #if MEASURE_BLOCK_SIZE
 extern size_t genFlowNodeSize;
 extern size_t genFlowNodeCnt;

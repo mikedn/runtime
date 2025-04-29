@@ -267,12 +267,6 @@ void Compiler::AddLoopHoistStats() const
 }
 #endif // LOOP_HOIST_STATS
 
-#if DATAFLOW_ITER
-// Variables to keep track of how many iterations we go in a dataflow pass
-unsigned CSEiterCount; // counts the # of iteration for the CSE dataflow
-unsigned CFiterCount;  // counts the # of iteration for the Const Folding dataflow
-#endif
-
 #if MEASURE_BLOCK_SIZE
 size_t genFlowNodeSize;
 size_t genFlowNodeCnt;
@@ -511,14 +505,6 @@ void Compiler::compShutdown()
     fprintf(fout, "--------------------------------------------------\n");
 
 #endif // COUNT_LOOPS
-
-#if DATAFLOW_ITER
-
-    fprintf(fout, "---------------------------------------------------\n");
-    fprintf(fout, "Total number of iterations in the CSE dataflow loop is %5u\n", CSEiterCount);
-    fprintf(fout, "Total number of iterations in the  CF dataflow loop is %5u\n", CFiterCount);
-
-#endif // DATAFLOW_ITER
 
 #if MEASURE_NODE_SIZE
 
