@@ -1474,62 +1474,12 @@ public:
         }
     }
 
-#ifdef DEBUG
-    bool NullOp1Legal() const
-    {
-        assert(OperIsSimple(gtOper));
-        switch (gtOper)
-        {
-            case GT_LEA:
-            case GT_RETFILT:
-            case GT_NOP:
-                return true;
-            case GT_RETURN:
-                return gtType == TYP_VOID;
-            default:
-                return false;
-        }
-    }
-
-    bool NullOp2Legal() const
-    {
-        assert(OperIsSimple(gtOper));
-        if (!OperIsBinary(gtOper))
-        {
-            return true;
-        }
-        switch (gtOper)
-        {
-            case GT_INTRINSIC:
-            case GT_LEA:
-#if defined(TARGET_ARM)
-            case GT_PUTARG_REG:
-#endif // defined(TARGET_ARM)
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    static inline bool RequiresNonNullOp2(genTreeOps oper);
-#endif // DEBUG
-
     bool IsDblConPositiveZero() const;
     bool IsDblConNonPositiveZero() const;
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
     bool IsIntCon(ssize_t value) const;
-
-    GenTree* gtGetOp1() const;
-
-    // Directly return op2. Asserts the node is binary. Might return nullptr if the binary node allows
-    // a nullptr op2, such as GT_LEA. This is more efficient than gtGetOp2IfPresent() if you know what
-    // node type you have.
-    GenTree* gtGetOp2() const;
-
-    // The returned pointer might be nullptr if the node is not binary, or if non-null op2 is not required.
-    GenTree* gtGetOp2IfPresent() const;
 
     // Find the use of a node within this node.
     GenTree** FindUse(GenTree* def);
@@ -1623,22 +1573,7 @@ public:
     GenTreeLclAddr* ChangeToLclAddr(var_types type, LclVarDsc* lcl, unsigned offset, FieldSeqNode* fieldSeq);
     GenTreeAddrMode* ChangeToAddrMode(GenTree* base, GenTree* index, unsigned scale, int offset);
 
-    void ChangeType(var_types newType)
-    {
-        var_types oldType = gtType;
-        gtType            = newType;
-        GenTree* node     = this;
-
-        while (node->OperIs(GT_COMMA))
-        {
-            node = node->gtGetOp2();
-            if (node->GetType() != newType)
-            {
-                assert(node->GetType() == oldType);
-                node->gtType = newType;
-            }
-        }
-    }
+    void ChangeType(var_types newType);
 
     bool IsPartialLclFld(Compiler* comp);
     GenTreeLclAddr* IsLocalAddrExpr();
@@ -1649,7 +1584,7 @@ public:
 
     bool CanCSE() const
     {
-        return ((gtFlags & GTF_DONT_CSE) == 0);
+        return (gtFlags & GTF_DONT_CSE) == 0;
     }
 
     void SetDoNotCSE()
@@ -2103,6 +2038,11 @@ protected:
     }
 
 public:
+    GenTree* gtGetOp1() const
+    {
+        return gtOp1;
+    }
+
     GenTree* GetOp(unsigned index) const
     {
         switch (index)
@@ -2130,6 +2070,26 @@ public:
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeUnOp, GenTree)
+
+#ifdef DEBUG
+private:
+    bool NullOp1Legal() const
+    {
+        assert(OperIsSimple(gtOper));
+
+        switch (gtOper)
+        {
+            case GT_LEA:
+            case GT_NOP:
+                return true;
+            case GT_RETFILT:
+            case GT_RETURN:
+                return gtType == TYP_VOID;
+            default:
+                return false;
+        }
+    }
+#endif
 };
 
 class GenTreeOp : public GenTreeUnOp
@@ -2158,6 +2118,13 @@ public:
 
     GenTreeOp(const GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
     {
+    }
+
+    GenTree* gtGetOp2IfPresent() const
+    {
+        GenTree* op2 = OperIsBinary(gtOper) ? AsOp()->gtOp2 : nullptr;
+        assert((op2 != nullptr) || NullOp2Legal());
+        return op2;
     }
 
     GenTree* GetOp(unsigned index) const
@@ -2198,6 +2165,16 @@ public:
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeOp, GenTreeUnOp)
+
+#ifdef DEBUG
+private:
+    bool NullOp2Legal() const
+    {
+        assert(OperIsSimple(gtOper));
+
+        return !OperIsBinary(gtOper) || (gtOper == GT_INTRINSIC) || (gtOper == GT_LEA);
+    }
+#endif
 };
 
 class GenTreeTernaryOp : public GenTreeOp
@@ -2267,7 +2244,6 @@ public:
     // Delete some inherited functions to avoid accidental use, at least when
     // the node is accessed via GenTreeTernaryOp* rather than GenTree/Un/Op*.
     GenTree*           gtGetOp1() const          = delete;
-    GenTree*           gtGetOp2() const          = delete;
     GenTree*           gtGetOp2IfPresent() const = delete;
     GenTreeUnOp*       AsUnOp()                  = delete;
     const GenTreeUnOp* AsUnOp() const            = delete;
@@ -2943,7 +2919,6 @@ public:
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;
     GenTree* gtGetOp1() const          = delete;
-    GenTree* gtGetOp2() const          = delete;
     GenTree* gtGetOp2IfPresent() const = delete;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
@@ -3080,7 +3055,6 @@ public:
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;
     GenTree* gtGetOp1() const          = delete;
-    GenTree* gtGetOp2() const          = delete;
     GenTree* gtGetOp2IfPresent() const = delete;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStoreFld, GenTreeLclFld)
@@ -5505,13 +5479,10 @@ public:
 
     // Delete some functions inherited from GenTree to avoid accidental use, at least
     // when the node object is accessed via GenTreeHWIntrinsic* rather than GenTree*.
-    GenTree*           gtGetOp1() const          = delete;
-    GenTree*           gtGetOp2() const          = delete;
-    GenTree*           gtGetOp2IfPresent() const = delete;
-    GenTreeUnOp*       AsUnOp()                  = delete;
-    const GenTreeUnOp* AsUnOp() const            = delete;
-    GenTreeOp*         AsOp()                    = delete;
-    const GenTreeOp*   AsOp() const              = delete;
+    GenTreeUnOp*       AsUnOp()       = delete;
+    const GenTreeUnOp* AsUnOp() const = delete;
+    GenTreeOp*         AsOp()         = delete;
+    const GenTreeOp*   AsOp() const   = delete;
 
 private:
     bool HasInlineUses() const
@@ -6002,7 +5973,6 @@ public:
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;
     GenTree* gtGetOp1() const          = delete;
-    GenTree* gtGetOp2() const          = delete;
     GenTree* gtGetOp2IfPresent() const = delete;
 
     GenTree* GetAddr() const
@@ -7299,34 +7269,6 @@ inline bool GenTree::IsIntegralConst(ssize_t constVal) const
 inline bool GenTree::IsIntCon(ssize_t value) const
 {
     return (gtOper == GT_CNS_INT) && (AsIntCon()->GetValue() == value);
-}
-
-inline GenTree* GenTree::gtGetOp1() const
-{
-    return AsOp()->gtOp1;
-}
-
-#ifdef DEBUG
-inline bool GenTree::RequiresNonNullOp2(genTreeOps oper)
-{
-    return GenTree::OperIsBinary(oper) && (oper != GT_LEA) && (oper != GT_INTRINSIC);
-}
-#endif
-
-inline GenTree* GenTree::gtGetOp2() const
-{
-    assert(OperIsBinary());
-
-    GenTree* op2 = AsOp()->gtOp2;
-    assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-    return op2;
-}
-
-inline GenTree* GenTree::gtGetOp2IfPresent() const
-{
-    GenTree* op2 = OperIsBinary() ? AsOp()->gtOp2 : nullptr;
-    assert((op2 != nullptr) || !RequiresNonNullOp2(gtOper));
-    return op2;
 }
 
 inline GenTree* GenTree::gtEffectiveVal()

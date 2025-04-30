@@ -264,6 +264,23 @@ void GenTree::ReplaceWith(GenTree* src)
     DEBUG_DESTROY_NODE(src);
 }
 
+void GenTree::ChangeType(var_types newType)
+{
+    var_types oldType = gtType;
+    gtType            = newType;
+
+    for (GenTree* node = this; node->OperIs(GT_COMMA);)
+    {
+        node = node->AsOp()->GetOp(1);
+
+        if (node->GetType() != newType)
+        {
+            assert(node->GetType() == oldType);
+            node->gtType = newType;
+        }
+    }
+}
+
 // When 'NODEBASH_STATS' is enabled in "jit.h" we record all instances of
 // an existing GenTree node having its operator changed. This can be useful
 // for two (related) things - to see what is being bashed (and what isn't),
@@ -1674,7 +1691,7 @@ void Compiler::gtSetCosts(GenTree* tree)
     if (tree->OperIsSimple())
     {
         GenTree* op1 = tree->AsOp()->gtOp1;
-        GenTree* op2 = tree->gtGetOp2IfPresent();
+        GenTree* op2 = tree->AsOp()->gtGetOp2IfPresent();
 
         costEx = 0;
         costSz = 0;
@@ -2756,7 +2773,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
     if (tree->OperIsSimple())
     {
         GenTree* op1 = tree->AsOp()->gtOp1;
-        GenTree* op2 = tree->gtGetOp2IfPresent();
+        GenTree* op2 = tree->AsOp()->gtGetOp2IfPresent();
 
         if (tree->IsAddrMode() && (op1 == nullptr))
         {
@@ -4453,7 +4470,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             copy->gtFlags |= copy->AsOp()->GetOp(0)->GetSideEffects();
         }
 
-        if (GenTree* op2 = tree->gtGetOp2IfPresent())
+        if (GenTree* op2 = tree->AsOp()->gtGetOp2IfPresent())
         {
             copy->AsOp()->SetOp(1, gtCloneExpr(op2, addFlags, constLcl, constVal));
             copy->gtFlags |= copy->AsOp()->GetOp(1)->GetSideEffects();
@@ -8549,8 +8566,8 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         return tree;
     }
 
-    GenTree*  op1    = tree->gtGetOp1();
-    GenTree*  op2    = tree->gtGetOp2IfPresent();
+    GenTree*  op1    = tree->AsOp()->gtGetOp1();
+    GenTree*  op2    = tree->AsOp()->gtGetOp2IfPresent();
     var_types opType = op1->GetType();
 
     assert(op1->OperIsConst());

@@ -6083,13 +6083,10 @@ public:
 
     // Delete some functions inherited from GenTree to avoid accidental use, at least
     // when the node object is accessed via GenTreeInstr* rather than GenTree*.
-    GenTree*           gtGetOp1() const          = delete;
-    GenTree*           gtGetOp2() const          = delete;
-    GenTree*           gtGetOp2IfPresent() const = delete;
-    GenTreeUnOp*       AsUnOp()                  = delete;
-    const GenTreeUnOp* AsUnOp() const            = delete;
-    GenTreeOp*         AsOp()                    = delete;
-    const GenTreeOp*   AsOp() const              = delete;
+    GenTreeUnOp*       AsUnOp()       = delete;
+    const GenTreeUnOp* AsUnOp() const = delete;
+    GenTreeOp*         AsOp()         = delete;
+    const GenTreeOp*   AsOp() const   = delete;
 
 private:
     bool HasInlineUses() const

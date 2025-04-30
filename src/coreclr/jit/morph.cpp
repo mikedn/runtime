@@ -8626,18 +8626,10 @@ GenTree* Compiler::fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
 GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 {
-    assert(tree->OperKind() & GTK_SMPOP);
-
-    // The steps in this function are :
-    // o Perform required preorder processing
-    // o Process the first, then second operand, if any
-    // o Perform required postorder morphing
-    // o Perform optional postorder morphing if optimizing
-
     genTreeOps oper = tree->GetOper();
     var_types  typ  = tree->GetType();
     GenTree*   op1  = tree->AsOp()->gtOp1;
-    GenTree*   op2  = tree->gtGetOp2IfPresent();
+    GenTree*   op2  = tree->AsOp()->gtGetOp2IfPresent();
 
     // First do any PRE-ORDER processing
 
@@ -8807,7 +8799,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 DEBUG_DESTROY_NODE(op1);
                 DEBUG_DESTROY_NODE(op2);
 
-                return fgMorphSmpOp(tree, mac);
+                return fgMorphSmpOp(tree->AsOp(), mac);
             }
 
 #ifndef TARGET_64BIT
@@ -8860,7 +8852,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 assert(tree->OperIs(GT_DIV));
                 tree->ChangeOper(GT_UDIV);
 
-                return fgMorphSmpOp(tree, mac);
+                return fgMorphSmpOp(tree->AsOp(), mac);
             }
 
             if (opts.OptimizationEnabled())
@@ -8878,7 +8870,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                         tree->AsOp()->SetOp(1, gtNewIconNode(-op2Value, op2->GetType()));
                         DEBUG_DESTROY_NODE(op2);
 
-                        return fgMorphSmpOp(tree, mac);
+                        return fgMorphSmpOp(tree->AsOp(), mac);
                     }
                 }
             }
@@ -8926,7 +8918,7 @@ GenTree* Compiler::fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 assert(tree->OperIs(GT_MOD));
                 tree->ChangeOper(GT_UMOD);
-                return fgMorphSmpOp(tree, mac);
+                return fgMorphSmpOp(tree->AsOp(), mac);
             }
 
             // Do not use optimizations (unlike UMOD's idiv optimizing during codegen) for signed mod.
@@ -9288,7 +9280,7 @@ DONE_MORPHING_CHILDREN:
     oper = tree->GetOper();
     typ  = tree->GetType();
     op1  = tree->AsOp()->gtOp1;
-    op2  = tree->gtGetOp2IfPresent();
+    op2  = tree->AsOp()->gtGetOp2IfPresent();
 
     BasicBlock*     currentBlock = fgMorphBlock;
     CorInfoHelpFunc helper       = CORINFO_HELP_UNDEF;
@@ -11779,7 +11771,7 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (kind & GTK_SMPOP)
     {
-        tree = fgMorphSmpOp(tree, mac);
+        tree = fgMorphSmpOp(tree->AsOp(), mac);
 
         goto DONE;
     }

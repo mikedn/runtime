@@ -193,7 +193,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
         case GT_NOP:
             // fgMorph sometimes inserts NOP nodes between defs and uses supposedly
             // 'to prevent constant folding'. In this case, remove the NOP.
-            if (GenTree* value = node->gtGetOp1())
+            if (GenTree* value = node->AsUnOp()->gtGetOp1())
             {
                 if (!use.IsDummyUse())
                 {
