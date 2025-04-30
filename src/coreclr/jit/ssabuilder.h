@@ -6,7 +6,7 @@
 #include "phase.h"
 
 class Compiler;
-struct GenTreeLclDef;
+class GenTreeLclDef;
 class ValueNumStore;
 class SsaBuilder;
 struct AssertionDsc;
@@ -21,7 +21,9 @@ public:
     {
     }
 
-    INDEBUG(const AssertionDsc& GetAssertion() const;)
+#ifdef DEBUG
+    const AssertionDsc& GetAssertion() const;
+#endif
 
     bool IsBoundsAssertion() const;
     bool IsEqual() const;
@@ -41,7 +43,9 @@ using LoopDsc = Compiler::LoopDsc;
 struct SsaMemDef
 {
     ValueNum vn = NoVN;
-    INDEBUG(unsigned num = 0;)
+#ifdef DEBUG
+    unsigned num = 0;
+#endif
 };
 
 struct MemoryPhiArg
@@ -78,7 +82,9 @@ class SsaOptimizer
     ValueNumStore* vnStore        = nullptr;
     AssertionDsc*  assertionTable = nullptr;
     AssertionIndex assertionCount = 0;
-    INDEBUG(unsigned memDefCount = 0;)
+#ifdef DEBUG
+    unsigned memDefCount = 0;
+#endif
 
 public:
     SsaOptimizer(Compiler* compiler)

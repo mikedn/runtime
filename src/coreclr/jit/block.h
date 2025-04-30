@@ -39,9 +39,9 @@ enum BBjumpKinds : uint8_t
     BBJ_COUNT
 };
 
-struct GenTree;
-struct Statement;
-struct BasicBlock;
+class GenTree;
+class Statement;
+class BasicBlock;
 class Compiler;
 class typeInfo;
 struct BasicBlockList;
@@ -489,15 +489,15 @@ inline bool handlerGetsXcptnObj(unsigned hndTyp)
 // Type used to hold block and edge weights
 using weight_t = float;
 
-//------------------------------------------------------------------------
-// BasicBlock: describes a basic block in the flowgraph.
+// Describes a basic block in the flowgraph.
 //
 // Note that this type derives from LIR::Range in order to make the LIR
 // utilities that are polymorphic over basic block and scratch ranges
 // faster and simpler.
 //
-struct BasicBlock : private LIR::Range
+class BasicBlock : private LIR::Range
 {
+public:
     friend class LIR;
 
     BasicBlock* bbNext; // next BB in ascending PC offset order

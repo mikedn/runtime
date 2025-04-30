@@ -89,7 +89,7 @@ enum TargetHandleType : uint8_t
 
 constexpr unsigned BAD_VAR_NUM = UINT_MAX;
 
-struct BasicBlock;
+class BasicBlock;
 enum BasicBlockFlags : uint64_t;
 struct InlineCandidateInfo;
 struct GuardedDevirtualizationCandidateInfo;
@@ -312,7 +312,7 @@ public:
     FieldSeqNode* Append(FieldSeqNode* a, FieldSeqNode* b);
     FieldSeqNode* Append(FieldSeqNode* a, CORINFO_FIELD_HANDLE b);
 
-    FieldSeqNode* FoldAdd(const struct GenTreeIntCon* i1, const struct GenTreeIntCon* i2);
+    FieldSeqNode* FoldAdd(const class GenTreeIntCon* i1, const class GenTreeIntCon* i2);
 
     INDEBUG(void DebugCheck(FieldSeqNode* f);)
 };
@@ -600,16 +600,17 @@ constexpr unsigned GetCseIndex(CseInfo info)
 #define IND_COST_EX 3 // execution cost for an indirection
 
 // Forward declarations of the subtypes
-#define GTSTRUCT_0(fn, ...) struct GenTree##fn;
-#define GTSTRUCT_N(fn, ...) struct GenTree##fn;
+#define GTSTRUCT_0(fn, ...) class GenTree##fn;
+#define GTSTRUCT_N(fn, ...) class GenTree##fn;
 #include "gtstructs.h"
 
 #ifndef HOST_64BIT
 #include <pshpack4.h>
 #endif
 
-struct GenTree
+class GenTree
 {
+public:
     static const uint8_t s_gtNodeSizes[];
 #if NODEBASH_STATS || MEASURE_NODE_SIZE || COUNT_AST_OPERS
     static const uint8_t s_gtTrueSizes[];
@@ -1795,9 +1796,9 @@ public:
 
 class GenTreeUse
 {
-    friend struct GenTreeHWIntrinsic;
-    friend struct GenTreeInstr;
-    friend struct GenTreeArrElem;
+    friend class GenTreeHWIntrinsic;
+    friend class GenTreeInstr;
+    friend class GenTreeArrElem;
 
     GenTree* m_node;
 
@@ -1926,8 +1927,9 @@ public:
     }
 };
 
-struct GenTreeFieldList : public GenTree
+class GenTreeFieldList : public GenTree
 {
+public:
     class Use : public GenTreeUseLink<Use>
     {
         uint16_t  m_offset;
@@ -2074,8 +2076,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeFieldList, GenTree)
 };
 
-struct GenTreeUnOp : public GenTree
+class GenTreeUnOp : public GenTree
 {
+public:
     GenTree* gtOp1;
 
 protected:
@@ -2129,8 +2132,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeUnOp, GenTree)
 };
 
-struct GenTreeOp : public GenTreeUnOp
+class GenTreeOp : public GenTreeUnOp
 {
+public:
     GenTree* gtOp2;
 
     GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 DEBUGARG(bool largeNode = false))
@@ -2146,8 +2150,6 @@ struct GenTreeOp : public GenTreeUnOp
         }
     }
 
-    // A small set of types are unary operators with optional arguments.  We use
-    // this constructor to build those.
     GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
     {
@@ -2198,8 +2200,9 @@ struct GenTreeOp : public GenTreeUnOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeOp, GenTreeUnOp)
 };
 
-struct GenTreeTernaryOp : public GenTreeOp
+class GenTreeTernaryOp : public GenTreeOp
 {
+public:
     GenTree* gtOp3;
 
     GenTreeTernaryOp(
@@ -2275,9 +2278,8 @@ struct GenTreeTernaryOp : public GenTreeOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeTernaryOp, GenTreeOp)
 };
 
-struct GenTreeRegUse : public GenTree
+class GenTreeRegUse : public GenTree
 {
-private:
     RegNum m_srcReg;
 
 public:
@@ -2299,9 +2301,8 @@ public:
 };
 
 #ifndef FEATURE_EH_FUNCLETS
-struct GenTreeEndLFin : public GenTree
+class GenTreeEndLFin : public GenTree
 {
-private:
     unsigned nesting;
 
 public:
@@ -2327,9 +2328,8 @@ public:
 };
 #endif // !FEATURE_EH_FUNCLETS
 
-struct GenTreeJmp : public GenTree
+class GenTreeJmp : public GenTree
 {
-private:
     CORINFO_METHOD_HANDLE handle;
     CORINFO_CONST_LOOKUP  entryPoint{};
 
@@ -2361,9 +2361,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeJmp, GenTree)
 };
 
-struct GenTreeMethodAddr : public GenTree
+class GenTreeMethodAddr : public GenTree
 {
-private:
     CORINFO_METHOD_HANDLE handle;
 #ifdef FEATURE_READYTORUN_COMPILER
     CORINFO_CONST_LOOKUP entryPoint{};
@@ -2403,12 +2402,14 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeMethodAddr, GenTree)
 };
 
-struct GenTreeIntConCommon : public GenTree
+class GenTreeIntConCommon : public GenTree
 {
+protected:
     GenTreeIntConCommon(genTreeOps oper, var_types type) : GenTree(oper, type DEBUGARG(/* largeNode */ false))
     {
     }
 
+public:
     void SetInt64Value(int64_t val);
     int64_t GetValue() const;
 
@@ -2420,9 +2421,8 @@ struct GenTreeIntConCommon : public GenTree
 // For the 64-bit targets we will only use GT_CNS_INT as it used to represent all the possible sizes
 // For the 32-bit targets we use a GT_CNS_LNG to hold a 64-bit integer constant and GT_CNS_INT for all others.
 // In the future when we retarget the JIT for x86 we should consider eliminating GT_CNS_LNG
-struct GenTreeIntCon : public GenTreeIntConCommon
+class GenTreeIntCon : public GenTreeIntConCommon
 {
-private:
     ssize_t value;
 
     // If this constant represents the offset of one or more fields, "m_fieldSeq"
@@ -2679,9 +2679,8 @@ public:
 };
 
 #ifndef TARGET_64BIT
-struct GenTreeLngCon : public GenTreeIntConCommon
+class GenTreeLngCon : public GenTreeIntConCommon
 {
-private:
     int64_t value;
 
 public:
@@ -2727,9 +2726,8 @@ inline int64_t GenTreeIntConCommon::GetValue() const
 #endif
 }
 
-struct GenTreeDblCon : public GenTree
+class GenTreeDblCon : public GenTree
 {
-private:
     double value;
 
 public:
@@ -2785,9 +2783,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeDblCon, GenTree)
 };
 
-struct GenTreeStrCon : public GenTree
+class GenTreeStrCon : public GenTree
 {
-private:
     CORINFO_MODULE_HANDLE handle;
     mdToken               token;
 
@@ -2820,9 +2817,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeStrCon, GenTree)
 };
 
-struct GenTreeLclRef : public GenTreeUnOp
+class GenTreeLclRef : public GenTreeUnOp
 {
-private:
     LclVarDsc* m_lcl;
 #ifndef HOST_64BIT
     unsigned m_unused; // to preserve TREE_NODE_SZ_SMALL, which is sizeof(GenTreeLclFld)
@@ -2865,7 +2861,7 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclRef, GenTreeUnOp)
 };
 
-struct GenTreeLclVar : public GenTreeLclRef
+class GenTreeLclVar : public GenTreeLclRef
 {
 protected:
     GenTreeLclVar(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
@@ -2905,8 +2901,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVar, GenTreeLclRef)
 };
 
-struct GenTreeLclLoad : GenTreeLclVar
+class GenTreeLclLoad : public GenTreeLclVar
 {
+public:
     GenTreeLclLoad(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
         : GenTreeLclVar(type, lcl DEBUGARG(largeNode))
     {
@@ -2919,8 +2916,9 @@ struct GenTreeLclLoad : GenTreeLclVar
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclLoad, GenTreeLclVar)
 };
 
-struct GenTreeLclStore : GenTreeLclVar
+class GenTreeLclStore : public GenTreeLclVar
 {
+public:
     GenTreeLclStore(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
         : GenTreeLclVar(type, lcl, value DEBUGARG(largeNode))
     {
@@ -2951,9 +2949,8 @@ struct GenTreeLclStore : GenTreeLclVar
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
 };
 
-struct GenTreeLclFld : public GenTreeLclRef
+class GenTreeLclFld : public GenTreeLclRef
 {
-private:
     uint16_t      m_lclOffs;
     uint16_t      m_layoutNum;
     FieldSeqNode* m_fieldSeq;
@@ -3042,8 +3039,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclFld, GenTreeLclRef)
 };
 
-struct GenTreeLclLoadFld : public GenTreeLclFld
+class GenTreeLclLoadFld : public GenTreeLclFld
 {
+public:
     GenTreeLclLoadFld(var_types type, LclVarDsc* lcl, unsigned lclOffs) : GenTreeLclFld(type, lcl, lclOffs)
     {
     }
@@ -3055,8 +3053,9 @@ struct GenTreeLclLoadFld : public GenTreeLclFld
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclLoadFld, GenTreeLclFld)
 };
 
-struct GenTreeLclStoreFld : public GenTreeLclFld
+class GenTreeLclStoreFld : public GenTreeLclFld
 {
+public:
     GenTreeLclStoreFld(var_types type, LclVarDsc* lcl, unsigned lclOffs, GenTree* value)
         : GenTreeLclFld(type, lcl, lclOffs, value)
     {
@@ -3087,9 +3086,8 @@ struct GenTreeLclStoreFld : public GenTreeLclFld
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStoreFld, GenTreeLclFld)
 };
 
-struct GenTreeLclAddr : public GenTreeLclRef
+class GenTreeLclAddr : public GenTreeLclRef
 {
-private:
     uint16_t      m_lclOffs;
     FieldSeqNode* m_fieldSeq;
 
@@ -3141,16 +3139,15 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclAddr, GenTreeLclRef)
 };
 
-struct GenTreeLclUse;
+class GenTreeLclUse;
 
 class LclUses;
 class LclVarDsc;
 
-struct GenTreeLclDef final : public GenTreeUnOp
+class GenTreeLclDef final : public GenTreeUnOp
 {
     friend LclUses;
 
-private:
     LclVarDsc*     m_lcl;
     BasicBlock*    m_block;
     GenTreeLclUse* m_uses = nullptr;
@@ -3219,12 +3216,11 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclDef, GenTreeUnOp)
 };
 
-struct GenTreeLclUse final : public GenTree
+class GenTreeLclUse final : public GenTree
 {
     friend GenTreeLclDef;
     friend LclUses;
 
-private:
     // TODO-MIKE-Cleanup: SSA uses currently don't need the basic block but it could
     // be useful to have it around. SSA PHI args need the predecessor block and we
     // don't have more room for it so we just store it here, as if the PHI arg occurs
@@ -3336,8 +3332,9 @@ inline LclUses GenTreeLclDef::Uses()
     return LclUses(m_uses);
 }
 
-struct GenTreePhi final : public GenTree
+class GenTreePhi final : public GenTree
 {
+public:
     class Use : public GenTreeUseLink<Use>
     {
     public:
@@ -3428,9 +3425,8 @@ public:
 #endif
 };
 
-struct GenTreeInsert final : public GenTreeOp
+class GenTreeInsert final : public GenTreeOp
 {
-private:
     FieldInfo m_field;
 
 public:
@@ -3481,9 +3477,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeInsert, GenTreeOp)
 };
 
-struct GenTreeExtract final : public GenTreeUnOp
+class GenTreeExtract final : public GenTreeUnOp
 {
-private:
     FieldInfo m_field;
 
 public:
@@ -3525,13 +3520,14 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeExtract, GenTreeUnOp)
 };
 
-struct Statement;
+class Statement;
 
-struct GenTreeBox : public GenTreeUnOp
+class GenTreeBox : public GenTreeUnOp
 {
     Statement* allocStmt;
     Statement* storeStmt;
 
+public:
     GenTreeBox(GenTree* boxed, Statement* allocStmt, Statement* storeStmt)
         : GenTreeUnOp(GT_BOX, TYP_REF, boxed), allocStmt(allocStmt), storeStmt(storeStmt)
     {
@@ -3542,10 +3538,20 @@ struct GenTreeBox : public GenTreeUnOp
     {
     }
 
+    Statement* GetAllocStmt() const
+    {
+        return allocStmt;
+    }
+
+    Statement* GetStoreStmt() const
+    {
+        return storeStmt;
+    }
+
     DECLARE_DEBUGGABLE_GENTREE(GenTreeBox, GenTreeUnOp)
 };
 
-struct GenTreeFieldAddr : public GenTreeUnOp
+class GenTreeFieldAddr : public GenTreeUnOp
 {
     FieldSeqNode* m_fieldSeq;
     unsigned      m_offset;
@@ -3864,8 +3870,9 @@ enum class InlineObservation;
 class CallInfo;
 class CallArgInfo;
 
-struct GenTreeCall final : public GenTree
+class GenTreeCall final : public GenTree
 {
+public:
     class Use : public GenTreeUseLink<Use>
     {
         unsigned m_sigTypeNum;
@@ -5026,9 +5033,8 @@ public:
 #endif
 };
 
-struct GenTreeRetExpr : public GenTree
+class GenTreeRetExpr : public GenTree
 {
-private:
     GenTreeCall*    m_call;
     GenTree*        m_retExpr;
     BasicBlockFlags m_retBlockIRSummary;
@@ -5072,8 +5078,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeRetExpr, GenTree)
 };
 
-struct GenTreeCmpXchg : public GenTreeTernaryOp
+class GenTreeCmpXchg : public GenTreeTernaryOp
 {
+public:
     GenTreeCmpXchg(var_types type, GenTree* addr, GenTree* value, GenTree* compareValue)
         : GenTreeTernaryOp(GT_CMPXCHG, type, addr, value, compareValue)
     {
@@ -5105,8 +5112,9 @@ struct GenTreeCmpXchg : public GenTreeTernaryOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeCmpXchg, GenTreeTernaryOp)
 };
 
-struct GenTreeQmark : public GenTreeTernaryOp
+class GenTreeQmark : public GenTreeTernaryOp
 {
+public:
     GenTreeQmark(var_types type, GenTree* condExpr, GenTree* thenExpr, GenTree* elseExpr)
         : GenTreeTernaryOp(GT_QMARK, type, condExpr, elseExpr, thenExpr)
     {
@@ -5151,9 +5159,8 @@ struct GenTreeQmark : public GenTreeTernaryOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeQmark, GenTreeTernaryOp)
 };
 
-struct GenTreeIntrinsic : public GenTreeOp
+class GenTreeIntrinsic : public GenTreeOp
 {
-private:
     NamedIntrinsic        m_intrinsicName;
     CORINFO_METHOD_HANDLE m_methodHandle;
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -5222,8 +5229,9 @@ public:
 };
 
 #ifdef FEATURE_HW_INTRINSICS
-struct GenTreeHWIntrinsic : public GenTree
+class GenTreeHWIntrinsic : public GenTree
 {
+public:
     using Use = GenTreeUse;
 
 private:
@@ -5526,9 +5534,8 @@ public:
 };
 #endif // FEATURE_HW_INTRINSICS
 
-struct GenTreeIndexAddr : public GenTreeOp
+class GenTreeIndexAddr : public GenTreeOp
 {
-private:
     BasicBlock* m_throwBlock;
     uint8_t     m_dataOffs;
     uint16_t    m_elemTypeNum;
@@ -5632,10 +5639,11 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndexAddr, GenTreeOp)
 };
 
-struct GenTreeArrLen : public GenTreeUnOp
+class GenTreeArrLen : public GenTreeUnOp
 {
     static_assert_no_msg(GTF_ARRLEN_NONFAULTING == GTF_IND_NONFAULTING);
 
+public:
     GenTreeArrLen(GenTree* arr, uint8_t lenOffs, GenTreeFlags flags = GTF_EXCEPT)
         : GenTreeUnOp(GT_ARR_LENGTH, TYP_INT, arr)
     {
@@ -5669,9 +5677,8 @@ struct GenTreeArrLen : public GenTreeUnOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeArrLen, GenTreeUnOp)
 };
 
-struct GenTreeBoundsChk : public GenTreeOp
+class GenTreeBoundsChk : public GenTreeOp
 {
-private:
     BasicBlock*     m_throwBlock;
     ThrowHelperKind m_throwKind;
 
@@ -5740,8 +5747,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeBoundsChk, GenTreeOp)
 };
 
-struct GenTreeArrElem : public GenTree
+class GenTreeArrElem : public GenTree
 {
+public:
     static constexpr unsigned MaxRank     = 3;
     static constexpr unsigned MaxNumOps   = MaxRank + 1;
     static constexpr unsigned MaxElemSize = UINT8_MAX;
@@ -5879,9 +5887,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeArrElem, GenTree)
 };
 
-struct GenTreeAddrMode : public GenTreeOp
+class GenTreeAddrMode : public GenTreeOp
 {
-private:
     unsigned m_scale;
     int      m_offset;
 
@@ -5977,7 +5984,7 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeAddrMode, GenTreeOp)
 };
 
-struct GenTreeIndir : public GenTreeOp
+class GenTreeIndir : public GenTreeOp
 {
 protected:
     GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
@@ -6053,8 +6060,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndir, GenTreeOp)
 };
 
-struct GenTreeNullCheck : public GenTreeIndir
+class GenTreeNullCheck : public GenTreeIndir
 {
+public:
     GenTreeNullCheck(GenTree* addr) : GenTreeIndir(GT_NULLCHECK, TYP_BYTE, addr)
     {
         gtFlags |= GTF_EXCEPT;
@@ -6095,9 +6103,8 @@ enum class StructStoreKind : uint8_t
 #endif
 };
 
-struct GenTreeBlk : public GenTreeIndir
+class GenTreeBlk : public GenTreeIndir
 {
-private:
     ClassLayout*    m_layout;
     StructStoreKind m_kind;
 
@@ -6162,8 +6169,9 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeBlk, GenTreeIndir)
 };
 
-struct GenTreeDynBlk : public GenTreeTernaryOp
+class GenTreeDynBlk : public GenTreeTernaryOp
 {
+public:
     GenTreeDynBlk(genTreeOps oper, GenTree* addr, GenTree* value, GenTree* size)
         : GenTreeTernaryOp(oper, TYP_VOID, addr, value, size)
     {
@@ -6239,8 +6247,9 @@ struct GenTreeDynBlk : public GenTreeTernaryOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeDynBlk, GenTreeTernaryOp)
 };
 
-struct GenTreeIndLoad : public GenTreeIndir
+class GenTreeIndLoad : public GenTreeIndir
 {
+public:
     GenTreeIndLoad(var_types type, GenTree* addr) : GenTreeIndir(GT_IND_LOAD, type, addr)
     {
     }
@@ -6252,8 +6261,9 @@ struct GenTreeIndLoad : public GenTreeIndir
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoad, GenTreeIndir)
 };
 
-struct GenTreeIndLoadBlk : public GenTreeBlk
+class GenTreeIndLoadBlk : public GenTreeBlk
 {
+public:
     GenTreeIndLoadBlk(GenTree* addr, ClassLayout* layout) : GenTreeBlk(addr, layout)
     {
     }
@@ -6265,8 +6275,9 @@ struct GenTreeIndLoadBlk : public GenTreeBlk
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoadBlk, GenTreeBlk)
 };
 
-struct GenTreeIndLoadObj : public GenTreeBlk
+class GenTreeIndLoadObj : public GenTreeBlk
 {
+public:
     GenTreeIndLoadObj(var_types type, GenTree* addr, ClassLayout* layout)
         : GenTreeBlk(GT_IND_LOAD_OBJ, type, addr, layout)
     {
@@ -6283,8 +6294,9 @@ struct GenTreeIndLoadObj : public GenTreeBlk
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndLoadObj, GenTreeBlk)
 };
 
-struct GenTreeIndStore : public GenTreeIndir
+class GenTreeIndStore : public GenTreeIndir
 {
+public:
     GenTreeIndStore(var_types type, GenTree* addr, GenTree* value) : GenTreeIndir(GT_IND_STORE, type, addr, value)
     {
         gtFlags |= GTF_ASG;
@@ -6297,8 +6309,9 @@ struct GenTreeIndStore : public GenTreeIndir
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStore, GenTreeIndir)
 };
 
-struct GenTreeIndStoreBlk : public GenTreeBlk
+class GenTreeIndStoreBlk : public GenTreeBlk
 {
+public:
     GenTreeIndStoreBlk(GenTree* addr, GenTree* value, ClassLayout* layout) : GenTreeBlk(addr, value, layout)
     {
     }
@@ -6310,8 +6323,9 @@ struct GenTreeIndStoreBlk : public GenTreeBlk
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStoreBlk, GenTreeBlk)
 };
 
-struct GenTreeIndStoreObj : public GenTreeBlk
+class GenTreeIndStoreObj : public GenTreeBlk
 {
+public:
     GenTreeIndStoreObj(var_types type, GenTree* addr, GenTree* value, ClassLayout* layout)
         : GenTreeBlk(GT_IND_STORE_OBJ, type, addr, value, layout)
     {
@@ -6327,9 +6341,8 @@ struct GenTreeIndStoreObj : public GenTreeBlk
     DECLARE_DEBUGGABLE_GENTREE(GenTreeIndStoreObj, GenTreeBlk)
 };
 
-struct GenTreeILOffset : public GenTree
+class GenTreeILOffset : public GenTree
 {
-private:
     IL_OFFSETX offset;
 
 public:
@@ -6355,9 +6368,8 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeILOffset, GenTree)
 };
 
-struct GenTreeClsVar : public GenTree
+class GenTreeClsVar : public GenTree
 {
-private:
     void*         addr;
     FieldSeqNode* fieldSeq;
 
@@ -6394,10 +6406,11 @@ public:
 
 struct ConstData;
 
-struct GenTreeConstAddr : public GenTree
+class GenTreeConstAddr : public GenTree
 {
     ConstData* data;
 
+public:
     GenTreeConstAddr(ConstData* data) : GenTree(GT_CONST_ADDR, TYP_I_IMPL), data(data)
     {
     }
@@ -6419,8 +6432,9 @@ struct GenTreeConstAddr : public GenTree
     DECLARE_DEBUGGABLE_GENTREE(GenTreeConstAddr, GenTree)
 };
 
-struct GenTreePutArgStk : public GenTreeUnOp
+class GenTreePutArgStk : public GenTreeUnOp
 {
+public:
 #ifdef TARGET_XARCH
     enum class Kind : uint8_t{Invalid,    RepInstr,     RepInstrZero, Unroll,
                               UnrollZero, RepInstrXMM,  GCUnroll,     GCUnrollXMM,
@@ -6531,9 +6545,8 @@ public:
 };
 
 #if FEATURE_ARG_SPLIT
-struct GenTreePutArgSplit : public GenTreePutArgStk
+class GenTreePutArgSplit : public GenTreePutArgStk
 {
-private:
 #if defined(TARGET_ARM)
     constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_ARG_REG_COUNT;
 #elif defined(TARGET_ARM64)
@@ -6600,8 +6613,9 @@ public:
 };
 #endif // FEATURE_ARG_SPLIT
 
-struct GenTreeCopyOrReload : public GenTreeUnOp
+class GenTreeCopyOrReload : public GenTreeUnOp
 {
+public:
     GenTreeCopyOrReload(genTreeOps oper, var_types type, GenTree* op1) : GenTreeUnOp(oper, type, op1)
     {
         assert((type != TYP_STRUCT) || op1->IsMultiRegNode());
@@ -6613,7 +6627,7 @@ struct GenTreeCopyOrReload : public GenTreeUnOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeCopyOrReload, GenTreeUnOp)
 };
 
-struct GenTreeAllocObj final : public GenTreeUnOp
+class GenTreeAllocObj final : public GenTreeUnOp
 {
     CorInfoHelpFunc      helper;
     bool                 helperHasSideEffects;
@@ -6622,6 +6636,7 @@ struct GenTreeAllocObj final : public GenTreeUnOp
     CORINFO_CONST_LOOKUP entryPoint;
 #endif
 
+public:
     GenTreeAllocObj(CorInfoHelpFunc helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE classHandle, GenTree* op)
         : GenTreeUnOp(GT_ALLOCOBJ, TYP_REF, op DEBUGARG(/*largeNode*/ true))
         , helper(helper)
@@ -6674,38 +6689,51 @@ struct GenTreeAllocObj final : public GenTreeUnOp
     DECLARE_DEBUGGABLE_GENTREE(GenTreeAllocObj, GenTreeUnOp)
 };
 
-struct GenTreeRuntimeLookup final : public GenTreeUnOp
+class GenTreeRuntimeLookup final : public GenTreeUnOp
 {
-    CORINFO_GENERIC_HANDLE   gtHnd;
-    CorInfoGenericHandleType gtHndType;
+    CORINFO_GENERIC_HANDLE   handle;
+    CorInfoGenericHandleType kind;
 
-    GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE handle, CorInfoGenericHandleType hndTyp, GenTree* tree)
+public:
+    GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE handle, CorInfoGenericHandleType kind, GenTree* tree)
         : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->GetType(), tree DEBUGARG(/* largeNode */ false))
-        , gtHnd(handle)
-        , gtHndType(hndTyp)
+        , handle(handle)
+        , kind(kind)
     {
         assert(handle != nullptr);
         assert(tree != nullptr);
     }
 
     GenTreeRuntimeLookup(const GenTreeRuntimeLookup* copyFrom)
-        : GenTreeUnOp(copyFrom), gtHnd(copyFrom->gtHnd), gtHndType(copyFrom->gtHndType)
+        : GenTreeUnOp(copyFrom), handle(copyFrom->handle), kind(copyFrom->kind)
     {
     }
 
+#ifdef DEBUG
+    CorInfoGenericHandleType GetHandleKind() const
+    {
+        return kind;
+    }
+
+    CORINFO_GENERIC_HANDLE GetHandle() const
+    {
+        return handle;
+    }
+#endif
+
     bool IsClassHandle() const
     {
-        return gtHndType == CORINFO_HANDLETYPE_CLASS;
+        return kind == CORINFO_HANDLETYPE_CLASS;
     }
 
     bool IsMethodHandle() const
     {
-        return gtHndType == CORINFO_HANDLETYPE_METHOD;
+        return kind == CORINFO_HANDLETYPE_METHOD;
     }
 
     bool IsFieldHandle() const
     {
-        return gtHndType == CORINFO_HANDLETYPE_FIELD;
+        return kind == CORINFO_HANDLETYPE_FIELD;
     }
 
     // Note these operations describe the handle that is input to the
@@ -6713,19 +6741,19 @@ struct GenTreeRuntimeLookup final : public GenTreeUnOp
     CORINFO_CLASS_HANDLE GetClassHandle() const
     {
         assert(IsClassHandle());
-        return reinterpret_cast<CORINFO_CLASS_HANDLE>(gtHnd);
+        return reinterpret_cast<CORINFO_CLASS_HANDLE>(handle);
     }
 
     CORINFO_METHOD_HANDLE GetMethodHandle() const
     {
         assert(IsMethodHandle());
-        return reinterpret_cast<CORINFO_METHOD_HANDLE>(gtHnd);
+        return reinterpret_cast<CORINFO_METHOD_HANDLE>(handle);
     }
 
     CORINFO_FIELD_HANDLE GetFieldHandle() const
     {
         assert(IsFieldHandle());
-        return reinterpret_cast<CORINFO_FIELD_HANDLE>(gtHnd);
+        return reinterpret_cast<CORINFO_FIELD_HANDLE>(handle);
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeRuntimeLookup, GenTreeUnOp)
@@ -6969,9 +6997,8 @@ public:
     }
 };
 
-struct GenTreeCC final : public GenTree
+class GenTreeCC final : public GenTree
 {
-private:
     GenCondition condition;
 
 public:
@@ -7046,14 +7073,9 @@ public:
 
 class InlineContext;
 
-struct Statement
+class Statement
 {
-    // The root of the expression tree.
-    // Note: It will be the last node in evaluation order.
     GenTree* m_rootNode;
-
-    // The node list head (for forward walks in evaluation order).
-    // The value is `nullptr` until we have set the sequencing of the nodes.
     GenTree* m_nodeList = nullptr;
 
     // The statement nodes are doubly-linked. The first statement node in a block points

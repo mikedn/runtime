@@ -941,8 +941,8 @@ AGAIN:
     {
         if (GenTree::IsExOp(kind))
         {
-            // ExOp operators extend operators with extra, non-GenTree* members.  In many cases,
-            // these should be included in the hash code.
+            // ExOp operators extend operators with extra, non-GenTree* members.
+            // In many cases, these should be included in the hash code.
             switch (oper)
             {
                 case GT_ARR_LENGTH:
@@ -957,7 +957,7 @@ AGAIN:
                     break;
                 case GT_RUNTIMELOOKUP:
                     hash = genTreeHashAdd(hash, static_cast<unsigned>(
-                                                    reinterpret_cast<uintptr_t>(tree->AsRuntimeLookup()->gtHnd)));
+                                                    reinterpret_cast<uintptr_t>(tree->AsRuntimeLookup()->GetHandle())));
                     break;
                 case GT_IND_LOAD_BLK:
                 case GT_IND_LOAD_OBJ:
@@ -5630,12 +5630,12 @@ void Compiler::gtDispNode(GenTree* tree)
     if (GenTreeRuntimeLookup* lookup = tree->IsRuntimeLookup())
     {
 #ifdef TARGET_64BIT
-        printf(" 0x%llx", dspPtr(lookup->gtHnd));
+        printf(" 0x%llx", dspPtr(lookup->GetHandle()));
 #else
-        printf(" 0x%x", dspPtr(lookup->gtHnd));
+        printf(" 0x%x", dspPtr(lookup->GetHandle()));
 #endif
 
-        switch (tree->AsRuntimeLookup()->gtHndType)
+        switch (tree->AsRuntimeLookup()->GetHandleKind())
         {
             case CORINFO_HANDLETYPE_CLASS:
                 printf(" class");
@@ -8133,8 +8133,8 @@ GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 
 GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOptions options)
 {
-    Statement* allocStmt = box->allocStmt;
-    Statement* storeStmt = box->storeStmt;
+    Statement* allocStmt = box->GetAllocStmt();
+    Statement* storeStmt = box->GetStoreStmt();
 
     JITDUMP("gtTryRemoveBoxUpstreamEffects: %s to %s of BOX (valuetype)"
             " [%06u] (newobj " FMT_STMT " copy " FMT_STMT "\n",
@@ -8504,7 +8504,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         LclVarDsc* thisTmp       = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag this temp"));
-        Statement* thisStoreStmt = thisOp->AsBox()->storeStmt;
+        Statement* thisStoreStmt = thisOp->AsBox()->GetStoreStmt();
         thisStoreStmt->SetRootNode(gtNewLclStore(thisTmp, type, thisVal));
         thisValOpt = gtNewLclLoad(thisTmp, type);
     }
@@ -8519,7 +8519,7 @@ GenTree* Compiler::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
     else
     {
         LclVarDsc* flagTmp       = lvaNewTemp(type, true DEBUGARG("Enum:HasFlag flag temp"));
-        Statement* flagStoreStmt = flagOp->AsBox()->storeStmt;
+        Statement* flagStoreStmt = flagOp->AsBox()->GetStoreStmt();
         flagStoreStmt->SetRootNode(gtNewLclStore(flagTmp, type, flagVal));
         flagValOpt     = gtNewLclLoad(flagTmp, type);
         flagValOptCopy = gtNewLclLoad(flagTmp, type);

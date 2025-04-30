@@ -4,8 +4,8 @@
 #pragma once
 
 class Compiler;
-struct GenTree;
-struct BasicBlock;
+class GenTree;
+class BasicBlock;
 class Rationalizer;
 
 class LIR final
@@ -13,12 +13,8 @@ class LIR final
 public:
     class Range;
 
-    //------------------------------------------------------------------------
-    // LIR::Flags: Defines the set of flags that may appear in the
-    //             GenTree::gtLIRFlags field.
     class Flags final
     {
-        // Disallow the creation of values of this type.
         Flags() = delete;
 
     public:
@@ -26,7 +22,7 @@ public:
         {
             None = 0x00,
 
-            Mark = 0x01, // An aribtrary "mark" bit that can be used in place of
+            Mark = 0x01, // An arbitrary "mark" bit that can be used in place of
                          // a more expensive data structure when processing a set
                          // of LIR nodes.
 
@@ -108,7 +104,7 @@ public:
     {
         friend class LIR;
         friend class Range;
-        friend struct BasicBlock;
+        friend class BasicBlock;
 
     private:
         GenTree* m_firstNode;
@@ -238,7 +234,7 @@ public:
     class Range : public ReadOnlyRange
     {
         friend class LIR;
-        friend struct BasicBlock;
+        friend class BasicBlock;
         friend class Rationalizer;
 
     private:

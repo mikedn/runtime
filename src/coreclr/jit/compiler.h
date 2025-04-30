@@ -2367,7 +2367,7 @@ class Compiler
     friend class LIR;
     friend class ObjectAllocator;
     friend class LocalAddressVisitor;
-    friend struct GenTree;
+    friend class GenTree;
     friend class ClassLayout;
     friend class VNConstPropVisitor;
     friend class StructPromotionHelper;
@@ -3524,12 +3524,11 @@ public:
     BasicBlock* fgLastBB         = nullptr; // End of the basic block list
     BasicBlock* fgFirstColdBlock = nullptr; // First block to be placed in the cold section
     BasicBlock* fgEntryBB        = nullptr; // For OSR, the original method's entry point
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // First block of outlined funclets (to allow block insertion before the funclets)
     BasicBlock* fgFirstFuncletBB = nullptr;
 #endif
-    // Block inserted for initialization stuff. Is nullptr if no such block has been created.
-    BasicBlock*     fgFirstBBScratch = nullptr;
+    BasicBlock*     fgFirstBBScratch = nullptr; // Block inserted for initialization stuff
     BasicBlockList* fgReturnBlocks   = nullptr; // list of BBJ_RETURN blocks
     unsigned        fgEdgeCount      = 0;       // # of control flow edges between the BBs
     unsigned        fgBBcount        = 0;       // # of BBs in the method
@@ -5836,8 +5835,9 @@ private:
 ssize_t DecodeBitmaskImm(unsigned encoded, emitAttr size);
 #endif
 
-struct GenTreeInstr : public GenTree
+class GenTreeInstr : public GenTree
 {
+public:
     using Use = GenTreeUse;
 
 private:

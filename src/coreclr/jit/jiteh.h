@@ -3,7 +3,7 @@
 
 #pragma once
 
-struct BasicBlock;
+class BasicBlock;
 class Compiler;
 
 // The following holds the table of exception handlers.
