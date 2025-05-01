@@ -5865,36 +5865,30 @@ public:
 class GenTreeAddrMode : public GenTreeOp
 {
     unsigned m_scale;
-    int      m_offset;
+    int32_t  m_offset;
 
 public:
-    // Address is Base + Index*Scale + Offset.
-    // These are the legal patterns:
-    //
-    //      Base                                // Base != nullptr && Index == nullptr && Scale == 0 && Offset == 0
-    //      Base + Index*Scale                  // Base != nullptr && Index != nullptr && Scale != 0 && Offset == 0
-    //      Base + Offset                       // Base != nullptr && Index == nullptr && Scale == 0 && Offset != 0
-    //      Base + Index*Scale + Offset         // Base != nullptr && Index != nullptr && Scale != 0 && Offset != 0
-    //             Index*Scale                  // Base == nullptr && Index != nullptr && Scale >  1 && Offset == 0
-    //             Index*Scale + Offset         // Base == nullptr && Index != nullptr && Scale >  1 && Offset != 0
-    //                           Offset         // Base == nullptr && Index == nullptr && Scale == 0 && Offset != 0
-    //
-    // So, for example:
-    //      1. Base + Index is legal with Scale==1
-    //      2. If Index is null, Scale should be zero (or uninitialized / unused)
-    //      3. If Scale==1, then we should have "Base" instead of "Index*Scale", and "Base + Offset" instead of
-    //         "Index*Scale + Offset".
-
     GenTreeAddrMode(GenTree* base, int32_t offset)
         : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base), m_scale(0), m_offset(offset)
     {
         assert(base != nullptr);
     }
 
+    GenTreeAddrMode(GenTree* index, unsigned scale, int32_t offset)
+        : GenTreeOp(GT_LEA, varActualType(index->GetType()), nullptr, index), m_scale(scale), m_offset(offset)
+    {
+        assert((index != nullptr) && varTypeIsIntegral(index->GetType()));
+        assert(scale > 1);
+    }
+
     GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, int32_t offset)
         : GenTreeOp(GT_LEA, type, base, index), m_scale(scale), m_offset(offset)
     {
-        assert((base != nullptr) || (index != nullptr));
+        assert((type == TYP_INT) || (type == TYP_LONG) || (type == TYP_BYREF));
+        assert((base != nullptr) && varTypeIsIntegralOrI(base->GetType()));
+        assert((index != nullptr) && varTypeIsIntegral(index->GetType()));
+        assert(varTypeSize(varActualType(base->GetType())) == varTypeSize(varActualType(index->GetType())));
+        assert(scale >= 1);
     }
 
     GenTreeAddrMode(const GenTreeAddrMode* copyFrom)

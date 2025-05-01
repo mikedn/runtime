@@ -3398,7 +3398,7 @@ void LinearScan::BuildAddrUses(GenTree* addr, regMaskTP candidates)
     }
     else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
     {
-        BuildAddrModeUses(addr->IsAddrMode(), candidates);
+        BuildAddrModeUses(addrMode, candidates);
     }
 }
 

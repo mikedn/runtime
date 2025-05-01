@@ -254,9 +254,20 @@ inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
     return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
 
-inline GenTreeAddrMode* Compiler::gtNewAddrMode(GenTree* base, int offset)
+inline GenTreeAddrMode* Compiler::gtNewAddrMode(GenTree* base, int32_t offset)
 {
     return new (this, GT_LEA) GenTreeAddrMode(base, offset);
+}
+
+inline GenTreeAddrMode* Compiler::gtNewAddrMode(GenTree* index, unsigned scale, int32_t offset)
+{
+    return new (this, GT_LEA) GenTreeAddrMode(index, scale, offset);
+}
+
+inline GenTreeAddrMode* Compiler::gtNewAddrMode(
+    var_types type, GenTree* base, GenTree* index, unsigned scale, int32_t offset)
+{
+    return new (this, GT_LEA) GenTreeAddrMode(type, base, index, scale, offset);
 }
 
 inline GenTreeIndLoad* Compiler::gtNewIndLoad(var_types type, GenTree* addr)

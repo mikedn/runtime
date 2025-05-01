@@ -1528,9 +1528,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 BuildAddrUses(node->AsIndLoad()->GetAddr());
             }
-            else if (node->OperIs(GT_LEA))
+            else if (GenTreeAddrMode* addrMode = node->IsAddrMode())
             {
-                BuildAddrUses(node);
+                BuildAddrModeUses(addrMode);
             }
 #ifdef FEATURE_HW_INTRINSICS
             else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())

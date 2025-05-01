@@ -2872,7 +2872,9 @@ public:
 
     GenTreeRetExpr* gtNewRetExpr(GenTreeCall* call);
 
-    GenTreeAddrMode* gtNewAddrMode(GenTree* base, int offset);
+    GenTreeAddrMode* gtNewAddrMode(GenTree* base, int32_t offset);
+    GenTreeAddrMode* gtNewAddrMode(GenTree* index, unsigned scale, int32_t offset);
+    GenTreeAddrMode* gtNewAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, int32_t offset);
     GenTreeIndLoad* gtNewIndLoad(var_types type, GenTree* addr);
     GenTreeIndStore* gtNewIndStore(var_types type, GenTree* addr, GenTree* value);
     GenTreeFlags gtGetIndirExceptionFlags(GenTree* addr);

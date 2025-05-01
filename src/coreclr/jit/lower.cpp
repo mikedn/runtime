@@ -2650,7 +2650,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
         GenTree* mtTempUse2    = comp->gtNewLclLoad(mtTempLcl, TYP_I_IMPL);
         GenTree* offs          = comp->gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL);
         GenTree* chunkBaseAddr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, mtTempUse2, offs);
-        GenTree* slotAddr      = new (comp, GT_LEA) GenTreeAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
+        GenTree* slotAddr      = comp->gtNewAddrMode(TYP_I_IMPL, chunkBaseAddr, chunkOffs, 1, 0);
         BlockRange().InsertBefore(call, mtTempUse2, offs, chunkBaseAddr, slotAddr);
 
         LclVarDsc*       slotAddrTempLcl   = comp->lvaNewTemp(TYP_I_IMPL, true DEBUGARG("vtbl call slot addr"));
@@ -3445,8 +3445,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     GenTreeAddrMode* addrMode = addr->AsAddrMode();
     addrMode->SetBase(am.base);
     addrMode->SetIndex(am.index);
-    // TODO-MIKE-Cleanup: Emitter is stupid and asserts when scale is 0 even if index is null.
-    addrMode->SetScale(am.scale == 0 ? 1 : am.scale);
+    addrMode->SetScale(am.scale);
     addrMode->SetOffset(am.offset);
 
     // Neither the base nor the index should now be contained.
@@ -4460,7 +4459,7 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
 
         unsigned offset = Compiler::eeGetMDArrayDataOffset(elemType, rank);
         array           = comp->gtNewLclLoad(arrayLcl, TYP_REF);
-        GenTree* lea    = new (comp, GT_LEA) GenTreeAddrMode(TYP_BYREF, array, leaIndex, scale, offset);
+        GenTree* lea    = comp->gtNewAddrMode(TYP_BYREF, array, leaIndex, scale, offset);
         BlockRange().InsertBefore(elem, array, lea);
 
         elemUse.SetDef(lea);
