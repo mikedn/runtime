@@ -2100,7 +2100,6 @@ public:
     GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
     {
-        assert((type == TYP_VOID) && ((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT)));
     }
 
     GenTreeOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
@@ -5661,7 +5660,7 @@ public:
     GenTreeBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)
         : GenTreeOp(GT_BOUNDS_CHECK, TYP_VOID, index, length), m_throwBlock(nullptr), m_throwKind(kind)
     {
-        gtFlags |= GTF_EXCEPT | index->GetSideEffects() | length->GetSideEffects();
+        gtFlags |= GTF_EXCEPT;
     }
 
     GenTreeBoundsChk(const GenTreeBoundsChk* copyFrom)
@@ -6079,7 +6078,7 @@ class GenTreeBlk : public GenTreeIndir
 
 protected:
     GenTreeBlk(genTreeOps oper, var_types type, GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(oper, type, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
+        : GenTreeIndir(oper, type, addr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert((oper == GT_IND_LOAD_OBJ) || (oper == GT_IND_LOAD_BLK));
         assert(layout != nullptr);
@@ -6093,7 +6092,7 @@ protected:
     }
 
     GenTreeBlk(GenTree* addr, ClassLayout* layout)
-        : GenTreeIndir(GT_IND_LOAD_BLK, TYP_STRUCT, addr, nullptr), m_layout(layout), m_kind(StructStoreKind::Invalid)
+        : GenTreeIndir(GT_IND_LOAD_BLK, TYP_STRUCT, addr), m_layout(layout), m_kind(StructStoreKind::Invalid)
     {
         assert(layout->IsBlockLayout());
 

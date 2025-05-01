@@ -323,11 +323,9 @@ inline GenTreeBoundsChk* Compiler::gtNewBoundsChk(GenTree* index, GenTree* lengt
     return new (this, GT_BOUNDS_CHECK) GenTreeBoundsChk(index, length, kind);
 }
 
-// Create (and check for) a "nothing" node, i.e. a node that doesn't produce
-// any code. We currently use a "nop" node of type void for this purpose.
 inline GenTree* Compiler::gtNewNothingNode()
 {
-    return new (this, GT_NOP) GenTreeOp(GT_NOP, TYP_VOID);
+    return gtNewOperNode(GT_NOP, TYP_VOID);
 }
 
 inline bool GenTree::IsNothingNode() const

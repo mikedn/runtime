@@ -3347,7 +3347,7 @@ GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 
     assert(isValue || (type == TYP_VOID));
 
-    return new (this, GT_COMMA) GenTreeOp(GT_COMMA, type, op1, op2);
+    return gtNewOperNode(GT_COMMA, type, op1, op2);
 }
 
 GenTreeQmark* Compiler::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)

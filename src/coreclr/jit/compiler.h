@@ -2207,8 +2207,6 @@ public:
     bool lvaHaveManyLocals() const;
     bool fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn);
 
-    Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
-
     GenTree* gtNewConstLookupTree(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
     GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);

@@ -408,7 +408,7 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
         INDEBUG(AppendStmtCheck(tree, spillDepth);)
     }
 
-    Statement* stmt = gtNewStmt(tree, impCurStmtOffs);
+    Statement* stmt = comp->gtNewStmt(tree, impCurStmtOffs);
     impStmtListAppend(stmt);
 
 #ifdef FEATURE_SIMD
@@ -1687,11 +1687,11 @@ BasicBlock* Importer::impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_H
             // Report the debug info. impImportBlockCode won't treat the actual handler
             // as exception block and thus won't do it for us.
             impCurStmtOffs = newBlk->bbCodeOffs | IL_OFFSETX_STKBIT;
-            argStmt        = gtNewStmt(argAsg, impCurStmtOffs);
+            argStmt        = comp->gtNewStmt(argAsg, impCurStmtOffs);
         }
         else
         {
-            argStmt = gtNewStmt(argAsg);
+            argStmt = comp->gtNewStmt(argAsg);
         }
 
         fgInsertStmtAtEnd(newBlk, argStmt);
@@ -7357,7 +7357,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
                 if (endCatches)
                 {
-                    lastStmt = gtNewStmt(endCatches);
+                    lastStmt = comp->gtNewStmt(endCatches);
                     endLFinStmt->SetNextStmt(lastStmt);
                     lastStmt->SetPrevStmt(endLFinStmt);
                 }
@@ -7383,7 +7383,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
             callBlock->bbJumpDest = HBtab->ebdHndBeg; // This callBlock will call the "finally" handler.
             GenTree* endLFin      = new (comp, GT_END_LFIN) GenTreeEndLFin(finallyNesting);
-            endLFinStmt           = gtNewStmt(endLFin);
+            endLFinStmt           = comp->gtNewStmt(endLFin);
             endCatches            = NULL;
 
             encFinallies++;
@@ -7434,7 +7434,7 @@ void Importer::impImportLeave(BasicBlock* block)
 
         if (endCatches)
         {
-            lastStmt = gtNewStmt(endCatches);
+            lastStmt = comp->gtNewStmt(endCatches);
             endLFinStmt->SetNextStmt(lastStmt);
             lastStmt->SetPrevStmt(endLFinStmt);
         }
@@ -16712,11 +16712,6 @@ bool Importer::lvaHaveManyLocals() const
 bool Importer::fgVarNeedsExplicitZeroInit(LclVarDsc* lcl, bool blockIsInLoop, bool blockIsReturn)
 {
     return comp->fgVarNeedsExplicitZeroInit(lcl, blockIsInLoop, blockIsReturn);
-}
-
-Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
-{
-    return comp->gtNewStmt(expr, offset);
 }
 
 GenTree* Importer::gtNewConstLookupTree(void* value, void* pValue, HandleKind kind, void* compileTimeHandle)
