@@ -431,11 +431,9 @@ private:
                     returnTempLcl->SetType(origCall->GetType());
                 }
 
-                GenTreeLclLoad* tempTree = compiler->gtNewLclLoad(returnTemp, origCall->GetType());
-
                 JITDUMP("Changing RET_EXPR [%06u] to load V%02u\n", retExpr->GetID(), returnTemp->GetLclNum());
 
-                retExpr->ReplaceWith(tempTree);
+                retExpr->ChangeToLclLoad(origCall->GetType(), returnTemp);
             }
             else if (retExpr != nullptr)
             {
