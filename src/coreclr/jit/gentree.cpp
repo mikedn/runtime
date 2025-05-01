@@ -3329,18 +3329,6 @@ void GenTree::SetVTable()
 }
 #endif // DEBUGGABLE_GENTREE
 
-GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
-{
-    assert(op1 != nullptr);
-    assert(op2 != nullptr);
-
-    // We should not be allocating nodes that extend GenTreeOp with this;
-    // should call the appropriate constructor for the extended type.
-    assert(!GenTree::IsExOp(GenTree::OperKind(oper)));
-
-    return new (this, oper) GenTreeOp(oper, type, op1, op2);
-}
-
 GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 {
     assert(op1 != nullptr);
@@ -3806,9 +3794,6 @@ GenTreeLclLoad* Compiler::gtNewLclLoadLarge(LclVarDsc* lcl, var_types type)
         assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)));
     }
 #endif
-
-    // This local variable node may later get transformed into a large node
-    assert(GenTree::s_gtNodeSizes[LargeOpOpcode()] > GenTree::s_gtNodeSizes[GT_LCL_LOAD]);
 
     return new (this, LargeOpOpcode()) GenTreeLclLoad(type, lcl DEBUGARG(/*largeNode*/ true));
 }
@@ -4354,16 +4339,10 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
         }
     }
 
-    if (kind & GTK_SMPOP)
+    if ((kind & (GTK_UNOP | GTK_BINOP)) != 0)
     {
         switch (oper)
         {
-            case GT_FMOD:
-                // This is always converted to a helper call.
-                copy = new (this, GT_CALL)
-                    GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
-                break;
-
             case GT_FIELD_ADDR:
                 copy = new (this, GT_FIELD_ADDR) GenTreeFieldAddr(tree->AsFieldAddr());
                 break;
@@ -4432,6 +4411,12 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
                 break;
 
+            case GT_FMOD:
+                // This is always converted to a helper call.
+                copy = new (this, LargeOpOpcode()) GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0),
+                                                             tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                break;
+
 #ifndef TARGET_64BIT
             case GT_MUL:
             case GT_OVF_SMUL:
@@ -4443,24 +4428,15 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 if (tree->TypeIs(TYP_LONG))
                 {
                     // LONG multiplication/division usually requires helper calls on 32 bit targets.
-                    copy = new (this, GT_CALL) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
-                                                         tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                    copy = new (this, LargeOpOpcode()) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
+                                                                 tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
                     break;
                 }
                 FALLTHROUGH;
 #endif
             default:
                 assert(!GenTree::IsExOp(tree->OperKind()) && tree->OperIsSimple());
-
-                if (GenTree::OperIsUnary(tree->GetOper()))
-                {
-                    copy = gtNewOperNode(oper, tree->GetType(), tree->AsUnOp()->gtOp1);
-                }
-                else
-                {
-                    assert(GenTree::OperIsBinary(tree->GetOper()));
-                    copy = gtNewOperNode(oper, tree->GetType(), tree->AsOp()->gtOp1, tree->AsOp()->gtOp2);
-                }
+                copy = new (this, oper) GenTreeOp(tree->AsOp());
                 break;
         }
 
@@ -4482,8 +4458,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
     switch (oper)
     {
         case GT_CALL:
-
-            // We can't safely clone calls that have GT_RET_EXPRs via gtCloneExpr.
+            // We can't safely clone calls that have RET_EXPRs via gtCloneExpr.
             // You must use gtCloneCandidateCall for these calls (and then do appropriate other fixup)
             if (tree->AsCall()->IsInlineCandidate() || tree->AsCall()->IsGuardedDevirtualizationCandidate())
             {
@@ -4543,6 +4518,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
         case GT_INSTR:
             copy = new (this, GT_INSTR) GenTreeInstr(tree->AsInstr(), this);
             break;
+
         case GT_QMARK:
             copy = new (this, GT_QMARK) GenTreeQmark(tree->AsQmark());
             goto CLONE_TERNARY;
@@ -4560,8 +4536,7 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             break;
 
         default:
-            INDEBUG(gtDispTree(tree);)
-            NO_WAY("unexpected operator");
+            unreached();
     }
 
 DONE:

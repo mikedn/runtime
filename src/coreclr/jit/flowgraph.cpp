@@ -979,7 +979,7 @@ private:
         {
             noway_assert((comp->info.compRetType == TYP_VOID) || varTypeIsStruct(comp->info.compRetType));
 
-            returnExpr = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+            returnExpr = comp->gtNewOperNode(GT_RETURN, TYP_VOID);
 
             comp->genReturnLocal = BAD_VAR_NUM;
         }

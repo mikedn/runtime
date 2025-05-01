@@ -1525,9 +1525,7 @@ public:
     inline bool IsCopyOrReloadOfMultiRegCall() const;
 
     bool OperRequiresAsgFlag() const;
-
     bool OperRequiresCallFlag(Compiler* comp) const;
-
     bool OperMayThrow(Compiler* comp) const;
     bool CallMayThrow(Compiler* comp) const;
     bool DivModMayThrow(Compiler* comp) const;
@@ -1538,7 +1536,6 @@ public:
     void ReplaceWith(GenTree* src);
 
     static genTreeOps ReverseRelop(genTreeOps relop);
-
     static genTreeOps SwapRelop(genTreeOps relop);
 
     static bool Compare(GenTree* op1, GenTree* op2, bool swapOK = false);
@@ -1578,7 +1575,7 @@ public:
     bool IsPartialLclFld(Compiler* comp);
     GenTreeLclAddr* IsLocalAddrExpr();
 
-    // Determine if this tree represents an indirection for an implict byref parameter,
+    // Determine if this tree represents an indirection for an implicit byref parameter,
     // and if so return the tree for the parameter.
     GenTreeLclLoad* IsImplicitByrefIndir(Compiler* compiler);
 
@@ -2020,6 +2017,7 @@ protected:
     GenTreeUnOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
         : GenTree(oper, type DEBUGARG(largeNode)), gtOp1(nullptr)
     {
+        assert(NullOp1Legal());
     }
 
     GenTreeUnOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
@@ -2075,17 +2073,19 @@ public:
 private:
     bool NullOp1Legal() const
     {
-        assert(OperIsSimple(gtOper));
-
         switch (gtOper)
         {
             case GT_LEA:
-            case GT_NOP:
+            case GT_LCL_LOAD:
+            case GT_LCL_LOAD_FLD:
+            case GT_LCL_ADDR:
                 return true;
+            case GT_NOP:
             case GT_RETFILT:
             case GT_RETURN:
                 return gtType == TYP_VOID;
             default:
+                assert(OperIsSimple(gtOper));
                 return false;
         }
     }
@@ -2096,6 +2096,18 @@ class GenTreeOp : public GenTreeUnOp
 {
 public:
     GenTree* gtOp2;
+
+    GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
+        : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
+    {
+        assert((type == TYP_VOID) && ((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT)));
+    }
+
+    GenTreeOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
+        : GenTreeUnOp(oper, type, op1 DEBUGARG(largeNode)), gtOp2(nullptr)
+    {
+        assert(NullOp2Legal());
+    }
 
     GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 DEBUGARG(bool largeNode = false))
         : GenTreeUnOp(oper, type, op1 DEBUGARG(largeNode)), gtOp2(op2)
@@ -2108,12 +2120,6 @@ public:
         {
             gtFlags |= op2->GetSideEffects();
         }
-    }
-
-    GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
-    {
-        assert((oper == GT_NOP) || (oper == GT_RETURN) || (oper == GT_RETFILT));
     }
 
     GenTreeOp(const GenTreeOp* copyFrom) : GenTreeUnOp(copyFrom), gtOp2(copyFrom->gtOp2)
@@ -2193,7 +2199,7 @@ public:
         gtFlags |= op3->GetSideEffects();
     }
 
-    GenTreeTernaryOp(GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
+    GenTreeTernaryOp(const GenTreeTernaryOp* copyFrom) : GenTreeOp(copyFrom), gtOp3(copyFrom->gtOp3)
     {
     }
 
@@ -2811,11 +2817,10 @@ protected:
         : GenTreeUnOp(oper, type, value DEBUGARG(largeNode)), m_lcl(lcl)
     {
         assert(lcl != nullptr);
-        gtFlags |= GTF_ASG | value->GetSideEffects();
+        gtFlags |= GTF_ASG;
     }
 
-    GenTreeLclRef(const GenTreeLclRef* copyFrom)
-        : GenTreeUnOp(copyFrom->GetOper(), copyFrom->GetType()), m_lcl(copyFrom->m_lcl)
+    GenTreeLclRef(const GenTreeLclRef* copyFrom) : GenTreeUnOp(copyFrom), m_lcl(copyFrom->m_lcl)
     {
     }
 
@@ -2834,6 +2839,9 @@ public:
 
     uint16_t GetLclOffs() const;
 
+    GenTree* gtGetOp1() const          = delete;
+    GenTree* gtGetOp2IfPresent() const = delete;
+
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclRef, GenTreeUnOp)
 };
 
@@ -2850,7 +2858,7 @@ protected:
     {
     }
 
-    GenTreeLclVar(GenTreeLclVar* copyFrom) : GenTreeLclRef(copyFrom)
+    GenTreeLclVar(const GenTreeLclVar* copyFrom) : GenTreeLclRef(copyFrom)
     {
     }
 
@@ -2900,7 +2908,7 @@ public:
     {
     }
 
-    GenTreeLclStore(GenTreeLclStore* copyFrom) : GenTreeLclVar(copyFrom)
+    GenTreeLclStore(const GenTreeLclStore* copyFrom) : GenTreeLclVar(copyFrom)
     {
     }
 
@@ -2918,8 +2926,6 @@ public:
 
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;
-    GenTree* gtGetOp1() const          = delete;
-    GenTree* gtGetOp2IfPresent() const = delete;
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
 };
@@ -5527,12 +5533,10 @@ public:
         {
             gtFlags |= GTF_INX_RNGCHK | GTF_EXCEPT;
         }
-
-        gtFlags |= array->GetSideEffects() | index->GetSideEffects();
     }
 
     GenTreeIndexAddr(const GenTreeIndexAddr* copyFrom)
-        : GenTreeOp(GT_INDEX_ADDR, TYP_BYREF, copyFrom->gtOp1, copyFrom->gtOp2)
+        : GenTreeOp(copyFrom)
         , m_throwBlock(copyFrom->m_throwBlock)
         , m_dataOffs(copyFrom->m_dataOffs)
         , m_elemTypeNum(copyFrom->m_elemTypeNum)
@@ -5877,12 +5881,12 @@ public:
     //
     // So, for example:
     //      1. Base + Index is legal with Scale==1
-    //      2. If Index is null, Scale should be zero (or unintialized / unused)
+    //      2. If Index is null, Scale should be zero (or uninitialized / unused)
     //      3. If Scale==1, then we should have "Base" instead of "Index*Scale", and "Base + Offset" instead of
     //         "Index*Scale + Offset".
 
     GenTreeAddrMode(GenTree* base, int32_t offset)
-        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base, nullptr), m_scale(0), m_offset(offset)
+        : GenTreeOp(GT_LEA, varTypeAddrAdd(base->GetType()), base), m_scale(0), m_offset(offset)
     {
         assert(base != nullptr);
     }
@@ -5894,9 +5898,7 @@ public:
     }
 
     GenTreeAddrMode(const GenTreeAddrMode* copyFrom)
-        : GenTreeOp(GT_LEA, copyFrom->GetType(), copyFrom->GetBase(), copyFrom->GetIndex())
-        , m_scale(copyFrom->m_scale)
-        , m_offset(copyFrom->m_offset)
+        : GenTreeOp(copyFrom), m_scale(copyFrom->m_scale), m_offset(copyFrom->m_offset)
     {
     }
 
@@ -5958,8 +5960,11 @@ public:
 class GenTreeIndir : public GenTreeOp
 {
 protected:
-    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value = nullptr)
-        : GenTreeOp(oper, type, addr, value)
+    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr) : GenTreeOp(oper, type, addr)
+    {
+    }
+
+    GenTreeIndir(genTreeOps oper, var_types type, GenTree* addr, GenTree* value) : GenTreeOp(oper, type, addr, value)
     {
     }
 

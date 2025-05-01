@@ -867,7 +867,7 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
                 return nullptr;
             }
 
-            op2 = gtNewIconNode(0);
+            op2 = comp->gtNewIconNode(0);
             op1 = impSIMDPopStack(sig.paramType[0]);
             return gtNewSimdGetElementNode(sig.paramType[0], sig.retType, op1, op2);
 
@@ -904,7 +904,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
                 FloatComparisonMode comparison =
                     static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImplicitImm(intrinsic, true));
                 return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
-                                                gtNewIconNode(static_cast<int>(comparison)));
+                                                comp->gtNewIconNode(static_cast<int>(comparison)));
             }
 
             GenTree* op1Uses[2];
@@ -932,7 +932,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
             }
             else
             {
-                op2 = gtNewOperNode(GT_AND, TYP_INT, op2, gtNewIconNode(indexMask));
+                op2 = comp->gtNewOperNode(GT_AND, TYP_INT, op2, comp->gtNewIconNode(indexMask));
             }
 
             return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement,

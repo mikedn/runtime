@@ -2209,10 +2209,6 @@ public:
 
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
-    GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
-    GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);
-    GenTree* gtNewLconNode(int64_t value);
-    GenTreeIntCon* gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq = nullptr);
     GenTree* gtNewConstLookupTree(void* value, void* pValue, HandleKind handleKind, void* compileTimeHandle);
     GenTree* gtNewIconEmbModHndNode(CORINFO_MODULE_HANDLE modHnd);
     GenTree* gtNewIconEmbClsHndNode(CORINFO_CLASS_HANDLE clsHnd);
@@ -2220,20 +2216,14 @@ public:
     GenTree* gtNewIconEmbFldHndNode(CORINFO_FIELD_HANDLE fldHnd);
     GenTree* gtNewZeroConNode(var_types type);
     GenTree* gtNewOneConNode(var_types type);
-    GenTree* gtNewDconNode(double value, var_types type = TYP_DOUBLE);
     GenTreeStrCon* gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token);
-    GenTree* gtNewNothingNode();
     GenTree* gtUnusedValNode(GenTree* expr);
-    GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTree* gtNewNullCheck(GenTree* addr);
     GenTree* gtNewGCBitcastNode(GenTree* op1);
-    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset);
-    GenTreeFieldAddr* gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset);
     GenTreeIntCon* gtNewStringLiteralLength(GenTreeStrCon* node);
     GenTree* gtNewStringLiteralNode(InfoAccessType iat, void* value);
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
     GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
-    GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
@@ -2720,15 +2710,12 @@ public:
     // Functions to create nodes
     Statement* gtNewStmt(GenTree* expr = nullptr, IL_OFFSETX offset = BAD_IL_OFFSET);
 
+    GenTree* gtNewOperNode(genTreeOps oper, var_types type);
     GenTreeUnOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1);
     GenTreeOp* gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2);
+
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
     GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
-
-    GenTree* gtNewLargeOperNode(genTreeOps oper,
-                                var_types  type = TYP_I_IMPL,
-                                GenTree*   op1  = nullptr,
-                                GenTree*   op2  = nullptr);
 
     GenTreeIntCon* gtNewIconNode(ssize_t value, var_types type = TYP_INT);
     GenTreeIntCon* gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq);

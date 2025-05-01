@@ -154,31 +154,35 @@ inline Statement* Compiler::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return new (getAllocator(CMK_ASTNode)) Statement(expr, offset DEBUGARG(compStatementID++));
 }
 
+inline GenTree* Compiler::gtNewOperNode(genTreeOps oper, var_types type)
+{
+    return new (this, oper) GenTreeOp(oper, type);
+}
+
 inline GenTreeUnOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
 {
     assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
-    // Can't use this to construct any types that extend unary/binary operator.
     assert((GenTree::OperKind(oper) & GTK_EXOP) == 0);
-    assert(op1 != nullptr || oper == GT_RETFILT || oper == GT_NOP || (oper == GT_RETURN && type == TYP_VOID));
+    assert(op1 != nullptr);
 
-    return new (this, oper) GenTreeOp(oper, type, op1, nullptr);
+    return new (this, oper) GenTreeOp(oper, type, op1);
+}
+
+inline GenTreeOp* Compiler::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
+{
+    assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
+    assert((GenTree::OperKind(oper) & GTK_EXOP) == 0);
+    assert(op1 != nullptr);
+    assert(op2 != nullptr);
+
+    return new (this, oper) GenTreeOp(oper, type, op1, op2);
 }
 
 // Returns an opcode that is of the largest node size in use.
-inline genTreeOps LargeOpOpcode()
+constexpr genTreeOps LargeOpOpcode()
 {
     assert(GenTree::s_gtNodeSizes[GT_CALL] == TREE_NODE_SZ_LARGE);
     return GT_CALL;
-}
-
-inline GenTree* Compiler::gtNewLargeOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
-{
-    assert((GenTree::OperKind(oper) & (GTK_UNOP | GTK_BINOP)) != 0);
-    // Can't use this to construct any types that extend unary/binary operator.
-    assert((GenTree::OperKind(oper) & GTK_EXOP) == 0);
-    assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL);
-    // Allocate a large node
-    return new (this, LargeOpOpcode()) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
 }
 
 inline GenTreeIntCon* Compiler::gtNewIconHandleNode(void* addr, HandleKind kind, FieldSeqNode* fieldSeq)

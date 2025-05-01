@@ -225,18 +225,19 @@ GenTree* Importer::addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound
     // The value of (immUpperBound - immLowerBound + 1) is denoted as adjustedUpperBound.
 
     const ssize_t adjustedUpperBound     = (ssize_t)immUpperBound - immLowerBound + 1;
-    GenTree*      adjustedUpperBoundNode = gtNewIconNode(adjustedUpperBound, TYP_INT);
+    GenTree*      adjustedUpperBoundNode = comp->gtNewIconNode(adjustedUpperBound, TYP_INT);
 
     GenTree* immOpUses[2];
     impMakeMultiUse(immOp, 2, immOpUses, CHECK_SPILL_ALL DEBUGARG("vector index check temp"));
 
     if (immLowerBound != 0)
     {
-        immOpUses[1] = gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], gtNewIconNode(immLowerBound, TYP_INT));
+        immOpUses[1] = comp->gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], comp->gtNewIconNode(immLowerBound, TYP_INT));
     }
 
-    GenTreeBoundsChk* check = gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
-    return gtNewCommaNode(check, immOpUses[0]);
+    GenTreeBoundsChk* check =
+        comp->gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
+    return comp->gtNewCommaNode(check, immOpUses[0]);
 }
 
 bool Compiler::compHWIntrinsicDependsOn(CORINFO_InstructionSet isa) const
@@ -657,7 +658,7 @@ GenTree* Importer::impHWIntrinsic(NamedIntrinsic        intrinsic,
                 assert(sig.retType == TYP_INT);
 
                 {
-                    GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
+                    GenTreeIntCon* countNode = comp->gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
                     countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
                     return countNode;
                 }

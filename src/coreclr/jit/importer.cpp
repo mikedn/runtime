@@ -113,15 +113,15 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
             // TODO-MIKE-Review: This should only be done when the stack type is 'native int'
             // but we don't track this exact type so we have to do it whenever the stack type
             // is LONG, which is a relaxation of the ECMA III.1.6 Implicit argument coercion.
-            tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
+            tree = comp->gtNewOperNode(GT_TRUNC, TYP_INT, tree);
         }
         else if ((stackType == TYP_DOUBLE) && (signatureType == TYP_FLOAT))
         {
-            tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, tree);
+            tree = comp->gtNewOperNode(GT_FTRUNC, TYP_FLOAT, tree);
         }
         else if ((stackType == TYP_FLOAT) && (signatureType == TYP_DOUBLE))
         {
-            tree = gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
+            tree = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
         }
         else if ((stackType == TYP_I_IMPL) && (signatureType == TYP_BYREF))
         {
@@ -586,7 +586,7 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
             // JIT's type system doesn't distinguish between "native int" and int64.
             if (argType == TYP_LONG)
             {
-                return gtNewOperNode(GT_TRUNC, TYP_INT, arg);
+                return comp->gtNewOperNode(GT_TRUNC, TYP_INT, arg);
             }
             break;
         case TYP_LONG:
@@ -598,7 +598,7 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
                 // is native uint, the spec requires zero extension but we do sign extension.
                 // Probably it doesn't really matter, at least the C# compiler has the habit
                 // of inserting its own casts.
-                return gtNewOperNode(GT_SXT, TYP_LONG, arg);
+                return comp->gtNewOperNode(GT_SXT, TYP_LONG, arg);
             }
 
             if (argType == TYP_BYREF)
@@ -631,13 +631,13 @@ GenTree* Importer::CoerceCallArg(var_types paramType, GenTree* arg)
         case TYP_FLOAT:
             if (argType == TYP_DOUBLE)
             {
-                return gtNewOperNode(GT_FTRUNC, TYP_FLOAT, arg);
+                return comp->gtNewOperNode(GT_FTRUNC, TYP_FLOAT, arg);
             }
             break;
         case TYP_DOUBLE:
             if (argType == TYP_FLOAT)
             {
-                return gtNewOperNode(GT_FXT, TYP_DOUBLE, arg);
+                return comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, arg);
             }
             break;
         case TYP_STRUCT:
@@ -806,10 +806,10 @@ GenTree* Importer::impAssignMkRefAny(GenTree* store, GenTreeOp* mkRefAny, unsign
     impMakeMultiUse(destAddr, 2, destAddrUses, curLevel DEBUGARG("MKREFANY store"));
 
     GenTreeFieldAddr* valueAddr =
-        gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(), OFFSETOF__CORINFO_TypedReference__dataPtr);
+        comp->gtNewFieldAddr(destAddrUses[0], GetRefanyValueField(), OFFSETOF__CORINFO_TypedReference__dataPtr);
     GenTreeIndStore*  valueStore = comp->gtNewFieldIndStore(TYP_BYREF, valueAddr, mkRefAny->GetOp(0));
     GenTreeFieldAddr* typeAddr =
-        gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(), OFFSETOF__CORINFO_TypedReference__type);
+        comp->gtNewFieldAddr(destAddrUses[1], GetRefanyTypeField(), OFFSETOF__CORINFO_TypedReference__type);
     GenTreeIndStore* typeStore = comp->gtNewFieldIndStore(TYP_I_IMPL, typeAddr, mkRefAny->GetOp(1));
 
     impAppendTree(valueStore, curLevel);
@@ -1274,7 +1274,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         if ((i == 1 && runtimeLookup.indirectFirstOffset) || (i == 2 && runtimeLookup.indirectSecondOffset))
         {
-            slotPtrTree = gtNewOperNode(GT_ADD, TYP_I_IMPL, indOffTree, slotPtrTree);
+            slotPtrTree = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, indOffTree, slotPtrTree);
         }
 
         if (runtimeLookup.offsets[i] != 0)
@@ -1285,8 +1285,8 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
                                              CHECK_SPILL_ALL DEBUGARG("impRuntimeLookup indirectOffset"));
             }
 
-            slotPtrTree =
-                gtNewOperNode(GT_ADD, TYP_I_IMPL, slotPtrTree, gtNewIconNode(runtimeLookup.offsets[i], TYP_I_IMPL));
+            slotPtrTree = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, slotPtrTree,
+                                              comp->gtNewIconNode(runtimeLookup.offsets[i], TYP_I_IMPL));
         }
     }
 
@@ -1308,21 +1308,21 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
         GenTree* slot = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
 #ifdef TARGET_64BIT
-        slot = gtNewOperNode(GT_TRUNC, TYP_INT, slot);
+        slot = comp->gtNewOperNode(GT_TRUNC, TYP_INT, slot);
 #endif
-        // Use a GT_AND to check for the lowest bit and indirect if it is set
-        GenTree* test  = gtNewOperNode(GT_AND, TYP_INT, slot, gtNewIconNode(1));
-        GenTree* relop = gtNewOperNode(GT_EQ, TYP_INT, test, gtNewIconNode(0));
+        // Use a AND to check for the lowest bit and indirect if it is set
+        GenTree* test  = comp->gtNewOperNode(GT_AND, TYP_INT, slot, comp->gtNewIconNode(1));
+        GenTree* relop = comp->gtNewOperNode(GT_EQ, TYP_INT, test, comp->gtNewIconNode(0));
 
         // slot = IND_LOAD(slot - 1)
         slot          = comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
-        GenTree* add  = gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, gtNewIconNode(-1, TYP_I_IMPL));
+        GenTree* add  = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, slot, comp->gtNewIconNode(-1, TYP_I_IMPL));
         GenTree* load = comp->gtNewIndLoad(TYP_I_IMPL, add);
         load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
 
         store = comp->gtNewLclStore(slotLcl, TYP_I_IMPL, load);
 
-        GenTree* qmark = gtNewQmarkNode(TYP_VOID, relop, gtNewNothingNode(), store);
+        GenTree* qmark = comp->gtNewQmarkNode(TYP_VOID, relop, comp->gtNewNothingNode(), store);
         impSpillNoneAppendTree(qmark);
 
         return comp->gtNewLclLoad(slotLcl, TYP_I_IMPL);
@@ -1338,7 +1338,7 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
 
     // Call the helper
     // - Setup argValue with the pointer to the signature returned by the lookup
-    GenTreeIntCon* argNode = gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
+    GenTreeIntCon* argNode = comp->gtNewIconHandleNode(runtimeLookup.signature, HandleKind::MutableData);
     argNode->SetCompileTimeHandle(compileTimeHandle);
 
     LclVarDsc* tmpLcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("spilling Runtime Lookup tree"));
@@ -1351,21 +1351,21 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
         assert((lastIndOfTree != nullptr) && (runtimeLookup.indirections > 0));
 
         // sizeValue = dictionary[pRuntimeLookup->sizeOffset]
-        GenTreeIntCon* sizeOffset      = gtNewIconNode(runtimeLookup.sizeOffset, TYP_I_IMPL);
-        GenTree*       sizeValueOffset = gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
+        GenTreeIntCon* sizeOffset      = comp->gtNewIconNode(runtimeLookup.sizeOffset, TYP_I_IMPL);
+        GenTree*       sizeValueOffset = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, lastIndOfTree, sizeOffset);
         // TODO-MIKE-Review: Is this really I_IMPL? It looks like the runtime only stores an INT32 here.
         // And the value is unsigned so the LE compare below should also be unsigned.
         GenTree* sizeValue = comp->gtNewIndLoad(TYP_I_IMPL, sizeValueOffset);
         sizeValue->gtFlags |= GTF_IND_NONFAULTING;
 
         // sizeCheck fails if sizeValue < pRuntimeLookup->offsets[i]
-        GenTree* offsetValue = gtNewIconNode(runtimeLookup.offsets[runtimeLookup.indirections - 1], TYP_I_IMPL);
-        GenTree* sizeCheck   = gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
+        GenTree* offsetValue = comp->gtNewIconNode(runtimeLookup.offsets[runtimeLookup.indirections - 1], TYP_I_IMPL);
+        GenTree* sizeCheck   = comp->gtNewOperNode(GT_LE, TYP_INT, sizeValue, offsetValue);
 
         // ((sizeCheck fails || nullCheck fails))) ? (helperCall : handle).
         // Add checks and the handle as call arguments, indirect call transformer will handle this.
         GenTreeCall::Use* helperArgs = comp->gtNewCallArgs(handleForNullCheck, sizeCheck, ctxTree, argNode);
-        GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+        GenTreeCall*      helperCall = comp->gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
 
         addExpRuntimeLookupCandidate(helperCall);
 
@@ -1374,11 +1374,12 @@ GenTree* Importer::impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
     else
     {
         GenTreeCall::Use* helperArgs = comp->gtNewCallArgs(ctxTree, argNode);
-        GenTreeCall*      helperCall = gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
-        GenTree*          nullCheck  = gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, gtNewIconNode(0, TYP_I_IMPL));
-        GenTree*          handleForResult = gtCloneExpr(handleForNullCheck);
+        GenTreeCall*      helperCall = comp->gtNewHelperCallNode(runtimeLookup.helper, TYP_I_IMPL, helperArgs);
+        GenTree*          nullCheck =
+            comp->gtNewOperNode(GT_NE, TYP_INT, handleForNullCheck, comp->gtNewIconNode(0, TYP_I_IMPL));
+        GenTree* handleForResult = gtCloneExpr(handleForNullCheck);
 
-        result = gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
+        result = comp->gtNewQmarkNode(TYP_I_IMPL, nullCheck, handleForResult, helperCall);
     }
 
     impSpillNoneAppendTree(comp->gtNewLclStore(tmpLcl, TYP_I_IMPL, result));
@@ -1886,7 +1887,7 @@ void Importer::impNoteBranchOffs()
 {
     if (opts.compDbgCode)
     {
-        impSpillNoneAppendTree(gtNewNothingNode());
+        impSpillNoneAppendTree(comp->gtNewNothingNode());
     }
 }
 
@@ -2034,7 +2035,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
         else if ((currType == TYP_INT) && varTypeIsI(wantedType))
         {
             // Note that this allows TYP_INT to be cast to TYP_LONG when wantedType is a TYP_BYREF or TYP_REF
-            tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
+            tree = comp->gtNewOperNode(GT_SXT, TYP_LONG, tree);
         }
         else if (varTypeIsI(currType) && (wantedType == TYP_INT))
         {
@@ -2043,7 +2044,7 @@ GenTree* Importer::impImplicitIorI4Cast(GenTree* tree, var_types dstTyp)
                 tree = gtNewGCBitcastNode(tree);
             }
 
-            tree = gtNewOperNode(GT_TRUNC, TYP_INT, tree);
+            tree = comp->gtNewOperNode(GT_TRUNC, TYP_INT, tree);
         }
 #endif // TARGET_64BIT
     }
@@ -2058,7 +2059,7 @@ GenTree* Importer::impImplicitR4orR8Cast(GenTree* tree, var_types dstTyp)
 {
     if (varTypeIsFloating(tree->GetType()) && varTypeIsFloating(dstTyp) && (dstTyp != tree->GetType()))
     {
-        tree = gtNewOperNode(tree->TypeIs(TYP_DOUBLE) ? GT_FTRUNC : GT_FXT, dstTyp, tree);
+        tree = comp->gtNewOperNode(tree->TypeIs(TYP_DOUBLE) ? GT_FTRUNC : GT_FXT, dstTyp, tree);
     }
 
     return tree;
@@ -2385,10 +2386,11 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
         dataOffset = Compiler::eeGetArrayDataOffset(elementType);
     }
 
-    GenTree*    srcAddr = gtNewIconHandleNode(initData, HandleKind::ConstData);
+    GenTree*    srcAddr = comp->gtNewIconHandleNode(initData, HandleKind::ConstData);
     GenTreeBlk* load    = new (comp, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(srcAddr, typGetBlkLayout(blkSize));
-    GenTree*    dstAddr = gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, gtNewIconNode(dataOffset, TYP_I_IMPL));
-    GenTreeBlk* store   = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, load, load->GetLayout());
+    GenTree*    dstAddr =
+        comp->gtNewOperNode(GT_ADD, TYP_BYREF, arrayLocalNode, comp->gtNewIconNode(dataOffset, TYP_I_IMPL));
+    GenTreeBlk* store = new (comp, GT_IND_STORE_BLK) GenTreeIndStoreBlk(dstAddr, load, load->GetLayout());
 
     load->RemoveSideEffects(GTF_EXCEPT);
     load->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
@@ -2513,13 +2515,13 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             if (ni == NI_IsSupported_True)
             {
                 assert(sig->numArgs == 0);
-                return gtNewIconNode(true);
+                return comp->gtNewIconNode(true);
             }
 
             if (ni == NI_IsSupported_False)
             {
                 assert(sig->numArgs == 0);
-                return gtNewIconNode(false);
+                return comp->gtNewIconNode(false);
             }
 
             if (ni == NI_Throw_PlatformNotSupportedException)
@@ -2611,7 +2613,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             op2 = impPopStack().val;
             op1 = impPopStack().val;
 
-            retNode = gtNewOperNode(interlockedOperator, varActualType(callType), op1, op2);
+            retNode = comp->gtNewOperNode(interlockedOperator, varActualType(callType), op1, op2);
             retNode->AddSideEffects(GTF_GLOB_REF | GTF_ASG);
             return retNode;
 
@@ -2730,7 +2732,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             op1 = impPopStack().val;
 
             CORINFO_FIELD_HANDLE fldHnd = vm->getFieldInClass(clsHnd, 0);
-            GenTreeIndir* store = comp->gtNewFieldIndStore(TYP_BYREF, gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
+            GenTreeIndir* store = comp->gtNewFieldIndStore(TYP_BYREF, comp->gtNewFieldAddr(newobjThis, fldHnd, 0), op1);
             GenTree*      byReferenceStruct = gtCloneExpr(newobjThis);
             assert(byReferenceStruct != nullptr);
             byReferenceStruct->SetOper(GT_LCL_LOAD);
@@ -2749,7 +2751,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
         case NI_CORINFO_INTRINSIC_ByReference_Value:
             op1 = impPopStack().val;
 
-            return comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(op1, vm->getFieldInClass(clsHnd, 0), 0));
+            return comp->gtNewFieldLoad(TYP_BYREF, comp->gtNewFieldAddr(op1, vm->getFieldInClass(clsHnd, 0), 0));
 
         case NI_CORINFO_INTRINSIC_GetRawHandle:
         {
@@ -2809,8 +2811,8 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                 return comp->gtNewArrLen(op1, OFFSETOF__CORINFO_String__stringLen, flags);
             }
 
-            op2 = gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
-            op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
+            op2 = comp->gtNewIconNode(OFFSETOF__CORINFO_String__stringLen, TYP_I_IMPL);
+            op1 = comp->gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
 
             retNode = comp->gtNewIndLoad(TYP_INT, op1);
             retNode->AddSideEffects(GTF_EXCEPT);
@@ -2858,30 +2860,32 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             // Bounds check
             CORINFO_FIELD_HANDLE lengthHnd    = vm->getFieldInClass(clsHnd, 1);
             const unsigned       lengthOffset = vm->getFieldOffset(lengthHnd);
-            GenTree* length = comp->gtNewFieldLoad(TYP_INT, gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
+            GenTree*             length =
+                comp->gtNewFieldLoad(TYP_INT, comp->gtNewFieldAddr(spanAddrUses[0], lengthHnd, lengthOffset));
             GenTree* boundsCheck = gtNewBoundsChk(indexUses[0], length, ThrowHelperKind::IndexOutOfRange);
             GenTree* indexOffset;
 
             if (GenTreeIntCon* indexConst = index->IsIntCon())
             {
-                indexOffset =
-                    gtNewIconNode(static_cast<target_ssize_t>(elemSize) * indexConst->GetInt32Value(), TYP_I_IMPL);
+                indexOffset = comp->gtNewIconNode(static_cast<target_ssize_t>(elemSize) * indexConst->GetInt32Value(),
+                                                  TYP_I_IMPL);
             }
             else
             {
                 GenTree* indexIntPtr = impImplicitIorI4Cast(indexUses[1], TYP_I_IMPL);
-                GenTree* sizeofNode  = gtNewIconNode(elemSize, TYP_I_IMPL);
-                indexOffset          = gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
+                GenTree* sizeofNode  = comp->gtNewIconNode(elemSize, TYP_I_IMPL);
+                indexOffset          = comp->gtNewOperNode(GT_MUL, TYP_I_IMPL, indexIntPtr, sizeofNode);
             }
 
             CORINFO_FIELD_HANDLE ptrHnd    = vm->getFieldInClass(clsHnd, 0);
             const unsigned       ptrOffset = vm->getFieldOffset(ptrHnd);
             FieldSeqNode*        ptrField  = GetByReferenceValueField(ptrHnd);
 
-            GenTree* pointer = comp->gtNewFieldLoad(TYP_BYREF, gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
-            GenTree* result  = gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
+            GenTree* pointer =
+                comp->gtNewFieldLoad(TYP_BYREF, comp->gtNewFieldAddr(spanAddrUses[1], ptrField, ptrOffset));
+            GenTree* result = comp->gtNewOperNode(GT_ADD, TYP_BYREF, pointer, indexOffset);
 
-            return gtNewCommaNode(boundsCheck, result);
+            return comp->gtNewCommaNode(boundsCheck, result);
         }
 
         case NI_System_Type_GetTypeFromHandle:
@@ -2981,9 +2985,10 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                     {
                         impPopStack(); // drop CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE call
 
-                        return gtNewIconNode(vm->isValueClass(hClass) &&
-                                             // pointers are not value types (e.g. typeof(int*).IsValueType is false)
-                                             vm->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
+                        return comp->gtNewIconNode(
+                            vm->isValueClass(hClass) &&
+                            // pointers are not value types (e.g. typeof(int*).IsValueType is false)
+                            vm->asCorInfoType(hClass) != CORINFO_TYPE_PTR);
                     }
                 }
             }
@@ -3023,7 +3028,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
                 genTreeOps op = ni == NI_System_Threading_Interlocked_Or ? GT_XORR : GT_XAND;
 
-                retNode = gtNewOperNode(op, varActualType(callType), op1, op2);
+                retNode = comp->gtNewOperNode(op, varActualType(callType), op1, op2);
                 retNode->AddSideEffects(GTF_GLOB_REF | GTF_ASG);
                 return retNode;
             }
@@ -3083,14 +3088,14 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             {
                 case CorInfoType::CORINFO_TYPE_SHORT:
                 case CorInfoType::CORINFO_TYPE_USHORT:
-                    op1 = gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
-                    return gtNewOperNode(GT_CONV, callType, op1);
+                    op1 = comp->gtNewOperNode(GT_BSWAP16, TYP_INT, impPopStack().val);
+                    return comp->gtNewOperNode(GT_CONV, callType, op1);
 
                 case CorInfoType::CORINFO_TYPE_INT:
                 case CorInfoType::CORINFO_TYPE_UINT:
                 case CorInfoType::CORINFO_TYPE_LONG:
                 case CorInfoType::CORINFO_TYPE_ULONG:
-                    return gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
+                    return comp->gtNewOperNode(GT_BSWAP, callType, impPopStack().val);
 
                 default:
                     // This default case gets hit on 32-bit when a call to a 64-bit overload of ReverseEndianness
@@ -3124,12 +3129,12 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                     popCount = genCountBits(intCon->AsIntCon()->GetUInt32Value());
                 }
 
-                return gtNewIconNode(popCount, callType);
+                return comp->gtNewIconNode(popCount, callType);
             }
             break;
 
         case NI_System_GC_KeepAlive:
-            retNode = gtNewOperNode(GT_KEEPALIVE, TYP_VOID, impPopStack().val);
+            retNode = comp->gtNewOperNode(GT_KEEPALIVE, TYP_VOID, impPopStack().val);
             // Prevent both reordering and removal. Invalid optimizations of GC.KeepAlive are
             // very subtle and hard to observe. Thus we are conservatively marking it with both
             // GTF_CALL and GTF_GLOB_REF side-effects even though it may be more than strictly
@@ -3181,11 +3186,10 @@ GenTree* Importer::impTypeIsAssignable(GenTree* typeTo, GenTree* typeFrom)
             return nullptr;
         }
 
-        GenTreeIntCon* retNode = gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0);
         impPopStack(); // drop both CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE calls
         impPopStack();
 
-        return retNode;
+        return comp->gtNewIconNode(castResult == TypeCompareState::Must ? 1 : 0);
     }
 
     return nullptr;
@@ -3218,7 +3222,8 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op1);
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
 
-            return gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, op1, gtNewIconNode(0));
+            return gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, op1,
+                                            comp->gtNewIconNode(0));
         }
 #endif
 
@@ -3236,7 +3241,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op1);
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, 8, op3, op2, op1);
 
-            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, 8, op1, gtNewIconNode(0));
+            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, 8, op1, comp->gtNewIconNode(0));
         }
 #endif
 
@@ -3290,7 +3295,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
                 // TODO-MIKE-Review: This is messed up, it casts to the method's
                 // return type instead of casting to the parameter type. This
                 // would probably blow in some cases involving ILogB.
-                op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
+                op1 = comp->gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
             }
 
             break;
@@ -3305,7 +3310,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             if (op1->GetType() != paramType)
             {
                 assert(varTypeIsFloating(op1->GetType()));
-                op1 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
+                op1 = comp->gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op1);
             }
 
             param     = vm->getArgNext(param);
@@ -3314,7 +3319,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             if (op2->GetType() != paramType)
             {
                 assert(varTypeIsFloating(op2->GetType()));
-                op2 = gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op2);
+                op2 = comp->gtNewOperNode(callType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, callType, op2);
             }
 
             break;
@@ -3761,7 +3766,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
 
     if (retType == TYP_VOID)
     {
-        return gtNewNothingNode();
+        return comp->gtNewNothingNode();
     }
 
     if (retType != TYP_STRUCT)
@@ -4251,7 +4256,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
 
             JITDUMP("\n Importing BOX; BRTRUE/FALSE as constant branch\n");
 
-            impPushOnStack(gtNewIconNode(1));
+            impPushOnStack(comp->gtNewIconNode(1));
 
             return true;
 
@@ -4281,7 +4286,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
                 JITDUMP("\n Importing BOX; ISINST; BRTRUE/FALSE as constant branch\n");
 
                 impPopStack();
-                impPushOnStack(gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0));
+                impPushOnStack(comp->gtNewIconNode((castResult == TypeCompareState::Must) ? 1 : 0));
 
                 return true;
             }
@@ -4310,7 +4315,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
                     // Spill struct to get its address (to access hasValue field)
                     objToBox = impGetStructAddr(objToBox, boxClass, CHECK_SPILL_ALL, true);
 
-                    impPushOnStack(comp->gtNewFieldLoad(TYP_BOOL, gtNewFieldAddr(objToBox, hasValueField, 0)));
+                    impPushOnStack(comp->gtNewFieldLoad(TYP_BOOL, comp->gtNewFieldAddr(objToBox, hasValueField, 0)));
 
                     JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as Nullable.hasValue\n");
 
@@ -4320,7 +4325,7 @@ bool Importer::ImportBoxPattern(BoxPattern              pattern,
                 if (castResult == TypeCompareState::MustNot)
                 {
                     impPopStack();
-                    impPushOnStack(gtNewIconNode(0));
+                    impPushOnStack(comp->gtNewIconNode(0));
 
                     JITDUMP("\n Importing BOX; ISINST; BR_TRUE/FALSE as constant (false)\n");
 
@@ -4461,7 +4466,7 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
         Statement* allocStmt  = impSpillNoneAppendTree(allocStore);
 
         GenTree* addr = comp->gtNewLclLoad(impBoxTempLcl, TYP_REF);
-        addr          = gtNewOperNode(GT_ADD, TYP_BYREF, addr, gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL));
+        addr = comp->gtNewOperNode(GT_ADD, TYP_BYREF, addr, comp->gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL));
 
         GenTree* store;
 
@@ -4521,26 +4526,26 @@ void Importer::ImportAndPushBox(CORINFO_RESOLVED_TOKEN* resolvedToken)
 
             if ((srcTyp == TYP_FLOAT) && (dstTyp == TYP_DOUBLE))
             {
-                value = gtNewOperNode(GT_FXT, TYP_DOUBLE, value);
+                value = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, value);
             }
             else if ((srcTyp == TYP_DOUBLE) && (dstTyp == TYP_FLOAT))
             {
-                value = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
+                value = comp->gtNewOperNode(GT_FTRUNC, TYP_FLOAT, value);
             }
             else if ((srcTyp == TYP_LONG) && varActualTypeIsInt(dstTyp))
             {
-                value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+                value = comp->gtNewOperNode(GT_TRUNC, TYP_INT, value);
             }
             else if (varActualTypeIsInt(srcTyp) && (dstTyp == TYP_LONG))
             {
-                value = gtNewOperNode(GT_SXT, TYP_LONG, value);
+                value = comp->gtNewOperNode(GT_SXT, TYP_LONG, value);
             }
             else if (varTypeIsSmall(dstTyp) && (srcTyp == TYP_INT))
             {
                 // TODO-MIKE-Cleanup: There's no need to convert INT to small int when doing a
                 // small int store, truncation is implied. But removing this seems to confuse
                 // the box elimination code...
-                value = gtNewOperNode(GT_CONV, varConvType(dstTyp), value);
+                value = comp->gtNewOperNode(GT_CONV, varConvType(dstTyp), value);
             }
             else if (varActualType(srcTyp) != varActualType(dstTyp))
             {
@@ -4670,7 +4675,7 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
         }
 
         GenTreeCall::Use* args = comp->gtNewCallArgs(node);
-        comp->gtPrependNewCallArg(args, gtNewIconNode(callInfo->sig.numArgs));
+        comp->gtPrependNewCallArg(args, comp->gtNewIconNode(callInfo->sig.numArgs));
         comp->gtPrependNewCallArg(args, classHandle);
 
         call = gtNewHelperCallNode(CORINFO_HELP_NEW_MDARR_NONVARARG, TYP_REF, args);
@@ -4691,7 +4696,7 @@ void Importer::ImportNewObjArray(CORINFO_RESOLVED_TOKEN* resolvedToken, const CO
             }
         }
 
-        GenTreeIntCon* numArgsNode = gtNewIconNode(callInfo->sig.numArgs);
+        GenTreeIntCon* numArgsNode = comp->gtNewIconNode(callInfo->sig.numArgs);
 
 #ifdef TARGET_X86
         lastArg = comp->gtInsertNewCallArgAfter(numArgsNode, lastArg);
@@ -5137,16 +5142,16 @@ GenTree* Importer::impImportStaticReadOnlyField(void* addr, var_types type)
         case TYP_INT:
             ival = *static_cast<int32_t*>(addr);
         IVAL_COMMON:
-            return gtNewIconNode(ival);
+            return comp->gtNewIconNode(ival);
 
         case TYP_LONG:
-            return gtNewLconNode(*static_cast<int64_t*>(addr));
+            return comp->gtNewLconNode(*static_cast<int64_t*>(addr));
 
         case TYP_FLOAT:
-            return gtNewDconNode(*static_cast<float*>(addr), TYP_FLOAT);
+            return comp->gtNewDconNode(*static_cast<float*>(addr), TYP_FLOAT);
 
         case TYP_DOUBLE:
-            return gtNewDconNode(*static_cast<double*>(addr), TYP_DOUBLE);
+            return comp->gtNewDconNode(*static_cast<double*>(addr), TYP_DOUBLE);
 
         default:
             unreached();
@@ -5172,7 +5177,7 @@ GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      add
     }
     else
     {
-        field = gtNewFieldAddr(addr, resolvedToken.hField, fieldInfo.offset);
+        field = comp->gtNewFieldAddr(addr, resolvedToken.hField, fieldInfo.offset);
 
 #ifdef FEATURE_READYTORUN_COMPILER
         if (fieldInfo.fieldAccessor == CORINFO_FIELD_INSTANCE_WITH_BASE)
@@ -5371,7 +5376,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
     {
         case CORINFO_FIELD_INTRINSIC_ZERO:
             assert(opcode == CEE_LDSFLD);
-            return gtNewIconNode(0, varActualType(fieldType));
+            return comp->gtNewIconNode(0, varActualType(fieldType));
 
         case CORINFO_FIELD_INTRINSIC_EMPTY_STRING:
             assert(opcode == CEE_LDSFLD);
@@ -5384,9 +5389,9 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
         case CORINFO_FIELD_INTRINSIC_ISLITTLEENDIAN:
             assert(opcode == CEE_LDSFLD);
 #if BIGENDIAN
-            return gtNewIconNode(0, varActualType(lclTyp));
+            return comp->gtNewIconNode(0, varActualType(lclTyp));
 #else
-            return gtNewIconNode(1, varActualType(fieldType));
+            return comp->gtNewIconNode(1, varActualType(fieldType));
 #endif
         default:
             break;
@@ -5743,7 +5748,7 @@ GenTree* Importer::CreateStaticFieldAddressAccess(OPCODE                    opco
         opts.OptimizationDisabled() AMD64_ONLY(|| !comp->eeIsRIPRelativeAddress(fldAddr) || isStaticReadOnlyInited))
 #endif
     {
-        addr = gtNewIconHandleNode(fldAddr, HandleKind::Static, fieldSeq);
+        addr = comp->gtNewIconHandleNode(fldAddr, HandleKind::Static, fieldSeq);
 
 #ifdef TARGET_64BIT
         if (isStaticReadOnlyInited)
@@ -5882,7 +5887,7 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
             value = gtNewGCBitcastNode(value);
         }
 
-        value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+        value = comp->gtNewOperNode(GT_TRUNC, TYP_INT, value);
     }
     // Implicit widening from INT to LONG for x86 JIT compatiblity.
     else if (varActualTypeIsInt(value->GetType()) && varTypeIsI(storeType))
@@ -5893,14 +5898,14 @@ GenTree* Importer::impConvertFieldStoreValue(var_types storeType, GenTree* value
         }
         else
         {
-            value = gtNewOperNode(GT_SXT, TYP_LONG, value);
+            value = comp->gtNewOperNode(GT_SXT, TYP_LONG, value);
         }
     }
 #endif
     // FLOAT/DOUBLE implicit conversions.
     else if (varTypeIsFloating(value->GetType()) && varTypeIsFloating(storeType))
     {
-        value = gtNewOperNode(storeType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, storeType, value);
+        value = comp->gtNewOperNode(storeType == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, storeType, value);
     }
 
     return value;
@@ -5943,7 +5948,7 @@ void Importer::impInsertHelperCall(const CORINFO_HELPER_DESC& helperInfo)
                 argValue = gtNewIconEmbModHndNode(argInfo.moduleHandle);
                 break;
             case CORINFO_HELPER_ARG_TYPE_Const:
-                argValue = gtNewIconNode(argInfo.constant);
+                argValue = comp->gtNewIconNode(argInfo.constant);
                 break;
             default:
                 NO_WAY("Illegal helper arg type");
@@ -6685,7 +6690,7 @@ PUSH_CALL:
 
     if (varTypeIsSmall(callRetTyp) && (opts.IsReadyToRun() || call->IsUnmanaged()))
     {
-        value = gtNewOperNode(GT_CONV, varConvType(callRetTyp), value);
+        value = comp->gtNewOperNode(GT_CONV, varConvType(callRetTyp), value);
     }
 
 PUSH_VALUE:
@@ -6833,7 +6838,7 @@ GenTree* Importer::CreateGenericCallTypeArg(GenTreeCall*            call,
     if ((clsFlags & CORINFO_FLG_ARRAY) && ((prefixFlags & PREFIX_READONLY) != 0))
     {
         // We indicate "readonly" to the Address operation by using a null instParam.
-        return gtNewIconNode(0, TYP_REF);
+        return comp->gtNewIconNode(0, TYP_REF);
     }
 
     if (callInfo->exactContextNeedsRuntimeLookup)
@@ -8002,7 +8007,7 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
         }
         else if (varActualTypeIsInt(op->GetType()))
         {
-            return gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op);
+            return comp->gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op);
         }
         else
         {
@@ -8092,11 +8097,11 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
 
         if (!op1->TypeIs(TYP_LONG))
         {
-            *pOp1 = gtNewOperNode(GT_SXT, TYP_LONG, op1);
+            *pOp1 = comp->gtNewOperNode(GT_SXT, TYP_LONG, op1);
         }
         else if (!op2->TypeIs(TYP_LONG))
         {
-            *pOp2 = gtNewOperNode(GT_SXT, TYP_LONG, op2);
+            *pOp2 = comp->gtNewOperNode(GT_SXT, TYP_LONG, op2);
         }
 #else
         // int32 + native int = native int
@@ -8120,14 +8125,14 @@ var_types Importer::impGetNumericBinaryOpType(genTreeOps oper, GenTree** pOp1, G
     if (op1->TypeIs(TYP_FLOAT) && !op2->TypeIs(TYP_FLOAT))
     {
         assert(op2->TypeIs(TYP_DOUBLE));
-        *pOp1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
+        *pOp1 = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
         return TYP_DOUBLE;
     }
 
     if (op1->TypeIs(TYP_DOUBLE) && !op2->TypeIs(TYP_DOUBLE))
     {
         assert(op2->TypeIs(TYP_FLOAT));
-        *pOp2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
+        *pOp2 = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
         return TYP_DOUBLE;
     }
 
@@ -8148,21 +8153,21 @@ void Importer::impAddCompareOpImplicitCasts(bool isUnsigned, GenTree*& op1, GenT
 
         if (op1->TypeIs(TYP_DOUBLE))
         {
-            op2 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
+            op2 = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, op2);
         }
         else if (op2->TypeIs(TYP_DOUBLE))
         {
-            op1 = gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
+            op1 = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, op1);
         }
     }
 #ifdef TARGET_64BIT
     else if (varTypeIsI(op1->GetType()) && varActualTypeIsInt(op2->GetType()))
     {
-        op2 = gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op2);
+        op2 = comp->gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op2);
     }
     else if (varTypeIsI(op2->GetType()) && varActualTypeIsInt(op1->GetType()))
     {
-        op1 = gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op1);
+        op1 = comp->gtNewOperNode(isUnsigned ? GT_UXT : GT_SXT, TYP_LONG, op1);
     }
 #endif
 }
@@ -8242,7 +8247,7 @@ GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_T
             if (isExact && !isCastClass)
             {
                 JITDUMP("Cast will fail, optimizing to return null\n");
-                GenTree* result = gtNewIconNode(0, TYP_REF);
+                GenTree* result = comp->gtNewIconNode(0, TYP_REF);
 
                 // If the cast was fed by a box, we can remove that too.
                 if (GenTreeBox* box = op1->IsBox())
@@ -8372,12 +8377,12 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
         GenTree* store = comp->gtNewLclStore(lcl, TYP_I_IMPL, op2);
 
-        op2    = gtNewCommaNode(store, comp->gtNewLclLoad(lcl, TYP_I_IMPL), TYP_I_IMPL);
+        op2    = comp->gtNewCommaNode(store, comp->gtNewLclLoad(lcl, TYP_I_IMPL), TYP_I_IMPL);
         op2Use = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
     }
 
-    GenTree* condMT    = gtNewOperNode(GT_NE, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
-    GenTree* condNull  = gtNewOperNode(GT_EQ, TYP_INT, op1Uses[1], gtNewIconNode(0, TYP_REF));
+    GenTree* condMT    = comp->gtNewOperNode(GT_NE, TYP_INT, comp->gtNewMethodTableLookup(op1Uses[0]), op2);
+    GenTree* condNull  = comp->gtNewOperNode(GT_EQ, TYP_INT, op1Uses[1], comp->gtNewIconNode(0, TYP_REF));
     GenTree* condFalse = op1Uses[2];
     GenTree* condTrue;
 
@@ -8393,7 +8398,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     }
     else
     {
-        condTrue = gtNewIconNode(0, TYP_REF);
+        condTrue = comp->gtNewIconNode(0, TYP_REF);
     }
 
     GenTree* qmarkMT   = gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
@@ -8648,7 +8653,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto DECODE_OPCODE;
 
             case CEE_LDNULL:
-                impPushOnStack(gtNewIconNode(0, TYP_REF));
+                impPushOnStack(comp->gtNewIconNode(0, TYP_REF));
                 break;
 
             case CEE_LDC_I4_M1:
@@ -8672,14 +8677,14 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 goto PUSH_I4CON;
             PUSH_I4CON:
                 JITDUMP(" %d", val);
-                impPushOnStack(gtNewIconNode(val));
+                impPushOnStack(comp->gtNewIconNode(val));
                 break;
 
             case CEE_LDC_I8:
             {
                 int64_t value = getI8LittleEndian(codeAddr);
                 JITDUMP(" 0x%016llx", value);
-                impPushOnStack(gtNewLconNode(value));
+                impPushOnStack(comp->gtNewLconNode(value));
                 break;
             }
 
@@ -8687,7 +8692,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 double value = getR8LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", value);
-                impPushOnStack(gtNewDconNode(value, TYP_DOUBLE));
+                impPushOnStack(comp->gtNewDconNode(value, TYP_DOUBLE));
                 break;
             }
 
@@ -8695,7 +8700,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
             {
                 float value = getR4LittleEndian(codeAddr);
                 JITDUMP(" %#.17g", value);
-                impPushOnStack(gtNewDconNode(value, TYP_FLOAT));
+                impPushOnStack(comp->gtNewDconNode(value, TYP_FLOAT));
                 break;
             }
 
@@ -8852,7 +8857,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 {
                     if (opts.compDbgCode)
                     {
-                        impSpillAllAppendTree(gtNewNothingNode());
+                        impSpillAllAppendTree(comp->gtNewNothingNode());
                     }
 
                     break;
@@ -8939,7 +8944,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                             op1 = gtNewGCBitcastNode(op1);
                         }
 
-                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                        op1 = comp->gtNewOperNode(GT_TRUNC, TYP_INT, op1);
                     }
 #endif
 
@@ -8989,7 +8994,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     else if ((lclTyp != op1->GetType()) && varTypeIsFloating(lclTyp) &&
                              varTypeIsFloating(op1->GetType()))
                     {
-                        op1 = gtNewOperNode(lclTyp == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, lclTyp, op1);
+                        op1 = comp->gtNewOperNode(lclTyp == TYP_DOUBLE ? GT_FXT : GT_FTRUNC, lclTyp, op1);
                     }
 
                     op1 = comp->gtNewLclStore(lcl, lclTyp, op1);
@@ -9100,7 +9105,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     verCurrentState.esStackDepth = 0;
                 }
 
-                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_VOID, nullptr));
+                impSpillNoneAppendTree(comp->gtNewOperNode(GT_RETFILT, TYP_VOID));
                 break;
 
             case CEE_ENDFILTER:
@@ -9138,7 +9143,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     if (op1->TypeIs(TYP_LONG))
                     {
                         // Tolerate native int/int64 even if the spec requires int32.
-                        op1 = gtNewOperNode(GT_TRUNC, TYP_INT, op1);
+                        op1 = comp->gtNewOperNode(GT_TRUNC, TYP_INT, op1);
                     }
                     else
                     {
@@ -9146,7 +9151,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     }
                 }
 
-                impSpillNoneAppendTree(gtNewOperNode(GT_RETFILT, TYP_INT, op1));
+                impSpillNoneAppendTree(comp->gtNewOperNode(GT_RETFILT, TYP_INT, op1));
                 break;
 
             case CEE_RET:
@@ -9483,7 +9488,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
 
                     op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper)
-                        GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
+                        GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ oper == GT_FMOD));
                 }
                 else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_OVF_SADD || oper == GT_OVF_UADD ||
                                                       oper == GT_SUB || oper == GT_OVF_SSUB || oper == GT_OVF_USUB)) ||
@@ -9521,12 +9526,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                          (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)))
                     {
                         // LONG multiplication/division usually requires helper calls on 32 bit targets.
-                        op1 = new (comp, GT_CALL) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
+                        op1 = new (comp, LargeOpOpcode()) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
                     }
                     else
 #endif
                     {
-                        op1 = gtNewOperNode(oper, type, op1, op2);
+                        op1 = comp->gtNewOperNode(oper, type, op1, op2);
                     }
 
                     if (op1->IsOverflowOp())
@@ -9562,7 +9567,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val; // operand to be shifted
                 RetypeLocalAddress(op1, op2);
                 type = varActualType(op1->GetType());
-                op1  = gtNewOperNode(oper, type, op1, op2);
+                op1  = comp->gtNewOperNode(oper, type, op1, op2);
                 impPushOnStack(op1);
                 break;
 
@@ -9570,13 +9575,13 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 op1 = impPopStack().val;
                 RetypeLocalAddress(op1);
                 type = varActualType(op1->GetType());
-                impPushOnStack(gtNewOperNode(GT_NOT, type, op1));
+                impPushOnStack(comp->gtNewOperNode(GT_NOT, type, op1));
                 break;
 
             case CEE_CKFINITE:
                 op1  = impPopStack().val;
                 type = op1->GetType();
-                op1  = gtNewOperNode(GT_CKFINITE, type, op1);
+                op1  = comp->gtNewOperNode(GT_CKFINITE, type, op1);
                 op1->AddSideEffects(GTF_EXCEPT);
                 impPushOnStack(op1);
                 break;
@@ -9663,7 +9668,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                     // Create the comparison operator and try to fold it
                     oper = (opcode == CEE_BRTRUE || opcode == CEE_BRTRUE_S) ? GT_NE : GT_EQ;
-                    op1  = gtNewOperNode(oper, TYP_INT, op1, op2);
+                    op1  = comp->gtNewOperNode(oper, TYP_INT, op1, op2);
                 }
 
             // fall through
@@ -9712,7 +9717,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     EnsureStackSpilled(false DEBUGARG("debug info spill"));
                 }
 
-                impSpillAllAppendTree(gtNewOperNode(GT_JTRUE, TYP_VOID, op1));
+                impSpillAllAppendTree(comp->gtNewOperNode(GT_JTRUE, TYP_VOID, op1));
                 break;
 
             case CEE_CEQ:
@@ -9761,7 +9766,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                            (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
-                op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
+                op1 = comp->gtNewOperNode(oper, TYP_INT, op1, op2);
 
                 // TODO: setting both flags when only one is appropriate.
                 if (uns)
@@ -9848,7 +9853,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                            (varTypeIsI(op1->GetType()) == varTypeIsI(op2->GetType())));
                 }
 
-                op1 = gtNewOperNode(oper, TYP_INT, op1, op2);
+                op1 = comp->gtNewOperNode(oper, TYP_INT, op1, op2);
 
                 // TODO: setting both flags when only one is appropriate.
                 if (uns)
@@ -9867,7 +9872,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // TODO-MIKE-Review: This should be BADCODE.
                 assert(varActualTypeIsIntOrI(op1->GetType()));
 
-                impSpillAllAppendTree(gtNewOperNode(GT_SWITCH, TYP_VOID, op1));
+                impSpillAllAppendTree(comp->gtNewOperNode(GT_SWITCH, TYP_VOID, op1));
                 break;
 
             case CEE_CONV_OVF_I1:
@@ -9989,7 +9994,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     type = varActualType(type);
                     oper = GT_NEG;
                 }
-                impPushOnStack(gtNewOperNode(oper, type, op1));
+                impPushOnStack(comp->gtNewOperNode(oper, type, op1));
                 break;
 
             case CEE_POP:
@@ -10136,7 +10141,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 // Allow an upcast of op1 from a 32-bit Int into TYP_I_IMPL for x86 JIT compatiblity
                 if (varActualTypeIsInt(op1->GetType()))
                 {
-                    op1 = gtNewOperNode(GT_SXT, TYP_LONG, op1);
+                    op1 = comp->gtNewOperNode(GT_SXT, TYP_LONG, op1);
                 }
 #endif
 
@@ -10532,7 +10537,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Class);
                 JITDUMP(" %08X", resolvedToken.token);
 
-                impPushOnStack(gtNewIconNode(vm->getClassSize(resolvedToken.hClass)));
+                impPushOnStack(comp->gtNewIconNode(vm->getClassSize(resolvedToken.hClass)));
                 break;
 
             case CEE_CASTCLASS:
@@ -10771,8 +10776,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else
                 {
-                    op2 = gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
-                    op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
+                    op2 = comp->gtNewIconNode(OFFSETOF__CORINFO_Array__length, TYP_I_IMPL);
+                    op1 = comp->gtNewOperNode(GT_ADD, TYP_BYREF, op1, op2);
                     op1 = comp->gtNewIndLoad(TYP_INT, op1);
                     op1->AddSideEffects(GTF_EXCEPT);
                 }
@@ -10859,7 +10864,7 @@ void Importer::ImportMkRefAny(const uint8_t* codeAddr)
     assert(op1->TypeIs(TYP_BYREF, TYP_I_IMPL));
 
     // MKREFANY returns a struct.  op2 is the class token.
-    op1 = gtNewOperNode(GT_MKREFANY, TYP_STRUCT, op1, op2);
+    op1 = comp->gtNewOperNode(GT_MKREFANY, TYP_STRUCT, op1, op2);
 
     impPushOnStack(op1, typeInfo(TI_STRUCT, impGetRefAnyClass()));
 }
@@ -10979,7 +10984,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         {
             // Result is nullptr
             JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
-            op1 = gtNewIconNode(0, TYP_I_IMPL);
+            op1 = comp->gtNewIconNode(0, TYP_I_IMPL);
         }
         else if ((allocSize > 0) && !impBlockIsInALoop(block))
         {
@@ -11021,7 +11026,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
             return;
         }
 
-        op1 = gtNewOperNode(GT_LCLHEAP, TYP_I_IMPL, op2);
+        op1 = comp->gtNewOperNode(GT_LCLHEAP, TYP_I_IMPL, op2);
         // May throw a stack overflow exception. Obviously, we don't want locallocs to be CSE'd.
         op1->gtFlags |= (GTF_EXCEPT | GTF_DONT_CSE);
 
@@ -11233,18 +11238,18 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
                     GenTree* op1Uses[2];
                     impMakeMultiUse(op1, 2, op1Uses, CHECK_SPILL_ALL DEBUGARG("optimized unbox clone"));
 
-                    GenTree* boxPayloadOffset  = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                    GenTree* boxPayloadAddress = gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
-                    GenTree* nullcheck         = gtNewNullCheck(op1Uses[1]);
-                    impPushOnStack(gtNewCommaNode(nullcheck, boxPayloadAddress));
+                    GenTree* boxPayloadOffset  = comp->gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+                    GenTree* boxPayloadAddress = comp->gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[0], boxPayloadOffset);
+                    GenTree* nullcheck         = comp->gtNewNullCheck(op1Uses[1]);
+                    impPushOnStack(comp->gtNewCommaNode(nullcheck, boxPayloadAddress));
 
                     return;
                 }
 
                 // For UNBOX.ANY load the struct from the box payload byref (the load will nullcheck)
                 assert(isUnboxAny);
-                GenTree* boxPayloadOffset = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-                op1                       = gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
+                GenTree* boxPayloadOffset = comp->gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+                op1                       = comp->gtNewOperNode(GT_ADD, TYP_BYREF, op1, boxPayloadOffset);
 
                 goto LOAD_VALUE;
             }
@@ -11272,7 +11277,7 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         GenTree* op1Uses[3];
         impMakeMultiUse(op1, 3, op1Uses, CHECK_SPILL_ALL DEBUGARG("inline unbox temp"));
 
-        GenTree* condBox = gtNewOperNode(GT_EQ, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
+        GenTree* condBox = comp->gtNewOperNode(GT_EQ, TYP_INT, gtNewMethodTableLookup(op1Uses[0]), op2);
 
         op2 = impTokenToHandle(&resolvedToken);
         if (op2 == nullptr)
@@ -11281,8 +11286,8 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
             return;
         }
 
-        op1 = gtNewHelperCallNode(helper, TYP_VOID, comp->gtNewCallArgs(op2, op1Uses[1]));
-        op1 = gtNewQmarkNode(TYP_VOID, condBox, gtNewNothingNode(), op1);
+        op1 = comp->gtNewHelperCallNode(helper, TYP_VOID, comp->gtNewCallArgs(op2, op1Uses[1]));
+        op1 = comp->gtNewQmarkNode(TYP_VOID, condBox, comp->gtNewNothingNode(), op1);
 
         // QMARK nodes cannot reside on the evaluation stack. Because there
         // may be other trees on the evaluation stack that side-effect the
@@ -11294,8 +11299,8 @@ void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAn
         // to the beginning of the value-type. Today this means adjusting
         // past the base of the objects vtable field which is pointer sized.
 
-        op2 = gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
-        op1 = gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[2], op2);
+        op2 = comp->gtNewIconNode(TARGET_POINTER_SIZE, TYP_I_IMPL);
+        op1 = comp->gtNewOperNode(GT_ADD, TYP_BYREF, op1Uses[2], op2);
     }
     else
     {
@@ -11669,7 +11674,7 @@ void Importer::ImportNewArr(const uint8_t* codeAddr, BasicBlock* block)
         }
         else
         {
-            lengthOp = gtNewOperNode(GT_SXT, TYP_LONG, lengthOp);
+            lengthOp = comp->gtNewOperNode(GT_SXT, TYP_LONG, lengthOp);
         }
     }
 #endif // TARGET_64BIT
@@ -11787,7 +11792,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
         {
             // This is the case for variable-sized objects that are not arrays.
             // In this case, call the constructor with a null 'this' pointer.
-            newObjThis = gtNewIconNode(0, TYP_REF);
+            newObjThis = comp->gtNewIconNode(0, TYP_REF);
         }
 
         block->bbFlags |= BBF_HAS_NEWOBJ;
@@ -11895,7 +11900,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
 
         if (fgVarNeedsExplicitZeroInit(lcl, bbInALoop, bbIsReturn))
         {
-            impSpillNoneAppendTree(comp->gtNewLclStore(lcl, lcl->GetType(), gtNewIconNode(0)));
+            impSpillNoneAppendTree(comp->gtNewLclStore(lcl, lcl->GetType(), comp->gtNewIconNode(0)));
         }
         else
         {
@@ -12200,17 +12205,17 @@ GenTreeCall* Importer::fgOptimizeDelegateConstructor(GenTreeCall*            cal
 
             if (void* arg5 = ctorData.pArg5)
             {
-                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg5, HandleKind::MethodAddr));
+                comp->gtPrependNewCallArg(addArgs, comp->gtNewIconHandleNode(arg5, HandleKind::MethodAddr));
             }
 
             if (void* arg4 = ctorData.pArg4)
             {
-                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg4, HandleKind::MethodAddr));
+                comp->gtPrependNewCallArg(addArgs, comp->gtNewIconHandleNode(arg4, HandleKind::MethodAddr));
             }
 
             if (void* arg3 = ctorData.pArg3)
             {
-                comp->gtPrependNewCallArg(addArgs, gtNewIconHandleNode(arg3, HandleKind::MethodAddr));
+                comp->gtPrependNewCallArg(addArgs, comp->gtNewIconHandleNode(arg3, HandleKind::MethodAddr));
             }
 
             call->GetThisArg()->GetNext()->GetNext()->SetNext(addArgs);
@@ -12563,7 +12568,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
     {
         assert(info.retDesc.GetRegCount() == 0);
 
-        ret = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+        ret = comp->gtNewOperNode(GT_RETURN, TYP_VOID);
     }
     else
     {
@@ -12612,7 +12617,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
 
             if (info.retDesc.GetRegCount() == 0)
             {
-                ret = new (comp, GT_RETURN) GenTreeOp(GT_RETURN, TYP_VOID);
+                ret = comp->gtNewOperNode(GT_RETURN, TYP_VOID);
             }
             else
             {
@@ -12621,7 +12626,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
                 assert(info.retDesc.GetRegCount() == 1);
                 assert(info.retDesc.GetRegType(0) == TYP_BYREF);
 
-                ret = gtNewOperNode(GT_RETURN, TYP_BYREF, comp->gtNewLclLoad(retBuffLcl, TYP_BYREF));
+                ret = comp->gtNewOperNode(GT_RETURN, TYP_BYREF, comp->gtNewLclLoad(retBuffLcl, TYP_BYREF));
             }
         }
         else
@@ -12640,7 +12645,7 @@ void Importer::impReturnInstruction(INDEBUG(bool isTailcall))
             }
 #endif
 
-            ret = gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
+            ret = comp->gtNewOperNode(GT_RETURN, varActualType(info.compRetType), value);
         }
     }
 
@@ -12960,7 +12965,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "native int", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique.
-                tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
+                tree = comp->gtNewOperNode(GT_SXT, TYP_LONG, tree);
             }
             // Consider the case where one branch left a 'byref' on the stack and the other leaves
             // an 'int'. On 32-bit, this is allowed since they are the same size. JIT64 managed to
@@ -12980,7 +12985,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "byref", but this block only pushes an "int".
                 // Insert a sign-extension to "native int" so we match the clique size.
-                tree = gtNewOperNode(GT_SXT, TYP_LONG, tree);
+                tree = comp->gtNewOperNode(GT_SXT, TYP_LONG, tree);
             }
 #endif // TARGET_64BIT
             else if (tree->TypeIs(TYP_DOUBLE) && spillTempLcl->TypeIs(TYP_FLOAT))
@@ -12994,7 +12999,7 @@ bool Importer::impSpillStackAtBlockEnd(BasicBlock* block)
             {
                 // Spill clique has decided this should be "double", but this block only pushes a "float".
                 // Insert a cast to "double" so we match the clique.
-                tree = gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
+                tree = comp->gtNewOperNode(GT_FXT, TYP_DOUBLE, tree);
             }
 
             // If branchStmt has references to spillTempLclNum (can only happen if we are spilling to
@@ -15718,7 +15723,7 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
     else
 #endif
     {
-        initValue = gtNewIconNode(0);
+        initValue = comp->gtNewIconNode(0);
     }
 
     GenTree* store = nullptr;
@@ -15818,7 +15823,7 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
     {
         if (!initValue->IsIntegralConst(0))
         {
-            initValue = gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
+            initValue = comp->gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
         }
 
         ClassLayout* layout = typGetBlkLayout(sizeIntCon->GetUInt32Value());
@@ -15942,7 +15947,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
         {
             // Can't change op1 to a NOP here because it can be referenced from the spill
             // clique, if we ever need to reimport we need a valid LCL_LOAD for it.
-            op1 = gtNewNothingNode();
+            op1 = comp->gtNewNothingNode();
         }
     }
 
@@ -15974,7 +15979,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     {
         if (IdValue != 0)
         {
-            dllRef = gtNewIconNode(IdValue * 4, TYP_I_IMPL);
+            dllRef = comp->gtNewIconNode(IdValue * 4, TYP_I_IMPL);
         }
     }
     else
@@ -15982,14 +15987,14 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
         dllRef = comp->gtNewIndLoad(TYP_I_IMPL, pIdAddr, HandleKind::ConstData, true);
 
         // Next we multiply by 4
-        dllRef = gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, gtNewIconNode(4, TYP_I_IMPL));
+        dllRef = comp->gtNewOperNode(GT_MUL, TYP_I_IMPL, dllRef, comp->gtNewIconNode(4, TYP_I_IMPL));
     }
 
     constexpr size_t WIN32_TLS_SLOTS = 0x2C; // Offset from fs:[0] where the pointer to the slots resides
 
     // Mark this ICON as a TLS_HDL, codegen will use FS:[cns]
 
-    GenTree* addr = gtNewIconHandleNode(reinterpret_cast<void*>(WIN32_TLS_SLOTS), HandleKind::TLS);
+    GenTree* addr = comp->gtNewIconHandleNode(reinterpret_cast<void*>(WIN32_TLS_SLOTS), HandleKind::TLS);
 
     if ((fieldInfo.fieldFlags & CORINFO_FLG_FIELD_INITCLASS) != 0)
     {
@@ -16001,7 +16006,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
 
     if (dllRef != nullptr)
     {
-        addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, dllRef);
+        addr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, dllRef);
     }
 
     addr = comp->gtNewIndLoad(TYP_I_IMPL, addr);
@@ -16010,7 +16015,7 @@ GenTree* Importer::CreateStaticFieldTlsAccess(OPCODE                    opcode,
     {
         // Add the TLS static field offset. Don't bother recording a field sequence
         // for the field offset as it won't be recognized during value numbering.
-        addr = gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
+        addr = comp->gtNewOperNode(GT_ADD, TYP_I_IMPL, addr, comp->gtNewIconNode(fieldInfo.offset, TYP_I_IMPL));
     }
 #endif // WINDOWS_X86_ABI
 
@@ -16714,26 +16719,6 @@ Statement* Importer::gtNewStmt(GenTree* expr, IL_OFFSETX offset)
     return comp->gtNewStmt(expr, offset);
 }
 
-GenTreeIntCon* Importer::gtNewIconNode(ssize_t value, var_types type)
-{
-    return comp->gtNewIconNode(value, type);
-}
-
-GenTreeIntCon* Importer::gtNewIconNode(unsigned fieldOffset, FieldSeqNode* fieldSeq)
-{
-    return comp->gtNewIconNode(fieldOffset, fieldSeq);
-}
-
-GenTree* Importer::gtNewLconNode(int64_t value)
-{
-    return comp->gtNewLconNode(value);
-}
-
-GenTreeIntCon* Importer::gtNewIconHandleNode(void* value, HandleKind kind, FieldSeqNode* fieldSeq)
-{
-    return comp->gtNewIconHandleNode(value, kind, fieldSeq);
-}
-
 GenTree* Importer::gtNewConstLookupTree(void* value, void* pValue, HandleKind kind, void* compileTimeHandle)
 {
     return comp->gtNewConstLookupTree(value, pValue, kind, compileTimeHandle);
@@ -16769,29 +16754,14 @@ GenTree* Importer::gtNewOneConNode(var_types type)
     return comp->gtNewOneConNode(type);
 }
 
-GenTree* Importer::gtNewDconNode(double value, var_types type)
-{
-    return comp->gtNewDconNode(value, type);
-}
-
 GenTreeStrCon* Importer::gtNewSconNode(CORINFO_MODULE_HANDLE module, mdToken token)
 {
     return comp->gtNewSconNode(module, token);
 }
 
-GenTree* Importer::gtNewNothingNode()
-{
-    return comp->gtNewNothingNode();
-}
-
 GenTree* Importer::gtUnusedValNode(GenTree* expr)
 {
     return comp->gtUnusedValNode(expr);
-}
-
-GenTreeUnOp* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1)
-{
-    return comp->gtNewOperNode(oper, type, op1);
 }
 
 GenTree* Importer::gtNewNullCheck(GenTree* addr)
@@ -16809,20 +16779,10 @@ GenTree* Importer::gtNewGCBitcastNode(GenTree* op1)
     }
     else
     {
-        op1 = gtNewOperNode(GT_BITCAST, TYP_I_IMPL, op1);
+        op1 = comp->gtNewOperNode(GT_BITCAST, TYP_I_IMPL, op1);
     }
 
     return op1;
-}
-
-GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, CORINFO_FIELD_HANDLE handle, unsigned offset)
-{
-    return comp->gtNewFieldAddr(addr, handle, offset);
-}
-
-GenTreeFieldAddr* Importer::gtNewFieldAddr(GenTree* addr, FieldSeqNode* fieldSeq, unsigned offset)
-{
-    return comp->gtNewFieldAddr(addr, fieldSeq, offset);
 }
 
 GenTree* Importer::gtNewStringLiteralNode(InfoAccessType iat, void* value)
@@ -16838,11 +16798,6 @@ GenTreeIntCon* Importer::gtNewStringLiteralLength(GenTreeStrCon* node)
 GenTreeIndir* Importer::gtNewMethodTableLookup(GenTree* obj)
 {
     return comp->gtNewMethodTableLookup(obj);
-}
-
-GenTreeOp* Importer::gtNewOperNode(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2)
-{
-    return comp->gtNewOperNode(oper, type, op1, op2);
 }
 
 GenTreeOp* Importer::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
@@ -17124,7 +17079,7 @@ void Importer::ImportConvToFloat(var_types toType, genTreeOps itofOper)
         oper = itofOper;
     }
 
-    GenTree* result = gtNewOperNode(oper, toType, value);
+    GenTree* result = comp->gtNewOperNode(oper, toType, value);
 
     if (value->IsNumericConst() && opts.OptimizationEnabled())
     {
@@ -17145,12 +17100,12 @@ void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigne
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode(toUnsigned ? GT_OVF_FTOU : GT_OVF_FTOS, varActualType(toType), value);
+        value = comp->gtNewOperNode(toUnsigned ? GT_OVF_FTOU : GT_OVF_FTOS, varActualType(toType), value);
         value->AddSideEffects(GTF_EXCEPT);
 
         if (varTypeIsSmallInt(toType))
         {
-            value = gtNewOperNode(GT_OVF_SCONV, toType, value);
+            value = comp->gtNewOperNode(GT_OVF_SCONV, toType, value);
         }
     }
     else if (varTypeIsSmallInt(toType))
@@ -17158,12 +17113,12 @@ void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigne
 #ifndef TARGET_64BIT
         if (fromType == TYP_LONG)
         {
-            value = gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
+            value = comp->gtNewOperNode(fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC, TYP_INT, value);
             value->AddSideEffects(GTF_EXCEPT);
         }
 #endif
 
-        value = gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, value);
+        value = comp->gtNewOperNode(fromUnsigned ? GT_OVF_UCONV : GT_OVF_SCONV, toType, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
     else if ((toType == TYP_INT) && (fromType == TYP_LONG))
@@ -17179,19 +17134,19 @@ void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigne
             oper = fromUnsigned ? GT_OVF_TRUNC : GT_OVF_STRUNC;
         }
 
-        value = gtNewOperNode(oper, TYP_INT, value);
+        value = comp->gtNewOperNode(oper, TYP_INT, value);
         value->AddSideEffects(GTF_EXCEPT);
     }
     else if ((toType == TYP_LONG) && (fromType != TYP_LONG))
     {
         if (toUnsigned && !fromUnsigned && !varTypeIsSmallUnsigned(fromType))
         {
-            value = gtNewOperNode(GT_OVF_U, TYP_INT, value);
+            value = comp->gtNewOperNode(GT_OVF_U, TYP_INT, value);
             value->AddSideEffects(GTF_EXCEPT);
             fromUnsigned = true;
         }
 
-        value = gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
+        value = comp->gtNewOperNode(fromUnsigned ? GT_UXT : GT_SXT, TYP_LONG, value);
     }
     else if (fromUnsigned != toUnsigned)
     {
@@ -17199,7 +17154,7 @@ void Importer::ImportConvOvf(var_types toType, bool toUnsigned, bool fromUnsigne
 
         if (!varTypeIsSmallUnsigned(fromType))
         {
-            value = gtNewOperNode(GT_OVF_U, varActualType(fromType), value);
+            value = comp->gtNewOperNode(GT_OVF_U, varActualType(fromType), value);
             value->AddSideEffects(GTF_EXCEPT);
         }
     }
@@ -17217,8 +17172,8 @@ void Importer::ImportSmallIntConv(var_types toType)
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode(GT_FTOS, TYP_INT, value);
-        value = gtNewOperNode(GT_CONV, toType, value);
+        value = comp->gtNewOperNode(GT_FTOS, TYP_INT, value);
+        value = comp->gtNewOperNode(GT_CONV, toType, value);
     }
     else
     {
@@ -17266,11 +17221,11 @@ void Importer::ImportSmallIntConv(var_types toType)
 #ifndef TARGET_64BIT
         else if (fromType == TYP_LONG)
         {
-            value = gtNewOperNode(GT_TRUNC, TYP_INT, value);
+            value = comp->gtNewOperNode(GT_TRUNC, TYP_INT, value);
         }
 #endif
 
-        value = gtNewOperNode(GT_CONV, toType, value);
+        value = comp->gtNewOperNode(GT_CONV, toType, value);
 
         if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
         {
@@ -17291,7 +17246,7 @@ void Importer::ImportConv(var_types toType, bool toUnsigned)
 
     if (varTypeIsFloating(fromType))
     {
-        value = gtNewOperNode(toUnsigned ? GT_FTOU : GT_FTOS, toType, value);
+        value = comp->gtNewOperNode(toUnsigned ? GT_FTOU : GT_FTOS, toType, value);
     }
     else if ((fromType == TYP_LONG) != (toType == TYP_LONG))
     {
@@ -17306,7 +17261,7 @@ void Importer::ImportConv(var_types toType, bool toUnsigned)
             oper = GT_TRUNC;
         }
 
-        value = gtNewOperNode(oper, toType, value);
+        value = comp->gtNewOperNode(oper, toType, value);
 
         if (value->AsUnOp()->GetOp(0)->IsNumericConst() && opts.OptimizationEnabled())
         {

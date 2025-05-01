@@ -11692,19 +11692,8 @@ GenTree* Compiler::fgMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (compStressCompile(STRESS_GENERIC_CHECK, 0))
     {
-        GenTree* copy;
-
-        if (GenTree::s_gtNodeSizes[tree->GetOper()] == TREE_NODE_SZ_SMALL)
-        {
-            copy = gtNewLargeOperNode(GT_ADD, TYP_INT);
-        }
-        else
-        {
-            copy = new (this, GT_CALL) GenTreeCall(TYP_VOID, nullptr);
-        }
-
+        GenTree* copy = new (this, LargeOpOpcode()) GenTree(GT_NOP, TYP_VOID);
         copy->ReplaceWith(tree);
-
         DEBUG_DESTROY_NODE(tree);
         tree = copy;
     }

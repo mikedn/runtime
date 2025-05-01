@@ -550,7 +550,7 @@ GenTree* DecomposeLongs::DecomposeNot(LIR::Use& use)
     node->SetType(TYP_INT);
     node->SetOp(0, loValue);
 
-    GenTree* hiNode = new (m_compiler, GT_NOT) GenTreeOp(GT_NOT, TYP_INT, hiValue, nullptr);
+    GenTree* hiNode = new (m_compiler, GT_NOT) GenTreeOp(GT_NOT, TYP_INT, hiValue);
     Range().InsertAfter(node, hiNode);
 
     return FinalizeDecomposition(use, node, hiNode, hiNode);
@@ -570,7 +570,7 @@ GenTree* DecomposeLongs::DecomposeBswap(LIR::Use& use)
     node->SetType(TYP_INT);
     node->SetOp(0, loValue);
 
-    GenTree* hiNode = new (m_compiler, GT_BSWAP) GenTreeOp(GT_BSWAP, TYP_INT, hiValue, nullptr);
+    GenTree* hiNode = new (m_compiler, GT_BSWAP) GenTreeOp(GT_BSWAP, TYP_INT, hiValue);
     Range().InsertAfter(node, hiNode);
 
     return FinalizeDecomposition(use, hiNode, node, hiNode);

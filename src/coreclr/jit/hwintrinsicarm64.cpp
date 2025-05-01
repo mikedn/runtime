@@ -418,7 +418,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return nullptr;
             }
 
-            op2 = gtNewIconNode(0);
+            op2 = comp->gtNewIconNode(0);
             op1 = impSIMDPopStack(sig.paramType[0]);
             return gtNewSimdGetElementNode(sig.paramType[0], sig.retType, op1, op2);
 
@@ -456,7 +456,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             op1 = impSIMDPopStack(TYP_SIMD16);
             op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType, 8);
             op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, 16, op1, op2,
-                                           gtNewIconNode(8 / varTypeSize(eltType)));
+                                           comp->gtNewIconNode(8 / varTypeSize(eltType)));
             return gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
 
         default:
