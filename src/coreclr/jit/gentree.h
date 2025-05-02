@@ -2188,9 +2188,8 @@ class GenTreeTernaryOp : public GenTreeOp
 public:
     GenTree* gtOp3;
 
-    GenTreeTernaryOp(
-        genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3 DEBUGARG(bool largeNode = false))
-        : GenTreeOp(oper, type, op1, op2 DEBUGARG(largeNode)), gtOp3(op3)
+    GenTreeTernaryOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2, GenTree* op3)
+        : GenTreeOp(oper, type, op1, op2), gtOp3(op3)
     {
         assert(op1 != nullptr);
         assert(op2 != nullptr);
@@ -2387,7 +2386,7 @@ public:
 class GenTreeIntConCommon : public GenTree
 {
 protected:
-    GenTreeIntConCommon(genTreeOps oper, var_types type) : GenTree(oper, type DEBUGARG(/* largeNode */ false))
+    GenTreeIntConCommon(genTreeOps oper, var_types type) : GenTree(oper, type)
     {
     }
 
@@ -2772,12 +2771,12 @@ class GenTreeStrCon : public GenTree
 
 public:
     GenTreeStrCon(CORINFO_MODULE_HANDLE handle, mdToken token)
-        : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(/* largeNode */ false)), handle(handle), token(token)
+        : GenTree(GT_CNS_STR, TYP_REF), handle(handle), token(token)
     {
     }
 
     GenTreeStrCon(const GenTreeStrCon* copyFrom)
-        : GenTree(GT_CNS_STR, TYP_REF DEBUGARG(/* largeNode */ false)), handle(copyFrom->handle), token(copyFrom->token)
+        : GenTree(GT_CNS_STR, TYP_REF), handle(copyFrom->handle), token(copyFrom->token)
     {
     }
 
@@ -2813,8 +2812,8 @@ protected:
         assert(lcl != nullptr);
     }
 
-    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type, value DEBUGARG(largeNode)), m_lcl(lcl)
+    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl, GenTree* value)
+        : GenTreeUnOp(oper, type, value), m_lcl(lcl)
     {
         assert(lcl != nullptr);
         gtFlags |= GTF_ASG;
@@ -2853,8 +2852,7 @@ protected:
     {
     }
 
-    GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclRef(GT_LCL_STORE, type, lcl, value DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, LclVarDsc* lcl, GenTree* value) : GenTreeLclRef(GT_LCL_STORE, type, lcl, value)
     {
     }
 
@@ -2903,8 +2901,7 @@ public:
 class GenTreeLclStore : public GenTreeLclVar
 {
 public:
-    GenTreeLclStore(var_types type, LclVarDsc* lcl, GenTree* value DEBUGARG(bool largeNode = false))
-        : GenTreeLclVar(type, lcl, value DEBUGARG(largeNode))
+    GenTreeLclStore(var_types type, LclVarDsc* lcl, GenTree* value) : GenTreeLclVar(type, lcl, value)
     {
     }
 
@@ -6607,7 +6604,7 @@ class GenTreeAllocObj final : public GenTreeUnOp
 
 public:
     GenTreeAllocObj(CorInfoHelpFunc helper, bool helperHasSideEffects, CORINFO_CLASS_HANDLE classHandle, GenTree* op)
-        : GenTreeUnOp(GT_ALLOCOBJ, TYP_REF, op DEBUGARG(/*largeNode*/ true))
+        : GenTreeUnOp(GT_ALLOCOBJ, TYP_REF, op)
         , helper(helper)
         , helperHasSideEffects(helperHasSideEffects)
         , classHandle(classHandle)
@@ -6665,9 +6662,7 @@ class GenTreeRuntimeLookup final : public GenTreeUnOp
 
 public:
     GenTreeRuntimeLookup(CORINFO_GENERIC_HANDLE handle, CorInfoGenericHandleType kind, GenTree* tree)
-        : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->GetType(), tree DEBUGARG(/* largeNode */ false))
-        , handle(handle)
-        , kind(kind)
+        : GenTreeUnOp(GT_RUNTIMELOOKUP, tree->GetType(), tree), handle(handle), kind(kind)
     {
         assert(handle != nullptr);
         assert(tree != nullptr);
@@ -6972,7 +6967,7 @@ class GenTreeCC final : public GenTree
 
 public:
     GenTreeCC(genTreeOps oper, GenCondition condition, var_types type = TYP_VOID)
-        : GenTree(oper, type DEBUGARG(/*largeNode*/ false)), condition(condition)
+        : GenTree(oper, type), condition(condition)
     {
         assert(OperIs(GT_JCC, GT_SETCC));
     }
