@@ -7128,7 +7128,7 @@ void Compiler::dmpLIRNode(GenTree* node)
                 case INS_and:
                 case INS_orr:
                 case INS_eor:
-                    printf(", 0x%x", DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize()));
+                    printf(", 0x%x", Arm64Imm::DecodeBitMaskImm(instr->GetImmediate(), instr->GetSize()));
                     break;
 #endif
                 default:
@@ -11348,6 +11348,23 @@ bool GenTreeHWIntrinsic::IsMemoryLoadOrStore() const
 }
 
 #endif // FEATURE_HW_INTRINSICS
+
+GenTreeInstr::GenTreeInstr(GenTreeInstr* from, Compiler* compiler)
+    : GenTree(from->GetOper(), from->GetType())
+    , m_ins(from->m_ins)
+    , m_size(from->m_size)
+#ifdef TARGET_ARMARCH
+    , m_opt(from->m_opt)
+#endif
+    , m_imm(from->m_imm)
+{
+    SetNumOps(from->m_numOps, compiler->getAllocator(CMK_ASTNode));
+
+    for (unsigned i = 0; i < from->m_numOps; i++)
+    {
+        SetOp(i, compiler->gtCloneExpr(from->GetOp(i)));
+    }
+}
 
 #if FEATURE_MULTIREG_RET
 void ReturnTypeDesc::InitializeStruct(Compiler* comp, ClassLayout* retLayout)

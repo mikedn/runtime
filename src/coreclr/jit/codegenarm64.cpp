@@ -8429,11 +8429,11 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
             case INS_and:
             case INS_orr:
             case INS_eor:
-                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, DecodeBitmaskImm(imm, attr));
+                GetEmitter()->emitIns_R_R_I(ins, attr, dstReg, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
                 break;
 
             case INS_tst:
-                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, DecodeBitmaskImm(imm, attr));
+                GetEmitter()->emitIns_R_I(ins, attr, srcReg1, Arm64Imm::DecodeBitMaskImm(imm, attr));
                 break;
 
             case INS_mvn:

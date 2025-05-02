@@ -248,6 +248,28 @@ struct insGroup
 #endif
 };
 
+bool IsMovIns(instruction ins);
+#ifdef TARGET_ARM
+bool IsLoadIns(instruction ins);
+#endif
+
+enum emitJumpKind
+{
+    EJ_NONE,
+    EJ_jmp,
+#define CC_DEF(en, ...) EJ_##en,
+#include "emitjmps.h"
+};
+
+instruction JumpKindToJcc(emitJumpKind jumpKind);
+#ifdef TARGET_XARCH
+instruction JumpKindToSetcc(emitJumpKind jumpKind);
+#endif
+emitJumpKind ReverseJumpKind(emitJumpKind jumpKind);
+#ifdef TARGET_ARM64
+insCond JumpKindToInsCond(emitJumpKind jumpKind);
+#endif
+
 enum insFormat : unsigned
 {
 #define IF_DEF(en, ...) IF_##en,

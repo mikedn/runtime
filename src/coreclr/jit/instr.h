@@ -69,23 +69,9 @@ enum instruction : unsigned
     INS_COUNT = INS_none
 };
 
-bool IsMovIns(instruction ins);
-
-INDEBUG(const char* insName(instruction ins);)
-
-enum emitJumpKind
-{
-    EJ_NONE,
-    EJ_jmp,
-#define CC_DEF(en, ...) EJ_##en,
-#include "emitjmps.h"
-};
-
-instruction JumpKindToJcc(emitJumpKind jumpKind);
-#ifdef TARGET_XARCH
-instruction JumpKindToSetcc(emitJumpKind jumpKind);
+#ifdef DEBUG
+const char* insName(instruction ins);
 #endif
-emitJumpKind ReverseJumpKind(emitJumpKind jumpKind);
 
 #ifdef TARGET_ARM
 
@@ -109,11 +95,12 @@ enum insOpts : unsigned
     INS_OPTS_ROR
 };
 
-INDEBUG(const char* insOptsName(insOpts opt);)
-
-bool IsLoadIns(instruction ins);
+#ifdef DEBUG
+const char* insOptsName(insOpts opt);
+#endif
 
 #endif // TARGET_ARM
+
 #ifdef TARGET_ARM64
 
 enum insOpts : unsigned
@@ -172,7 +159,9 @@ enum insOpts : unsigned
     INS_OPTS_D_TO_H, // Double to Half
 };
 
-INDEBUG(const char* insOptsName(insOpts opt);)
+#ifdef DEBUG
+const char* insOptsName(insOpts opt);
+#endif
 
 enum insCond : uint8_t
 {
@@ -194,8 +183,6 @@ enum insCond : uint8_t
     INS_COND_GT,
     INS_COND_LE,
 };
-
-insCond JumpKindToInsCond(emitJumpKind jumpKind);
 
 enum insCflags : uint8_t
 {
@@ -238,6 +225,7 @@ enum insBarrier : unsigned
     INS_BARRIER_ST = 14,
     INS_BARRIER_SY = 15,
 };
+
 #endif // TARGET_ARM64
 
 enum GCtype : unsigned
@@ -247,7 +235,6 @@ enum GCtype : unsigned
     GCT_BYREF
 };
 
-#undef EA_UNKNOWN
 enum emitAttr : unsigned
 {
     EA_UNKNOWN   = 0x000,

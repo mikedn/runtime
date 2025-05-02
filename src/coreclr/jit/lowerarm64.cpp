@@ -162,14 +162,9 @@ static bool CanEncodeBitmaskImm(int64_t imm, emitAttr size, unsigned* bitmaskImm
     return Arm64Imm::IsBitMaskImm(imm, size, bitmaskImm);
 }
 
-int64_t DecodeBitmaskImm(unsigned encoded, emitAttr size)
-{
-    return Arm64Imm::DecodeBitMaskImm(encoded, size);
-}
-
 static int64_t DecodeBitmaskImm(GenTreeInstr* instr)
 {
-    return DecodeBitmaskImm(instr->GetImmediate(), instr->GetSize());
+    return Arm64Imm::DecodeBitMaskImm(instr->GetImmediate(), instr->GetSize());
 }
 
 class BitField
