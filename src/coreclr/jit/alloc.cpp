@@ -3,6 +3,8 @@
 
 #include "jitpch.h"
 
+char CompIAllocator::m_zeroLenAlloc;
+
 //------------------------------------------------------------------------
 // ArenaAllocator::bypassHostAllocator:
 //    Indicates whether or not the ArenaAllocator should bypass the JIT
@@ -31,18 +33,6 @@ bool ArenaAllocator::bypassHostAllocator()
 size_t ArenaAllocator::getDefaultPageSize()
 {
     return DEFAULT_PAGE_SIZE;
-}
-
-//------------------------------------------------------------------------
-// ArenaAllocator::ArenaAllocator:
-//    Default-constructs an arena allocator.
-ArenaAllocator::ArenaAllocator()
-    : m_firstPage(nullptr), m_lastPage(nullptr), m_nextFreeByte(nullptr), m_lastFreeByte(nullptr)
-{
-#if MEASURE_MEM_ALLOC
-    memset(&m_stats, 0, sizeof(m_stats));
-    memset(&m_statsAllocators, 0, sizeof(m_statsAllocators));
-#endif // MEASURE_MEM_ALLOC
 }
 
 //------------------------------------------------------------------------
@@ -104,7 +94,7 @@ NOINLINE void* ArenaAllocator::allocateNewPage(size_t size)
 
     // Adjust the next/last free byte pointers
     m_nextFreeByte = newPage->m_contents + size;
-    m_lastFreeByte = (BYTE*)newPage + pageSize;
+    m_lastFreeByte = reinterpret_cast<uint8_t*>(newPage) + pageSize;
     assert((m_lastFreeByte - m_nextFreeByte) >= 0);
 
     return newPage->m_contents;
@@ -233,39 +223,39 @@ CritSecObject                     ArenaAllocator::s_statsLock;
 ArenaAllocator::AggregateMemStats ArenaAllocator::s_aggStats;
 ArenaAllocator::MemStats          ArenaAllocator::s_maxStats;
 
-const char* ArenaAllocator::MemStats::s_CompMemKindNames[]{
-#define CompMemKindMacro(kind) #kind,
-#include "compmemkind.h"
-};
-
-void ArenaAllocator::MemStats::Print(FILE* f)
+void ArenaAllocator::MemStats::Print(FILE* f) const
 {
-    fprintf(f, "count: %10u, size: %10llu, max = %10llu\n", allocCnt, allocSz, allocSzMax);
+    fprintf(f, "count: %10llu, size: %10llu, max = %10llu\n", allocCnt, allocSz, allocSzMax);
     fprintf(f, "allocateMemory: %10llu, nraUsed: %10llu\n", nraTotalSizeAlloc, nraTotalSizeUsed);
     PrintByKind(f);
 }
 
 void ArenaAllocator::MemStats::PrintByKind(FILE* f) const
 {
+    static const char* const kindNames[]{
+#define CompMemKindMacro(kind) #kind,
+#include "compmemkind.h"
+    };
+
     fprintf(f, "\nAlloc'd bytes by kind:\n  %20s | %10s | %7s\n", "kind", "size", "pct");
     fprintf(f, "  %20s-+-%10s-+-%7s\n", "--------------------", "----------", "-------");
     float allocSzF = static_cast<float>(allocSz);
     for (int cmk = 0; cmk < CMK_Count; cmk++)
     {
         float pct = 100.0f * static_cast<float>(allocSzByKind[cmk]) / allocSzF;
-        fprintf(f, "  %20s | %10llu | %6.2f%%\n", s_CompMemKindNames[cmk], allocSzByKind[cmk], pct);
+        fprintf(f, "  %20s | %10llu | %6.2f%%\n", kindNames[cmk], allocSzByKind[cmk], pct);
     }
     fprintf(f, "\n");
 }
 
-void ArenaAllocator::AggregateMemStats::Print(FILE* f)
+void ArenaAllocator::AggregateMemStats::Print(FILE* f) const
 {
     fprintf(f, "For %9u methods:\n", nMethods);
     if (nMethods == 0)
     {
         return;
     }
-    fprintf(f, "  count:       %12u (avg %7u per method)\n", allocCnt, allocCnt / nMethods);
+    fprintf(f, "  count:       %12u (avg %7llu per method)\n", allocCnt, allocCnt / nMethods);
     fprintf(f, "  alloc size : %12llu (avg %7llu per method)\n", allocSz, allocSz / nMethods);
     fprintf(f, "  max alloc  : %12llu\n", allocSzMax);
     fprintf(f, "\n");

@@ -21,11 +21,6 @@ enum CompMemKind
 
 class ArenaAllocator
 {
-private:
-    ArenaAllocator(const ArenaAllocator& other) = delete;
-    ArenaAllocator& operator=(const ArenaAllocator& other) = delete;
-    ArenaAllocator& operator=(ArenaAllocator&& other) = delete;
-
     struct PageDescriptor
     {
         PageDescriptor* m_next;
@@ -34,20 +29,17 @@ private:
         size_t m_usedBytes; // # of bytes actually used. (This is only valid when we've allocated a new page.)
                             // See ArenaAllocator::allocateNewPage.
 
-        BYTE m_contents[];
+        uint8_t m_contents[];
     };
 
-    enum
-    {
-        DEFAULT_PAGE_SIZE = 0x10000,
-    };
-
-    PageDescriptor* m_firstPage;
-    PageDescriptor* m_lastPage;
+    static constexpr size_t DEFAULT_PAGE_SIZE = 0x10000;
 
     // These two pointers (when non-null) will always point into 'm_lastPage'.
-    BYTE* m_nextFreeByte;
-    BYTE* m_lastFreeByte;
+    uint8_t* m_nextFreeByte = nullptr;
+    uint8_t* m_lastFreeByte = nullptr;
+
+    PageDescriptor* m_firstPage = nullptr;
+    PageDescriptor* m_lastPage  = nullptr;
 
     void* allocateNewPage(size_t size);
 
@@ -57,14 +49,12 @@ private:
 #if MEASURE_MEM_ALLOC
     struct MemStats
     {
-        unsigned allocCnt;                 // # of allocs
-        UINT64   allocSz;                  // total size of those alloc.
-        UINT64   allocSzMax;               // Maximum single allocation.
-        UINT64   allocSzByKind[CMK_Count]; // Classified by "kind".
-        UINT64   nraTotalSizeAlloc;
-        UINT64   nraTotalSizeUsed;
-
-        static const char* s_CompMemKindNames[]; // Names of the kinds.
+        uint64_t allocCnt;                 // # of allocs
+        uint64_t allocSz;                  // total size of those alloc.
+        uint64_t allocSzMax;               // Maximum single allocation.
+        uint64_t allocSzByKind[CMK_Count]; // Classified by "kind".
+        uint64_t nraTotalSizeAlloc;
+        uint64_t nraTotalSizeUsed;
 
         void AddAlloc(size_t sz, CompMemKind cmk)
         {
@@ -77,8 +67,8 @@ private:
             allocSzByKind[cmk] += sz;
         }
 
-        void Print(FILE* f);             // Print these stats to file.
-        void PrintByKind(FILE* f) const; // Do just the by-kind histogram part.
+        void Print(FILE* f) const;
+        void PrintByKind(FILE* f) const;
     };
 
     struct AggregateMemStats : public MemStats
@@ -90,8 +80,8 @@ private:
             nMethods++;
             allocCnt += ms.allocCnt;
             allocSz += ms.allocSz;
-            allocSzMax = max(allocSzMax, ms.allocSzMax);
-            for (int i = 0; i < CMK_Count; i++)
+            allocSzMax = Max(allocSzMax, ms.allocSzMax);
+            for (size_t i = 0; i < CMK_Count; i++)
             {
                 allocSzByKind[i] += ms.allocSzByKind[i];
             }
@@ -99,10 +89,15 @@ private:
             nraTotalSizeUsed += ms.nraTotalSizeUsed;
         }
 
-        void Print(FILE* f); // Print these stats to file.
+        void Print(FILE* f) const;
     };
 
 public:
+    ArenaAllocator()                            = default;
+    ArenaAllocator(const ArenaAllocator& other) = delete;
+    ArenaAllocator& operator=(const ArenaAllocator& other) = delete;
+    ArenaAllocator& operator=(ArenaAllocator&& other) = delete;
+
     struct MemStatsAllocator
     {
         ArenaAllocator* m_arena;
@@ -120,8 +115,8 @@ private:
     static MemStats          s_maxStats;  // Stats for the allocator with the largest amount allocated.
     static AggregateMemStats s_aggStats;  // Aggregates statistics for all allocators.
 
-    MemStats          m_stats;
-    MemStatsAllocator m_statsAllocators[CMK_Count];
+    MemStats          m_stats{};
+    MemStatsAllocator m_statsAllocators[CMK_Count]{};
 
 public:
     MemStatsAllocator* getMemStatsAllocator(CompMemKind kind);
@@ -132,11 +127,11 @@ public:
     static void dumpAggregateMemStats(FILE* file);
 #endif // MEASURE_MEM_ALLOC
 
-    INDEBUG(int GetUninitializedByte();)
+#ifdef DEBUG
+    int GetUninitializedByte();
+#endif
 
 public:
-    ArenaAllocator();
-
     // NOTE: it would be nice to have a destructor on this type to ensure that any value that
     //       goes out of scope is either uninitialized or has been torn down via a call to
     //       destroy(), but this interacts badly in methods that use SEH. #3058 tracks
@@ -177,7 +172,7 @@ inline void* ArenaAllocator::allocateMemory(size_t size)
     // Ensure that we always allocate in pointer sized increments.
     size = roundUp(size, sizeof(size_t));
 
-#if defined(DEBUG)
+#ifdef DEBUG
     if (JitConfig.ShouldInjectFault() != 0)
     {
         // Force the underlying memory allocator (either the OS or the CLR hoster)
@@ -275,46 +270,39 @@ inline void* __cdecl operator new[](size_t n, CompAllocator alloc)
 class CompIAllocator : public IAllocator
 {
     CompAllocator m_alloc;
-    char          m_zeroLenAllocTarg;
+    static char   m_zeroLenAlloc;
 
 public:
     CompIAllocator(CompAllocator alloc) : m_alloc(alloc)
     {
     }
 
-    // Allocates a block of memory at least `sz` in size.
     virtual void* Alloc(size_t sz) override
     {
         if (sz == 0)
         {
-            return &m_zeroLenAllocTarg;
+            return &m_zeroLenAlloc;
         }
-        else
-        {
-            return m_alloc.allocate<char>(sz);
-        }
+
+        return m_alloc.allocate<char>(sz);
     }
 
-    // Allocates a block of memory at least `elems * elemSize` in size.
     virtual void* ArrayAlloc(size_t elems, size_t elemSize) override
     {
         if ((elems == 0) || (elemSize == 0))
         {
-            return &m_zeroLenAllocTarg;
+            return &m_zeroLenAlloc;
         }
-        else
-        {
-            // Ensure that elems * elemSize does not overflow.
-            if (elems > (SIZE_MAX / elemSize))
-            {
-                NOMEM();
-            }
 
-            return m_alloc.allocate<char>(elems * elemSize);
+        // Ensure that elems * elemSize does not overflow.
+        if (elems > (SIZE_MAX / elemSize))
+        {
+            NOMEM();
         }
+
+        return m_alloc.allocate<char>(elems * elemSize);
     }
 
-    // Frees the block of memory pointed to by p.
     virtual void Free(void* p) override
     {
         m_alloc.deallocate(p);
