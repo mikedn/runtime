@@ -397,7 +397,8 @@ class ValueNumStore
         var_types m_type;
         ChunkKind m_kind;
 
-        Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types type, ChunkKind kind);
+        Chunk();
+        Chunk(CompAllocator alloc, ValueNum baseVN, var_types type, ChunkKind kind);
 
         unsigned AllocVN()
         {
@@ -440,8 +441,9 @@ class ValueNumStore
     // This is the maximum number of MapSelect terms that can be "considered" as part of evaluation of a top-level
     // MapSelect application.
     int m_mapSelectBudget;
-    // The base VN of the next chunk to be allocated.  Should always be a multiple of ChunkSize.
-    ValueNum m_nextChunkBase = 0;
+    // The base VN of the next chunk to be allocated. Should always be a multiple of ChunkSize.
+    // The first chunk is reserved for some special values.
+    ValueNum m_nextChunkBase = ChunkSize;
     // When we evaluate "select(m, i)", if "m" is a the value of a phi definition, we look at
     // all the values of the phi args, and see if doing the "select" on each of them yields identical
     // results.  If so, that is the result of the entire "select" form.  We have to be careful, however,

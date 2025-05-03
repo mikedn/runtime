@@ -200,10 +200,8 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
 
     // We will reserve chunk 0 to hold some special constants, like the constant null,
     // a void pseudo-value, and the empty exception set value.
-    Chunk* specialConstChunk = new (alloc) Chunk(alloc, &m_nextChunkBase, TYP_REF, ChunkKind::Const);
-    specialConstChunk->m_count += SRC_NumSpecialRefConsts;
-    assert(m_chunks.Size() == 0);
-    m_chunks.Push(specialConstChunk);
+    static Chunk specialConstChunk;
+    m_chunks.Push(&specialConstChunk);
 
     m_mapSelectBudget = JitConfig.JitVNMapSelBudget();
 
@@ -445,8 +443,14 @@ bool ValueNumStore::HasExset(ValueNum vn) const
 }
 #endif
 
-ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types type, ChunkKind kind)
-    : m_baseVN(*nextBaseVN), m_type(type), m_kind(kind)
+ValueNumStore::Chunk::Chunk() : m_count(SRC_NumSpecialRefConsts), m_baseVN(0), m_type(TYP_REF), m_kind(ChunkKind::Const)
+{
+    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
+    m_defs = specialRefConsts;
+}
+
+ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum baseVN, var_types type, ChunkKind kind)
+    : m_baseVN(baseVN), m_type(type), m_kind(kind)
 {
     switch (kind)
     {
@@ -468,10 +472,6 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types
                     break;
                 case TYP_BYREF:
                     m_defs = alloc.allocate<Alloc<TYP_BYREF>::Type>(ChunkSize);
-                    break;
-                case TYP_REF:
-                    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
-                    m_defs = specialRefConsts;
                     break;
                 default:
                     assert(false);
@@ -498,8 +498,6 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum* nextBaseVN, var_types
             m_defs = alloc.allocate<VNFuncDef4>(ChunkSize);
             break;
     }
-
-    *nextBaseVN += ChunkSize;
 }
 
 ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kind)
@@ -524,8 +522,9 @@ ValueNumStore::Chunk* ValueNumStore::GetAllocChunk(var_types type, ChunkKind kin
         }
     }
 
-    Chunk* chunk = new (alloc) Chunk(alloc, &m_nextChunkBase, type, kind);
-    current      = m_chunks.Size();
+    Chunk* chunk = new (alloc) Chunk(alloc, m_nextChunkBase, type, kind);
+    m_nextChunkBase += ChunkSize;
+    current = m_chunks.Size();
     m_chunks.Push(chunk);
     return chunk;
 }
