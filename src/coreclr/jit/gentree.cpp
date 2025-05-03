@@ -9592,7 +9592,7 @@ CNS_NULL_BYREF:
 
     if (vnStore != nullptr)
     {
-        tree->SetVNP(ValueNumPair{ValueNumStore::NullVN()});
+        tree->SetVNP(ValueNumPair{ValueNumStore::NullVN});
     }
 
     JITDUMPTREE(tree, "into:\n");

@@ -214,7 +214,7 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
 
 ValueNum ValueNumStore::ExsetCreate(ValueNum x)
 {
-    return VNForFunc(TYP_REF, VNF_ExsetCons, x, EmptyExsetVN());
+    return VNForFunc(TYP_REF, VNF_ExsetCons, x, EmptyExsetVN);
 }
 
 ValueNumPair ValueNumStore::ExsetCreate(ValueNumPair xp)
@@ -225,7 +225,7 @@ ValueNumPair ValueNumStore::ExsetCreate(ValueNumPair xp)
 #ifdef DEBUG
 bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1) const
 {
-    if (xs1 == EmptyExsetVN())
+    if (xs1 == EmptyExsetVN)
     {
         return true;
     }
@@ -240,12 +240,12 @@ bool ValueNumStore::ExsetIsOrdered(ValueNum item, ValueNum xs1) const
 
 ValueNum ValueNumStore::ExsetUnion(ValueNum xs0, ValueNum xs1)
 {
-    if (xs0 == EmptyExsetVN())
+    if (xs0 == EmptyExsetVN)
     {
         return xs1;
     }
 
-    if (xs1 == EmptyExsetVN())
+    if (xs1 == EmptyExsetVN)
     {
         return xs0;
     }
@@ -285,9 +285,9 @@ ValueNumPair ValueNumStore::ExsetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp)
 
 ValueNum ValueNumStore::ExsetIntersection(ValueNum xs0, ValueNum xs1)
 {
-    if ((xs0 == EmptyExsetVN()) || (xs1 == EmptyExsetVN()))
+    if ((xs0 == EmptyExsetVN) || (xs1 == EmptyExsetVN))
     {
-        return EmptyExsetVN();
+        return EmptyExsetVN;
     }
 
     const VNFuncDef2* cons0 = IsVNFunc<VNFuncDef2>(xs0, VNF_ExsetCons);
@@ -320,12 +320,12 @@ ValueNumPair ValueNumStore::ExsetIntersection(ValueNumPair xs0vnp, ValueNumPair 
 
 bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
 {
-    if (subset == EmptyExsetVN())
+    if (subset == EmptyExsetVN)
     {
         return true;
     }
 
-    if ((set == EmptyExsetVN()) || (set == NoVN))
+    if ((set == EmptyExsetVN) || (set == NoVN))
     {
         return false;
     }
@@ -333,8 +333,10 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
     const VNFuncDef2* funcXsFull = IsVNFunc<VNFuncDef2>(set, VNF_ExsetCons);
     const VNFuncDef2* funcXsCand = IsVNFunc<VNFuncDef2>(subset, VNF_ExsetCons);
 
-    ValueNum vnFullSetPrev = NullVN();
-    ValueNum vnCandSetPrev = NullVN();
+#ifdef DEBUG
+    ValueNum vnFullSetPrev = EmptyExsetVN;
+    ValueNum vnCandSetPrev = EmptyExsetVN;
+#endif
 
     ValueNum vnFullSetRemainder = funcXsFull->arg1;
     ValueNum vnCandSetRemainder = funcXsCand->arg1;
@@ -358,7 +360,7 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
         if (vnFullSetItem == vnCandSetItem)
         {
             // Have we finished matching?
-            if (vnCandSetRemainder == EmptyExsetVN())
+            if (vnCandSetRemainder == EmptyExsetVN)
             {
                 // We matched every item in the candidate set'
                 return true;
@@ -369,7 +371,7 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
             vnCandSetRemainder = funcXsCand->arg1;
         }
 
-        if (vnFullSetRemainder == EmptyExsetVN())
+        if (vnFullSetRemainder == EmptyExsetVN)
         {
             // No more items are left in the full exception set
             return false;
@@ -379,8 +381,10 @@ bool ValueNumStore::ExsetIsSubset(ValueNum subset, ValueNum set) const
         funcXsFull         = IsVNFunc<VNFuncDef2>(vnFullSetRemainder, VNF_ExsetCons);
         vnFullSetRemainder = funcXsFull->arg1;
 
+#ifdef DEBUG
         vnFullSetPrev = vnFullSetItem;
         vnCandSetPrev = vnCandSetItem;
+#endif
     }
 }
 
@@ -392,7 +396,7 @@ ValueNum ValueNumStore::UnpackExset(ValueNum vn, ValueNum* exset) const
         return valueExset->arg0;
     }
 
-    *exset = EmptyExsetVN();
+    *exset = EmptyExsetVN;
     return vn;
 }
 
@@ -416,7 +420,7 @@ ValueNumPair ValueNumStore::ExtractValue(ValueNumPair vnp) const
 ValueNum ValueNumStore::ExtractExset(ValueNum vn) const
 {
     VNFuncApp funcApp;
-    return GetVNFunc(vn, &funcApp) == VNF_ValWithExset ? funcApp[1] : EmptyExsetVN();
+    return GetVNFunc(vn, &funcApp) == VNF_ValWithExset ? funcApp[1] : EmptyExsetVN;
 }
 
 ValueNumPair ValueNumStore::ExtractExset(ValueNumPair vnp) const
@@ -428,7 +432,7 @@ ValueNum ValueNumStore::PackExset(ValueNum vn, ValueNum exset)
 {
     assert(!IsVNFunc<VNFuncDef2>(vn, VNF_ValWithExset));
 
-    return exset == EmptyExsetVN() ? vn : VNForFunc(TypeOfVN(vn), VNF_ValWithExset, vn, exset);
+    return exset == EmptyExsetVN ? vn : VNForFunc(TypeOfVN(vn), VNF_ValWithExset, vn, exset);
 }
 
 ValueNumPair ValueNumStore::PackExset(ValueNumPair vnp, ValueNumPair exset)
@@ -444,7 +448,7 @@ bool ValueNumStore::HasExset(ValueNum vn) const
 #endif
 
 ValueNumStore::Chunk::Chunk()
-    : m_count(SRC_NumSpecialRefConsts), m_baseVN(0), m_type(TYP_REF), m_kind(ChunkKind::ConstRef)
+    : m_baseVN(0), m_count(SRC_NumSpecialRefConsts), m_type(TYP_REF), m_kind(ChunkKind::ConstRef)
 {
     static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
     m_defs = specialRefConsts;
@@ -600,7 +604,7 @@ ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
 #endif
         case TYP_REF:
             assert(value == 0);
-            return NullVN();
+            return NullVN;
         case TYP_BYREF:
             return VNForByrefCon(value);
         default:
@@ -672,7 +676,7 @@ ValueNum ValueNumStore::VNZeroForType(var_types type)
         case TYP_DOUBLE:
             return VNForDoubleCon(0.0);
         case TYP_REF:
-            return NullVN();
+            return NullVN;
         case TYP_BYREF:
             return VNForByrefCon(0);
         case TYP_STRUCT:
@@ -952,7 +956,7 @@ ValueNum ValueNumStore::VNForMapStore(var_types type, ValueNum mapVN, ValueNum i
 {
     assert(varTypeIsStruct(type));
 
-    ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->GetLoopNum());
+    ValueNum vn = VNForFunc(type, VNF_MapStore, mapVN, indexVN, valueVN, m_currentBlock->GetLoopNum() + 1);
     INDEBUG(Trace(vn));
     return vn;
 }
@@ -1465,7 +1469,7 @@ float ValueNumStore::GetConstFloat(ValueNum vn) const
 
 bool ValueNumStore::IsVNConstant(ValueNum vn) const
 {
-    if ((vn == NoVN) || (vn == VoidVN()))
+    if ((vn == NoVN) || (vn == VoidVN))
     {
         return false;
     }
@@ -1922,7 +1926,7 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
             return VNForLongCon(result);
         case TYP_REF:
             assert(result == 0); // The only valid REF constant
-            return NullVN();
+            return NullVN;
         case TYP_BYREF:
             return VNForByrefCon(static_cast<target_size_t>(result));
         default:
@@ -2332,7 +2336,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             break;
 
         case VNF_COND_EQ:
-            if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
+            if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
             {
                 return VNZeroForType(type);
             }
@@ -2346,7 +2350,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             break;
 
         case VNF_COND_NE:
-            if (((arg0VN == NullVN()) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN()) && IsKnownNonNull(arg0VN)))
+            if (((arg0VN == NullVN) && IsKnownNonNull(arg1VN)) || ((arg1VN == NullVN) && IsKnownNonNull(arg0VN)))
             {
                 return VNOneForType(type);
             }
@@ -2408,9 +2412,9 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
 
 ValueNum ValueNumStore::VNForExpr(BasicBlock* block, var_types type)
 {
-    LoopNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
+    ValueNum loopNum = block == nullptr ? MaxLoopNum : block->GetLoopNum();
 
-    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNFuncDef1{VNF_Unique, loopNum});
+    return GetAllocChunk(type, ChunkKind::Func1)->AllocVN(VNFuncDef1{VNF_Unique, loopNum + 1});
 }
 
 ValueNum ValueNumStore::VNForExpr(var_types type)
@@ -4391,12 +4395,14 @@ LoopNum ValueNumStore::LoopOfVN(ValueNum vn)
 {
     VNFuncApp funcApp;
 
+    // TODO-MIKE-Cleanup: Deal with the loop num mess - VNF_Unique and VNF_MapStore
+    // use the loop number as if it's a VN, they should use a const VN instead.
     switch (GetVNFunc(vn, &funcApp))
     {
         case VNF_Unique:
-            return static_cast<LoopNum>(funcApp[0]);
+            return static_cast<LoopNum>(funcApp[0] - 1);
         case VNF_MapStore:
-            return static_cast<LoopNum>(funcApp[3]);
+            return static_cast<LoopNum>(funcApp[3] - 1);
         case VNF_MemoryPhi:
             return ConstantHostPtr<BasicBlock>(funcApp[1])->GetLoopNum();
         default:
@@ -4993,11 +4999,11 @@ void ValueNumStore::Dump(ValueNum vn)
                 printf("DblCns[%f]", GetConstDouble(vn));
                 break;
             case TYP_REF:
-                if (vn == NullVN())
+                if (vn == NullVN)
                 {
                     printf("null");
                 }
-                else if (vn == VoidVN())
+                else if (vn == VoidVN)
                 {
                     printf("void");
                 }
@@ -5154,7 +5160,7 @@ void ValueNumStore::DumpExcSeq(const VNFuncApp& excSeq, bool isHead)
     assert(excSeq.Is(VNF_ExsetCons));
 
     ValueNum curExc  = excSeq[0];
-    bool     hasTail = excSeq[1] != EmptyExsetVN();
+    bool     hasTail = excSeq[1] != EmptyExsetVN;
 
     if (isHead && hasTail)
     {
@@ -5211,7 +5217,7 @@ void ValueNumStore::DumpMapStore(const VNFuncApp& mapStore)
     ValueNum mapVN    = mapStore[0];
     ValueNum indexVN  = mapStore[1];
     ValueNum newValVN = mapStore[2];
-    unsigned loopNum  = mapStore[3];
+    unsigned loopNum  = mapStore[3] - 1;
 
     printf("MapStore(");
     Print(mapVN, 0);
@@ -5447,35 +5453,18 @@ const char* ValueNumStore::GetFuncName(VNFunc vnf)
 
 const char* ValueNumStore::GetReservedName(ValueNum vn)
 {
-    int val = vn - RecursiveVN;
-    int max = ValueNumStore::SRC_NumSpecialRefConsts - RecursiveVN;
-
-    if ((val < 0) || (val >= max))
-    {
-        return nullptr;
-    }
-
     static const char* const reservedNames[]{
-        "$VN.Recursive",  // -2  RecursiveVN
-        "$VN.No",         // -1  NoVN
-        "$VN.Null",       //  0  NullVN()
-        "$VN.Void",       //  3  VoidVN()
-        "$VN.EmptyExcSet" //  4  EmptyExsetVN()
+        "$None", "$Recursive", "$Void", "$EmptyExset", "$Null",
     };
 
-    return reservedNames[val];
+    return vn < _countof(reservedNames) ? reservedNames[vn] : nullptr;
 }
 
 #endif // DEBUG
 
-// Returns true if "vn" is a reserved value number
-
 bool ValueNumStore::IsReservedVN(ValueNum vn)
 {
-    int val = vn - RecursiveVN; // Adding two, making 'RecursiveVN' equal to zero
-    int max = ValueNumStore::SRC_NumSpecialRefConsts - RecursiveVN;
-
-    return (0 <= val) && (val < max);
+    return vn < ValueNumStore::SRC_NumSpecialRefConsts;
 }
 
 #ifdef DEBUG
@@ -5486,8 +5475,8 @@ void ValueNumStore::RunTests(Compiler* comp)
     SsaOptimizer ssa(comp);
 
     ValueNumStore* vns    = new (comp, CMK_DebugOnly) ValueNumStore(ssa);
-    ValueNum       vnNull = NullVN();
-    assert(vnNull == NullVN());
+    ValueNum       vnNull = NullVN;
+    assert(vnNull == NullVN);
 
     ValueNum vnFor1 = vns->VNForIntCon(1);
     assert(vnFor1 == vns->VNForIntCon(1));
@@ -6336,7 +6325,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
         case TYP_REF:
             if (intCon->GetValue() == 0)
             {
-                return ValueNumStore::NullVN();
+                return ValueNumStore::NullVN;
             }
 
             assert(intCon->IsIntCon(HandleKind::String)); // Constant object can be only frozen string.
@@ -6345,7 +6334,7 @@ ValueNum ValueNumbering::GetIntConVN(GenTreeIntCon* intCon)
         case TYP_BYREF:
             if (intCon->GetValue() == 0)
             {
-                return ValueNumStore::NullVN();
+                return ValueNumStore::NullVN;
             }
 
             if (intCon->IsHandle())
@@ -6440,10 +6429,11 @@ void ValueNumbering::SummarizeLoopNodeMemoryStores(GenTree* node, VNLoopMemorySu
             ArrayInfo arrInfo;
             if (IsArrayElemAddr(node, &arrInfo))
             {
-                ValueNum elemTypeEqVN   = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
-                ValueNum ptrToArrElemVN = vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
-                                                             // The rest are dummy arguments.
-                                                             vnStore->NullVN(), vnStore->NullVN(), vnStore->NullVN());
+                ValueNum elemTypeEqVN = vnStore->VNForTypeNum(arrInfo.m_elemTypeNum);
+                ValueNum ptrToArrElemVN =
+                    vnStore->VNForFunc(TYP_BYREF, VNF_PtrToArrElem, elemTypeEqVN,
+                                       // The rest are dummy arguments.
+                                       ValueNumStore::NullVN, ValueNumStore::NullVN, ValueNumStore::NullVN);
                 node->SetLiberalVN(ptrToArrElemVN);
             }
             else if (node->AsOp()->GetOp(1)->IsIntCon())
@@ -7760,7 +7750,7 @@ bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
 
         if (helpFunc == CORINFO_HELP_OVERFLOW)
         {
-            ex = vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, vnStore->VoidVNP());
+            ex = vnStore->VNPairForFunc(TYP_REF, VNF_OverflowExc, ValueNumStore::VoidVNP());
         }
         else
         {

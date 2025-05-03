@@ -637,8 +637,9 @@ private:
 
     // Used for nodes that are in LIR. See LIR::Flags in lir.h for the various flags.
     uint8_t m_LIRFlags = 0;
-    uint8_t m_costEx; // estimate of expression execution cost
-    uint8_t m_costSz; // estimate of expression code size cost
+    uint8_t m_costEx   = 0; // estimate of expression execution cost
+    uint8_t m_costSz   = 0; // estimate of expression code size cost
+    uint8_t m_unused   = 0;
 
     // The registers defined by the node.
     RegNumSmall m_defRegs[MAX_MULTIREG_COUNT]{static_cast<RegNumSmall>(REG_NA)
@@ -647,14 +648,20 @@ private:
                                               static_cast<RegNumSmall>(REG_NA)
 #endif
     };
+#if MAX_MULTIREG_COUNT < 4
+// uint8_t m_unused2[4 - MAX_MULTIREG_COUNT]{};
+#endif
 
+public:
+    GenTreeFlags gtFlags    = GTF_NONE;
+    regMaskTP    m_tempRegs = RBM_NONE;
+    GenTree*     gtNext     = nullptr;
+    GenTree*     gtPrev     = nullptr;
+
+private:
     ValueNumPair m_vnp;
 
 public:
-    GenTreeFlags gtFlags = GTF_NONE;
-    regMaskTP    m_tempRegs;
-    GenTree*     gtNext = nullptr;
-    GenTree*     gtPrev = nullptr;
 #ifdef DEBUG
     GenTreeDebugFlags gtDebugFlags = GTF_DEBUG_NONE;
     unsigned          gtTreeID;

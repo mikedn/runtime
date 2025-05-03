@@ -407,9 +407,9 @@ class ValueNumStore
 
     struct Chunk
     {
-        void*     m_defs  = nullptr;
-        unsigned  m_count = 0;
+        void*     m_defs = nullptr;
         ValueNum  m_baseVN;
+        uint8_t   m_count = 0;
         var_types m_type;
         ChunkKind m_kind;
 
@@ -598,6 +598,20 @@ private:
     template <typename T, typename NumMap, var_types VT>
     inline ValueNum VnForConst(T cnsVal, NumMap* numMap, unsigned& currentChunk);
 
+    enum SpecialRefConsts
+    {
+        SRC_None,
+        SRC_Recursive,
+        SRC_Void,
+        SRC_EmptyExset,
+        SRC_Null,
+        SRC_NumSpecialRefConsts
+    };
+
+    static_assert_no_msg(NoVN == SRC_None);
+    // A special value, used to indicate that a function evaluation would cause infinite recursion.
+    static constexpr ValueNum RecursiveVN = SRC_Recursive;
+
 public:
     ValueNumStore(SsaOptimizer& ssa);
 
@@ -659,29 +673,18 @@ public:
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
     ValueNum ZeroMapVN();
 
-    static ValueNum NullVN()
-    {
-        return ValueNum(SRC_Null);
-    }
-
-    static ValueNum VoidVN()
-    {
-        return ValueNum(SRC_Void);
-    }
+    static constexpr ValueNum NullVN       = SRC_Null;
+    static constexpr ValueNum VoidVN       = SRC_Void;
+    static constexpr ValueNum EmptyExsetVN = SRC_EmptyExset;
 
     static ValueNumPair VoidVNP()
     {
-        return {VoidVN(), VoidVN()};
-    }
-
-    static ValueNum EmptyExsetVN()
-    {
-        return ValueNum(SRC_EmptyExset);
+        return {VoidVN, VoidVN};
     }
 
     static ValueNumPair EmptyExsetVNP()
     {
-        return {EmptyExsetVN(), EmptyExsetVN()};
+        return {EmptyExsetVN, EmptyExsetVN};
     }
 
     ValueNum VNZeroForType(var_types type);
@@ -961,12 +964,4 @@ private:
     {
         return SmallIntConstMin <= i && i <= SmallIntConstMax;
     }
-
-    enum SpecialRefConsts
-    {
-        SRC_Null,
-        SRC_Void,
-        SRC_EmptyExset,
-        SRC_NumSpecialRefConsts
-    };
 };

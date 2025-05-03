@@ -1032,7 +1032,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
     }
     else if (func == VNF_Unique)
     {
-        invariant = !compiler->optLoopContains(lnum, funcApp[0]);
+        invariant = !compiler->optLoopContains(lnum, funcApp[0] - 1);
     }
     else if (func != VNF_None)
     {
@@ -1044,7 +1044,7 @@ bool LoopHoist::IsLoopInvariant(ValueNum vn, unsigned lnum)
 
                 if (i == 3)
                 {
-                    invariant = !compiler->optLoopContains(lnum, funcApp[3]);
+                    invariant = !compiler->optLoopContains(lnum, funcApp[3] - 1);
                     break;
                 }
             }

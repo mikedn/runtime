@@ -389,14 +389,14 @@ private:
             return NO_ASSERTION_INDEX;
         }
 
-        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VoidVN()))
+        if ((assertion.op1.vn == NoVN) || (assertion.op1.vn == ValueNumStore::VoidVN))
         {
             return NO_ASSERTION_INDEX;
         }
 
         assertion.kind                  = OAK_NOT_EQUAL;
         assertion.op2.kind              = O2K_CONST_INT;
-        assertion.op2.vn                = ValueNumStore::NullVN();
+        assertion.op2.vn                = ValueNumStore::NullVN;
         assertion.op2.intCon.value      = 0;
         assertion.op2.intCon.handleKind = HandleKind::None;
 
@@ -2040,7 +2040,7 @@ private:
                 continue;
             }
 
-            if (assertion.op2.vn != ValueNumStore::NullVN())
+            if (assertion.op2.vn != ValueNumStore::NullVN)
             {
                 continue;
             }
@@ -3391,7 +3391,7 @@ private:
                             newTree = m_compiler->gtNewLconNode(m_vnStore->GetConstInt64(vn));
                             break;
                         case TYP_REF:
-                            assert(vn == m_vnStore->NullVN());
+                            assert(vn == ValueNumStore::NullVN);
                             newTree = m_compiler->gtNewIconNode(0, TYP_REF);
                             break;
                         case TYP_BYREF:
