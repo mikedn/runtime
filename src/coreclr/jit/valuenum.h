@@ -190,7 +190,12 @@ class ValueNumStore
 
     enum class ChunkKind : uint8_t
     {
-        Const,     // This chunk contains constant values.
+        ConstI32,
+        ConstI64,
+        ConstF32,
+        ConstF64,
+        ConstRef,
+        ConstByRef,
         Handle,    // This chunk contains handle constants.
         NotAField, // This chunk contains "not a field" values.
         Func0,     // Represents functions of arity 0.
@@ -198,6 +203,11 @@ class ValueNumStore
         Func2,     // ...arity 2.
         Func3,     // ...arity 3.
         Func4,     // ...arity 4.
+#ifdef TARGET_64BIT
+        ConstI = ConstI64
+#else
+        ConstI = ConstI32
+#endif
     };
 
     using Func0VNMap = VNMap<VNFunc>;
@@ -352,39 +362,45 @@ class ValueNumStore
 
     // Convert a vartype_t to the value number's storage type for that vartype_t.
     // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
-    template <int N>
+    template <var_types T>
     struct VarTypConv
     {
     };
     template <>
     struct VarTypConv<TYP_INT>
     {
-        typedef int32_t Type;
+        using Type                      = int32_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstI32;
     };
     template <>
     struct VarTypConv<TYP_FLOAT>
     {
-        typedef int32_t Type;
+        using Type                      = int32_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstF32;
     };
     template <>
     struct VarTypConv<TYP_LONG>
     {
-        typedef int64_t Type;
+        using Type                      = int64_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstI64;
     };
     template <>
     struct VarTypConv<TYP_DOUBLE>
     {
-        typedef int64_t Type;
+        using Type                      = int64_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstF64;
     };
     template <>
     struct VarTypConv<TYP_BYREF>
     {
-        typedef target_ssize_t Type;
+        using Type                      = target_ssize_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstByRef;
     };
     template <>
     struct VarTypConv<TYP_REF>
     {
-        typedef target_ssize_t Type;
+        using Type                      = target_ssize_t;
+        static constexpr ChunkKind Kind = ChunkKind::ConstRef;
     };
 
     static constexpr unsigned MaxFuncArity = 4;
@@ -415,10 +431,16 @@ class ValueNumStore
             return m_baseVN + index;
         }
 
-        template <int N>
+        bool IsConst() const
+        {
+            return m_kind < ChunkKind::ConstByRef;
+        }
+
+        template <var_types T>
         struct Alloc
         {
-            typedef typename VarTypConv<N>::Type Type;
+            using Type                      = typename VarTypConv<T>::Type;
+            static constexpr ChunkKind Kind = VarTypConv<T>::Kind;
         };
     };
 
@@ -573,8 +595,8 @@ private:
 
     ValueNum EvalUsingMathIdentity(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
-    template <typename T, typename NumMap>
-    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, var_types varType, unsigned& currentChunk);
+    template <typename T, typename NumMap, var_types VT>
+    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, unsigned& currentChunk);
 
 public:
     ValueNumStore(SsaOptimizer& ssa);

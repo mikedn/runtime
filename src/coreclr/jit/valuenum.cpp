@@ -443,7 +443,8 @@ bool ValueNumStore::HasExset(ValueNum vn) const
 }
 #endif
 
-ValueNumStore::Chunk::Chunk() : m_count(SRC_NumSpecialRefConsts), m_baseVN(0), m_type(TYP_REF), m_kind(ChunkKind::Const)
+ValueNumStore::Chunk::Chunk()
+    : m_count(SRC_NumSpecialRefConsts), m_baseVN(0), m_type(TYP_REF), m_kind(ChunkKind::ConstRef)
 {
     static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
     m_defs = specialRefConsts;
@@ -454,28 +455,20 @@ ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum baseVN, var_types type
 {
     switch (kind)
     {
-        default:
-            assert(kind == ChunkKind::Const);
-            switch (type)
-            {
-                case TYP_INT:
-                    m_defs = alloc.allocate<Alloc<TYP_INT>::Type>(ChunkSize);
-                    break;
-                case TYP_FLOAT:
-                    m_defs = alloc.allocate<Alloc<TYP_FLOAT>::Type>(ChunkSize);
-                    break;
-                case TYP_LONG:
-                    m_defs = alloc.allocate<Alloc<TYP_LONG>::Type>(ChunkSize);
-                    break;
-                case TYP_DOUBLE:
-                    m_defs = alloc.allocate<Alloc<TYP_DOUBLE>::Type>(ChunkSize);
-                    break;
-                case TYP_BYREF:
-                    m_defs = alloc.allocate<Alloc<TYP_BYREF>::Type>(ChunkSize);
-                    break;
-                default:
-                    assert(false);
-            }
+        case ChunkKind::ConstI32:
+            m_defs = alloc.allocate<Alloc<TYP_INT>::Type>(ChunkSize);
+            break;
+        case ChunkKind::ConstF32:
+            m_defs = alloc.allocate<Alloc<TYP_FLOAT>::Type>(ChunkSize);
+            break;
+        case ChunkKind::ConstI64:
+            m_defs = alloc.allocate<Alloc<TYP_LONG>::Type>(ChunkSize);
+            break;
+        case ChunkKind::ConstF64:
+            m_defs = alloc.allocate<Alloc<TYP_DOUBLE>::Type>(ChunkSize);
+            break;
+        case ChunkKind::ConstByRef:
+            m_defs = alloc.allocate<Alloc<TYP_BYREF>::Type>(ChunkSize);
             break;
         case ChunkKind::Handle:
             m_defs = alloc.allocate<VNHandle>(ChunkSize);
@@ -549,14 +542,14 @@ ValueNum ValueNumStore::VNForHandle(void* addr, HandleKind handleKind)
     return *vn;
 }
 
-template <typename T, typename NumMap>
-ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, var_types varType, unsigned& currentChunk)
+template <typename T, typename NumMap, var_types VT>
+ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, unsigned& currentChunk)
 {
     ValueNum* vn = numMap->Emplace(cnsVal, NoVN);
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(varType, ChunkKind::Const, currentChunk)->AllocVN<T>(cnsVal);
+        *vn = GetAllocChunk(VT, VarTypConv<VT>::Kind, currentChunk)->AllocVN<T>(cnsVal);
     }
 
     return *vn;
@@ -571,7 +564,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
         if (m_smallInt32VNMap[index] == NoVN)
         {
             m_smallInt32VNMap[index] =
-                GetAllocChunk(TYP_INT, ChunkKind::Const, m_currentInt32ConstChunk)->AllocVN<int32_t>(value);
+                GetAllocChunk(TYP_INT, ChunkKind::ConstI32, m_currentInt32ConstChunk)->AllocVN<int32_t>(value);
         }
 
         return m_smallInt32VNMap[index];
@@ -582,7 +575,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
         m_int32VNMap = new (alloc) Int32VNMap(alloc);
     }
 
-    return VnForConst<int32_t, Int32VNMap>(value, m_int32VNMap, TYP_INT, m_currentInt32ConstChunk);
+    return VnForConst<int32_t, Int32VNMap, TYP_INT>(value, m_int32VNMap, m_currentInt32ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForLongCon(int64_t value)
@@ -592,7 +585,7 @@ ValueNum ValueNumStore::VNForLongCon(int64_t value)
         m_int64VNMap = new (alloc) Int64VNMap(alloc);
     }
 
-    return VnForConst<int64_t, Int64VNMap>(value, m_int64VNMap, TYP_LONG, m_currentInt64ConstChunk);
+    return VnForConst<int64_t, Int64VNMap, TYP_LONG>(value, m_int64VNMap, m_currentInt64ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
@@ -623,7 +616,7 @@ ValueNum ValueNumStore::VNForFloatCon(float value)
     }
 
     int32_t bits = jitstd::bit_cast<int32_t>(value);
-    return VnForConst<int32_t, Int32VNMap>(bits, m_floatVNMap, TYP_FLOAT, m_currentFloatConstChunk);
+    return VnForConst<int32_t, Int32VNMap, TYP_FLOAT>(bits, m_floatVNMap, m_currentFloatConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDoubleCon(double value)
@@ -634,7 +627,7 @@ ValueNum ValueNumStore::VNForDoubleCon(double value)
     }
 
     int64_t bits = jitstd::bit_cast<int64_t>(value);
-    return VnForConst<int64_t, Int64VNMap>(bits, m_doubleVNMap, TYP_DOUBLE, m_currentDoubleConstChunk);
+    return VnForConst<int64_t, Int64VNMap, TYP_DOUBLE>(bits, m_doubleVNMap, m_currentDoubleConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
@@ -657,8 +650,8 @@ ValueNum ValueNumStore::VNForByrefCon(ssize_t value)
         m_byrefVNMap = new (alloc) ByrefVNMap(alloc);
     }
 
-    return VnForConst<target_ssize_t, ByrefVNMap>(static_cast<target_ssize_t>(value), m_byrefVNMap, TYP_BYREF,
-                                                  m_currentByrefConstChunk);
+    return VnForConst<target_ssize_t, ByrefVNMap, TYP_BYREF>(static_cast<target_ssize_t>(value), m_byrefVNMap,
+                                                             m_currentByrefConstChunk);
 }
 
 ValueNum ValueNumStore::VNZeroForType(var_types type)
@@ -1288,7 +1281,7 @@ var_types ValueNumStore::GetConstType(ValueNum vn) const
     }
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_kind == ChunkKind::Const ? c->m_type : TYP_UNDEF;
+    return c->IsConst() ? c->m_type : TYP_UNDEF;
 }
 
 bool ValueNumStore::IsConst(ValueNum vn) const
@@ -1299,7 +1292,7 @@ bool ValueNumStore::IsConst(ValueNum vn) const
 int32_t ValueNumStore::GetConstInt32(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_INT));
+    assert((c->m_kind == ChunkKind::ConstI32) && (c->m_type == TYP_INT));
     return static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
@@ -1312,7 +1305,7 @@ const int32_t* ValueNumStore::IsConstInt32(ValueNum vn) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_INT))
+    if (c->m_kind != ChunkKind::ConstI32)
     {
         return nullptr;
     }
@@ -1323,7 +1316,7 @@ const int32_t* ValueNumStore::IsConstInt32(ValueNum vn) const
 int64_t ValueNumStore::GetConstInt64(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_LONG));
+    assert((c->m_kind == ChunkKind::ConstI64) && (c->m_type == TYP_LONG));
     return static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
@@ -1336,7 +1329,7 @@ const int64_t* ValueNumStore::IsConstInt64(ValueNum vn) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_LONG))
+    if ((c->m_kind != ChunkKind::ConstI64) || (c->m_type != TYP_LONG))
     {
         return nullptr;
     }
@@ -1353,7 +1346,7 @@ bool ValueNumStore::IsConstInt64(ValueNum vn, int64_t* value) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_LONG))
+    if ((c->m_kind != ChunkKind::ConstI64) || (c->m_type != TYP_LONG))
     {
         return false;
     }
@@ -1371,22 +1364,19 @@ var_types ValueNumStore::IsConstSize(ValueNum vn, ssize_t* value) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if (c->m_kind == ChunkKind::Const)
+    if (c->m_kind == ChunkKind::ConstI32)
     {
-        if (c->m_type == TYP_INT)
-        {
-            *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
-            return TYP_INT;
-        }
+        *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+        return TYP_INT;
+    }
 
 #ifdef TARGET_64BIT
-        if (c->m_type == TYP_LONG)
-        {
-            *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
-            return TYP_LONG;
-        }
-#endif
+    if (c->m_kind == ChunkKind::ConstI64)
+    {
+        *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+        return TYP_LONG;
     }
+#endif
 
     return TYP_UNDEF;
 }
@@ -1394,14 +1384,13 @@ var_types ValueNumStore::IsConstSize(ValueNum vn, ssize_t* value) const
 int64_t ValueNumStore::GetConstInt(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert(c->m_kind == ChunkKind::Const);
 
-    if (c->m_type == TYP_INT)
+    if (c->m_kind == ChunkKind::ConstI32)
     {
         return static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
     }
 
-    assert(c->m_type == TYP_LONG);
+    assert(c->m_kind == ChunkKind::ConstI64);
     return static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
@@ -1414,19 +1403,16 @@ var_types ValueNumStore::IsConstInt(ValueNum vn, int64_t* value) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if (c->m_kind == ChunkKind::Const)
+    if (c->m_kind == ChunkKind::ConstI32)
     {
-        if (c->m_type == TYP_INT)
-        {
-            *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
-            return TYP_INT;
-        }
+        *value = static_cast<int32_t*>(c->m_defs)[ChunkOffset(vn)];
+        return TYP_INT;
+    }
 
-        if (c->m_type == TYP_LONG)
-        {
-            *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
-            return TYP_LONG;
-        }
+    if (c->m_kind == ChunkKind::ConstI64)
+    {
+        *value = static_cast<int64_t*>(c->m_defs)[ChunkOffset(vn)];
+        return TYP_LONG;
     }
 
     return TYP_UNDEF;
@@ -1441,7 +1427,7 @@ const target_ssize_t* ValueNumStore::IsConstIntN(ValueNum vn) const
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
 
-    if ((c->m_kind != ChunkKind::Const) || (c->m_type != TYP_I_IMPL))
+    if (c->m_kind != ChunkKind::ConstI)
     {
         return nullptr;
     }
@@ -1452,28 +1438,28 @@ const target_ssize_t* ValueNumStore::IsConstIntN(ValueNum vn) const
 target_ssize_t ValueNumStore::GetConstIntN(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_I_IMPL));
+    assert(c->m_kind == ChunkKind::ConstI);
     return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 target_ssize_t ValueNumStore::GetConstByRef(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && ((c->m_type == TYP_REF) || (c->m_type == TYP_BYREF)));
+    assert((c->m_kind == ChunkKind::ConstRef) || (c->m_kind == ChunkKind::ConstByRef));
     return static_cast<target_ssize_t*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 double ValueNumStore::GetConstDouble(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_DOUBLE));
+    assert(c->m_kind == ChunkKind::ConstF64);
     return static_cast<double*>(c->m_defs)[ChunkOffset(vn)];
 }
 
 float ValueNumStore::GetConstFloat(ValueNum vn) const
 {
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    assert((c->m_kind == ChunkKind::Const) && (c->m_type == TYP_FLOAT));
+    assert(c->m_kind == ChunkKind::ConstF32);
     return static_cast<float*>(c->m_defs)[ChunkOffset(vn)];
 }
 
@@ -1485,7 +1471,7 @@ bool ValueNumStore::IsVNConstant(ValueNum vn) const
     }
 
     Chunk* c = m_chunks.Get(GetChunkNum(vn));
-    return c->m_kind == ChunkKind::Const || c->m_kind == ChunkKind::Handle;
+    return c->IsConst() || (c->m_kind == ChunkKind::Handle);
 }
 
 const VNHandle* ValueNumStore::IsHandle(ValueNum vn) const
