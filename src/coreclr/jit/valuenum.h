@@ -364,30 +364,35 @@ class ValueNumStore
     struct VarTypConv<TYP_INT>
     {
         using Type                      = int32_t;
+        using ConstMap                  = Int32VNMap;
         static constexpr ChunkKind Kind = ChunkKind::ConstI32;
     };
     template <>
     struct VarTypConv<TYP_FLOAT>
     {
         using Type                      = int32_t;
+        using ConstMap                  = Int32VNMap;
         static constexpr ChunkKind Kind = ChunkKind::ConstF32;
     };
     template <>
     struct VarTypConv<TYP_LONG>
     {
         using Type                      = int64_t;
+        using ConstMap                  = Int64VNMap;
         static constexpr ChunkKind Kind = ChunkKind::ConstI64;
     };
     template <>
     struct VarTypConv<TYP_DOUBLE>
     {
         using Type                      = int64_t;
+        using ConstMap                  = Int64VNMap;
         static constexpr ChunkKind Kind = ChunkKind::ConstF64;
     };
     template <>
     struct VarTypConv<TYP_BYREF>
     {
         using Type                      = target_ssize_t;
+        using ConstMap                  = ByrefVNMap;
         static constexpr ChunkKind Kind = ChunkKind::ConstByRef;
     };
     template <>
@@ -442,8 +447,7 @@ class ValueNumStore
         template <var_types T>
         struct Alloc
         {
-            using Type                      = typename VarTypConv<T>::Type;
-            static constexpr ChunkKind Kind = VarTypConv<T>::Kind;
+            using Type = typename VarTypConv<T>::Type;
         };
     };
 
@@ -597,8 +601,10 @@ private:
 
     ValueNum EvalUsingMathIdentity(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
-    template <typename T, typename NumMap, var_types VT>
-    inline ValueNum VnForConst(T cnsVal, NumMap* numMap, unsigned& currentChunk);
+    template <var_types VT>
+    inline ValueNum VnForConst(typename VarTypConv<VT>::Type      value,
+                               typename VarTypConv<VT>::ConstMap* map,
+                               unsigned&                          currentChunk);
 
     enum SpecialRefConsts
     {

@@ -555,14 +555,16 @@ ValueNum ValueNumStore::VNForHandle(void* addr, HandleKind handleKind)
     return *vn;
 }
 
-template <typename T, typename NumMap, var_types VT>
-ValueNum ValueNumStore::VnForConst(T cnsVal, NumMap* numMap, unsigned& currentChunk)
+template <var_types VT>
+ValueNum ValueNumStore::VnForConst(typename VarTypConv<VT>::Type      value,
+                                   typename VarTypConv<VT>::ConstMap* map,
+                                   unsigned&                          currentChunk)
 {
-    ValueNum* vn = numMap->Emplace(cnsVal, NoVN);
+    ValueNum* vn = map->Emplace(value, NoVN);
 
     if (*vn == NoVN)
     {
-        *vn = GetAllocChunk(VT, VarTypConv<VT>::Kind, currentChunk)->AllocVN<T>(cnsVal);
+        *vn = GetAllocChunk(VT, VarTypConv<VT>::Kind, currentChunk)->AllocVN<typename VarTypConv<VT>::Type>(value);
     }
 
     return *vn;
@@ -582,7 +584,7 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
         m_int32VNMap = new (alloc) Int32VNMap(alloc);
     }
 
-    return VnForConst<int32_t, Int32VNMap, TYP_INT>(value, m_int32VNMap, m_currentInt32ConstChunk);
+    return VnForConst<TYP_INT>(value, m_int32VNMap, m_currentInt32ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForLongCon(int64_t value)
@@ -592,7 +594,7 @@ ValueNum ValueNumStore::VNForLongCon(int64_t value)
         m_int64VNMap = new (alloc) Int64VNMap(alloc);
     }
 
-    return VnForConst<int64_t, Int64VNMap, TYP_LONG>(value, m_int64VNMap, m_currentInt64ConstChunk);
+    return VnForConst<TYP_LONG>(value, m_int64VNMap, m_currentInt64ConstChunk);
 }
 
 ValueNum ValueNumStore::VNForIntCon(var_types type, ssize_t value)
@@ -623,7 +625,7 @@ ValueNum ValueNumStore::VNForFloatCon(float value)
     }
 
     int32_t bits = jitstd::bit_cast<int32_t>(value);
-    return VnForConst<int32_t, Int32VNMap, TYP_FLOAT>(bits, m_floatVNMap, m_currentFloatConstChunk);
+    return VnForConst<TYP_FLOAT>(bits, m_floatVNMap, m_currentFloatConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDoubleCon(double value)
@@ -634,7 +636,7 @@ ValueNum ValueNumStore::VNForDoubleCon(double value)
     }
 
     int64_t bits = jitstd::bit_cast<int64_t>(value);
-    return VnForConst<int64_t, Int64VNMap, TYP_DOUBLE>(bits, m_doubleVNMap, m_currentDoubleConstChunk);
+    return VnForConst<TYP_DOUBLE>(bits, m_doubleVNMap, m_currentDoubleConstChunk);
 }
 
 ValueNum ValueNumStore::VNForDblCon(var_types type, double value)
@@ -657,8 +659,7 @@ ValueNum ValueNumStore::VNForByrefCon(ssize_t value)
         m_byrefVNMap = new (alloc) ByrefVNMap(alloc);
     }
 
-    return VnForConst<target_ssize_t, ByrefVNMap, TYP_BYREF>(static_cast<target_ssize_t>(value), m_byrefVNMap,
-                                                             m_currentByrefConstChunk);
+    return VnForConst<TYP_BYREF>(static_cast<target_ssize_t>(value), m_byrefVNMap, m_currentByrefConstChunk);
 }
 
 ValueNum ValueNumStore::VNZeroForType(var_types type)
