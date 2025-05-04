@@ -350,12 +350,6 @@ class ValueNumStore
     using Int64VNMap = VNMap<int64_t>;
     using ByrefVNMap = VNMap<target_ssize_t>;
 
-    // First, we need mechanisms for mapping from constants to value numbers.
-    // For small integers, we'll use an array.
-    static constexpr int      SmallIntConstMin = -1;
-    static constexpr int      SmallIntConstMax = 10;
-    static constexpr unsigned SmallIntConstNum = SmallIntConstMax - SmallIntConstMin + 1;
-
     using HandleVNMap = VNMap<VNHandle>;
 
     using CheckedBoundVNSet = SmallHashTable<ValueNum, bool, 8U>;
@@ -413,7 +407,16 @@ class ValueNumStore
         var_types m_type;
         ChunkKind m_kind;
 
-        Chunk();
+        constexpr Chunk(const void* defs, size_t count, ValueNum baseVN, var_types type, ChunkKind kind)
+            : m_defs(const_cast<void*>(defs))
+            , m_baseVN(baseVN)
+            , m_count(static_cast<uint8_t>(count))
+            , m_type(type)
+            , m_kind(kind)
+        {
+            assert(count <= UINT8_MAX);
+        }
+
         Chunk(CompAllocator alloc, ValueNum baseVN, var_types type, ChunkKind kind);
 
         unsigned AllocVN()
@@ -494,8 +497,7 @@ class ValueNumStore
     unsigned m_currentNotAFieldChunk   = 0;
     unsigned m_currentFuncChunk[MaxFuncArity + 1][TYP_COUNT]{};
 
-    ValueNum     m_zeroMap = NoVN;
-    ValueNum     m_smallInt32VNMap[SmallIntConstNum];
+    ValueNum     m_zeroMap     = NoVN;
     Int32VNMap*  m_int32VNMap  = nullptr;
     Int64VNMap*  m_int64VNMap  = nullptr;
     HandleVNMap* m_handleMap   = nullptr;
@@ -960,7 +962,11 @@ private:
     Chunk* GetAllocChunk(var_types type, ChunkKind kind);
     Chunk* GetAllocChunk(var_types type, ChunkKind kind, unsigned& current);
 
-    static bool IsSmallIntConst(int i)
+    static constexpr int32_t  SmallIntConstMin = -1;
+    static constexpr int32_t  SmallIntConstMax = 62;
+    static constexpr ValueNum SmallIntFirstVN  = ChunkSize;
+
+    static bool IsSmallIntConst(int32_t i)
     {
         return SmallIntConstMin <= i && i <= SmallIntConstMax;
     }

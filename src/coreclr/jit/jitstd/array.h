@@ -24,5 +24,15 @@ public:
         assert(i < Size);
         return m_data[i];
     }
+
+    constexpr const Type* data() const
+    {
+        return m_data;
+    }
+
+    constexpr size_t size() const
+    {
+        return Size;
+    }
 };
 }

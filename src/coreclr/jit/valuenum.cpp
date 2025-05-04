@@ -5,6 +5,7 @@
 #include "ssabuilder.h"
 #include "valuenum.h"
 #include "clr_std/type_traits"
+#include "jitstd/array.h"
 
 using FieldHandleSet = JitHashSet<CORINFO_FIELD_HANDLE>;
 using TypeNumSet     = JitHashSet<unsigned>;
@@ -182,6 +183,19 @@ VNFunc ReverseRelopVNFunc(VNFunc cond)
                                GenCondition::Reverse(static_cast<GenCondition::Code>(cond - VNF_COND_NONE)).GetCode());
 }
 
+template <int32_t Min, int32_t Max>
+static constexpr auto GetInt32ConstChunkData()
+{
+    jitstd::array<int32_t, Max - Min + 1> data;
+
+    for (size_t i = 0; i < data.size(); i++)
+    {
+        data[i] = Min + static_cast<int32_t>(i);
+    }
+
+    return data;
+}
+
 ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     : ssa(ssa)
     , compiler(ssa.GetCompiler())
@@ -193,15 +207,17 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     , m_vnNameMap(compiler->getAllocator(CMK_DebugOnly))
 #endif
 {
-    for (unsigned i = 0; i < _countof(m_smallInt32VNMap); i++)
-    {
-        m_smallInt32VNMap[i] = NoVN;
-    }
-
     // We will reserve chunk 0 to hold some special constants, like the constant null,
     // a void pseudo-value, and the empty exception set value.
-    static Chunk specialConstChunk;
+    static constexpr target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts]{};
+    static Chunk specialConstChunk(specialRefConsts, _countof(specialRefConsts), 0, TYP_REF, ChunkKind::ConstRef);
     m_chunks.Push(&specialConstChunk);
+
+    static constexpr auto smallIntConstChunkData = GetInt32ConstChunkData<SmallIntConstMin, SmallIntConstMax>();
+    static Chunk smallIntConstChunk(smallIntConstChunkData.data(), smallIntConstChunkData.size(), m_nextChunkBase,
+                                    TYP_INT, ChunkKind::ConstI32);
+    m_chunks.Push(&smallIntConstChunk);
+    m_nextChunkBase += static_cast<unsigned>(smallIntConstChunkData.size());
 
     m_mapSelectBudget = JitConfig.JitVNMapSelBudget();
 
@@ -447,13 +463,6 @@ bool ValueNumStore::HasExset(ValueNum vn) const
 }
 #endif
 
-ValueNumStore::Chunk::Chunk()
-    : m_baseVN(0), m_count(SRC_NumSpecialRefConsts), m_type(TYP_REF), m_kind(ChunkKind::ConstRef)
-{
-    static target_ssize_t specialRefConsts[SRC_NumSpecialRefConsts];
-    m_defs = specialRefConsts;
-}
-
 ValueNumStore::Chunk::Chunk(CompAllocator alloc, ValueNum baseVN, var_types type, ChunkKind kind)
     : m_baseVN(baseVN), m_type(type), m_kind(kind)
 {
@@ -563,15 +572,9 @@ ValueNum ValueNumStore::VNForIntCon(int32_t value)
 {
     if (IsSmallIntConst(value))
     {
-        unsigned index = value - SmallIntConstMin;
-
-        if (m_smallInt32VNMap[index] == NoVN)
-        {
-            m_smallInt32VNMap[index] =
-                GetAllocChunk(TYP_INT, ChunkKind::ConstI32, m_currentInt32ConstChunk)->AllocVN<int32_t>(value);
-        }
-
-        return m_smallInt32VNMap[index];
+        ValueNum vn = SmallIntFirstVN + (value - SmallIntConstMin);
+        assert(GetConstInt32(vn) == value);
+        return vn;
     }
 
     if (m_int32VNMap == nullptr)
