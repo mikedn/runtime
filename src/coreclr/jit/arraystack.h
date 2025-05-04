@@ -31,6 +31,27 @@ public:
     {
     }
 
+    template <size_t Size>
+    ArrayStack(CompAllocator alloc, const T (&init)[Size])
+        : m_data(reinterpret_cast<T*>(m_inlineData))
+        , m_size(static_cast<unsigned>(Size))
+        , m_capacity(InlineCapacity)
+        , m_alloc(alloc)
+    {
+        if (m_size > m_capacity)
+        {
+            m_capacity = m_size;
+            m_data     = m_alloc.allocate<T>(m_size);
+        }
+
+        size_t i = 0;
+
+        for (const T& value : init)
+        {
+            m_data[i++] = value;
+        }
+    }
+
     void Push(T item)
     {
         if (m_size == m_capacity)

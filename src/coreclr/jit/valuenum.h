@@ -25,6 +25,7 @@
 #include "gentree.h"
 #include "valuenumtype.h"
 #include "smallhash.h"
+#include "jitstd/array.h"
 
 enum VNFunc
 {
@@ -190,6 +191,7 @@ class ValueNumStore
 
     enum class ChunkKind : uint8_t
     {
+        Reserved,
         ConstI32,
         ConstI64,
         ConstF32,
@@ -354,102 +356,224 @@ class ValueNumStore
 
     using CheckedBoundVNSet = SmallHashTable<ValueNum, bool, 8U>;
 
-    // Convert a vartype_t to the value number's storage type for that vartype_t.
-    // For example, ValueNum of type TYP_LONG are stored in a map of int64_t variables.
-    template <var_types T>
-    struct VarTypConv
+    template <ChunkKind Kind>
+    struct KindConv
     {
     };
     template <>
-    struct VarTypConv<TYP_INT>
+    struct KindConv<ChunkKind::Reserved>
     {
-        using Type                      = int32_t;
-        using ConstMap                  = Int32VNMap;
-        static constexpr ChunkKind Kind = ChunkKind::ConstI32;
+        using Type                         = void;
+        static constexpr var_types VarType = TYP_UNDEF;
     };
     template <>
-    struct VarTypConv<TYP_FLOAT>
+    struct KindConv<ChunkKind::ConstI32>
     {
-        using Type                      = int32_t;
-        using ConstMap                  = Int32VNMap;
-        static constexpr ChunkKind Kind = ChunkKind::ConstF32;
+        using Type                         = int32_t;
+        using ConstMap                     = Int32VNMap;
+        static constexpr var_types VarType = TYP_INT;
     };
     template <>
-    struct VarTypConv<TYP_LONG>
+    struct KindConv<ChunkKind::ConstI64>
     {
-        using Type                      = int64_t;
-        using ConstMap                  = Int64VNMap;
-        static constexpr ChunkKind Kind = ChunkKind::ConstI64;
+        using Type                         = int64_t;
+        using ConstMap                     = Int64VNMap;
+        static constexpr var_types VarType = TYP_LONG;
     };
     template <>
-    struct VarTypConv<TYP_DOUBLE>
+    struct KindConv<ChunkKind::ConstF32>
     {
-        using Type                      = int64_t;
-        using ConstMap                  = Int64VNMap;
-        static constexpr ChunkKind Kind = ChunkKind::ConstF64;
+        using Type                         = int32_t;
+        using ConstMap                     = Int32VNMap;
+        static constexpr var_types VarType = TYP_FLOAT;
     };
     template <>
-    struct VarTypConv<TYP_BYREF>
+    struct KindConv<ChunkKind::ConstF64>
     {
-        using Type                      = target_ssize_t;
-        using ConstMap                  = ByrefVNMap;
-        static constexpr ChunkKind Kind = ChunkKind::ConstByRef;
+        using Type                         = int64_t;
+        using ConstMap                     = Int64VNMap;
+        static constexpr var_types VarType = TYP_DOUBLE;
     };
     template <>
-    struct VarTypConv<TYP_REF>
+    struct KindConv<ChunkKind::ConstRef>
     {
-        using Type                      = target_ssize_t;
-        static constexpr ChunkKind Kind = ChunkKind::ConstRef;
+        using Type = target_ssize_t;
+    };
+    template <>
+    struct KindConv<ChunkKind::ConstByRef>
+    {
+        using Type                         = target_ssize_t;
+        using ConstMap                     = ByrefVNMap;
+        static constexpr var_types VarType = TYP_BYREF;
+    };
+    template <>
+    struct KindConv<ChunkKind::Handle>
+    {
+        using Type = VNHandle;
+    };
+    template <>
+    struct KindConv<ChunkKind::NotAField>
+    {
+        using Type = void;
+    };
+    template <>
+    struct KindConv<ChunkKind::Func0>
+    {
+        using Type = VNFuncDef0;
+    };
+    template <>
+    struct KindConv<ChunkKind::Func1>
+    {
+        using Type = VNFuncDef1;
+    };
+    template <>
+    struct KindConv<ChunkKind::Func2>
+    {
+        using Type = VNFuncDef2;
+    };
+    template <>
+    struct KindConv<ChunkKind::Func3>
+    {
+        using Type = VNFuncDef3;
+    };
+    template <>
+    struct KindConv<ChunkKind::Func4>
+    {
+        using Type = VNFuncDef4;
     };
 
     static constexpr unsigned MaxFuncArity = 4;
 
+    // We will allocate value numbers in "chunks".  Each chunk will have the same type and "constness".
+    static constexpr unsigned LogChunkSize    = 6;
+    static constexpr unsigned ChunkSize       = 1 << LogChunkSize;
+    static constexpr unsigned ChunkOffsetMask = ChunkSize - 1;
+
     struct Chunk
     {
-        void*     m_defs = nullptr;
-        ValueNum  m_baseVN;
-        uint8_t   m_count = 0;
-        var_types m_type;
-        ChunkKind m_kind;
+        ValueNum const  m_baseVN;
+        uint8_t         m_count;
+        var_types const m_type;
+        ChunkKind const m_kind;
 
-        constexpr Chunk(const void* defs, size_t count, ValueNum baseVN, var_types type, ChunkKind kind)
-            : m_defs(const_cast<void*>(defs))
-            , m_baseVN(baseVN)
-            , m_count(static_cast<uint8_t>(count))
-            , m_type(type)
-            , m_kind(kind)
+        constexpr Chunk(size_t count, ValueNum baseVN, var_types type, ChunkKind kind)
+            : m_baseVN(baseVN), m_count(static_cast<uint8_t>(count)), m_type(type), m_kind(kind)
         {
             assert(count <= UINT8_MAX);
-        }
-
-        Chunk(CompAllocator alloc, ValueNum baseVN, var_types type, ChunkKind kind);
-
-        unsigned AllocVN()
-        {
-            assert(m_count < ChunkSize);
-            return m_baseVN + m_count++;
-        }
-
-        template <typename T>
-        unsigned AllocVN(const T& value)
-        {
-            assert(m_count < ChunkSize);
-            unsigned index                 = m_count++;
-            static_cast<T*>(m_defs)[index] = value;
-            return m_baseVN + index;
         }
 
         bool IsConst() const
         {
             return m_kind < ChunkKind::ConstByRef;
         }
-
-        template <var_types T>
-        struct Alloc
-        {
-            using Type = typename VarTypConv<T>::Type;
-        };
     };
+
+    template <ChunkKind Kind>
+    class ChunkData : public Chunk
+    {
+        using T = typename KindConv<Kind>::Type;
+
+        alignas(T) uint8_t m_defs[ChunkSize * sizeof(T)];
+
+    public:
+        ChunkData(ValueNum baseVN, var_types type) : Chunk(0, baseVN, type, Kind)
+        {
+        }
+
+        unsigned AllocVN(const T& value)
+        {
+            assert(m_count < _countof(m_defs));
+            unsigned index                      = m_count++;
+            reinterpret_cast<T*>(m_defs)[index] = value;
+            return m_baseVN + index;
+        }
+
+        const T& Get(unsigned i) const
+        {
+            assert(i < m_count);
+            return reinterpret_cast<const T*>(m_defs)[i];
+        }
+    };
+
+    template <>
+    class ChunkData<ChunkKind::Reserved> : public Chunk
+    {
+    public:
+        constexpr ChunkData() : Chunk(0, NoVN, TYP_UNDEF, ChunkKind::Reserved)
+        {
+        }
+    };
+
+    template <>
+    class ChunkData<ChunkKind::ConstRef> : public Chunk
+    {
+        target_ssize_t m_null = 0;
+
+    public:
+        constexpr ChunkData() : Chunk(1, NullVN, TYP_REF, ChunkKind::ConstRef)
+        {
+        }
+
+        const target_ssize_t& Get(unsigned i) const
+        {
+            assert(i == 0);
+            return m_null;
+        }
+    };
+
+    template <>
+    class ChunkData<ChunkKind::ConstI32> : public Chunk
+    {
+        int32_t m_defs[ChunkSize];
+
+    public:
+        ChunkData(ValueNum baseVN, var_types type) : Chunk(0, baseVN, TYP_INT, ChunkKind::ConstI32)
+        {
+            assert(type == TYP_INT);
+        }
+
+        constexpr ChunkData(jitstd::array<int32_t, ChunkSize> data)
+            : Chunk(data.size(), SmallIntFirstVN, TYP_INT, ChunkKind::ConstI32), m_defs{}
+        {
+            for (size_t i = 0; i < data.size(); i++)
+            {
+                m_defs[i] = data[i];
+            }
+        }
+
+        unsigned AllocVN(int32_t value)
+        {
+            assert(m_count < _countof(m_defs));
+            unsigned index = m_count++;
+            m_defs[index]  = value;
+            return m_baseVN + index;
+        }
+
+        const int32_t& Get(unsigned i) const
+        {
+            assert(i < m_count);
+            return m_defs[i];
+        }
+    };
+
+    template <>
+    struct ChunkData<ChunkKind::NotAField> : public Chunk
+    {
+        constexpr ChunkData(ValueNum baseVN, var_types type) : Chunk(0, baseVN, type, ChunkKind::NotAField)
+        {
+        }
+
+        unsigned AllocVN()
+        {
+            assert(m_count < ChunkSize);
+            return m_baseVN + m_count++;
+        }
+    };
+
+    static ChunkData<ChunkKind::Reserved> reservedChunk;
+    static ChunkData<ChunkKind::ConstRef> nullRefChunk;
+    static ChunkData<ChunkKind::ConstI32> smallIntConstChunk;
+    static Chunk* const                   defaultChunks[3];
 
     SsaOptimizer& ssa;
     Compiler*     compiler;
@@ -472,7 +596,7 @@ class ValueNumStore
     int m_mapSelectBudget;
     // The base VN of the next chunk to be allocated. Should always be a multiple of ChunkSize.
     // The first chunk is reserved for some special values.
-    ValueNum m_nextChunkBase = ChunkSize;
+    ValueNum m_nextChunkBase = ChunkSize * 3;
     // When we evaluate "select(m, i)", if "m" is a the value of a phi definition, we look at
     // all the values of the phi args, and see if doing the "select" on each of them yields identical
     // results.  If so, that is the result of the entire "select" form.  We have to be careful, however,
@@ -601,24 +725,10 @@ private:
 
     ValueNum EvalUsingMathIdentity(var_types type, VNFunc vnf, ValueNum vn0, ValueNum vn1);
 
-    template <var_types VT>
-    inline ValueNum VnForConst(typename VarTypConv<VT>::Type      value,
-                               typename VarTypConv<VT>::ConstMap* map,
+    template <ChunkKind Kind>
+    inline ValueNum VnForConst(typename KindConv<Kind>::Type      value,
+                               typename KindConv<Kind>::ConstMap* map,
                                unsigned&                          currentChunk);
-
-    enum SpecialRefConsts
-    {
-        SRC_None,
-        SRC_Recursive,
-        SRC_Void,
-        SRC_EmptyExset,
-        SRC_Null,
-        SRC_NumSpecialRefConsts
-    };
-
-    static_assert_no_msg(NoVN == SRC_None);
-    // A special value, used to indicate that a function evaluation would cause infinite recursion.
-    static constexpr ValueNum RecursiveVN = SRC_Recursive;
 
 public:
     ValueNumStore(SsaOptimizer& ssa);
@@ -681,9 +791,13 @@ public:
     // The zero map is the map that returns a zero "for the appropriate type" when indexed at any index.
     ValueNum ZeroMapVN();
 
-    static constexpr ValueNum NullVN       = SRC_Null;
-    static constexpr ValueNum VoidVN       = SRC_Void;
-    static constexpr ValueNum EmptyExsetVN = SRC_EmptyExset;
+    static_assert_no_msg(NoVN == 0);
+
+    static constexpr ValueNum RecursiveVN     = 1;
+    static constexpr ValueNum VoidVN          = 2;
+    static constexpr ValueNum EmptyExsetVN    = 3;
+    static constexpr ValueNum NullVN          = ChunkSize;
+    static constexpr ValueNum SmallIntFirstVN = ChunkSize * 2;
 
     static ValueNumPair VoidVNP()
     {
@@ -879,42 +993,28 @@ public:
     template <typename T>
     const T* IsVNFunc(ValueNum vn, VNFunc func) const
     {
-        if (vn == NoVN)
-        {
-            return nullptr;
-        }
-
-        Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
-        unsigned index = ChunkOffset(vn);
-        assert(index < chunk->m_count);
+        Chunk* chunk = m_chunks.Get(GetChunkNum(vn));
 
         if (chunk->m_kind != T::Kind)
         {
             return nullptr;
         }
 
-        const T* def = &static_cast<T*>(chunk->m_defs)[index];
-        return def->func == func ? def : nullptr;
+        const T& def = static_cast<ChunkData<T::Kind>*>(chunk)->Get(ChunkOffset(vn));
+        return def.func == func ? &def : nullptr;
     }
 
     template <typename T>
     const T* IsVNFunc(ValueNum vn) const
     {
-        if (vn == NoVN)
-        {
-            return nullptr;
-        }
-
-        Chunk*   chunk = m_chunks.Get(GetChunkNum(vn));
-        unsigned index = ChunkOffset(vn);
-        assert(index < chunk->m_count);
+        Chunk* chunk = m_chunks.Get(GetChunkNum(vn));
 
         if (chunk->m_kind != T::Kind)
         {
             return nullptr;
         }
 
-        return &static_cast<T*>(chunk->m_defs)[index];
+        return &static_cast<ChunkData<T::Kind>*>(chunk)->Get(ChunkOffset(vn));
     }
 
 #ifdef DEBUG
@@ -932,7 +1032,6 @@ public:
     void DumpExcSeq(const VNFuncApp& excSeq, bool isHead);
 
     static const char* GetFuncName(VNFunc vnf);
-    static const char* GetReservedName(ValueNum vn);
 
     void Trace(ValueNum vn, const char* comment = nullptr);
     void Trace(ValueNumPair vnp, const char* comment = nullptr);
@@ -944,33 +1043,27 @@ public:
     static bool IsReservedVN(ValueNum);
 
 private:
-    // We will allocate value numbers in "chunks".  Each chunk will have the same type and "constness".
-    static constexpr unsigned LogChunkSize    = 6;
-    static constexpr unsigned ChunkSize       = 1 << LogChunkSize;
-    static constexpr unsigned ChunkOffsetMask = ChunkSize - 1;
-
     // Returns the ChunkNum of the Chunk that holds "vn" (which is required to be a valid
     // value number, i.e., one returned by some VN-producing method of this class).
     static unsigned GetChunkNum(ValueNum vn)
     {
-        assert(vn != NoVN);
         return vn >> LogChunkSize;
     }
 
     // Returns the offset of the given "vn" within its chunk.
     static unsigned ChunkOffset(ValueNum vn)
     {
-        assert(vn != NoVN);
         return vn & ChunkOffsetMask;
     }
 
     // Returns a (pointer to a) chunk in which a new value number may be allocated.
-    Chunk* GetAllocChunk(var_types type, ChunkKind kind);
-    Chunk* GetAllocChunk(var_types type, ChunkKind kind, unsigned& current);
+    template <ChunkKind Kind>
+    ChunkData<Kind>* GetAllocChunk(var_types type);
+    template <ChunkKind Kind>
+    ChunkData<Kind>* GetAllocChunk(var_types type, unsigned& current);
 
-    static constexpr int32_t  SmallIntConstMin = -1;
-    static constexpr int32_t  SmallIntConstMax = 62;
-    static constexpr ValueNum SmallIntFirstVN  = ChunkSize;
+    static constexpr int32_t SmallIntConstMin = -1;
+    static constexpr int32_t SmallIntConstMax = 62;
 
     static bool IsSmallIntConst(int32_t i)
     {
