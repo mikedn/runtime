@@ -986,9 +986,13 @@ public:
                 EvalBinaryMathIntrinsic(intrinsic, arg0VNP.GetConservative(), arg1VNP.GetConservative())};
     }
 
-    // If "vn" represents a function application, returns "true" and set "*funcApp" to
-    // the function application it represents; otherwise, return "false."
+    VNFunc GetVNFunc(ValueNum vn) const;
     VNFunc GetVNFunc(ValueNum vn, VNFuncApp* funcApp) const;
+
+    bool IsNotAField(ValueNum vn) const
+    {
+        return m_chunks.Get(GetChunkNum(vn))->m_kind == ChunkKind::NotAField;
+    }
 
     template <typename T>
     const T* IsVNFunc(ValueNum vn, VNFunc func) const

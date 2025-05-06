@@ -49,7 +49,7 @@ ValueNumFuncDef(MemLoadNotNull, 2, false, true, false)
 ValueNumFuncDef(MapStore, 4, false, false, false)   // Args: 0: map, 1: index (e. g. field handle), 2: value being stored, 3: loop num.
 ValueNumFuncDef(MapSelect, 2, false, false, false)  // Args: 0: map, 1: key.
 
-ValueNumFuncDef(FieldSeq, 2, false, false, false)   // Sequence (VN of null == empty) of (VN's of) field handles.
+ValueNumFuncDef(FieldSeq, 1, false, false, false)   // Sequence (VN of null == empty) of (VN's of) field handles.
 ValueNumFuncDef(NotAField, 0, false, false, false)  // Value number function for FieldSeqStore::NotAField.
 ValueNumFuncDef(ZeroMap, 0, false, false, false)    // The "ZeroMap": indexing at any index yields "zero of the desired type".
 
