@@ -7475,33 +7475,31 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
         case CORINFO_HELP_ULMOD:
             return VNOP_UMOD;
         case CORINFO_HELP_LNG2DBL:
-            return VNF_Lng2Dbl;
+            return VNF_STOFD;
         case CORINFO_HELP_ULNG2DBL:
-            return VNF_ULng2Dbl;
+            return VNF_UTOFD;
         case CORINFO_HELP_DBL2INT:
-            return VNF_Dbl2Int;
-        case CORINFO_HELP_DBL2INT_OVF:
-            return VNF_Dbl2Int;
-        case CORINFO_HELP_DBL2LNG:
-            return VNF_Dbl2Lng;
-        case CORINFO_HELP_DBL2LNG_OVF:
-            return VNF_Dbl2Lng;
+            return VNOP_FTOS;
         case CORINFO_HELP_DBL2UINT:
-            return VNF_Dbl2UInt;
-        case CORINFO_HELP_DBL2UINT_OVF:
-            return VNF_Dbl2UInt;
+            return VNOP_FTOU;
+        case CORINFO_HELP_DBL2LNG:
+            return VNF_FTOSL;
         case CORINFO_HELP_DBL2ULNG:
-            return VNF_Dbl2ULng;
+            return VNF_FTOUL;
+        case CORINFO_HELP_DBL2INT_OVF:
+            return VNOP_OVF_FTOS;
+        case CORINFO_HELP_DBL2UINT_OVF:
+            return VNOP_OVF_FTOU;
+        case CORINFO_HELP_DBL2LNG_OVF:
+            return VNF_OVF_FTOSL;
         case CORINFO_HELP_DBL2ULNG_OVF:
-            return VNF_Dbl2ULng;
+            return VNF_OVF_FTOUL;
         case CORINFO_HELP_FLTREM:
-            return VNOP_FMOD;
         case CORINFO_HELP_DBLREM:
             return VNOP_FMOD;
         case CORINFO_HELP_FLTROUND:
-            return VNF_FltRound; // Is this the right thing?
         case CORINFO_HELP_DBLROUND:
-            return VNF_DblRound; // Is this the right thing?
+            return VNF_Round;
 
         // These allocation operations probably require some augmentation -- perhaps allocSiteId,
         // something about array length...
