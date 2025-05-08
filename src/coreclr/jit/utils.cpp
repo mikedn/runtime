@@ -899,9 +899,17 @@ struct HelperCallInfo
     bool isAllocator : 1;
     bool mutatesHeap : 1;
     bool mayRunCctor : 1;
+    bool isSharedStatic : 1;
 
     constexpr HelperCallInfo()
-        : isPure{}, noThrow{}, alwaysThrow{}, nonNullReturn{}, isAllocator{}, mutatesHeap{}, mayRunCctor{}
+        : isPure{}
+        , noThrow{}
+        , alwaysThrow{}
+        , nonNullReturn{}
+        , isAllocator{}
+        , mutatesHeap{}
+        , mayRunCctor{}
+        , isSharedStatic{}
     {
     }
 };
@@ -958,11 +966,12 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_DBL2LNG_OVF:
         case CORINFO_HELP_DBL2UINT_OVF:
         case CORINFO_HELP_DBL2ULNG_OVF:
-
             info.isPure = true;
             break;
 
-        // Heap Allocation helpers, these all never return null
+        case CORINFO_HELP_BOX:
+            info.isSharedStatic = true;
+            FALLTHROUGH;
         case CORINFO_HELP_NEWSFAST:
         case CORINFO_HELP_NEWSFAST_ALIGN8:
         case CORINFO_HELP_NEWSFAST_ALIGN8_VC:
@@ -970,8 +979,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_NEWSFAST_FINALIZE:
         case CORINFO_HELP_NEWSFAST_ALIGN8_FINALIZE:
         case CORINFO_HELP_READYTORUN_NEW:
-        case CORINFO_HELP_BOX:
-
             info.isAllocator   = true;
             info.nonNullReturn = true;
             info.noThrow       = true; // only can throw OutOfMemory
@@ -985,27 +992,23 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_NEWARR_1_DIRECT:
         case CORINFO_HELP_NEWARR_1_OBJ:
         case CORINFO_HELP_READYTORUN_NEWARR_1:
-
             info.isAllocator   = true;
             info.nonNullReturn = true;
             break;
 
-        // Heap Allocation helpers that are also pure
         case CORINFO_HELP_STRCNS:
-
-            info.isPure        = true;
-            info.isAllocator   = true;
-            info.nonNullReturn = true;
-            info.noThrow       = true; // only can throw OutOfMemory
+            info.isPure         = true;
+            info.isAllocator    = true;
+            info.nonNullReturn  = true;
+            info.noThrow        = true; // only can throw OutOfMemory
+            info.isSharedStatic = true;
             break;
 
         case CORINFO_HELP_BOX_NULLABLE:
             // Box Nullable is not a 'pure' function
             // It has a Byref argument that it reads the contents of.
-            //
             // So two calls to Box Nullable that pass the same address (with the same Value Number)
             // will produce different results when the contents of the memory pointed to by the Byref changes
-            //
             info.isAllocator = true;
             info.noThrow     = true; // only can throw OutOfMemory
             break;
@@ -1029,7 +1032,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_READYTORUN_ISINSTANCEOF:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
-
             info.isPure  = true;
             info.noThrow = true; // These return null for a failing cast
             break;
@@ -1064,7 +1066,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         // helpers that return internal handle
         case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
         case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
-
             info.isPure  = true;
             info.noThrow = true;
             break;
@@ -1072,42 +1073,42 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         // Helpers that load the base address for static variables.
         // We divide these between those that may and may not invoke
         // static class constructors.
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
-        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
-        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
         case CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT:
         case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
         case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
         case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
+        case CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE:
+        case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS:
+        case CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS:
+#ifdef FEATURE_READYTORUN_COMPILER
         case CORINFO_HELP_READYTORUN_STATIC_BASE:
         case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
-
+#endif
             // These may invoke static class constructors
             // These can throw InvalidProgram exception if the class can not be constructed
-            //
-            info.isPure        = true;
-            info.nonNullReturn = true;
-            info.mayRunCctor   = true;
+            info.isPure         = true;
+            info.nonNullReturn  = true;
+            info.mayRunCctor    = true;
+            info.isSharedStatic = true;
             break;
 
         case CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR:
         case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
         case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
         case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
-
             // These do not invoke static class constructors
-            //
-            info.isPure        = true;
-            info.noThrow       = true;
-            info.nonNullReturn = true;
+            info.isPure         = true;
+            info.noThrow        = true;
+            info.nonNullReturn  = true;
+            info.isSharedStatic = true;
             break;
 
         // GC Write barrier support
@@ -1117,7 +1118,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
         case CORINFO_HELP_ASSIGN_BYREF:
         case CORINFO_HELP_ASSIGN_STRUCT:
-
             info.mutatesHeap = true;
             break;
 
@@ -1129,7 +1129,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_SETFIELDFLOAT:
         case CORINFO_HELP_SETFIELDDOUBLE:
         case CORINFO_HELP_ARRADDR_ST:
-
             info.mutatesHeap = true;
             break;
 
@@ -1150,13 +1149,11 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_METHOD_ACCESS_EXCEPTION:
         case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
         case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
-
             info.alwaysThrow = true;
             break;
 
         // These helper calls may throw an exception
         case CORINFO_HELP_MON_EXIT_STATIC:
-
             break;
 
         // This is a debugging aid; it simply returns a constant address.
@@ -1177,14 +1174,11 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_INIT_PINVOKE_FRAME:
         case CORINFO_HELP_JIT_PINVOKE_BEGIN:
         case CORINFO_HELP_JIT_PINVOKE_END:
-
             info.noThrow = true;
             break;
 
-        // Not sure how to handle optimization involving the rest of these  helpers
         default:
-
-            // The most pessimistic results are returned for these helpers
+            // The most pessimistic results are returned for all other helpers
             info.mutatesHeap = true;
             break;
     }
@@ -1247,6 +1241,12 @@ bool HelperCallProperties::MayRunCctor(CorInfoHelpFunc helper)
 {
     assert(helper != CORINFO_HELP_UNDEF);
     return helperCallInfo[helper].mayRunCctor;
+}
+
+bool HelperCallProperties::IsSharedStatic(CorInfoHelpFunc helper)
+{
+    assert(helper != CORINFO_HELP_UNDEF);
+    return helperCallInfo[helper].isSharedStatic;
 }
 
 //=============================================================================

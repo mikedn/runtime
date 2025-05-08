@@ -5015,7 +5015,6 @@ public:
     static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
     static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
 
-    static bool IsSharedStaticHelper(GenTree* tree);
     static bool IsCallGCSafePoint(GenTreeCall* call);
 
     /*

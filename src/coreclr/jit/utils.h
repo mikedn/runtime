@@ -582,6 +582,8 @@ struct HelperCallProperties
     static bool MutatesHeap(CorInfoHelpFunc helper);
     // The call may cause a static constructor to be run
     static bool MayRunCctor(CorInfoHelpFunc helper);
+
+    static bool IsSharedStatic(CorInfoHelpFunc helper);
 };
 
 //*****************************************************************************

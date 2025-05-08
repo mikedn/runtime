@@ -3521,63 +3521,22 @@ struct OptInvertCountTreeInfoType
 
 static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTree* user, void* data)
 {
-    OptInvertCountTreeInfoType* o = static_cast<OptInvertCountTreeInfoType*>(data);
+    OptInvertCountTreeInfoType* counts = static_cast<OptInvertCountTreeInfoType*>(data);
+    GenTree*                    tree   = *use;
 
-    if (Compiler::IsSharedStaticHelper(*use))
+    if (tree->IsHelperCall())
     {
-        o->sharedStaticHelperCount += 1;
+        if (HelperCallProperties::IsSharedStatic(Compiler::eeGetHelperNum(tree->AsCall()->GetMethodHandle())))
+        {
+            counts->sharedStaticHelperCount++;
+        }
     }
-
-    if ((*use)->OperIs(GT_ARR_LENGTH))
+    else if (tree->OperIs(GT_ARR_LENGTH))
     {
-        o->arrayLengthCount += 1;
+        counts->arrayLengthCount++;
     }
 
     return GenTreeWalkResult::Continue;
-}
-
-// TODO-Cleanup: Replace calls to IsSharedStaticHelper with new HelperCallProperties
-bool Compiler::IsSharedStaticHelper(GenTree* tree)
-{
-    if (!tree->OperIs(GT_CALL) || !tree->AsCall()->IsHelperCall())
-    {
-        return false;
-    }
-
-    CorInfoHelpFunc helper = eeGetHelperNum(tree->AsCall()->GetMethodHandle());
-
-    bool result1 =
-        // More helpers being added to IsSharedStaticHelper (that have similar behaviors but are not true
-        // ShareStaticHelperts)
-        helper == CORINFO_HELP_STRCNS || helper == CORINFO_HELP_BOX ||
-
-        // helpers being added to IsSharedStaticHelper
-        helper == CORINFO_HELP_GETSTATICFIELDADDR_CONTEXT || helper == CORINFO_HELP_GETSTATICFIELDADDR_TLS ||
-        helper == CORINFO_HELP_GETGENERICS_GCSTATIC_BASE || helper == CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE ||
-        helper == CORINFO_HELP_GETGENERICS_GCTHREADSTATIC_BASE ||
-        helper == CORINFO_HELP_GETGENERICS_NONGCTHREADSTATIC_BASE ||
-
-        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE || helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE ||
-        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE_NOCTOR ||
-        helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR ||
-        helper == CORINFO_HELP_GETSHARED_GCSTATIC_BASE_DYNAMICCLASS ||
-        helper == CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_DYNAMICCLASS ||
-        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE ||
-        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE ||
-        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR ||
-        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR ||
-        helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS ||
-        helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS ||
-#ifdef FEATURE_READYTORUN_COMPILER
-        helper == CORINFO_HELP_READYTORUN_STATIC_BASE || helper == CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE ||
-#endif
-        helper == CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS;
-#if 0
-    // See above TODO-Cleanup
-    bool result2 = helperCallInfo.IsPure(helper) && helperCallInfo.NonNullReturn(helper);
-    assert(result1 == result2);
-#endif
-    return result1;
 }
 
 //-----------------------------------------------------------------------------
