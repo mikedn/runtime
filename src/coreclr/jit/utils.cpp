@@ -920,7 +920,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
 
     switch (helper)
     {
-        // Arithmetic helpers that cannot throw
         case CORINFO_HELP_LLSH:
         case CORINFO_HELP_LRSH:
         case CORINFO_HELP_LRSZ:
@@ -935,31 +934,18 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_DBLREM:
         case CORINFO_HELP_FLTROUND:
         case CORINFO_HELP_DBLROUND:
-
             info.isPure  = true;
             info.noThrow = true;
             break;
 
-        // Arithmetic helpers that *can* throw.
-
-        // This (or these) are not pure, in that they have "VM side effects"...but they don't mutate the heap.
-        case CORINFO_HELP_ENDCATCH:
-
-            info.noThrow = true;
-            break;
-
-        // Arithmetic helpers that may throw
-        case CORINFO_HELP_LMOD: // Mods throw div-by zero, and signed mods have problems with the smallest integer
-        // mod -1,
-        case CORINFO_HELP_MOD: // which is not representable as a positive integer.
+        case CORINFO_HELP_LMOD:
+        case CORINFO_HELP_MOD:
         case CORINFO_HELP_UMOD:
         case CORINFO_HELP_ULMOD:
-
-        case CORINFO_HELP_UDIV: // Divs throw divide-by-zero.
+        case CORINFO_HELP_UDIV:
         case CORINFO_HELP_DIV:
         case CORINFO_HELP_LDIV:
         case CORINFO_HELP_ULDIV:
-
         case CORINFO_HELP_LMUL_OVF:
         case CORINFO_HELP_ULMUL_OVF:
         case CORINFO_HELP_DBL2INT_OVF:
@@ -967,6 +953,11 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_DBL2UINT_OVF:
         case CORINFO_HELP_DBL2ULNG_OVF:
             info.isPure = true;
+            break;
+
+        case CORINFO_HELP_ENDCATCH:
+            // This isn't pure, in that it has "VM side effects", but it doesn't mutate the heap.
+            info.noThrow = true;
             break;
 
         case CORINFO_HELP_BOX:
@@ -1042,28 +1033,23 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
             info.noThrow = true;
             break;
 
-        // type casting helpers that throw
         case CORINFO_HELP_CHKCASTINTERFACE:
         case CORINFO_HELP_CHKCASTARRAY:
         case CORINFO_HELP_CHKCASTCLASS:
         case CORINFO_HELP_CHKCASTANY:
         case CORINFO_HELP_CHKCASTCLASS_SPECIAL:
         case CORINFO_HELP_READYTORUN_CHKCAST:
-
             // These throw for a failing cast
             // But if given a null input arg will return null
             info.isPure = true;
             break;
 
-        // helpers returning addresses, these can also throw
         case CORINFO_HELP_UNBOX:
         case CORINFO_HELP_GETREFANY:
         case CORINFO_HELP_LDELEMA_REF:
-
             info.isPure = true;
             break;
 
-        // helpers that return internal handle
         case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
         case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
             info.isPure  = true;
@@ -1111,28 +1097,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
             info.isSharedStatic = true;
             break;
 
-        // GC Write barrier support
-        // TODO-ARM64-Bug?: Can these throw or not?
-        case CORINFO_HELP_ASSIGN_REF:
-        case CORINFO_HELP_CHECKED_ASSIGN_REF:
-        case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
-        case CORINFO_HELP_ASSIGN_BYREF:
-        case CORINFO_HELP_ASSIGN_STRUCT:
-            info.mutatesHeap = true;
-            break;
-
-        // Accessing fields (write)
-        case CORINFO_HELP_SETFIELD32:
-        case CORINFO_HELP_SETFIELD64:
-        case CORINFO_HELP_SETFIELDOBJ:
-        case CORINFO_HELP_SETFIELDSTRUCT:
-        case CORINFO_HELP_SETFIELDFLOAT:
-        case CORINFO_HELP_SETFIELDDOUBLE:
-        case CORINFO_HELP_ARRADDR_ST:
-            info.mutatesHeap = true;
-            break;
-
-        // These helper calls always throw an exception
         case CORINFO_HELP_OVERFLOW:
         case CORINFO_HELP_VERIFICATION:
         case CORINFO_HELP_RNGCHKFAIL:
@@ -1150,10 +1114,6 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_FIELD_ACCESS_EXCEPTION:
         case CORINFO_HELP_CLASS_ACCESS_EXCEPTION:
             info.alwaysThrow = true;
-            break;
-
-        // These helper calls may throw an exception
-        case CORINFO_HELP_MON_EXIT_STATIC:
             break;
 
         // This is a debugging aid; it simply returns a constant address.
@@ -1175,6 +1135,27 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
         case CORINFO_HELP_JIT_PINVOKE_BEGIN:
         case CORINFO_HELP_JIT_PINVOKE_END:
             info.noThrow = true;
+            break;
+
+        case CORINFO_HELP_MON_EXIT_STATIC:
+            break;
+
+        case CORINFO_HELP_ASSIGN_REF:
+        case CORINFO_HELP_CHECKED_ASSIGN_REF:
+        case CORINFO_HELP_ASSIGN_REF_ENSURE_NONHEAP:
+        case CORINFO_HELP_ASSIGN_BYREF:
+        case CORINFO_HELP_ASSIGN_STRUCT:
+            info.mutatesHeap = true;
+            break;
+
+        case CORINFO_HELP_SETFIELD32:
+        case CORINFO_HELP_SETFIELD64:
+        case CORINFO_HELP_SETFIELDOBJ:
+        case CORINFO_HELP_SETFIELDSTRUCT:
+        case CORINFO_HELP_SETFIELDFLOAT:
+        case CORINFO_HELP_SETFIELDDOUBLE:
+        case CORINFO_HELP_ARRADDR_ST:
+            info.mutatesHeap = true;
             break;
 
         default:

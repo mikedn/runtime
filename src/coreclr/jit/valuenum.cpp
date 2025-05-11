@@ -7644,16 +7644,10 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 
 bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
 {
-    const CorInfoHelpFunc helpFunc    = Compiler::eeGetHelperNum(call->GetMethodHandle());
-    const bool            pure        = HelperCallProperties::IsPure(helpFunc);
-    const bool            isAlloc     = HelperCallProperties::IsAllocator(helpFunc);
-    const bool            mayRunCctor = HelperCallProperties::MayRunCctor(helpFunc);
-    const bool            noThrow     = HelperCallProperties::NoThrow(helpFunc);
-    bool                  modHeap     = HelperCallProperties::MutatesHeap(helpFunc);
+    const CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
+    ValueNumPair          exset;
 
-    ValueNumPair exset;
-
-    if (noThrow)
+    if (HelperCallProperties::NoThrow(helpFunc))
     {
         exset = ValueNumStore::EmptyExsetVNP();
     }
@@ -7680,6 +7674,7 @@ bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
         exset = vnStore->ExsetCreate(ex);
     }
 
+    bool         modHeap = HelperCallProperties::MutatesHeap(helpFunc);
     ValueNumPair vnp;
 
     if (call->TypeIs(TYP_VOID))
@@ -7689,11 +7684,12 @@ bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
     else
     {
         // TODO-CQ: Handle CORINFO_HELP_NEW_MDARR
-        if ((pure || isAlloc) && (helpFunc != CORINFO_HELP_NEW_MDARR))
+        if ((HelperCallProperties::IsPure(helpFunc) || HelperCallProperties::IsAllocator(helpFunc)) &&
+            (helpFunc != CORINFO_HELP_NEW_MDARR))
         {
             NumberHelperCall(call, GetHelperCallFunc(helpFunc), exset);
 
-            if (mayRunCctor && ((call->gtFlags & GTF_CALL_HOISTABLE) == 0))
+            if (HelperCallProperties::MayRunCctor(helpFunc) && !call->IsHoistable())
             {
                 modHeap = true;
             }

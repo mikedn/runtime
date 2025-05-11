@@ -4276,6 +4276,11 @@ public:
         return (gtCallMoreFlags & GTF_CALL_M_PINVOKE) != 0;
     }
 
+    bool IsHoistable() const
+    {
+        return (gtFlags & GTF_CALL_HOISTABLE) != 0;
+    }
+
     // Note that the distinction of whether tail prefixed or an implicit tail call
     // is maintained on a call node till fgMorphCall() after which it will be
     // either a tail call (i.e. IsTailCall() is true) or a non-tail call.
