@@ -46,16 +46,6 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             return node->IsHelperCall() &&
                    HelperCallProperties::IsPure(Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle()));
 
-        case GT_IND_LOAD:
-            // TODO-MIKE-Review: This comment doesn't make a lot of sense, it should
-            // be possible to CSE both IND_LOAD and ARR_ELEM...
-
-            // We try to CSE GT_ARR_ELEM nodes instead of IND_LOAD(ARR_ELEM).
-            // Doing the first allows CSE to also kick in for code like
-            // "IND_LOAD(ARR_ELEM) = IND_LOAD(ARR_ELEM) + xyz", whereas doing
-            // the second would not allow it
-            return !node->AsIndir()->GetAddr()->OperIs(GT_ARR_ELEM);
-
         case GT_COMMA:
             return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();
 
@@ -66,6 +56,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
             // P.S. Probably this was referring to the lvVolatileHint crap...
             return false; // Can't CSE a volatile LCL_VAR
 
+        case GT_IND_LOAD:
         case GT_ADD:
         case GT_LSH:
         case GT_MUL:
