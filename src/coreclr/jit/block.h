@@ -920,10 +920,12 @@ public:
     {
         return blk1->bbTryIndex == blk2->bbTryIndex;
     }
+
     static bool sameHndRegion(const BasicBlock* blk1, const BasicBlock* blk2)
     {
         return blk1->bbHndIndex == blk2->bbHndIndex;
     }
+
     static bool sameEHRegion(const BasicBlock* blk1, const BasicBlock* blk2)
     {
         return sameTryRegion(blk1, blk2) && sameHndRegion(blk1, blk2);
@@ -1031,12 +1033,9 @@ public:
     struct SsaMemDef* memoryEntryDef; // The memory def on entry to the block.
     struct SsaMemDef* memoryExitDef;  // The memory def on exit from the block.
 
-    /* The following are the standard bit sets for dataflow analysis.
-     *  We perform CSE and range-checks at the same time
-     *  and assertion propagation separately,
-     *  thus we can union them since the two operations are completely disjunct.
-     */
-
+    // The following are the standard bit sets for dataflow analysis.
+    // We perform CSE and range-checks at the same time and assertion propagation separately,
+    // thus we can union them since the two operations are completely disjunct.
     union {
         struct
         {
@@ -1071,7 +1070,7 @@ public:
 #if MEASURE_BLOCK_SIZE
     static size_t s_Size;
     static size_t s_Count;
-#endif // MEASURE_BLOCK_SIZE
+#endif
 
     bool bbFallsThrough() const;
 
@@ -1158,7 +1157,7 @@ public:
         // TODO-MIKE-Throughput: Check if proper member initialization isn't faster.
         memset(this, 0, sizeof(BasicBlock));
     }
-    // Iteratable collection of successors of a block.
+
     template <typename TPosition>
     class Successors
     {

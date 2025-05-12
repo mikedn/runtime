@@ -814,7 +814,6 @@ public:
 
     ValueNum ExsetCreate(ValueNum x);
     ValueNumPair ExsetCreate(ValueNumPair x);
-    INDEBUG(bool ExsetIsOrdered(ValueNum item, ValueNum xs1) const;)
     ValueNum ExsetUnion(ValueNum xs0, ValueNum xs1);
     ValueNumPair ExsetUnion(ValueNumPair xs0vnp, ValueNumPair xs1vnp);
     ValueNum ExsetIntersection(ValueNum xs0, ValueNum xs1);
@@ -828,7 +827,10 @@ public:
     ValueNumPair ExtractValue(ValueNumPair vnp) const;
     ValueNum ExtractExset(ValueNum vn) const;
     ValueNumPair ExtractExset(ValueNumPair vn) const;
-    INDEBUG(bool HasExset(ValueNum vn) const;)
+#ifdef DEBUG
+    bool ExsetIsOrdered(ValueNum item, ValueNum xs1) const;
+    bool HasExset(ValueNum vn) const;
+#endif
 
     // True "iff" vn is a value known to be non-null.  (For example, the result of an allocation...)
     bool IsKnownNonNull(ValueNum vn) const;

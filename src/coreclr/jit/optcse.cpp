@@ -231,7 +231,7 @@ class Cse
         // TODO-MIKE-Review: "Cross call" availability is rather bizarre. We may have a def and
         // an use that have nothing to do with any calls and then another use that occurs after
         // a call. Is this other use that needs special costing, and possibly be ignored if it's
-        // to cheap to recompute instead of spilling and unspilling.
+        // to cheap to recompute instead of spilling and un-spilling.
         // Granted, it may be too costly throughput wise to track cross call availability per
         // occurrence so it may be that this is as good as it gets.
         bool isLiveAcrossCall = false;
@@ -239,8 +239,8 @@ class Cse
         uint16_t defCount = 0;
         uint16_t useCount = 0;
 
-        BasicBlock::weight_t defWeight = 0;
-        BasicBlock::weight_t useWeight = 0;
+        weight_t defWeight = 0;
+        weight_t useWeight = 0;
 
         Occurrence firstOccurrence;
 
@@ -274,9 +274,9 @@ class Cse
     size_t   hashEntryCount  = 0;
     size_t   hashBucketCount = HashInitialBucketCount;
     Value**  hashBuckets;
-    Value**  valueTable;
-    unsigned valueCount;
-    unsigned cseCount = 0;
+    Value**  valueTable = nullptr;
+    unsigned valueCount = 0;
+    unsigned cseCount   = 0;
 
     // Maps bound nodes to ancestor compares that should be re-numbered
     // with the bound to improve range check elimination.
@@ -291,8 +291,8 @@ class Cse
     codeOptimize codeOptKind;
 
     // Record the weight of the last "for sure" callee saved local
-    BasicBlock::weight_t aggressiveWeight = 0;
-    BasicBlock::weight_t moderateWeight   = 0;
+    weight_t aggressiveWeight = 0;
+    weight_t moderateWeight   = 0;
     // count of the number of predicted enregistered variables
     unsigned enregCount = 0;
     bool     largeFrame = false;
@@ -309,8 +309,6 @@ public:
         , allocator(compiler->getAllocator(CMK_CSE))
         , vnStore(ssa.GetVNStore())
         , hashBuckets(new (allocator) Value*[hashBucketCount]())
-        , valueTable(nullptr)
-        , valueCount(0)
         , checkedBoundMap(allocator)
         , dataFlowTraits(0, compiler)
         , codeOptKind(compiler->compCodeOpt())
@@ -396,7 +394,7 @@ public:
     }
 
 #ifdef DEBUG
-    void DumpDataFlowSet(const BitVec set)
+    void DumpDataFlowSet(const BitVec set) const
     {
         printf("= { ");
 
@@ -826,7 +824,7 @@ public:
     {
         // Two bits are allocated per CSE candidate to compute CSE availability
         // plus an extra bit to handle the initial unvisited case.
-        // (See DataFlowCallback::EndMerge for an explaination of why this is necessary)
+        // (See DataFlowCallback::EndMerge for an explanation of why this is necessary)
         //
         // The two bits per CSE candidate have the following meanings:
         //     11 - The CSE is available, and is also available when considering calls as killing availability.
@@ -951,7 +949,9 @@ public:
         BitVec const callKillsMask;
         BitVec       cseInWithCallsKill;
         BitVec       preMergeOut;
-        INDEBUG(bool const verbose;)
+#ifdef DEBUG
+        bool const verbose;
+#endif
 
     public:
         DataFlowCallback(Compiler* compiler, Cse& cse)
@@ -965,7 +965,7 @@ public:
         {
         }
 
-        // At the start of the merge function of the dataflow equations, initialize premerge state (to detect changes.)
+        // At the start of the merge function of the dataflow equations, initialize pre-merge state (to detect changes.)
         void StartMerge(BasicBlock* block)
         {
             // Record the initial value of block->bbCseOut in m_preMergeOut.
@@ -987,7 +987,7 @@ public:
             // TODO-CQ: Add CSE for handler blocks.
         }
 
-        // At the end of the merge store results of the dataflow equations, in a postmerge state.
+        // At the end of the merge store results of the dataflow equations, in a post-merge state.
         // We also handle the case where calls conditionally kill CSE availability.
         bool EndMerge(BasicBlock* block)
         {
@@ -1009,7 +1009,7 @@ public:
                 BitVecOps::DataFlowD(traits, block->bbCseOut, block->bbCseGen, cseInWithCallsKill);
             }
 
-            // This is why we need to allocate an extra bit in our BitVecs.
+            // This is why we need to allocate an extra bit in our bit vectors.
             // We always need to visit our successor blocks once, thus we require that that the first time
             // that we visit a block we have a bit set in preMergeOut that won't be set when we compute
             // the new value of bbCseOut.
@@ -1066,7 +1066,7 @@ public:
     // same exception sets. There are two way that we can get different exception
     // sets with the same Normal value number.
     //
-    // 1. We used an arithmetic identiity:
+    // 1. We used an arithmetic identity:
     //    e.g. (p.a + q.b) * 0   :: The normal value for the expression is zero
     //                              and we have NullPtrExc(p) and NullPtrExc(q)
     //    e.g. (p.a - p.a)       :: The normal value for the expression is zero
@@ -1391,7 +1391,7 @@ public:
             {
                 if (codeOptKind == SMALL_CODE)
                 {
-                    aggressiveWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
+                    aggressiveWeight = static_cast<weight_t>(lcl->GetRefCount());
                 }
                 else
                 {
@@ -1405,7 +1405,7 @@ public:
             {
                 if (codeOptKind == SMALL_CODE)
                 {
-                    moderateWeight = static_cast<BasicBlock::weight_t>(lcl->GetRefCount());
+                    moderateWeight = static_cast<weight_t>(lcl->GetRefCount());
                 }
                 else
                 {
@@ -1431,72 +1431,60 @@ public:
 
         if (codeOptKind == SMALL_CODE)
         {
-            struct
-            {
-                bool operator()(const Value* v1, const Value* v2)
+            jitstd::sort(sorted, sorted + valueCount, [](const Value* v1, const Value* v2) {
+                unsigned cost1 = v1->firstOccurrence.expr->GetCostSz();
+                unsigned cost2 = v2->firstOccurrence.expr->GetCostSz();
+
+                if (cost2 != cost1)
                 {
-                    unsigned cost1 = v1->firstOccurrence.expr->GetCostSz();
-                    unsigned cost2 = v2->firstOccurrence.expr->GetCostSz();
-
-                    if (cost2 != cost1)
-                    {
-                        return cost2 < cost1;
-                    }
-
-                    if (v2->useCount != v1->useCount)
-                    {
-                        return v2->useCount < v1->useCount;
-                    }
-
-                    if (v1->defCount != v2->defCount)
-                    {
-                        return v1->defCount < v2->defCount;
-                    }
-
-                    // Ensure a stable sort order
-                    return v1->index < v2->index;
+                    return cost2 < cost1;
                 }
-            } less;
 
-            jitstd::sort(sorted, sorted + valueCount, less);
+                if (v2->useCount != v1->useCount)
+                {
+                    return v2->useCount < v1->useCount;
+                }
+
+                if (v1->defCount != v2->defCount)
+                {
+                    return v1->defCount < v2->defCount;
+                }
+
+                // Ensure a stable sort order
+                return v1->index < v2->index;
+            });
         }
         else
         {
-            struct
-            {
-                bool operator()(const Value* v1, const Value* v2)
+            jitstd::sort(sorted, sorted + valueCount, [](const Value* v1, const Value* v2) {
+                unsigned cost1 = v1->firstOccurrence.expr->GetCostEx();
+                unsigned cost2 = v2->firstOccurrence.expr->GetCostEx();
+
+                if (cost2 != cost1)
                 {
-                    unsigned cost1 = v1->firstOccurrence.expr->GetCostEx();
-                    unsigned cost2 = v2->firstOccurrence.expr->GetCostEx();
-
-                    if (cost2 != cost1)
-                    {
-                        return cost2 < cost1;
-                    }
-
-                    if (v2->useWeight != v1->useWeight)
-                    {
-                        return v2->useWeight < v1->useWeight;
-                    }
-
-                    if (v1->defWeight != v2->defWeight)
-                    {
-                        return v1->defWeight < v2->defWeight;
-                    }
-
-                    // Ensure a stable sort order
-                    return v1->index < v2->index;
+                    return cost2 < cost1;
                 }
-            } less;
 
-            jitstd::sort(sorted, sorted + valueCount, less);
+                if (v2->useWeight != v1->useWeight)
+                {
+                    return v2->useWeight < v1->useWeight;
+                }
+
+                if (v1->defWeight != v2->defWeight)
+                {
+                    return v1->defWeight < v2->defWeight;
+                }
+
+                // Ensure a stable sort order
+                return v1->index < v2->index;
+            });
         }
 
         return sorted;
     }
 
 #ifdef DEBUG
-    void DumpCandidates(Value** values)
+    void DumpCandidates(Value** values) const
     {
         printf("Candidates:\n");
 
@@ -1988,7 +1976,7 @@ public:
                ((lclType == TYP_I_IMPL) && (exprType == TYP_BYREF));
     }
 
-    ssize_t GetSharedConstBaseValue(const Value* value, ValueNum* outBaseConstVN)
+    ssize_t GetSharedConstBaseValue(const Value* value, ValueNum* outBaseConstVN) const
     {
         assert(value->isSharedConst);
 
@@ -2112,8 +2100,8 @@ public:
         // all defs and changing all refs to a simple use of the CSE temp.
         // Later we will unmark any nested CSE's for the CSE uses.
 
-        const Occurrence* singleDefOccurence = nullptr;
-        ValueNum          conservativeVN     = ValueNumStore::VoidVN;
+        const Occurrence* singleDefOccurrence = nullptr;
+        ValueNum          conservativeVN      = ValueNumStore::VoidVN;
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
         {
@@ -2162,9 +2150,9 @@ public:
                 // CSE into SSA form on the fly. We won't need any PHIs.
                 if (value->defCount == 1)
                 {
-                    assert(singleDefOccurence == nullptr);
+                    assert(singleDefOccurrence == nullptr);
 
-                    singleDefOccurence = occ;
+                    singleDefOccurrence = occ;
                 }
             }
         }
@@ -2173,11 +2161,11 @@ public:
 
         GenTreeLclDef* singleDef = nullptr;
 
-        if (singleDefOccurence != nullptr)
+        if (singleDefOccurrence != nullptr)
         {
             lcl->m_isSsa = true;
             singleDef =
-                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurence->expr, singleDefOccurence->block, lcl);
+                new (compiler, GT_LCL_DEF) GenTreeLclDef(singleDefOccurrence->expr, singleDefOccurrence->block, lcl);
         }
 
         for (const Occurrence* occ = &value->firstOccurrence; occ != nullptr; occ = occ->next)
@@ -2438,7 +2426,7 @@ public:
         }
     };
 
-    GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block)
+    GenTree* ExtractSideEffects(GenTree* expr, BasicBlock* block) const
     {
         SideEffectExtractor extractor(compiler, block, valueTable, valueCount);
         extractor.WalkTree(&expr, nullptr);
@@ -2458,7 +2446,7 @@ public:
         return sideEffects;
     }
 
-    GenTree* AddSideEffects(GenTree* newExpr, GenTree* sideEffects)
+    GenTree* AddSideEffects(GenTree* newExpr, GenTree* sideEffects) const
     {
         JITDUMPTREE(sideEffects, "CSE use side effects and/or nested CSE defs:\n");
 

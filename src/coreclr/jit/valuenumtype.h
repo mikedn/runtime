@@ -46,14 +46,17 @@ public:
     {
         return m_liberal;
     }
+
     void SetLiberal(ValueNum vn)
     {
         m_liberal = vn;
     }
+
     ValueNum GetConservative() const
     {
         return m_conservative;
     }
+
     void SetConservative(ValueNum vn)
     {
         m_conservative = vn;
@@ -63,6 +66,7 @@ public:
     {
         return &m_liberal;
     }
+
     ValueNum* GetConservativeAddr()
     {
         return &m_conservative;

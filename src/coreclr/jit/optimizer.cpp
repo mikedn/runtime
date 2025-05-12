@@ -942,11 +942,13 @@ bool Compiler::optRecordLoop(BasicBlock* head,
         for (unsigned prevPlus1 = optLoopCount; prevPlus1 > 0; prevPlus1--)
         {
             unsigned prev = prevPlus1 - 1;
-            if (optLoopTable[prev].lpContainedBy(first, bottom))
+
+            if (optLoopTable[prev].IsContainedBy(first, bottom))
             {
                 loopInd = prev;
             }
         }
+
         // Move up any loops if necessary.
         for (unsigned j = optLoopCount; j > loopInd; j--)
         {
@@ -957,15 +959,12 @@ bool Compiler::optRecordLoop(BasicBlock* head,
 #ifdef DEBUG
     for (unsigned i = loopInd + 1; i < optLoopCount; i++)
     {
-        // The loop is well-formed.
-        assert(optLoopTable[i].lpWellFormed());
-        // Check for disjoint.
-        if (optLoopTable[i].lpDisjoint(first, bottom))
+        assert(optLoopTable[i].IsWellFormed());
+
+        if (!optLoopTable[i].IsDisjoint(first, bottom))
         {
-            continue;
+            assert(optLoopTable[i].IsContainedBy(first, bottom));
         }
-        // Otherwise, assert complete containment (of optLoopTable[i] in new loop).
-        assert(optLoopTable[i].lpContainedBy(first, bottom));
     }
 #endif // DEBUG
 

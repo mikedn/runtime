@@ -4555,7 +4555,9 @@ public:
         LclVarDsc* lpIterVar() const;   // iterator variable
         int        lpIterConst() const; // the constant with which the iterator is incremented
         genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
-        INDEBUG(void VerifyIterator() const;)
+#ifdef DEBUG
+        void VerifyIterator() const;
+#endif
 
         genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
                                        // etc.)
@@ -4576,6 +4578,7 @@ public:
         {
             return lpFirst->bbNum <= blk->bbNum && blk->bbNum <= lpBottom->bbNum;
         }
+
         // Returns "true" iff "*this" (properly) contains the range [first, bottom] (allowing firsts
         // to be equal, but requiring bottoms to be different.)
         bool lpContains(BasicBlock* first, BasicBlock* bottom) const
@@ -4592,34 +4595,46 @@ public:
 
         // Returns "true" iff "*this" is (properly) contained by the range [first, bottom]
         // (allowing firsts to be equal, but requiring bottoms to be different.)
-        bool lpContainedBy(BasicBlock* first, BasicBlock* bottom) const
+        bool IsContainedBy(BasicBlock* first, BasicBlock* bottom) const
         {
-            return first->bbNum <= lpFirst->bbNum && lpBottom->bbNum < bottom->bbNum;
+            return (first->bbNum <= lpFirst->bbNum) && (lpBottom->bbNum < bottom->bbNum);
         }
 
-        // Returns "true" iff "*this" is (properly) contained by "lp2"
-        // (allowing firsts to be equal, but requiring bottoms to be different.)
-        bool lpContainedBy(const LoopDsc& lp2) const
-        {
-            return lpContains(lp2.lpFirst, lp2.lpBottom);
-        }
-
+#ifdef DEBUG
         // Returns "true" iff "*this" is disjoint from the range [top, bottom].
-        bool lpDisjoint(BasicBlock* first, BasicBlock* bottom) const
+        bool IsDisjoint(BasicBlock* first, BasicBlock* bottom) const
         {
-            return bottom->bbNum < lpFirst->bbNum || lpBottom->bbNum < first->bbNum;
+            return (bottom->bbNum < lpFirst->bbNum) || (lpBottom->bbNum < first->bbNum);
         }
+
         // Returns "true" iff "*this" is disjoint from "lp2".
-        bool lpDisjoint(const LoopDsc& lp2) const
+        bool IsDisjoint(const LoopDsc& lp2) const
         {
-            return lpDisjoint(lp2.lpFirst, lp2.lpBottom);
+            return IsDisjoint(lp2.lpFirst, lp2.lpBottom);
         }
+
         // Returns "true" iff the loop is well-formed (see code for defn).
-        bool lpWellFormed() const
+        bool IsWellFormed() const
         {
-            return lpFirst->bbNum <= lpTop->bbNum && lpTop->bbNum <= lpEntry->bbNum &&
-                   lpEntry->bbNum <= lpBottom->bbNum &&
-                   (lpHead->bbNum < lpTop->bbNum || lpHead->bbNum > lpBottom->bbNum);
+            return (lpFirst->bbNum <= lpTop->bbNum) && (lpTop->bbNum <= lpEntry->bbNum) &&
+                   (lpEntry->bbNum <= lpBottom->bbNum) &&
+                   ((lpHead->bbNum < lpTop->bbNum) || (lpHead->bbNum > lpBottom->bbNum));
+        }
+#endif
+
+        bool IsRemoved() const
+        {
+            return (lpFlags & LPFLG_REMOVED) != 0;
+        }
+
+        bool HasUniqueExit() const
+        {
+            return (lpFlags & LPFLG_ONE_EXIT) != 0;
+        }
+
+        bool HasCall() const
+        {
+            return (lpFlags & LPFLG_HAS_CALL) != 0;
         }
 
         // LoopBlocks: convenience method for enabling range-based `for` iteration over all the
@@ -4628,7 +4643,6 @@ public:
         // Currently, the loop blocks are expected to be in linear, lexical, `bbNext` order
         // from `lpFirst` through `lpBottom`, inclusive. All blocks in this range are considered
         // to be part of the loop.
-        //
         BasicBlockRangeList LoopBlocks() const
         {
             return BasicBlockRangeList(lpFirst, lpBottom);
