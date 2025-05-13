@@ -4686,8 +4686,6 @@ public:
                           unsigned    parentLoop = BasicBlock::NOT_IN_LOOP) const;
     void optPrintLoopInfo(unsigned lnum) const;
     void optPrintLoopRecording(unsigned lnum) const;
-
-    void optCheckPreds();
 #endif
 
     void optSetBlockWeights();

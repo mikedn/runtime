@@ -1144,45 +1144,6 @@ void Compiler::optPrintLoopRecording(unsigned loopInd) const
     printf("\n");
 }
 
-void Compiler::optCheckPreds()
-{
-    for (BasicBlock* const block : Blocks())
-    {
-        for (BasicBlock* const predBlock : block->PredBlocks())
-        {
-            // make sure this pred is part of the BB list
-            BasicBlock* bb;
-            for (bb = fgFirstBB; bb; bb = bb->bbNext)
-            {
-                if (bb == predBlock)
-                {
-                    break;
-                }
-            }
-            noway_assert(bb);
-            switch (bb->bbJumpKind)
-            {
-                case BBJ_COND:
-                    if (bb->bbJumpDest == block)
-                    {
-                        break;
-                    }
-                    FALLTHROUGH;
-                case BBJ_NONE:
-                    noway_assert(bb->bbNext == block);
-                    break;
-                case BBJ_EHFILTERRET:
-                case BBJ_ALWAYS:
-                case BBJ_EHCATCHRET:
-                    noway_assert(bb->bbJumpDest == block);
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-}
-
 void Compiler::LoopDsc::VerifyIterator() const
 {
     assert((lpIterTree != nullptr) && lpIterTree->IsLclStore());
