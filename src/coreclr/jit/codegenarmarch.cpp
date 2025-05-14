@@ -101,46 +101,6 @@ void CodeGen::EpilogGSCookieCheck()
     emit.DefineTempLabel(gsCheckBlk);
 }
 
-void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
-{
-    assert(varTypeIsFloating(node->GetType()));
-
-    GenTree* src = node->GetOp(0);
-    assert(src->GetType() == node->GetType());
-
-    regNumber srcReg = UseReg(src);
-    regNumber dstReg = node->GetRegNum();
-
-    instruction ins;
-
-    switch (node->GetIntrinsic())
-    {
-        case NI_System_Math_Abs:
-            ins = INS_ABS;
-            break;
-        case NI_System_Math_Sqrt:
-            ins = INS_SQRT;
-            break;
-#ifdef TARGET_ARM64
-        case NI_System_Math_Ceiling:
-            ins = INS_frintp;
-            break;
-        case NI_System_Math_Floor:
-            ins = INS_frintm;
-            break;
-        case NI_System_Math_Round:
-            ins = INS_frintn;
-            break;
-#endif
-        default:
-            unreached();
-    }
-
-    GetEmitter()->emitIns_R_R(ins, emitTypeSize(node->GetType()), dstReg, srcReg);
-
-    DefReg(node);
-}
-
 #ifdef TARGET_ARM64
 unsigned CodeGen::GetFirstStackParamLclNum() const
 {

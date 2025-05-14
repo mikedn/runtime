@@ -239,6 +239,35 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     DefReg(node);
 }
 
+void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
+{
+    assert(varTypeIsFloating(node->GetType()));
+
+    GenTree* src = node->GetOp(0);
+    assert(src->GetType() == node->GetType());
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = node->GetRegNum();
+
+    instruction ins;
+
+    switch (node->GetIntrinsic())
+    {
+        case NI_System_Math_Abs:
+            ins = INS_vabs;
+            break;
+        case NI_System_Math_Sqrt:
+            ins = INS_vsqrt;
+            break;
+        default:
+            unreached();
+    }
+
+    GetEmitter()->emitIns_R_R(ins, emitTypeSize(node->GetType()), dstReg, srcReg);
+
+    DefReg(node);
+}
+
 void CodeGen::GenMul(GenTreeOp* mul)
 {
     assert(mul->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL) && varTypeIsIntegralOrI(mul->GetType()));

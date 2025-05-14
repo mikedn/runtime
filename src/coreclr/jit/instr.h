@@ -39,8 +39,6 @@ enum instruction : unsigned
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
     INS_none,
     INS_MULADD     = INS_mla,
-    INS_ABS        = INS_vabs,
-    INS_SQRT       = INS_vsqrt,
     INS_BREAKPOINT = INS_bkpt,
 
 #elif defined(TARGET_ARM64)
@@ -55,8 +53,6 @@ enum instruction : unsigned
     INS_lea, // Not a real instruction. It is used for load the address of stack locals
     INS_none,
     INS_MULADD     = INS_madd,
-    INS_ABS        = INS_fabs,
-    INS_SQRT       = INS_fsqrt,
 #ifdef TARGET_UNIX
     INS_BREAKPOINT = INS_brk,
 #else

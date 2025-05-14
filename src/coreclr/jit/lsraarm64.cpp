@@ -160,26 +160,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_INTRINSIC:
-            switch (tree->AsIntrinsic()->GetIntrinsic())
-            {
-                GenTree* op1;
-
-                case NI_System_Math_Abs:
-                case NI_System_Math_Ceiling:
-                case NI_System_Math_Floor:
-                case NI_System_Math_Round:
-                case NI_System_Math_Sqrt:
-                    op1 = tree->AsIntrinsic()->GetOp(0);
-                    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
-                    BuildUse(op1);
-                    BuildDef(tree);
-                    break;
-                default:
-                    unreached();
-            }
-            break;
-
         case GT_HWINTRINSIC:
             BuildHWIntrinsic(tree->AsHWIntrinsic());
             break;

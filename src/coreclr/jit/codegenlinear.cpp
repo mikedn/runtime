@@ -904,9 +904,11 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_INDEX_ADDR:
             GenIndexAddr(node->AsIndexAddr());
             break;
+#ifndef TARGET_ARM64
         case GT_INTRINSIC:
             GenIntrinsic(node->AsIntrinsic());
             break;
+#endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
             GenVectorUpperSpill(node->AsUnOp());

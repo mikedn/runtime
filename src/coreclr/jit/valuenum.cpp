@@ -4440,8 +4440,7 @@ ValueNum ValueNumStore::EvalUnaryMathIntrinsic(GenTreeIntrinsic* intrinsic, Valu
     NamedIntrinsic intrin = intrinsic->GetIntrinsic();
 
     assert(Compiler::IsMathIntrinsic(intrin));
-    assert((type == TYP_DOUBLE) || (type == TYP_FLOAT) ||
-           ((type == TYP_INT) && ((intrin == NI_System_Math_ILogB) || (intrin == NI_System_Math_Round))));
+    assert((type == TYP_DOUBLE) || (type == TYP_FLOAT) || ((type == TYP_INT) && (intrin == NI_System_Math_ILogB)));
 
     // If the math intrinsic is not implemented by target-specific instructions, such as implemented
     // by user calls, then don't do constant folding on it during ReadyToRun. This minimizes precision loss.

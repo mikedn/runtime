@@ -184,6 +184,7 @@ private:
     void LowerNegate(GenTreeUnOp* neg);
     void LowerFloatNegate(GenTreeUnOp* neg);
     void LowerFloatArithmetic(GenTreeOp* arith);
+    void LowerIntrinsic(GenTreeIntrinsic* intrinsic);
     void LowerArithmetic(GenTreeOp* arith);
     void LowerMultiply(GenTreeOp* mul);
     void LowerUnsignedDiv(GenTreeOp* udiv);

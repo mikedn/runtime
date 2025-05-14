@@ -218,6 +218,10 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerFloatArithmetic(node->AsOp());
             break;
 
+        case GT_INTRINSIC:
+            LowerIntrinsic(node->AsIntrinsic());
+            break;
+
         case GT_NOT:
             LowerNot(node->AsUnOp());
             break;

@@ -92,7 +92,7 @@ private:
     ConstData* u8ToFltBitmask = nullptr;
 
     void GenFloatAbs(GenTreeIntrinsic* node);
-    void genSSE41RoundOp(GenTreeIntrinsic* node);
+    void GenFloatRound(GenTreeIntrinsic* node);
 #endif
 
     void genMarkLabelsForCodegen();
@@ -551,7 +551,9 @@ private:
 
     void GenCkfinite(GenTree* node);
     void GenCompare(GenTreeOp* node);
+#ifndef TARGET_ARM64
     void GenIntrinsic(GenTreeIntrinsic* node);
+#endif
     void GenPutArgReg(GenTreeUnOp* putArg);
     void GenPutArgStk(GenTreePutArgStk* node);
 #if FEATURE_FASTTAILCALL

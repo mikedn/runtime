@@ -1451,21 +1451,7 @@ void LinearScan::BuildDivMod(GenTreeOp* tree)
 void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 {
     GenTree* op1 = tree->GetOp(0);
-
-    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
     assert(tree->gtOp2 == nullptr);
-
-    switch (tree->GetIntrinsic())
-    {
-        case NI_System_Math_Abs:
-        case NI_System_Math_Ceiling:
-        case NI_System_Math_Floor:
-        case NI_System_Math_Round:
-        case NI_System_Math_Sqrt:
-            break;
-        default:
-            unreached();
-    }
 
     if (!op1->isContained())
     {

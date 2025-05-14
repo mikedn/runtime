@@ -1172,6 +1172,81 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     DefReg(node);
 }
 
+void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
+{
+    assert(varTypeIsFloating(node->GetType()));
+
+    switch (node->GetIntrinsic())
+    {
+        case NI_System_Math_Abs:
+            GenFloatAbs(node);
+            break;
+
+        case NI_System_Math_Ceiling:
+        case NI_System_Math_Floor:
+        case NI_System_Math_Round:
+            GenFloatRound(node);
+            break;
+
+        case NI_System_Math_Sqrt:
+        {
+            GenTree* src = node->GetOp(0);
+            assert(src->GetType() == node->GetType());
+            UseRMRegs(src);
+            instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
+            emitInsRegRM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
+            break;
+        }
+
+        default:
+            unreached();
+    }
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
+{
+    assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+
+    GenTree* srcNode = round->GetOp(0);
+
+    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == round->GetType()));
+
+    UseRMRegs(srcNode);
+
+    instruction ins    = round->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
+    emitAttr    size   = emitTypeSize(round->GetType());
+    RegNum      dstReg = round->GetRegNum();
+    int32_t     imm    = 0;
+
+    switch (round->AsIntrinsic()->GetIntrinsic())
+    {
+        case NI_System_Math_Round:
+            imm = 4;
+            break;
+        case NI_System_Math_Ceiling:
+            imm = 10;
+            break;
+        case NI_System_Math_Floor:
+            imm = 9;
+            break;
+        default:
+            unreached();
+    }
+
+    // TODO-MIKE-Cleanup: This shouldn't be needed but emitIns_SIMD_R_R_I is messed up.
+    if (srcNode->isUsedFromReg())
+    {
+        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
+    }
+    else
+    {
+        // TODO-MIKE-CQ: Remove false dependency.
+        inst_RV_TT_IV(ins, size, dstReg, srcNode, imm);
+    }
+}
+
 void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_System_Math_Abs) && varTypeIsFloating(node->GetType()));
@@ -1188,8 +1263,8 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
         maskField = GetEmitter()->GetConst(&maskPack, 16, 16 DEBUGARG(node->GetType()));
     }
 
-    regNumber dstReg = node->GetRegNum();
-    regNumber srcReg = UseReg(node->GetOp(0));
+    RegNum dstReg = node->GetRegNum();
+    RegNum srcReg = UseReg(node->GetOp(0));
 
     GetEmitter()->emitIns_SIMD_R_R_C(INS_andps, EA_16BYTE, dstReg, srcReg, maskField);
 }
@@ -1210,8 +1285,8 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
         maskField = GetEmitter()->GetConst(&maskPack, 16, 16 DEBUGARG(node->GetType()));
     }
 
-    regNumber dstReg = node->GetRegNum();
-    regNumber srcReg = UseReg(node->GetOp(0));
+    RegNum dstReg = node->GetRegNum();
+    RegNum srcReg = UseReg(node->GetOp(0));
 
     GetEmitter()->emitIns_SIMD_R_R_C(INS_xorps, EA_16BYTE, dstReg, srcReg, maskField);
 
@@ -5530,81 +5605,6 @@ int CodeGenInterface::genSPtoFPdelta() const
     // If Unix ever supports EnC, the RSP == RBP assumption will have to be reevaluated.
     return genTotalFrameSize();
 #endif
-}
-
-void CodeGen::genSSE41RoundOp(GenTreeIntrinsic* round)
-{
-    assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
-
-    GenTree* srcNode = round->GetOp(0);
-
-    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == round->GetType()));
-
-    UseRMRegs(srcNode);
-
-    instruction ins    = round->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
-    emitAttr    size   = emitTypeSize(round->GetType());
-    regNumber   dstReg = round->GetRegNum();
-    unsigned    imm    = 0;
-
-    switch (round->AsIntrinsic()->GetIntrinsic())
-    {
-        case NI_System_Math_Round:
-            imm = 4;
-            break;
-        case NI_System_Math_Ceiling:
-            imm = 10;
-            break;
-        case NI_System_Math_Floor:
-            imm = 9;
-            break;
-        default:
-            unreached();
-    }
-
-    // TODO-MIKE-Cleanup: This shouldn't be needed but emitIns_SIMD_R_R_I is messed up.
-    if (srcNode->isUsedFromReg())
-    {
-        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
-    }
-    else
-    {
-        // TODO-MIKE-CQ: Remove false dependency.
-        inst_RV_TT_IV(ins, size, dstReg, srcNode, imm);
-    }
-}
-
-void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
-{
-    assert(varTypeIsFloating(node->GetType()));
-
-    switch (node->GetIntrinsic())
-    {
-        case NI_System_Math_Abs:
-            GenFloatAbs(node);
-            break;
-
-        case NI_System_Math_Ceiling:
-        case NI_System_Math_Floor:
-        case NI_System_Math_Round:
-            genSSE41RoundOp(node);
-            break;
-
-        case NI_System_Math_Sqrt:
-        {
-            GenTree* src = node->GetOp(0);
-            assert(src->GetType() == node->GetType());
-            UseRMRegs(src);
-            instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
-            emitInsRegRM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
-            break;
-        }
-
-        default:
-            unreached();
-    }
-
-    DefReg(node);
 }
 
 void CodeGen::inst_BitCast(var_types dstType, regNumber dstReg, var_types srcType, regNumber srcReg)

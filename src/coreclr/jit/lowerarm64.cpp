@@ -2043,6 +2043,38 @@ void Lowering::LowerFloatArithmetic(GenTreeOp* arith)
     MakeInstr(arith, ins, size, op1, op2);
 }
 
+void Lowering::LowerIntrinsic(GenTreeIntrinsic* intrinsic)
+{
+    assert(intrinsic->gtOp2 == nullptr);
+
+    GenTree*    op1  = intrinsic->GetOp(0);
+    emitAttr    size = emitTypeSize(intrinsic->GetType());
+    instruction ins;
+
+    switch (intrinsic->GetIntrinsic())
+    {
+        case NI_System_Math_Abs:
+            ins = INS_fabs;
+            break;
+        case NI_System_Math_Sqrt:
+            ins = INS_fsqrt;
+            break;
+        case NI_System_Math_Ceiling:
+            ins = INS_frintp;
+            break;
+        case NI_System_Math_Floor:
+            ins = INS_frintm;
+            break;
+        case NI_System_Math_Round:
+            ins = INS_frintn;
+            break;
+        default:
+            unreached();
+    }
+
+    MakeInstr(intrinsic, ins, size, op1);
+}
+
 bool Lowering::IsCallTargetInRange(void* addr)
 {
     return Arm64Imm::IsBlImm(reinterpret_cast<ssize_t>(addr), comp);
