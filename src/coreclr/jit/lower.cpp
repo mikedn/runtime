@@ -207,6 +207,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
             break;
 
 #ifdef TARGET_ARM64
+        case GT_FXT:
+            LowerFloatExtend(node->AsUnOp());
+            break;
+        case GT_FTRUNC:
+            LowerFloatTruncate(node->AsUnOp());
+            break;
         case GT_FNEG:
             LowerFloatNegate(node->AsUnOp());
             break;
@@ -3371,17 +3377,6 @@ bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, Ge
     }
 }
 
-//------------------------------------------------------------------------
-// TryCreateAddrMode: recognize trees which can be implemented using an
-//    addressing mode and transform them to a GT_LEA
-//
-// Arguments:
-//    use - the use of the address we want to transform
-//    isContainable - true if this addressing mode can be contained
-//
-// Returns:
-//    true if the address node was changed to a LEA, false otherwise.
-//
 bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 {
     if (!addr->OperIs(GT_ADD))
@@ -4840,19 +4835,6 @@ GenTree* Lowering::LowerConv(GenTreeUnOp* cast)
     return cast->gtNext;
 }
 
-void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
-    assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
-#ifndef TARGET_64BIT
-    assert(!cast->GetOp(0)->TypeIs(TYP_LONG));
-#endif
-
-#ifdef TARGET_XARCH
-    ContainCheckIntToFloat(cast);
-#endif
-}
-
 #ifdef TARGET_64BIT
 GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
 {
@@ -4922,6 +4904,7 @@ void Lowering::LowerUnsignedExtend(GenTreeUnOp* node)
 
 #endif // TARGET_64BIT
 
+#ifndef TARGET_ARM64
 void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
 {
     assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
@@ -4934,6 +4917,20 @@ void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
     ContainCheckFloatToInt(cast);
 #endif
 }
+
+void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
+    assert(varTypeIsIntegral(cast->GetOp(0)->GetType()));
+#ifndef TARGET_64BIT
+    assert(!cast->GetOp(0)->TypeIs(TYP_LONG));
+#endif
+
+#ifdef TARGET_XARCH
+    ContainCheckIntToFloat(cast);
+#endif
+}
+#endif
 
 void Lowering::LowerIndir(GenTreeIndir* ind)
 {

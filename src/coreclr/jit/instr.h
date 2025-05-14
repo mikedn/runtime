@@ -153,6 +153,8 @@ enum insOpts : unsigned
 
     INS_OPTS_S_TO_H, // Single to Half
     INS_OPTS_D_TO_H, // Double to Half
+
+    INS_OPTS_COUNT
 };
 
 #ifdef DEBUG

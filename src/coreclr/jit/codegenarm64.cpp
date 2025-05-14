@@ -2986,72 +2986,6 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     DefReg(uxt);
 }
 
-void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_STOF, GT_UTOF) && varTypeIsFloating(cast->GetType()));
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = varActualType(src->GetType());
-    var_types dstType = cast->GetType();
-
-    assert(varTypeIsIntOrI(srcType));
-    assert((dstType == TYP_FLOAT) || (dstType == TYP_DOUBLE));
-
-    RegNum srcReg = UseReg(src);
-    RegNum dstReg = cast->GetRegNum();
-
-    assert(genIsValidIntReg(srcReg) && genIsValidFloatReg(dstReg));
-
-    instruction ins  = cast->OperIs(GT_UTOF) ? INS_ucvtf : INS_scvtf;
-    emitAttr    size = emitTypeSize(dstType);
-    insOpts     opts;
-
-    if (dstType == TYP_DOUBLE)
-    {
-        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
-    }
-    else
-    {
-        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
-    }
-
-    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
-    DefReg(cast);
-}
-
-void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
-{
-    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
-
-    GenTree*  src     = cast->GetOp(0);
-    var_types srcType = src->GetType();
-    var_types dstType = cast->GetType();
-
-    assert((srcType == TYP_FLOAT) || (srcType == TYP_DOUBLE));
-
-    RegNum srcReg = UseReg(src);
-    RegNum dstReg = cast->GetRegNum();
-
-    assert(genIsValidFloatReg(srcReg) && genIsValidIntReg(dstReg));
-
-    instruction ins  = cast->OperIs(GT_FTOU) ? INS_fcvtzu : INS_fcvtzs;
-    emitAttr    size = emitTypeSize(dstType);
-    insOpts     opts;
-
-    if (srcType == TYP_DOUBLE)
-    {
-        opts = (size == EA_4BYTE) ? INS_OPTS_D_TO_4BYTE : INS_OPTS_D_TO_8BYTE;
-    }
-    else
-    {
-        opts = (size == EA_4BYTE) ? INS_OPTS_S_TO_4BYTE : INS_OPTS_S_TO_8BYTE;
-    }
-
-    GetEmitter()->emitIns_R_R(ins, size, dstReg, srcReg, opts);
-
-    DefReg(cast);
-}
-
 void CodeGen::GenCkfinite(GenTree* node)
 {
     assert(node->OperIs(GT_CKFINITE));
@@ -8396,14 +8330,14 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
 
     assert(!varTypeIsGC(instr->GetType()) || (emitActualTypeSize(instr->GetType()) == attr));
 
-    regNumber dstReg = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
+    RegNum dstReg = instr->TypeIs(TYP_VOID) ? REG_NA : instr->GetRegNum();
 
     // TODO-MIKE-Cleanup: It would be better to add some kind of "format" to GenTreeInstr
     // in order to be able to simplify all this to a simple switch statement.
 
     if (instr->GetNumOps() == 1)
     {
-        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
+        RegNum srcReg1 = UseReg(instr->GetOp(0));
 
         switch (ins)
         {
@@ -8456,14 +8390,14 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
                 break;
 
             default:
-                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1);
+                GetEmitter()->emitIns_R_R(ins, attr, dstReg, srcReg1, opt);
                 break;
         }
     }
     else if (instr->GetNumOps() == 2)
     {
-        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
-        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
+        RegNum srcReg1 = UseReg(instr->GetOp(0));
+        RegNum srcReg2 = UseReg(instr->GetOp(1));
 
         switch (ins)
         {
@@ -8507,21 +8441,20 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
     {
         assert(instr->GetNumOps() == 3);
 
-        regNumber srcReg1 = genConsumeReg(instr->GetOp(0));
-        regNumber srcReg2 = genConsumeReg(instr->GetOp(1));
-        regNumber srcReg3 = genConsumeReg(instr->GetOp(2));
+        RegNum srcReg1 = UseReg(instr->GetOp(0));
+        RegNum srcReg2 = UseReg(instr->GetOp(1));
+        RegNum srcReg3 = UseReg(instr->GetOp(2));
 
         GetEmitter()->emitIns_R_R_R_R(ins, attr, dstReg, srcReg1, srcReg2, srcReg3);
     }
 
     if (!instr->TypeIs(TYP_VOID))
     {
-        genProduceReg(instr);
+        DefReg(instr);
     }
 }
 
 CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
-    : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(0), m_lcl(nullptr)
 {
     if (GenTreeIndir* indir = tree->IsIndir())
     {

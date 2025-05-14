@@ -521,8 +521,6 @@ private:
 #ifdef TARGET_ARMARCH
     void GenOverflowCheck(GenTree* node);
 #endif
-    void GenFloatNegate(GenTreeUnOp* node);
-    void GenFloatBinaryOp(GenTreeOp* node);
 #ifdef TARGET_XARCH
     void GenFloatCompare(GenTreeOp* cmp);
     void GenIntCompare(GenTreeOp* cmp);
@@ -541,7 +539,7 @@ private:
     void GenLea(GenTreeAddrMode* lea);
 
 #ifdef TARGET_ARMARCH
-    void genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale);
+    void GenScaledAdd(emitAttr attr, RegNum dstReg, RegNum baseReg, RegNum indexReg, int scale);
     enum BarrierKind{BARRIER_FULL, BARRIER_LOAD_ONLY};
     void instGen_MemoryBarrier(BarrierKind barrierKind = BARRIER_FULL);
 #endif
@@ -552,6 +550,12 @@ private:
     void GenCkfinite(GenTree* node);
     void GenCompare(GenTreeOp* node);
 #ifndef TARGET_ARM64
+    void GenFloatTruncate(GenTreeUnOp* node);
+    void GenFloatExtend(GenTreeUnOp* node);
+    void GenIntToFloat(GenTreeUnOp* node);
+    void GenFloatToInt(GenTreeUnOp* node);
+    void GenFloatNegate(GenTreeUnOp* node);
+    void GenFloatBinaryOp(GenTreeOp* node);
     void GenIntrinsic(GenTreeIntrinsic* node);
 #endif
     void GenPutArgReg(GenTreeUnOp* putArg);
@@ -677,11 +681,6 @@ private:
     void GenSignExtend(GenTreeUnOp* node);
     void GenUnsignedExtend(GenTreeUnOp* node);
 #endif
-    void GenFloatTruncate(GenTreeUnOp* node);
-    void GenFloatExtend(GenTreeUnOp* node);
-    void GenIntToFloat(GenTreeUnOp* node);
-    void GenFloatToInt(GenTreeUnOp* node);
-
     void GenLclAddr(GenTreeLclAddr* addr);
     void GenIndexAddr(GenTreeIndexAddr* tree);
     void GenNegNot(GenTreeUnOp* tree);
@@ -879,15 +878,14 @@ public:
 
     class GenAddrMode
     {
-        regNumber  m_base;
-        regNumber  m_index;
-        unsigned   m_scale;
-        int        m_disp;
-        LclVarDsc* m_lcl;
+        regNumber  m_base  = REG_NA;
+        regNumber  m_index = REG_NA;
+        unsigned   m_scale = 1;
+        int        m_disp  = 0;
+        LclVarDsc* m_lcl   = nullptr;
 
     public:
-        GenAddrMode(LclVarDsc* lcl, unsigned lclOffs)
-            : m_base(REG_NA), m_index(REG_NA), m_scale(1), m_disp(lclOffs), m_lcl(lcl)
+        GenAddrMode(LclVarDsc* lcl, unsigned lclOffs) : m_disp(lclOffs), m_lcl(lcl)
         {
         }
 

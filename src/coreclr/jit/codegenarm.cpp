@@ -217,7 +217,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
     {
         uint32_t bits = node->GetFloatBits();
 
-        regNumber temp = node->GetSingleTempReg();
+        RegNum temp = node->GetSingleTempReg();
         instGen_Set_Reg_To_Imm(temp, static_cast<int32_t>(bits));
 
         GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, node->GetRegNum(), temp, /* canSkip */ false);
@@ -228,8 +228,8 @@ void CodeGen::GenDblCon(GenTreeDblCon* node)
 
         uint64_t bits = node->GetDoubleBits();
 
-        regNumber temp1 = node->ExtractTempReg();
-        regNumber temp2 = node->GetSingleTempReg();
+        RegNum temp1 = node->ExtractTempReg();
+        RegNum temp2 = node->GetSingleTempReg();
         instGen_Set_Reg_To_Imm(temp1, static_cast<int32_t>(bits & UINT32_MAX));
         instGen_Set_Reg_To_Imm(temp2, static_cast<int32_t>(bits >> 32));
 
@@ -264,6 +264,71 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
     }
 
     GetEmitter()->emitIns_R_R(ins, emitTypeSize(node->GetType()), dstReg, srcReg);
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE) && node->GetOp(0)->TypeIs(TYP_FLOAT));
+
+    GenTree* src = node->GetOp(0);
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = node->GetRegNum();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
+
+    GetEmitter()->emitIns_R_R(INS_vcvt_f2d, EA_8BYTE, dstReg, srcReg);
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT) && node->GetOp(0)->TypeIs(TYP_DOUBLE));
+
+    GenTree* src = node->GetOp(0);
+
+    RegNum srcReg = UseReg(src);
+    RegNum dstReg = node->GetRegNum();
+
+    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
+
+    GetEmitter()->emitIns_R_R(INS_vcvt_d2f, EA_4BYTE, dstReg, srcReg);
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatNegate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FNEG) && varTypeIsFloating(node->GetType()));
+    assert(node->GetOp(0)->GetType() == node->GetType());
+    assert(node->GetRegNum() != REG_NA);
+
+    RegNum reg = UseReg(node->GetOp(0));
+
+    GetEmitter()->emitIns_R_R(INS_vneg, emitTypeSize(node->GetType()), node->GetRegNum(), reg);
+
+    DefReg(node);
+}
+
+void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
+    assert((node->GetOp(0)->GetType() == node->GetType()) && (node->GetOp(1)->GetType() == node->GetType()));
+    assert(node->GetRegNum() != REG_NA);
+
+    static_assert_no_msg(GT_FSUB - GT_FADD == 1);
+    static_assert_no_msg(GT_FMUL - GT_FADD == 2);
+    static_assert_no_msg(GT_FDIV - GT_FADD == 3);
+    static constexpr instruction insMap[]{INS_vadd, INS_vsub, INS_vmul, INS_vdiv};
+
+    instruction ins  = insMap[node->GetOper() - GT_FADD];
+    RegNum      reg1 = UseReg(node->GetOp(0));
+    RegNum      reg2 = UseReg(node->GetOp(1));
+
+    GetEmitter()->emitIns_R_R_R(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg1, reg2);
 
     DefReg(node);
 }

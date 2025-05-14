@@ -182,6 +182,8 @@ private:
     void CombineNot(GenTreeInstr* instr);
     void LowerLogical(GenTreeOp* logical);
     void LowerNegate(GenTreeUnOp* neg);
+    void LowerFloatExtend(GenTreeUnOp* node);
+    void LowerFloatTruncate(GenTreeUnOp* node);
     void LowerFloatNegate(GenTreeUnOp* neg);
     void LowerFloatArithmetic(GenTreeOp* arith);
     void LowerIntrinsic(GenTreeIntrinsic* intrinsic);
@@ -201,7 +203,9 @@ private:
     GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1);
     GenTreeInstr* NewInstrAfter(GenTree* after, var_types type, instruction ins, GenTree* op1);
     GenTreeInstr* NewInstrBefore(GenTree* before, var_types type, instruction ins, GenTree* op1, GenTree* op2);
-    INDEBUG(bool IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def);)
+#ifdef DEBUG
+    bool IsLegalToMoveUseForward(GenTree* oldUser, GenTree* newUser, GenTree* def);
+#endif
 #endif
 
     bool TryCreateAddrMode(GenTree* addr, bool isContainable);

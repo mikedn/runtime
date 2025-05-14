@@ -2016,6 +2016,73 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
     return nullptr;
 }
 
+void Lowering::LowerFloatToInt(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_FTOS, GT_FTOU) && cast->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree*    src     = cast->GetOp(0);
+    var_types   srcType = src->GetType();
+    var_types   dstType = cast->GetType();
+    instruction ins     = cast->OperIs(GT_FTOU) ? INS_fcvtzu : INS_fcvtzs;
+    emitAttr    size    = emitTypeSize(dstType);
+    insOpts     opts;
+
+    if (srcType == TYP_DOUBLE)
+    {
+        opts = size == EA_4BYTE ? INS_OPTS_D_TO_4BYTE : INS_OPTS_D_TO_8BYTE;
+    }
+    else
+    {
+        assert(srcType == TYP_FLOAT);
+        opts = size == EA_4BYTE ? INS_OPTS_S_TO_4BYTE : INS_OPTS_S_TO_8BYTE;
+    }
+
+    GenTreeInstr* instr = MakeInstr(cast, ins, size, src);
+    instr->SetOption(opts);
+}
+
+void Lowering::LowerIntToFloat(GenTreeUnOp* cast)
+{
+    assert(cast->OperIs(GT_STOF, GT_UTOF) && cast->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+    GenTree*    src     = cast->GetOp(0);
+    var_types   srcType = varActualType(src->GetType());
+    var_types   dstType = cast->GetType();
+    instruction ins     = cast->OperIs(GT_UTOF) ? INS_ucvtf : INS_scvtf;
+    emitAttr    size    = emitTypeSize(dstType);
+    insOpts     opts;
+
+    assert((srcType == TYP_INT) || (srcType == TYP_LONG));
+
+    if (dstType == TYP_DOUBLE)
+    {
+        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_D : INS_OPTS_8BYTE_TO_D;
+    }
+    else
+    {
+        opts = srcType == TYP_INT ? INS_OPTS_4BYTE_TO_S : INS_OPTS_8BYTE_TO_S;
+    }
+
+    GenTreeInstr* instr = MakeInstr(cast, ins, size, src);
+    instr->SetOption(opts);
+}
+
+void Lowering::LowerFloatExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE) && node->GetOp(0)->TypeIs(TYP_FLOAT));
+
+    GenTreeInstr* instr = MakeInstr(node, INS_fcvt, EA_8BYTE, node->GetOp(0));
+    instr->SetOption(INS_OPTS_S_TO_D);
+}
+
+void Lowering::LowerFloatTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT) && node->GetOp(0)->TypeIs(TYP_DOUBLE));
+
+    GenTreeInstr* instr = MakeInstr(node, INS_fcvt, EA_4BYTE, node->GetOp(0));
+    instr->SetOption(INS_OPTS_D_TO_S);
+}
+
 void Lowering::LowerFloatNegate(GenTreeUnOp* neg)
 {
     assert(neg->OperIs(GT_FNEG) && varTypeIsFloating(neg->GetType()));

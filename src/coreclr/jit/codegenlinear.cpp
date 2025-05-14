@@ -727,6 +727,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_CNS_DBL:
             GenDblCon(node->AsDblCon());
             break;
+#ifndef TARGET_ARM64
         case GT_FNEG:
             GenFloatNegate(node->AsUnOp());
             break;
@@ -736,6 +737,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_FDIV:
             GenFloatBinaryOp(node->AsOp());
             break;
+#endif
         case GT_NOT:
         case GT_NEG:
             GenNegNot(node->AsUnOp());
@@ -829,6 +831,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_OVF_UCONV:
             GenOvfConv(node->AsUnOp());
             break;
+#ifndef TARGET_ARM64
         case GT_STOF:
         case GT_UTOF:
             GenIntToFloat(node->AsUnOp());
@@ -837,6 +840,13 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_FTOU:
             GenFloatToInt(node->AsUnOp());
             break;
+        case GT_FTRUNC:
+            GenFloatTruncate(node->AsUnOp());
+            break;
+        case GT_FXT:
+            GenFloatExtend(node->AsUnOp());
+            break;
+#endif
 #ifdef TARGET_64BIT
         case GT_TRUNC:
             GenTruncate(node->AsUnOp());
@@ -848,12 +858,6 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenUnsignedExtend(node->AsUnOp());
             break;
 #endif
-        case GT_FTRUNC:
-            GenFloatTruncate(node->AsUnOp());
-            break;
-        case GT_FXT:
-            GenFloatExtend(node->AsUnOp());
-            break;
         case GT_BITCAST:
             GenBitCast(node->AsOp());
             break;

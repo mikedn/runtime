@@ -7007,7 +7007,7 @@ private:
     static constexpr unsigned NUM_OPS_BITS = 2;
     static constexpr unsigned INS_BITS     = 9;
     static constexpr unsigned SIZE_BITS    = 9;
-    static constexpr unsigned OPT_BITS     = 4;
+    static constexpr unsigned OPT_BITS     = 6;
 #elif defined(TARGET_ARM)
     static constexpr unsigned NUM_OPS_BITS = 2;
     static constexpr unsigned INS_BITS     = 9;
@@ -7029,7 +7029,7 @@ private:
     static_assert_no_msg(INS_COUNT <= (1 << INS_BITS));
     static_assert_no_msg(EA_BYREF < (1 << SIZE_BITS));
 #if defined(TARGET_ARM64)
-    static_assert_no_msg(INS_OPTS_SXTX < (1 << OPT_BITS));
+    static_assert_no_msg(INS_OPTS_COUNT <= (1 << OPT_BITS));
 #elif defined(TARGET_ARM)
     static_assert_no_msg(INS_OPTS_ROR < (1 << OPT_BITS));
 #endif
@@ -7054,7 +7054,7 @@ private:
     // the rather expensive encoding is done only once, in lowering. Except that currently
     // the emitter interface requires decoded immediates, only for the emitter to encode it
     // again...
-    unsigned m_imm;
+    unsigned m_imm = 0;
 
     union {
         Use  m_inlineUses[3];
@@ -7070,7 +7070,6 @@ public:
 #ifdef TARGET_ARMARCH
         , m_opt(INS_OPTS_NONE)
 #endif
-        , m_imm(0)
         , m_inlineUses{op1}
     {
     }
@@ -7083,7 +7082,6 @@ public:
 #ifdef TARGET_ARMARCH
         , m_opt(INS_OPTS_NONE)
 #endif
-        , m_imm(0)
         , m_inlineUses{op1, op2}
     {
     }

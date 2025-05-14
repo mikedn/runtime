@@ -193,13 +193,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_FNEG:
-        case GT_FXT:
-        case GT_FTRUNC:
-        case GT_FTOS:
-        case GT_FTOU:
-        case GT_STOF:
-        case GT_UTOF:
         case GT_NEG:
         case GT_NOT:
         case GT_BSWAP:

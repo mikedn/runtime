@@ -6724,7 +6724,7 @@ void Compiler::gtDispTreeRec(
         case GT_INSTR:
             printf(" %s", insName(tree->AsInstr()->GetIns()));
 #ifdef TARGET_ARMARCH
-            if (tree->AsInstr()->GetOption() != 0)
+            if (tree->AsInstr()->GetOption() != INS_OPTS_NONE)
             {
                 printf(" %s", insOptsName(tree->AsInstr()->GetOption()));
             }

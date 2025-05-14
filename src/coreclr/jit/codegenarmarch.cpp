@@ -776,8 +776,8 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
     GenTree* const base  = node->GetArray();
     GenTree* const index = node->GetIndex();
 
-    regNumber baseReg  = UseReg(base);
-    regNumber indexReg = UseReg(index);
+    RegNum baseReg  = UseReg(base);
+    RegNum indexReg = UseReg(index);
 
     // TODO-MIKE-Review: This is dubious, GC liveness doesn't really matter until we reach a call...
 
@@ -789,39 +789,32 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
     liveness.SetGCRegType(baseReg, base->GetType());
     assert(varTypeIsIntegral(index->GetType()));
 
-    const regNumber tmpReg = node->GetSingleTempReg();
+    RegNum   tmpReg = node->GetSingleTempReg();
+    Emitter& emit   = *GetEmitter();
 
-    // Generate the bounds check if necessary.
     if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
     {
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
-        GetEmitter()->emitIns_R_R(INS_cmp, emitActualTypeSize(index->GetType()), indexReg, tmpReg);
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, tmpReg, baseReg, node->GetLenOffs());
+        emit.emitIns_R_R(INS_cmp, emitActualTypeSize(index->GetType()), indexReg, tmpReg);
         genJumpToThrowHlpBlk(EJ_hs, ThrowHelperKind::IndexOutOfRange, node->GetThrowBlock());
     }
 
     emitAttr attr = emitActualTypeSize(node->GetType());
 
-    // Can we use a ScaledAdd instruction?
-    //
     if (isPow2(node->GetElemSize()) && (node->GetElemSize() <= 32768))
     {
         DWORD scale;
         BitScanForward(&scale, node->GetElemSize());
 
-        // dest = base + index * scale
-        genScaledAdd(attr, node->GetRegNum(), baseReg, indexReg, scale);
+        GenScaledAdd(attr, node->GetRegNum(), baseReg, indexReg, scale);
     }
-    else // we have to load the element attr and use a MADD (multiply-add) instruction
+    else
     {
-        // tmpReg = element attr
         instGen_Set_Reg_To_Imm(EA_4BYTE, tmpReg, static_cast<ssize_t>(node->GetElemSize()));
-
-        // dest = index * tmpReg + base
-        GetEmitter()->emitIns_R_R_R_R(INS_MULADD, attr, node->GetRegNum(), indexReg, tmpReg, baseReg);
+        emit.emitIns_R_R_R_R(INS_MULADD, attr, node->GetRegNum(), indexReg, tmpReg, baseReg);
     }
 
-    // dest = dest + elemOffs
-    GetEmitter()->emitIns_R_R_I(INS_add, attr, node->GetRegNum(), node->GetRegNum(), node->GetDataOffs());
+    emit.emitIns_R_R_I(INS_add, attr, node->GetRegNum(), node->GetRegNum(), node->GetDataOffs());
 
     // TODO-MIKE-Review: Hrm, what if baseReg is a local variable reg?!
     liveness.RemoveGCRegs(genRegMask(baseReg));
@@ -2424,61 +2417,18 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     DefReg(cast);
 }
 
-void CodeGen::GenFloatExtend(GenTreeUnOp* node)
+void CodeGen::GenScaledAdd(emitAttr attr, RegNum dstReg, RegNum baseReg, RegNum indexReg, int scale)
 {
-    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE) && node->GetOp(0)->TypeIs(TYP_FLOAT));
+    Emitter& emit = *GetEmitter();
 
-    GenTree* src = node->GetOp(0);
-
-    RegNum srcReg = UseReg(src);
-    RegNum dstReg = node->GetRegNum();
-
-    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
-
-#ifdef TARGET_ARM64
-    instruction ins = INS_fcvt;
-#else
-    instruction ins = INS_vcvt_f2d;
-#endif
-    GetEmitter()->emitIns_R_R(ins, EA_8BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_S_TO_D));
-
-    DefReg(node);
-}
-
-void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT) && node->GetOp(0)->TypeIs(TYP_DOUBLE));
-
-    GenTree* src = node->GetOp(0);
-
-    RegNum srcReg = UseReg(src);
-    RegNum dstReg = node->GetRegNum();
-
-    assert(genIsValidFloatReg(srcReg) && genIsValidFloatReg(dstReg));
-
-#ifdef TARGET_ARM64
-    instruction ins = INS_fcvt;
-#else
-    instruction ins = INS_vcvt_d2f;
-#endif
-    GetEmitter()->emitIns_R_R(ins, EA_4BYTE, dstReg, srcReg ARM64_ARG(INS_OPTS_D_TO_S));
-
-    DefReg(node);
-}
-
-void CodeGen::genScaledAdd(emitAttr attr, regNumber targetReg, regNumber baseReg, regNumber indexReg, int scale)
-{
-    emitter* emit = GetEmitter();
     if (scale == 0)
     {
-        // target = base + index
-        GetEmitter()->emitIns_R_R_R(INS_add, attr, targetReg, baseReg, indexReg);
+        emit.emitIns_R_R_R(INS_add, attr, dstReg, baseReg, indexReg);
     }
     else
     {
-        // target = base + index<<scale
-        emit->emitIns_R_R_R_I(INS_add, attr, targetReg, baseReg, indexReg, scale ARM_ARG(INS_FLAGS_DONT_CARE),
-                              INS_OPTS_LSL);
+        emit.emitIns_R_R_R_I(INS_add, attr, dstReg, baseReg, indexReg, scale ARM_ARG(INS_FLAGS_DONT_CARE),
+                             INS_OPTS_LSL);
     }
 }
 
@@ -2490,11 +2440,11 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
     // need to modify lowering to produce LEAs that are a 1:1 relationship to the
     // ARM64 architecture.
 
-    regNumber baseReg  = UseReg(lea->GetBase());
-    regNumber indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
-    regNumber dstReg   = lea->GetRegNum();
+    RegNum baseReg  = UseReg(lea->GetBase());
+    RegNum indexReg = lea->GetIndex() == nullptr ? REG_NA : UseReg(lea->GetIndex());
+    RegNum dstReg   = lea->GetRegNum();
 
-    emitter* emit   = GetEmitter();
+    Emitter& emit   = *GetEmitter();
     emitAttr attr   = emitTypeSize(lea->GetType());
     int      offset = lea->GetOffset();
 
@@ -2506,11 +2456,11 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
 
         if (offset == 0)
         {
-            genScaledAdd(attr, dstReg, baseReg, indexReg, scale);
+            GenScaledAdd(attr, dstReg, baseReg, indexReg, scale);
         }
         else
         {
-            regNumber tmpReg = lea->GetSingleTempReg();
+            RegNum tmpReg = lea->GetSingleTempReg();
 
             // When generating fully interruptible code we have to use the "large offset" sequence
             // when calculating a EA_BYREF as we can't report a byref that points outside of the object
@@ -2522,8 +2472,8 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
             if (!useLargeOffsetSeq && ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
 #endif
             {
-                genScaledAdd(attr, tmpReg, baseReg, indexReg, scale);
-                emit->emitIns_R_R_I(INS_add, attr, lea->GetRegNum(), tmpReg, offset);
+                GenScaledAdd(attr, tmpReg, baseReg, indexReg, scale);
+                emit.emitIns_R_R_I(INS_add, attr, lea->GetRegNum(), tmpReg, offset);
             }
             else
             {
@@ -2531,8 +2481,8 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
                 noway_assert(tmpReg != baseReg);
 
                 instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-                genScaledAdd(EA_PTRSIZE, tmpReg, tmpReg, indexReg, scale);
-                emit->emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
+                GenScaledAdd(EA_PTRSIZE, tmpReg, tmpReg, indexReg, scale);
+                emit.emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
             }
         }
     }
@@ -2542,61 +2492,20 @@ void CodeGen::GenLea(GenTreeAddrMode* lea)
     else if (!ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE))
 #endif
     {
-        regNumber tmpReg = lea->GetSingleTempReg();
+        RegNum tmpReg = lea->GetSingleTempReg();
         instGen_Set_Reg_To_Imm(EA_PTRSIZE, tmpReg, offset);
-        emit->emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
+        emit.emitIns_R_R_R(INS_add, attr, dstReg, baseReg, tmpReg);
     }
     else if (offset != 0)
     {
-        emit->emitIns_R_R_I(INS_add, attr, dstReg, baseReg, offset);
+        emit.emitIns_R_R_I(INS_add, attr, dstReg, baseReg, offset);
     }
     else
     {
-        emit->emitIns_Mov(INS_mov, attr, dstReg, baseReg, /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, attr, dstReg, baseReg, /* canSkip */ true);
     }
 
     DefReg(lea);
-}
-
-void CodeGen::GenFloatNegate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_FNEG) && varTypeIsFloating(node->GetType()));
-    assert(node->GetOp(0)->GetType() == node->GetType());
-    assert(node->GetRegNum() != REG_NA);
-
-    regNumber reg = UseReg(node->GetOp(0));
-
-#ifdef TARGET_ARM64
-    GetEmitter()->emitIns_R_R(INS_fneg, emitTypeSize(node->GetType()), node->GetRegNum(), reg);
-#else
-    GetEmitter()->emitIns_R_R(INS_vneg, emitTypeSize(node->GetType()), node->GetRegNum(), reg);
-#endif
-
-    DefReg(node);
-}
-
-void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
-    assert((node->GetOp(0)->GetType() == node->GetType()) && (node->GetOp(1)->GetType() == node->GetType()));
-    assert(node->GetRegNum() != REG_NA);
-
-    static_assert_no_msg(GT_FSUB - GT_FADD == 1);
-    static_assert_no_msg(GT_FMUL - GT_FADD == 2);
-    static_assert_no_msg(GT_FDIV - GT_FADD == 3);
-#ifdef TARGET_ARM64
-    static constexpr instruction insMap[]{INS_fadd, INS_fsub, INS_fmul, INS_fdiv};
-#else
-    static constexpr instruction insMap[]{INS_vadd, INS_vsub, INS_vmul, INS_vdiv};
-#endif
-
-    instruction ins  = insMap[node->GetOper() - GT_FADD];
-    regNumber   reg1 = UseReg(node->GetOp(0));
-    regNumber   reg2 = UseReg(node->GetOp(1));
-
-    GetEmitter()->emitIns_R_R_R(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg1, reg2);
-
-    DefReg(node);
 }
 
 void CodeGen::GenNegNot(GenTreeUnOp* node)
@@ -2610,7 +2519,7 @@ void CodeGen::GenNegNot(GenTreeUnOp* node)
     instruction ins = node->OperIs(GT_NEG) ? INS_neg : INS_mvn;
     GetEmitter()->emitIns_R_R(ins, emitActualTypeSize(node->GetType()), node->GetRegNum(), reg);
 #else
-    instruction                  ins = node->OperIs(GT_NEG) ? INS_rsb : INS_mvn;
+    instruction ins = node->OperIs(GT_NEG) ? INS_rsb : INS_mvn;
     GetEmitter()->emitIns_R_R_I(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg, 0, INS_FLAGS_SET);
 #endif
 
