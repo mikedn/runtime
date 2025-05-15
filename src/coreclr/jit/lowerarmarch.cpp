@@ -230,14 +230,16 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
         return;
     }
 
-    if (!IsSafeToMoveForward(addr, store))
+    GenTree* baseAddr = addr->AsOp()->GetOp(0);
+
+    if (!IsSafeToMoveLclRegUseForward(store, baseAddr, nullptr))
     {
         return;
     }
 
     BlockRange().Unlink(offsetNode);
 
-    addr->ChangeToAddrMode(addr->AsOp()->GetOp(0), nullptr, 0, static_cast<int>(offset));
+    addr->ChangeToAddrMode(baseAddr, nullptr, 0, static_cast<int>(offset));
     addr->SetContained();
 }
 
@@ -744,7 +746,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsMemOperand(vec) && IsSafeToMoveForward(vec, node))
+    if (IsMemOperand(vec) && IsSafeToMoveMemOperandForward(node, vec))
     {
         vec->SetContained();
     }
@@ -861,39 +863,31 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indir)
 
     GenTree* addr = indir->GetAddr();
 
+    if (GenTreeAddrMode* am = addr->IsAddrMode())
+    {
 #ifdef FEATURE_SIMD
-    if (indir->TypeIs(TYP_SIMD12))
-    {
-        if (addr->IsAddrMode() && !addr->AsAddrMode()->HasIndex() &&
-            IsValidGenericLoadStoreOffset(addr->AsAddrMode()->GetOffset(), 8, false) &&
-            IsSafeToMoveForward(addr, indir))
+        if (indir->TypeIs(TYP_SIMD12) && (am->HasIndex() || !IsValidGenericLoadStoreOffset(am->GetOffset(), 8, false)))
         {
-            addr->SetContained();
+            return;
         }
-
-        return;
-    }
-#endif // FEATURE_SIMD
-
-    if (addr->IsAddrMode() && IsSafeToMoveForward(addr, indir))
-    {
-        bool makeContained = true;
+#endif
 
 #ifdef TARGET_ARM
         // ARM floating-point load/store doesn't support a form similar to integer
         // ldr Rdst, [Rbase + Roffset] with offset in a register. The only supported
         // form is vldr Rdst, [Rbase + imm] with a more limited constraint on the imm.
-        GenTreeAddrMode* lea = addr->AsAddrMode();
-        if (varTypeIsFloating(indir->GetType()) && (lea->HasIndex() || !ArmImm::IsVLdStImm(lea->GetOffset())))
+        if (varTypeIsFloating(indir->GetType()) && (am->HasIndex() || !ArmImm::IsVLdStImm(am->GetOffset())))
         {
-            makeContained = false;
+            return;
         }
 #endif
 
-        if (makeContained)
+        if (!IsSafeToMoveAddrModeForward(indir, am))
         {
-            addr->SetContained();
+            return;
         }
+
+        addr->SetContained();
     }
 #ifdef TARGET_ARM64
     else if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR))
@@ -901,6 +895,13 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indir)
     else if (addr->OperIs(GT_LCL_ADDR))
 #endif
     {
+#ifdef FEATURE_SIMD
+        if (indir->TypeIs(TYP_SIMD12))
+        {
+            return;
+        }
+#endif
+
         addr->SetContained();
     }
 }

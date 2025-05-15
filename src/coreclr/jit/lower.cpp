@@ -532,6 +532,73 @@ bool Lowering::IsSafeToMoveForward(GenTree* move, GenTree* before)
     return true;
 }
 
+bool Lowering::IsSafeToMoveMemOperandForward(GenTree* before, GenTree* mem)
+{
+    assert(IsMemOperand(mem));
+    return IsSafeToMoveForward(mem, before);
+}
+
+bool Lowering::IsSafeToMoveAddrModeForward(GenTree* before, GenTreeAddrMode* addr) const
+{
+    return (addr->gtNext == before) || IsSafeToMoveLclRegUseForward(before, addr->GetBase(), addr->GetIndex());
+}
+
+bool Lowering::IsSafeToMoveLclRegUseForward(GenTree* before, GenTree* use1, GenTree* use2) const
+{
+    assert(before != nullptr);
+    assert(use1 != use2);
+
+    LclVarDsc* lcl1 = nullptr;
+
+    if (use1 != nullptr)
+    {
+        if (GenTreeLclLoad* lclUse = use1->IsLclLoad())
+        {
+            if (!lclUse->GetLcl()->lvDoNotEnregister)
+            {
+                lcl1 = lclUse->GetLcl();
+            }
+        }
+    }
+
+    LclVarDsc* lcl2 = nullptr;
+
+    if (use2 != nullptr)
+    {
+        if (GenTreeLclLoad* lclUse = use2->IsLclLoad())
+        {
+            if (!lclUse->GetLcl()->lvDoNotEnregister)
+            {
+                lcl2 = lclUse->GetLcl();
+            }
+        }
+    }
+
+    for (GenTree* cursor = before; (lcl1 != nullptr) || (lcl2 != nullptr); cursor = cursor->gtPrev)
+    {
+        assert(cursor != nullptr);
+
+        if (cursor == use1)
+        {
+            lcl1 = nullptr;
+        }
+        else if (cursor == use2)
+        {
+            lcl2 = nullptr;
+        }
+
+        if (GenTreeLclStore* store = cursor->IsLclStore())
+        {
+            if ((store->GetLcl() == lcl1) || (store->GetLcl() == lcl2))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 GenTreeLclLoad* Lowering::ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl)
 {
     GenTree* def = use.Def();
@@ -3299,84 +3366,6 @@ void Lowering::InsertUnmanagedCallPrologAndEpilog(GenTreeCall* call)
     }
 }
 
-//------------------------------------------------------------------------
-// Lowering::AreSourcesPossibleModifiedLocals:
-//    Given two nodes which will be used in an addressing mode (base,
-//    index), check to see if they are lclVar reads, and if so, walk
-//    backwards from the use until both reads have been visited to
-//    determine if they are potentially modified in that range.
-//
-// Arguments:
-//    addr - the node that uses the base and index nodes
-//    base - the base node
-//    index - the index node
-//
-// Returns: true if either the base or index may be modified between the
-//          node and addr.
-//
-bool Lowering::AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index)
-{
-    assert(addr != nullptr);
-
-    SideEffectSet baseSideEffects;
-    if (base != nullptr)
-    {
-        if (base->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-        {
-            baseSideEffects.AddNode(comp, base);
-        }
-        else
-        {
-            base = nullptr;
-        }
-    }
-
-    SideEffectSet indexSideEffects;
-    if (index != nullptr)
-    {
-        if (index->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-        {
-            indexSideEffects.AddNode(comp, index);
-        }
-        else
-        {
-            index = nullptr;
-        }
-    }
-
-    for (GenTree* cursor = addr;; cursor = cursor->gtPrev)
-    {
-        assert(cursor != nullptr);
-
-        if (cursor == base)
-        {
-            base = nullptr;
-        }
-
-        if (cursor == index)
-        {
-            index = nullptr;
-        }
-
-        if ((base == nullptr) && (index == nullptr))
-        {
-            return false;
-        }
-
-        m_scratchSideEffects.Clear();
-        m_scratchSideEffects.AddNode(comp, cursor);
-        if ((base != nullptr) && m_scratchSideEffects.InterferesWith(baseSideEffects, false))
-        {
-            return true;
-        }
-
-        if ((index != nullptr) && m_scratchSideEffects.InterferesWith(indexSideEffects, false))
-        {
-            return true;
-        }
-    }
-}
-
 bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 {
     if (!addr->OperIs(GT_ADD))
@@ -3407,8 +3396,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         }
     }
 
-    // make sure there are not any side effects between def of leaves and use
-    if (AreSourcesPossiblyModifiedLocals(addr, am.base, am.index))
+    if (!IsSafeToMoveLclRegUseForward(addr, am.base, am.index))
     {
         JITDUMP("No addressing mode:\n  ");
         DISPLIRNODE(addr);
@@ -3417,10 +3405,12 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     JITDUMP("Addressing mode:\n");
     JITDUMP("  Base\n    ");
+
     if (am.base != nullptr)
     {
         DISPLIRNODE(am.base);
     }
+
     if (am.index != nullptr)
     {
         JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
@@ -3452,6 +3442,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
     {
         am.base->ClearContained();
     }
+
     if (am.index != nullptr)
     {
         am.index->ClearContained();
@@ -4842,7 +4833,7 @@ GenTree* Lowering::LowerTruncate(GenTreeUnOp* node)
 
     GenTree* src = node->GetOp(0);
 
-    if (IsMemOperand(src) || (src->OperIs(GT_LCL_LOAD) && IsSafeToMoveForward(src, node)))
+    if (IsMemOperand(src) || (src->OperIs(GT_LCL_LOAD) && IsSafeToMoveLclRegUseForward(node, src, nullptr)))
     {
         // TODO-MIKE-Cleanup: Morph does something similar but more restrictive. It's not clear
         // if there are any advantages in doing such a transform earlier (in fact there may be one
@@ -5345,7 +5336,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     assert(IsMemStore(store));
     assert(store->TypeIs(TYP_SIMD12));
 
-    if ((varTypeSize(value->GetType()) < 12) || !IsMemOperand(value) || !IsSafeToMoveForward(value, store))
+    if ((varTypeSize(value->GetType()) < 12) || !IsMemOperand(value) || !IsSafeToMoveMemOperandForward(store, value))
     {
         return false;
     }
@@ -5356,7 +5347,7 @@ bool Lowering::ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value)
     {
         GenTree* addr = value->AsIndLoad()->GetAddr();
 
-        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToMoveForward(addr, store)))
+        if (addr->isContained() && (!addr->IsAddrMode() || !IsSafeToMoveAddrModeForward(store, addr->AsAddrMode())))
         {
             addr->ClearContained();
         }

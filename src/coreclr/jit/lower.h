@@ -327,9 +327,12 @@ private:
         return LIR::AsRange(m_block);
     }
 
-    bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
     bool ContainImmOperand(GenTree* instr, GenTree* operand) const;
+
     bool IsSafeToMoveForward(GenTree* move, GenTree* before);
+    bool IsSafeToMoveMemOperandForward(GenTree* before, GenTree* mem);
+    bool IsSafeToMoveAddrModeForward(GenTree* before, GenTreeAddrMode* addr) const;
+    bool IsSafeToMoveLclRegUseForward(GenTree* before, GenTree* use1, GenTree* use2) const;
 
 #ifdef DEBUG
     void VerifyAllLocalsImplicitlyReferenced();

@@ -165,7 +165,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
         return;
     }
 
-    if (!addr->IsAddrMode() && !TryCreateAddrMode(addr, true))
+    if (!addr->IsAddrMode() && (!addr->OperIs(GT_ADD) || !TryCreateAddrMode(addr, true)))
     {
         return;
     }
@@ -204,7 +204,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             (putArg->GetKind() == GenTreePutArgStk::Kind::GCUnrollXMM))
         {
             // Like in the x86 PUSH case, do not contain in cases where unrolling isn't limited. Use a higher
-            // size treshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
+            // size threshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
             // do unlimited unroll but unlike GCUnroll/GCUnrollXMM they use the address mode only once.
 
             if ((addrMode->HasIndex() && (size > 64)) || ((addrMode->GetOffset() > 128 - 32) && (size > 32)))
@@ -216,10 +216,7 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     }
 #endif
 
-    // Note that the parentNode is always the store node, even if we're dealing with the source address.
-    // The source address is not directly used by the store node but by an indirection that is always
-    // contained.
-    if (!IsSafeToMoveForward(addrMode, store))
+    if (!IsSafeToMoveAddrModeForward(store, addrMode))
     {
         return;
     }
@@ -564,7 +561,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         //      Most LCL_VARs that reference small int local end up having type INT, with the notable
         //      exception of promoted struct field which may have small int type.
 
-        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveForward(src, putArgStk))
+        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveMemOperandForward(putArgStk, src))
         {
             src->SetContained();
         }
@@ -2301,7 +2298,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);
 
-    if (IsMemOperand(vec) && IsSafeToMoveForward(vec, node))
+    if (IsMemOperand(vec) && IsSafeToMoveMemOperandForward(node, vec))
     {
         vec->SetContained();
     }
@@ -2724,7 +2721,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
 
     if (elt->TypeIs(TYP_FLOAT))
     {
-        if (elt->IsDblCon() || (IsMemOperand(elt) && IsSafeToMoveForward(elt, node)))
+        if (elt->IsDblCon() || (IsMemOperand(elt) && IsSafeToMoveMemOperandForward(node, elt)))
         {
             elt->SetContained();
             return;
@@ -2992,7 +2989,7 @@ bool Lowering::IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load,
             continue;
         }
 
-        // TODO-MIKE-Review: Why does IsSafeToMoveForward uses strict checking while this doesn't?
+        // TODO-MIKE-Review: Why does IsSafeToMoveMemOperandForward uses strict checking while this doesn't?
         hasInterference = hasInterference || m_scratchSideEffects.InterferesWith(comp, node, false);
     }
 
@@ -3256,29 +3253,67 @@ void Lowering::ContainCheckCallAddr(GenTreeCall* call)
     }
 }
 
+#ifdef FEATURE_HW_INTRINSICS
+void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
+{
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR) ||
+        (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon()))))
+    {
+        addr->SetContained();
+        return;
+    }
+
+    if (addr->OperIs(GT_ADD) && !TryCreateAddrMode(addr, true))
+    {
+        return;
+    }
+
+    if (GenTreeAddrMode* am = addr->IsAddrMode())
+    {
+        if (!IsSafeToMoveAddrModeForward(node, am))
+        {
+            return;
+        }
+
+        addr->SetContained();
+    }
+}
+#endif // FEATURE_HW_INTRINSICS
+
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
     assert(!node->TypeIs(TYP_STRUCT));
 
     GenTree* addr = node->GetAddr();
 
-#ifdef FEATURE_SIMD
-    if (node->TypeIs(TYP_SIMD12) && (!addr->IsAddrMode() || (addr->AsAddrMode()->GetOffset() > INT32_MAX - 8)))
+    if (GenTreeAddrMode* am = addr->IsAddrMode())
     {
-        return;
-    }
+#ifdef FEATURE_SIMD
+        if (node->TypeIs(TYP_SIMD12) && (am->GetOffset() > INT32_MAX - 8))
+        {
+            return;
+        }
 #endif
 
-    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR))
-    {
+        if (!IsSafeToMoveAddrModeForward(node, am))
+        {
+            return;
+        }
+
         addr->SetContained();
     }
-    else if (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))
+    else if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR) ||
+             (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon()))))
     {
-        addr->SetContained();
-    }
-    else if (addr->IsAddrMode() && IsSafeToMoveForward(addr, node))
-    {
+#ifdef FEATURE_SIMD
+        if (node->TypeIs(TYP_SIMD12))
+        {
+            return;
+        }
+#endif
+
         addr->SetContained();
     }
 }
@@ -3349,7 +3384,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
     {
         if ((op2->GetType() == node->GetType()) && IsMemOperand(op2))
         {
-            isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
+            isSafeToContainOp2 = IsSafeToMoveMemOperandForward(node, op2);
 
             if (isSafeToContainOp2)
             {
@@ -3359,7 +3394,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
 
         if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
+            isSafeToContainOp1 = IsSafeToMoveMemOperandForward(node, op1);
 
             if (isSafeToContainOp1)
             {
@@ -3373,7 +3408,7 @@ void Lowering::ContainCheckMul(GenTreeOp* node)
         {
             memOp = nullptr;
         }
-        else if (!IsSafeToMoveForward(memOp, node))
+        else if (!IsSafeToMoveMemOperandForward(node, memOp))
         {
             if (memOp == op1)
             {
@@ -3552,7 +3587,8 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
 
         if ((load != nullptr) && (varTypeSize(load->GetType()) == varTypeSize(store->GetType())) &&
             (!varTypeIsSmall(load->GetType()) || !src->OperIs(GT_ROL, GT_ROR)) &&
-            (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) && IsSafeToMoveForward(load, store))
+            (!varTypeIsSmallSigned(load->GetType()) || !src->OperIs(GT_RSZ)) &&
+            IsSafeToMoveMemOperandForward(store, load))
         {
             if (src->OperIs(GT_RSH) && varTypeIsSmallUnsigned(load->GetType()))
             {
@@ -3680,7 +3716,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
         }
         else if (IsMemOperand(otherOp))
         {
-            isSafeToContainOtherOp = IsSafeToMoveForward(otherOp, cmp);
+            isSafeToContainOtherOp = IsSafeToMoveMemOperandForward(cmp, otherOp);
 
             if (isSafeToContainOtherOp)
             {
@@ -3726,7 +3762,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 
     if (isSafeToContainOp2 && IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToMoveForward(op2, cmp);
+        isSafeToContainOp2 = IsSafeToMoveMemOperandForward(cmp, op2);
 
         if (isSafeToContainOp2)
         {
@@ -3736,7 +3772,7 @@ void Lowering::ContainCheckCompare(GenTreeOp* cmp)
 
     if (!op2->isContained() && isSafeToContainOp1 && IsMemOperand(op1))
     {
-        isSafeToContainOp1 = IsSafeToMoveForward(op1, cmp);
+        isSafeToContainOp1 = IsSafeToMoveMemOperandForward(cmp, op1);
 
         if (isSafeToContainOp1)
         {
@@ -3903,7 +3939,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
 
     if ((varTypeSize(op2->GetType()) == operatorSize) && IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
+        isSafeToContainOp2 = IsSafeToMoveMemOperandForward(node, op2);
 
         if (isSafeToContainOp2)
         {
@@ -3916,7 +3952,7 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
     {
         if ((varTypeSize(op1->GetType()) == operatorSize) && IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
+            isSafeToContainOp1 = IsSafeToMoveMemOperandForward(node, op1);
 
             if (isSafeToContainOp1)
             {
@@ -4442,20 +4478,6 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
     op->SetContained();
 }
 
-void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
-{
-    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
-
-    TryCreateAddrMode(addr, true);
-
-    if ((addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR, GT_LEA) ||
-         (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon())))) &&
-        IsSafeToMoveForward(addr, node))
-    {
-        addr->SetContained();
-    }
-}
-
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsic = node->GetIntrinsic();
@@ -4970,7 +4992,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
     }
     else if (IsMemOperand(op2))
     {
-        isSafeToContainOp2 = IsSafeToMoveForward(op2, node);
+        isSafeToContainOp2 = IsSafeToMoveMemOperandForward(node, op2);
 
         if (isSafeToContainOp2)
         {
@@ -4995,7 +5017,7 @@ void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
         }
         else if (IsMemOperand(op1))
         {
-            isSafeToContainOp1 = IsSafeToMoveForward(op1, node);
+            isSafeToContainOp1 = IsSafeToMoveMemOperandForward(node, op1);
 
             if (isSafeToContainOp1)
             {
