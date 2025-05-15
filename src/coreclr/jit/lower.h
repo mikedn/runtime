@@ -9,9 +9,9 @@
 class Lowering
 {
     Compiler*     comp;
-    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToMoveForward
+    SideEffectSet m_scratchSideEffects;
     BasicBlock*   m_block;
-    LclVarDsc*    vtableCallTempLcl = nullptr; // local variable we use as a temp for vtable calls
+    LclVarDsc*    vtableCallTempLcl = nullptr;
 #if FEATURE_FIXED_OUT_ARGS
     unsigned outgoingArgAreaSize = 0;
 #endif
@@ -152,7 +152,7 @@ private:
     bool IsCallTargetInRange(void* addr);
 
 #ifdef TARGET_XARCH
-    GenTree* PreferredRegOptionalOperand(GenTreeOp* tree);
+    GenTree* PreferredRegOptionalOperand(GenTree* op1, GenTree* op2);
     void SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
 #endif
 
