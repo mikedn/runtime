@@ -909,6 +909,35 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     }
 }
 
+void Lowering::LowerRotateLeft(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ROL) || node->TypeIs(TYP_INT, TYP_LONG));
+
+    GenTree* op2 = node->GetOp(1);
+
+    if (GenTreeIntCon* imm = op2->IsIntCon())
+    {
+        imm->SetValue(varTypeSize(node->GetType()) * 8 - imm->GetValue());
+    }
+    else
+    {
+        GenTree* neg = comp->gtNewOperNode(GT_NEG, node->GetType(), op2);
+        BlockRange().InsertAfter(op2, neg);
+        node->AsOp()->SetOp(1, neg);
+    }
+
+    node->ChangeOper(GT_ROR);
+
+    ContainCheckShiftRotate(node);
+}
+
+void Lowering::LowerRotateRight(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ROR) || node->TypeIs(TYP_INT, TYP_LONG));
+
+    ContainCheckShiftRotate(node);
+}
+
 static insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)
 {
     if (GenTreeInstr* instr = IsInstr(node, EA_SIZE(size), 1))

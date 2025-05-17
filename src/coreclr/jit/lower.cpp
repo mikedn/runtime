@@ -238,6 +238,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerLogical(node->AsOp());
             break;
 
+        case GT_ROL:
+            LowerRotateLeft(node->AsOp());
+            break;
+
+        case GT_ROR:
+            LowerRotateRight(node->AsOp());
+            break;
+
         case GT_NEG:
             LowerNegate(node->AsUnOp());
             break;
@@ -390,6 +398,14 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_DIV:
         case GT_MOD:
             return LowerSignedDivOrMod(node);
+
+        case GT_ROL:
+            LowerRotateLeft(node->AsOp());
+            break;
+
+        case GT_ROR:
+            LowerRotateRight(node->AsOp());
+            break;
 #endif // !TARGET_ARM64
 
         case GT_SWITCH:
@@ -458,11 +474,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
         case GT_ARR_ELEM:
             return LowerArrElem(node->AsArrElem());
-
-        case GT_ROL:
-        case GT_ROR:
-            LowerRotate(node);
-            break;
 
 #ifndef TARGET_64BIT
         case GT_LSH_HI:

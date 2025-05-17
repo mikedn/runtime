@@ -38,9 +38,18 @@ GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
     return node->gtNext;
 }
 
-void Lowering::LowerRotate(GenTree* tree)
+void Lowering::LowerRotateLeft(GenTreeOp* node)
 {
-    ContainCheckShiftRotate(tree->AsOp());
+    assert(node->OperIs(GT_ROL) || node->TypeIs(TYP_INT, TYP_I_IMPL));
+
+    ContainCheckShiftRotate(node);
+}
+
+void Lowering::LowerRotateRight(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ROR) || node->TypeIs(TYP_INT, TYP_I_IMPL));
+
+    ContainCheckShiftRotate(node);
 }
 
 void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)

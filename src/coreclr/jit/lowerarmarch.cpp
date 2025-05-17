@@ -272,34 +272,37 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
     addr->SetContained();
 }
 
-void Lowering::LowerRotate(GenTree* tree)
+#ifdef TARGET_ARM
+
+void Lowering::LowerRotateLeft(GenTreeOp* node)
 {
-    if (tree->OperIs(GT_ROL))
+    assert(node->OperIs(GT_ROL) && node->TypeIs(TYP_INT));
+
+    GenTree* op2 = node->GetOp(1);
+
+    if (GenTreeIntCon* imm = op2->IsIntCon())
     {
-        // There is no ROL instruction on ARM. Convert ROL into ROR.
-        GenTree* rotatedValue        = tree->AsOp()->GetOp(0);
-        unsigned rotatedValueBitSize = varTypeSize(rotatedValue->GetType()) * 8;
-        GenTree* rotateLeftIndexNode = tree->AsOp()->GetOp(1);
-
-        if (GenTreeIntCon* imm = rotateLeftIndexNode->IsIntCon())
-        {
-            imm->SetValue(rotatedValueBitSize - imm->GetValue());
-        }
-        else
-        {
-            GenTree* tmp =
-                comp->gtNewOperNode(GT_NEG, varActualType(rotateLeftIndexNode->GetType()), rotateLeftIndexNode);
-            BlockRange().InsertAfter(rotateLeftIndexNode, tmp);
-            tree->AsOp()->SetOp(1, tmp);
-        }
-
-        tree->ChangeOper(GT_ROR);
+        imm->SetValue(32 - imm->GetValue());
+    }
+    else
+    {
+        GenTree* neg = comp->gtNewOperNode(GT_NEG, TYP_INT, op2);
+        node->SetOp(1, neg);
+        BlockRange().InsertAfter(op2, neg);
     }
 
-    ContainCheckShiftRotate(tree->AsOp());
+    node->ChangeOper(GT_ROR);
+
+    ContainCheckShiftRotate(node);
 }
 
-#ifdef TARGET_ARM
+void Lowering::LowerRotateRight(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_ROR) && node->TypeIs(TYP_INT));
+
+    ContainCheckShiftRotate(node);
+}
+
 GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD) && node->TypeIs(TYP_INT));

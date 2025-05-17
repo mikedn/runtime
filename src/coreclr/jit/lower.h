@@ -177,7 +177,8 @@ private:
     void LowerSignedExtend(GenTreeUnOp* node);
     void LowerUnsignedExtend(GenTreeUnOp* node);
 #endif
-
+    void LowerRotateLeft(GenTreeOp* node);
+    void LowerRotateRight(GenTreeOp* node);
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* node);
     void CombineNot(GenTreeInstr* instr);
@@ -248,7 +249,6 @@ private:
     void MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value);
 #endif
     GenTree* LowerArrElem(GenTreeArrElem* node);
-    void LowerRotate(GenTree* tree);
     void LowerShift(GenTreeOp* shift);
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
