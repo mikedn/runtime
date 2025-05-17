@@ -1362,7 +1362,7 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
     {
         udiv->SetOper(GT_RSZ);
         divisor->SetValue(genLog2(divisorValue));
-        ContainCheckShiftRotate(udiv);
+        divisor->SetContained();
 
         return;
     }
@@ -1423,8 +1423,8 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
     {
         GenTree* preShiftBy = comp->gtNewIconNode(preShift, TYP_INT);
         adjustedDividend    = comp->gtNewOperNode(GT_RSZ, type, adjustedDividend, preShiftBy);
+        preShiftBy->SetContained();
         BlockRange().InsertBefore(udiv, preShiftBy, adjustedDividend);
-        ContainCheckShiftRotate(adjustedDividend->AsOp());
     }
     else if (type != TYP_LONG && !simpleMul)
     {
@@ -1601,8 +1601,8 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
 
     GenTree*   shiftBy    = comp->gtNewIconNode(type == TYP_INT ? 31 : 63);
     GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, shiftBy);
+    shiftBy->SetContained();
     BlockRange().InsertAfter(dividend, shiftBy, adjustment);
-    ContainCheckShiftRotate(adjustment);
 
     if (absDivisorValue == 2)
     {
@@ -1631,8 +1631,8 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
     divisor->SetValue(genLog2(absDivisorValue));
 
     GenTree* newDivMod = comp->gtNewOperNode(GT_RSH, type, adjustedDividend, divisor);
+    divisor->SetContained();
     BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
-    ContainCheckShiftRotate(newDivMod->AsOp());
 
     if (divisorValue < 0)
     {

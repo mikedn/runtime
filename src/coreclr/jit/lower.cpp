@@ -3658,7 +3658,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #error Unknown target
 #endif
 
-#if !defined(TARGET_ARM)
+#ifndef TARGET_ARM
         // Remove unnecessary shift count masking. x64/x86/ARM64 shift instructions mask the shift count
         // to 5 bits (or 6 bits for 64 bit operations). ARM32 only masks 8 bits so this isn't likely to
         // be very useful since the main goal is to remove the masking done by the C# compiler.

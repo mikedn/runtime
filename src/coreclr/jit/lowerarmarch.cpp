@@ -365,8 +365,8 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 
     GenTree*   shiftBy    = comp->gtNewIconNode(31);
     GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, TYP_INT, dividend, shiftBy);
+    shiftBy->SetContained();
     BlockRange().InsertAfter(dividend, shiftBy, adjustment);
-    ContainCheckShiftRotate(adjustment);
 
     if (absDivisorValue == 2)
     {
@@ -382,7 +382,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         adjustment = mask;
     }
 
-    dividend = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
+    dividend = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), TYP_INT);
 
     GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, TYP_INT, adjustment, dividend);
     BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
@@ -396,8 +396,8 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         divisor->AsIntCon()->SetValue(genLog2(absDivisorValue));
 
         newDivMod = comp->gtNewOperNode(GT_RSH, TYP_INT, adjustedDividend, divisor);
+        divisor->SetContained();
         BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
-        ContainCheckShiftRotate(newDivMod->AsOp());
 
         if (divisorValue < 0)
         {
@@ -411,10 +411,10 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         // divisor % dividend = dividend - divisor x (dividend / divisor)
         // divisor x (dividend / divisor) translates to (dividend >> log2(divisor)) << log2(divisor)
         // which simply discards the low log2(divisor) bits, that's just dividend & ~(divisor - 1)
-        divisor->AsIntCon()->SetValue(~(absDivisorValue - 1));
+        divisor->AsIntCon()->SetValue(static_cast<int32_t>(~(absDivisorValue - 1)));
 
         GenTreeOp* mask = comp->gtNewOperNode(GT_AND, TYP_INT, adjustedDividend, divisor);
-        dividend        = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
+        dividend        = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), TYP_INT);
         newDivMod       = comp->gtNewOperNode(GT_SUB, TYP_INT, dividend, mask);
 
         BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);

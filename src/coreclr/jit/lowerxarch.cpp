@@ -961,7 +961,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         {
             divMod->SetOper(GT_RSZ);
             divisor->AsIntCon()->SetValue(genLog2(divisorValue));
-            ContainCheckShiftRotate(divMod);
+            divisor->SetContained();
+            ;
         }
         else
         {
@@ -1048,8 +1049,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
     {
         GenTree* preShiftBy = comp->gtNewIconNode(preShift, TYP_INT);
         adjustedDividend    = comp->gtNewOperNode(GT_RSZ, type, adjustedDividend, preShiftBy);
+        preShiftBy->SetContained();
         BlockRange().InsertBefore(divMod, preShiftBy, adjustedDividend);
-        ContainCheckShiftRotate(adjustedDividend->AsOp());
     }
 #ifdef TARGET_64BIT
     else if (type != TYP_LONG)
@@ -1091,20 +1092,19 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
     if (postShift)
     {
         GenTree* shiftBy = comp->gtNewIconNode(postShift, TYP_INT);
+        shiftBy->SetContained();
         BlockRange().InsertBefore(divMod, shiftBy);
 
-        if (isDiv && type == TYP_I_IMPL)
+        if (isDiv && (type == TYP_I_IMPL))
         {
             divMod->SetOper(GT_RSZ);
             divMod->SetOp(0, mulhi);
             divMod->SetOp(1, shiftBy);
-            ContainCheckShiftRotate(divMod);
         }
         else
         {
             mulhi = comp->gtNewOperNode(GT_RSZ, TYP_I_IMPL, mulhi, shiftBy);
             BlockRange().InsertBefore(divMod, mulhi);
-            ContainCheckShiftRotate(mulhi->AsOp());
         }
     }
 
@@ -1313,8 +1313,8 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 
     GenTree*   shiftBy    = comp->gtNewIconNode(type == TYP_INT ? 31 : 63);
     GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, type, dividend, shiftBy);
+    shiftBy->SetContained();
     BlockRange().InsertAfter(dividend, shiftBy, adjustment);
-    ContainCheckShiftRotate(adjustment);
 
     if (absDivisorValue == 2)
     {
@@ -1346,8 +1346,8 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         divisor->AsIntCon()->SetValue(genLog2(absDivisorValue));
 
         newDivMod = comp->gtNewOperNode(GT_RSH, type, adjustedDividend, divisor);
+        divisor->SetContained();
         BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
-        ContainCheckShiftRotate(newDivMod->AsOp());
 
         if (divisorValue < 0)
         {
@@ -3853,8 +3853,7 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
 
     GenTree* shiftBy = node->GetOp(1);
 
-    if (IsImmOperand(shiftBy, node) && (shiftBy->AsIntCon()->GetValue() <= 255) &&
-        (shiftBy->AsIntCon()->GetValue() >= 0))
+    if (IsImmOperand(shiftBy, node) && FitsIn<uint8_t>(shiftBy->AsIntCon()->GetValue()))
     {
         shiftBy->SetContained();
     }
