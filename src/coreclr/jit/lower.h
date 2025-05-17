@@ -160,8 +160,10 @@ private:
     void LowerIndStoreArch(GenTreeIndStore* store);
     GenTree* LowerAdd(GenTreeOp* node);
 #ifndef TARGET_ARM64
+#ifndef USE_HELPERS_FOR_INT_DIV
     bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
-    GenTree* LowerConstIntDivOrMod(GenTree* node);
+#endif
+    GenTree* LowerConstIntDivOrMod(GenTreeOp* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
 #endif
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);

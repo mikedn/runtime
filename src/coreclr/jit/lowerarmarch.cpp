@@ -292,12 +292,155 @@ void Lowering::LowerRotate(GenTree* tree)
             BlockRange().InsertAfter(rotateLeftIndexNode, tmp);
             tree->AsOp()->SetOp(1, tmp);
         }
+
         tree->ChangeOper(GT_ROR);
     }
+
     ContainCheckShiftRotate(tree->AsOp());
 }
 
 #ifdef TARGET_ARM
+GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_DIV, GT_MOD) && node->TypeIs(TYP_INT));
+
+    GenTree* dividend = node->GetOp(0);
+    GenTree* divisor  = node->GetOp(1);
+
+    if (!divisor->IsIntCon())
+    {
+        return nullptr;
+    }
+
+    if (dividend->IsIntCon())
+    {
+        // We shouldn't see a DIV/MOD with constant operands here but if we do then it's likely
+        // because optimizations are disabled or it's a case that's supposed to throw an exception.
+        // Don't optimize this.
+        return nullptr;
+    }
+
+    int32_t divisorValue = divisor->AsIntCon()->GetInt32Value();
+
+    if ((divisorValue == -1) || (divisorValue == 0))
+    {
+        // x / 0 and x % 0 can't be optimized because they are required to throw an exception.
+
+        // x / -1 can't be optimized because INT_MIN / -1 is required to throw an exception.
+
+        // x % -1 is always 0 and the IL spec says that the rem instruction "can" throw an exception if x is
+        // the minimum representable integer. However, the C# spec says that an exception "is" thrown in this
+        // case so optimizing this case would break C# code.
+
+        // A runtime check could be used to handle this case but it's probably too rare to matter.
+        return nullptr;
+    }
+
+    bool isDiv = node->OperIs(GT_DIV);
+
+    if (isDiv && (divisorValue == INT32_MIN))
+    {
+        node->SetOper(GT_EQ);
+
+        return node;
+    }
+
+    uint32_t absDivisorValue =
+        (divisorValue == INT32_MIN) ? static_cast<uint32_t>(divisorValue) : static_cast<uint32_t>(abs(divisorValue));
+
+    if (!isPow2(absDivisorValue))
+    {
+        // Currently there's no S/UMULH for ARM32
+        return nullptr;
+    }
+
+    LIR::Use use;
+    if (!BlockRange().TryGetUse(node, &use))
+    {
+        return nullptr;
+    }
+
+    LIR::Use opDividend(BlockRange(), &node->gtOp1, node);
+    dividend = ReplaceWithLclLoad(opDividend);
+
+    GenTree*   shiftBy    = comp->gtNewIconNode(31);
+    GenTreeOp* adjustment = comp->gtNewOperNode(GT_RSH, TYP_INT, dividend, shiftBy);
+    BlockRange().InsertAfter(dividend, shiftBy, adjustment);
+    ContainCheckShiftRotate(adjustment);
+
+    if (absDivisorValue == 2)
+    {
+        adjustment->SetOper(GT_RSZ);
+    }
+    else
+    {
+        GenTree*   imm  = comp->gtNewIconNode(absDivisorValue - 1, TYP_INT);
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, TYP_INT, adjustment, imm);
+        BlockRange().InsertAfter(adjustment, imm, mask);
+        ContainCheckBinary(mask);
+
+        adjustment = mask;
+    }
+
+    dividend = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
+
+    GenTreeOp* adjustedDividend = comp->gtNewOperNode(GT_ADD, TYP_INT, adjustment, dividend);
+    BlockRange().InsertAfter(adjustment, dividend, adjustedDividend);
+    ContainCheckBinary(adjustedDividend);
+
+    GenTree* newDivMod;
+    BlockRange().Unlink(divisor);
+
+    if (isDiv)
+    {
+        divisor->AsIntCon()->SetValue(genLog2(absDivisorValue));
+
+        newDivMod = comp->gtNewOperNode(GT_RSH, TYP_INT, adjustedDividend, divisor);
+        BlockRange().InsertAfter(adjustedDividend, divisor, newDivMod);
+        ContainCheckShiftRotate(newDivMod->AsOp());
+
+        if (divisorValue < 0)
+        {
+            GenTree* neg = comp->gtNewOperNode(GT_NEG, TYP_INT, newDivMod);
+            BlockRange().InsertAfter(newDivMod, neg);
+            newDivMod = neg;
+        }
+    }
+    else
+    {
+        // divisor % dividend = dividend - divisor x (dividend / divisor)
+        // divisor x (dividend / divisor) translates to (dividend >> log2(divisor)) << log2(divisor)
+        // which simply discards the low log2(divisor) bits, that's just dividend & ~(divisor - 1)
+        divisor->AsIntCon()->SetValue(~(absDivisorValue - 1));
+
+        GenTreeOp* mask = comp->gtNewOperNode(GT_AND, TYP_INT, adjustedDividend, divisor);
+        dividend        = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
+        newDivMod       = comp->gtNewOperNode(GT_SUB, TYP_INT, dividend, mask);
+
+        BlockRange().InsertAfter(adjustedDividend, divisor, mask, dividend, newDivMod);
+        ContainCheckBinary(mask);
+    }
+
+    use.SetDef(newDivMod);
+    BlockRange().Unlink(node);
+
+    return newDivMod->gtNext;
+}
+
+GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
+{
+    assert(node->OperIs(GT_DIV, GT_MOD) && node->TypeIs(TYP_INT));
+
+    GenTree* next = node->gtNext;
+
+    if (GenTree* newNode = LowerConstIntDivOrMod(node->AsOp()))
+    {
+        return newNode;
+    }
+
+    return next;
+}
+
 GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
 {
     if (cmp->GetOp(0)->TypeIs(TYP_LONG))
