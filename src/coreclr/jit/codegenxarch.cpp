@@ -865,10 +865,6 @@ static instruction GetOperIns(genTreeOps oper)
             return INS_and;
         case GT_LSH:
             return INS_shl;
-        case GT_MUL:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-            return INS_imul;
         case GT_NEG:
             return INS_neg;
         case GT_NOT:
@@ -1047,8 +1043,6 @@ void CodeGen::GenShiftLong(GenTreeOp* shift)
     DefReg(shift);
 }
 #endif // TARGET_X86
-
-static instruction GetOperIns(genTreeOps oper);
 
 void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 {

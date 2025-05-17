@@ -1077,8 +1077,8 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
         adjustedDividend->SetRegNum(REG_RAX);
     }
 
-    divisor->SetType(TYP_I_IMPL);
-    divisor->AsIntCon()->SetValue(magic);
+    divisor->AsIntCon()->SetValue(TYP_I_IMPL, magic);
+    BlockRange().MoveBefore(divMod, divisor);
 
     if (isDiv && !postShift && (type == TYP_I_IMPL))
     {

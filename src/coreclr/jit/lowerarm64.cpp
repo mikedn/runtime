@@ -921,7 +921,7 @@ void Lowering::LowerRotateLeft(GenTreeOp* node)
     }
     else
     {
-        GenTree* neg = comp->gtNewOperNode(GT_NEG, node->GetType(), op2);
+        GenTree* neg = comp->gtNewOperNode(GT_NEG, TYP_INT, op2);
         BlockRange().InsertAfter(op2, neg);
         node->AsOp()->SetOp(1, neg);
     }
