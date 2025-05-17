@@ -298,6 +298,18 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #else // TARGET_ARM64
 
 #ifdef TARGET_XARCH
+        case GT_MUL:
+        case GT_SMULH:
+        case GT_UMULH:
+        case GT_OVF_SMUL:
+        case GT_OVF_UMUL:
+#ifdef TARGET_X86
+        case GT_SMULL:
+        case GT_UMULL:
+#endif
+            ContainCheckMul(node->AsOp());
+            break;
+
         case GT_FADD:
         case GT_FSUB:
         case GT_FMUL:
@@ -352,18 +364,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_OR:
         case GT_XOR:
             ContainCheckBinary(node->AsOp());
-            break;
-
-        case GT_MUL:
-        case GT_SMULH:
-        case GT_UMULH:
-        case GT_OVF_SMUL:
-        case GT_OVF_UMUL:
-#ifdef TARGET_X86
-        case GT_SMULL:
-        case GT_UMULL:
-#endif
-            ContainCheckMul(node->AsOp());
             break;
 
         case GT_LT:
@@ -3704,59 +3704,62 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
             divMod->SetOper(GT_UMULH);
             divMod->SetOp(0, adjustedDividend);
             ContainCheckMul(divMod);
+
+            return true;
         }
-        else
+
+        // Insert a new UMULH node before the existing UDIV/UMOD node.
+        // The existing node will later be transformed into a RSZ/SUB that
+        // computes the final result. This way don't need to find and change
+        // the use of the existing node.
+
+        GenTreeOp* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
+        BlockRange().InsertBefore(divMod, mulhi);
+        ContainCheckMul(mulhi);
+
+        if (postShift)
         {
-            // Insert a new UMULH node before the existing UDIV/UMOD node.
-            // The existing node will later be transformed into a RSZ/SUB that
-            // computes the final result. This way don't need to find and change
-            // the use of the existing node.
+            GenTree* shiftBy = comp->gtNewIconNode(postShift, TYP_INT);
+            BlockRange().InsertBefore(divMod, shiftBy);
 
-            GenTree* mulhi = comp->gtNewOperNode(simpleMul ? GT_MUL : GT_UMULH, TYP_I_IMPL, adjustedDividend, divisor);
-            BlockRange().InsertBefore(divMod, mulhi);
-            ContainCheckMul(mulhi->AsOp());
-
-            if (postShift)
+            if (isDiv && type == TYP_I_IMPL)
             {
-                GenTree* shiftBy = comp->gtNewIconNode(postShift, TYP_INT);
-                BlockRange().InsertBefore(divMod, shiftBy);
-
-                if (isDiv && type == TYP_I_IMPL)
-                {
-                    divMod->SetOper(GT_RSZ);
-                    divMod->SetOp(0, mulhi);
-                    divMod->SetOp(1, shiftBy);
-                    ContainCheckShiftRotate(divMod);
-                }
-                else
-                {
-                    mulhi = comp->gtNewOperNode(GT_RSZ, TYP_I_IMPL, mulhi, shiftBy);
-                    BlockRange().InsertBefore(divMod, mulhi);
-                    ContainCheckShiftRotate(mulhi->AsOp());
-                }
+                divMod->SetOper(GT_RSZ);
+                divMod->SetOp(0, mulhi);
+                divMod->SetOp(1, shiftBy);
+                ContainCheckShiftRotate(divMod);
             }
-
-            if (!isDiv)
+            else
             {
-                // divisor UMOD dividend = dividend SUB (div MUL divisor)
-                GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
-                GenTree* mul     = comp->gtNewOperNode(GT_MUL, type, mulhi, divisor);
-                dividend         = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
-
-                divMod->SetOper(GT_SUB);
-                divMod->SetOp(0, dividend);
-                divMod->SetOp(1, mul);
-
-                BlockRange().InsertBefore(divMod, divisor, mul, dividend);
-                ContainCheckMul(mul->AsOp());
-                ContainCheckBinary(divMod);
+                mulhi = comp->gtNewOperNode(GT_RSZ, TYP_I_IMPL, mulhi, shiftBy);
+                BlockRange().InsertBefore(divMod, mulhi);
+                ContainCheckShiftRotate(mulhi->AsOp());
             }
-            else if (type != TYP_I_IMPL)
+        }
+
+        if (!isDiv)
+        {
+            // divisor UMOD dividend = dividend SUB (div MUL divisor)
+            GenTree* divisor = comp->gtNewIconNode(divisorValue, type);
+            GenTree* mul     = comp->gtNewOperNode(GT_MUL, type, mulhi, divisor);
+            dividend         = comp->gtNewLclLoad(dividend->AsLclLoad()->GetLcl(), dividend->GetType());
+
+            divMod->SetOper(GT_SUB);
+            divMod->SetOp(0, dividend);
+            divMod->SetOp(1, mul);
+
+            BlockRange().InsertBefore(divMod, divisor, mul, dividend);
+
+            if (FitsIn<int32_t>(divisorValue))
             {
-                divMod->SetOper(GT_BITCAST);
-                divMod->gtOp1 = mulhi;
-                divMod->gtOp2 = nullptr;
+                divisor->SetContained();
             }
+        }
+        else if (type != TYP_I_IMPL)
+        {
+            divMod->SetOper(GT_BITCAST);
+            divMod->gtOp1 = mulhi;
+            divMod->gtOp2 = nullptr;
         }
 
         return true;
@@ -4031,30 +4034,21 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTree* node)
 
     return newDivMod->gtNext;
 }
-//------------------------------------------------------------------------
-// LowerSignedDivOrMod: transform integer GT_DIV/GT_MOD nodes with a power of 2
-// const divisor into equivalent but faster sequences.
-//
-// Arguments:
-//    node - the DIV or MOD node
-//
-// Returns:
-//    The next node to lower.
-//
+
 GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD) && varTypeIsIntegral(node->GetType()));
 
     GenTree* next = node->gtNext;
 
-    // LowerConstIntDivOrMod will return nullptr if it doesn't transform the node.
-    GenTree* newNode = LowerConstIntDivOrMod(node);
-    if (newNode != nullptr)
+    if (GenTree* newNode = LowerConstIntDivOrMod(node))
     {
         return newNode;
     }
 
+#ifdef TARGET_XARCH
     ContainCheckDivOrMod(node->AsOp());
+#endif
 
     return next;
 }

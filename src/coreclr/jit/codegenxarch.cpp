@@ -1313,22 +1313,8 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    RegNum op1Reg;
-
-    if (op1->isUsedFromReg())
-    {
-        op1Reg = UseReg(op1);
-        UseRMRegs(op2);
-    }
-    else
-    {
-        assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL));
-        assert(op2->isUsedFromReg());
-
-        UseRMRegs(op1);
-        op1Reg = UseReg(op2);
-        op2    = op1;
-    }
+    RegNum op1Reg = UseReg(op1);
+    UseRMRegs(op2);
 
     inst_RV_RV_TT(ins, emitTypeSize(node->GetType()), node->GetRegNum(), op1Reg, op2, !compiler->canUseVexEncoding());
 

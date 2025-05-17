@@ -3115,9 +3115,9 @@ GenTreeIndir* Lowering::IsStoreIndRMW(GenTreeIndStore* store)
     return nullptr;
 }
 
-// anything is in range for AMD64
 bool Lowering::IsCallTargetInRange(void* addr)
 {
+    // Anything is in range for x64.
     return true;
 }
 
@@ -3145,7 +3145,7 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
 // Note: if the tree oper is neither commutative nor a compare oper
 // then only op2 can be reg optional on xarch and hence no need to
 // call this routine.
-GenTree* Lowering::PreferredRegOptionalOperand(GenTree* op1, GenTree* op2)
+GenTree* Lowering::GetPreferredRegOptionalOperand(GenTree* op1, GenTree* op2)
 {
     assert(!op1->IsRegOptional() && !op2->IsRegOptional());
 
@@ -3327,106 +3327,28 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
     }
 }
 
-void Lowering::ContainCheckMul(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_MUL, GT_SMULH, GT_UMULH, GT_OVF_SMUL, GT_OVF_UMUL X86_ARG(GT_SMULL) X86_ARG(GT_UMULL)));
-    assert(varTypeIsIntOrI(node->GetType()) X86_ONLY(|| (node->OperIs(GT_SMULL, GT_UMULL) && node->TypeIs(TYP_LONG))));
-
-    GenTree*       op1                = node->GetOp(0);
-    GenTree*       op2                = node->GetOp(1);
-    GenTree*       memOp              = nullptr;
-    GenTreeIntCon* immOp              = nullptr;
-    GenTree*       other              = nullptr;
-    bool           hasImplicitOperand = false;
-
-    if (node->OperIs(GT_OVF_UMUL, GT_SMULH, GT_UMULH X86_ARG(GT_SMULL) X86_ARG(GT_UMULL)))
-    {
-        hasImplicitOperand = true;
-    }
-    else if (IsImmOperand(op2, node))
-    {
-        immOp = op2->AsIntCon();
-        immOp->SetContained();
-
-        if (node->OperIs(GT_MUL) && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
-        {
-            // We use LEA so the other op has to be in a register.
-            return;
-        }
-
-        if (IsMemOperand(op1))
-        {
-            memOp = other;
-        }
-    }
-
-    if (memOp == nullptr)
-    {
-        if ((op2->GetType() == node->GetType()) && IsMemOperand(op2))
-        {
-            memOp = op2;
-        }
-
-        if ((memOp == nullptr) && (op1->GetType() == node->GetType()) && IsMemOperand(op1))
-        {
-            memOp = op1;
-        }
-    }
-    else
-    {
-        if ((memOp->GetType() != node->GetType()))
-        {
-            memOp = nullptr;
-        }
-    }
-
-    if ((memOp != nullptr) && IsSafeToMoveMemOperandForward(node, memOp))
-    {
-        memOp->SetContained();
-
-        return;
-    }
-
-    bool isSafeToContainOp1 = true;
-    bool isSafeToContainOp2 = true;
-
-    if (immOp != nullptr)
-    {
-        isSafeToContainOp1 = immOp == op2;
-        isSafeToContainOp2 = immOp == op1;
-    }
-    else if (hasImplicitOperand)
-    {
-        isSafeToContainOp1 = false;
-        isSafeToContainOp2 = true;
-    }
-
-    SetRegOptionalForBinOp(node, isSafeToContainOp1, isSafeToContainOp2);
-}
-
 void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
 {
     assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(node->GetType()));
 
-    GenTree* divisor = node->GetOp(1);
-
-    bool divisorCanBeRegOptional = true;
 #ifdef TARGET_X86
     GenTree* dividend = node->GetOp(0);
 
     if (dividend->OperIs(GT_LONG))
     {
-        divisorCanBeRegOptional = false;
+        assert(node->OperIs(GT_UMOD));
         dividend->SetContained();
+        return;
     }
 #endif
 
-    // divisor can be an r/m, but the memory indirection must be of the same size as the divide
+    GenTree* divisor = node->GetOp(1);
+
     if (IsMemOperand(divisor) && (divisor->GetType() == node->GetType()))
     {
         divisor->SetContained();
     }
-    else if (divisorCanBeRegOptional)
+    else
     {
         divisor->SetRegOptional();
     }
@@ -3647,85 +3569,6 @@ void Lowering::ContainCheckIntExtend(GenTreeUnOp* node, GenTree* src)
 
 #endif // TARGET_64BIT
 
-void Lowering::ContainCheckCompare(GenTreeOp* cmp)
-{
-    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
-
-    GenTree*  op1   = cmp->GetOp(0);
-    GenTree*  op2   = cmp->GetOp(1);
-    var_types type1 = op1->GetType();
-    var_types type2 = op2->GetType();
-
-    if (varTypeIsFloating(type1))
-    {
-        assert(type1 == type2);
-
-        op2 = GenCondition::FromFloatRelop(cmp).PreferSwap() ? op1 : op2;
-
-        if (op2->IsDblConNonPositiveZero())
-        {
-            op2->SetContained();
-        }
-        else if (IsMemOperand(op2) && IsSafeToMoveMemOperandForward(cmp, op2))
-        {
-            op2->SetContained();
-        }
-        else
-        {
-            op2->SetRegOptional();
-        }
-
-        return;
-    }
-
-    if (ContainImmOperand(cmp, op2))
-    {
-        if (type1 == type2)
-        {
-            if (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(cmp, op1))
-            {
-                op1->SetContained();
-            }
-            else
-            {
-                op1->SetRegOptional();
-            }
-        }
-
-        return;
-    }
-
-    // Small int memory operands can only be contained if we can generate a 8/16 bit
-    // compare instruction, which is only possible if both operands have the same
-    // small int type.
-
-    bool canContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
-    bool canContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
-
-    // Note that TEST does not have a r,rm encoding like CMP has but we can still
-    // contain the second operand because the emitter maps both r,rm and rm,r to
-    // the same instruction code. This avoids the need to special case TEST here.
-
-    if (canContainOp2 && IsMemOperand(op2) && IsSafeToMoveMemOperandForward(cmp, op2))
-    {
-        op2->SetContained();
-        return;
-    }
-
-    if (canContainOp1 && IsMemOperand(op1) && IsSafeToMoveMemOperandForward(cmp, op1))
-    {
-        op1->SetContained();
-        return;
-    }
-
-    GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : PreferredRegOptionalOperand(op1, op2);
-
-    if (regOptionalCandidate == op1 ? canContainOp1 : canContainOp2)
-    {
-        regOptionalCandidate->SetRegOptional();
-    }
-}
-
 void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
 {
     assert(store->OperIs(GT_IND_STORE) && varTypeIsIntegralOrI(store->GetType()));
@@ -3846,6 +3689,46 @@ void Lowering::LowerStoreIndRMW(GenTreeIndStore* store)
     }
 }
 
+void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
+{
+    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+
+    assert(op1->GetType() == op2->GetType());
+
+    if (op2->IsDblConNonPositiveZero() || (IsMemOperand(op2) && IsSafeToMoveMemOperandForward(node, op2)))
+    {
+        op2->SetContained();
+        return;
+    }
+
+    if (node->IsCommutative())
+    {
+        if (op1->IsDblConNonPositiveZero() || (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(node, op1)))
+        {
+            node->SetOp(0, op2);
+            node->SetOp(1, op1);
+            op1->SetContained();
+            return;
+        }
+
+        GenTree* regOptionalOp = GetPreferredRegOptionalOperand(op1, op2);
+
+        if (regOptionalOp == op1)
+        {
+            node->SetOp(0, op2);
+            node->SetOp(1, op1);
+        }
+
+        regOptionalOp->SetRegOptional();
+        return;
+    }
+
+    op2->SetRegOptional();
+}
+
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     assert(node->OperIsBinary() && varTypeIsIntegralOrI(node->GetType()));
@@ -3859,55 +3742,185 @@ void Lowering::ContainCheckBinary(GenTreeOp* node)
         return;
     }
 
-    const unsigned size = varTypeSize(node->GetType());
+    const unsigned size  = varTypeSize(node->GetType());
+    const unsigned size1 = varTypeSize(op1->GetType());
+    const unsigned size2 = varTypeSize(op2->GetType());
 
-    if ((varTypeSize(op2->GetType()) == size) && IsMemOperand(op2))
+    if ((size2 == size) && IsMemOperand(op2) && IsSafeToMoveMemOperandForward(node, op2))
     {
-        if (IsSafeToMoveMemOperandForward(node, op2))
-        {
-            op2->SetContained();
-            return;
-        }
+        op2->SetContained();
     }
-
-    if (node->IsCommutative() && (varTypeSize(op1->GetType()) == size) && IsMemOperand(op1))
+    else if (node->IsCommutative() && (size1 == size))
     {
-        if (IsSafeToMoveMemOperandForward(node, op1))
+        if (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(node, op1))
         {
             op1->SetContained();
-            return;
+        }
+        else if (size2 != size)
+        {
+            op1->SetRegOptional();
+        }
+        else
+        {
+            GetPreferredRegOptionalOperand(op1, op2)->SetRegOptional();
         }
     }
-
-    SetRegOptionalForBinOp(node, true, true);
+    else if (size2 == size)
+    {
+        op2->SetRegOptional();
+    }
 }
 
-void Lowering::SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2)
+void Lowering::ContainCheckMul(GenTreeOp* node)
 {
-    assert(tree->OperIsBinary());
+    assert(node->OperIs(GT_MUL, GT_OVF_SMUL, GT_OVF_UMUL, GT_SMULH, GT_UMULH X86_ARG(GT_SMULL) X86_ARG(GT_UMULL)));
+    assert(varTypeIsIntOrI(node->GetType()) X86_ONLY(|| (node->OperIs(GT_SMULL, GT_UMULL) && node->TypeIs(TYP_LONG))));
 
-    GenTree* const op1 = tree->GetOp(0);
-    GenTree* const op2 = tree->GetOp(1);
+    var_types      type  = node->GetType();
+    GenTree*       op1   = node->GetOp(0);
+    GenTree*       op2   = node->GetOp(1);
+    GenTree*       memOp = nullptr;
+    GenTreeIntCon* immOp = nullptr;
 
-    const unsigned operatorSize = varTypeSize(tree->GetType());
-
-    const bool op1Legal = isSafeToMarkOp1 && tree->IsCommutative() && (operatorSize == varTypeSize(op1->GetType()));
-    const bool op2Legal = isSafeToMarkOp2 && (operatorSize == varTypeSize(op2->GetType()));
-
-    GenTree* regOptionalOperand = nullptr;
-
-    if (op1Legal)
+    if (node->OperIs(GT_MUL, GT_OVF_SMUL) && IsImmOperand(op2, node))
     {
-        regOptionalOperand = op2Legal ? PreferredRegOptionalOperand(op1, op2) : op1;
+        immOp = op2->AsIntCon();
+        immOp->SetContained();
+
+        if (node->OperIs(GT_MUL) && (immOp->GetValue() == 3 || immOp->GetValue() == 5 || immOp->GetValue() == 9))
+        {
+            // We use LEA so the other op has to be in a register.
+            return;
+        }
+
+        if (op1->GetType() == type)
+        {
+            if (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(node, op1))
+            {
+                op1->SetContained();
+            }
+            else
+            {
+                op1->SetRegOptional();
+            }
+        }
+
+        return;
     }
-    else if (op2Legal)
+
+    if ((op2->GetType() == type) && IsMemOperand(op2))
     {
-        regOptionalOperand = op2;
+        memOp = op2;
+    }
+    else if ((op1->GetType() == type) && IsMemOperand(op1))
+    {
+        memOp = op1;
     }
 
-    if (regOptionalOperand != nullptr)
+    if ((memOp != nullptr) && IsSafeToMoveMemOperandForward(node, memOp))
     {
-        regOptionalOperand->SetRegOptional();
+        memOp->SetContained();
+
+        return;
+    }
+
+    GenTree* regOptionalOp = nullptr;
+
+    if ((op1->GetType() == type) && (op2->GetType() == type))
+    {
+        regOptionalOp = GetPreferredRegOptionalOperand(op1, op2);
+    }
+    else if (op2->GetType() == type)
+    {
+        regOptionalOp = op2;
+    }
+    else if (op1->GetType() == type)
+    {
+        regOptionalOp = op1;
+    }
+
+    if (regOptionalOp != nullptr)
+    {
+        regOptionalOp->SetRegOptional();
+    }
+}
+
+void Lowering::ContainCheckCompare(GenTreeOp* cmp)
+{
+    assert(cmp->OperIsCompare() || cmp->OperIs(GT_CMP));
+
+    GenTree*  op1   = cmp->GetOp(0);
+    GenTree*  op2   = cmp->GetOp(1);
+    var_types type1 = op1->GetType();
+    var_types type2 = op2->GetType();
+
+    if (varTypeIsFloating(type1))
+    {
+        assert(type1 == type2);
+
+        op2 = GenCondition::FromFloatRelop(cmp).PreferSwap() ? op1 : op2;
+
+        if (op2->IsDblConNonPositiveZero())
+        {
+            op2->SetContained();
+        }
+        else if (IsMemOperand(op2) && IsSafeToMoveMemOperandForward(cmp, op2))
+        {
+            op2->SetContained();
+        }
+        else
+        {
+            op2->SetRegOptional();
+        }
+
+        return;
+    }
+
+    if (ContainImmOperand(cmp, op2))
+    {
+        if (type1 == type2)
+        {
+            if (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(cmp, op1))
+            {
+                op1->SetContained();
+            }
+            else
+            {
+                op1->SetRegOptional();
+            }
+        }
+
+        return;
+    }
+
+    // Small int memory operands can only be contained if we can generate a 8/16 bit
+    // compare instruction, which is only possible if both operands have the same
+    // small int type.
+
+    bool canContainOp1 = !varTypeIsSmall(type1) || (type1 == type2);
+    bool canContainOp2 = !varTypeIsSmall(type2) || (type1 == type2);
+
+    // Note that TEST does not have a r,rm encoding like CMP has but we can still
+    // contain the second operand because the emitter maps both r,rm and rm,r to
+    // the same instruction code. This avoids the need to special case TEST here.
+
+    if (canContainOp2 && IsMemOperand(op2) && IsSafeToMoveMemOperandForward(cmp, op2))
+    {
+        op2->SetContained();
+        return;
+    }
+
+    if (canContainOp1 && IsMemOperand(op1) && IsSafeToMoveMemOperandForward(cmp, op1))
+    {
+        op1->SetContained();
+        return;
+    }
+
+    GenTree* regOptionalCandidate = op1->IsIntCon() ? op2 : GetPreferredRegOptionalOperand(op1, op2);
+
+    if (regOptionalCandidate == op1 ? canContainOp1 : canContainOp2)
+    {
+        regOptionalCandidate->SetRegOptional();
     }
 }
 
@@ -4852,45 +4865,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 #endif // FEATURE_HW_INTRINSICS
-
-void Lowering::ContainCheckFloatBinary(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_FADD, GT_FSUB, GT_FMUL, GT_FDIV) && varTypeIsFloating(node->GetType()));
-
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
-
-    assert(op1->GetType() == op2->GetType());
-
-    if (op2->IsDblConNonPositiveZero())
-    {
-        op2->SetContained();
-        return;
-    }
-
-    if (IsMemOperand(op2) && IsSafeToMoveMemOperandForward(node, op2))
-    {
-        op2->SetContained();
-        return;
-    }
-
-    if (node->IsCommutative())
-    {
-        if (op1->IsDblConNonPositiveZero())
-        {
-            op1->SetContained();
-            return;
-        }
-
-        if (IsMemOperand(op1) && IsSafeToMoveMemOperandForward(node, op1))
-        {
-            op1->SetContained();
-            return;
-        }
-    }
-
-    SetRegOptionalForBinOp(node, true, true);
-}
 
 void Lowering::ContainCheckXAdd(GenTreeOp* node)
 {

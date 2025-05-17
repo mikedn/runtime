@@ -45,20 +45,20 @@ private:
     void LowerBlock(BasicBlock* block);
     GenTree* LowerNode(GenTree* node);
 
-    void ContainCheckDivOrMod(GenTreeOp* node);
     void ContainCheckReturnTrap(GenTreeOp* node);
     void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
     void ContainCheckIndir(GenTreeIndir* indirNode);
     void ContainCheckIndStore(GenTreeIndStore* store);
-    void ContainCheckMul(GenTreeOp* node);
     void ContainCheckShiftRotate(GenTreeOp* node);
     void ContainCheckStoreLcl(GenTreeLclRef* store);
     void ContainCheckCompare(GenTreeOp* cmp);
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
+    void ContainCheckDivOrMod(GenTreeOp* node);
+    void ContainCheckMul(GenTreeOp* node);
     void ContainCheckCallAddr(GenTreeCall* call);
     void ContainCheckIntToFloat(GenTreeUnOp* node);
     void ContainCheckFloatToInt(GenTreeUnOp* node);
@@ -152,8 +152,7 @@ private:
     bool IsCallTargetInRange(void* addr);
 
 #ifdef TARGET_XARCH
-    GenTree* PreferredRegOptionalOperand(GenTree* op1, GenTree* op2);
-    void SetRegOptionalForBinOp(GenTreeOp* tree, bool isSafeToMarkOp1, bool isSafeToMarkOp2);
+    GenTree* GetPreferredRegOptionalOperand(GenTree* op1, GenTree* op2);
 #endif
 
     void LowerIndir(GenTreeIndir* ind);
