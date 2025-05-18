@@ -1012,12 +1012,24 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                                 isDeadStore = true;
                             }
                         }
-                        else
+                        else if (lcl->IsIndependentPromoted())
                         {
-                            if (!lcl->IsIndependentPromoted())
+                            // We may have a dead multi-reg store without any uses of the fields.
+                            unsigned totalRefCount = 0;
+
+                            for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+                            {
+                                totalRefCount += fieldLcl->GetRefCount();
+                            }
+
+                            if (totalRefCount == 0)
                             {
                                 isDeadStore = true;
                             }
+                        }
+                        else
+                        {
+                            isDeadStore = true;
                         }
                     }
 
