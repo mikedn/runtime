@@ -10311,9 +10311,8 @@ DONE_MORPHING_CHILDREN:
             }
             else if (fgOperIsBitwiseRotationRoot(oper))
             {
-                tree = fgRecognizeAndMorphBitwiseRotation(tree->AsOp());
+                fgRecognizeAndMorphBitwiseRotation(tree->AsOp());
 
-                // fgRecognizeAndMorphBitwiseRotation may return a new tree
                 oper = tree->GetOper();
                 typ  = tree->GetType();
                 op1  = tree->AsOp()->GetOp(0);
@@ -11400,65 +11399,29 @@ GenTree* Compiler::fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 }
 #endif // TARGET_64BIT
 
-//------------------------------------------------------------------------------
-// fgOperIsBitwiseRotationRoot : Check if the operation can be a root of a bitwise rotation tree.
-//
-//
-// Arguments:
-//    oper  - Operation to check
-//
-// Return Value:
-//    True if the operation can be a root of a bitwise rotation tree; false otherwise.
-
 bool Compiler::fgOperIsBitwiseRotationRoot(genTreeOps oper)
 {
     return (oper == GT_OR) || (oper == GT_XOR);
 }
 
-//------------------------------------------------------------------------------
-// fgRecognizeAndMorphBitwiseRotation : Check if the tree represents a left or right rotation. If so, return
-//                                      an equivalent GT_ROL or GT_ROR tree; otherwise, return the original tree.
-//
-// Arguments:
-//    tree  - tree to check for a rotation pattern
-//
-// Return Value:
-//    An equivalent GT_ROL or GT_ROR tree if a pattern is found; original tree otherwise.
-//
-// Assumption:
-//    The input is a GT_OR or a GT_XOR tree.
-
-GenTreeOp* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
+void Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 {
+    // Recognized patterns:
     //
-    // Check for a rotation pattern, e.g.,
+    // (x LSH (y AND M)) op (x RSZ (((NEG y) ADD N) AND M))
+    // (x RSZ (((NEG y) ADD N) AND M)) op (x LSH (y AND M))
     //
-    //                         OR                      ROL
-    //                      /      \                   / \.
-    //                    LSH      RSZ      ->        x   y
-    //                    / \      / \.
-    //                   x  AND   x  AND
-    //                      / \      / \.
-    //                     y  31   ADD  31
-    //                             / \.
-    //                            NEG 32
-    //                             |
-    //                             y
-    // The patterns recognized:
-    // (x << (y & M)) op (x >>> ((-y + N) & M))
-    // (x >>> ((-y + N) & M)) op (x << (y & M))
+    // (x LSH y) op (x RSZ ((NEG y) ADD N))
+    // (x RSZ ((NEG y) ADD N)) op (x LSH y)
     //
-    // (x << y) op (x >>> (-y + N))
-    // (x >> > (-y + N)) op (x << y)
+    // (x RSZ (y AND M)) op (x LSH ((NEG y ADD N) AND M))
+    // (x LSH (((NEG y) ADD N) & M)) op (x RSZ (y AND M))
     //
-    // (x >>> (y & M)) op (x << ((-y + N) & M))
-    // (x << ((-y + N) & M)) op (x >>> (y & M))
+    // (x RSZ y) op (x LSH ((NEG y) ADD N))
+    // (x LSH ((NEG y) ADD N)) op (x RSZ y)
     //
-    // (x >>> y) op (x << (-y + N))
-    // (x << (-y + N)) op (x >>> y)
-    //
-    // (x << c1) op (x >>> c2)
-    // (x >>> c1) op (x << c2)
+    // (x LSH c1) op (x RSZ c2)
+    // (x RSZ c1) op (x LSH c2)
     //
     // where
     // c1 and c2 are const
@@ -11466,189 +11429,188 @@ GenTreeOp* Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     // N == bitsize(x)
     // M is const
     // M & (N - 1) == N - 1
-    // op is either | or ^
+    // op is either OR or XOR
 
-    if (tree->HasAnySideEffect(GTF_PERSISTENT_SIDE_EFFECTS) || tree->HasAnySideEffect(GTF_ORDER_SIDEEFF))
+    if (tree->HasAnySideEffect(GTF_ALL_EFFECT & ~(GTF_EXCEPT | GTF_GLOB_REF)))
     {
         // We can't do anything if the tree has assignments, calls, or volatile
         // reads. Note that we allow GTF_EXCEPT side effect since any exceptions
         // thrown by the original tree will be thrown by the transformed tree as well.
-        return tree;
+        return;
     }
 
     genTreeOps oper = tree->GetOper();
     assert(fgOperIsBitwiseRotationRoot(oper));
 
-    // Check if we have an LSH on one side of the OR and an RSZ on the other side.
-    GenTree*   op1            = tree->AsOp()->GetOp(0);
-    GenTree*   op2            = tree->AsOp()->GetOp(1);
-    GenTreeOp* leftShiftTree  = nullptr;
-    GenTreeOp* rightShiftTree = nullptr;
+    GenTree*   op1 = tree->GetOp(0);
+    GenTree*   op2 = tree->GetOp(1);
+    GenTreeOp* lsh = nullptr;
+    GenTreeOp* rsz = nullptr;
 
     if (op1->OperIs(GT_LSH) && op2->OperIs(GT_RSZ))
     {
-        leftShiftTree  = op1->AsOp();
-        rightShiftTree = op2->AsOp();
+        lsh = op1->AsOp();
+        rsz = op2->AsOp();
     }
     else if (op1->OperIs(GT_RSZ) && op2->OperIs(GT_LSH))
     {
-        leftShiftTree  = op2->AsOp();
-        rightShiftTree = op1->AsOp();
+        lsh = op2->AsOp();
+        rsz = op1->AsOp();
     }
     else
     {
-        return tree;
+        return;
     }
 
-    // Check if the trees representing the value to shift are identical.
-    // We already checked that there are no side effects above.
-    if (GenTree::Compare(leftShiftTree->GetOp(0), rightShiftTree->GetOp(0)))
+    if (!GenTree::Compare(lsh->GetOp(0), rsz->GetOp(0)))
     {
-        GenTree*  rotatedValue           = leftShiftTree->GetOp(0);
-        var_types rotatedValueActualType = varActualType(rotatedValue->GetType());
-        ssize_t   rotatedValueBitSize    = varTypeSize(rotatedValueActualType) * 8;
-        noway_assert((rotatedValueBitSize == 32) || (rotatedValueBitSize == 64));
-        GenTree* leftShiftIndex  = leftShiftTree->AsOp()->GetOp(1);
-        GenTree* rightShiftIndex = rightShiftTree->AsOp()->GetOp(1);
+        return;
+    }
 
-        // The shift index may be masked. At least (rotatedValueBitSize - 1) lower bits
-        // shouldn't be masked for the transformation to be valid. If additional
-        // higher bits are not masked, the transformation is still valid since the result
-        // of MSIL shift instructions is unspecified if the shift amount is greater or equal
-        // than the width of the value being shifted.
-        ssize_t minimalMask    = rotatedValueBitSize - 1;
-        ssize_t leftShiftMask  = -1;
-        ssize_t rightShiftMask = -1;
+    assert(lsh->GetOp(0)->GetSideEffects() == rsz->GetOp(0)->GetSideEffects());
 
-        if (leftShiftIndex->OperIs(GT_AND))
+    GenTree* value = lsh->GetOp(0);
+
+    if (!value->TypeIs(TYP_INT, TYP_LONG))
+    {
+        return;
+    }
+
+    var_types type    = value->GetType();
+    ssize_t   bitSize = varTypeSize(type) * 8;
+
+    GenTree* lshAmount = lsh->AsOp()->GetOp(1);
+    GenTree* rszAmount = rsz->AsOp()->GetOp(1);
+
+    // The shift index may be masked. At least (rotatedValueBitSize - 1) lower bits
+    // shouldn't be masked for the transformation to be valid. If additional
+    // higher bits are not masked, the transformation is still valid since the result
+    // of MSIL shift instructions is unspecified if the shift amount is greater or equal
+    // than the width of the value being shifted.
+    ssize_t minimalMask = bitSize - 1;
+    ssize_t lshMask     = -1;
+    ssize_t rszMask     = -1;
+
+    if (lshAmount->OperIs(GT_AND))
+    {
+        if (GenTreeIntCon* mask = lshAmount->AsOp()->GetOp(1)->IsIntCon())
         {
-            if (GenTreeIntCon* mask = leftShiftIndex->AsOp()->GetOp(1)->IsIntCon())
+            lshMask   = mask->GetValue();
+            lshAmount = lshAmount->AsOp()->GetOp(0);
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    if (rszAmount->OperIs(GT_AND))
+    {
+        if (GenTreeIntCon* mask = rszAmount->AsOp()->GetOp(1)->IsIntCon())
+        {
+            rszMask   = mask->GetValue();
+            rszAmount = rszAmount->AsOp()->GetOp(0);
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    if (((minimalMask & lshMask) != minimalMask) || ((minimalMask & rszMask) != minimalMask))
+    {
+        // The shift index is over masked, e.g., we have something like (x LSH (y AND 15))
+        // OR (x RSZ (32 SUB y) AND 15 with 32 bit x. The transformation is not valid.
+        return;
+    }
+
+    GenTreeOp* shiftAmountWithAdd    = nullptr;
+    GenTree*   shiftAmountWithoutAdd = nullptr;
+    genTreeOps rotateOp              = GT_NONE;
+
+    if (lshAmount->OperIs(GT_ADD))
+    {
+        shiftAmountWithAdd    = lshAmount->AsOp();
+        shiftAmountWithoutAdd = rszAmount;
+        rotateOp              = GT_ROR;
+    }
+    else if (rszAmount->OperIs(GT_ADD))
+    {
+        shiftAmountWithAdd    = rszAmount->AsOp();
+        shiftAmountWithoutAdd = lshAmount;
+        rotateOp              = GT_ROL;
+    }
+
+    GenTree* rotateAmount = nullptr;
+
+    if (shiftAmountWithAdd != nullptr)
+    {
+        if (GenTreeIntCon* delta = shiftAmountWithAdd->GetOp(1)->IsIntCon())
+        {
+            if (delta->GetValue() != bitSize)
             {
-                leftShiftMask  = mask->GetValue();
-                leftShiftIndex = leftShiftIndex->AsOp()->GetOp(0);
+                return;
             }
-            else
+
+            if (!shiftAmountWithAdd->GetOp(0)->OperIs(GT_NEG))
             {
-                return tree;
+                return;
             }
-        }
 
-        if (rightShiftIndex->OperIs(GT_AND))
-        {
-            if (GenTreeIntCon* mask = rightShiftIndex->AsOp()->GetOp(1)->IsIntCon())
+            GenTree* otherShiftAmount = shiftAmountWithAdd->GetOp(0)->AsUnOp()->GetOp(0);
+
+            if (!GenTree::Compare(otherShiftAmount, shiftAmountWithoutAdd))
             {
-                rightShiftMask  = mask->GetValue();
-                rightShiftIndex = rightShiftIndex->AsOp()->GetOp(0);
+                return;
             }
-            else
-            {
-                return tree;
-            }
-        }
 
-        if (((minimalMask & leftShiftMask) != minimalMask) || ((minimalMask & rightShiftMask) != minimalMask))
-        {
-            // The shift index is overmasked, e.g., we have
-            // something like (x << y & 15) or
-            // (x >> (32 - y) & 15 with 32 bit x.
-            // The transformation is not valid.
-            return tree;
-        }
-
-        GenTreeOp* shiftIndexWithAdd    = nullptr;
-        GenTree*   shiftIndexWithoutAdd = nullptr;
-        genTreeOps rotateOp             = GT_NONE;
-        GenTree*   rotateIndex          = nullptr;
-
-        if (leftShiftIndex->OperIs(GT_ADD))
-        {
-            shiftIndexWithAdd    = leftShiftIndex->AsOp();
-            shiftIndexWithoutAdd = rightShiftIndex;
-            rotateOp             = GT_ROR;
-        }
-        else if (rightShiftIndex->OperIs(GT_ADD))
-        {
-            shiftIndexWithAdd    = rightShiftIndex->AsOp();
-            shiftIndexWithoutAdd = leftShiftIndex;
-            rotateOp             = GT_ROL;
-        }
-
-        if (shiftIndexWithAdd != nullptr)
-        {
-            if (GenTreeIntCon* mask = shiftIndexWithAdd->GetOp(1)->IsIntCon())
-            {
-                if (mask->GetValue() == rotatedValueBitSize)
-                {
-                    if (shiftIndexWithAdd->GetOp(0)->OperIs(GT_NEG))
-                    {
-                        if (GenTree::Compare(shiftIndexWithAdd->GetOp(0)->AsUnOp()->GetOp(0), shiftIndexWithoutAdd))
-                        {
-                            // We found one of these patterns:
-                            // (x << (y & M)) | (x >>> ((-y + N) & M))
-                            // (x << y) | (x >>> (-y + N))
-                            // (x >>> (y & M)) | (x << ((-y + N) & M))
-                            // (x >>> y) | (x << (-y + N))
-                            // where N == bitsize(x), M is const, and
-                            // M & (N - 1) == N - 1
-                            CLANG_FORMAT_COMMENT_ANCHOR;
+            assert(otherShiftAmount->GetSideEffects() == shiftAmountWithoutAdd->GetSideEffects());
 
 #ifndef TARGET_64BIT
-                            if (!shiftIndexWithoutAdd->IsIntCon() && (rotatedValueBitSize == 64))
-                            {
-                                // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
-                                // GT_LSH, GT_RSH, and GT_RSZ have helpers for this case. We may need
-                                // to add helpers for GT_ROL and GT_ROR.
-                                return tree;
-                            }
+            if (!shiftAmountWithoutAdd->IsIntCon() && (type == TYP_LONG))
+            {
+                // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
+                // LSH, RSH, and RSZ have helpers for this case. We may need to add helpers for
+                // ROL and ROR.
+                return;
+            }
 #endif
 
-                            rotateIndex = shiftIndexWithoutAdd;
-                        }
-                    }
-                }
-            }
+            // We found one of these patterns:
+            //
+            // (x LSH (y AND M)) OR (x RSZ (((NEG y) ADD N) AND M))
+            // (x LSH y) OR (x RSZ ((NEG y) ADD N))
+            // (x RSZ (y AND M)) OR (x LSH (((NEG y) ADD N) AND M))
+            // (x RSZ y) OR (x LSH ((NEG y) ADD N))
+            //
+            // where N == bitsize(x), M is const, and
+            // M & (N - 1) == N - 1
+
+            rotateAmount = shiftAmountWithoutAdd;
         }
-        else if ((leftShiftIndex->IsIntCon() && rightShiftIndex->IsIntCon()))
+    }
+    else if ((lshAmount->IsIntCon() && rszAmount->IsIntCon()))
+    {
+        if (lshAmount->AsIntCon()->GetValue() + rszAmount->AsIntCon()->GetValue() == bitSize)
         {
-            if (leftShiftIndex->AsIntCon()->GetValue() + rightShiftIndex->AsIntCon()->GetValue() == rotatedValueBitSize)
-            {
-                // We found this pattern:
-                // (x << c1) | (x >>> c2)
-                // where c1 and c2 are const and c1 + c2 == bitsize(x)
-                rotateOp    = GT_ROL;
-                rotateIndex = leftShiftIndex;
-            }
-        }
+            // We found this pattern: (x LSH c1) OR (x RSZ c2)
+            // where c1 and c2 are const and c1 + c2 == bitsize(x)
 
-        if (rotateIndex != nullptr)
-        {
-            noway_assert((rotateOp == GT_ROL) || (rotateOp == GT_ROR));
-
-            GenTreeFlags inputTreeEffects = tree->GetSideEffects();
-
-            // We can use the same tree only during global morph; reusing the tree in a later morph
-            // may invalidate value numbers.
-            if (fgGlobalMorph)
-            {
-                tree->AsOp()->SetOp(0, rotatedValue);
-                tree->AsOp()->SetOp(1, rotateIndex);
-                tree->ChangeOper(rotateOp);
-
-                GenTreeFlags childFlags = rotatedValue->GetSideEffects() | rotateIndex->GetSideEffects();
-                // The parent's flags should be a superset of its operands' flags
-                noway_assert((inputTreeEffects & childFlags) == childFlags);
-            }
-            else
-            {
-                tree = gtNewOperNode(rotateOp, rotatedValueActualType, rotatedValue, rotateIndex);
-                noway_assert(inputTreeEffects == tree->GetSideEffects());
-            }
-
-            return tree;
+            rotateOp     = GT_ROL;
+            rotateAmount = lshAmount;
         }
     }
 
-    return tree;
+    if (rotateAmount == nullptr)
+    {
+        return;
+    }
+
+    assert((rotateOp == GT_ROL) || (rotateOp == GT_ROR));
+
+    tree->SetOp(0, value);
+    tree->SetOp(1, rotateAmount);
+    tree->SetOper(rotateOp, GenTree::PRESERVE_VN);
 }
 
 #ifdef DEBUG

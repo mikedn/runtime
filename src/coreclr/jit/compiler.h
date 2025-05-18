@@ -4242,9 +4242,8 @@ private:
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:
-    // Recognize a bitwise rotation pattern and convert into a GT_ROL or a GT_ROR node.
-    GenTreeOp* fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
-    bool fgOperIsBitwiseRotationRoot(genTreeOps oper);
+    static bool fgOperIsBitwiseRotationRoot(genTreeOps oper);
+    void fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT
     // Recognize and morph a long multiplication with 32 bit operands.
