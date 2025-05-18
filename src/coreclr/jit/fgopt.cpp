@@ -679,7 +679,6 @@ void Compiler::fgDfsInvPostOrderHelper(BasicBlock** postOrder, BasicBlock* block
 
 // Compute immediate dominators, the dominator tree and and its pre/post-order traversal numbers.
 // Use fgDominate to check dominance.
-// Also sets BBF_DOMINATED_BY_EXCEPTIONAL_ENTRY flag on blocks dominated by exceptional entry blocks.
 // Immediate dominator computation is based on "A Simple, Fast Dominance Algorithm"
 // by Keith D. Cooper, Timothy J. Harvey, and Ken Kennedy.
 void Compiler::phComputeDoms()
@@ -836,7 +835,7 @@ void Compiler::phComputeDoms()
 
     if (compHndBBtabCount > 0)
     {
-        fgCompDominatedByExceptionalEntryBlocks(postOrder, entryBlocks);
+        fgCompDominatedByEHEntryBlocks(postOrder, entryBlocks);
     }
 
     DBEXEC(verbose, fgDispDoms(postOrder));
@@ -850,7 +849,7 @@ void Compiler::phComputeDoms()
     assert(BlockSetTraits::GetSize(this) == fgDomBBcount + 1);
 }
 
-void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks)
+void Compiler::fgCompDominatedByEHEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks)
 {
     assert(compHndBBtabCount > 0);
 
@@ -862,12 +861,12 @@ void Compiler::fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, B
         {
             if (fgFirstBB != block) // skip the normal entry.
             {
-                block->SetDominatedByExceptionalEntryFlag();
+                block->SetDominatedByEHEntry();
             }
         }
-        else if (block->bbIDom->IsDominatedByExceptionalEntryFlag())
+        else if (block->bbIDom->IsDominatedByEHEntry())
         {
-            block->SetDominatedByExceptionalEntryFlag();
+            block->SetDominatedByEHEntry();
         }
     }
 }

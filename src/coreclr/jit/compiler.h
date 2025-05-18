@@ -3340,7 +3340,7 @@ public:
     void lvaComputeLclRefCounts();
     void lvaComputeRefCountsHIR();
     void lvaComputeRefCountsLIR();
-    void lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate = true);
+    void lvaAddRef(LclVarDsc* lcl, weight_t weight, bool propagate = true);
 
 #ifdef DEBUG
     void lvaDispVarSet(VARSET_TP set, VARSET_TP allVars);
@@ -3383,7 +3383,7 @@ public:
 
 protected:
     void lvaMarkLclRefs(GenTree* tree, GenTree* user, BasicBlock* block, Statement* stmt);
-    bool IsDominatedByExceptionalEntry(BasicBlock* block);
+    bool IsDominatedByEHEntry(BasicBlock* block);
 
 public:
     /*
@@ -3844,7 +3844,7 @@ public:
     // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
     void phComputeDoms();
 
-    void fgCompDominatedByExceptionalEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks);
+    void fgCompDominatedByEHEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks);
 
     BlockSet fgComputeReachabilitySets(); // Compute bbReach sets. (Also sets BBF_GC_SAFE_POINT flag on blocks.)
 

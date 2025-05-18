@@ -397,7 +397,7 @@ enum BasicBlockFlags : uint64_t
 
     BBF_CLONED_FINALLY_END   = MAKE_BBFLAG(32), // Last block of a cloned finally region
     BBF_HAS_CALL             = MAKE_BBFLAG(33), // BB contains a call
-    BBF_DOMINATED_BY_EXCEPTIONAL_ENTRY = MAKE_BBFLAG(34), // Block is dominated by exceptional entry.
+    BBF_DOMINATED_BY_EH_ENTRY = MAKE_BBFLAG(34), 
     BBF_BACKWARD_JUMP_TARGET = MAKE_BBFLAG(35), // Block is a target of a backward jump
 
     BBF_PATCHPOINT           = MAKE_BBFLAG(36), // Block is a patchpoint
@@ -1333,14 +1333,14 @@ public:
     void MakeLIR();
     bool IsLIR() const;
 
-    void SetDominatedByExceptionalEntryFlag()
+    void SetDominatedByEHEntry()
     {
-        bbFlags |= BBF_DOMINATED_BY_EXCEPTIONAL_ENTRY;
+        bbFlags |= BBF_DOMINATED_BY_EH_ENTRY;
     }
 
-    bool IsDominatedByExceptionalEntryFlag() const
+    bool IsDominatedByEHEntry() const
     {
-        return (bbFlags & BBF_DOMINATED_BY_EXCEPTIONAL_ENTRY) != 0;
+        return (bbFlags & BBF_DOMINATED_BY_EH_ENTRY) != 0;
     }
 
 #ifdef DEBUG

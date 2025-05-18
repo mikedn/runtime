@@ -2434,7 +2434,7 @@ var_types LclVarDsc::GetActualRegisterType() const
     return varActualType(GetRegisterType());
 }
 
-void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propagate)
+void Compiler::lvaAddRef(LclVarDsc* lcl, weight_t weight, bool propagate)
 {
     assert(opts.OptimizationEnabled());
     assert(lvaRefCountState == RCS_NORMAL);
@@ -2457,7 +2457,7 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
                 weight *= 2;
             }
 
-            BasicBlock::weight_t newWeight = lcl->GetRefWeight() + weight;
+            weight_t newWeight = lcl->GetRefWeight() + weight;
             assert(newWeight >= lcl->GetRefWeight());
             lcl->SetRefWeight(newWeight);
         }
@@ -2485,18 +2485,6 @@ void Compiler::lvaAddRef(LclVarDsc* lcl, BasicBlock::weight_t weight, bool propa
 
     JITDUMP("New refCnts for V%02u: refCnt = %2u, refCntWtd = %s\n", lcl->GetLclNum(), lcl->GetRefCount(),
             refCntWtd2str(lcl->GetRefWeight()));
-}
-
-//------------------------------------------------------------------------
-// IsDominatedByExceptionalEntry: Check is the block dominated by an exception entry block.
-//
-// Arguments:
-//    block - the checking block.
-//
-bool Compiler::IsDominatedByExceptionalEntry(BasicBlock* block)
-{
-    assert(fgDomsComputed);
-    return block->IsDominatedByExceptionalEntryFlag();
 }
 
 void Compiler::lvaComputeRefCountsHIR()
@@ -2584,7 +2572,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 DisqualifyAddCopy(lcl);
             }
 
-            if (m_compiler->fgDomsComputed && m_compiler->IsDominatedByExceptionalEntry(m_block))
+            if (m_compiler->fgDomsComputed && m_block->IsDominatedByEHEntry())
             {
                 // TODO-MIKE-Review: Old code ignored LCL_FLDs, that's probably bogus. lvHasEHRefs
                 // is used only for AddCopies and CopyProp heuristics so it probably doesn't matter.
