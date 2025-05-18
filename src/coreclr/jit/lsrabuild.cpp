@@ -1693,7 +1693,7 @@ void LinearScan::buildIntervals()
                 LclVarDsc* lcl      = compiler->lvaGetDescByTrackedIndex(e.Current());
                 Interval*  interval = getIntervalForLocalVar(e.Current());
                 assert(interval->isWriteThru);
-                BasicBlock::weight_t weight = lcl->lvRefCntWtd();
+                weight_t weight = lcl->GetRefWeight();
 
                 // We'd like to only allocate registers for EH vars that have enough uses
                 // to compensate for the additional registers being live (and for the possibility

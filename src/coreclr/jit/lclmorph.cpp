@@ -2511,10 +2511,10 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
     // struct copying is done by field by field copy instead of a more efficient rep.stos
     // or xmm reg based copy.
 
-    // TODO: If the lvRefCnt is zero and we have a struct promoted parameter we can end up
+    // TODO: If the ref count is zero and we have a struct promoted parameter we can end up
     // with an extra store of the the incoming register into the stack frame slot.
     // In that case, we would like to avoid promotion.
-    // However we haven't yet computed the lvRefCnt values so we can't do that.
+    // However, we haven't yet computed the ref counts so we can't do that.
 
     // TODO-MIKE-CQ: SIMD promotion is still messy as lvFieldAccessed is way too limited.
     // A few "get"/"set"s may be better expressed as "get element"/"with element". Repeated

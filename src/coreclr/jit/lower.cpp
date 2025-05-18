@@ -3942,7 +3942,7 @@ void Lowering::VerifyAllLocalsImplicitlyReferenced()
 
         if (comp->lvaIsX86VarargsStackParam(lcl))
         {
-            assert(lcl->lvRefCnt() == 0);
+            assert(lcl->GetRefCount() == 0);
         }
         else
         {
@@ -3950,7 +3950,7 @@ void Lowering::VerifyAllLocalsImplicitlyReferenced()
             assert(lcl->lvImplicitlyReferenced);
         }
 
-        assert(!lcl->lvTracked);
+        assert(!lcl->HasLiveness());
         assert(!lcl->lvMustInit);
     }
 }

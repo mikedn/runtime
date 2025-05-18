@@ -1529,7 +1529,7 @@ LclVarDsc* Compiler::gtIsLikelyRegVar(GenTree* tree)
         return nullptr;
     }
 
-    if (lcl->lvRefCntWtd() < (BB_UNITY_WEIGHT * 3))
+    if (lcl->GetRefWeight() < BB_UNITY_WEIGHT * 3)
     {
         return nullptr;
     }

@@ -5223,7 +5223,7 @@ void Compiler::optAddCopies()
         }
 
         // We require that the weighted ref count be significant.
-        if (lcl->lvRefCntWtd() <= (BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2))
+        if (lcl->GetRefWeight() <= BB_LOOP_WEIGHT_SCALE * BB_UNITY_WEIGHT / 2)
         {
             continue;
         }

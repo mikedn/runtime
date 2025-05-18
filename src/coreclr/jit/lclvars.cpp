@@ -245,8 +245,8 @@ void Compiler::lvaInitLocals()
             if ((corType == CORINFO_TYPE_CLASS) || (corType == CORINFO_TYPE_BYREF))
             {
                 JITDUMP("V%02u is pinning\n", lclNum);
-                lcl->m_pinning         = true;
-                lcl->lvDoNotEnregister = true;
+
+                lcl->SetPinning();
             }
             else
             {
@@ -1481,11 +1481,11 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
                 message = "it is a struct arg";
                 break;
             case DNER_BlockOp:
-                lcl->lvLclBlockOpAddr = 1;
+                lcl->lvLclBlockOpAddr = true;
                 message               = "written in a block op";
                 break;
             case DNER_LocalField:
-                lcl->lvLclFieldExpr = 1;
+                lcl->lvLclFieldExpr = true;
                 message             = "was accessed as a local field";
                 break;
             case DNER_LiveInOutOfHandler:
@@ -2060,10 +2060,6 @@ struct LclVarDsc_SmallCode_Less
 {
     bool operator()(const LclVarDsc* lcl1, const LclVarDsc* lcl2) const
     {
-        // We should not be sorting untracked variables
-        assert(lcl1->lvTracked);
-        assert(lcl2->lvTracked);
-
         unsigned refCount1 = lcl1->GetRefCount();
         unsigned refCount2 = lcl2->GetRefCount();
 
@@ -2094,8 +2090,8 @@ struct LclVarDsc_SmallCode_Less
             return refCount1 > refCount2;
         }
 
-        const BasicBlock::weight_t weight1 = lcl1->GetRefWeight();
-        const BasicBlock::weight_t weight2 = lcl2->GetRefWeight();
+        const weight_t weight1 = lcl1->GetRefWeight();
+        const weight_t weight2 = lcl2->GetRefWeight();
 
         // If the weighted ref counts are different then use their difference.
         if (weight1 != weight2)
@@ -2151,12 +2147,8 @@ struct LclVarDsc_BlendedCode_Less
 {
     bool operator()(const LclVarDsc* lcl1, const LclVarDsc* lcl2) const
     {
-        // We should not be sorting untracked variables
-        assert(lcl1->lvTracked);
-        assert(lcl2->lvTracked);
-
-        BasicBlock::weight_t weight1 = lcl1->GetRefWeight();
-        BasicBlock::weight_t weight2 = lcl2->GetRefWeight();
+        weight_t weight1 = lcl1->GetRefWeight();
+        weight_t weight2 = lcl2->GetRefWeight();
 
 #ifndef TARGET_ARM
         // ARM-TODO: this was disabled for ARM under !FEATURE_FP_REGALLOC; it was probably a left-over from
@@ -2238,53 +2230,43 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 
     for (LclVarDsc* lcl : Locals())
     {
-        // Start by assuming that the variable will be tracked.
-        lcl->lvTracked = 1;
+        lcl->lvTracked   = false;
+        bool hasLiveness = true;
 
         if (lcl->GetRefCount() == 0)
         {
             assert(lcl->GetRefWeight() == 0);
 
-            lcl->lvTracked = 0;
+            hasLiveness = false;
         }
-
-        if (lcl->IsPromoted())
-        {
-            lcl->lvTracked = 0;
-        }
-
-        if (lcl->IsAddressExposed())
+        else if (lcl->IsAddressExposed())
         {
             assert(lcl->lvDoNotEnregister);
 
-            lcl->lvTracked = 0;
+            hasLiveness = false;
         }
+        else if (lcl->IsPinning())
+        {
+            assert(lcl->lvDoNotEnregister);
 
+            hasLiveness = false;
+        }
+        else if (lcl->IsPromoted())
+        {
+            hasLiveness = false;
+        }
 #if defined(JIT32_GCENCODER) && defined(FEATURE_EH_FUNCLETS)
-        if (lvaIsOriginalThisParam(lclNum) && info.ThisParamIsGenericsContext())
+        else if (lvaIsOriginalThisParam(lclNum) && info.ThisParamIsGenericsContext())
         {
             // For x86/Linux, we need to track "this". However we cannot have it in tracked locals,
             // so we make "this" pointer always untracked.
-            lcl->lvTracked = 0;
+            hasLiveness = false;
         }
 #endif
-
-        if (lcl->TypeIs(TYP_BLK))
+        else if (lcl->TypeIs(TYP_BLK))
         {
             // BLK locals are rare and rather special (e.g. outgoing args area), it's not worth tracking them.
-            // LONG locals are never enregistered on 32 bit targets (if they're promoted their fields may be).
-            lcl->lvTracked = 0;
-        }
-
-        if (lcl->IsPinning())
-        {
-            // Pinning locals may not be tracked (a condition of the GCInfo representation)
-            // or enregistered, on x86 -- it is believed that we can enregister pinning
-            // references when using the general GC encoding.
-            lcl->lvTracked = 0;
-#ifdef JIT32_GCENCODER
-            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_PinningRef));
-#endif
+            hasLiveness = false;
         }
 
         // TODO-MIKE-Cleanup: Implicitly referenced locals should not be tracked. Most have
@@ -2294,7 +2276,7 @@ void Compiler::lvaMarkLivenessTrackedLocals()
         // method so we risk treating it as zero initialized in VN if compInitMem is set.
         // Luckily that doesn't happen because generated stubs do not use .localsinit now.
 
-        if (lcl->lvTracked)
+        if (hasLiveness)
         {
             tracked[trackedCount++] = lcl;
         }
@@ -2334,12 +2316,11 @@ void Compiler::lvaMarkLivenessTrackedLocals()
 #if defined(TARGET_ARM) || defined(TARGET_X86)
             else if (lcl->IsParam())
             {
-                // On ARM we prespill all struct args.
-                // TODO-ARM-CQ: Keep them in registers, it will need a fix to
-                // "On the ARM we will spill any incoming struct args" logic in codegencommon.
-                // TODO-MIKE-CQ: This also affects x86, not clear how come main
-                // doesn't have this problem. Probably because they still can't generate sane IR
-                // to begin with and end up DNERing structs anyway...
+                // On ARM we pre-spill all struct args.
+                // TODO-ARM-CQ: Keep them in registers.
+                // TODO-MIKE-CQ: This also affects x86, not clear how come main branch
+                // doesn't have this problem. Probably because they still can't generate
+                // sane IR to begin with and end up DNERing structs anyway...
                 lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
             }
 #endif
@@ -2363,25 +2344,22 @@ void Compiler::lvaMarkLivenessTrackedLocals()
     {
         LclVarDsc* lcl = tracked[trackedIndex];
 
-        assert(lcl->lvTracked);
         lcl->lvVarIndex = static_cast<uint16_t>(trackedIndex);
+        lcl->lvTracked  = true;
 
         JITDUMP("Tracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->GetRefCount(),
                 refCntWtd2str(lcl->GetRefWeight()));
     }
 
-    // If we have too many tracked locals mark the rest as untracked. This does not remove
-    // them from lvaTrackedToVarNum but lvaTrackedCount reflects the actual tracked count.
+#ifdef DEBUG
     for (unsigned trackedIndex = lvaTrackedCount; trackedIndex < trackedCount; trackedIndex++)
     {
         LclVarDsc* lcl = tracked[trackedIndex];
 
-        assert(lcl->lvTracked);
-        lcl->lvTracked = 0;
-
         JITDUMP("Untracked V%02u: refCnt = %4u, refCntWtd = %6s\n", lcl->GetLclNum(), lcl->GetRefCount(),
                 refCntWtd2str(lcl->GetRefWeight()));
     }
+#endif
 
     JITDUMP("\n");
 
@@ -2939,7 +2917,7 @@ void Compiler::lvaSetImplictlyReferenced()
     for (LclVarDsc* lcl : Locals())
     {
         noway_assert(varTypeIsValidLclType(lcl->GetType()));
-        assert(!lcl->lvTracked);
+        assert(!lcl->HasLiveness());
 
         // X86 varargs stack params must remain unreferenced.
         if (lvaIsX86VarargsStackParam(lcl))

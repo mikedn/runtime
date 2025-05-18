@@ -328,6 +328,12 @@ public:
         return m_pinning;
     }
 
+    void SetPinning()
+    {
+        m_pinning         = true;
+        lvDoNotEnregister = true;
+    }
+
     bool IsAddressExposed() const
     {
         return lvAddrExposed;
@@ -607,20 +613,8 @@ public:
     unsigned GetRefCount() const;
     void SetRefCount(unsigned count);
 
-    // [[deprecated]]
-    unsigned lvRefCnt() const
-    {
-        return GetRefCount();
-    }
-
-    BasicBlock::weight_t GetRefWeight() const;
-    void SetRefWeight(BasicBlock::weight_t weight);
-
-    // [[deprecated]]
-    BasicBlock::weight_t lvRefCntWtd() const
-    {
-        return GetRefWeight();
-    }
+    weight_t GetRefWeight() const;
+    void SetRefWeight(weight_t weight);
 
     int GetStackOffset() const
     {

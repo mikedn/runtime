@@ -290,7 +290,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclRef* lclNode
             UpdateRange(codeGen, lcl);
         }
 
-        if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->lvVarIndex))
+        if (lcl->HasGCSlotLiveness() && VarSetOps::TryAddElemD(compiler, liveGCLcl, lcl->GetLivenessBitIndex()))
         {
             JITDUMP("GC pointer V%02u becoming live on stack\n", lcl->GetLclNum());
         }

@@ -2632,7 +2632,7 @@ void CodeGen::MarkStackLocals()
         // We can't have both lvRegister and lvOnFrame
         noway_assert(!lcl->lvRegister || !lcl->lvOnFrame);
 
-        if (varTypeIsGC(lcl->GetType()) && lcl->lvTracked && (!lcl->IsParam() || lcl->IsRegParam()))
+        if (varTypeIsGC(lcl->GetType()) && lcl->HasLiveness() && (!lcl->IsParam() || lcl->IsRegParam()))
         {
             lcl->SetHasGCLiveness();
         }
@@ -2707,7 +2707,7 @@ void CodeGen::CheckUseBlockInit()
             continue;
         }
 
-        const bool isTracked = lcl->lvTracked;
+        const bool isTracked = lcl->HasLiveness();
         bool       blockInit = false;
 
         if (isTracked && (lcl->lvMustInit ||
@@ -3065,7 +3065,7 @@ void CodeGen::PrologInitOsrLocals()
                 continue;
             }
 
-            if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->lvVarIndex))
+            if (!VarSetOps::IsMember(compiler, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()))
             {
                 JITDUMP("---OSR--- V%02u (reg) not live at entry\n", lcl->GetLclNum());
                 continue;

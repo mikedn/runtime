@@ -14,7 +14,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
 
     // We should never encounter a reference to a local that has a zero ref count.
     // TODO-MIKE-Review: It's not clear why promotion makes a difference.
-    if ((lcl->lvRefCnt() == 0) && !lcl->IsPromoted())
+    if ((lcl->GetRefCount() == 0) && !lcl->IsPromoted())
     {
         JITDUMP("Found reference to V%02u with zero refCnt.\n", lcl->GetLclNum());
         assert(!"We should never encounter a reference to a lclVar that has a zero refCnt.");
@@ -28,14 +28,14 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
 
     if (lcl->HasLiveness())
     {
-        if (isUse && !VarSetOps::IsMember(this, state.fgCurDefSet, lcl->lvVarIndex))
+        if (isUse && !VarSetOps::IsMember(this, state.fgCurDefSet, lcl->GetLivenessBitIndex()))
         {
-            VarSetOps::AddElemD(this, state.fgCurUseSet, lcl->lvVarIndex);
+            VarSetOps::AddElemD(this, state.fgCurUseSet, lcl->GetLivenessBitIndex());
         }
 
         if (isDef)
         {
-            VarSetOps::AddElemD(this, state.fgCurDefSet, lcl->lvVarIndex);
+            VarSetOps::AddElemD(this, state.fgCurDefSet, lcl->GetLivenessBitIndex());
         }
 
         return;

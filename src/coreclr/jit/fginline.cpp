@@ -1702,10 +1702,14 @@ LclVarDsc* Compiler::inlAllocInlineeLocal(InlineInfo* inlineInfo, unsigned ilLoc
 
     LclVarDsc* lcl = lvaAllocTemp(false DEBUGARG("inlinee local"));
 
-    lcl->m_pinning              = lclInfo.lclIsPinned;
     lcl->lvHasLdAddrOp          = lclInfo.lclHasLdlocaOp;
     lcl->lvHasILStoreOp         = lclInfo.lclHasStlocOp;
     lcl->lvHasMultipleILStoreOp = lclInfo.lclHasMultipleStlocOp;
+
+    if (lclInfo.lclIsPinned)
+    {
+        lcl->SetPinning();
+    }
 
     lclInfo.lcl       = lcl;
     lclInfo.lclIsUsed = true;

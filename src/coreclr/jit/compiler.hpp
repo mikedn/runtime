@@ -898,14 +898,14 @@ inline void LclVarDsc::SetRefCount(unsigned count)
     m_refCount = static_cast<uint16_t>(count > UINT16_MAX ? UINT16_MAX : count);
 }
 
-inline BasicBlock::weight_t LclVarDsc::GetRefWeight() const
+inline weight_t LclVarDsc::GetRefWeight() const
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
-    return jitstd::bit_cast<BasicBlock::weight_t>(m_refWeight);
+    return jitstd::bit_cast<weight_t>(m_refWeight);
 }
 
-inline void LclVarDsc::SetRefWeight(BasicBlock::weight_t weight)
+inline void LclVarDsc::SetRefWeight(weight_t weight)
 {
     assert(JitTls::GetCompiler()->lvaRefCountState == RCS_NORMAL);
 
