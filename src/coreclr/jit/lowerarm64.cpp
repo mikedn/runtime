@@ -468,7 +468,7 @@ void Lowering::LowerShiftVariable(GenTreeOp* shift)
 {
     GenTree* op1  = shift->GetOp(0);
     GenTree* op2  = shift->GetOp(1);
-    emitAttr size = emitActualTypeSize(shift->GetType());
+    emitAttr size = emitTypeSize(shift->GetType());
 
     // ARM64 shift instructions mask the shift count to 5 bits (or 6 bits for 64 bit operations).
     //
@@ -507,6 +507,9 @@ void Lowering::LowerShiftVariable(GenTreeOp* shift)
         case GT_RSH:
             ins = INS_asrv;
             break;
+        case GT_ROR:
+            ins = INS_rorv;
+            break;
         default:
             ins = INS_lsrv;
             break;
@@ -519,9 +522,9 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 {
     GenTree* op1  = shift->GetOp(0);
     GenTree* op2  = shift->GetOp(1);
-    emitAttr size = emitActualTypeSize(shift->GetType());
+    emitAttr size = emitTypeSize(shift->GetType());
 
-    unsigned bitSize     = EA_SIZE_IN_BYTES(size) * 8;
+    unsigned bitSize     = EA_BIT_SIZE(size);
     unsigned shiftAmount = static_cast<unsigned>(op2->AsIntCon()->GetValue()) & (bitSize - 1);
 
     if ((shiftAmount >= 24) && shift->OperIs(GT_LSH) && comp->opts.OptimizationEnabled())
@@ -582,6 +585,9 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
         case GT_RSH:
             ins = INS_asr;
             break;
+        case GT_ROR:
+            ins = INS_ror;
+            break;
         default:
             ins = INS_lsr;
             break;
@@ -592,7 +598,10 @@ void Lowering::LowerShiftImmediate(GenTreeOp* shift)
 
     BlockRange().Unlink(op2);
 
-    CombineShiftImmediate(instr);
+    if (ins != INS_ror)
+    {
+        CombineShiftImmediate(instr);
+    }
 }
 
 void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
@@ -600,7 +609,7 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     GenTree* op1  = shift->GetOp(0);
     emitAttr size = shift->GetSize();
 
-    unsigned bitSize     = EA_SIZE_IN_BYTES(size) * 8;
+    unsigned bitSize     = EA_BIT_SIZE(size);
     unsigned shiftAmount = shift->GetImmediate();
 
     assert(shiftAmount < bitSize);
@@ -909,33 +918,18 @@ void Lowering::CombineShiftImmediate(GenTreeInstr* shift)
     }
 }
 
-void Lowering::LowerRotateLeft(GenTreeOp* node)
+void Lowering::LowerRotateRight(GenTreeOp* rotate)
 {
-    assert(node->OperIs(GT_ROL) || node->TypeIs(TYP_INT, TYP_LONG));
+    assert(rotate->OperIs(GT_ROR) && rotate->TypeIs(TYP_INT, TYP_LONG));
 
-    GenTree* op2 = node->GetOp(1);
-
-    if (GenTreeIntCon* imm = op2->IsIntCon())
+    if (rotate->GetOp(1)->IsIntCon())
     {
-        imm->SetValue(varTypeSize(node->GetType()) * 8 - imm->GetValue());
+        LowerShiftImmediate(rotate);
     }
     else
     {
-        GenTree* neg = comp->gtNewOperNode(GT_NEG, TYP_INT, op2);
-        BlockRange().InsertAfter(op2, neg);
-        node->AsOp()->SetOp(1, neg);
+        LowerShiftVariable(rotate);
     }
-
-    node->ChangeOper(GT_ROR);
-
-    ContainCheckShiftRotate(node);
-}
-
-void Lowering::LowerRotateRight(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_ROR) || node->TypeIs(TYP_INT, TYP_LONG));
-
-    ContainCheckShiftRotate(node);
 }
 
 static insOpts GetEquivalentShiftOptionArithmetic(GenTree* node, emitAttr size)

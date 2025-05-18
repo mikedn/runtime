@@ -7538,8 +7538,8 @@ GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
     NamedIntrinsic create = NI_Vector128_Create;
     unsigned       numOps = 4;
 #elif defined(TARGET_ARM64)
-    NamedIntrinsic create  = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps  = dstType == TYP_SIMD8 ? 2 : 4;
+    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
 #else
 #error Unsupported platform
 #endif
@@ -10320,6 +10320,27 @@ DONE_MORPHING_CHILDREN:
             }
             break;
 
+        case GT_ROL:
+        case GT_ROR:
+            if (GenTreeIntCon* amountOp = op2->IsIntCon())
+            {
+                unsigned bitSize = varTypeSize(typ) * 8;
+                unsigned amount  = amountOp->GetUInt32Value() & (bitSize - 1);
+
+                if (amount == 0)
+                {
+                    return op1;
+                }
+
+                if (oper == GT_ROL)
+                {
+                    amountOp->SetValue(bitSize - amount);
+                    oper = GT_ROR;
+                    tree->SetOper(oper);
+                }
+            }
+            break;
+
         case GT_NEG:
             // Distribute integer negation over simple multiplication/division expressions
             if (opts.OptimizationEnabled() && op1->OperIs(GT_MUL, GT_DIV))
@@ -10810,7 +10831,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             argInfo.SetRegType(i, info.retDesc.GetRegType(i));
         }
 #else
-        var_types  regType = info.retDesc.GetRegType(0);
+        var_types regType = info.retDesc.GetRegType(0);
 
         if (varTypeIsGC(regType))
         {
@@ -11545,63 +11566,67 @@ void Compiler::fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 
     if (shiftAmountWithAdd != nullptr)
     {
-        if (GenTreeIntCon* delta = shiftAmountWithAdd->GetOp(1)->IsIntCon())
+        GenTreeIntCon* delta = shiftAmountWithAdd->GetOp(1)->IsIntCon();
+
+        if ((delta == nullptr) || (delta->GetValue() != bitSize))
         {
-            if (delta->GetValue() != bitSize)
-            {
-                return;
-            }
+            return;
+        }
 
-            if (!shiftAmountWithAdd->GetOp(0)->OperIs(GT_NEG))
-            {
-                return;
-            }
+        if (!shiftAmountWithAdd->GetOp(0)->OperIs(GT_NEG))
+        {
+            return;
+        }
 
-            GenTree* otherShiftAmount = shiftAmountWithAdd->GetOp(0)->AsUnOp()->GetOp(0);
+        GenTree* otherShiftAmount = shiftAmountWithAdd->GetOp(0)->AsUnOp()->GetOp(0);
 
-            if (!GenTree::Compare(otherShiftAmount, shiftAmountWithoutAdd))
-            {
-                return;
-            }
+        if (!GenTree::Compare(otherShiftAmount, shiftAmountWithoutAdd))
+        {
+            return;
+        }
 
-            assert(otherShiftAmount->GetSideEffects() == shiftAmountWithoutAdd->GetSideEffects());
+        assert(otherShiftAmount->GetSideEffects() == shiftAmountWithoutAdd->GetSideEffects());
 
 #ifndef TARGET_64BIT
-            if (!shiftAmountWithoutAdd->IsIntCon() && (type == TYP_LONG))
-            {
-                // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
-                // LSH, RSH, and RSZ have helpers for this case. We may need to add helpers for
-                // ROL and ROR.
-                return;
-            }
+        if (!shiftAmountWithoutAdd->IsIntCon() && (type == TYP_LONG))
+        {
+            // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
+            // LSH, RSH, and RSZ have helpers for this case. We may need to add helpers for
+            // ROL and ROR.
+            return;
+        }
 #endif
 
-            // We found one of these patterns:
-            //
-            // (x LSH (y AND M)) OR (x RSZ (((NEG y) ADD N) AND M))
-            // (x LSH y) OR (x RSZ ((NEG y) ADD N))
-            // (x RSZ (y AND M)) OR (x LSH (((NEG y) ADD N) AND M))
-            // (x RSZ y) OR (x LSH ((NEG y) ADD N))
-            //
-            // where N == bitsize(x), M is const, and
-            // M & (N - 1) == N - 1
+        // We found one of these patterns:
+        //
+        // (x LSH (y AND M)) OR (x RSZ (((NEG y) ADD N) AND M))
+        // (x LSH y) OR (x RSZ ((NEG y) ADD N))
+        // (x RSZ (y AND M)) OR (x LSH (((NEG y) ADD N) AND M))
+        // (x RSZ y) OR (x LSH ((NEG y) ADD N))
+        //
+        // where N == bitsize(x), M is const, and
+        // M & (N - 1) == N - 1
 
-            rotateAmount = shiftAmountWithoutAdd;
-        }
-    }
-    else if ((lshAmount->IsIntCon() && rszAmount->IsIntCon()))
-    {
-        if (lshAmount->AsIntCon()->GetValue() + rszAmount->AsIntCon()->GetValue() == bitSize)
+        rotateAmount = shiftAmountWithoutAdd;
+
+#ifndef TARGET_XARCH
+        if (rotateOp == GT_ROL)
         {
-            // We found this pattern: (x LSH c1) OR (x RSZ c2)
-            // where c1 and c2 are const and c1 + c2 == bitsize(x)
-
-            rotateOp     = GT_ROL;
-            rotateAmount = lshAmount;
+            rotateAmount = gtNewOperNode(GT_NEG, TYP_INT, rotateAmount);
+            rotateOp     = GT_ROR;
         }
+#endif
     }
+    else if (lshAmount->IsIntCon() && rszAmount->IsIntCon() &&
+             lshAmount->AsIntCon()->GetValue() + rszAmount->AsIntCon()->GetValue() == bitSize)
+    {
+        // We found this pattern: (x LSH c1) OR (x RSZ c2)
+        // where c1 and c2 are const and c1 + c2 == bitsize(x)
 
-    if (rotateAmount == nullptr)
+        rotateOp     = GT_ROR;
+        rotateAmount = rszAmount;
+    }
+    else
     {
         return;
     }

@@ -955,9 +955,33 @@ void CodeGen::GenShift(GenTreeOp* shift)
     }
     else
     {
-        int imm = shiftBy->AsIntCon()->GetInt32Value();
+        int imm     = shiftBy->AsIntCon()->GetInt32Value();
+        int bitSize = EA_BIT_SIZE(size);
 
-        if (shift->OperIs(GT_LSH) && !shift->HasImplicitFlagsDef() && (imm == 1))
+        if (((ins == INS_rol) || (ins == INS_ror)) && (0 < imm) && (imm < bitSize))
+        {
+#ifdef TARGET_64BIT
+            // Do this only for 64 bit, for 32 bit the encoding of RORX is larger than MOV+ROR.
+            if ((dstReg != valueReg) && (size == EA_8BYTE) &&
+                compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2))
+            {
+                if (ins == INS_rol)
+                {
+                    imm = bitSize - imm;
+                }
+
+                ins = INS_rorx;
+            }
+            else
+#endif
+                if (imm > (bitSize >> 1))
+            {
+                imm = bitSize - imm;
+                ins = ins == INS_rol ? INS_ror : INS_rol;
+            }
+        }
+
+        if ((ins == INS_shl) && !shift->HasImplicitFlagsDef() && (imm == 1))
         {
             if (dstReg == valueReg)
             {
@@ -970,15 +994,10 @@ void CodeGen::GenShift(GenTreeOp* shift)
                 emit.emitIns_R_ARX(INS_lea, size, dstReg, valueReg, valueReg, 1, 0);
             }
         }
-#ifdef TARGET_64BIT
-        else if (shift->OperIs(GT_ROL, GT_ROR) && (size == EA_8BYTE) && (dstReg != valueReg) && (imm > 0) &&
-                 (imm < 64) && compiler->compOpportunisticallyDependsOn(InstructionSet_BMI2))
+        else if (ins == INS_rorx)
         {
-            imm = shift->OperIs(GT_ROL) ? (64 - imm) : imm;
-
             emit.emitIns_R_R_I(INS_rorx, size, dstReg, valueReg, imm);
         }
-#endif
         else
         {
             emit.emitIns_Mov(INS_mov, size, dstReg, valueReg, /* canSkip */ true);

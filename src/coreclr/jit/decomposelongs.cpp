@@ -144,7 +144,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_RSZ:
             nextNode = DecomposeShift(use);
             break;
+#ifdef TARGET_XARCH
         case GT_ROL:
+#endif
         case GT_ROR:
             nextNode = DecomposeRotate(use);
             break;

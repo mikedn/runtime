@@ -40,14 +40,14 @@ GenTree* Lowering::LowerFloatConvert(GenTreeUnOp* node)
 
 void Lowering::LowerRotateLeft(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ROL) || node->TypeIs(TYP_INT, TYP_I_IMPL));
+    assert(node->OperIs(GT_ROL) && node->TypeIs(TYP_INT, TYP_I_IMPL));
 
     ContainCheckShiftRotate(node);
 }
 
 void Lowering::LowerRotateRight(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_ROR) || node->TypeIs(TYP_INT, TYP_I_IMPL));
+    assert(node->OperIs(GT_ROR) && node->TypeIs(TYP_INT, TYP_I_IMPL));
 
     ContainCheckShiftRotate(node);
 }

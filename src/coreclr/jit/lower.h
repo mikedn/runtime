@@ -177,7 +177,6 @@ private:
     void LowerSignedExtend(GenTreeUnOp* node);
     void LowerUnsignedExtend(GenTreeUnOp* node);
 #endif
-    void LowerRotateLeft(GenTreeOp* node);
     void LowerRotateRight(GenTreeOp* node);
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* node);
@@ -231,6 +230,7 @@ private:
     void LowerFloatToInt(GenTreeUnOp* node);
 
 #ifdef TARGET_XARCH
+    void LowerRotateLeft(GenTreeOp* node);
     GenTree* LowerFloatConvert(GenTreeUnOp* node);
     bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
     GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);

@@ -274,33 +274,28 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
 
 #ifdef TARGET_ARM
 
-void Lowering::LowerRotateLeft(GenTreeOp* node)
-{
-    assert(node->OperIs(GT_ROL) && node->TypeIs(TYP_INT));
-
-    GenTree* op2 = node->GetOp(1);
-
-    if (GenTreeIntCon* imm = op2->IsIntCon())
-    {
-        imm->SetValue(32 - imm->GetValue());
-    }
-    else
-    {
-        GenTree* neg = comp->gtNewOperNode(GT_NEG, TYP_INT, op2);
-        node->SetOp(1, neg);
-        BlockRange().InsertAfter(op2, neg);
-    }
-
-    node->ChangeOper(GT_ROR);
-
-    ContainCheckShiftRotate(node);
-}
-
 void Lowering::LowerRotateRight(GenTreeOp* node)
 {
     assert(node->OperIs(GT_ROR) && node->TypeIs(TYP_INT));
 
     ContainCheckShiftRotate(node);
+}
+
+void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
+{
+    assert(node->OperIsShiftOrRotate() && node->TypeIs(TYP_INT));
+
+    if (node->OperIs(GT_LSH_HI, GT_RSH_LO))
+    {
+        GenTree* source = node->GetOp(0);
+        assert(source->OperIs(GT_LONG));
+        source->SetContained();
+    }
+
+    if (GenTree* shiftBy = node->GetOp(1)->IsIntCon())
+    {
+        shiftBy->SetContained();
+    }
 }
 
 GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
@@ -1055,25 +1050,6 @@ void Lowering::ContainCheckIndir(GenTreeIndir* indir)
 void Lowering::ContainCheckBinary(GenTreeOp* node)
 {
     ContainImmOperand(node, node->GetOp(1));
-}
-
-void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
-{
-    assert(node->OperIsShiftOrRotate());
-
-#ifdef TARGET_ARM
-    if (node->OperIs(GT_LSH_HI, GT_RSH_LO))
-    {
-        GenTree* source = node->GetOp(0);
-        assert(source->OperIs(GT_LONG));
-        source->SetContained();
-    }
-#endif
-
-    if (GenTree* shiftBy = node->GetOp(1)->IsIntCon())
-    {
-        shiftBy->SetContained();
-    }
 }
 
 void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)

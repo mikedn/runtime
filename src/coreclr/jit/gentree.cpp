@@ -7938,7 +7938,8 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
                 {
                     goto DONE_FOLD;
                 }
-                else if (!opHasSideEffects)
+
+                if (!opHasSideEffects)
                 {
                     op = cons;
                     goto DONE_FOLD;

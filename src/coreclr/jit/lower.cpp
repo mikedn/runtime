@@ -238,14 +238,6 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerLogical(node->AsOp());
             break;
 
-        case GT_ROL:
-            LowerRotateLeft(node->AsOp());
-            break;
-
-        case GT_ROR:
-            LowerRotateRight(node->AsOp());
-            break;
-
         case GT_NEG:
             LowerNegate(node->AsUnOp());
             break;
@@ -398,15 +390,19 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_DIV:
         case GT_MOD:
             return LowerSignedDivOrMod(node);
+#endif // !TARGET_ARM64
 
         case GT_ROL:
+#ifdef TARGET_XARCH
             LowerRotateLeft(node->AsOp());
             break;
+#else
+            unreached();
+#endif
 
         case GT_ROR:
             LowerRotateRight(node->AsOp());
             break;
-#endif // !TARGET_ARM64
 
         case GT_SWITCH:
             return LowerSwitch(node->AsUnOp());
@@ -3544,7 +3540,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
         size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86) || defined(TARGET_ARM)
-        size_t mask = 0x1f;
+        size_t           mask           = 0x1f;
 #else
 #error Unknown target
 #endif
@@ -3662,7 +3658,7 @@ void Lowering::LowerShift(GenTreeOp* shift)
 #if defined(TARGET_AMD64) || defined(TARGET_ARM64)
         size_t mask = shift->TypeIs(TYP_LONG) ? 0x3f : 0x1f;
 #elif defined(TARGET_X86)
-        size_t mask = 0x1f;
+        size_t           mask           = 0x1f;
 #elif defined(TARGET_ARM)
         size_t mask = 0xff;
 #elif
