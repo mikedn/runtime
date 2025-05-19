@@ -549,110 +549,107 @@ void Compiler::fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars)
     }
 }
 
-// This is the classic algorithm for live variable analysis.
 class LiveVarAnalysis
 {
-    Compiler* m_compiler;
-
-    bool m_hasPossibleBackEdge;
-
-    bool      m_memoryLiveIn : 1;
-    bool      m_memoryLiveOut : 1;
-    VARSET_TP m_liveIn;
-    VARSET_TP m_liveOut;
-    VARSET_TP m_ehLiveVars = VarSetOps::UninitVal();
+    Compiler* compiler;
+    unsigned  keepAliveThisBitIndex = UINT_MAX;
+    bool      mayHaveBackEdge       = false;
+    bool      memoryLiveIn          = false;
+    bool      memoryLiveOut         = false;
+    VARSET_TP liveIn;
+    VARSET_TP liveOut;
+    VARSET_TP ehLiveVars = VarSetOps::UninitVal();
 
 public:
     LiveVarAnalysis(Compiler* compiler)
-        : m_compiler(compiler)
-        , m_hasPossibleBackEdge(false)
-        , m_memoryLiveIn(false)
-        , m_memoryLiveOut(false)
-        , m_liveIn(VarSetOps::MakeEmpty(compiler))
-        , m_liveOut(VarSetOps::MakeEmpty(compiler))
+        : compiler(compiler), liveIn(VarSetOps::MakeEmpty(compiler)), liveOut(VarSetOps::MakeEmpty(compiler))
     {
+        if (compiler->lvaKeepAliveAndReportThis())
+        {
+            LclVarDsc* thisLcl = compiler->lvaGetDesc(compiler->info.GetThisParamLclNum());
+
+            if (thisLcl->HasLiveness())
+            {
+                keepAliveThisBitIndex = thisLcl->GetLivenessBitIndex();
+            }
+        }
     }
 
-    bool PerBlockAnalysis(BasicBlock* block, bool keepAliveThis)
+    bool PerBlockAnalysis(BasicBlock* block)
     {
-        VarSetOps::ClearD(m_compiler, m_liveOut);
-        m_memoryLiveOut = false;
+        VarSetOps::ClearD(compiler, liveOut);
+        memoryLiveOut = false;
 
-        if (block->EndsWithJmp(m_compiler))
+        for (BasicBlock* succ : block->GetAllSuccs(compiler))
         {
-            // A JMP uses all the arguments, so mark them all as live at the JMP instruction.
+            VarSetOps::UnionD(compiler, liveOut, succ->bbLiveIn);
+            memoryLiveOut |= succ->bbMemoryLiveIn;
 
-            for (LclVarDsc* lcl : m_compiler->Params())
+            if (succ->bbNum <= block->bbNum)
+            {
+                mayHaveBackEdge = true;
+            }
+        }
+
+        // For lvaKeepAliveAndReportThis methods, "this" has to be kept alive everywhere.
+        // Note that a function may end in a throw on an infinite loop (as opposed to a return).
+        // "this" has to be alive everywhere even in such methods.
+
+        if (keepAliveThisBitIndex != UINT_MAX)
+        {
+            VarSetOps::AddElemD(compiler, liveOut, keepAliveThisBitIndex);
+        }
+
+        // A JMP uses all parameters, so mark them all as live at the JMP instruction.
+
+        if (block->EndsWithJmp(compiler))
+        {
+            for (LclVarDsc* lcl : compiler->Params())
             {
                 noway_assert(!lcl->IsPromoted());
 
                 if (lcl->HasLiveness())
                 {
-                    VarSetOps::AddElemD(m_compiler, m_liveOut, lcl->GetLivenessBitIndex());
+                    VarSetOps::AddElemD(compiler, liveOut, lcl->GetLivenessBitIndex());
                 }
             }
         }
 
-        // Additionally, union in all the live-in tracked vars of successors.
-        for (BasicBlock* succ : block->GetAllSuccs(m_compiler))
+        VarSetOps::LivenessD(compiler, liveIn, block->bbVarDef, block->bbVarUse, liveOut);
+
+        // Even if block->bbMemoryDef is set, we must assume that it doesn't kill memory liveness
+        // from memoryLiveOut, since (without proof otherwise) the use and def may touch different
+        // memory at run-time.
+        memoryLiveIn = memoryLiveOut || block->bbMemoryUse;
+
+        if (compiler->ehBlockHasExnFlowDsc(block))
         {
-            VarSetOps::UnionD(m_compiler, m_liveOut, succ->bbLiveIn);
-            m_memoryLiveOut |= succ->bbMemoryLiveIn;
-            if (succ->bbNum <= block->bbNum)
+            if (ehLiveVars == VarSetOps::UninitVal())
             {
-                m_hasPossibleBackEdge = true;
-            }
-        }
-
-        /* For lvaKeepAliveAndReportThis methods, "this" has to be kept alive everywhere
-           Note that a function may end in a throw on an infinite loop (as opposed to a return).
-           "this" has to be alive everywhere even in such methods. */
-
-        if (keepAliveThis)
-        {
-            VarSetOps::AddElemD(m_compiler, m_liveOut,
-                                m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->GetLivenessBitIndex());
-        }
-
-        /* Compute the 'm_liveIn'  set */
-        VarSetOps::LivenessD(m_compiler, m_liveIn, block->bbVarDef, block->bbVarUse, m_liveOut);
-
-        // Even if block->bbMemoryDef is set, we must assume that it doesn't kill memory liveness from m_memoryLiveOut,
-        // since (without proof otherwise) the use and def may touch different memory at run-time.
-        m_memoryLiveIn = m_memoryLiveOut || block->bbMemoryUse;
-
-        // Does this block have implicit exception flow to a filter or handler?
-        // If so, include the effects of that flow.
-        if (m_compiler->ehBlockHasExnFlowDsc(block))
-        {
-            if (m_ehLiveVars == VarSetOps::UninitVal())
-            {
-                m_ehLiveVars = VarSetOps::Alloc(m_compiler);
+                ehLiveVars = VarSetOps::Alloc(compiler);
             }
 
-            m_compiler->fgGetHandlerLiveVars(block, m_ehLiveVars);
-            VarSetOps::UnionD(m_compiler, m_liveIn, m_ehLiveVars);
-            VarSetOps::UnionD(m_compiler, m_liveOut, m_ehLiveVars);
+            compiler->fgGetHandlerLiveVars(block, ehLiveVars);
+            VarSetOps::UnionD(compiler, liveIn, ehLiveVars);
+            VarSetOps::UnionD(compiler, liveOut, ehLiveVars);
 
-            // Implicit eh edges can induce loop-like behavior,
+            // Implicit EH edges can induce loop-like behavior,
             // so make sure we iterate to closure.
-            m_hasPossibleBackEdge = true;
+            mayHaveBackEdge = true;
         }
 
-        /* Has there been any change in either live set? */
-
-        bool liveInChanged = !VarSetOps::Equal(m_compiler, block->bbLiveIn, m_liveIn);
-        if (liveInChanged || !VarSetOps::Equal(m_compiler, block->bbLiveOut, m_liveOut))
+        bool liveInChanged = !VarSetOps::Equal(compiler, block->bbLiveIn, liveIn);
+        if (liveInChanged || !VarSetOps::Equal(compiler, block->bbLiveOut, liveOut))
         {
-            VarSetOps::Assign(m_compiler, block->bbLiveIn, m_liveIn);
-            VarSetOps::Assign(m_compiler, block->bbLiveOut, m_liveOut);
+            VarSetOps::Assign(compiler, block->bbLiveIn, liveIn);
+            VarSetOps::Assign(compiler, block->bbLiveOut, liveOut);
         }
 
-        const bool memoryLiveInChanged = (block->bbMemoryLiveIn != m_memoryLiveIn);
-        if (memoryLiveInChanged || (block->bbMemoryLiveOut != m_memoryLiveOut))
+        bool memoryLiveInChanged = (block->bbMemoryLiveIn != memoryLiveIn);
+        if (memoryLiveInChanged || (block->bbMemoryLiveOut != memoryLiveOut))
         {
-            block->bbMemoryLiveIn  = m_memoryLiveIn;
-            block->bbMemoryLiveOut = m_memoryLiveOut;
+            block->bbMemoryLiveIn  = memoryLiveIn;
+            block->bbMemoryLiveOut = memoryLiveOut;
         }
 
         return liveInChanged || memoryLiveInChanged;
@@ -660,44 +657,36 @@ public:
 
     void Run()
     {
-        const bool keepAliveThis = m_compiler->lvaKeepAliveAndReportThis() &&
-                                   m_compiler->lvaGetDesc(m_compiler->info.GetThisParamLclNum())->HasLiveness();
-
-        // Live Variable Analysis - Backward dataflow
         bool changed;
+
         do
         {
             changed = false;
 
-            /* Visit all blocks and compute new data flow values */
+            VarSetOps::ClearD(compiler, liveIn);
+            VarSetOps::ClearD(compiler, liveOut);
 
-            VarSetOps::ClearD(m_compiler, m_liveIn);
-            VarSetOps::ClearD(m_compiler, m_liveOut);
+            memoryLiveIn  = false;
+            memoryLiveOut = false;
 
-            m_memoryLiveIn  = false;
-            m_memoryLiveOut = false;
-
-            for (BasicBlock* block = m_compiler->fgLastBB; block; block = block->bbPrev)
+            for (BasicBlock* block = compiler->fgLastBB; block != nullptr; block = block->bbPrev)
             {
-                // sometimes block numbers are not monotonically increasing which
-                // would cause us not to identify backedges
-                if (block->bbNext && block->bbNext->bbNum <= block->bbNum)
+                // Sometimes block numbers are not monotonically increasing,
+                // which would cause us not to identify backward edges.
+                if ((block->bbNext != nullptr) && (block->bbNext->bbNum <= block->bbNum))
                 {
-                    m_hasPossibleBackEdge = true;
+                    mayHaveBackEdge = true;
                 }
 
-                if (PerBlockAnalysis(block, keepAliveThis))
+                if (PerBlockAnalysis(block))
                 {
                     changed = true;
                 }
             }
-            // if there is no way we could have processed a block without seeing all of its predecessors
-            // then there is no need to iterate
-            if (!m_hasPossibleBackEdge)
-            {
-                break;
-            }
-        } while (changed);
+
+            // If there is no way we could have processed a block without seeing
+            // all of its predecessors then there is no need to iterate.
+        } while (mayHaveBackEdge && changed);
     }
 };
 
@@ -712,7 +701,7 @@ void Compiler::fgLiveVarAnalysis()
         printf("\nBB liveness after fgLiveVarAnalysis():\n\n");
         fgDispBBLiveness();
     }
-#endif // DEBUG
+#endif
 }
 
 void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node)
