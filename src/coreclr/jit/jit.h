@@ -222,10 +222,16 @@ using ssize_t = ptrdiff_t;
     {                                                                                                                  \
         JitTls::GetCompiler()->dmpLIRTreeRange(range, t);                                                              \
     }
-#define DISPLIRNODE(t)                                                                                                 \
+#define JITDUMPLIRNODE(n, ...)                                                                                         \
     if (JitTls::GetCompiler()->verbose)                                                                                \
     {                                                                                                                  \
-        JitTls::GetCompiler()->dmpLIRNode(t);                                                                          \
+        jitprintf(__VA_ARGS__);                                                                                        \
+        JitTls::GetCompiler()->dmpLIRNode(n);                                                                          \
+    }
+#define DISPLIRNODE(n)                                                                                                 \
+    if (JitTls::GetCompiler()->verbose)                                                                                \
+    {                                                                                                                  \
+        JitTls::GetCompiler()->dmpLIRNode(n);                                                                          \
     }
 #else // !DEBUG
 #define DBEXEC(...)
@@ -237,6 +243,7 @@ using ssize_t = ptrdiff_t;
 #define DISPBLOCK(...)
 #define JITDUMPLIRRANGE(...)
 #define DISPLIRRANGE(...)
+#define JITDUMPLIRNODE(...)
 #define DISPLIRNODE(...)
 #endif // !DEBUG
 

@@ -1358,8 +1358,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
     // See also identical code in shift decomposition.
     if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
     {
-        JITDUMP("Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
-        DISPLIRNODE(hiSrc);
+        JITDUMPLIRNODE(hiSrc, "Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
         Range().Remove(hiSrc, /* markOperandsUnused */ true);
     }
     else
@@ -1368,8 +1367,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
         hiSrc->SetUnusedValue();
     }
 
-    JITDUMP("Removing the LONG source:\n");
-    DISPLIRNODE(src);
+    JITDUMPLIRNODE(src, "Removing the LONG source:\n");
     Range().Unlink(src);
 
     LIR::Use use;
@@ -1388,8 +1386,7 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
     }
 
     INDEBUG(treeToDisplay = loSrc);
-    JITDUMP("Removing TRUNC:\n");
-    DISPLIRNODE(trunc);
+    JITDUMPLIRNODE(trunc, "Removing TRUNC:\n");
 
     Range().Unlink(trunc);
 

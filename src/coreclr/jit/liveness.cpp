@@ -939,13 +939,12 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_LCL_LOAD:
             case GT_LCL_LOAD_FLD:
             {
-                GenTreeLclRef* lclNode = node->AsLclRef();
-                LclVarDsc*     lcl     = lclNode->GetLcl();
+                GenTreeLclRef* load = node->AsLclRef();
+                LclVarDsc*     lcl  = load->GetLcl();
 
                 if (node->IsUnusedValue())
                 {
-                    JITDUMP("Removing dead LclVar use:\n");
-                    DISPLIRNODE(lclNode);
+                    JITDUMPLIRNODE(load, "Removing dead local use:\n");
 
                     blockRange.Delete(this, block, node);
 
@@ -956,11 +955,11 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 }
                 else if (lcl->HasLiveness())
                 {
-                    fgComputeLifeTrackedLocalUse(life, lcl, lclNode);
+                    fgComputeLifeTrackedLocalUse(life, lcl, load);
                 }
                 else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
+                    fgComputeLifePromotedLocal(life, keepAlive, lcl, load);
                 }
                 break;
             }
@@ -968,13 +967,13 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_LCL_STORE:
             case GT_LCL_STORE_FLD:
             {
-                GenTreeLclRef* lclNode     = node->AsLclRef();
-                LclVarDsc*     lcl         = lclNode->GetLcl();
+                GenTreeLclRef* store       = node->AsLclRef();
+                LclVarDsc*     lcl         = store->GetLcl();
                 bool           isDeadStore = false;
 
                 if (lcl->HasLiveness())
                 {
-                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAlive, lcl, lclNode);
+                    isDeadStore = fgComputeLifeTrackedLocalDef(life, keepAlive, lcl, store);
                 }
                 else
                 {
@@ -1024,7 +1023,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
                     if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                     {
-                        isDeadStore = fgComputeLifePromotedLocal(life, keepAlive, lcl, lclNode);
+                        isDeadStore = fgComputeLifePromotedLocal(life, keepAlive, lcl, store);
                     }
                 }
 
@@ -1032,10 +1031,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 {
                     assert(!opts.MinOpts());
 
-                    JITDUMP("Removing dead store:\n");
-                    DISPLIRNODE(lclNode);
+                    JITDUMPLIRNODE(store, "Removing dead local store:\n");
 
-                    lclNode->GetOp(0)->SetUnusedValue();
+                    store->GetOp(0)->SetUnusedValue();
                     blockRange.Unlink(node);
                     useDefRemoved = true;
                 }
@@ -1058,8 +1056,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 // These are all side-effect-free leaf nodes.
                 if (node->IsUnusedValue())
                 {
-                    JITDUMP("Removing dead node:\n");
-                    DISPLIRNODE(node);
+                    JITDUMPLIRNODE(node, "Removing dead node:\n");
 
                     blockRange.Unlink(node);
                 }
@@ -1071,8 +1068,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
                 if ((call->TypeIs(TYP_VOID) || call->IsUnusedValue()) && !call->HasSideEffects(false, false))
                 {
-                    JITDUMP("Removing dead call:\n");
-                    DISPLIRNODE(call);
+                    JITDUMPLIRNODE(call, "Removing dead call:\n");
 
                     node->VisitOperands([](GenTree* operand) {
                         if (operand->IsValue())
@@ -1169,8 +1165,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
                     !node->OperMayThrow(this))
                 {
-                    JITDUMP("Removing dead node:\n");
-                    DISPLIRNODE(node);
+                    JITDUMPLIRNODE(node, "Removing dead node:\n");
 
                     node->VisitOperands([](GenTree* operand) {
                         operand->SetUnusedValue();

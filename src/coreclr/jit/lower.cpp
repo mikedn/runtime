@@ -3405,28 +3405,23 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
 
     if (!IsSafeToMoveLclRegUseForward(addr, am.base, am.index))
     {
-        JITDUMP("No addressing mode:\n  ");
-        DISPLIRNODE(addr);
+        JITDUMPLIRNODE(addr, "No addressing mode:\n  ");
         return false;
     }
 
     JITDUMP("Addressing mode:\n");
-    JITDUMP("  Base\n    ");
 
     if (am.base != nullptr)
     {
-        DISPLIRNODE(am.base);
+        JITDUMPLIRNODE(am.base, "Base\n");
     }
 
     if (am.index != nullptr)
     {
-        JITDUMP("  + Index * %u + %d\n    ", am.scale, am.offset);
-        DISPLIRNODE(am.index);
+        JITDUMPLIRNODE(am.index, " + Index * %u", am.scale);
     }
-    else
-    {
-        JITDUMP("  + %d\n", am.offset);
-    }
+
+    JITDUMP(" + %d\n", am.offset);
 
     // Save the (potentially) unused operands before changing the address to LEA.
     ArrayStack<GenTree*> unusedStack(comp->getAllocator(CMK_ArrayStack));
@@ -3465,8 +3460,7 @@ bool Lowering::TryCreateAddrMode(GenTree* addr, bool isContainable)
         BlockRange().Unlink(node);
     }
 
-    JITDUMP("New addressing mode node:\n  ");
-    DISPLIRNODE(addrMode);
+    JITDUMPLIRNODE(addrMode, "New addressing mode node:\n  ");
     JITDUMP("\n");
 
     return true;
@@ -3485,10 +3479,8 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
     // requires more changes. Delete that part if we get an expression optimizer.
     if (op2->IsIntegralConst(0))
     {
-        JITDUMP("Lower: optimize val + 0: ");
-        DISPLIRNODE(node);
-        JITDUMP("Replaced with: ");
-        DISPLIRNODE(op1);
+        JITDUMPLIRNODE(node, "Lower: optimize val + 0: ");
+        JITDUMPLIRNODE(op1, "Replaced with: ");
 
         if (BlockRange().TryGetUse(node, &use))
         {
@@ -3722,7 +3714,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
     // passes it retBuf arg and Callee method writes only 12 bytes to retBuf. For this reason,
     // there is no need to clear upper 4-bytes of Vector3 type args.
     //
-    // RyuJIT x64 Unix: arguments are treated as passed by value and read/writen as if TYP_SIMD16.
+    // RyuJIT x64 Unix: arguments are treated as passed by value and read/written as if SIMD16.
     // Vector3 return values are returned two return registers and Caller assembles them into a
     // single xmm reg. Hence RyuJIT explicitly generates code to clears upper 4-bytes of Vector3
     // type args in prolog and Vector3 type return value of a call
@@ -3734,9 +3726,7 @@ void Lowering::WidenSIMD12IfNecessary(GenTreeLclVar* node)
 
     if (CanWidenSimd12ToSimd16(node->GetLcl()))
     {
-        JITDUMP("Mapping TYP_SIMD12 lclvar node to TYP_SIMD16:\n");
-        DISPLIRNODE(node);
-        JITDUMP("============");
+        JITDUMPLIRNODE(node, "Mapping SIMD12 local node to SIMD16:\n");
 
         node->SetType(TYP_SIMD16);
     }
