@@ -1165,16 +1165,6 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 // we don't accidentally remove needed stuff.
                 break;
 
-            case GT_NOP:
-                // NOTE: we need to keep some NOPs around because they are referenced by calls.
-                // See the dead store removal code above (case LCL_STORE) for more explanation.
-                //
-                // TODO-MIKE-Review: Well, there's no explanation above...
-                if (node->HasAnySideEffect(GTF_ORDER_SIDEEFF))
-                {
-                    break;
-                }
-                FALLTHROUGH;
             default:
                 if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
                     !node->OperMayThrow(this))
