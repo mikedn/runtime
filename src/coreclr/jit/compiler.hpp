@@ -4,26 +4,26 @@
 #pragma once
 
 // Return the EH descriptor for the given region index.
-inline EHblkDsc* Compiler::ehGetDsc(unsigned regionIndex)
+inline EHblkDsc* Compiler::ehGetDsc(unsigned regionIndex) const
 {
     assert(regionIndex < compHndBBtabCount);
     return &compHndBBtab[regionIndex];
 }
 
 // Return the EH descriptor index of the enclosing try, for the given region index.
-inline unsigned Compiler::ehGetEnclosingTryIndex(unsigned regionIndex)
+inline unsigned Compiler::ehGetEnclosingTryIndex(unsigned regionIndex) const
 {
     return ehGetDsc(regionIndex)->ebdEnclosingTryIndex;
 }
 
 // Return the EH descriptor index of the enclosing handler, for the given region index.
-inline unsigned Compiler::ehGetEnclosingHndIndex(unsigned regionIndex)
+inline unsigned Compiler::ehGetEnclosingHndIndex(unsigned regionIndex) const
 {
     return ehGetDsc(regionIndex)->ebdEnclosingHndIndex;
 }
 
 // Return the EH index given a region descriptor.
-inline unsigned Compiler::ehGetIndex(EHblkDsc* ehDsc)
+inline unsigned Compiler::ehGetIndex(EHblkDsc* ehDsc) const
 {
     assert(compHndBBtab <= ehDsc && ehDsc < compHndBBtab + compHndBBtabCount);
     return static_cast<unsigned>(ehDsc - compHndBBtab);
@@ -31,14 +31,14 @@ inline unsigned Compiler::ehGetIndex(EHblkDsc* ehDsc)
 
 // Return the EH descriptor for the most nested 'try' region this BasicBlock is a member of
 // (or nullptr if this block is not in a 'try' region).
-inline EHblkDsc* Compiler::ehGetBlockTryDsc(BasicBlock* block)
+inline EHblkDsc* Compiler::ehGetBlockTryDsc(BasicBlock* block) const
 {
     return block->hasTryIndex() ? ehGetDsc(block->getTryIndex()) : nullptr;
 }
 
 // Return the EH descriptor for the most nested filter or handler region this BasicBlock is a member of
 // (or nullptr if this block is not in a filter or handler region).
-inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block)
+inline EHblkDsc* Compiler::ehGetBlockHndDsc(BasicBlock* block) const
 {
     return block->hasHndIndex() ? ehGetDsc(block->getHndIndex()) : nullptr;
 }

@@ -578,7 +578,7 @@ bool Compiler::ehIsBlockEHLast(BasicBlock* block)
 //    non-null - This region is the innermost handler for exceptions raised in
 //               the given block
 
-EHblkDsc* Compiler::ehGetBlockExnFlowDsc(BasicBlock* block)
+EHblkDsc* Compiler::ehGetBlockExnFlowDsc(BasicBlock* block) const
 {
     EHblkDsc* hndDesc = ehGetBlockHndDsc(block);
 
@@ -609,13 +609,14 @@ EHblkDsc* Compiler::ehGetBlockExnFlowDsc(BasicBlock* block)
             assert(!block->hasTryIndex());
             return nullptr;
         }
+
         return ehGetDsc(outerIndex);
     }
 
     return ehGetBlockTryDsc(block);
 }
 
-bool Compiler::ehBlockHasExnFlowDsc(BasicBlock* block)
+bool Compiler::ehBlockHasExnFlowDsc(BasicBlock* block) const
 {
     if (block->hasTryIndex())
     {

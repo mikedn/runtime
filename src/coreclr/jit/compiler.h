@@ -2503,34 +2503,34 @@ public:
     bool ehHasCallableHandlers() const;
 
     // Return the EH descriptor for the given region index.
-    EHblkDsc* ehGetDsc(unsigned regionIndex);
+    EHblkDsc* ehGetDsc(unsigned regionIndex) const;
 
     // Return the EH index given a region descriptor.
-    unsigned ehGetIndex(EHblkDsc* ehDsc);
+    unsigned ehGetIndex(EHblkDsc* ehDsc) const;
 
     // Return the EH descriptor index of the enclosing try, for the given region index.
-    unsigned ehGetEnclosingTryIndex(unsigned regionIndex);
+    unsigned ehGetEnclosingTryIndex(unsigned regionIndex) const;
 
     // Return the EH descriptor index of the enclosing handler, for the given region index.
-    unsigned ehGetEnclosingHndIndex(unsigned regionIndex);
+    unsigned ehGetEnclosingHndIndex(unsigned regionIndex) const;
 
     // Return the EH descriptor for the most nested 'try' region this BasicBlock is a member of (or nullptr if this
     // block is not in a 'try' region).
-    EHblkDsc* ehGetBlockTryDsc(BasicBlock* block);
+    EHblkDsc* ehGetBlockTryDsc(BasicBlock* block) const;
 
     // Return the EH descriptor for the most nested filter or handler region this BasicBlock is a member of (or nullptr
     // if this block is not in a filter or handler region).
-    EHblkDsc* ehGetBlockHndDsc(BasicBlock* block);
+    EHblkDsc* ehGetBlockHndDsc(BasicBlock* block) const;
 
     // Return the EH descriptor for the most nested region that may handle exceptions raised in this BasicBlock (or
     // nullptr if this block's exceptions propagate to caller).
-    EHblkDsc* ehGetBlockExnFlowDsc(BasicBlock* block);
+    EHblkDsc* ehGetBlockExnFlowDsc(BasicBlock* block) const;
 
     EHblkDsc* ehIsBlockTryLast(BasicBlock* block);
     EHblkDsc* ehIsBlockHndLast(BasicBlock* block);
     bool ehIsBlockEHLast(BasicBlock* block);
 
-    bool ehBlockHasExnFlowDsc(BasicBlock* block);
+    bool ehBlockHasExnFlowDsc(BasicBlock* block) const;
 
     // Return the region index of the most nested EH region this block is in.
     unsigned ehGetMostNestedRegionIndex(BasicBlock* block, bool* inTryRegion);
