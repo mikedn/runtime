@@ -3764,46 +3764,45 @@ public:
     GenTreeCall* gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls);
     GenTreeCall* gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
 
+public:
     void fgLocalVarLiveness();
-    void fgLocalVarLivenessUntracked();
+    void fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars);
     void livInitNewBlock(BasicBlock* block);
+#ifdef DEBUG
+    void fgDispBBLiveness(BasicBlock* block);
+    void fgDispBBLiveness();
+#endif
 
-    struct LivenessState
-    {
-        VARSET_TP fgCurUseSet; // vars used by block (before a def)
-        VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
+private:
+    struct LivenessState;
 
-        bool fgCurMemoryUse : 1;   // True iff the current basic block uses memory.
-        bool fgCurMemoryDef : 1;   // True iff the current basic block modifies memory.
-        bool fgCurMemoryHavoc : 1; // True if the current basic block is known to set memory to a "havoc" value.
-    };
-
+    void fgLocalVarLivenessUntracked();
     void fgMarkUseDef(LivenessState& state, GenTreeLclRef* tree);
     void fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* node);
     void fgPerBlockLocalVarLiveness();
     void fgPerBlockLocalVarLivenessLIR();
-    void fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars);
     void fgLiveVarAnalysis();
     void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node);
     bool fgComputeLifeTrackedLocalDef(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
     bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
-
     bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
     bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
     bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
-
+    void     fgInterBlockLocalVarLivenessUntracked();
+    bool     fgInterBlockLocalVarLiveness();
     GenTree* fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block);
 
-    void fgInterBlockLocalVarLivenessUntracked();
-    bool fgInterBlockLocalVarLiveness();
+#ifdef DEBUG
+    void fgDispBBLocalLiveness(BasicBlock* block);
+#endif
 
+public:
     // Blocks: convenience methods for enabling range-based `for` iteration over the function's blocks, e.g.:
     // 1.   for (BasicBlock* const block : compiler->Blocks()) ...
     // 2.   for (BasicBlock* const block : compiler->Blocks(startBlock)) ...
     // 3.   for (BasicBlock* const block : compiler->Blocks(startBlock, endBlock)) ...
     // In case (1), the block list can be empty. In case (2), `startBlock` can be nullptr. In case (3),
     // both `startBlock` and `endBlock` must be non-null.
-    //
     BasicBlockSimpleList Blocks() const
     {
         return BasicBlockSimpleList(fgFirstBB);
@@ -4088,9 +4087,6 @@ public:
 #ifdef DEBUG
     void fgDispDoms(BasicBlock** postOrder) const;
     void fgDispReach();
-    void fgDispBBLocalLiveness(BasicBlock* block);
-    void fgDispBBLiveness(BasicBlock* block);
-    void fgDispBBLiveness();
     void fgTableDispBasicBlock(const BasicBlock* block, int ibcColWidth = 0);
     void fgDispBasicBlocks(BasicBlock* firstBlock, BasicBlock* lastBlock, bool dumpTrees);
     void fgDispBasicBlocks(bool dumpTrees = false);

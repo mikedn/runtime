@@ -919,11 +919,10 @@ void Importer::gtInitStructIndStore(GenTreeIndStoreObj* store, GenTree* value)
     // NOTE: In this case we'll only detect the case for addr of a local and a local
     // itself, any other complex expressions won't be caught.
     //
-    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying
-    // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    // isn't handling self-copying of struct variables correctly. This issue may not
-    // surface if struct promotion is ON (which is the case on x86/arm). But still the
-    // fundamental issue exists that needs to be addressed.
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying of
+    // struct locals very early), it was added because liveness isn't handling self-copying
+    // of struct locals correctly. This issue may not surface if struct promotion is ON.
+    // But still the fundamental issue exists that needs to be addressed.
 
     LclVarDsc* dstLcl     = nullptr;
     unsigned   dstLclOffs = 0;
@@ -984,11 +983,10 @@ void Importer::gtInitStructLclStore(GenTreeLclStore* store, GenTree* value)
     // NOTE: In this case we'll only detect the case for addr of a local and a local
     // itself, any other complex expressions won't be caught.
     //
-    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying
-    // of struct vars very early), it was added because fgInterBlockLocalVarLiveness()
-    // isn't handling self-copying of struct variables correctly. This issue may not
-    // surface if struct promotion is ON (which is the case on x86/arm). But still the
-    // fundamental issue exists that needs to be addressed.
+    // TODO-Cleanup: though having this logic is goodness (i.e. avoids self-copying of
+    // struct locals very early), it was added because liveness isn't handling self-copying
+    // of struct locals correctly. This issue may not surface if struct promotion is ON.
+    // But still the fundamental issue exists that needs to be addressed.
 
     LclVarDsc* dstLcl = store->GetLcl();
 

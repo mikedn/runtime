@@ -4,6 +4,16 @@
 #include "jitpch.h"
 #include "lower.h"
 
+struct Compiler::LivenessState
+{
+    VARSET_TP fgCurUseSet; // vars used by block (before a def)
+    VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
+
+    bool fgCurMemoryUse;   // True iff the current basic block uses memory.
+    bool fgCurMemoryDef;   // True iff the current basic block modifies memory.
+    bool fgCurMemoryHavoc; // True if the current basic block is known to set memory to a "havoc" value.
+};
+
 void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
