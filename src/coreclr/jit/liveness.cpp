@@ -1072,7 +1072,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
             case GT_IND_LOAD_OBJ:
                 if (node->IsUnusedValue())
                 {
-                    if (node->IndirMayThrow(this))
+                    if (node->HasAnySideEffect(GTF_EXCEPT))
                     {
                         // IR doesn't expect dummy uses of IND_LOAD_OBJ/BLK.
                         JITDUMP("Transform an unused IND_LOAD_OBJ/BLK node [%06u]\n", node->GetID());
@@ -1139,7 +1139,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
             default:
                 if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
-                    !node->OperMayThrow(this))
+                    !node->HasAnySideEffect(GTF_EXCEPT))
                 {
                     JITDUMPLIRNODE(node, "Removing dead node:\n");
 

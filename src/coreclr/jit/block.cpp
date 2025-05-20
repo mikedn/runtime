@@ -939,8 +939,7 @@ bool BasicBlock::IsCallFinallyAlwaysPairTail() const
     return (bbPrev != nullptr) && bbPrev->IsCallFinallyAlwaysPairHead();
 }
 
-//------------------------------------------------------------------------
-// hasEHBoundaryIn: Determine if this block begins at an EH boundary.
+// Determine if this block begins at an EH boundary.
 //
 // Return Value:
 //    True iff the block is the target of an EH edge; false otherwise.
@@ -957,18 +956,16 @@ bool BasicBlock::IsCallFinallyAlwaysPairTail() const
 //
 bool BasicBlock::hasEHBoundaryIn() const
 {
-    bool returnVal = (bbCatchTyp != BBCT_NONE);
-    if (!returnVal)
-    {
-#if FEATURE_EH_FUNCLETS
-        assert((bbFlags & BBF_FUNCLET_BEG) == 0);
-#endif // FEATURE_EH_FUNCLETS
-    }
+    bool returnVal = bbCatchTyp != BBCT_NONE;
+
+#ifdef FEATURE_EH_FUNCLETS
+    assert(returnVal || ((bbFlags & BBF_FUNCLET_BEG) == 0));
+#endif
+
     return returnVal;
 }
 
-//------------------------------------------------------------------------
-// hasEHBoundaryOut: Determine if this block ends in an EH boundary.
+// Determine if this block ends in an EH boundary.
 //
 // Return Value:
 //    True iff the block ends in an exception boundary that requires that no lclVars
@@ -992,12 +989,12 @@ bool BasicBlock::hasEHBoundaryOut() const
         returnVal = true;
     }
 
-#if FEATURE_EH_FUNCLETS
+#ifdef FEATURE_EH_FUNCLETS
     if (bbJumpKind == BBJ_EHCATCHRET)
     {
         returnVal = true;
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     return returnVal;
 }
