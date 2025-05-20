@@ -855,19 +855,18 @@ public:
             // index1 is in the main method. It can't be more deeply nested than index2.
             return false;
         }
-        else if (index2 == 0)
+
+        if (index2 == 0)
         {
             // index1 represents an EH region, whereas index2 is the main method. Thus, index1 is more deeply nested.
             assert(index1 > 0);
             return true;
         }
-        else
-        {
-            // If index1 has a smaller index, it might be more deeply nested than index2.
-            assert(index1 > 0);
-            assert(index2 > 0);
-            return index1 < index2;
-        }
+
+        // If index1 has a smaller index, it might be more deeply nested than index2.
+        assert(index1 > 0);
+        assert(index2 > 0);
+        return index1 < index2;
     }
 
     // catch type: class token of handler, or one of BBCT_*. Only set on first block of catch handler.
@@ -877,34 +876,41 @@ public:
     {
         return bbTryIndex != 0;
     }
+
     bool hasHndIndex() const
     {
         return bbHndIndex != 0;
     }
+
     unsigned getTryIndex() const
     {
         assert(bbTryIndex != 0);
         return bbTryIndex - 1;
     }
+
     unsigned getHndIndex() const
     {
         assert(bbHndIndex != 0);
         return bbHndIndex - 1;
     }
+
     void setTryIndex(unsigned val)
     {
         bbTryIndex = static_cast<uint16_t>(val + 1);
         assert(bbTryIndex != 0);
     }
+
     void setHndIndex(unsigned val)
     {
         bbHndIndex = static_cast<uint16_t>(val + 1);
         assert(bbHndIndex != 0);
     }
+
     void clearTryIndex()
     {
         bbTryIndex = 0;
     }
+
     void clearHndIndex()
     {
         bbHndIndex = 0;

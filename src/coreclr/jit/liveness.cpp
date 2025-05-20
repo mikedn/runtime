@@ -489,14 +489,14 @@ void Compiler::fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars)
     // All the enclosed regions will be lower numbered and immediately prior to and contiguous
     // with the enclosing region in the EH tab.
 
-    for (unsigned index = thisHndIndex; index > 0;)
+    for (unsigned index = thisHndIndex; index != 0; index--)
     {
-        index--;
-        unsigned enclosingIndex = ehGetEnclosingTryIndex(index);
-        bool     isEnclosed     = false;
+        EHblkDsc* enclosedEHDesc = ehGetDsc(index - 1);
+        unsigned  enclosingIndex = enclosedEHDesc->ebdEnclosingTryIndex;
+        bool      isEnclosed     = false;
 
-        // To verify this is an enclosed region, search up through the enclosing regions until
-        // we find the region associated with the filter.
+        // To verify this is indeed an enclosed region, search up through the enclosing regions
+        // until we find the region associated with the filter.
         while (enclosingIndex != EHblkDsc::NO_ENCLOSING_INDEX)
         {
             if (enclosingIndex == thisHndIndex)
@@ -517,7 +517,6 @@ void Compiler::fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars)
         // If we found an enclosed region, check if the region is a try fault or try finally,
         // and if so, add any locals live into the enclosed region's handler into this block's
         // live-in set.
-        EHblkDsc* enclosedEHDesc = ehGetDsc(index);
 
         if (enclosedEHDesc->HasFinallyOrFaultHandler())
         {

@@ -625,8 +625,8 @@ bool Compiler::ehBlockHasExnFlowDsc(BasicBlock* block) const
 
     EHblkDsc* hndDesc = ehGetBlockHndDsc(block);
 
-    return ((hndDesc != nullptr) && hndDesc->InFilterRegionBBRange(block) &&
-            (hndDesc->ebdEnclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX));
+    return (hndDesc != nullptr) && hndDesc->InFilterRegionBBRange(block) &&
+           (hndDesc->ebdEnclosingTryIndex != EHblkDsc::NO_ENCLOSING_INDEX);
 }
 
 //------------------------------------------------------------------------
