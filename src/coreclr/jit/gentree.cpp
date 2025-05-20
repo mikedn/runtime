@@ -5256,7 +5256,7 @@ int Compiler::gtDispFlags(GenTreeFlags flags, GenTreeDebugFlags debugFlags)
         (flags & GTF_EXCEPT) ? 'X' : '-',
         (flags & GTF_GLOB_REF) ? 'G' : '-',
         (flags & GTF_ORDER_SIDEEFF) ? 'O' : '-',
-        (flags & GTF_SET_FLAGS) ? 'S' : (flags & GTF_USE_FLAGS) ? 'U' : '-',
+        (flags & GTF_FLAGS_DEF) ? 'S' : (flags & GTF_FLAGS_USE) ? 'U' : '-',
         (flags & GTF_DONT_CSE) ? 'N' : (flags & GTF_MAKE_CSE) ? 'H' : '-',
         (flags & GTF_REVERSE_OPS) ? 'R' : '-',
         (flags & GTF_BOOLEAN) ? 'B' : '-',

@@ -740,7 +740,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
             cmp->SetOper(GT_BT);
             cmp->SetType(TYP_VOID);
-            cmp->gtFlags |= GTF_SET_FLAGS;
+            cmp->AddImplicitFlagsDef();
             cmp->AsOp()->SetOp(1, lsh->AsOp()->GetOp(1));
             cmp->GetOp(1)->ClearContained();
 
@@ -762,7 +762,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
                 cmpUse.SetDef(cc);
             }
 
-            cc->gtFlags |= GTF_USE_FLAGS;
+            cc->AddImplicitFlagsUse();
 
             return cmp->gtNext;
         }
@@ -829,7 +829,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
 
         if ((op1->gtNext == op2) && (op2->gtNext == cmp))
         {
-            op1->gtFlags |= GTF_SET_FLAGS;
+            op1->AddImplicitFlagsDef();
             op1->SetUnusedValue();
 
             BlockRange().Unlink(op2);
@@ -865,7 +865,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTreeOp* cmp)
             GenCondition condition = GenCondition::FromIntegralRelop(cmp);
             cc->ChangeOper(ccOp);
             cc->AsCC()->SetCondition(condition);
-            cc->gtFlags |= GTF_USE_FLAGS;
+            cc->AddImplicitFlagsUse();
 
             return next;
         }
@@ -1416,7 +1416,7 @@ GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
 //     A SETCC/JCC node or nullptr if `node` is not used.
 //
 // Notes:
-//     This simply replaces `node`'s use with an appropiate SETCC/JCC node,
+//     This simply replaces `node`'s use with an appropriate SETCC/JCC node,
 //     `node` is not actually changed, except by having its GTF_SET_FLAGS set.
 //     It's the caller's responsibility to change `node` such that it only
 //     sets the condition flags, without producing a boolean value.
@@ -1493,8 +1493,8 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
 
     if (cc != nullptr)
     {
-        node->gtFlags |= GTF_SET_FLAGS;
-        cc->gtFlags |= GTF_USE_FLAGS;
+        node->AddImplicitFlagsDef();
+        cc->AddImplicitFlagsUse();
     }
 
     // Remove the chain of EQ/NE(x, 0) relop nodes, if any. Note that if a SETCC was

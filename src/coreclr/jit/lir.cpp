@@ -1358,7 +1358,7 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
                 // instead of removing them we replace with a NOP.
                 // The argument of a JTRUE doesn't produce a value (just sets a flag).
                 assert((node->OperIs(GT_CALL) && (def->OperIs(GT_PUTARG_STK))) ||
-                       (node->OperIs(GT_JTRUE) && def->TypeIs(TYP_VOID) && ((def->gtFlags & GTF_SET_FLAGS) != 0)));
+                       (node->OperIs(GT_JTRUE) && def->TypeIs(TYP_VOID) && def->HasImplicitFlagsDef()));
                 continue;
             }
 

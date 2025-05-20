@@ -595,17 +595,17 @@ GenTree* DecomposeLongs::DecomposeNeg(LIR::Use& use)
     GenTree* zero = m_compiler->gtNewIconNode(0);
 
 #if defined(TARGET_X86)
-    node->gtFlags |= GTF_SET_FLAGS;
+    node->AddImplicitFlagsDef();
     GenTree* hiAdjust = m_compiler->gtNewOperNode(GT_ADD_HI, TYP_INT, hiValue, zero);
-    hiAdjust->gtFlags |= GTF_USE_FLAGS;
+    hiAdjust->AddImplicitFlagsUse();
     GenTree* hiResult = m_compiler->gtNewOperNode(GT_NEG, TYP_INT, hiAdjust);
     Range().InsertAfter(node, zero, hiAdjust, hiResult);
 #elif defined(TARGET_ARM)
-    // We tend to use "movs" to load zero to a register, and that sets the flags, so put the
-    // zero before the node, which is setting the flags needed by GT_SUB_HI.
-    node->gtFlags |= GTF_SET_FLAGS;
+    // We tend to use "movs" to load zero to a register, and that sets the flags, so
+    // put the zero before the node, which is setting the flags needed by GT_SUB_HI.
+    node->AddImplicitFlagsDef();
     GenTree* hiResult = m_compiler->gtNewOperNode(GT_SUB_HI, TYP_INT, zero, hiValue);
-    hiResult->gtFlags |= GTF_USE_FLAGS;
+    hiResult->AddImplicitFlagsUse();
     Range().InsertBefore(node, zero);
     Range().InsertAfter(node, hiResult);
 #endif
@@ -667,8 +667,8 @@ GenTree* DecomposeLongs::DecomposeAddSub(LIR::Use& use)
 
     GenTree* hiNode = m_compiler->gtNewOperNode(hiOper, TYP_INT, hiOp1, hiOp2);
 
-    node->gtFlags |= GTF_SET_FLAGS;
-    hiNode->gtFlags |= GTF_USE_FLAGS;
+    node->AddImplicitFlagsDef();
+    hiNode->AddImplicitFlagsUse();
 
     if (hiNode->OperIs(GT_OVF_SADDC, GT_OVF_UADDC, GT_OVF_SSUBB, GT_OVF_USUBB))
     {
@@ -868,13 +868,13 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                 // feeds the lo operand while there are no side effects)
 
-                if ((loValue->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
+                if (loValue->HasAnySideEffect(GTF_ALL_EFFECT) || loValue->HasImplicitFlagsDef())
                 {
-                    Range().Remove(loValue, true);
+                    loValue->SetUnusedValue();
                 }
                 else
                 {
-                    loValue->SetUnusedValue();
+                    Range().Remove(loValue, true);
                 }
 
                 if (count == 32)
@@ -935,13 +935,13 @@ GenTree* DecomposeLongs::DecomposeShift(LIR::Use& use)
                 // TODO-CQ: we could go perform this removal transitively (i.e. iteratively remove everything that
                 // feeds the lo operand while there are no side effects)
 
-                if ((loValue->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
+                if (loValue->HasAnySideEffect(GTF_ALL_EFFECT) || loValue->HasImplicitFlagsDef())
                 {
-                    Range().Remove(loValue, true);
+                    loValue->SetUnusedValue();
                 }
                 else
                 {
-                    loValue->SetUnusedValue();
+                    Range().Remove(loValue, true);
                 }
 
                 if (count == 32)
@@ -1356,15 +1356,15 @@ GenTree* DecomposeLongs::OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode)
 
     // TODO-CQ: we could go perform this removal transitively.
     // See also identical code in shift decomposition.
-    if ((hiSrc->gtFlags & (GTF_ALL_EFFECT | GTF_SET_FLAGS)) == 0)
-    {
-        JITDUMPLIRNODE(hiSrc, "Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
-        Range().Remove(hiSrc, /* markOperandsUnused */ true);
-    }
-    else
+    if (hiSrc->HasAnySideEffect(GTF_ALL_EFFECT) || hiSrc->HasImplicitFlagsDef())
     {
         JITDUMP("The HI part of [%06u] has side effects, marking it unused\n", src->GetID());
         hiSrc->SetUnusedValue();
+    }
+    else
+    {
+        JITDUMPLIRNODE(hiSrc, "Removing the HI part of [%06u] and marking its operands unused:\n", src->GetID());
+        Range().Remove(hiSrc, /* markOperandsUnused */ true);
     }
 
     JITDUMPLIRNODE(src, "Removing the LONG source:\n");

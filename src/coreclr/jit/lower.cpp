@@ -346,7 +346,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
         case GT_OVF_SSUB:
         case GT_OVF_USUB:
 #ifdef TARGET_ARM
-            node->gtFlags |= GTF_SET_FLAGS;
+            node->AddImplicitFlagsDef();
 #endif
             FALLTHROUGH;
 #ifndef TARGET_64BIT
@@ -1143,9 +1143,9 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
     var_types bitTableType = bitCount <= varTypeBitSize(TYP_INT) ? TYP_INT : TYP_LONG;
     GenTree*  bitTableIcon = comp->gtNewIconNode(bitTable, bitTableType);
     GenTree*  bitTest      = comp->gtNewOperNode(GT_BT, TYP_VOID, bitTableIcon, switchValue);
-    bitTest->gtFlags |= GTF_SET_FLAGS;
+    bitTest->AddImplicitFlagsDef();
     GenTreeCC* jcc = new (comp, GT_JCC) GenTreeCC(GT_JCC, bbSwitchCondition);
-    jcc->gtFlags |= GTF_USE_FLAGS;
+    jcc->AddImplicitFlagsUse();
 
     LIR::AsRange(bbSwitch).InsertAfter(switchValue, bitTableIcon, bitTest, jcc);
 
@@ -2003,7 +2003,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
         }
     }
 
-    hiCmp->gtFlags |= GTF_SET_FLAGS;
+    hiCmp->AddImplicitFlagsDef();
 
     if (hiCmp->IsValue())
     {
@@ -2018,7 +2018,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
         GenTree* jcc       = cmpUse.User();
         jcc->AsOp()->gtOp1 = nullptr;
         jcc->ChangeOper(GT_JCC);
-        jcc->gtFlags |= GTF_USE_FLAGS;
+        jcc->AddImplicitFlagsUse();
         jcc->AsCC()->SetCondition(GenCondition::FromIntegralRelop(condition, cmp->IsRelopUnsigned()));
     }
     else
@@ -2028,7 +2028,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
         cmp->AsOp()->gtOp1 = nullptr;
         cmp->AsOp()->gtOp2 = nullptr;
         cmp->ChangeOper(GT_SETCC);
-        cmp->gtFlags |= GTF_USE_FLAGS;
+        cmp->AddImplicitFlagsUse();
         cmp->AsCC()->SetCondition(cond);
     }
 
@@ -4132,7 +4132,7 @@ void Lowering::ContainCheckJTrue(GenTreeUnOp* node)
     GenTree* cmp = node->GetOp(0);
     // The compare does not need to be generated into a register.
     cmp->SetType(TYP_VOID);
-    cmp->gtFlags |= GTF_SET_FLAGS;
+    cmp->AddImplicitFlagsDef();
 }
 
 GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)

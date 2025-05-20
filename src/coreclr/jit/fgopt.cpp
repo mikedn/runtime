@@ -2900,7 +2900,7 @@ void Compiler::fgRemoveConditionalBlockJumpInstr(BasicBlock* block)
 
         if (jmp->OperIs(GT_JTRUE))
         {
-            jmp->AsUnOp()->GetOp(0)->gtFlags &= ~GTF_SET_FLAGS;
+            jmp->AsUnOp()->GetOp(0)->RemoveImplicitFlagsDef();
         }
 
         blockRange.RemoveDeadTree(jmp);

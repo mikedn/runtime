@@ -374,8 +374,8 @@ enum GenTreeFlags : unsigned
     GTF_NOREG_AT_USE          = 0x00000800, // Value is used from spilled temp without reloading into a register
     GTF_REUSE_REG_VAL         = 0x00001000, // Destination register already contains the produced value so code
                                             // generation can be skipped. Only used with constants.
-    GTF_SET_FLAGS             = 0x00002000, // Generated instruction must set the condition flags
-    GTF_USE_FLAGS             = 0x00004000, // Generated instruction uses the condition flags
+    GTF_FLAGS_DEF             = 0x00002000, // Generated instruction must set the condition flags
+    GTF_FLAGS_USE             = 0x00004000, // Generated instruction uses the condition flags
     GTF_COMMON_MASK           = 0x0000FFFF, // Mask of all the flags above
 
     GTF_SPECIFIC_MASK         = 0xFFFF0000, // Mask of all the flags below
@@ -1169,12 +1169,32 @@ public:
 
     bool HasImplicitFlagsDef() const
     {
-        return (gtFlags & GTF_SET_FLAGS) != 0;
+        return (gtFlags & GTF_FLAGS_DEF) != 0;
+    }
+
+    void AddImplicitFlagsDef()
+    {
+        gtFlags |= GTF_FLAGS_DEF;
+    }
+
+    void RemoveImplicitFlagsDef()
+    {
+        gtFlags &= ~GTF_FLAGS_DEF;
     }
 
     bool HasImplicitFlagsUse() const
     {
-        return (gtFlags & GTF_USE_FLAGS) != 0;
+        return (gtFlags & GTF_FLAGS_USE) != 0;
+    }
+
+    void AddImplicitFlagsUse()
+    {
+        gtFlags |= GTF_FLAGS_USE;
+    }
+
+    void RemoveImplicitFlagsUse()
+    {
+        gtFlags &= ~GTF_FLAGS_USE;
     }
 
     // UnusedValue indicates that, although this node produces a value, it is unused.

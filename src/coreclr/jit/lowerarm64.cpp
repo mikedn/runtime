@@ -1895,7 +1895,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
         {
             op1Instr->SetIns(cmpIns, op1Instr->GetSize(), op1Instr->GetOption());
             op1Instr->SetType(TYP_VOID);
-            op1Instr->gtFlags |= GTF_SET_FLAGS;
+            op1Instr->AddImplicitFlagsDef();
 
             BlockRange().Unlink(op2);
 
@@ -1930,7 +1930,7 @@ GenTree* Lowering::OptimizeRelopImm(GenTreeOp* cmp)
             GenCondition condition = GenCondition::FromIntegralRelop(cmp);
             cc->ChangeOper(ccOp);
             cc->AsCC()->SetCondition(condition);
-            cc->gtFlags |= GTF_USE_FLAGS;
+            cc->AddImplicitFlagsUse();
 
             return next;
         }
@@ -2033,7 +2033,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
     }
 
     relop->SetType(TYP_VOID);
-    relop->gtFlags |= GTF_SET_FLAGS;
+    relop->AddImplicitFlagsDef();
 
     assert(jtrue->gtNext == nullptr);
     return nullptr;
