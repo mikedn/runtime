@@ -43,8 +43,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
     switch (node->GetOper())
     {
         case GT_CALL:
-            return node->IsHelperCall() &&
-                   HelperCallProperties::IsPure(Compiler::eeGetHelperNum(node->AsCall()->GetMethodHandle()));
+            return node->IsHelperCall() && HelperCallProperties::IsPure(node->AsCall()->GetHelperFunc());
 
         case GT_COMMA:
             return node->AsOp()->GetOp(1)->GetLiberalVN() != node->GetLiberalVN();

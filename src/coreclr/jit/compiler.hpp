@@ -773,26 +773,6 @@ inline bool Compiler::optAvoidIntMult(void) const
 
 #include "ee_il_dll.hpp"
 
-inline CORINFO_METHOD_HANDLE Compiler::eeFindHelper(unsigned helper)
-{
-    assert(helper < CORINFO_HELP_COUNT);
-
-    // Helpers are marked by the fact that they are odd numbers
-    // force this to be an odd number (will shift it back to extract)
-
-    return reinterpret_cast<CORINFO_METHOD_HANDLE>((static_cast<uintptr_t>(helper) << 2) + 1);
-}
-
-inline CorInfoHelpFunc Compiler::eeGetHelperNum(CORINFO_METHOD_HANDLE method)
-{
-    if ((reinterpret_cast<uintptr_t>(method) & 1) == 0)
-    {
-        return CORINFO_HELP_UNDEF;
-    }
-
-    return static_cast<CorInfoHelpFunc>(reinterpret_cast<uintptr_t>(method) >> 2);
-}
-
 /*
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

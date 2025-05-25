@@ -6261,7 +6261,7 @@ GenTree* Compiler::fgExpandDirectTailCallViaJitHelper(GenTreeCall* call)
     else
 #endif
     {
-        assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
+        assert(!call->IsHelperCall());
 
         info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, CORINFO_ACCESS_NONNULL);
     }
@@ -6372,8 +6372,7 @@ GenTreeLclStore* Compiler::fgMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         targetArg = fgExpandDirectTailCallViaJitHelper(call);
     }
 
-    call->SetMethodHandle(Compiler::eeFindHelper(CORINFO_HELP_TAILCALL));
-    call->SetCallAddr(nullptr);
+    call->SetHelperFunc(CORINFO_HELP_TAILCALL);
     call->m_entryPointAccessType = IAT_VALUE;
     call->m_entryPointAddr       = nullptr;
     call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
@@ -7538,8 +7537,8 @@ GenTree* Compiler::fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
     NamedIntrinsic create = NI_Vector128_Create;
     unsigned       numOps = 4;
 #elif defined(TARGET_ARM64)
-    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
+    NamedIntrinsic create  = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps  = dstType == TYP_SIMD8 ? 2 : 4;
 #else
 #error Unsupported platform
 #endif
@@ -10831,7 +10830,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             argInfo.SetRegType(i, info.retDesc.GetRegType(i));
         }
 #else
-        var_types regType = info.retDesc.GetRegType(0);
+        var_types  regType = info.retDesc.GetRegType(0);
 
         if (varTypeIsGC(regType))
         {
@@ -12198,9 +12197,8 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
 
 GenTreeCall* Compiler::fgIsThrow(GenTree* tree)
 {
-    return tree->IsHelperCall() && HelperCallProperties::AlwaysThrow(eeGetHelperNum(tree->AsCall()->GetMethodHandle()))
-               ? tree->AsCall()
-               : nullptr;
+    return tree->IsHelperCall() && HelperCallProperties::AlwaysThrow(tree->AsCall()->GetHelperFunc()) ? tree->AsCall()
+                                                                                                      : nullptr;
 }
 
 GenTreeOp* Compiler::fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding))

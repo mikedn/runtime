@@ -1345,7 +1345,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
         addrReg, addr,
         retRegAttr,
         false,
-        Compiler::eeFindHelper(helper));
+        eeGetHelperMethodHandle(helper));
     // clang-format on
 }
 

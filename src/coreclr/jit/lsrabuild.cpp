@@ -418,9 +418,9 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 #endif
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)
-    if (call->IsHelperCall())
+    if (CorInfoHelpFunc helper = call->IsHelperCall())
     {
-        return Compiler::compHelperCallKillSet(Compiler::eeGetHelperNum(call->GetMethodHandle()));
+        return Compiler::compHelperCallKillSet(helper);
     }
 #endif
 

@@ -1319,7 +1319,7 @@ void SsaRenameDomTreeVisitor::BlockRenameVariables(BasicBlock* block)
                 GenTreeCall*   call   = node->AsCall();
                 GenTreeIntCon* length = nullptr;
 
-                switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+                switch (call->GetHelperFunc())
                 {
                     case CORINFO_HELP_NEWARR_1_DIRECT:
                     case CORINFO_HELP_NEWARR_1_OBJ:

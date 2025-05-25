@@ -1136,7 +1136,7 @@ private:
                 return NO_ASSERTION_INDEX;
             }
 
-            CorInfoHelpFunc helper = Compiler::eeGetHelperNum(call->GetMethodHandle());
+            CorInfoHelpFunc helper = call->GetHelperFunc();
 
             // Note CORINFO_HELP_READYTORUN_ISINSTANCEOF does not have the same argument pattern.
             // In particular, it is not possible to deduce what class is being tested from its args.
@@ -2112,12 +2112,12 @@ private:
             return UpdateTree(call, call, stmt);
         }
 
-        if (compiler->opts.IsReadyToRun() || !call->IsHelperCall())
+        if (compiler->opts.IsReadyToRun())
         {
             return nullptr;
         }
 
-        CorInfoHelpFunc helper = Compiler::eeGetHelperNum(call->GetMethodHandle());
+        CorInfoHelpFunc helper = call->IsHelperCall();
 
         if ((helper != CORINFO_HELP_ISINSTANCEOFINTERFACE) && (helper != CORINFO_HELP_ISINSTANCEOFARRAY) &&
             (helper != CORINFO_HELP_ISINSTANCEOFCLASS) && (helper != CORINFO_HELP_ISINSTANCEOFANY) &&

@@ -450,7 +450,7 @@ void GenTreeFieldList::InsertFieldLIR(
 // performed.
 bool GenTreeCall::IsPure() const
 {
-    return IsHelperCall() && HelperCallProperties::IsPure(Compiler::eeGetHelperNum(m_methodHandle));
+    return IsHelperCall() && HelperCallProperties::IsPure(GetHelperFunc());
 }
 
 // Returns true if this call has any side effects. All non-helpers are considered to have side-effects. Only helpers
@@ -465,7 +465,7 @@ bool GenTreeCall::HasSideEffects(bool ignoreExceptions, bool ignoreCctors) const
         return true;
     }
 
-    CorInfoHelpFunc helper = Compiler::eeGetHelperNum(m_methodHandle);
+    CorInfoHelpFunc helper = GetHelperFunc();
 
     // We definitely care about the side effects if MutatesHeap is true
     if (HelperCallProperties::MutatesHeap(helper))
@@ -539,7 +539,7 @@ bool GenTreeCall::TreatAsRequiresRetBufArg() const
         return false;
     }
 
-    switch (Compiler::eeGetHelperNum(m_methodHandle))
+    switch (GetHelperFunc())
     {
         case CORINFO_HELP_UNBOX_NULLABLE:
             return true;
@@ -552,11 +552,6 @@ bool GenTreeCall::TreatAsRequiresRetBufArg() const
             assert(!"Unexpected JIT helper");
             return false;
     }
-}
-
-bool GenTreeCall::IsHelperCall(CorInfoHelpFunc helper) const
-{
-    return m_methodHandle == Compiler::eeFindHelper(helper);
 }
 
 bool GenTreeCall::Equals(GenTreeCall* c1, GenTreeCall* c2)
@@ -3595,7 +3590,7 @@ GenTree* Compiler::gtNewOneConNode(var_types type)
 
 GenTreeCall* Compiler::gtNewHelperCallNode(CorInfoHelpFunc helper, var_types type, GenTreeCall::Use* args)
 {
-    GenTreeCall* call = gtNewCallNode(CT_DIRECT, eeFindHelper(helper), type, args);
+    GenTreeCall* call = gtNewCallNode(CT_DIRECT, eeGetHelperMethodHandle(helper), type, args);
     call->gtFlags |= HelperCallProperties::NoThrow(helper) ? GTF_NONE : GTF_EXCEPT;
     INDEBUG(call->gtInlineObservation = InlineObservation::CALLSITE_IS_CALL_TO_HELPER);
     return call;
@@ -3638,8 +3633,7 @@ GenTreeCall* Compiler::gtChangeToHelperCall(GenTree* node, CorInfoHelpFunc helpe
     call->SetRetSigType(node->GetType());
     call->SetRetLayout(nullptr);
 
-    call->SetMethodHandle(eeFindHelper(helper));
-    call->SetCallAddr(nullptr);
+    call->SetHelperFunc(helper);
     call->m_uses    = args;
     call->fgArgInfo = nullptr;
     call->ClearEntryPoint();
@@ -4672,8 +4666,7 @@ bool GenTree::IndirMayThrow(Compiler* comp) const
 
 bool GenTree::CallMayThrow(Compiler* comp) const
 {
-    return !AsCall()->IsHelperCall() ||
-           !HelperCallProperties::NoThrow(Compiler::eeGetHelperNum(AsCall()->GetMethodHandle()));
+    return !AsCall()->IsHelperCall() || !HelperCallProperties::NoThrow(AsCall()->GetHelperFunc());
 }
 
 bool GenTree::DivModMayThrow(Compiler* comp) const
@@ -10006,7 +9999,7 @@ Compiler::TypeProducerKind Compiler::gtGetTypeProducerKind(GenTree* tree)
 
 bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 {
-    switch (Compiler::eeGetHelperNum(m_methodHandle))
+    switch (IsHelperCall())
     {
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL:
@@ -10018,7 +10011,7 @@ bool GenTreeCall::IsTypeHandleToRuntimeTypeHelperCall() const
 
 bool GenTreeCall::IsTypeHandleToRuntimeTypeHandleHelperCall() const
 {
-    switch (Compiler::eeGetHelperNum(m_methodHandle))
+    switch (IsHelperCall())
     {
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE:
         case CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE_MAYBENULL:
@@ -10394,7 +10387,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
     *isNonNull = false;
     *isExact   = false;
 
-    const CorInfoHelpFunc helper = eeGetHelperNum(call->GetMethodHandle());
+    const CorInfoHelpFunc helper = call->GetHelperFunc();
 
     switch (helper)
     {
@@ -10607,14 +10600,7 @@ bool Compiler::gtIsStaticGCBaseHelperCall(GenTree* tree)
         return false;
     }
 
-    GenTreeCall* call = tree->AsCall();
-
-    if (!call->IsHelperCall())
-    {
-        return false;
-    }
-
-    switch (eeGetHelperNum(call->GetMethodHandle()))
+    switch (tree->AsCall()->IsHelperCall())
     {
         // We are looking for a REF type so only need to check for the GC base helpers
         case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:

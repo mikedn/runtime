@@ -3874,6 +3874,26 @@ enum class InlineObservation;
 class CallInfo;
 class CallArgInfo;
 
+inline CORINFO_METHOD_HANDLE eeGetHelperMethodHandle(unsigned helper)
+{
+    assert(helper < CORINFO_HELP_COUNT);
+
+    // Helpers are marked by the fact that they are odd numbers
+    // force this to be an odd number (will shift it back to extract)
+
+    return reinterpret_cast<CORINFO_METHOD_HANDLE>((static_cast<uintptr_t>(helper) << 2) + 1);
+}
+
+inline CorInfoHelpFunc eeGetHelperFunc(CORINFO_METHOD_HANDLE method)
+{
+    if ((reinterpret_cast<uintptr_t>(method) & 1) == 0)
+    {
+        return CORINFO_HELP_UNDEF;
+    }
+
+    return static_cast<CorInfoHelpFunc>(reinterpret_cast<uintptr_t>(method) >> 2);
+}
+
 class GenTreeCall final : public GenTree
 {
 public:
@@ -4567,17 +4587,27 @@ public:
         return (m_methodHandle != nullptr) && ((reinterpret_cast<uintptr_t>(m_methodHandle) & 1) == 0);
     }
 
-    bool IsHelperCall() const
+    CorInfoHelpFunc IsHelperCall() const
     {
-        return (reinterpret_cast<uintptr_t>(m_methodHandle) & 1) != 0;
+        return eeGetHelperFunc(m_methodHandle);
+    }
+
+    bool IsHelperCall(CorInfoHelpFunc helper) const
+    {
+        return m_methodHandle == eeGetHelperMethodHandle(helper);
+    }
+
+    CorInfoHelpFunc GetHelperFunc() const
+    {
+        CorInfoHelpFunc helper = eeGetHelperFunc(m_methodHandle);
+        assert(helper != CORINFO_HELP_UNDEF);
+        return helper;
     }
 
     bool IsIndirectCall() const
     {
         return m_methodHandle == nullptr;
     }
-
-    bool IsHelperCall(CorInfoHelpFunc helper) const;
 
     bool IsSpecialIntrinsic() const
     {
@@ -4603,6 +4633,13 @@ public:
     void SetMethodHandle(CORINFO_METHOD_HANDLE handle)
     {
         m_methodHandle = handle;
+    }
+
+    void SetHelperFunc(CorInfoHelpFunc helper)
+    {
+        assert(helper != CORINFO_HELP_UNDEF);
+        m_methodHandle = eeGetHelperMethodHandle(helper);
+        SetCallAddr(nullptr);
     }
 
     bool KillGCRefs() const

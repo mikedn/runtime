@@ -2513,12 +2513,10 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
     }
     else
 #endif
-        if (call->IsHelperCall())
+        if (CorInfoHelpFunc helper = call->IsHelperCall())
     {
-        CorInfoHelpFunc helperNum = Compiler::eeGetHelperNum(call->GetMethodHandle());
-        assert(helperNum != CORINFO_HELP_UNDEF);
         void* pAddr;
-        entryPoint.addr = comp->info.compCompHnd->getHelperFtn(helperNum, &pAddr);
+        entryPoint.addr = comp->info.compCompHnd->getHelperFtn(helper, &pAddr);
 
         if (entryPoint.addr != nullptr)
         {
@@ -2534,8 +2532,6 @@ GenTree* Lowering::LowerDirectCall(GenTreeCall* call)
     }
     else
     {
-        assert(Compiler::eeGetHelperNum(call->GetMethodHandle()) == CORINFO_HELP_UNDEF);
-
         CORINFO_ACCESS_FLAGS accessFlags = CORINFO_ACCESS_ANY;
 
         if (!call->HasNullCheck())

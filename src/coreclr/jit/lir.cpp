@@ -1480,7 +1480,7 @@ void LIR::InsertHelperCallBefore(Compiler* compiler, LIR::Range& range, GenTree*
     const RegNum* argRegs;
     unsigned      argRegsCount;
 
-    switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+    switch (call->GetHelperFunc())
     {
         case CORINFO_HELP_RNGCHKFAIL:
         case CORINFO_HELP_THROWDIVZERO:

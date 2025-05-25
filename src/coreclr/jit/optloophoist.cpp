@@ -656,8 +656,7 @@ public:
                 {
                     if (GenTreeCall* call = tree->AsOp()->GetOp(0)->IsCall())
                     {
-                        if (call->IsHelperCall() &&
-                            HelperCallProperties::MayRunCctor(Compiler::eeGetHelperNum(call->GetMethodHandle())))
+                        if (call->IsHelperCall() && HelperCallProperties::MayRunCctor(call->GetHelperFunc()))
                         {
                             // Hoisting the comma is ok because it would hoist the initialization along
                             // with the static field reference.
@@ -691,22 +690,17 @@ public:
             {
                 GenTreeCall* call = tree->AsCall();
 
-                if (!call->IsHelperCall())
+                if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
-                    isHoistable = false;
+                    if (!HelperCallProperties::IsPure(helper) ||
+                        (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
+                    {
+                        isHoistable = false;
+                    }
                 }
                 else
                 {
-                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
-
-                    if (!HelperCallProperties::IsPure(helpFunc))
-                    {
-                        isHoistable = false;
-                    }
-                    else if (HelperCallProperties::MayRunCctor(helpFunc) && !call->IsHoistable())
-                    {
-                        isHoistable = false;
-                    }
+                    isHoistable = false;
                 }
             }
 
@@ -764,35 +758,27 @@ public:
                 // Further, if it may run a cctor, it must be labeled as "Hoistable"
                 // (meaning it won't run a cctor because the class is not precise-init).
 
-                if (!call->IsHelperCall())
+                if (CorInfoHelpFunc helper = call->IsHelperCall())
                 {
-                    m_beforeSideEffect = false;
-                }
-                else
-                {
-                    CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
-
-                    if (HelperCallProperties::MutatesHeap(helpFunc))
-                    {
-                        m_beforeSideEffect = false;
-                    }
-                    else if (HelperCallProperties::MayRunCctor(helpFunc) && !call->IsHoistable())
+                    if (HelperCallProperties::MutatesHeap(helper) ||
+                        (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
                     {
                         m_beforeSideEffect = false;
                     }
 
-                    // Additional check for helper calls that throw exceptions
                     if (!isInvariant)
                     {
-                        // We have a tree that is not loop invariant and we thus cannot hoist
                         assert(!isHoistable);
 
-                        // Does this helper call throw?
-                        if (!HelperCallProperties::NoThrow(helpFunc))
+                        if (!HelperCallProperties::NoThrow(helper))
                         {
                             m_beforeSideEffect = false;
                         }
                     }
+                }
+                else
+                {
+                    m_beforeSideEffect = false;
                 }
             }
             else if (tree->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_IND_STORE_BLK))

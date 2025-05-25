@@ -2148,8 +2148,6 @@ public:
     const char* eeGetFieldName(CORINFO_FIELD_HANDLE field, const char** className = nullptr);
 #endif
 
-    static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
-
     bool impIsClassExact(CORINFO_CLASS_HANDLE classHnd);
 
     GenTree* impTokenToHandle(CORINFO_RESOLVED_TOKEN* resolvedToken,
@@ -5006,9 +5004,6 @@ public:
     }
 
     bool eeRunWithSPMIErrorTrapImp(void (*function)(void*), void* param);
-
-    static CORINFO_METHOD_HANDLE eeFindHelper(unsigned helper);
-    static CorInfoHelpFunc eeGetHelperNum(CORINFO_METHOD_HANDLE method);
 
     static bool IsCallGCSafePoint(GenTreeCall* call);
 

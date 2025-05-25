@@ -3328,7 +3328,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
         addrReg = tempReg;
 
         // adrp + add with relocations will be emitted
-        GetEmitter()->emitIns_R_AH(addrReg, pAddr DEBUGARG(reinterpret_cast<void*>(Compiler::eeFindHelper(helper)))
+        GetEmitter()->emitIns_R_AH(addrReg, pAddr DEBUGARG(reinterpret_cast<void*>(eeGetHelperMethodHandle(helper)))
                                                 DEBUGARG(HandleKind::Method));
 
         GetEmitter()->emitIns_R_R(INS_ldr, EA_8BYTE, addrReg, addrReg);
@@ -3339,7 +3339,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
         addrReg, addr,
         { retRegAttr, EA_UNKNOWN },
         false,
-        Compiler::eeFindHelper(helper));
+        eeGetHelperMethodHandle(helper));
     // clang-format on
 }
 

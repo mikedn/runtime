@@ -223,7 +223,7 @@ private:
 
         GenTree* arrayLength = nullptr;
 
-        switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+        switch (call->IsHelperCall())
         {
             case CORINFO_HELP_NEWARR_1_DIRECT:
             case CORINFO_HELP_NEWARR_1_OBJ:

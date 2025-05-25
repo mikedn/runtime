@@ -2153,7 +2153,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
     // Verify that it is one of the new array helpers.
 
     bool            isMDArray = false;
-    CorInfoHelpFunc helper    = Compiler::eeGetHelperNum(newArrayCall->GetMethodHandle());
+    CorInfoHelpFunc helper    = newArrayCall->GetHelperFunc();
 
     if ((helper != CORINFO_HELP_NEWARR_1_DIRECT) && (helper != CORINFO_HELP_NEWARR_1_OBJ) &&
         (helper != CORINFO_HELP_NEWARR_1_VC) && (helper != CORINFO_HELP_NEWARR_1_ALIGN8)
@@ -2893,10 +2893,8 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
             {
                 assert(op1->AsCall()->m_uses->GetNext() == nullptr);
 
-                impPopStack();
-
                 // Replace helper with a more specialized helper that returns RuntimeType
-                CorInfoHelpFunc helper = Compiler::eeGetHelperNum(op1->AsCall()->GetMethodHandle());
+                CorInfoHelpFunc helper = op1->AsCall()->GetHelperFunc();
 
                 if (helper == CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPEHANDLE)
                 {
@@ -2908,6 +2906,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                     helper = CORINFO_HELP_TYPEHANDLE_TO_RUNTIMETYPE_MAYBENULL;
                 }
 
+                impPopStack();
                 return gtNewHelperCallNode(helper, TYP_REF, op1->AsCall()->m_uses);
             }
 
@@ -6611,8 +6610,7 @@ DONE:
 
         comp->gtAppendCallArgs(call, comp->gtNewCallArgs(pInvokeCalliCookie, call->GetCallAddr()));
 
-        call->SetMethodHandle(eeFindHelper(CORINFO_HELP_PINVOKE_CALLI));
-        call->SetCallAddr(nullptr);
+        call->SetHelperFunc(CORINFO_HELP_PINVOKE_CALLI);
     }
 
     if (callRetTyp == TYP_VOID)
@@ -16555,11 +16553,6 @@ const char* Importer::eeGetMethodName(CORINFO_METHOD_HANDLE method, const char**
     return comp->eeGetMethodName(method, className);
 }
 #endif
-
-CORINFO_METHOD_HANDLE Importer::eeFindHelper(unsigned helper)
-{
-    return Compiler::eeFindHelper(helper);
-}
 
 bool Importer::impIsClassExact(CORINFO_CLASS_HANDLE classHnd)
 {

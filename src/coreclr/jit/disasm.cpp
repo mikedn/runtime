@@ -1325,7 +1325,7 @@ void DisAssembler::AddDisasmMethodAddr(size_t addr, CORINFO_METHOD_HANDLE methHn
         return;
     }
 
-    if (Compiler::eeGetHelperNum(methHnd))
+    if (eeGetHelperFunc(methHnd))
     {
         DISASM_DUMP("Helper function: %p => %p\n", addr, methHnd);
         helperAddrToMethodHandleMap.Set(addr, methHnd, AddrToMethodHandleMap::Overwrite);

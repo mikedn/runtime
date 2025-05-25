@@ -1368,7 +1368,7 @@ instrDesc* ArchEmitter::NewInstrCall(CORINFO_METHOD_HANDLE methodHandle,
 #endif
                                      )
 {
-    CorInfoHelpFunc helper       = Compiler::eeGetHelperNum(methodHandle);
+    CorInfoHelpFunc helper       = eeGetHelperFunc(methodHandle);
     bool            isNoGCHelper = (helper != CORINFO_HELP_UNDEF) && GCInfo::IsNoGCHelper(helper);
     regMaskTP       savedRegs    = isNoGCHelper ? GCInfo::GetNoGCHelperCalleeSavedRegs(helper) : RBM_CALLEE_SAVED;
     VARSET_TP       gcLcls       = codeGen->liveness.GetGCLiveSet();
@@ -3334,7 +3334,7 @@ void Encoder::RecordCallSite(unsigned instrOffset, CORINFO_SIG_INFO* callSig, CO
     {
         assert(methodHandle != nullptr);
 
-        if (Compiler::eeGetHelperNum(methodHandle) == CORINFO_HELP_UNDEF)
+        if (eeGetHelperFunc(methodHandle) == CORINFO_HELP_UNDEF)
         {
             jitInfo->getMethodSig(methodHandle, &sigInfo, nullptr);
             callSig = &sigInfo;

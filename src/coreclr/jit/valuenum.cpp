@@ -7294,7 +7294,7 @@ void ValueNumbering::NumberHelperCall(GenTreeCall* call, VNFunc vnf, ValueNumPai
             break;
 
         default:
-            assert(HelperCallProperties::IsPure(Compiler::eeGetHelperNum(call->GetMethodHandle())));
+            assert(HelperCallProperties::IsPure(call->GetHelperFunc()));
             break;
     }
 
@@ -7383,24 +7383,12 @@ void ValueNumbering::SummarizeLoopCallMemoryStores(GenTreeCall* call, VNLoopMemo
 {
     summary.AddCall();
 
-    if (call->IsHelperCall())
+    if (CorInfoHelpFunc helper = call->IsHelperCall())
     {
-        CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
-
-        if (HelperCallProperties::MutatesHeap(helpFunc))
+        if (HelperCallProperties::MutatesHeap(helper) ||
+            (HelperCallProperties::MayRunCctor(helper) && !call->IsHoistable()))
         {
             summary.AddMemoryHavoc();
-        }
-        else if (HelperCallProperties::MayRunCctor(helpFunc))
-        {
-            // If the call is labeled as "Hoistable", then we've checked the
-            // class that would be constructed, and it is not precise-init, so
-            // the cctor will not be run by this call.  Otherwise, it might be,
-            // and might have arbitrary side effects.
-            if ((call->gtFlags & GTF_CALL_HOISTABLE) == 0)
-            {
-                summary.AddMemoryHavoc();
-            }
         }
     }
     else
@@ -7643,7 +7631,7 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
 
 bool ValueNumbering::NumberHelperCall(GenTreeCall* call)
 {
-    const CorInfoHelpFunc helpFunc = Compiler::eeGetHelperNum(call->GetMethodHandle());
+    const CorInfoHelpFunc helpFunc = call->GetHelperFunc();
     ValueNumPair          exset;
 
     if (HelperCallProperties::NoThrow(helpFunc))

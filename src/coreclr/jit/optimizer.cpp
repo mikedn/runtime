@@ -3486,7 +3486,7 @@ static GenTreeWalkResult optInvertCountTreeInfo(GenTree** use, GenTree* user, vo
 
     if (tree->IsHelperCall())
     {
-        if (HelperCallProperties::IsSharedStatic(Compiler::eeGetHelperNum(tree->AsCall()->GetMethodHandle())))
+        if (HelperCallProperties::IsSharedStatic(tree->AsCall()->GetHelperFunc()))
         {
             counts->sharedStaticHelperCount++;
         }

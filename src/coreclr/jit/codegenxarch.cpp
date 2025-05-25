@@ -4093,7 +4093,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retReg
         false,
         retRegAttr UNIX_AMD64_ABI_ONLY_ARG(EA_UNKNOWN),
         argSize,
-        Compiler::eeFindHelper(helper));
+        eeGetHelperMethodHandle(helper));
     // clang-format on
 }
 #endif // TARGET_X86
@@ -4155,7 +4155,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
         addrReg, REG_NA, 0, 0,
         false,
         retRegAttr UNIX_AMD64_ABI_ONLY_ARG(EA_UNKNOWN),
-        Compiler::eeFindHelper(helper));
+        eeGetHelperMethodHandle(helper));
     // clang-format on
 }
 #endif // TARGET_AMD64
@@ -4548,12 +4548,12 @@ void CodeGen::GenCall(GenTreeCall* call)
 #endif // DEBUG
 
 #ifndef FEATURE_EH_FUNCLETS
-    if (call->IsHelperCall() && compiler->info.IsSynchronized())
+    if (compiler->info.IsSynchronized())
     {
         // Create labels for tracking the region protected by the monitor in synchronized methods.
         // This needs to be here, rather than above where possibleSyncHelperCall is set, so the
         // GC state vars have been updated before creating the label.
-        switch (Compiler::eeGetHelperNum(call->GetMethodHandle()))
+        switch (call->IsHelperCall())
         {
             case CORINFO_HELP_MON_ENTER:
             case CORINFO_HELP_MON_ENTER_STATIC:
