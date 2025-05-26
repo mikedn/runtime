@@ -61,7 +61,8 @@ class Liveness
 
     void LivenessUntracked();
     void MarkUse(GenTreeLclRef* node);
-    void MarkDef(GenTreeLclRef* node);
+    void MarkDef(GenTreeLclStore* node);
+    void MarkDef(GenTreeLclStoreFld* node);
     void MarkPromotedUseDef(GenTreeLclRef* node, LclVarDsc* lcl);
     void PerNodeLiveness(GenTree* node);
     void PerBlockLiveness();
@@ -114,7 +115,7 @@ void Liveness::MarkUse(GenTreeLclRef* node)
     LclVarDsc* lcl = node->GetLcl();
 
     assert(!lcl->IsAddressExposed());
-    assert((lcl->GetRefCount() != 0) || (lcl->IsIndependentPromoted() && lcl->lvIsMultiRegRet));
+    assert(lcl->GetRefCount() != 0);
 
     if (lcl->HasLiveness())
     {
@@ -129,9 +130,9 @@ void Liveness::MarkUse(GenTreeLclRef* node)
     }
 }
 
-void Liveness::MarkDef(GenTreeLclRef* node)
+void Liveness::MarkDef(GenTreeLclStore* node)
 {
-    assert(node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
+    assert(node->OperIs(GT_LCL_STORE));
 
     LclVarDsc* lcl = node->GetLcl();
 
@@ -140,8 +141,26 @@ void Liveness::MarkDef(GenTreeLclRef* node)
 
     if (lcl->HasLiveness())
     {
-        if (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(compiler) &&
-            !LiveSetOps::IsMember(this, state.defs, lcl->GetLivenessBitIndex()))
+        LiveSetOps::AddElemD(this, state.defs, lcl->GetLivenessBitIndex());
+    }
+    else if (lcl->IsPromoted())
+    {
+        MarkPromotedUseDef(node, lcl);
+    }
+}
+
+void Liveness::MarkDef(GenTreeLclStoreFld* node)
+{
+    assert(node->OperIs(GT_LCL_STORE_FLD));
+
+    LclVarDsc* lcl = node->GetLcl();
+
+    assert(!lcl->IsAddressExposed());
+    assert((lcl->GetRefCount() != 0) || (lcl->IsIndependentPromoted() && lcl->lvIsMultiRegRet));
+
+    if (lcl->HasLiveness())
+    {
+        if (node->IsPartialLclFld(compiler) && !LiveSetOps::IsMember(this, state.defs, lcl->GetLivenessBitIndex()))
         {
             LiveSetOps::AddElemD(this, state.uses, lcl->GetLivenessBitIndex());
         }
@@ -299,6 +318,15 @@ void Liveness::PerNodeLiveness(GenTree* tree)
             break;
 
         case GT_LCL_STORE:
+            if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
+            {
+                state.memoryDef = true;
+                break;
+            }
+
+            MarkDef(tree->AsLclStore());
+            break;
+
         case GT_LCL_STORE_FLD:
             if (tree->AsLclRef()->GetLcl()->IsAddressExposed())
             {
@@ -306,7 +334,7 @@ void Liveness::PerNodeLiveness(GenTree* tree)
                 break;
             }
 
-            MarkDef(tree->AsLclRef());
+            MarkDef(tree->AsLclStoreFld());
             break;
 
         case GT_LCL_ADDR:
@@ -454,11 +482,18 @@ void Liveness::PerBlockLivenessLIR()
                     MarkUse(node->AsLclRef());
                 }
             }
-            else if (node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+            else if (node->OperIs(GT_LCL_STORE))
             {
                 if (!node->AsLclRef()->GetLcl()->IsAddressExposed())
                 {
-                    MarkDef(node->AsLclRef());
+                    MarkDef(node->AsLclStore());
+                }
+            }
+            else if (node->OperIs(GT_LCL_STORE_FLD))
+            {
+                if (!node->AsLclRef()->GetLcl()->IsAddressExposed())
+                {
+                    MarkDef(node->AsLclStoreFld());
                 }
             }
             else if (node->OperIs(GT_LCL_ADDR))
