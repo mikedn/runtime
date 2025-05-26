@@ -4,17 +4,85 @@
 #include "jitpch.h"
 #include "lower.h"
 
-struct Compiler::LivenessState
+class Liveness
 {
-    VARSET_TP fgCurUseSet; // vars used by block (before a def)
-    VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
+    Compiler*     compiler;
+    CompAllocator bitSetAllocator;
+    unsigned      lvaTrackedCount;
+    unsigned      lvaLiveSetWordCount;
 
-    bool fgCurMemoryUse;   // True iff the current basic block uses memory.
-    bool fgCurMemoryDef;   // True iff the current basic block modifies memory.
-    bool fgCurMemoryHavoc; // True if the current basic block is known to set memory to a "havoc" value.
+    struct LivenessState
+    {
+        VARSET_TP fgCurUseSet; // vars used by block (before a def)
+        VARSET_TP fgCurDefSet; // vars assigned by block (before a use)
+
+        bool fgCurMemoryUse;   // True iff the current basic block uses memory.
+        bool fgCurMemoryDef;   // True iff the current basic block modifies memory.
+        bool fgCurMemoryHavoc; // True if the current basic block is known to set memory to a "havoc" value.
+    } state;
+
+    class LiveBitSetTraits : public CompAllocBitSetTraits
+    {
+    public:
+        using Env = Liveness*;
+
+        static unsigned GetSize(const Liveness* comp)
+        {
+            return comp->lvaTrackedCount;
+        }
+
+        static unsigned GetWordCount(const Liveness* comp)
+        {
+            return comp->lvaLiveSetWordCount;
+        }
+
+        static bool IsShort(const Liveness* comp)
+        {
+            return comp->lvaLiveSetWordCount <= 1;
+        }
+
+        static Word* Alloc(Liveness* comp, unsigned wordCount)
+        {
+            return comp->bitSetAllocator.allocate<Word>(wordCount);
+        }
+    };
+
+    using VarSetOps = BitSetOps<LiveBitSetTraits>;
+
+    void fgLocalVarLivenessUntracked();
+    void fgMarkUseDef(GenTreeLclRef* tree);
+    void fgPerNodeLocalVarLiveness(GenTree* node);
+    void fgPerBlockLocalVarLiveness();
+    void fgPerBlockLocalVarLivenessLIR();
+    void fgLiveVarAnalysis();
+    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node);
+    bool fgComputeLifeTrackedLocalDef(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
+    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
+    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
+    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
+    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
+    void fgInterBlockLocalVarLivenessUntracked();
+    bool fgInterBlockLocalVarLiveness();
+
+    GenTree* fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block);
+
+#ifdef DEBUG
+    void fgDispBBLocalLiveness(BasicBlock* block);
+#endif
+
+public:
+    Liveness(Compiler* compiler)
+        : compiler(compiler)
+        , bitSetAllocator(compiler->getAllocator(CMK_bitset))
+        , lvaTrackedCount(compiler->lvaTrackedCount)
+        , lvaLiveSetWordCount(compiler->lvaLiveSetWordCount)
+    {
+    }
+
+    void fgLocalVarLiveness();
 };
 
-void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
+void Liveness::fgMarkUseDef(GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -32,7 +100,7 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
     }
 
     const bool isDef = node->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD);
-    const bool isUse = !isDef || (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(this));
+    const bool isUse = !isDef || (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(compiler));
 
     assert(isDef || isUse);
 
@@ -62,11 +130,11 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
     if (GenTreeLclFld* lclFld = node->IsLclFld())
     {
         lclOffset    = lclFld->GetLclOffs();
-        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(this)->GetSize()
+        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(compiler)->GetSize()
                                                                : varTypeSize(lclFld->GetType()));
     }
 
-    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+    for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
     {
         assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
@@ -99,11 +167,11 @@ void Compiler::fgMarkUseDef(LivenessState& state, GenTreeLclRef* node)
     }
 }
 
-void Compiler::fgLocalVarLivenessUntracked()
+void Liveness::fgLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         block->bbVarUse  = VarSetOps::UninitVal();
         block->bbVarDef  = VarSetOps::UninitVal();
@@ -116,7 +184,7 @@ void Compiler::fgLocalVarLivenessUntracked()
         block->bbMemoryLiveOut = false;
     }
 
-    if (!compRationalIRForm)
+    if (!compiler->compRationalIRForm)
     {
         // Even if there are no tracked locals we still use memory liveness.
         fgPerBlockLocalVarLiveness();
@@ -126,7 +194,7 @@ void Compiler::fgLocalVarLivenessUntracked()
     fgInterBlockLocalVarLivenessUntracked();
 
     // Since there are no tracked locals liveness basically never runs.
-    INDEBUG(fgLocalVarLivenessDone = false;)
+    INDEBUG(compiler->fgLocalVarLivenessDone = false;)
 }
 
 void Compiler::phSsaLiveness()
@@ -142,11 +210,17 @@ void Compiler::phSsaLiveness()
 
 void Compiler::fgLocalVarLiveness()
 {
-    assert(opts.OptimizationEnabled());
+    Liveness livenss(this);
+    livenss.fgLocalVarLiveness();
+}
+
+void Liveness::fgLocalVarLiveness()
+{
+    assert(compiler->opts.OptimizationEnabled());
 
     // TODO-MIKE-Review: See if we can simply reset these during liveness computation
     // (e.g. if it's not live in then set it to false).
-    for (LclVarDsc* lcl : Locals())
+    for (LclVarDsc* lcl : compiler->Locals())
     {
         lcl->lvMustInit = false;
     }
@@ -157,7 +231,7 @@ void Compiler::fgLocalVarLiveness()
         return;
     }
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         block->bbVarUse  = VarSetOps::MakeEmpty(this);
         block->bbVarDef  = VarSetOps::MakeEmpty(this);
@@ -172,7 +246,7 @@ void Compiler::fgLocalVarLiveness()
 
     for (bool changed = true; changed;)
     {
-        if (compRationalIRForm)
+        if (compiler->compRationalIRForm)
         {
             fgPerBlockLocalVarLivenessLIR();
         }
@@ -185,7 +259,7 @@ void Compiler::fgLocalVarLiveness()
         changed = fgInterBlockLocalVarLiveness();
     }
 
-    INDEBUG(fgLocalVarLivenessDone = true;)
+    INDEBUG(compiler->fgLocalVarLivenessDone = true;)
 }
 
 void Compiler::livInitNewBlock(BasicBlock* block)
@@ -204,7 +278,7 @@ void Compiler::livInitNewBlock(BasicBlock* block)
     block->bbMemoryLiveOut = false;
 }
 
-void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
+void Liveness::fgPerNodeLocalVarLiveness(GenTree* tree)
 {
     switch (tree->GetOper())
     {
@@ -216,7 +290,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
                 break;
             }
 
-            fgMarkUseDef(state, tree->AsLclRef());
+            fgMarkUseDef(tree->AsLclRef());
             break;
 
         case GT_LCL_STORE:
@@ -227,7 +301,7 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
                 break;
             }
 
-            fgMarkUseDef(state, tree->AsLclRef());
+            fgMarkUseDef(tree->AsLclRef());
             break;
 
         case GT_LCL_ADDR:
@@ -316,14 +390,12 @@ void Compiler::fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* tree)
     }
 }
 
-void Compiler::fgPerBlockLocalVarLiveness()
+void Liveness::fgPerBlockLocalVarLiveness()
 {
-    assert(!compRationalIRForm);
+    assert(!compiler->compRationalIRForm);
 
-    for (BasicBlock* block : Blocks())
+    for (BasicBlock* block : compiler->Blocks())
     {
-        LivenessState state;
-
         state.fgCurUseSet      = block->bbVarUse;
         state.fgCurDefSet      = block->bbVarDef;
         state.fgCurMemoryUse   = false;
@@ -337,7 +409,7 @@ void Compiler::fgPerBlockLocalVarLiveness()
         {
             for (GenTree* const node : stmt->Nodes())
             {
-                fgPerNodeLocalVarLiveness(state, node);
+                fgPerNodeLocalVarLiveness(node);
             }
         }
 
@@ -352,18 +424,16 @@ void Compiler::fgPerBlockLocalVarLiveness()
 
         block->bbMemoryLiveIn = false;
 
-        DBEXEC(verbose, fgDispBBLocalLiveness(block))
+        DBEXEC(compiler->verbose, fgDispBBLocalLiveness(block))
     }
 }
 
-void Compiler::fgPerBlockLocalVarLivenessLIR()
+void Liveness::fgPerBlockLocalVarLivenessLIR()
 {
-    assert(compRationalIRForm && (lvaTrackedCount != 0));
+    assert(compiler->compRationalIRForm && (lvaTrackedCount != 0));
 
-    for (BasicBlock* block : Blocks())
+    for (BasicBlock* block : compiler->Blocks())
     {
-        LivenessState state;
-
         state.fgCurUseSet = block->bbVarUse;
         state.fgCurDefSet = block->bbVarDef;
 
@@ -376,7 +446,7 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
             {
                 if (!node->AsLclRef()->GetLcl()->IsAddressExposed())
                 {
-                    fgMarkUseDef(state, node->AsLclRef());
+                    fgMarkUseDef(node->AsLclRef());
                 }
             }
             else if (node->OperIs(GT_LCL_ADDR))
@@ -391,7 +461,7 @@ void Compiler::fgPerBlockLocalVarLivenessLIR()
         // Also clear the IN set, just in case we will do multiple DFAs
         VarSetOps::ClearD(this, block->bbLiveIn);
 
-        DBEXEC(verbose, fgDispBBLocalLiveness(block))
+        DBEXEC(compiler->verbose, fgDispBBLocalLiveness(block))
     }
 }
 
@@ -664,28 +734,28 @@ public:
     }
 };
 
-void Compiler::fgLiveVarAnalysis()
+void Liveness::fgLiveVarAnalysis()
 {
-    LiveVarAnalysis analysis(this);
+    LiveVarAnalysis analysis(compiler);
     analysis.Run();
 
 #ifdef DEBUG
-    if (verbose)
+    if (compiler->verbose)
     {
         printf("\nBB liveness after fgLiveVarAnalysis():\n\n");
-        fgDispBBLiveness();
+        compiler->fgDispBBLiveness();
     }
 #endif
 }
 
-void Compiler::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node)
+void Liveness::fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
     node->SetLastUse(0, VarSetOps::TryAddElemD(this, liveOut, lcl->GetLivenessBitIndex()));
 }
 
-bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
+bool Liveness::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
                                             VARSET_TP      keepAlive,
                                             LclVarDsc*     lcl,
                                             GenTreeLclRef* node)
@@ -696,7 +766,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
 
     if (VarSetOps::IsMember(this, liveOut, index))
     {
-        if (node->OperIs(GT_LCL_STORE) || !node->IsPartialLclFld(this))
+        if (node->OperIs(GT_LCL_STORE) || !node->IsPartialLclFld(compiler))
         {
             if (!VarSetOps::IsMember(this, keepAlive, index))
             {
@@ -708,7 +778,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
     {
         node->SetLastUse(0, true);
 
-        if (!opts.MinOpts())
+        if (!compiler->opts.MinOpts())
         {
             noway_assert(!VarSetOps::IsMember(this, keepAlive, index));
             assert(!lcl->IsAddressExposed());
@@ -720,7 +790,7 @@ bool Compiler::fgComputeLifeTrackedLocalDef(VARSET_TP&     liveOut,
     return false;
 }
 
-bool Compiler::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node)
+bool Liveness::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node)
 {
     assert(node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_LCL_STORE, GT_LCL_STORE_FLD));
     assert(lcl->IsPromoted() && !lcl->IsAddressExposed());
@@ -731,7 +801,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAliv
     if (GenTreeLclFld* lclFld = node->IsLclFld())
     {
         lclOffset    = lclFld->GetLclOffs();
-        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(this)->GetSize()
+        lclEndOffset = lclOffset + (lclFld->TypeIs(TYP_STRUCT) ? lclFld->GetLayout(compiler)->GetSize()
                                                                : varTypeSize(lclFld->GetType()));
     }
 
@@ -740,7 +810,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAliv
 
     for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); ++i)
     {
-        LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+        LclVarDsc* fieldLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
 
         assert(!fieldLcl->TypeIs(TYP_STRUCT));
 
@@ -778,7 +848,7 @@ bool Compiler::fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAliv
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
+bool Liveness::fgComputeLifeBlock(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
     Statement* firstStmt = block->FirstNonPhiDef();
 
@@ -804,7 +874,7 @@ bool Compiler::fgComputeLifeBlock(VARSET_TP& life, VARSET_TP keepAlive, BasicBlo
     return stmtRemoved;
 }
 
-bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block)
+bool Liveness::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block)
 {
     bool updateStmt = false;
     INDEBUG(bool modified = false);
@@ -874,10 +944,10 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statem
 
     if (updateStmt)
     {
-        gtSetStmtOrder(stmt);
+        compiler->gtSetStmtOrder(stmt);
 
         // We removed dead nested stores, we need to remove inherited GTF_ASG flags.
-        gtUpdateStmtSideEffects(stmt);
+        compiler->gtUpdateStmtSideEffects(stmt);
     }
 
 #ifdef DEBUG
@@ -890,7 +960,7 @@ bool Compiler::fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statem
     return false;
 }
 
-bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
+bool Liveness::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock* block)
 {
     noway_assert(VarSetOps::IsSubset(this, keepAlive, life));
 
@@ -920,7 +990,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                 {
                     JITDUMPLIRNODE(load, "Removing dead local use:\n");
 
-                    blockRange.Delete(this, block, node);
+                    blockRange.Delete(compiler, block, node);
 
                     if (lcl->HasLiveness())
                     {
@@ -959,7 +1029,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
                     // Optimizations have to be enabled, otherwise all locals are implicitly
                     // referenced and have ref count 1.
-                    assert(opts.OptimizationEnabled());
+                    assert(compiler->opts.OptimizationEnabled());
 
                     // TODO-MIKE-Review: Should implicitly referenced locals be excluded here?
 
@@ -967,7 +1037,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                     {
                         if (lcl->IsPromotedField())
                         {
-                            LclVarDsc* parentLcl = lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
+                            LclVarDsc* parentLcl = compiler->lvaGetDesc(lcl->GetPromotedFieldParentLclNum());
 
                             if ((parentLcl->GetRefCount() == 1) && parentLcl->IsDependentPromoted())
                             {
@@ -979,7 +1049,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
                             // We may have a dead multi-reg store without any uses of the fields.
                             unsigned totalRefCount = 0;
 
-                            for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+                            for (LclVarDsc* fieldLcl : compiler->PromotedFields(lcl))
                             {
                                 totalRefCount += fieldLcl->GetRefCount();
                             }
@@ -1003,7 +1073,7 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
 
                 if (isDeadStore)
                 {
-                    assert(!opts.MinOpts());
+                    assert(!compiler->opts.MinOpts());
 
                     JITDUMPLIRNODE(store, "Removing dead local store:\n");
 
@@ -1155,9 +1225,9 @@ bool Compiler::fgComputeLifeLIR(VARSET_TP& life, VARSET_TP keepAlive, BasicBlock
     return useDefRemoved;
 }
 
-GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block)
+GenTree* Liveness::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block)
 {
-    assert(!compRationalIRForm);
+    assert(!compiler->compRationalIRForm);
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
     JITDUMPTREE(store, "Dead store:\n");
@@ -1166,7 +1236,7 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, Basi
 
     if (store->GetOp(0)->HasAnySideEffect(GTF_SIDE_EFFECT))
     {
-        sideEffects = gtExtractSideEffList(store->GetOp(0));
+        sideEffects = compiler->gtExtractSideEffList(store->GetOp(0));
 
         if (sideEffects != nullptr)
         {
@@ -1203,14 +1273,14 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, Basi
             else
             {
                 comma->SetOp(0, sideEffects);
-                comma->SetOp(1, gtNewNothingNode());
+                comma->SetOp(1, compiler->gtNewNothingNode());
                 comma->SetReverseOps(false);
             }
 
             comma->SetSideEffects(sideEffects->GetSideEffects());
         }
 
-        gtSetStmtSeq(stmt);
+        compiler->gtSetStmtSeq(stmt);
 
         return store;
     }
@@ -1218,26 +1288,26 @@ GenTree* Compiler::fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, Basi
     if (sideEffects != nullptr)
     {
         stmt->SetRootNode(sideEffects);
-        gtSetStmtOrder(stmt);
+        compiler->gtSetStmtOrder(stmt);
 
         return sideEffects;
     }
 
-    fgRemoveStmt(block, stmt DEBUGARG(false));
+    compiler->fgRemoveStmt(block, stmt DEBUGARG(false));
 
     return nullptr;
 }
 
-void Compiler::fgInterBlockLocalVarLivenessUntracked()
+void Liveness::fgInterBlockLocalVarLivenessUntracked()
 {
     assert(lvaTrackedCount == 0);
 
     VARSET_TP keepAlive = VarSetOps::UninitVal();
     VARSET_TP life      = VarSetOps::UninitVal();
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
-        if (compRationalIRForm)
+        if (compiler->compRationalIRForm)
         {
             fgComputeLifeLIR(life, keepAlive, block);
         }
@@ -1248,12 +1318,12 @@ void Compiler::fgInterBlockLocalVarLivenessUntracked()
     }
 }
 
-bool Compiler::fgInterBlockLocalVarLiveness()
+bool Liveness::fgInterBlockLocalVarLiveness()
 {
     VARSET_TP handlerLive    = VarSetOps::MakeEmpty(this);
     VARSET_TP finallyLiveOut = VarSetOps::MakeEmpty(this);
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         if (block->hasEHBoundaryIn())
         {
@@ -1273,7 +1343,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         }
     }
 
-    for (LclVarDsc* lcl : LivenessLocals())
+    for (LclVarDsc* lcl : compiler->LivenessLocals())
     {
         // Uninitialized locals may need auto-initialization. Note that the liveness of
         // such locals will bubble to the top (fgFirstBB) in fgInterBlockLocalVarLiveness.
@@ -1282,8 +1352,8 @@ bool Compiler::fgInterBlockLocalVarLiveness()
         // on them since the whole parent struct will be initialized; however, lvLiveInOutOfHndlr
         // should be set on them as appropriate.
 
-        if (!lcl->IsParam() && VarSetOps::IsMember(this, fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()) &&
-            (info.compInitMem || varTypeIsGC(lcl->GetType())) && !lcl->IsDependentPromotedField(this))
+        if (!lcl->IsParam() && VarSetOps::IsMember(this, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()) &&
+            (compiler->info.compInitMem || varTypeIsGC(lcl->GetType())) && !lcl->IsDependentPromotedField(compiler))
         {
             lcl->lvMustInit = true;
         }
@@ -1295,7 +1365,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
         if (isFinallyLiveOut || VarSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
         {
-            lvaSetLiveInOutOfHandler(lcl);
+            compiler->lvaSetLiveInOutOfHandler(lcl);
 
             if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->GetType()))
             {
@@ -1309,13 +1379,13 @@ bool Compiler::fgInterBlockLocalVarLiveness()
     VARSET_TP keepAlive     = VarSetOps::Alloc(this);
     VARSET_TP life          = VarSetOps::Alloc(this);
 
-    for (BasicBlock* const block : Blocks())
+    for (BasicBlock* const block : compiler->Blocks())
     {
         VarSetOps::Assign(this, life, block->bbLiveOut);
 
-        if (ehBlockHasExnFlowDsc(block))
+        if (compiler->ehBlockHasExnFlowDsc(block))
         {
-            fgGetHandlerLiveVars(block, keepAlive);
+            compiler->fgGetHandlerLiveVars(block, keepAlive);
             noway_assert(VarSetOps::IsSubset(this, keepAlive, handlerLive));
         }
         else
@@ -1323,7 +1393,7 @@ bool Compiler::fgInterBlockLocalVarLiveness()
             VarSetOps::ClearD(this, keepAlive);
         }
 
-        if (compRationalIRForm)
+        if (compiler->compRationalIRForm)
         {
             useDefRemoved |= fgComputeLifeLIR(life, keepAlive, block);
         }
@@ -1351,13 +1421,13 @@ bool Compiler::fgInterBlockLocalVarLiveness()
 
 #ifdef DEBUG
 
-void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
+void Liveness::fgDispBBLocalLiveness(BasicBlock* block)
 {
     VARSET_TP allVars = VarSetOps::Alloc(this);
     VarSetOps::Union(this, allVars, block->bbVarUse, block->bbVarDef);
 
     printf(FMT_BB ":\nUSE = ", block->bbNum);
-    lvaDispVarSet(block->bbVarUse, allVars);
+    compiler->lvaDispVarSet(block->bbVarUse, allVars);
 
     if (!block->IsLIR())
     {
@@ -1368,7 +1438,7 @@ void Compiler::fgDispBBLocalLiveness(BasicBlock* block)
     }
 
     printf("\nDEF = ");
-    lvaDispVarSet(block->bbVarDef, allVars);
+    compiler->lvaDispVarSet(block->bbVarDef, allVars);
 
     if (!block->IsLIR())
     {

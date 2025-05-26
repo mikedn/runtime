@@ -3762,7 +3762,6 @@ public:
     GenTreeCall* gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls);
     GenTreeCall* gtNewSharedStaticsCctorHelperCall(CORINFO_CLASS_HANDLE cls, CorInfoHelpFunc helper);
 
-public:
     void fgLocalVarLiveness();
     void fgGetHandlerLiveVars(BasicBlock* block, VARSET_TP& liveVars);
     void livInitNewBlock(BasicBlock* block);
@@ -3771,30 +3770,6 @@ public:
     void fgDispBBLiveness();
 #endif
 
-private:
-    struct LivenessState;
-
-    void fgLocalVarLivenessUntracked();
-    void fgMarkUseDef(LivenessState& state, GenTreeLclRef* tree);
-    void fgPerNodeLocalVarLiveness(LivenessState& state, GenTree* node);
-    void fgPerBlockLocalVarLiveness();
-    void fgPerBlockLocalVarLivenessLIR();
-    void fgLiveVarAnalysis();
-    void fgComputeLifeTrackedLocalUse(VARSET_TP& liveOut, LclVarDsc* lcl, GenTreeLclRef* node);
-    bool fgComputeLifeTrackedLocalDef(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
-    bool fgComputeLifePromotedLocal(VARSET_TP& liveOut, VARSET_TP keepAlive, LclVarDsc* lcl, GenTreeLclRef* node);
-    bool fgComputeLifeBlock(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
-    bool fgComputeLifeStmt(VARSET_TP& liveOut, VARSET_TP keepAlive, Statement* stmt, BasicBlock* block);
-    bool fgComputeLifeLIR(VARSET_TP& liveOut, VARSET_TP keepAlive, BasicBlock* block);
-    void     fgInterBlockLocalVarLivenessUntracked();
-    bool     fgInterBlockLocalVarLiveness();
-    GenTree* fgRemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block);
-
-#ifdef DEBUG
-    void fgDispBBLocalLiveness(BasicBlock* block);
-#endif
-
-public:
     BasicBlockSimpleList Blocks() const
     {
         return BasicBlockSimpleList(fgFirstBB);
