@@ -2582,7 +2582,7 @@ void Compiler::lvaComputeRefCountsHIR()
                 }
 
                 if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) ||
-                    (node->OperIs(GT_LCL_STORE_FLD) && node->IsPartialLclFld(m_compiler)))
+                    (node->OperIs(GT_LCL_STORE_FLD) && node->AsLclStoreFld()->IsPartial(m_compiler)))
                 {
                     lcl->lvHasEHUses = true;
 

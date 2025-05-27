@@ -5676,7 +5676,7 @@ void Compiler::phRemoveRedundantZeroInits()
                             defsInBlock[lclNum]++;
                         }
                         else if (lcl->IsPromoted() &&
-                                 (lclNode->OperIs(GT_LCL_STORE) || !lclNode->IsPartialLclFld(this)))
+                                 (lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this)))
                         {
                             for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                             {
@@ -5721,7 +5721,7 @@ void Compiler::phRemoveRedundantZeroInits()
 
                         // The local hasn't been referenced before this store.
                         bool removedExplicitZeroInit = false;
-                        bool totalOverlap            = !lclNode->IsPartialLclFld(this);
+                        bool totalOverlap = lclNode->OperIs(GT_LCL_STORE) || !lclNode->AsLclStoreFld()->IsPartial(this);
 
                         if (lclNode->GetOp(0)->IsIntegralConst(0))
                         {

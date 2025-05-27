@@ -160,7 +160,7 @@ void Liveness::MarkDef(GenTreeLclStoreFld* node)
 
     if (lcl->HasLiveness())
     {
-        if (node->IsPartialLclFld(compiler) && !LiveSetOps::IsMember(this, state.defs, lcl->GetLivenessBitIndex()))
+        if (node->IsPartial(compiler) && !LiveSetOps::IsMember(this, state.defs, lcl->GetLivenessBitIndex()))
         {
             LiveSetOps::AddElemD(this, state.uses, lcl->GetLivenessBitIndex());
         }
@@ -771,7 +771,7 @@ bool Liveness::ComputeLifeTrackedLocalDef(LiveSet& liveOut, LiveSet keepAlive, L
 
     if (LiveSetOps::IsMember(this, liveOut, index))
     {
-        if (node->OperIs(GT_LCL_STORE) || !node->IsPartialLclFld(compiler))
+        if (node->OperIs(GT_LCL_STORE) || !node->AsLclStoreFld()->IsPartial(compiler))
         {
             if (!LiveSetOps::IsMember(this, keepAlive, index))
             {

@@ -10048,33 +10048,6 @@ bool GenTree::IsPhiDef() const
     return (gtOper == GT_LCL_DEF) && AsLclDef()->GetValue()->OperIs(GT_PHI);
 }
 
-bool GenTree::IsPartialLclFld(Compiler* comp)
-{
-    if ((gtOper != GT_LCL_LOAD_FLD) && (gtOper != GT_LCL_STORE_FLD))
-    {
-        return false;
-    }
-
-    if (AsLclFld()->GetLclOffs() != 0)
-    {
-        return true;
-    }
-
-    unsigned lclSize = AsLclFld()->GetLcl()->GetTypeSize();
-    unsigned lclFldSize;
-
-    if (gtType == TYP_STRUCT)
-    {
-        lclFldSize = AsLclFld()->GetLayout(comp)->GetSize();
-    }
-    else
-    {
-        lclFldSize = varTypeSize(gtType);
-    }
-
-    return lclFldSize < lclSize;
-}
-
 GenTreeLclAddr* GenTree::IsLocalAddrExpr()
 {
     GenTree* node = this;
@@ -10131,6 +10104,28 @@ bool GenTreeIntCon::ImmedValNeedsReloc(Compiler* comp) const
 ClassLayout* GenTreeLclFld::GetLayout(Compiler* compiler) const
 {
     return (m_layoutNum == 0) ? nullptr : compiler->typGetLayoutByNum(m_layoutNum);
+}
+
+bool GenTreeLclStoreFld::IsPartial(Compiler* comp)
+{
+    if (GetLclOffs() != 0)
+    {
+        return true;
+    }
+
+    unsigned lclSize = GetLcl()->GetTypeSize();
+    unsigned lclFldSize;
+
+    if (TypeIs(TYP_STRUCT))
+    {
+        lclFldSize = GetLayout(comp)->GetSize();
+    }
+    else
+    {
+        lclFldSize = varTypeSize(GetType());
+    }
+
+    return lclFldSize < lclSize;
 }
 
 ClassLayout* GenTreeExtract::GetLayout(Compiler* compiler) const

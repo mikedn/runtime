@@ -999,11 +999,11 @@ void SsaRenameDomTreeVisitor::RenameLclStore(GenTreeLclRef* store, BasicBlock* b
 
         GenTreeFlags defFlags = store->gtFlags & ~GTF_DONT_CSE;
 
-        if (GenTreeLclFld* lclFld = store->IsLclFld())
+        if (GenTreeLclStoreFld* lclFld = store->IsLclStoreFld())
         {
             GenTree* structValue;
 
-            if (lclFld->IsPartialLclFld(m_compiler))
+            if (lclFld->IsPartial(m_compiler))
             {
                 structValue = new (m_compiler, GT_LCL_USE) GenTreeLclUse(renameStack.TopLclDef(lcl), block);
                 // TODO-MIKE-SSA: This is messy, we can't allow 0 to propagate to this

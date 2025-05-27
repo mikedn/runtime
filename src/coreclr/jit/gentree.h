@@ -1600,7 +1600,6 @@ public:
 
     void ChangeType(var_types newType);
 
-    bool IsPartialLclFld(Compiler* comp);
     GenTreeLclAddr* IsLocalAddrExpr();
 
     // Determine if this tree represents an indirection for an implicit byref parameter,
@@ -3081,6 +3080,8 @@ public:
         assert(value != nullptr);
         gtOp1 = value;
     }
+
+    bool IsPartial(Compiler* comp);
 
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;

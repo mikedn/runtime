@@ -202,8 +202,8 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclRef* lclNode
         return;
     }
 
-    bool isBorn =
-        lclNode->OperIs(GT_LCL_STORE) || (lclNode->OperIs(GT_LCL_STORE_FLD) && !lclNode->IsPartialLclFld(compiler));
+    bool isBorn = lclNode->OperIs(GT_LCL_STORE) ||
+                  (lclNode->OperIs(GT_LCL_STORE_FLD) && !lclNode->AsLclStoreFld()->IsPartial(compiler));
     bool isDying = lclNode->IsLastUse(0);
     bool spill   = lclNode->IsAnyRegSpill();
 
