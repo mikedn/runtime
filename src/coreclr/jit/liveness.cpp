@@ -769,26 +769,20 @@ bool Liveness::ComputeLifeTrackedLocalDef(LiveSet& liveOut, LiveSet keepAlive, L
 
     const unsigned index = lcl->GetLivenessBitIndex();
 
-    if (LiveSetOps::IsMember(this, liveOut, index))
-    {
-        if (node->OperIs(GT_LCL_STORE) || !node->AsLclStoreFld()->IsPartial(compiler))
-        {
-            if (!LiveSetOps::IsMember(this, keepAlive, index))
-            {
-                LiveSetOps::RemoveElemD(this, liveOut, index);
-            }
-        }
-    }
-    else
+    if (!LiveSetOps::IsMember(this, liveOut, index))
     {
         node->SetLastUse(0, true);
 
-        if (!compiler->opts.MinOpts())
-        {
-            noway_assert(!LiveSetOps::IsMember(this, keepAlive, index));
-            assert(!lcl->IsAddressExposed());
+        assert(!LiveSetOps::IsMember(this, keepAlive, index));
 
-            return true;
+        return true;
+    }
+
+    if (node->OperIs(GT_LCL_STORE) || !node->AsLclStoreFld()->IsPartial(compiler))
+    {
+        if (!LiveSetOps::IsMember(this, keepAlive, index))
+        {
+            LiveSetOps::RemoveElemD(this, liveOut, index);
         }
     }
 

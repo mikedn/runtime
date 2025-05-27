@@ -107,7 +107,6 @@ void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* co
         if (!(cond))                                                                                                   \
         {                                                                                                              \
             noWayAssertBodyConditional();                                                                              \
-            noWayAssertBodyConditional();                                                                              \
         }                                                                                                              \
     } while (0)
 #define unreached() noWayAssertBody()
