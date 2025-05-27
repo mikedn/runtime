@@ -273,9 +273,9 @@ void Liveness::Compute()
 
     for (BasicBlock* const block : compiler->Blocks())
     {
-        block->bbVarUse  = LiveSetOps::MakeEmpty(this);
-        block->bbVarDef  = LiveSetOps::MakeEmpty(this);
-        block->bbLiveIn  = LiveSetOps::MakeEmpty(this);
+        block->bbVarUse  = LiveSetOps::Alloc(this);
+        block->bbVarDef  = LiveSetOps::Alloc(this);
+        block->bbLiveIn  = LiveSetOps::Alloc(this);
         block->bbLiveOut = LiveSetOps::MakeEmpty(this);
 
         block->bbMemoryUse     = false;
@@ -437,6 +437,9 @@ void Liveness::PerBlockLiveness()
 
         LiveSetOps::ClearD(this, state.uses);
         LiveSetOps::ClearD(this, state.defs);
+        // Also clear the IN set, just in case we will do multiple DFAs
+        LiveSetOps::ClearD(this, block->bbLiveIn);
+        block->bbMemoryLiveIn = false;
 
         for (Statement* const stmt : block->NonPhiStatements())
         {
@@ -451,11 +454,6 @@ void Liveness::PerBlockLiveness()
         block->bbMemoryUse   = state.memoryUse;
         block->bbMemoryDef   = state.memoryDef;
         block->bbMemoryHavoc = state.memoryHavoc;
-
-        // Also clear the IN set, just in case we will do multiple DFAs
-        LiveSetOps::ClearD(this, block->bbLiveIn);
-
-        block->bbMemoryLiveIn = false;
 
         DBEXEC(compiler->verbose, DumpBlockLiveness(block))
     }
@@ -472,6 +470,8 @@ void Liveness::PerBlockLivenessLIR()
 
         LiveSetOps::ClearD(this, state.uses);
         LiveSetOps::ClearD(this, state.defs);
+        // Also clear the IN set, just in case we will do multiple DFAs
+        LiveSetOps::ClearD(this, block->bbLiveIn);
 
         for (GenTree* node : LIR::AsRange(block))
         {
@@ -504,9 +504,6 @@ void Liveness::PerBlockLivenessLIR()
 
         block->bbVarUse = state.uses;
         block->bbVarDef = state.defs;
-
-        // Also clear the IN set, just in case we will do multiple DFAs
-        LiveSetOps::ClearD(this, block->bbLiveIn);
 
         DBEXEC(compiler->verbose, DumpBlockLiveness(block))
     }
