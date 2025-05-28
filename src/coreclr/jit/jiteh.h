@@ -97,15 +97,13 @@ struct EHblkDsc
     uint16_t ebdEnclosingHndIndex;
 
 #ifdef FEATURE_EH_FUNCLETS
-
     // After funclets are created, this is the index of corresponding FuncInfoDsc
     // Special case for Filter/Filter-handler:
     //   Like the IL the filter funclet immediately precedes the filter-handler funclet.
     //   So this index points to the filter-handler funclet. If you want the filter
     //   funclet index, just subtract 1.
     uint16_t ebdFuncIndex;
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     IL_OFFSET ebdTryBegOffset; // IL offsets of EH try/end regions as they are imported
     IL_OFFSET ebdTryEndOffset;

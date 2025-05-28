@@ -16,9 +16,11 @@ class Liveness
     bool     mayHaveBackEdge       = false;
     bool     memoryLiveIn          = false;
     bool     memoryLiveOut         = false;
+    LiveSet  ehLiveSet             = LiveSetOps::UninitVal();
+    LiveSet  handlerLive           = LiveSetOps::UninitVal();
+    LiveSet  finallyLiveOut        = LiveSetOps::UninitVal();
     LiveSet  liveIn;
     LiveSet  liveOut;
-    LiveSet  ehLiveSet = LiveSetOps::UninitVal();
 
     struct
     {
@@ -258,13 +260,6 @@ void Liveness::Compute()
 {
     assert(compiler->opts.OptimizationEnabled());
 
-    // TODO-MIKE-Review: See if we can simply reset these during liveness computation
-    // (e.g. if it's not live in then set it to false).
-    for (LclVarDsc* lcl : compiler->Locals())
-    {
-        lcl->lvMustInit = false;
-    }
-
     if (liveSetSize == 0)
     {
         LivenessUntracked();
@@ -284,6 +279,9 @@ void Liveness::Compute()
         block->bbMemoryLiveOut = false;
     }
 
+    handlerLive    = LiveSetOps::Alloc(this);
+    finallyLiveOut = LiveSetOps::Alloc(this);
+
     for (bool changed = true; changed;)
     {
         if (isLIR)
@@ -297,6 +295,41 @@ void Liveness::Compute()
 
         LiveAnalysis();
         changed = InterBlockLiveness();
+    }
+
+    LiveSet liveIn = compiler->fgFirstBB->bbLiveIn;
+
+    for (LclVarDsc* lcl : compiler->LivenessLocals())
+    {
+        lcl->lvMustInit = false;
+
+        // Uninitialized locals may need auto-initialization. Note that the liveness of
+        // such locals will bubble to the top (fgFirstBB) in InterBlockLiveness.
+
+        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit
+        // on them since the whole parent struct will be initialized; however, lvLiveInOutOfHndlr
+        // should be set on them as appropriate.
+
+        if (!lcl->IsParam() && LiveSetOps::IsMember(this, liveIn, lcl->GetLivenessBitIndex()) &&
+            (compiler->info.compInitMem || varTypeIsGC(lcl->GetType())) && !lcl->IsDependentPromotedField(compiler))
+        {
+            lcl->lvMustInit = true;
+        }
+
+        // Mark all variables that are live on entry to an exception handler
+        // or on exit from a filter handler or finally.
+
+        bool isFinallyLiveOut = LiveSetOps::IsMember(this, finallyLiveOut, lcl->GetLivenessBitIndex());
+
+        if (isFinallyLiveOut || LiveSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
+        {
+            compiler->lvaSetLiveInOutOfHandler(lcl);
+
+            if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->GetType()))
+            {
+                lcl->lvMustInit = true;
+            }
+        }
     }
 
     INDEBUG(compiler->fgLocalVarLivenessDone = true;)
@@ -1319,56 +1352,28 @@ void Liveness::InterBlockLivenessUntracked()
 
 bool Liveness::InterBlockLiveness()
 {
-    LiveSet handlerLive    = LiveSetOps::MakeEmpty(this);
-    LiveSet finallyLiveOut = LiveSetOps::MakeEmpty(this);
+    LiveSetOps::ClearD(this, handlerLive);
+    LiveSetOps::ClearD(this, finallyLiveOut);
 
-    for (BasicBlock* const block : compiler->Blocks())
+    if (compiler->compHndBBtabCount != 0)
     {
-        if (block->hasEHBoundaryIn())
+        for (BasicBlock* const block : compiler->Blocks())
         {
-            LiveSetOps::UnionD(this, handlerLive, block->bbLiveIn);
-        }
-
-        if (block->hasEHBoundaryOut())
-        {
-            LiveSetOps::UnionD(this, handlerLive, block->bbLiveOut);
-
-            if (block->bbJumpKind == BBJ_EHFINALLYRET)
+            if (block->hasEHBoundaryIn())
             {
-                // Live on exit from finally - we track these separately because,
-                // in addition to having EH live-out semantics, they are must-init.
-                LiveSetOps::UnionD(this, finallyLiveOut, block->bbLiveOut);
+                LiveSetOps::UnionD(this, handlerLive, block->bbLiveIn);
             }
-        }
-    }
 
-    for (LclVarDsc* lcl : compiler->LivenessLocals())
-    {
-        // Uninitialized locals may need auto-initialization. Note that the liveness of
-        // such locals will bubble to the top (fgFirstBB) in InterBlockLiveness.
-
-        // Fields of dependently promoted structs may be tracked. We shouldn't set lvMustInit
-        // on them since the whole parent struct will be initialized; however, lvLiveInOutOfHndlr
-        // should be set on them as appropriate.
-
-        if (!lcl->IsParam() && LiveSetOps::IsMember(this, compiler->fgFirstBB->bbLiveIn, lcl->GetLivenessBitIndex()) &&
-            (compiler->info.compInitMem || varTypeIsGC(lcl->GetType())) && !lcl->IsDependentPromotedField(compiler))
-        {
-            lcl->lvMustInit = true;
-        }
-
-        // Mark all variables that are live on entry to an exception handler
-        // or on exit from a filter handler or finally.
-
-        bool isFinallyLiveOut = LiveSetOps::IsMember(this, finallyLiveOut, lcl->GetLivenessBitIndex());
-
-        if (isFinallyLiveOut || LiveSetOps::IsMember(this, handlerLive, lcl->GetLivenessBitIndex()))
-        {
-            compiler->lvaSetLiveInOutOfHandler(lcl);
-
-            if (isFinallyLiveOut && !lcl->IsParam() && varTypeIsGC(lcl->GetType()))
+            if (block->hasEHBoundaryOut())
             {
-                lcl->lvMustInit = true;
+                LiveSetOps::UnionD(this, handlerLive, block->bbLiveOut);
+
+                if (block->bbJumpKind == BBJ_EHFINALLYRET)
+                {
+                    // Live on exit from finally - we track these separately because,
+                    // in addition to having EH live-out semantics, they are must-init.
+                    LiveSetOps::UnionD(this, finallyLiveOut, block->bbLiveOut);
+                }
             }
         }
     }

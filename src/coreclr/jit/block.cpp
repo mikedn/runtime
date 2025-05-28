@@ -939,20 +939,16 @@ bool BasicBlock::IsCallFinallyAlwaysPairTail() const
     return (bbPrev != nullptr) && bbPrev->IsCallFinallyAlwaysPairHead();
 }
 
-// Determine if this block begins at an EH boundary.
+// Return true iff the block is the target of an EH edge; false otherwise.
 //
-// Return Value:
-//    True iff the block is the target of an EH edge; false otherwise.
-//
-// Notes:
-//    For the purposes of this method (and its callers), an EH edge is one on
-//    which the EH flow model requires that all lclVars must be reloaded from
-//    the stack before use, since control flow may transfer to this block through
-//    control flow that is not reflected in the flowgraph.
-//    Note that having a predecessor in a different EH region doesn't require
-//    that lclVars must be reloaded from the stack. That's only required when
-//    this block might be entered via flow that is not represented by an edge
-//    in the flowgraph.
+// For the purposes of this method (and its callers), an EH edge is one on
+// which the EH flow model requires that all locals must be reloaded from
+// the stack before use, since control flow may transfer to this block through
+// control flow that is not reflected in the flowgraph.
+// Note that having a predecessor in a different EH region doesn't require
+// that locals must be reloaded from the stack. That's only required when
+// this block might be entered via flow that is not represented by an edge
+// in the flowgraph.
 //
 bool BasicBlock::hasEHBoundaryIn() const
 {
@@ -965,38 +961,21 @@ bool BasicBlock::hasEHBoundaryIn() const
     return returnVal;
 }
 
-// Determine if this block ends in an EH boundary.
+// Returns true iff the block ends in an exception boundary that requires that
+// no locals are live in registers; false otherwise.
 //
-// Return Value:
-//    True iff the block ends in an exception boundary that requires that no lclVars
-//    are live in registers; false otherwise.
-//
-// Notes:
-//    We may have a successor in a different EH region, but it is OK to have lclVars
-//    live in registers if any successor is a normal flow edge. That's because the
-//    EH write-thru semantics ensure that we always have an up-to-date value on the stack.
+// We may have a successor in a different EH region, but it is OK to have locals
+// live in registers if any successor is a normal flow edge. That's because the
+// EH write-thru semantics ensure that we always have an up-to-date value on the
+// stack.
 //
 bool BasicBlock::hasEHBoundaryOut() const
 {
-    bool returnVal = false;
-    if (bbJumpKind == BBJ_EHFILTERRET)
-    {
-        returnVal = true;
-    }
-
-    if (bbJumpKind == BBJ_EHFINALLYRET)
-    {
-        returnVal = true;
-    }
-
+    return (bbJumpKind == BBJ_EHFILTERRET) || (bbJumpKind == BBJ_EHFINALLYRET)
 #ifdef FEATURE_EH_FUNCLETS
-    if (bbJumpKind == BBJ_EHCATCHRET)
-    {
-        returnVal = true;
-    }
+           || (bbJumpKind == BBJ_EHCATCHRET)
 #endif
-
-    return returnVal;
+        ;
 }
 
 BBswtDesc::BBswtDesc(Compiler* comp, const BBswtDesc* other)
