@@ -861,11 +861,10 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
             continue;
         }
 
-        bool totalOverlap = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
-        bool isLiveOut    = LiveSetOps::IsMember(this, liveOut, fieldLcl->GetLivenessBitIndex());
+        bool totalOverlap   = (lclOffset <= fieldOffset) && (fieldEndOffset <= lclEndOffset);
+        bool isFieldLastUse = !LiveSetOps::IsMember(this, liveOut, fieldLcl->GetLivenessBitIndex());
 
-        node->SetLastUse(i, !isLiveOut);
-        isLastUse &= !isLiveOut;
+        isLastUse &= isFieldLastUse;
 
         if (!isDef || !totalOverlap)
         {
@@ -875,6 +874,8 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
         {
             LiveSetOps::RemoveElemD(this, liveOut, fieldLcl->GetLivenessBitIndex());
         }
+
+        node->SetLastUse(i, isFieldLastUse);
     }
 
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
