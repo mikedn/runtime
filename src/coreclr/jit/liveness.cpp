@@ -451,7 +451,7 @@ void Liveness::PerNodeLiveness(GenTree* tree)
         }
 
         default:
-            assert(!tree->OperIs(GT_QMARK));
+            assert(!tree->OperIs(GT_QMARK, GT_PHI));
             break;
     }
 }
@@ -474,7 +474,7 @@ void Liveness::PerBlockLiveness()
         LiveSetOps::ClearD(this, block->bbLiveIn);
         block->bbMemoryLiveIn = false;
 
-        for (Statement* const stmt : block->NonPhiStatements())
+        for (Statement* const stmt : block->Statements())
         {
             for (GenTree* const node : stmt->Nodes())
             {
@@ -881,17 +881,17 @@ bool Liveness::ComputeLifePromotedLocal(LiveSet& liveOut, LiveSet keepAlive, Lcl
     return isDef && isLastUse && !(lcl->lvCustomLayout && lcl->lvContainsHoles);
 }
 
-bool Liveness::ComputeLifeBlock(LiveSet& life, LiveSet keepAlive, BasicBlock* block)
+bool Liveness::ComputeLifeBlock(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block)
 {
-    Statement* firstStmt = block->FirstNonPhiDef();
+    Statement* firstStmt = block->GetFirstStatement();
 
     if (firstStmt == nullptr)
     {
         return false;
     }
 
-    bool       stmtRemoved = false;
-    Statement* prevStmt    = block->lastStmt();
+    bool       useDefRemoved = false;
+    Statement* prevStmt      = block->GetLastStatement();
     Statement* stmt;
 
     do
@@ -901,21 +901,23 @@ bool Liveness::ComputeLifeBlock(LiveSet& life, LiveSet keepAlive, BasicBlock* bl
         stmt     = prevStmt;
         prevStmt = stmt->GetPrevStmt();
 
-        stmtRemoved |= ComputeLifeStmt(life, keepAlive, stmt, block);
+        useDefRemoved |= ComputeLifeStmt(liveOut, keepAlive, stmt, block);
     } while (stmt != firstStmt);
 
-    return stmtRemoved;
+    return useDefRemoved;
 }
 
 bool Liveness::ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* stmt, BasicBlock* block)
 {
-    bool updateStmt = false;
-    INDEBUG(bool modified = false);
+    bool updateStmt       = false;
+    bool deadStoreRemoved = false;
 
     noway_assert(LiveSetOps::IsSubset(this, keepAlive, liveOut));
 
     for (GenTree* node = stmt->GetRootNode(); node != nullptr;)
     {
+        assert(!node->OperIs(GT_PHI));
+
         if (node->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
             GenTreeLclRef* lclNode = node->AsLclRef();
@@ -948,25 +950,19 @@ bool Liveness::ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* s
 
             if (isDeadStore)
             {
-                INDEBUG(modified = true);
-
                 GenTree* prevNode = RemoveDeadStore(lclNode, stmt, block);
 
                 if (prevNode == nullptr)
                 {
                     // The entire statement was removed, we're done.
-
-                    // TODO-MIKE-Review: Why do we care about an entire statement being removed
-                    // but not about the other cases where only some nodes are removed? Those
-                    // could affect liveness as well.
-
                     return true;
                 }
 
                 // When we have a nested store we have to postpone node reordering
                 // until the current backward liveness traversal is complete.
-                updateStmt = prevNode != stmt->GetRootNode();
-                node       = prevNode;
+                updateStmt       = prevNode != stmt->GetRootNode();
+                node             = prevNode;
+                deadStoreRemoved = true;
 
                 continue;
             }
@@ -983,19 +979,17 @@ bool Liveness::ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* s
         compiler->gtUpdateStmtSideEffects(stmt);
     }
 
-#ifdef DEBUG
-    if (modified)
+    if (deadStoreRemoved)
     {
-        JITDUMPTREE(stmt->GetRootNode(), "\nfgComputeLifeStmt modified tree:\n");
+        JITDUMPTREE(stmt->GetRootNode(), "\nComputeLifeStmt modified tree:\n");
     }
-#endif
 
-    return false;
+    return deadStoreRemoved;
 }
 
-bool Liveness::ComputeLifeLIR(LiveSet& life, LiveSet keepAlive, BasicBlock* block)
+bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block)
 {
-    noway_assert(LiveSetOps::IsSubset(this, keepAlive, life));
+    noway_assert(LiveSetOps::IsSubset(this, keepAlive, liveOut));
 
     LIR::Range& blockRange = LIR::AsRange(block);
     GenTree*    firstNode  = blockRange.FirstNode();
@@ -1032,11 +1026,11 @@ bool Liveness::ComputeLifeLIR(LiveSet& life, LiveSet keepAlive, BasicBlock* bloc
                 }
                 else if (lcl->HasLiveness())
                 {
-                    ComputeLifeTrackedLocalUse(life, lcl, load);
+                    ComputeLifeTrackedLocalUse(liveOut, lcl, load);
                 }
                 else if (lcl->IsPromoted() && !lcl->IsAddressExposed())
                 {
-                    ComputeLifePromotedLocal(life, keepAlive, lcl, load);
+                    ComputeLifePromotedLocal(liveOut, keepAlive, lcl, load);
                 }
                 break;
             }
@@ -1050,7 +1044,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& life, LiveSet keepAlive, BasicBlock* bloc
 
                 if (lcl->HasLiveness())
                 {
-                    isDeadStore = ComputeLifeTrackedLocalDef(life, keepAlive, lcl, store);
+                    isDeadStore = ComputeLifeTrackedLocalDef(liveOut, keepAlive, lcl, store);
                 }
                 else
                 {
@@ -1100,7 +1094,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& life, LiveSet keepAlive, BasicBlock* bloc
 
                     if (!isDeadStore && lcl->IsPromoted() && !lcl->IsAddressExposed())
                     {
-                        isDeadStore = ComputeLifePromotedLocal(life, keepAlive, lcl, store);
+                        isDeadStore = ComputeLifePromotedLocal(liveOut, keepAlive, lcl, store);
                     }
                 }
 
@@ -1239,6 +1233,8 @@ bool Liveness::ComputeLifeLIR(LiveSet& life, LiveSet keepAlive, BasicBlock* bloc
                 break;
 
             default:
+                assert(!node->OperIs(GT_PHI));
+
                 if ((!node->IsValue() || node->IsUnusedValue()) && !node->HasImplicitFlagsDef() &&
                     !node->HasAnySideEffect(GTF_EXCEPT))
                 {
@@ -1382,11 +1378,11 @@ bool Liveness::InterBlockLiveness()
     bool    useDefRemoved = false;
     bool    changed       = false;
     LiveSet keepAlive     = LiveSetOps::Alloc(this);
-    LiveSet life          = LiveSetOps::Alloc(this);
+    LiveSet liveOut       = LiveSetOps::Alloc(this);
 
     for (BasicBlock* const block : compiler->Blocks())
     {
-        LiveSetOps::Assign(this, life, block->bbLiveOut);
+        LiveSetOps::Assign(this, liveOut, block->bbLiveOut);
 
         if (compiler->ehBlockHasExnFlowDsc(block))
         {
@@ -1400,20 +1396,20 @@ bool Liveness::InterBlockLiveness()
 
         if (isLIR)
         {
-            useDefRemoved |= ComputeLifeLIR(life, keepAlive, block);
+            useDefRemoved |= ComputeLifeLIR(liveOut, keepAlive, block);
         }
         else
         {
-            useDefRemoved |= ComputeLifeBlock(life, keepAlive, block);
+            useDefRemoved |= ComputeLifeBlock(liveOut, keepAlive, block);
         }
 
-        if (!LiveSetOps::Equal(this, life, block->bbLiveIn))
+        if (!LiveSetOps::Equal(this, liveOut, block->bbLiveIn))
         {
             // Some variables have become dead all across the block
             // so life should be a subset of block->bbLiveIn
-            noway_assert(LiveSetOps::IsSubset(this, life, block->bbLiveIn));
+            noway_assert(LiveSetOps::IsSubset(this, liveOut, block->bbLiveIn));
 
-            LiveSetOps::Assign(this, block->bbLiveIn, life);
+            LiveSetOps::Assign(this, block->bbLiveIn, liveOut);
 
             // We changed the liveIn of the block, which may affect liveOut
             // of others, which may expose more dead stores.
