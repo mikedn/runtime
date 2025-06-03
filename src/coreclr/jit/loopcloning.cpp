@@ -668,7 +668,7 @@ void LoopCloneContext::CondToStmtInBlock(JitVector<LcCondition>& conds, BasicBlo
     JITDUMPTREE(jtrue, "Loop cloning condition tree before morphing:\n");
     JITDUMP("\n");
 
-    bool removedStmt = compiler->fgMorphBlockStmt(block, stmt DEBUGARG("Loop cloning condition"));
+    bool removedStmt = compiler->moMorphBlockStmt(block, stmt DEBUGARG("Loop cloning condition"));
 
     if (!removedStmt)
     {

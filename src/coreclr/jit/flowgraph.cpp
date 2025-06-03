@@ -382,7 +382,7 @@ bool Compiler::fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2)
     return ((blk1->bbFlags & BBF_COLD) != (blk2->bbFlags & BBF_COLD));
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
 
 /*****************************************************************************
  *
@@ -672,43 +672,6 @@ void Compiler::fgInsertMonitorCall(BasicBlock*     block,
     }
 
     fgInsertStmtBefore(block, retStmt, gtNewStmt(call));
-}
-
-// Convert a BBJ_RETURN block in a synchronized method to a BBJ_ALWAYS.
-// We've previously added a 'try' block around the original program code using fgAddSyncMethodEnterExit().
-// Thus, we put BBJ_RETURN blocks inside a 'try'. In IL this is illegal. Instead, we would
-// see a 'leave' inside a 'try' that would get transformed into BBJ_CALLFINALLY/BBJ_ALWAYS blocks
-// during importing, and the BBJ_ALWAYS would point at an outer block with the BBJ_RETURN.
-// Here, we mimic some of the logic of importing a LEAVE to get the same effect for synchronized methods.
-void Compiler::fgConvertSyncReturnToLeave(BasicBlock* block)
-{
-    assert(!fgFuncletsCreated);
-    assert(info.compFlags & CORINFO_FLG_SYNCH);
-    assert(genReturnBB != nullptr);
-    assert(genReturnBB != block);
-    assert(fgReturnCount <= 1); // We have a single return for synchronized methods
-    assert(block->bbJumpKind == BBJ_RETURN);
-    assert((block->bbFlags & BBF_HAS_JMP) == 0);
-    assert(block->hasTryIndex());
-    assert(!block->hasHndIndex());
-    assert(compHndBBtabCount >= 1);
-
-    unsigned tryIndex = block->getTryIndex();
-    assert(tryIndex == compHndBBtabCount - 1); // The BBJ_RETURN must be at the top-level before we inserted the
-                                               // try/finally, which must be the last EH region.
-
-    EHblkDsc* ehDsc = ehGetDsc(tryIndex);
-    assert(ehDsc->ebdEnclosingTryIndex ==
-           EHblkDsc::NO_ENCLOSING_INDEX); // There are no enclosing regions of the BBJ_RETURN block
-    assert(ehDsc->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX);
-
-    // Convert the BBJ_RETURN to BBJ_ALWAYS, jumping to genReturnBB.
-    block->bbJumpKind = BBJ_ALWAYS;
-    block->bbJumpDest = genReturnBB;
-    fgAddRefPred(genReturnBB, block);
-
-    JITDUMP("Synchronized method - convert block " FMT_BB " to BBJ_ALWAYS [targets " FMT_BB "]\n", block->bbNum,
-            block->bbJumpDest->bbNum);
 }
 
 #endif // FEATURE_EH_FUNCLETS

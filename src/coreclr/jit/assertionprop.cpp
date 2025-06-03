@@ -2914,7 +2914,7 @@ private:
                 // to continue from. This also works in case morph inserts new statements
                 // before or after this one, but that's unlikely.
                 Statement* prev  = (stmt == block->GetFirstStatement()) ? nullptr : stmt->GetPrevStmt();
-                bool removedStmt = m_compiler->fgMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
+                bool removedStmt = m_compiler->moMorphBlockStmt(block, stmt DEBUGARG("VNConstPropVisitor::VisitStmt"));
                 Statement* next  = (prev == nullptr) ? block->GetFirstStatement() : prev->GetNextStmt();
 
                 if (!removedStmt)
@@ -3611,7 +3611,7 @@ private:
                 if (stmtMorphPending)
                 {
                     JITDUMP("\nMorphing statement " FMT_STMT "\n", stmt->GetID())
-                    bool removedStmt = compiler->fgMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
+                    bool removedStmt = compiler->moMorphBlockStmt(block, stmt DEBUGARG(__FUNCTION__));
 
                     if (!removedStmt)
                     {

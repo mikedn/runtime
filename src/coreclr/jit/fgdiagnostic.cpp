@@ -1497,14 +1497,14 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
 
         fgDebugCheckFlags(stmt->GetRootNode());
 
-        // Not only will this stress fgMorphBlockStmt(), but we also get all the checks
+        // Not only will this stress moMorphBlockStmt, but we also get all the checks
         // done by moMorphTree.
 
         if (morphTrees)
         {
             // If 'stmt' is removed from the block, start a new check for the current block,
             // break the current check.
-            if (fgMorphBlockStmt(block, stmt DEBUGARG("test morphing")))
+            if (moMorphBlockStmt(block, stmt DEBUGARG("test morphing")))
             {
                 fgDebugCheckStmtsList(block, morphTrees);
                 break;

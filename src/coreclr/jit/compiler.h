@@ -3687,6 +3687,9 @@ public:
     PhaseStatus phUpdateFinallyTargetFlags();
     void        fgClearAllFinallyTargetBits();
     void        fgAddFinallyTargetFlags();
+    // Sometimes we need to defer updating the BBF_FINALLY_TARGET bit.
+    // fgNeedToAddFinallyTargetBits signals when this is necessary.
+    bool fgNeedToAddFinallyTargetBits;
 #endif
 
     PhaseStatus phTailMergeThrows();
@@ -3699,27 +3702,17 @@ public:
                                        BasicBlock* canonicalBlock,
                                        flowList*   predEdge);
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    // Sometimes we need to defer updating the BBF_FINALLY_TARGET bit. fgNeedToAddFinallyTargetBits signals
-    // when this is necessary.
-    bool fgNeedToAddFinallyTargetBits;
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-
     bool fgRetargetBranchesToCanonicalCallFinally(BasicBlock*      block,
                                                   BasicBlock*      handler,
                                                   BlockToBlockMap& continuationMap);
 
     GenTree* gtNewStaticMethodMonitorAddr();
 
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     void fgAddSyncMethodEnterExit();
-
     void fgInsertMonitorCall(BasicBlock* block, CorInfoHelpFunc helper, LclVarDsc* thisLcl, LclVarDsc* acquiredLcl);
-
-    void fgConvertSyncReturnToLeave(BasicBlock* block);
-
-#endif // FEATURE_EH_FUNCLETS
+    void moConvertSyncReturnToLeave(BasicBlock* block);
+#endif
 
     void fgAddReversePInvokeEnterExit();
 
@@ -3730,20 +3723,6 @@ public:
 
     bool fgFoldConditional(BasicBlock* block);
 
-    void fgMorphBlocks();
-    void fgMorphStmts(BasicBlock* block);
-
-    void fgMergeBlockReturn(BasicBlock* block);
-
-    GenTreeOp* fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding));
-    GenTreeCall* fgIsThrow(GenTree* tree);
-    bool fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
-
-#ifdef DEBUG
-    void fgPreExpandQmarkChecks(GenTree* expr);
-    void fgPostExpandQmarkChecks();
-#endif
-
     IL_OFFSET fgFindBlockILOffset(BasicBlock* block);
 
     BasicBlock* fgSplitBlockAtBeginning(BasicBlock* curr);
@@ -3751,11 +3730,6 @@ public:
     BasicBlock* fgSplitBlockAfterStatement(BasicBlock* curr, Statement* stmt);
     BasicBlock* fgSplitBlockAfterNode(BasicBlock* curr, GenTree* node); // for LIR
     BasicBlock* fgSplitEdge(BasicBlock* curr, BasicBlock* succ);
-
-    GenTreeQmark* fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store);
-    void fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
-    void fgExpandQmarkStmt(BasicBlock* block, Statement* stmt);
-    void fgExpandQmarkNodes();
 
     GenTreeCall* gtNewInitThisClassHelperCall();
     GenTreeCall* gtNewSharedCctorHelperCall(CORINFO_CLASS_HANDLE cls);
@@ -3953,8 +3927,6 @@ public:
 
     void fgUnlinkStmt(BasicBlock* block, Statement* stmt);
 
-    bool fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt);
-
     void fgCreateLoopPreHeader(unsigned lnum);
 
     void fgUnreachableBlock(BasicBlock* block);
@@ -4037,7 +4009,6 @@ public:
     bool fgIsForwardBranch(BasicBlock* bJump, BasicBlock* bSrc = nullptr);
     bool fgUpdateFlowGraph(Lowering* lowering = nullptr, bool doTailDup = false);
     void fgRemoveReturnBlock(BasicBlock* block);
-    void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
 
@@ -4325,11 +4296,28 @@ private:
     GenTree* moMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind);
 #endif
 
+    void moMorphBlocks();
+    void moMorphBlockStmts(BasicBlock* block);
+    bool moMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt);
+    void moMergeBlockReturn(BasicBlock* block);
+
+    GenTreeQmark* moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store);
+    void moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
+    void moExpandQmarkStmt(BasicBlock* block, Statement* stmt);
+    void moExpandQmarkNodes();
+
+    GenTreeOp* moIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding));
+    GenTreeCall* moIsThrow(GenTree* tree);
+    void moConvertToThrowBlock(BasicBlock* block);
+
     GenTree* moMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
+    void moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree = nullptr) DEBUGARG(int morphNum = 0));
+
 #ifdef DEBUG
     void moMorphClearDebugNodeMorphed(GenTree* tree);
+    void moPreExpandQmarkChecks(GenTree* expr);
+    void moPostExpandQmarkChecks();
 #endif
-    void moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree = nullptr) DEBUGARG(int morphNum = 0));
 
     Statement*  fgGlobalMorphStmt = nullptr;
     BasicBlock* fgMorphBlock      = nullptr;
@@ -4390,6 +4378,8 @@ private:
 #endif
 
 public:
+    bool moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg));
+
     GenTree* gtMorphTree(GenTree* tree)
     {
         return moMorphTree(tree);
@@ -5607,7 +5597,7 @@ public:
     // attach the field sequence directly to the address node.
     NodeToFieldSeqMap* m_zeroOffsetFieldMap = nullptr;
 
-    FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node);
+    FieldSeqNode* GetZeroOffsetFieldSeq(GenTree* node) const;
     void CopyZeroOffsetFieldSeq(GenTree* from, GenTree* to);
     void AddZeroOffsetFieldSeq(GenTree* node, FieldSeqNode* fieldSeq);
 

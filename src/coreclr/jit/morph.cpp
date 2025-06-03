@@ -6980,7 +6980,7 @@ GenTree* Compiler::moMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
     else if (GenTreeCall* call = stmt->GetRootNode()->IsCall())
     {
         // Quick check: if the root node of the current statement happens to be a noreturn call.
-        useLazyStrCns = call->IsNoReturn() || fgIsThrow(call);
+        useLazyStrCns = call->IsNoReturn() || moIsThrow(call);
     }
 
     if (useLazyStrCns)
@@ -8491,7 +8491,7 @@ GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
         return moMorphTree(result);
     }
 
-    if (fgIsCommaThrow(condExpr DEBUGARG(true)))
+    if (moIsCommaThrow(condExpr DEBUGARG(true)))
     {
         fgRemoveRestOfBlock = true;
         assert(condExpr->OperIs(GT_COMMA));
@@ -9067,7 +9067,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // Did we fold it into a comma node with throw?
             if (tree->OperIs(GT_COMMA))
             {
-                noway_assert(fgIsCommaThrow(tree DEBUGARG(false)));
+                noway_assert(moIsCommaThrow(tree DEBUGARG(false)));
                 return moMorphTree(tree);
             }
 
@@ -9244,7 +9244,7 @@ DONE_MORPHING_CHILDREN:
         }
 
         // If we created a comma-throw tree then we need to morph op1
-        if (GenTreeOp* comma = fgIsCommaThrow(tree DEBUGARG(false)))
+        if (GenTreeOp* comma = moIsCommaThrow(tree DEBUGARG(false)))
         {
             comma->SetOp(0, moMorphTree(comma->GetOp(0)));
             INDEBUG(comma->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
@@ -10400,7 +10400,7 @@ DONE_MORPHING_CHILDREN:
         case GT_COMMA:
             // Special case: trees that don't produce a value
             if (op2->OperIs(GT_LCL_DEF, GT_LCL_STORE, GT_LCL_STORE_FLD) ||
-                (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || fgIsThrow(op2))
+                (op2->OperIs(GT_COMMA) && op2->TypeIs(TYP_VOID)) || moIsThrow(op2))
             {
                 tree->SetType(TYP_VOID);
                 typ = TYP_VOID;
@@ -10443,7 +10443,7 @@ DONE_MORPHING_CHILDREN:
         case GT_JTRUE:
             if (fgRemoveRestOfBlock)
             {
-                if (fgIsCommaThrow(op1 DEBUGARG(true)))
+                if (moIsCommaThrow(op1 DEBUGARG(true)))
                 {
                     GenTree* throwNode = op1->AsOp()->GetOp(0);
 
@@ -10653,7 +10653,7 @@ DONE_MORPHING_CHILDREN:
     {
         assert((oper != GT_LCL_DEF) && (oper != GT_INIT_VAL) && (oper != GT_LCL_STORE));
 
-        if ((op1 != nullptr) && fgIsCommaThrow(op1 DEBUGARG(true)))
+        if ((op1 != nullptr) && moIsCommaThrow(op1 DEBUGARG(true)))
         {
             fgRemoveRestOfBlock = true;
 
@@ -10703,7 +10703,7 @@ DONE_MORPHING_CHILDREN:
             }
         }
 
-        if ((op2 != nullptr) && fgIsCommaThrow(op2 DEBUGARG(true)))
+        if ((op2 != nullptr) && moIsCommaThrow(op2 DEBUGARG(true)))
         {
             fgRemoveRestOfBlock = true;
 
@@ -10750,6 +10750,134 @@ DONE_MORPHING_CHILDREN:
     if (opts.OptEnabled(CLFLG_TREETRANS) && tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH))
     {
         tree = moMorphSmpOpOptional(tree->AsOp());
+    }
+
+    return tree;
+}
+
+GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
+{
+    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH));
+
+    genTreeOps oper = tree->GetOper();
+    GenTree*   op1  = tree->GetOp(0);
+    GenTree*   op2  = tree->GetOp(1);
+
+    if (fgGlobalMorph && tree->IsCommutative())
+    {
+        if (tree->IsReverseOp())
+        {
+            std::swap(op1, op2);
+            tree->SetOp(0, op1);
+            tree->SetOp(1, op2);
+            tree->SetReverseOps(false);
+        }
+
+        if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
+        {
+            // Reorder nested operators at the same precedence level to be left-recursive.
+            // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
+
+            moMoveOpsLeft(tree->AsOp());
+            op1 = tree->GetOp(0);
+            op2 = tree->GetOp(1);
+        }
+    }
+
+    switch (oper)
+    {
+        case GT_ADD:
+            if (fgGlobalMorph && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
+            {
+                // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
+
+                if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
+                {
+                    // We cannot reassociate GC pointer additions, doing that could create
+                    // a GC pointer that points outside the GC object and the GC has no way
+                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
+
+                    GenTree* op3 = op1->AsOp()->GetOp(0);
+
+                    if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
+                    {
+                        tree->SetOp(1, i);
+                        op1->AsOp()->SetOp(1, op2);
+                        op1->AddSideEffects(op2->GetSideEffects());
+                        op2 = i;
+                    }
+                }
+            }
+            break;
+
+        case GT_MUL:
+            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
+            {
+                // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
+
+                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                GenTreeIntCon* i2 = op2->AsIntCon();
+
+                if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
+                {
+                    ssize_t val1 = i1->GetValue();
+                    ssize_t val2 = i2->GetValue();
+
+                    op1->ChangeOper(GT_MUL);
+                    i1->SetValue(val2);
+                    tree->ChangeOper(GT_ADD);
+                    i2->SetValue(val1 * val2);
+                }
+            }
+            break;
+
+        case GT_LSH:
+            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
+            {
+                // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
+
+                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                GenTreeIntCon* i2 = op2->AsIntCon();
+
+                if ((i1 != nullptr) && (AddrMode::GetLshIndexScale(i2) != 0))
+                {
+                    ssize_t val1 = i1->GetValue();
+                    ssize_t val2 = i2->GetValue();
+
+                    op1->ChangeOper(GT_LSH);
+                    i1->SetValue(val2);
+                    tree->ChangeOper(GT_ADD);
+                    i2->SetValue(val1 << val2);
+                }
+            }
+
+            break;
+
+        case GT_XOR:
+            if (op2->IsIntegralConst(-1))
+            {
+                // Change "x XOR -1" to "NOT x"
+
+                tree->ChangeOper(GT_NOT);
+                tree->gtOp2 = nullptr;
+
+                DEBUG_DESTROY_NODE(op2);
+            }
+            else if (op2->IsIntegralConst(1) && op1->OperIsRelop())
+            {
+                // Change "relop XOR 1" to "!relop"
+
+                gtReverseRelop(op1->AsOp());
+
+                DEBUG_DESTROY_NODE(op2);
+                DEBUG_DESTROY_NODE(tree);
+
+                return op1;
+            }
+            break;
+
+        default:
+            break;
     }
 
     return tree;
@@ -10960,134 +11088,6 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 #endif
 }
 
-GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
-{
-    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH));
-
-    genTreeOps oper = tree->GetOper();
-    GenTree*   op1  = tree->GetOp(0);
-    GenTree*   op2  = tree->GetOp(1);
-
-    if (fgGlobalMorph && tree->IsCommutative())
-    {
-        if (tree->IsReverseOp())
-        {
-            std::swap(op1, op2);
-            tree->SetOp(0, op1);
-            tree->SetOp(1, op2);
-            tree->SetReverseOps(false);
-        }
-
-        if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
-        {
-            // Reorder nested operators at the same precedence level to be left-recursive.
-            // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
-
-            moMoveOpsLeft(tree->AsOp());
-            op1 = tree->GetOp(0);
-            op2 = tree->GetOp(1);
-        }
-    }
-
-    switch (oper)
-    {
-        case GT_ADD:
-            if (fgGlobalMorph && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
-            {
-                // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
-
-                if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
-                {
-                    // We cannot reassociate GC pointer additions, doing that could create
-                    // a GC pointer that points outside the GC object and the GC has no way
-                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
-
-                    GenTree* op3 = op1->AsOp()->GetOp(0);
-
-                    if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
-                    {
-                        tree->SetOp(1, i);
-                        op1->AsOp()->SetOp(1, op2);
-                        op1->AddSideEffects(op2->GetSideEffects());
-                        op2 = i;
-                    }
-                }
-            }
-            break;
-
-        case GT_MUL:
-            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
-            {
-                // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
-
-                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
-                GenTreeIntCon* i2 = op2->AsIntCon();
-
-                if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
-                {
-                    ssize_t val1 = i1->GetValue();
-                    ssize_t val2 = i2->GetValue();
-
-                    op1->ChangeOper(GT_MUL);
-                    i1->SetValue(val2);
-                    tree->ChangeOper(GT_ADD);
-                    i2->SetValue(val1 * val2);
-                }
-            }
-            break;
-
-        case GT_LSH:
-            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
-            {
-                // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
-
-                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
-                GenTreeIntCon* i2 = op2->AsIntCon();
-
-                if ((i1 != nullptr) && (AddrMode::GetLshIndexScale(i2) != 0))
-                {
-                    ssize_t val1 = i1->GetValue();
-                    ssize_t val2 = i2->GetValue();
-
-                    op1->ChangeOper(GT_LSH);
-                    i1->SetValue(val2);
-                    tree->ChangeOper(GT_ADD);
-                    i2->SetValue(val1 << val2);
-                }
-            }
-
-            break;
-
-        case GT_XOR:
-            if (op2->IsIntegralConst(-1))
-            {
-                // Change "x XOR -1" to "NOT x"
-
-                tree->ChangeOper(GT_NOT);
-                tree->gtOp2 = nullptr;
-
-                DEBUG_DESTROY_NODE(op2);
-            }
-            else if (op2->IsIntegralConst(1) && op1->OperIsRelop())
-            {
-                // Change "relop XOR 1" to "!relop"
-
-                gtReverseRelop(op1->AsOp());
-
-                DEBUG_DESTROY_NODE(op2);
-                DEBUG_DESTROY_NODE(tree);
-
-                return op1;
-            }
-            break;
-
-        default:
-            break;
-    }
-
-    return tree;
-}
-
 // Transform a % b into the equivalent a - (a / b) * b (see ECMA III 3.55 and III.3.56).
 //
 // For ARM64 we don't have a remainder instruction so this transform is
@@ -11128,10 +11128,9 @@ GenTree* Compiler::moMorphModToSubMulDiv(GenTreeOp* tree)
 
     // The numerator and denominator may have been assigned to temps, in which case
     // their defining assignments are in the current tree. Therefore, we need to
-    // set the execuction order accordingly on the nodes we create.
+    // set the execution order accordingly on the nodes we create.
     // That is, the "mul" will be evaluated in "normal" order, and the "sub" must
     // be set to be evaluated in reverse order.
-    //
     GenTree* mul = gtNewOperNode(GT_MUL, type, tree, gtCloneExpr(denominator));
     assert(!mul->IsReverseOp());
     GenTree* sub = gtNewOperNode(GT_SUB, type, gtCloneExpr(numerator), mul);
@@ -11275,7 +11274,7 @@ GenTree* Compiler::moMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 
         if (!con->IsLngCon())
         {
-            noway_assert(fgIsCommaThrow(con DEBUGARG(false)));
+            noway_assert(moIsCommaThrow(con DEBUGARG(false)));
             con = moMorphTree(con);
         }
 
@@ -12168,13 +12167,13 @@ bool Compiler::fgFoldConditional(BasicBlock* block)
     return false;
 }
 
-GenTreeCall* Compiler::fgIsThrow(GenTree* tree)
+GenTreeCall* Compiler::moIsThrow(GenTree* tree)
 {
     return tree->IsHelperCall() && HelperCallProperties::AlwaysThrow(tree->AsCall()->GetHelperFunc()) ? tree->AsCall()
                                                                                                       : nullptr;
 }
 
-GenTreeOp* Compiler::fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding))
+GenTreeOp* Compiler::moIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding))
 {
 #ifdef DEBUG
     if (forFolding && compStressCompile(STRESS_FOLD, 50))
@@ -12183,12 +12182,12 @@ GenTreeOp* Compiler::fgIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding))
     }
 #endif
 
-    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) && fgIsThrow(tree->AsOp()->GetOp(0))
+    return tree->OperIs(GT_COMMA) && tree->HasAllSideEffects(GTF_CALL | GTF_EXCEPT) && moIsThrow(tree->AsOp()->GetOp(0))
                ? tree->AsOp()
                : nullptr;
 }
 
-bool Compiler::fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
+bool Compiler::moMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
 {
     if (opts.compDbgCode)
     {
@@ -12212,7 +12211,7 @@ bool Compiler::fgMorphRemoveUselessStmt(BasicBlock* block, Statement* stmt)
     return true;
 }
 
-void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
+void Compiler::moConvertToThrowBlock(BasicBlock* block)
 {
     JITDUMP("Converting " FMT_BB " to BBJ_THROW\n", block->bbNum);
 
@@ -12262,25 +12261,11 @@ void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
     }
 }
 
-//------------------------------------------------------------------------
-// fgMorphBlockStmt: morph a single statement in a block.
-//
-// Arguments:
-//    block - block containing the statement
-//    stmt - statement to morph
-//    msg - string to identify caller in a dump
-//
-// Returns:
-//    true if 'stmt' was removed from the block.
-//  s false if 'stmt' is still in the block (even if other statements were removed).
-//
-// Notes:
-//   Can be called anytime, unlike fgMorphStmts() which should only be called once.
-//
-bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg))
+// Morph a single statement in a block.
+// Returns true if the statement was removed.
+// Can be called anytime, unlike moMorphBlockStmts which can only be called during global morph.
+bool Compiler::moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(const char* msg))
 {
-    assert(block != nullptr);
-    assert(stmt != nullptr);
     assert(!csePhase);
 
     fgRemoveRestOfBlock = false;
@@ -12288,20 +12273,20 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     GenTree* morph = moMorphTree(stmt->GetRootNode());
 
-    if (GenTreeOp* comma = fgIsCommaThrow(morph DEBUGARG(true)))
+    if (GenTreeOp* comma = moIsCommaThrow(morph DEBUGARG(true)))
     {
         JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
         morph               = comma->GetOp(0)->AsCall();
         fgRemoveRestOfBlock = true;
     }
-    else if (fgIsThrow(morph))
+    else if (moIsThrow(morph))
     {
         fgRemoveRestOfBlock = true;
     }
 
     stmt->SetRootNode(morph);
 
-    bool removedStmt = fgMorphRemoveUselessStmt(block, stmt);
+    bool removedStmt = moMorphRemoveUselessStmt(block, stmt);
 
     JITDUMPTREE(morph, "%s %s tree:\n", msg, removedStmt ? "removed" : "morphed");
 
@@ -12322,7 +12307,7 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
         if ((block != fgFirstBB) || ((fgFirstBB->bbFlags & BBF_INTERNAL) == 0))
         {
-            fgConvertBBToThrowBB(block);
+            moConvertToThrowBlock(block);
         }
     }
     else if (morph->OperIs(GT_JTRUE, GT_SWITCH) && opts.OptimizationEnabled())
@@ -12334,14 +12319,9 @@ bool Compiler::fgMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
     return removedStmt;
 }
 
-/*****************************************************************************
- *
- *  Morph the statements of the given block.
- *  This function should be called just once for a block. Use fgMorphBlockStmt()
- *  for reentrant calls.
- */
-
-void Compiler::fgMorphStmts(BasicBlock* block)
+// Morph the statements of the given block.
+// This function should be called just once, during global morph, for a block.
+void Compiler::moMorphBlockStmts(BasicBlock* block)
 {
     assert(fgGlobalMorph);
 
@@ -12436,7 +12416,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
         }
 #endif
 
-        if (GenTreeOp* comma = fgIsCommaThrow(morphedTree DEBUGARG(true)))
+        if (GenTreeOp* comma = moIsCommaThrow(morphedTree DEBUGARG(true)))
         {
             JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
             morphedTree         = comma->GetOp(0)->AsCall();
@@ -12450,7 +12430,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
             continue;
         }
 
-        if (fgMorphRemoveUselessStmt(block, stmt))
+        if (moMorphRemoveUselessStmt(block, stmt))
         {
             continue;
         }
@@ -12458,7 +12438,7 @@ void Compiler::fgMorphStmts(BasicBlock* block)
 
     if (fgRemoveRestOfBlock)
     {
-        fgConvertBBToThrowBB(block);
+        moConvertToThrowBlock(block);
     }
     else if (block->KindIs(BBJ_COND, BBJ_SWITCH) && opts.OptimizationEnabled())
     {
@@ -12485,7 +12465,7 @@ void Compiler::phGlobalMorph()
     // global morphing.
     fgGlobalMorph = true;
 
-    fgMorphBlocks();
+    moMorphBlocks();
 
     // We are done with the global morphing phase
     fgGlobalMorph     = false;
@@ -12507,7 +12487,7 @@ void Compiler::phGlobalMorph()
     }
 #endif
 
-    fgExpandQmarkNodes();
+    moExpandQmarkNodes();
 
     // If we needed to create any new BasicBlocks then renumber the blocks
     if (fgBBcount > prevBBCount)
@@ -12519,9 +12499,9 @@ void Compiler::phGlobalMorph()
     activePhaseChecks = PhaseChecks::CHECK_ALL;
 }
 
-void Compiler::fgMorphBlocks()
+void Compiler::moMorphBlocks()
 {
-    JITDUMP("\n*************** In fgMorphBlocks()\n");
+    JITDUMP("\n*************** In moMorphBlocks()\n");
 
 #if LOCAL_ASSERTION_PROP
     morphAssertionInit();
@@ -12537,14 +12517,7 @@ void Compiler::fgMorphBlocks()
         lvSetMinOptsDoNotEnreg();
     }
 
-    /*-------------------------------------------------------------------------
-     * Process all basic blocks in the function
-     */
-
-    BasicBlock* block = fgFirstBB;
-    noway_assert(block);
-
-    do
+    for (BasicBlock* block = fgFirstBB; block != nullptr; block = block->bbNext)
     {
         JITDUMP("\nMorphing " FMT_BB " of '%s'\n", block->bbNum, info.compFullName);
 
@@ -12556,26 +12529,20 @@ void Compiler::fgMorphBlocks()
         }
 #endif
 
-        fgMorphStmts(block);
+        moMorphBlockStmts(block);
 
-        // Do we need to merge the result of this block into a single return block?
-        if ((block->bbJumpKind == BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0))
+        if ((genReturnBB != nullptr) && (genReturnBB != block) && block->KindIs(BBJ_RETURN) &&
+            ((block->bbFlags & BBF_HAS_JMP) == 0))
         {
-            if ((genReturnBB != nullptr) && (genReturnBB != block))
-            {
-                fgMergeBlockReturn(block);
-            }
+            moMergeBlockReturn(block);
         }
-
-        block = block->bbNext;
-    } while (block != nullptr);
+    }
 
 #if LOCAL_ASSERTION_PROP
     morphAssertionDone();
 #endif
 
     // Under OSR, we no longer need to specially protect the original method entry
-    //
     if (opts.IsOSR() && (fgEntryBB != nullptr) && (fgEntryBB->bbFlags & BBF_IMPORTED))
     {
         JITDUMP("OSR: un-protecting original method entry " FMT_BB "\n", fgEntryBB->bbNum);
@@ -12605,9 +12572,9 @@ void Compiler::fgMorphBlocks()
 // For now it is safe to explicitly check whether last stmt is GT_RETURN if genReturnLocal
 // is BAD_VAR_NUM.
 //
-void Compiler::fgMergeBlockReturn(BasicBlock* block)
+void Compiler::moMergeBlockReturn(BasicBlock* block)
 {
-    assert((block->bbJumpKind == BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0));
+    assert(block->KindIs(BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0));
     assert((genReturnBB != nullptr) && (genReturnBB != block));
 
     // TODO: Need to characterize the last top level stmt of a block ending with BBJ_RETURN.
@@ -12623,9 +12590,9 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     }
 
 #ifndef TARGET_X86
-    if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
+    if (info.IsSynchronized())
     {
-        fgConvertSyncReturnToLeave(block);
+        moConvertSyncReturnToLeave(block);
     }
     else
 #endif
@@ -12728,49 +12695,85 @@ void Compiler::fgMergeBlockReturn(BasicBlock* block)
     }
 }
 
+#ifdef FEATURE_EH_FUNCLETS
+// Convert a BBJ_RETURN block in a synchronized method to a BBJ_ALWAYS.
+// We've previously added a 'try' block around the original program code using fgAddSyncMethodEnterExit().
+// Thus, we put BBJ_RETURN blocks inside a 'try'. In IL this is illegal. Instead, we would
+// see a 'leave' inside a 'try' that would get transformed into BBJ_CALLFINALLY/BBJ_ALWAYS blocks
+// during importing, and the BBJ_ALWAYS would point at an outer block with the BBJ_RETURN.
+// Here, we mimic some of the logic of importing a LEAVE to get the same effect for synchronized methods.
+void Compiler::moConvertSyncReturnToLeave(BasicBlock* block)
+{
+    assert(!fgFuncletsCreated);
+    assert(info.IsSynchronized());
+    assert(genReturnBB != nullptr);
+    assert(genReturnBB != block);
+    assert(fgReturnCount <= 1); // We have a single return for synchronized methods
+    assert(block->KindIs(BBJ_RETURN));
+    assert((block->bbFlags & BBF_HAS_JMP) == 0);
+    assert(block->hasTryIndex());
+    assert(!block->hasHndIndex());
+    assert(compHndBBtabCount >= 1);
+
+    unsigned tryIndex = block->getTryIndex();
+    assert(tryIndex == compHndBBtabCount - 1); // The BBJ_RETURN must be at the top-level before we inserted the
+    // try/finally, which must be the last EH region.
+
+    EHblkDsc* ehDsc = ehGetDsc(tryIndex);
+    // There are no enclosing regions of the BBJ_RETURN block
+    assert(ehDsc->ebdEnclosingTryIndex == EHblkDsc::NO_ENCLOSING_INDEX);
+    assert(ehDsc->ebdEnclosingHndIndex == EHblkDsc::NO_ENCLOSING_INDEX);
+
+    // Convert the BBJ_RETURN to BBJ_ALWAYS, jumping to genReturnBB.
+    block->bbJumpKind = BBJ_ALWAYS;
+    block->bbJumpDest = genReturnBB;
+    fgAddRefPred(genReturnBB, block);
+
+    JITDUMP("Synchronized method - convert block " FMT_BB " to BBJ_ALWAYS [targets " FMT_BB "]\n", block->bbNum,
+            block->bbJumpDest->bbNum);
+}
+#endif // FEATURE_EH_FUNCLETS
+
 #ifdef DEBUG
-static GenTreeWalkResult fgAssertNoQmark(GenTree** use, GenTree* user, void* data)
+static GenTreeWalkResult moAssertNoQmark(GenTree** use, GenTree* user, void* data)
 {
     assert(!(*use)->IsQmark());
     return GenTreeWalkResult::Continue;
 }
 
-/*****************************************************************************
- *
- *  Verify that the importer has created GT_QMARK nodes in a way we can
- *  process them. The following is allowed:
- *
- *  1. A top level qmark. Top level qmark is of the form:
- *      a) (bool) ? (void) : (void) OR
- *      b) V0N = (bool) ? (type) : (type)
- *
- *  2. Recursion is allowed at the top level, i.e., a GT_QMARK can be a child
- *     of either op1 of colon or op2 of colon but not a child of any other
- *     operator.
- */
-void Compiler::fgPreExpandQmarkChecks(GenTree* expr)
+// Verify that the importer has created GT_QMARK nodes in a way we can
+// process them. The following is allowed:
+//
+// 1. A top level qmark. Top level qmark is of the form:
+//     a) (bool) ? (void) : (void) OR
+//     b) V0N = (bool) ? (type) : (type)
+//
+// 2. Recursion is allowed at the top level, i.e., a GT_QMARK can be a child
+//    of either op1 of colon or op2 of colon but not a child of any other
+//    operator.
+void Compiler::moPreExpandQmarkChecks(GenTree* expr)
 {
     GenTreeLclStore* store    = nullptr;
-    GenTreeQmark*    topQmark = fgGetTopLevelQmark(expr, &store);
+    GenTreeQmark*    topQmark = moGetTopLevelQmark(expr, &store);
 
     // If the top level Qmark is null, then scan the tree to make sure
     // there are no qmarks within it.
     if (topQmark == nullptr)
     {
-        fgWalkTreePre(&expr, fgAssertNoQmark);
+        fgWalkTreePre(&expr, moAssertNoQmark);
     }
     else
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
         // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
-        fgWalkTreePre(&topQmark->gtOp1, fgAssertNoQmark);
+        fgWalkTreePre(&topQmark->gtOp1, moAssertNoQmark);
         fgPreExpandQmarkChecks(topQmark->GetOp(1));
         fgPreExpandQmarkChecks(topQmark->GetOp(2));
     }
 }
 #endif // DEBUG
 
-GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store)
+GenTreeQmark* Compiler::moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store)
 {
     *store = nullptr;
 
@@ -12818,7 +12821,7 @@ GenTreeQmark* Compiler::fgGetTopLevelQmark(GenTree* expr, GenTreeLclStore** stor
  *     tmp has the result.
  *
  */
-void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
+void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 {
 #ifdef DEBUG
     if (verbose)
@@ -12826,12 +12829,12 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         printf("\nExpanding CastInstOf qmark in " FMT_BB " (before)\n", block->bbNum);
         fgDispBasicBlocks(block, block, true);
     }
-#endif // DEBUG
+#endif
 
     GenTree* expr = stmt->GetRootNode();
 
     GenTreeLclStore* dst   = nullptr;
-    GenTreeQmark*    qmark = fgGetTopLevelQmark(expr, &dst);
+    GenTreeQmark*    qmark = moGetTopLevelQmark(expr, &dst);
     noway_assert(dst != nullptr);
 
     assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
@@ -12943,7 +12946,7 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 
     if (true2Expr->IsCall() && true2Expr->AsCall()->IsNoReturn())
     {
-        fgConvertBBToThrowBB(helperBlock);
+        moConvertToThrowBlock(helperBlock);
     }
     else
     {
@@ -12959,65 +12962,15 @@ void Compiler::fgExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         printf("\nExpanding CastInstOf qmark in " FMT_BB " (after)\n", block->bbNum);
         fgDispBasicBlocks(block, remainderBlock, true);
     }
-#endif // DEBUG
+#endif
 }
 
-/*****************************************************************************
- *
- *  Expand a statement with a top level qmark node. There are three cases, based
- *  on whether the qmark has both "true" and "false" arms, or just one of them.
- *
- *     S0;
- *     C ? T : F;
- *     S1;
- *
- *     Generates ===>
- *
- *                       bbj_always
- *                       +---->------+
- *                 false |           |
- *     S0 -->-- ~C -->-- T   F -->-- S1
- *              |            |
- *              +--->--------+
- *              bbj_cond(true)
- *
- *     -----------------------------------------
- *
- *     S0;
- *     C ? T : NOP;
- *     S1;
- *
- *     Generates ===>
- *
- *                 false
- *     S0 -->-- ~C -->-- T -->-- S1
- *              |                |
- *              +-->-------------+
- *              bbj_cond(true)
- *
- *     -----------------------------------------
- *
- *     S0;
- *     C ? NOP : F;
- *     S1;
- *
- *     Generates ===>
- *
- *                false
- *     S0 -->-- C -->-- F -->-- S1
- *              |               |
- *              +-->------------+
- *              bbj_cond(true)
- *
- *  If the qmark assigns to a variable, then create tmps for "then" and
- *  "else" results and stores the temp to the variable as a writeback step.
- */
-void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
+void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 {
     GenTree* expr = stmt->GetRootNode();
 
     GenTreeLclStore* store = nullptr;
-    GenTreeQmark*    qmark = fgGetTopLevelQmark(expr, &store);
+    GenTreeQmark*    qmark = moGetTopLevelQmark(expr, &store);
 
     if (qmark == nullptr)
     {
@@ -13026,7 +12979,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 
     if ((qmark->gtFlags & GTF_QMARK_CAST_INSTOF) != 0)
     {
-        fgExpandQmarkForCastInstOf(block, stmt);
+        moExpandQmarkForCastInstOf(block, stmt);
         return;
     }
 
@@ -13036,7 +12989,7 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         printf("\nExpanding top-level qmark in " FMT_BB " (before)\n", block->bbNum);
         fgDispBasicBlocks(block, block, true);
     }
-#endif // DEBUG
+#endif
 
     GenTree* condExpr  = qmark->GetCondition();
     GenTree* trueExpr  = qmark->GetThen();
@@ -13081,16 +13034,9 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     fgAddRefPred(remainderBlock, elseBlock);
 
     BasicBlock* thenBlock = nullptr;
+
     if (hasTrueExpr && hasFalseExpr)
     {
-        //                       bbj_always
-        //                       +---->------+
-        //                 false |           |
-        //     S0 -->-- ~C -->-- T   F -->-- S1
-        //              |            |
-        //              +--->--------+
-        //              bbj_cond(true)
-        //
         gtReverseCond(condExpr);
         condBlock->bbJumpDest = elseBlock;
 
@@ -13110,12 +13056,6 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     }
     else if (hasTrueExpr)
     {
-        //                 false
-        //     S0 -->-- ~C -->-- T -->-- S1
-        //              |                |
-        //              +-->-------------+
-        //              bbj_cond(true)
-        //
         gtReverseCond(condExpr);
         condBlock->bbJumpDest = remainderBlock;
         fgAddRefPred(remainderBlock, condBlock);
@@ -13127,12 +13067,6 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     }
     else if (hasFalseExpr)
     {
-        //                false
-        //     S0 -->-- C -->-- F -->-- S1
-        //              |               |
-        //              +-->------------+
-        //              bbj_cond(true)
-        //
         condBlock->bbJumpDest = remainderBlock;
         fgAddRefPred(remainderBlock, condBlock);
 
@@ -13188,10 +13122,10 @@ void Compiler::fgExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         printf("\nExpanding top-level qmark in " FMT_BB " (after)\n", block->bbNum);
         fgDispBasicBlocks(block, remainderBlock, true);
     }
-#endif // DEBUG
+#endif
 }
 
-void Compiler::fgExpandQmarkNodes()
+void Compiler::moExpandQmarkNodes()
 {
     if (compQmarkUsed)
     {
@@ -13201,36 +13135,32 @@ void Compiler::fgExpandQmarkNodes()
             {
                 GenTree* expr = stmt->GetRootNode();
                 INDEBUG(fgPreExpandQmarkChecks(expr);)
-                fgExpandQmarkStmt(block, stmt);
+                moExpandQmarkStmt(block, stmt);
             }
         }
 
-        INDEBUG(fgPostExpandQmarkChecks();)
+        INDEBUG(moPostExpandQmarkChecks();)
     }
 
     INDEBUG(compQmarkRationalized = true;)
 }
 
 #ifdef DEBUG
-/*****************************************************************************
- *
- *  Make sure we don't have any more GT_QMARK nodes.
- *
- */
-void Compiler::fgPostExpandQmarkChecks()
+// Make sure we don't have any more GT_QMARK nodes.
+void Compiler::moPostExpandQmarkChecks()
 {
     for (BasicBlock* const block : Blocks())
     {
         for (Statement* const stmt : block->Statements())
         {
             GenTree* expr = stmt->GetRootNode();
-            fgWalkTreePre(&expr, fgAssertNoQmark);
+            fgWalkTreePre(&expr, moAssertNoQmark);
         }
     }
 }
 #endif
 
-FieldSeqNode* Compiler::GetZeroOffsetFieldSeq(GenTree* node)
+FieldSeqNode* Compiler::GetZeroOffsetFieldSeq(GenTree* node) const
 {
     if (m_zeroOffsetFieldMap == nullptr)
     {
