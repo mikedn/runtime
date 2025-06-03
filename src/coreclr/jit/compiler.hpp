@@ -249,7 +249,7 @@ inline GenTree* Compiler::gtNewRuntimeLookup(CORINFO_GENERIC_HANDLE hnd, CorInfo
 inline GenTree* Compiler::gtNewNullCheck(GenTree* addr)
 {
     assert(varTypeIsI(addr->GetType()));
-    assert(fgAddrCouldBeNull(addr));
+    assert(gtAddrCouldBeNull(addr));
 
     return new (this, GT_NULLCHECK) GenTreeNullCheck(addr);
 }
@@ -354,7 +354,7 @@ inline GenTreeIndir* Compiler::gtNewMethodTableLookup(GenTree* object)
     GenTreeIndir* result = gtNewIndLoad(TYP_I_IMPL, object);
     // TODO-MIKE-Review: In theory we could avoid setting GTF_EXCEPT when
     // the object is a string literal or a boxed struct used for static
-    // struct fields. fgAddrCouldBeNull checks for those but it's overkill
+    // struct fields. gtAddrCouldBeNull checks for those but it's overkill
     // since we basically never hit such cases.
     result->gtFlags |= GTF_IND_INVARIANT | GTF_EXCEPT;
     return result;

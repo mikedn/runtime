@@ -5184,7 +5184,7 @@ GenTreeFieldAddr* Importer::impImportFieldAddr(GenTree*                      add
         }
 #endif
 
-        if (fgAddrCouldBeNull(addr))
+        if (comp->gtAddrCouldBeNull(addr))
         {
             field->AddSideEffects(GTF_EXCEPT);
         }
@@ -5483,7 +5483,7 @@ GenTree* Importer::impImportLdSFld(OPCODE                    opcode,
 
     // Avoid creating struct COMMA nodes by adding the COMMA on top of the indirection's
     // address (we always get an IND/OBJ for a static struct field load). They would be
-    // later transformed by fgMorphStructComma anyway.
+    // later transformed by moMorphStructComma anyway.
     //
     // Extracting the helper call to a separate statement does have some advantages:
     //   - Avoids "poisoning" the entire tree with side effects from the helper call.
@@ -14267,7 +14267,7 @@ void Importer::MarkInlineCandidateHelper(GenTreeCall*           call,
     }
 
     // Tail recursion elimination takes precedence over inlining.
-    // TODO: We may want to do some of the additional checks from fgMorphCall
+    // TODO: We may want to do some of the additional checks from moMorphCall
     // here to reduce the chance we don't inline a call that won't be optimized
     // as a fast tail call or turned into a loop.
     if (gtIsRecursiveCall(call) && call->IsImplicitTailCall())
@@ -15926,7 +15926,7 @@ GenTree* Importer::impImportPop(BasicBlock* block)
     // Another reason for throwing away the useless cast is in the context of
     // implicit tail calls when the operand of pop is CAST(CALL(..)).
     // The cast gets added as part of importing CALL, which gets in the way
-    // of fgMorphCall() on the forms of tail call nodes that we assert.
+    // of moMorphCall on the forms of tail call nodes that we assert.
     if (op1->OperIs(GT_SXT, GT_UXT, GT_TRUNC, GT_CONV, GT_FXT, GT_FTRUNC, GT_STOF, GT_FTOS, GT_UTOF, GT_FTOU,
                     GT_BITCAST))
     {
@@ -17003,11 +17003,6 @@ GenTree* Importer::gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp)
 CORINFO_CLASS_HANDLE Importer::gtGetHelperArgClassHandle(GenTree* array)
 {
     return comp->gtGetHelperArgClassHandle(array);
-}
-
-bool Importer::fgAddrCouldBeNull(GenTree* addr)
-{
-    return comp->fgAddrCouldBeNull(addr);
 }
 
 LclVarDsc* Importer::inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum)

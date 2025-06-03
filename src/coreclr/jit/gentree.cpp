@@ -606,7 +606,7 @@ void GenTreeCall::ResetArgInfo()
         return;
     }
 
-    // We would like to just set `fgArgInfo = nullptr`. But fgInitArgInfo not only
+    // We would like to just set `fgArgInfo = nullptr`. But moInitCallnfo not only
     // sets up fgArgInfo, it also adds non-standard args to the IR, and we need
     // to remove that extra IR so it doesn't get added again.
     //
@@ -3234,7 +3234,7 @@ GenTreeRetExpr::GenTreeRetExpr(GenTreeCall* call)
     gtFlags |= GTF_CALL;
 }
 
-bool Compiler::fgAddrCouldBeNull(GenTree* addr)
+bool Compiler::gtAddrCouldBeNull(GenTree* addr)
 {
     addr = addr->gtEffectiveVal();
 
@@ -4656,11 +4656,11 @@ bool GenTree::IndirMayThrow(Compiler* comp) const
         case GT_IND_LOAD:
         case GT_IND_STORE:
         case GT_NULLCHECK:
-            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsIndir()->GetAddr());
+            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->gtAddrCouldBeNull(AsIndir()->GetAddr());
 
         default:
             assert(gtOper == GT_ARR_LENGTH);
-            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->fgAddrCouldBeNull(AsArrLen()->GetArray());
+            return ((gtFlags & GTF_IND_NONFAULTING) == 0) && comp->gtAddrCouldBeNull(AsArrLen()->GetArray());
     }
 }
 
@@ -4715,7 +4715,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
             return !AsDynBlk()->GetSize()->IsIntegralConst(0);
 
         case GT_FIELD_ADDR:
-            return comp->fgAddrCouldBeNull(AsFieldAddr()->GetAddr());
+            return comp->gtAddrCouldBeNull(AsFieldAddr()->GetAddr());
 
         case GT_INDEX_ADDR:
             return (gtFlags & GTF_INX_RNGCHK) != 0;
@@ -7356,7 +7356,7 @@ GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
 
     if (fgGlobalMorph)
     {
-        fgMorphTreeDone(cons);
+        moMorphTreeDone(cons);
     }
     else
     {
@@ -7716,7 +7716,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         GenTreeIntCon* icon = gtNewIconNode(value);
         if (fgGlobalMorph)
         {
-            fgMorphTreeDone(icon);
+            moMorphTreeDone(icon);
         }
         return icon;
     };
@@ -9624,16 +9624,16 @@ INTEGRAL_OVF:
     //       was successful - instead use one of the operands, e.g. op1.
 
     // Don't fold overflow operations if not global morph phase.
-    // The reason for this is that this optimization is replacing a gentree node
-    // with another new gentree node. Say a GT_CALL(arglist) has one 'arg'
-    // involving overflow arithmetic.  During assertion prop, it is possible
+    // The reason for this is that this optimization is replacing a GenTree node
+    // with another new GenTree node. Say a CALL(arglist) has one 'arg'
+    // involving overflow arithmetic. During assertion prop, it is possible
     // that the 'arg' could be constant folded and the result could lead to an
-    // overflow.  In such a case 'arg' will get replaced with GT_COMMA node
-    // but fgSetupArgs - see the logic around "if(lateArgsComputed)" - doesn't
+    // overflow. In such a case 'arg' will get replaced with GT_COMMA node
+    // but moSetupCallArgs - see the logic around "if (lateArgsComputed)" - doesn't
     // update args table. For this reason this optimization is enabled only
     // for global morphing phase.
     //
-    // TODO-CQ: Once fgSetupArgs is fixed this restriction could be removed.
+    // TODO-CQ: Once moSetupCallArgs is fixed this restriction could be removed.
 
     if (!fgGlobalMorph)
     {
@@ -10080,7 +10080,7 @@ GenTreeLclLoad* GenTree::IsImplicitByrefIndir(Compiler* compiler)
     {
         // TODO-MIKE-CQ: This does not recognize access to fields of an
         // implicit byref param so abiMorphImplicitByRefStructArg will
-        // make an unnecessary copy and fgCallHasMustCopyByrefParameter
+        // make an unnecessary copy and moCallHasMustCopyByrefParameter
         // will block fast tail calls for calls like "CALL(param.b)" when
         // "b" is also a struct passed by implicit reference.
 
@@ -10618,7 +10618,7 @@ GenTreeFlags Compiler::gtGetIndirExceptionFlags(GenTree* addr)
     // but there are a gazillion calls to gtNewIndLoad that do their own thing
     // (or don't do it all?!?)
 
-    return fgAddrCouldBeNull(addr) ? GTF_EXCEPT : GTF_IND_NONFAULTING;
+    return gtAddrCouldBeNull(addr) ? GTF_EXCEPT : GTF_IND_NONFAULTING;
 }
 
 GenTreeFlags Compiler::gtGetFieldIndirFlags(GenTreeFieldAddr* fieldAddr)
@@ -11568,7 +11568,7 @@ bool Compiler::gtIsSmallIntCastNeeded(GenTree* tree, var_types toType)
         // for R2R), native ABIs expect the caller to widen the return value. impImportCall
         // should have already the necessary casts so we don't need to check again here but
         // this means that this function can only be used when we need to add new casts
-        // (e.g. fgMorphNormalizeLclStore) and not to remove existing casts.
+        // (e.g. moMorphNormalizeLclStore) and not to remove existing casts.
 
         fromType = call->GetRetSigType();
     }

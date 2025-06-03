@@ -1498,7 +1498,7 @@ void Compiler::fgDebugCheckStmtsList(BasicBlock* block, bool morphTrees)
         fgDebugCheckFlags(stmt->GetRootNode());
 
         // Not only will this stress fgMorphBlockStmt(), but we also get all the checks
-        // done by fgMorphTree()
+        // done by moMorphTree.
 
         if (morphTrees)
         {

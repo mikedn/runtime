@@ -60,8 +60,8 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     call->SetR2REntryPoint(entryPoint);
 #endif
     comp->fgMorphBlock = m_block;
-    comp->fgInitArgInfo(call);
-    comp->fgSetupArgs(call);
+    comp->moInitCallnfo(call);
+    comp->moSetupCallArgs(call);
 
     *use = call;
 
@@ -405,8 +405,8 @@ void Rationalizer::Run()
 
         // Rewrite intrinsics that are not supported by the target back into user calls.
         // This needs to be done before the transition to LIR because it relies on the use
-        // of fgSetupArgs, which is designed to operate on HIR. Once this is done for a
-        // particular statement, link that statement's nodes into the current basic block.
+        // of moSetupCallArgs, which is designed to operate on HIR. Once this is done for
+        // a particular statement, link that statement's nodes into the current basic block.
         GenTreeWalkResult PreOrderVisit(GenTree** use, GenTree* user)
         {
             GenTree* const node = *use;

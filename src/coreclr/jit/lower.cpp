@@ -1180,7 +1180,7 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
         //
         // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
         // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
-        // fgInitArgInfo would only need to take the GC info from the struct layout,
+        // moInitCallnfo would only need to take the GC info from the struct layout,
         // it doesn't need to deal with FIELD_LIST.
 
         assert(info->GetRegType(regIndex) == TYP_I_IMPL);
@@ -2488,7 +2488,7 @@ GenTree* Lowering::LowerIndirectVirtualStubCall(GenTreeCall* call)
     // This combination will only be generated for shared generic code and when
     // stub dispatch is active.
 
-    // fgSetupArgs will have created trees to pass the address in VirtualStubParam.reg.
+    // moSetupCallArgs will have created trees to pass the address in VirtualStubParam.reg.
     // All we have to do here is add an indirection to generate the actual call target.
 
     GenTreeIndLoad* ind = comp->gtNewIndLoad(TYP_I_IMPL, call->GetCallAddr());

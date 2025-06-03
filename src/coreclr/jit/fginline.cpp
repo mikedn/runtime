@@ -2199,7 +2199,7 @@ Statement* Compiler::inlPrependStatements(InlineInfo* inlineInfo)
 
         nullCheckThisArg = inlUseArg(inlineInfo, 0);
 
-        if (!fgAddrCouldBeNull(nullCheckThisArg))
+        if (!gtAddrCouldBeNull(nullCheckThisArg))
         {
             nullCheckThisArg = nullptr;
         }
@@ -2364,7 +2364,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
                     }
 
                     bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
-                    addrMayBeNull      = addrMayBeNull && fgAddrCouldBeNull(field->GetAddr());
+                    addrMayBeNull      = addrMayBeNull && gtAddrCouldBeNull(field->GetAddr());
 
                     if (addrMayBeNull)
                     {
@@ -2394,7 +2394,7 @@ Statement* Compiler::inlInitInlineeArgs(const InlineInfo* inlineInfo, Statement*
             {
                 GenTree* addr = argNode->AsIndLoadObj()->GetAddr();
 
-                if (fgAddrCouldBeNull(addr))
+                if (gtAddrCouldBeNull(addr))
                 {
                     sideEffects = gtNewNullCheck(addr);
                 }

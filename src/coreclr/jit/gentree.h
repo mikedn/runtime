@@ -4323,8 +4323,8 @@ public:
     }
 
     // Note that the distinction of whether tail prefixed or an implicit tail call
-    // is maintained on a call node till fgMorphCall() after which it will be
-    // either a tail call (i.e. IsTailCall() is true) or a non-tail call.
+    // is maintained on a call node till moMorphCall after which it will be either
+    // a tail call (i.e. IsTailCall() is true) or a non-tail call.
     bool IsExplicitTailCall() const
     {
         return (gtCallMoreFlags & GTF_CALL_M_EXPLICIT_TAILCALL) != 0;

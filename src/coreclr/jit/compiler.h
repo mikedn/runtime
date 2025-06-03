@@ -707,14 +707,14 @@ public:
     bool lvNormalizeOnLoad() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
+               // lvIsStructField is treated the same as the aliased local, see moMorphNormalizeLclStore.
                (lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
     bool lvNormalizeOnStore() const
     {
         return varTypeIsSmall(lvType) &&
-               // lvIsStructField is treated the same as the aliased local, see fgMorphNormalizeLclStore.
+               // lvIsStructField is treated the same as the aliased local, see moMorphNormalizeLclStore.
                !(lvIsParam || lvAddrExposed || lvIsStructField || lvWasStructField);
     }
 
@@ -2303,7 +2303,6 @@ public:
     GenTreeCall* fgOptimizeDelegateConstructor(GenTreeCall*            call,
                                                CORINFO_CONTEXT_HANDLE* exactContextHnd,
                                                CORINFO_RESOLVED_TOKEN* ldftnToken);
-    bool fgAddrCouldBeNull(GenTree* addr);
 
     LclVarDsc* inlGetInlineeLocal(InlineInfo* inlineInfo, unsigned ilLocNum);
     GenTree* inlUseArg(InlineInfo* inlineInfo, unsigned ilArgNum);
@@ -3656,7 +3655,7 @@ public:
 #endif
 
     bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
-                                // since fgMorphTree can be called from several places
+                                // since moMorphTree can be called from several places
 
     bool fgLoopCallMarked = false; // The following check for loops that don't execute calls
     bool fgHasLoops       = false; // True if this method has any loops, set in phComputeReachability
@@ -3988,6 +3987,8 @@ public:
 
     void fgMoveBlocksAfter(BasicBlock* bStart, BasicBlock* bEnd, BasicBlock* insertAfterBlk);
 
+    bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
+
     enum FG_RELOCATE_TYPE
     {
         FG_RELOCATE_TRY,    // relocate the 'try' region
@@ -4039,7 +4040,6 @@ public:
     void fgConvertBBToThrowBB(BasicBlock* block);
 
     bool gtIsSmallIntCastNeeded(GenTree* tree, var_types toType);
-    GenTree* fgMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value);
 
     void fgLoopCallTest(BasicBlock* srcBB, BasicBlock* dstBB);
     bool fgReachWithoutCall(BasicBlock* srcBB, BasicBlock* dstBB);
@@ -4199,24 +4199,12 @@ private:
     GenTree* fgMakeMultiUse(GenTree** ppTree);
 
 private:
-    static bool fgOperIsBitwiseRotationRoot(genTreeOps oper);
-    void fgRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
+    bool gtAddrCouldBeNull(GenTree* addr);
 
-#ifndef TARGET_64BIT
-    // Recognize and morph a long multiplication with 32 bit operands.
-    GenTreeOp* fgRecognizeAndMorphLongMul(GenTreeOp* mul);
-    GenTreeOp* fgMorphLongMul(GenTreeOp* mul);
-#endif
-
-private:
 #ifndef TARGET_X86
     hashBv* m_abiStructArgTemps      = nullptr;
     hashBv* m_abiStructArgTempsInUse = nullptr;
 #endif
-
-    void fgMoveOpsLeft(GenTreeOp* tree);
-
-    bool fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2);
 
     // A "MorphAddrContext" carries information from the surrounding context.  If we are evaluating a byref address,
     // it is useful to know whether the address will be immediately dereferenced, or whether the address value will
@@ -4228,95 +4216,100 @@ private:
     struct MorphAddrContext
     {
         const bool    isAddressTaken;
-        bool          isOffsetConstant;
-        target_size_t offset;
+        bool          isOffsetConstant = true;
+        target_size_t offset           = 0;
 
-        MorphAddrContext(bool isAddressTaken) : isAddressTaken(isAddressTaken), isOffsetConstant(true), offset(0)
+        MorphAddrContext(bool isAddressTaken) : isAddressTaken(isAddressTaken)
         {
         }
     };
 
-    GenTree* fgMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
-    GenTree* fgMorphTruncate(GenTreeUnOp* cast);
-    GenTree* fgMorphTruncatePost(GenTreeUnOp* cast);
-    GenTree* fgMorphConvPost(GenTreeUnOp* cast);
-    GenTree* fgMorphOverflowConvPost(GenTreeUnOp* node);
-    GenTree* fgMorphGCBitcast(GenTreeUnOp* cast);
-    void fgInitArgInfo(GenTreeCall* call);
-    void fgMorphArgs(GenTreeCall* call);
-    void fgSetupArgs(GenTreeCall* call);
-
-    GenTree* fgMorphLclLoad(GenTreeLclLoad* load);
-
-public:
-    GenTree* fgMorphIndexAddr(GenTreeIndexAddr* tree);
-    bool fgAddrCouldBeNull(GenTree* addr);
-
-private:
-    GenTree* fgMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
+    void moInitCallnfo(GenTreeCall* call);
+    void moMorphCallArgs(GenTreeCall* call);
+    void moSetupCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL
-    bool fgCanFastTailCall(GenTreeCall* call, const char** failReason);
+    bool moCanFastTailCall(GenTreeCall* call, const char** failReason);
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    bool fgCallHasMustCopyByrefParameter(CallInfo* callInfo);
+    bool moCallHasMustCopyByrefParameter(CallInfo* callInfo);
 #endif
 #endif
-    bool fgCheckStmtAfterTailCall(Statement* callStmt);
-    GenTree* fgMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
+    bool moCheckStmtAfterTailCall(Statement* callStmt);
+    GenTree* moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt);
 #ifdef TARGET_X86
-    bool     fgCanTailCallViaJitHelper();
-    GenTree* fgExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call);
-    GenTree* fgExpandDirectTailCallViaJitHelper(GenTreeCall* call);
-    GenTreeLclStore* fgMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt);
+    bool     moCanTailCallViaJitHelper();
+    GenTree* moExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call);
+    GenTree* moExpandDirectTailCallViaJitHelper(GenTreeCall* call);
+    GenTreeLclStore* moMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt);
 #endif
-    GenTree* fgCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
+    GenTree* moCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
                                                 const CORINFO_TAILCALL_HELPERS& helpers,
                                                 Statement*                      stmt);
-    GenTree* getRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
-                                  const CORINFO_RUNTIME_LOOKUP& lookup,
-                                  void*                         compileTimeHandle);
-    GenTree* getVirtMethodPointerTree(GenTree*                thisPtr,
-                                      CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                      CORINFO_CALL_INFO*      callInfo);
-    GenTree* getTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent);
+    GenTree* moGetRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
+                                    const CORINFO_RUNTIME_LOOKUP& lookup,
+                                    void*                         compileTimeHandle);
+    GenTree* moGetVirtMethodPointerTree(GenTree*                thisPtr,
+                                        CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                        CORINFO_CALL_INFO*      callInfo);
+    GenTree* moGetTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent);
 
-    GenTree* fgMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
-    void fgMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
-    void fgMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
-    Statement* fgAssignRecursiveCallArgToCallerParam(GenTree*     arg,
-                                                     CallArgInfo* argInfo,
-                                                     BasicBlock*  block,
-                                                     IL_OFFSETX   callILOffset,
-                                                     Statement*   tmpAssignmentInsertionPoint,
-                                                     Statement*   paramAssignmentInsertionPoint);
-    GenTree* fgMorphCall(GenTreeCall* call, Statement* stmt);
-    GenTree* fgRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
-    GenTree* fgExpandVirtualVtableCallTarget(GenTreeCall* call);
-    GenTree* fgExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr);
-    GenTree* fgMorphLeaf(GenTree* tree);
-    GenTree* fgMorphInitStruct(GenTree* store, GenTree* value);
-    GenTree* fgMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* value);
-    GenTree* fgMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
-    GenTree* fgMorphInitStructConstant(GenTreeIntCon* initVal,
+    GenTree* moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt);
+    void moMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* recursiveTailCall);
+    void moMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset);
+    Statement* moStoreRecursiveCallArgToCallerParam(GenTree*     arg,
+                                                    CallArgInfo* argInfo,
+                                                    BasicBlock*  block,
+                                                    IL_OFFSETX   callILOffset,
+                                                    Statement*   tmpAssignmentInsertionPoint,
+                                                    Statement*   paramAssignmentInsertionPoint);
+    GenTree* moMorphCall(GenTreeCall* call, Statement* stmt);
+    GenTree* moRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value);
+    GenTree* moExpandVirtualVtableCallTarget(GenTreeCall* call);
+    GenTree* moExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr);
+    GenTree* moMorphLeaf(GenTree* tree);
+    GenTree* moMorphInitStruct(GenTree* store, GenTree* value);
+    GenTree* moMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* value);
+    GenTree* moMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
+    GenTree* moMorphInitStructConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
                                        var_types      simdBaseType);
-    GenTree* fgMorphStructComma(GenTree* tree);
-    GenTree* fgMorphStructStore(GenTree* store, GenTree* value);
+    GenTree* moMorphStructComma(GenTree* tree);
+    GenTree* moMorphStructStore(GenTree* store, GenTree* value);
+    GenTree* moMorphDynBlk(GenTreeDynBlk* dynBlk);
+    GenTree* moMorphCopyStruct(GenTree* store, GenTree* value);
+    GenTree* moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
+    GenTree* moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
+    GenTree* moMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
+    GenTree* moMorphSmpOpOptional(GenTreeOp* tree);
+    GenTree* moMorphModToSubMulDiv(GenTreeOp* tree);
+    GenTree* moMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
+    GenTree* moMorphAssociative(GenTreeOp* tree);
+    GenTree* moMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str);
+    GenTree* moMorphTruncate(GenTreeUnOp* cast);
+    GenTree* moMorphTruncatePost(GenTreeUnOp* cast);
+    GenTree* moMorphConvPost(GenTreeUnOp* cast);
+    GenTree* moMorphOverflowConvPost(GenTreeUnOp* node);
+    GenTree* moMorphGCBitcast(GenTreeUnOp* cast);
+    GenTree* moMorphIndexAddr(GenTreeIndexAddr* tree);
+    GenTree* moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac);
+    GenTree* moMorphLclLoad(GenTreeLclLoad* load);
+    GenTree* moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value);
 #ifdef FEATURE_SIMD
-    GenTree* fgMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl);
-    GenTree* fgMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* destLcl);
+    GenTree* moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl);
+    GenTree* moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* destLcl);
 #endif
-    GenTree* fgMorphDynBlk(GenTreeDynBlk* dynBlk);
-    GenTree* fgMorphCopyStruct(GenTree* store, GenTree* value);
-    GenTree* fgMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
-    GenTree* fgMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
-    GenTree* fgMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
-    GenTree* fgMorphModToSubMulDiv(GenTreeOp* tree);
-    GenTree* fgMorphSmpOpOptional(GenTreeOp* tree);
-    GenTree* fgMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
-    GenTree* fgMorphAssociative(GenTreeOp* tree);
+#ifdef FEATURE_HW_INTRINSICS
+    GenTree* moMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
+#endif
 
-    void fgMorphArrElem(GenTreeArrElem* arrElem);
+    void moMorphArrElem(GenTreeArrElem* arrElem);
+    void moMoveOpsLeft(GenTreeOp* tree);
+
+    bool moMorphNarrowTree(GenTree* tree, var_types type);
+    bool moMorphNarrowTreeRec(GenTree* tree, var_types type, bool doit);
+
+    static bool moOperIsBitwiseRotationRoot(genTreeOps oper);
+    void moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT
     enum class MulLongCandidateKind
@@ -4328,30 +4321,81 @@ private:
         Unsigned
     };
 
-    MulLongCandidateKind fgMorphIsMulLongCandidate(GenTreeOp* mul);
-    GenTree* fgMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind);
+    MulLongCandidateKind moMorphIsMulLongCandidate(GenTreeOp* mul);
+    GenTree* moMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind kind);
 #endif
 
-#ifdef FEATURE_HW_INTRINSICS
-    GenTree* fgMorphHWIntrinsic(GenTreeHWIntrinsic* tree);
+    GenTree* moMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
+#ifdef DEBUG
+    void moMorphClearDebugNodeMorphed(GenTree* tree);
+#endif
+    void moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree = nullptr) DEBUGARG(int morphNum = 0));
+
+    Statement*  fgGlobalMorphStmt = nullptr;
+    BasicBlock* fgMorphBlock      = nullptr;
+
+    unsigned moGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
+                                                                 // used when morphing big offset.
+
+#if LOCAL_ASSERTION_PROP
+    struct MorphAssertion;
+
+public:
+    static constexpr unsigned morphAssertionMaxCount = 64;
+
+    unsigned                morphAssertionCount;
+    MorphAssertion*         morphAssertionTable; // table that holds info about local assignments
+    JitExpandArray<BitVec>* morphAssertionDep;   // table that holds dependent assertions (assertions
+                                                 // using the value of a local var) for each local var
+
+    void morphAssertionInit();
+    void morphAssertionDone();
+    void morphAssertionGenerate(GenTree* tree);
+    GenTree* morphAssertionPropagate(GenTree* tree);
+    bool morphAssertionIsNotNull(GenTreeLclLoad* load);
+    bool morphAssertionIsTypeRange(GenTreeLclLoad* load, var_types type);
+    void morphAssertionSetCount(unsigned count);
+    unsigned morphAssertionTableSize(unsigned count);
+    void morphAssertionGetTable(MorphAssertion* table, unsigned count);
+    void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
+    void morphAssertionMerge(unsigned              elseAssertionCount,
+                             const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
+    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclRef* store));
+
+private:
+    BitVec& morphAssertionGetDependent(unsigned lclNum);
+    void morphAssertionGenerateNotNull(GenTree* op1);
+    void morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* value);
+    void morphAssertionAdd(MorphAssertion& assertion);
+    const MorphAssertion& morphAssertionGet(unsigned index);
+    void morphAssertionRemove(unsigned index);
+    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclRef* store));
+    const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
+
+    GenTree* morphAssertionPropagateLclLoad(GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
+    GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
+    GenTree* morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node);
+    GenTree* morphAssertionPropagateConv(GenTreeUnOp* cast);
+    GenTree* morphAssertionPropagateCall(GenTreeCall* call);
+    GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
+    GenTree* morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load);
+    GenTree* morphAssertionPropagateLclLoadCopy(const MorphAssertion& assertion, GenTreeLclLoad* load);
+
+#ifdef DEBUG
+    unsigned morphAssertionId;
+    GenTree* morphAssertionCurrentTree;
+    void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
+#endif
 #endif
 
 public:
     GenTree* gtMorphTree(GenTree* tree)
     {
-        return fgMorphTree(tree);
+        return moMorphTree(tree);
     }
 
 private:
-    GenTree* fgMorphTree(GenTree* tree, MorphAddrContext* mac = nullptr);
-    INDEBUG(void fgMorphClearDebugNodeMorphed(GenTree* tree);)
-    void fgMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree = nullptr) DEBUGARG(int morphNum = 0));
-
-    Statement*  fgGlobalMorphStmt = nullptr;
-    BasicBlock* fgMorphBlock      = nullptr;
-
-    unsigned fgGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
-                                                                 // used when morphing big offset.
     ThrowHelperBlock* m_throwHelperBlockList = nullptr;
 
 public:
@@ -4454,6 +4498,8 @@ public:
 
     void optRemoveRangeCheck(GenTreeBoundsChk* check, GenTreeOp* comma, Statement* stmt);
 
+    void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
+
     void phOptimizeBools();
 
     PhaseStatus phInvertLoops();    // Invert loops so they're entered at top and tested at bottom.
@@ -4461,7 +4507,6 @@ public:
     PhaseStatus phFindLoops();      // Finds loops and records them in the loop table
 
     PhaseStatus phCloneLoops();
-    void optEnsureUniqueHead(unsigned loopInd, BasicBlock::weight_t ambientWeight);
     PhaseStatus phUnrollLoops(); // Unrolls loops (needs to have cost info)
 
     // A "LoopDsc" describes a ("natural") loop.  We (currently) require the body of a loop to be a contiguous (in
@@ -4714,9 +4759,6 @@ private:
 public:
     bool optIsVarAssigned(BasicBlock* beg, BasicBlock* end, GenTree* skip, LclVarDsc* lcl);
 
-    bool fgMorphNarrowTree(GenTree* tree, var_types type);
-    bool fgMorphNarrowTreeRec(GenTree* tree, var_types type, bool doit);
-
     /**************************************************************************
      *                       Optimization conditions
      *************************************************************************/
@@ -4832,56 +4874,6 @@ public:
     {
         optNoReturnCallCount++;
     }
-
-#if LOCAL_ASSERTION_PROP
-    struct MorphAssertion;
-
-    static constexpr unsigned morphAssertionMaxCount = 64;
-    unsigned                  morphAssertionCount;
-    MorphAssertion*           morphAssertionTable; // table that holds info about local assignments
-    JitExpandArray<BitVec>*   morphAssertionDep;   // table that holds dependent assertions (assertions
-                                                   // using the value of a local var) for each local var
-
-    void morphAssertionInit();
-    void morphAssertionDone();
-    void morphAssertionGenerate(GenTree* tree);
-    GenTree* morphAssertionPropagate(GenTree* tree);
-    bool morphAssertionIsNotNull(GenTreeLclLoad* load);
-    bool morphAssertionIsTypeRange(GenTreeLclLoad* load, var_types type);
-    void morphAssertionSetCount(unsigned count);
-    unsigned morphAssertionTableSize(unsigned count);
-    void morphAssertionGetTable(MorphAssertion* table, unsigned count);
-    void morphAssertionSetTable(const MorphAssertion* table, unsigned count);
-    void morphAssertionMerge(unsigned              elseAssertionCount,
-                             const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark));
-    void morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclRef* store));
-
-private:
-    BitVec& morphAssertionGetDependent(unsigned lclNum);
-    void morphAssertionGenerateNotNull(GenTree* op1);
-    void morphAssertionGenerateEqual(GenTreeLclStore* store, GenTree* value);
-    void morphAssertionAdd(MorphAssertion& assertion);
-    const MorphAssertion& morphAssertionGet(unsigned index);
-    void morphAssertionRemove(unsigned index);
-    void morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclRef* store));
-    const MorphAssertion* morphAssertionFindRange(unsigned lclNum);
-
-    GenTree* morphAssertionPropagateLclLoad(GenTreeLclLoad* load);
-    GenTree* morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load);
-    GenTree* morphAssertionPropagateIndir(GenTreeIndir* indir);
-    GenTree* morphAssertionPropagateOvfUnsigned(GenTreeUnOp* node);
-    GenTree* morphAssertionPropagateConv(GenTreeUnOp* cast);
-    GenTree* morphAssertionPropagateCall(GenTreeCall* call);
-    GenTree* morphAssertionPropagateRelOp(GenTreeOp* relop);
-    GenTree* morphAssertionPropagateLclLoadConst(const MorphAssertion& assertion, GenTreeLclLoad* load);
-    GenTree* morphAssertionPropagateLclLoadCopy(const MorphAssertion& assertion, GenTreeLclLoad* load);
-
-#ifdef DEBUG
-    unsigned morphAssertionId;
-    GenTree* morphAssertionCurrentTree;
-    void morphAssertionTrace(const MorphAssertion& assertion, GenTree* node, const char* message);
-#endif
-#endif
 
 public:
 #if ASSERTION_PROP
