@@ -4302,8 +4302,8 @@ private:
     void moMergeBlockReturn(BasicBlock* block);
 
     GenTreeQmark* moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store);
-    void moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt);
-    void moExpandQmarkStmt(BasicBlock* block, Statement* stmt);
+    void moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTreeQmark* qmark, GenTreeLclStore* store);
+    void moExpandQmarkStmt(BasicBlock* block, Statement* stmt, GenTreeQmark* qmark, GenTreeLclStore* store);
     void moExpandQmarkNodes();
 
     GenTreeOp* moIsCommaThrow(GenTree* tree DEBUGARG(bool forFolding));

@@ -3378,15 +3378,13 @@ IL_OFFSET Compiler::fgFindBlockILOffset(BasicBlock* block)
     return BAD_IL_OFFSET;
 }
 
-//------------------------------------------------------------------------------
-// fgSplitBlockAtEnd - split the given block into two blocks.
-//                   All code in the block stays in the original block.
-//                   Control falls through from original to new block, and
-//                   the new block is returned.
-//------------------------------------------------------------------------------
+// Split the given block into two blocks.
+// All code in the block stays in the original block.
+// Control falls through from original to new block,
+// and the new block is returned.
 BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
 {
-    // We'd like to use fgNewBBafter(), but we need to update the preds list before linking in the new block.
+    // We'd like to use fgNewBBafter, but we need to update the preds list before linking in the new block.
     // (We need the successors of 'curr' to be correct when we do this.)
     BasicBlock* newBlock = bbNewBasicBlock(curr->bbJumpKind);
 
@@ -3396,7 +3394,13 @@ BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
     // For each successor of the original block, set the new block as their predecessor.
     // Note we are using the "rational" version of the successor iterator that does not hide the finallyret arcs.
     // Without these arcs, a block 'b' may not be a member of succs(preds(b))
-    if (curr->bbJumpKind != BBJ_SWITCH)
+    if (curr->KindIs(BBJ_SWITCH))
+    {
+        fgChangeSwitchBlock(curr, newBlock);
+
+        curr->bbJumpSwt = nullptr;
+    }
+    else
     {
         for (BasicBlock* const succ : curr->Succs(this))
         {
@@ -3410,12 +3414,6 @@ BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
 
         newBlock->bbJumpDest = curr->bbJumpDest;
         curr->bbJumpDest     = nullptr;
-    }
-    else
-    {
-        fgChangeSwitchBlock(curr, newBlock);
-
-        curr->bbJumpSwt = nullptr;
     }
 
     newBlock->inheritWeight(curr);
@@ -3437,9 +3435,9 @@ BasicBlock* Compiler::fgSplitBlockAtEnd(BasicBlock* curr)
     // interruptible if we exercised more care here.
     newBlock->bbFlags &= ~BBF_GC_SAFE_POINT;
 
-#if defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
-    newBlock->bbFlags &= ~(BBF_FINALLY_TARGET);
-#endif // defined(FEATURE_EH_FUNCLETS) && defined(TARGET_ARM)
+#ifdef TARGET_ARM
+    newBlock->bbFlags &= ~BBF_FINALLY_TARGET;
+#endif
 
     // The new block has no code, so we leave bbCodeOffs/bbCodeOffsEnd set to BAD_IL_OFFSET. If a caller
     // puts code in the block, then it needs to update these.

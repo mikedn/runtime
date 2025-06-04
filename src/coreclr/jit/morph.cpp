@@ -12954,7 +12954,7 @@ GenTreeQmark* Compiler::moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** stor
 //  SKIP:                                                                     // remainderBlock
 //     tmp has the result.
 //
-void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
+void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTreeQmark* qmark, GenTreeLclStore* store)
 {
 #ifdef DEBUG
     if (verbose)
@@ -12964,19 +12964,13 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     }
 #endif
 
-    GenTree* expr = stmt->GetRootNode();
-
-    GenTreeLclStore* dst   = nullptr;
-    GenTreeQmark*    qmark = moGetTopLevelQmark(expr, &dst);
-    noway_assert(dst != nullptr);
-
-    assert(qmark->gtFlags & GTF_QMARK_CAST_INSTOF);
+    assert((qmark->gtFlags & GTF_QMARK_CAST_INSTOF) != 0);
+    assert(store != nullptr);
 
     GenTree* condExpr  = qmark->GetCondition();
     GenTree* trueExpr  = qmark->GetThen();
     GenTree* falseExpr = qmark->GetElse();
 
-    // Get cond, true, false exprs for the nested QMARK.
     GenTree* nestedQmark = falseExpr;
     GenTree* cond2Expr;
     GenTree* true2Expr;
@@ -12994,9 +12988,9 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         // gtFoldExpr was still is able to optimize away part of the tree (but not all).
         // That means it does not match our pattern.
 
-        // Rather than write code to handle this case, just fake up some nodes to make it match the common
-        // case.  Synthesize a comparison that is always true, and for the result-on-true, use the
-        // entire subtree we expected to be the nested question op.
+        // Rather than write code to handle this case, just fake up some nodes to make it match the
+        // common case. Synthesize a comparison that is always true, and for the result-on-true, use
+        // the entire subtree we expected to be the nested question op.
 
         cond2Expr  = gtNewOperNode(GT_EQ, TYP_INT, gtNewIconNode(0, TYP_I_IMPL), gtNewIconNode(0, TYP_I_IMPL));
         true2Expr  = nestedQmark;
@@ -13038,7 +13032,6 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
         asgBlock->bbFlags |= BBF_IMPORTED;
     }
 
-    // Chain the flow correctly.
     fgAddRefPred(asgBlock, block);
     fgAddRefPred(cond1Block, asgBlock);
     fgAddRefPred(cond2Block, cond1Block);
@@ -13066,7 +13059,7 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(cond2Block, jmpStmt);
 
-    LclVarDsc* dstLcl  = dst->GetLcl();
+    LclVarDsc* dstLcl  = store->GetLcl();
     var_types  dstType = dstLcl->GetType();
 
     assert(varTypeIsI(dstType));
@@ -13098,21 +13091,11 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 #endif
 }
 
-void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
+void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt, GenTreeQmark* qmark, GenTreeLclStore* store)
 {
-    GenTree* expr = stmt->GetRootNode();
-
-    GenTreeLclStore* store = nullptr;
-    GenTreeQmark*    qmark = moGetTopLevelQmark(expr, &store);
-
-    if (qmark == nullptr)
-    {
-        return;
-    }
-
     if ((qmark->gtFlags & GTF_QMARK_CAST_INSTOF) != 0)
     {
-        moExpandQmarkForCastInstOf(block, stmt);
+        moExpandQmarkCastClass(block, stmt, qmark, store);
         return;
     }
 
@@ -13129,10 +13112,6 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     GenTree* falseExpr = qmark->GetElse();
 
     assert(!varTypeIsFloating(condExpr->GetType()));
-
-    bool hasTrueExpr  = !trueExpr->OperIs(GT_NOP);
-    bool hasFalseExpr = !falseExpr->OperIs(GT_NOP);
-    assert(hasTrueExpr || hasFalseExpr); // We expect to have at least one arm of the QMARK!
 
     // Create remainder, cond and "else" blocks. After this, the blocks are in this order:
     //     block ... condBlock ... elseBlock ... remainderBlock
@@ -13166,6 +13145,9 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     fgAddRefPred(elseBlock, condBlock);
     fgAddRefPred(remainderBlock, elseBlock);
 
+    const bool hasTrueExpr  = !trueExpr->OperIs(GT_NOP);
+    const bool hasFalseExpr = !falseExpr->OperIs(GT_NOP);
+
     BasicBlock* thenBlock = nullptr;
 
     if (hasTrueExpr && hasFalseExpr)
@@ -13175,6 +13157,7 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 
         thenBlock             = fgNewBBafter(BBJ_ALWAYS, condBlock, true);
         thenBlock->bbJumpDest = remainderBlock;
+
         if ((block->bbFlags & BBF_INTERNAL) == 0)
         {
             thenBlock->bbFlags &= ~BBF_INTERNAL;
@@ -13192,14 +13175,17 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         gtReverseCond(condExpr);
         condBlock->bbJumpDest = remainderBlock;
         fgAddRefPred(remainderBlock, condBlock);
+
         // Since we have no false expr, use the one we'd already created.
         thenBlock = elseBlock;
         elseBlock = nullptr;
 
         thenBlock->inheritWeightPercentage(condBlock, 50);
     }
-    else if (hasFalseExpr)
+    else
     {
+        assert(hasFalseExpr);
+
         condBlock->bbJumpDest = remainderBlock;
         fgAddRefPred(remainderBlock, condBlock);
 
@@ -13210,7 +13196,6 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     Statement* jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(condBlock, jmpStmt);
 
-    // Remove the original QMARK statement.
     fgRemoveStmt(block, stmt);
 
     if (store == nullptr)
@@ -13228,23 +13213,23 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
         assert(varTypeIsI(lclType));
         assert(lclType == qmark->GetType());
 
-        if (hasTrueExpr)
+        if (thenBlock != nullptr)
         {
             trueExpr = gtNewLclStore(lcl, lclType, trueExpr);
         }
 
-        if (hasFalseExpr)
+        if (elseBlock != nullptr)
         {
             falseExpr = gtNewLclStore(lcl, lclType, falseExpr);
         }
     }
 
-    if (hasTrueExpr)
+    if (thenBlock != nullptr)
     {
         fgInsertStmtAtEnd(thenBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
     }
 
-    if (hasFalseExpr)
+    if (elseBlock != nullptr)
     {
         fgInsertStmtAtEnd(elseBlock, gtNewStmt(falseExpr, stmt->GetILOffsetX()));
     }
@@ -13268,7 +13253,13 @@ void Compiler::moExpandQmarkNodes()
             {
                 GenTree* expr = stmt->GetRootNode();
                 INDEBUG(moPreExpandQmarkChecks(expr);)
-                moExpandQmarkStmt(block, stmt);
+
+                GenTreeLclStore* store = nullptr;
+
+                if (GenTreeQmark* qmark = moGetTopLevelQmark(expr, &store))
+                {
+                    moExpandQmarkStmt(block, stmt, qmark, store);
+                }
             }
         }
 
