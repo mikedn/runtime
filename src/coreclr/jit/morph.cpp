@@ -12971,16 +12971,15 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     GenTree* trueExpr  = qmark->GetThen();
     GenTree* falseExpr = qmark->GetElse();
 
-    GenTree* nestedQmark = falseExpr;
     GenTree* cond2Expr;
     GenTree* true2Expr;
     GenTree* false2Expr;
 
-    if (nestedQmark->IsQmark())
+    if (GenTreeQmark* nestedQmark = falseExpr->IsQmark())
     {
-        cond2Expr  = nestedQmark->AsQmark()->GetCondition();
-        true2Expr  = nestedQmark->AsQmark()->GetThen();
-        false2Expr = nestedQmark->AsQmark()->GetElse();
+        cond2Expr  = nestedQmark->GetCondition();
+        true2Expr  = nestedQmark->GetThen();
+        false2Expr = nestedQmark->GetElse();
     }
     else
     {
@@ -12993,7 +12992,7 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
         // the entire subtree we expected to be the nested question op.
 
         cond2Expr  = gtNewOperNode(GT_EQ, TYP_INT, gtNewIconNode(0, TYP_I_IMPL), gtNewIconNode(0, TYP_I_IMPL));
-        true2Expr  = nestedQmark;
+        true2Expr  = falseExpr;
         false2Expr = gtNewIconNode(0, TYP_I_IMPL);
     }
 
@@ -13005,8 +13004,8 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     //
     // We need to remember flags that exist on 'block' that we want to propagate to 'remainderBlock',
     // if they are going to be cleared by fgSplitBlockAfterStatement(). We currently only do this only
-    // for the GC safe point bit, the logic being that if 'block' was marked gcsafe, then surely
-    // remainderBlock will still be GC safe.
+    // for the GC safe point bit, the logic being that if 'block' was marked GC-safe, then surely
+    // remainderBlock will still be GC-safe.
     BasicBlockFlags propagateFlags = block->bbFlags & BBF_GC_SAFE_POINT;
     BasicBlock*     remainderBlock = fgSplitBlockAfterStatement(block, stmt);
     fgRemoveRefPred(remainderBlock, block); // We're going to put more blocks between block and remainderBlock.
@@ -13014,7 +13013,7 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     BasicBlock* helperBlock = fgNewBBafter(BBJ_NONE, block, true);
     BasicBlock* cond2Block  = fgNewBBafter(BBJ_COND, block, true);
     BasicBlock* cond1Block  = fgNewBBafter(BBJ_COND, block, true);
-    BasicBlock* asgBlock    = fgNewBBafter(BBJ_NONE, block, true);
+    BasicBlock* storeBlock  = fgNewBBafter(BBJ_NONE, block, true);
 
     remainderBlock->bbFlags |= propagateFlags;
 
@@ -13023,17 +13022,17 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     if ((block->bbFlags & BBF_INTERNAL) == 0)
     {
         helperBlock->bbFlags &= ~BBF_INTERNAL;
-        cond2Block->bbFlags &= ~BBF_INTERNAL;
-        cond1Block->bbFlags &= ~BBF_INTERNAL;
-        asgBlock->bbFlags &= ~BBF_INTERNAL;
         helperBlock->bbFlags |= BBF_IMPORTED;
+        cond2Block->bbFlags &= ~BBF_INTERNAL;
         cond2Block->bbFlags |= BBF_IMPORTED;
+        cond1Block->bbFlags &= ~BBF_INTERNAL;
         cond1Block->bbFlags |= BBF_IMPORTED;
-        asgBlock->bbFlags |= BBF_IMPORTED;
+        storeBlock->bbFlags &= ~BBF_INTERNAL;
+        storeBlock->bbFlags |= BBF_IMPORTED;
     }
 
-    fgAddRefPred(asgBlock, block);
-    fgAddRefPred(cond1Block, asgBlock);
+    fgAddRefPred(storeBlock, block);
+    fgAddRefPred(cond1Block, storeBlock);
     fgAddRefPred(cond2Block, cond1Block);
     fgAddRefPred(helperBlock, cond2Block);
     fgAddRefPred(remainderBlock, helperBlock);
@@ -13044,7 +13043,7 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     cond2Block->bbJumpDest = remainderBlock;
 
     // Set the weights; some are guesses.
-    asgBlock->inheritWeight(block);
+    storeBlock->inheritWeight(block);
     cond1Block->inheritWeight(block);
     cond2Block->inheritWeightPercentage(cond1Block, 50);
     helperBlock->inheritWeightPercentage(cond2Block, 50);
@@ -13065,7 +13064,7 @@ void Compiler::moExpandQmarkCastClass(BasicBlock* block, Statement* stmt, GenTre
     assert(varTypeIsI(dstType));
 
     trueExpr = gtNewLclStore(dstLcl, dstType, trueExpr);
-    fgInsertStmtAtEnd(asgBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
+    fgInsertStmtAtEnd(storeBlock, gtNewStmt(trueExpr, stmt->GetILOffsetX()));
 
     // Since we are adding helper in the JTRUE false path, reverse the cond2 and add the helper.
     gtReverseCond(cond2Expr);
@@ -13132,8 +13131,8 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt, GenTreeQmar
     if ((block->bbFlags & BBF_INTERNAL) == 0)
     {
         condBlock->bbFlags &= ~BBF_INTERNAL;
-        elseBlock->bbFlags &= ~BBF_INTERNAL;
         condBlock->bbFlags |= BBF_IMPORTED;
+        elseBlock->bbFlags &= ~BBF_INTERNAL;
         elseBlock->bbFlags |= BBF_IMPORTED;
     }
 

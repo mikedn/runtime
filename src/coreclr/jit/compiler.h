@@ -1683,16 +1683,13 @@ public:
                              HandleKind              handleKnd,
                              void*                   compileTimeHandle);
 
-    GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                    CORINFO_LOOKUP*         pLookup,
+    GenTree* impRuntimeLookupToTree(CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                    CORINFO_LOOKUP*         lookup,
                                     void*                   compileTimeHandle);
 
-    GenTree* impCastClassOrIsInstToTree(GenTree*                op1,
-                                        GenTree*                op2,
-                                        CORINFO_RESOLVED_TOKEN* pResolvedToken,
-                                        bool                    isCastClass);
+    GenTree* ImportClassCast(GenTree* obj, GenTree* handle, CORINFO_RESOLVED_TOKEN& resolvedToken, bool isCastClass);
 
-    GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
+    GenTree* OptimizeClassCast(GenTree* op1, CORINFO_CLASS_HANDLE toClass, bool isCastClass);
 
     unsigned AdvanceStmtOffset(unsigned nextStmtOffsIndex, unsigned opcodeOffs);
     void impCurStmtOffsSet(IL_OFFSET offs);
@@ -1735,7 +1732,7 @@ public:
     BasicBlock* impPushCatchArgOnStack(BasicBlock* hndBlk, CORINFO_CLASS_HANDLE clsHnd, bool isSingleBlockFilter);
     GenTree* impNewCatchArg();
 
-    bool impBlockIsInALoop(BasicBlock* block);
+    bool BlockIsInALoop(BasicBlock* block) const;
     void impImportBlockCode(BasicBlock* block);
 
     void impAddPendingEHSuccessors(BasicBlock* block);

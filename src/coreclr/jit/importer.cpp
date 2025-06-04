@@ -8187,117 +8187,80 @@ void Importer::impBranchToNextBlock(BasicBlock* block, GenTree* op1, GenTree* op
     }
 }
 
-//------------------------------------------------------------------------
-// impOptimizeCastClassOrIsInst: attempt to resolve a cast when jitting
-//
-// Arguments:
-//   op1 - value to cast
-//   resolvedToken - resolved token for type to cast to
-//   isCastClass - true if this is a castclass, false if isinst
-//
-// Return Value:
-//   tree representing optimized cast, or null if no optimization possible
-
-GenTree* Importer::impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass)
+GenTree* Importer::OptimizeClassCast(GenTree* obj, CORINFO_CLASS_HANDLE toClass, bool isCastClass)
 {
-    assert(op1->TypeIs(TYP_REF));
+    assert(obj->TypeIs(TYP_REF));
 
-    // Don't optimize for minopts or debug codegen.
     if (opts.OptimizationDisabled())
     {
         return nullptr;
     }
 
-    // See what we know about the type of the object being cast.
     bool                 isExact   = false;
     bool                 isNonNull = false;
-    CORINFO_CLASS_HANDLE fromClass = gtGetClassHandle(op1, &isExact, &isNonNull);
+    CORINFO_CLASS_HANDLE fromClass = gtGetClassHandle(obj, &isExact, &isNonNull);
 
-    if (fromClass != nullptr)
+    if (fromClass == nullptr)
     {
-        CORINFO_CLASS_HANDLE toClass = pResolvedToken->hClass;
-        JITDUMP("\nConsidering optimization of %s from %s%p (%s) to %p (%s)\n", isCastClass ? "castclass" : "isinst",
-                isExact ? "exact " : "", dspPtr(fromClass), vm->getClassName(fromClass), dspPtr(toClass),
-                vm->getClassName(toClass));
+        JITDUMP("\nCan't optimize class cast since fromClass is unknown\n");
+        return nullptr;
+    }
 
-        // Perhaps we know if the cast will succeed or fail.
-        TypeCompareState castResult = vm->compareTypesForCast(fromClass, toClass);
+    JITDUMP("\nConsidering optimization of %s from %s%p (%s) to %p (%s)\n", isCastClass ? "castclass" : "isinst",
+            isExact ? "exact " : "", dspPtr(fromClass), vm->getClassName(fromClass), dspPtr(toClass),
+            vm->getClassName(toClass));
 
-        if (castResult == TypeCompareState::Must)
+    TypeCompareState castResult = vm->compareTypesForCast(fromClass, toClass);
+
+    if (castResult == TypeCompareState::Must)
+    {
+        JITDUMP("Cast will succeed, optimizing to simply return input\n");
+        return obj;
+    }
+
+    if (castResult != TypeCompareState::MustNot)
+    {
+        JITDUMP("Result of cast unknown, must generate runtime test\n");
+        return nullptr;
+    }
+
+    if (!isExact)
+    {
+        isExact = impIsClassExact(fromClass);
+    }
+
+    if (!isExact || isCastClass)
+    {
+        if (isExact)
         {
-            // Cast will succeed, result is simply op1.
-            JITDUMP("Cast will succeed, optimizing to simply return input\n");
-            return op1;
-        }
-        else if (castResult == TypeCompareState::MustNot)
-        {
-            // See if we can sharpen exactness by looking for final classes
-            if (!isExact)
-            {
-                isExact = impIsClassExact(fromClass);
-            }
-
-            // Cast to exact type will fail. Handle case where we have
-            // an exact type (that is, fromClass is not a subtype)
-            // and we're not going to throw on failure.
-            if (isExact && !isCastClass)
-            {
-                JITDUMP("Cast will fail, optimizing to return null\n");
-                GenTree* result = comp->gtNewIconNode(0, TYP_REF);
-
-                // If the cast was fed by a box, we can remove that too.
-                if (GenTreeBox* box = op1->IsBox())
-                {
-                    JITDUMP("Also removing upstream box\n");
-                    comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW);
-                }
-
-                return result;
-            }
-            else if (isExact)
-            {
-                JITDUMP("Not optimizing failing castclass (yet)\n");
-            }
-            else
-            {
-                JITDUMP("Can't optimize since fromClass is inexact\n");
-            }
+            JITDUMP("Not optimizing failing class cast (yet)\n");
         }
         else
         {
-            JITDUMP("Result of cast unknown, must generate runtime test\n");
+            JITDUMP("Can't optimize since fromClass is inexact\n");
         }
-    }
-    else
-    {
-        JITDUMP("\nCan't optimize since fromClass is unknown\n");
+
+        return nullptr;
     }
 
-    return nullptr;
+    JITDUMP("Cast will fail, optimizing to return null\n");
+
+    if (GenTreeBox* box = obj->IsBox())
+    {
+        JITDUMP("Also removing upstream box\n");
+        comp->gtTryRemoveBoxUpstreamEffects(box, Compiler::BR_REMOVE_AND_NARROW);
+    }
+
+    return comp->gtNewIconNode(0, TYP_REF);
 }
 
-//------------------------------------------------------------------------
-// impCastClassOrIsInstToTree: build and import castclass/isinst
-//
-// Arguments:
-//   op1 - value to cast
-//   op2 - type handle for type to cast to
-//   resolvedToken - resolved token from the cast operation
-//   isCastClass - true if this is castclass, false means isinst
-//
-// Return Value:
-//   Tree representing the cast
-//
-// Notes:
-//   May expand into a series of runtime checks or a helper call.
-
-GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
-                                              GenTree*                op2,
-                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                              bool                    isCastClass)
+GenTree* Importer::ImportClassCast(GenTree*                obj,
+                                   GenTree*                handle,
+                                   CORINFO_RESOLVED_TOKEN& resolvedToken,
+                                   bool                    isCastClass)
 {
-    assert(op1->TypeIs(TYP_REF));
-    assert(op2->TypeIs(TYP_I_IMPL));
+    assert(obj->TypeIs(TYP_REF));
+    assert(handle->TypeIs(TYP_I_IMPL));
 
     // Optimistically assume the jit should expand this as an inline test
     bool shouldExpandInline = true;
@@ -8312,7 +8275,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
         // not worth the code expansion if jitting fast or in a rarely run block
         shouldExpandInline = false;
     }
-    else if (op1->HasAnySideEffect(GTF_GLOB_EFFECT) && lvaHaveManyLocals())
+    else if (obj->HasAnySideEffect(GTF_GLOB_EFFECT) && lvaHaveManyLocals())
     {
         // not worth creating an untracked local variable
         shouldExpandInline = false;
@@ -8320,7 +8283,7 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
     // Pessimistically assume the jit cannot expand this as an inline test
     bool                  canExpandInline = false;
-    const CorInfoHelpFunc helper          = vm->getCastingHelper(resolvedToken, isCastClass);
+    const CorInfoHelpFunc helper          = vm->getCastingHelper(&resolvedToken, isCastClass);
 
     // Legality check.
     //
@@ -8333,13 +8296,10 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
             // Jit can only inline expand the normal CHKCASTCLASS helper.
             canExpandInline = (helper == CORINFO_HELP_CHKCASTCLASS);
         }
-        else
+        else if (helper == CORINFO_HELP_ISINSTANCEOFCLASS)
         {
-            if (helper == CORINFO_HELP_ISINSTANCEOFCLASS)
-            {
-                // If the class is exact, the jit can expand the IsInst check inline.
-                canExpandInline = impIsClassExact(resolvedToken->hClass);
-            }
+            // If the class is exact, the jit can expand the IsInst check inline.
+            canExpandInline = impIsClassExact(resolvedToken.hClass);
         }
     }
 
@@ -8352,41 +8312,41 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
 
         // If we CSE this class handle we prevent assertionProp from making SubType assertions
         // so instead we force the CSE logic to not consider CSE-ing this class handle.
-        op2->gtFlags |= GTF_DONT_CSE;
+        handle->gtFlags |= GTF_DONT_CSE;
 
-        return gtNewHelperCallNode(helper, TYP_REF, op2, op1);
+        return gtNewHelperCallNode(helper, TYP_REF, handle, obj);
     }
 
     JITDUMP("\nExpanding %s inline\n", isCastClass ? "castclass" : "isinst");
 
     impSpillSideEffects(GTF_GLOB_EFFECT, CHECK_SPILL_ALL DEBUGARG("castclass qmark temp"));
 
-    GenTree* op1Uses[5];
-    impMakeMultiUse(op1, 4 + isCastClass, op1Uses, CHECK_SPILL_ALL DEBUGARG("castclass obj temp"));
+    GenTree* objUses[5];
+    impMakeMultiUse(obj, 4 + isCastClass, objUses, CHECK_SPILL_ALL DEBUGARG("castclass obj temp"));
 
-    GenTree* op2Use = op2;
+    GenTree* handleUse = handle;
 
     if (isCastClass)
     {
         LclVarDsc* lcl = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("castclass class handle temp"));
         lcl->lvIsCSE   = true;
 
-        GenTree* store = comp->gtNewLclStore(lcl, TYP_I_IMPL, op2);
+        GenTree* store = comp->gtNewLclStore(lcl, TYP_I_IMPL, handle);
 
-        op2    = comp->gtNewCommaNode(store, comp->gtNewLclLoad(lcl, TYP_I_IMPL), TYP_I_IMPL);
-        op2Use = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
+        handle    = comp->gtNewCommaNode(store, comp->gtNewLclLoad(lcl, TYP_I_IMPL), TYP_I_IMPL);
+        handleUse = comp->gtNewLclLoad(lcl, TYP_I_IMPL);
     }
 
-    GenTree* condMT    = comp->gtNewOperNode(GT_NE, TYP_INT, comp->gtNewMethodTableLookup(op1Uses[0]), op2);
-    GenTree* condNull  = comp->gtNewOperNode(GT_EQ, TYP_INT, op1Uses[1], comp->gtNewIconNode(0, TYP_REF));
-    GenTree* condFalse = op1Uses[2];
+    GenTree* condMT    = comp->gtNewOperNode(GT_NE, TYP_INT, comp->gtNewMethodTableLookup(objUses[0]), handle);
+    GenTree* condNull  = comp->gtNewOperNode(GT_EQ, TYP_INT, objUses[1], comp->gtNewIconNode(0, TYP_REF));
+    GenTree* condFalse = objUses[2];
     GenTree* condTrue;
 
     if (isCastClass)
     {
-        condTrue = gtNewHelperCallNode(CORINFO_HELP_CHKCASTCLASS_SPECIAL, TYP_REF, op2Use, op1Uses[4]);
+        condTrue = gtNewHelperCallNode(CORINFO_HELP_CHKCASTCLASS_SPECIAL, TYP_REF, handleUse, objUses[4]);
 
-        if (impIsClassExact(resolvedToken->hClass))
+        if (impIsClassExact(resolvedToken.hClass))
         {
             // The helper is used only for throwing InvalidCastException in case of casting to an exact class.
             condTrue->AsCall()->gtCallMoreFlags |= GTF_CALL_M_DOES_NOT_RETURN;
@@ -8398,37 +8358,27 @@ GenTree* Importer::impCastClassOrIsInstToTree(GenTree*                op1,
     }
 
     GenTree* qmarkMT   = gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
-    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, op1Uses[3], qmarkMT);
+    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, objUses[3], qmarkMT);
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     LclVarDsc* lcl = lvaNewTemp(TYP_REF, true DEBUGARG("castclass null qmark temp"));
     impSpillNoneAppendTree(comp->gtNewLclStore(lcl, TYP_REF, qmarkNull));
 
-    // TODO-CQ: Is it possible op1 has a better type?
+    // TODO-CQ: Is it possible obj has a better type?
     // See also gtGetHelperCallClassHandle where we make the same
     // determination for the helper call variants.
     assert(!lcl->lvSingleDef);
     lcl->lvSingleDef = true;
     JITDUMP("Marked V%02u as a single def temp\n", lcl->GetLclNum());
-    comp->lvaSetClass(lcl, resolvedToken->hClass);
+    comp->lvaSetClass(lcl, resolvedToken.hClass);
 
     return comp->gtNewLclLoad(lcl, TYP_REF);
 }
 
-//------------------------------------------------------------------------
-// impBlockIsInALoop: check if a block might be in a loop
-//
-// Arguments:
-//    block - block to check
-//
-// Returns:
-//    true if the block might be in a loop.
-//
-// Notes:
-//    Conservatively correct; may return true for some blocks that are
-//    not actually in loops.
-//
-bool Importer::impBlockIsInALoop(BasicBlock* block)
+// Check if a block might be in a loop.
+// Conservatively correct; may return true for some blocks
+// that are not actually in loops.
+bool Importer::BlockIsInALoop(BasicBlock* block) const
 {
     return (compIsForInlining() && ((impInlineInfo->iciBlock->bbFlags & BBF_BACKWARD_JUMP) != 0)) ||
            ((block->bbFlags & BBF_BACKWARD_JUMP) != 0);
@@ -10982,7 +10932,7 @@ void Importer::ImportLocAlloc(BasicBlock* block)
             JITDUMP("Converting stackalloc of 0 bytes to push null unmanaged pointer\n");
             op1 = comp->gtNewIconNode(0, TYP_I_IMPL);
         }
-        else if ((allocSize > 0) && !impBlockIsInALoop(block))
+        else if ((allocSize > 0) && !BlockIsInALoop(block))
         {
             ssize_t maxSize = DEFAULT_MAX_LOCALLOC_TO_LOCAL_SIZE;
             INDEBUG(maxSize = JitConfig.JitStackAllocToLocalSize();)
@@ -11044,12 +10994,13 @@ void Importer::ImportIsInst(const uint8_t* codeAddr)
     ResolveToken(codeAddr, &resolvedToken, CORINFO_TOKENKIND_Casting);
     JITDUMP(" %08X", resolvedToken.token);
 
-    GenTree* op2 = nullptr;
+    GenTree* handle = nullptr;
 
     if (!opts.IsReadyToRun())
     {
-        op2 = impTokenToHandle(&resolvedToken);
-        if (op2 == nullptr)
+        handle = impTokenToHandle(&resolvedToken);
+
+        if (handle == nullptr)
         {
             assert(compDonotInline());
             return;
@@ -11061,49 +11012,46 @@ void Importer::ImportIsInst(const uint8_t* codeAddr)
         vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    GenTree* op1 = impPopStack().val;
+    GenTree* obj = impPopStack().val;
 
-    GenTree* optTree = impOptimizeCastClassOrIsInst(op1, &resolvedToken, false);
-
-    if (optTree != nullptr)
+    if (GenTree* optTree = OptimizeClassCast(obj, resolvedToken.hClass, false))
     {
         impPushOnStack(optTree);
         return;
     }
 
-    bool usingReadyToRunHelper = false;
-
 #ifdef FEATURE_READYTORUN_COMPILER
     if (opts.IsReadyToRun())
     {
-        GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_ISINSTANCEOF, &resolvedToken, TYP_REF,
-                                                       comp->gtNewCallArgs(op1));
-        usingReadyToRunHelper = (opLookup != nullptr);
-        op1                   = (usingReadyToRunHelper ? opLookup : op1);
-
-        if (!usingReadyToRunHelper)
+        if (GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_ISINSTANCEOF, &resolvedToken,
+                                                           TYP_REF, comp->gtNewCallArgs(obj)))
+        {
+            obj = opLookup;
+        }
+        else
         {
             // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
             // and the isinstanceof_any call with a single call to a dynamic R2R cell that will:
-            //      1) Load the context
-            //      2) Perform the generic dictionary lookup and caching, and generate the appropriate
-            //      stub
-            //      3) Perform the 'is instance' check on the input object
+            //   1) Load the context
+            //   2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
+            //   3) Perform the 'is instance' check on the input object
             // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
 
-            op2 = impTokenToHandle(&resolvedToken);
-            if (op2 == nullptr)
+            handle = impTokenToHandle(&resolvedToken);
+
+            if (handle == nullptr)
             {
                 assert(compDonotInline());
                 return;
             }
+
+            obj = ImportClassCast(obj, handle, resolvedToken, false);
         }
     }
-
-    if (!usingReadyToRunHelper)
+    else
 #endif
     {
-        op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, false);
+        obj = ImportClassCast(obj, handle, resolvedToken, false);
     }
 
     if (compDonotInline())
@@ -11111,18 +11059,18 @@ void Importer::ImportIsInst(const uint8_t* codeAddr)
         return;
     }
 
-    impPushOnStack(op1);
+    impPushOnStack(obj);
 }
 
 void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny)
 {
-    GenTree* op2 = nullptr;
+    GenTree* handle = nullptr;
 
     if (!opts.IsReadyToRun() || isUnboxAny)
     {
-        op2 = impTokenToHandle(&resolvedToken);
+        handle = impTokenToHandle(&resolvedToken);
 
-        if (op2 == nullptr)
+        if (handle == nullptr)
         {
             assert(compDonotInline());
             return;
@@ -11134,54 +11082,54 @@ void Importer::ImportCastClass(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnb
         vm->canAccessClass(&resolvedToken, info.compMethodHnd, &calloutHelper);
     impHandleAccessAllowed(accessAllowedResult, calloutHelper);
 
-    GenTree* op1     = impPopStack().val;
-    GenTree* optTree = impOptimizeCastClassOrIsInst(op1, &resolvedToken, true);
+    GenTree* obj = impPopStack().val;
 
-    if (optTree != nullptr)
+    if (GenTree* optTree = OptimizeClassCast(obj, resolvedToken.hClass, true))
     {
-        op1 = optTree;
+        impPushOnStack(optTree);
+        return;
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (opts.IsReadyToRun())
+    {
+        if (GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_CHKCAST, &resolvedToken, TYP_REF,
+                                                           comp->gtNewCallArgs(obj)))
+        {
+            obj = opLookup;
+        }
+        else
+        {
+            // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
+            // and the chkcastany call with a single call to a dynamic R2R cell that will:
+            //   1) Load the context
+            //   2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
+            //   3) Check the object on the stack for the type-cast
+            // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
+
+            handle = impTokenToHandle(&resolvedToken);
+
+            if (handle == nullptr)
+            {
+                assert(compDonotInline());
+                return;
+            }
+
+            obj = ImportClassCast(obj, handle, resolvedToken, true);
+        }
     }
     else
-    {
-#ifdef FEATURE_READYTORUN_COMPILER
-        bool usingReadyToRunHelper = false;
-
-        if (opts.IsReadyToRun())
-        {
-            GenTreeCall* opLookup = gtNewR2RHelperCallNode(CORINFO_HELP_READYTORUN_CHKCAST, &resolvedToken, TYP_REF,
-                                                           comp->gtNewCallArgs(op1));
-            usingReadyToRunHelper = (opLookup != nullptr);
-            op1                   = (usingReadyToRunHelper ? opLookup : op1);
-
-            if (!usingReadyToRunHelper)
-            {
-                // TODO: ReadyToRun: When generic dictionary lookups are necessary, replace the lookup call
-                // and the chkcastany call with a single call to a dynamic R2R cell that will:
-                //   1) Load the context
-                //   2) Perform the generic dictionary lookup and caching, and generate the appropriate stub
-                //   3) Check the object on the stack for the type-cast
-                // Reason: performance (today, we'll always use the slow helper for the R2R generics case)
-
-                op2 = impTokenToHandle(&resolvedToken);
-                if (op2 == nullptr)
-                {
-                    return;
-                }
-            }
-        }
-
-        if (!usingReadyToRunHelper)
 #endif
-        {
-            op1 = impCastClassOrIsInstToTree(op1, op2, &resolvedToken, true);
-        }
-        if (compDonotInline())
-        {
-            return;
-        }
+    {
+        obj = ImportClassCast(obj, handle, resolvedToken, true);
     }
 
-    impPushOnStack(op1);
+    if (compDonotInline())
+    {
+        return;
+    }
+
+    impPushOnStack(obj);
 }
 
 void Importer::ImportUnbox(CORINFO_RESOLVED_TOKEN& resolvedToken, bool isUnboxAny)
@@ -11890,7 +11838,7 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             comp->lvaSetStruct(lcl, layout, /* checkUnsafeBuffer */ true);
         }
 
-        bool bbInALoop  = impBlockIsInALoop(block);
+        bool bbInALoop  = BlockIsInALoop(block);
         bool bbIsReturn = (block->bbJumpKind == BBJ_RETURN) &&
                           (!compIsForInlining() || (impInlineInfo->iciBlock->bbJumpKind == BBJ_RETURN));
 

@@ -10413,7 +10413,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperCallClassHandle(GenTreeCall* call, boo
             // this might not be the best assumption. We could also
             // explore calling something like mergeClasses to identify
             // the more specific class. A similar issue arises when
-            // typing the temp in impCastClassOrIsInstToTree, when we
+            // typing the temp in ImportClassCast, when we
             // expand the cast inline.
 
             if ((castHnd != nullptr) && ((info.compCompHnd->getClassAttribs(castHnd) & CORINFO_FLG_INTERFACE) != 0))
