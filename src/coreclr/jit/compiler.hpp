@@ -126,7 +126,7 @@ void* GenTree::operator new(size_t sz, Compiler* comp, genTreeOps oper)
     return comp->getAllocator(CMK_ASTNode).allocate<char>(size);
 }
 
-inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode))
+inline GenTree::GenTree(genTreeOps oper, var_types type)
     : gtOper(oper)
     , gtType(type)
 #ifdef DEBUG
@@ -138,7 +138,7 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
 #ifdef DEBUG
     assert((s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL) || (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE));
 
-    if ((s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE) || largeNode)
+    if (s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE)
     {
         gtDebugFlags |= GTF_DEBUG_NODE_LARGE;
     }

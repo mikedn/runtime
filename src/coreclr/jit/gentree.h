@@ -672,7 +672,7 @@ public:
 
     inline void* operator new(size_t sz, class Compiler*, genTreeOps oper);
 
-    GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false));
+    GenTree(genTreeOps oper, var_types type);
 
     GenTree(const GenTree* copyFrom) : GenTree(copyFrom->GetOper(), copyFrom->GetType())
     {
@@ -2041,14 +2041,12 @@ public:
     GenTree* gtOp1;
 
 protected:
-    GenTreeUnOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
-        : GenTree(oper, type DEBUGARG(largeNode)), gtOp1(nullptr)
+    GenTreeUnOp(genTreeOps oper, var_types type) : GenTree(oper, type), gtOp1(nullptr)
     {
         assert(NullOp1Legal());
     }
 
-    GenTreeUnOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
-        : GenTree(oper, type DEBUGARG(largeNode)), gtOp1(op1)
+    GenTreeUnOp(genTreeOps oper, var_types type, GenTree* op1) : GenTree(oper, type), gtOp1(op1)
     {
         assert((op1 != nullptr) || NullOp1Legal());
 
@@ -2124,19 +2122,16 @@ class GenTreeOp : public GenTreeUnOp
 public:
     GenTree* gtOp2;
 
-    GenTreeOp(genTreeOps oper, var_types type DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type DEBUGARG(largeNode)), gtOp2(nullptr)
+    GenTreeOp(genTreeOps oper, var_types type) : GenTreeUnOp(oper, type), gtOp2(nullptr)
     {
     }
 
-    GenTreeOp(genTreeOps oper, var_types type, GenTree* op1 DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type, op1 DEBUGARG(largeNode)), gtOp2(nullptr)
+    GenTreeOp(genTreeOps oper, var_types type, GenTree* op1) : GenTreeUnOp(oper, type, op1), gtOp2(nullptr)
     {
         assert(NullOp2Legal());
     }
 
-    GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2 DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type, op1 DEBUGARG(largeNode)), gtOp2(op2)
+    GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2) : GenTreeUnOp(oper, type, op1), gtOp2(op2)
     {
         assert(!GenTree::OperIsCompare(oper) || varTypeIsIntegral(type));
         assert((op2 != nullptr) || NullOp2Legal());
@@ -2832,8 +2827,7 @@ class GenTreeLclRef : public GenTreeUnOp
 #endif
 
 protected:
-    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeUnOp(oper, type DEBUGARG(largeNode)), m_lcl(lcl)
+    GenTreeLclRef(genTreeOps oper, var_types type, LclVarDsc* lcl) : GenTreeUnOp(oper, type), m_lcl(lcl)
     {
         assert(lcl != nullptr);
     }
@@ -2873,8 +2867,7 @@ public:
 class GenTreeLclVar : public GenTreeLclRef
 {
 protected:
-    GenTreeLclVar(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeLclRef(GT_LCL_LOAD, type, lcl DEBUGARG(largeNode))
+    GenTreeLclVar(var_types type, LclVarDsc* lcl) : GenTreeLclRef(GT_LCL_LOAD, type, lcl)
     {
     }
 
@@ -2912,8 +2905,7 @@ public:
 class GenTreeLclLoad : public GenTreeLclVar
 {
 public:
-    GenTreeLclLoad(var_types type, LclVarDsc* lcl DEBUGARG(bool largeNode = false))
-        : GenTreeLclVar(type, lcl DEBUGARG(largeNode))
+    GenTreeLclLoad(var_types type, LclVarDsc* lcl) : GenTreeLclVar(type, lcl)
     {
     }
 

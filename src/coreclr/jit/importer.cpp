@@ -9433,8 +9433,12 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(!GenTree::IsOverflowOp(oper));
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
 
-                    op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper)
-                        GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ oper == GT_FMOD));
+                    op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper) GenTreeOp(oper, type, op1, op2);
+
+                    if (oper == GT_FMOD)
+                    {
+                        INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
+                    }
                 }
                 else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_OVF_SADD || oper == GT_OVF_UADD ||
                                                       oper == GT_SUB || oper == GT_OVF_SSUB || oper == GT_OVF_USUB)) ||
@@ -9472,7 +9476,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
                          (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)))
                     {
                         // LONG multiplication/division usually requires helper calls on 32 bit targets.
-                        op1 = new (comp, LargeOpOpcode()) GenTreeOp(oper, type, op1, op2 DEBUGARG(/*largeNode*/ true));
+                        op1 = new (comp, GT_CALL) GenTreeOp(oper, type, op1, op2);
+                        INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
                     }
                     else
 #endif

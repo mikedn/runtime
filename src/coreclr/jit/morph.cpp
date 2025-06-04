@@ -35,6 +35,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
     if (compStressCompile(STRESS_GENERIC_CHECK, 0))
     {
         GenTree* copy = new (this, LargeOpOpcode()) GenTree(GT_NOP, TYP_VOID);
+        INDEBUG(copy->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
         copy->ReplaceWith(tree);
         DEBUG_DESTROY_NODE(tree);
         tree = copy;

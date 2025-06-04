@@ -3783,13 +3783,15 @@ GenTreeLclLoad* Compiler::gtNewLclLoadLarge(LclVarDsc* lcl, var_types type)
     if (varTypeIsStruct(type))
     {
         // Make an exception for implicit by-ref parameters during global morph, since
-        // their lvType has been updated to byref but their appearances have not yet all
+        // their type has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
         assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)));
     }
 #endif
 
-    return new (this, LargeOpOpcode()) GenTreeLclLoad(type, lcl DEBUGARG(/*largeNode*/ true));
+    GenTreeLclLoad* load = new (this, LargeOpOpcode()) GenTreeLclLoad(type, lcl);
+    INDEBUG(load->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
+    return load;
 }
 
 GenTreeLclLoadFld* Compiler::gtNewLclLoadFld(var_types type, LclVarDsc* lcl, unsigned offset)
@@ -4407,8 +4409,9 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
 
             case GT_FMOD:
                 // This is always converted to a helper call.
-                copy = new (this, LargeOpOpcode()) GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0),
-                                                             tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                copy = new (this, GT_CALL)
+                    GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+                INDEBUG(copy->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
                 break;
 
 #ifndef TARGET_64BIT
@@ -4422,8 +4425,9 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 if (tree->TypeIs(TYP_LONG))
                 {
                     // LONG multiplication/division usually requires helper calls on 32 bit targets.
-                    copy = new (this, LargeOpOpcode()) GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0),
-                                                                 tree->AsOp()->GetOp(1) DEBUGARG(/*largeNode*/ true));
+                    copy = new (this, GT_CALL)
+                        GenTreeOp(oper, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+                    INDEBUG(copy->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
                     break;
                 }
                 FALLTHROUGH;
