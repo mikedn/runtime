@@ -8357,8 +8357,8 @@ GenTree* Importer::ImportClassCast(GenTree*                obj,
         condTrue = comp->gtNewIconNode(0, TYP_REF);
     }
 
-    GenTree* qmarkMT   = gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
-    GenTree* qmarkNull = gtNewQmarkNode(TYP_REF, condNull, objUses[3], qmarkMT);
+    GenTree* qmarkMT   = comp->gtNewQmarkNode(TYP_REF, condMT, condTrue, condFalse);
+    GenTree* qmarkNull = comp->gtNewQmarkNode(TYP_REF, condNull, objUses[3], qmarkMT);
     qmarkNull->gtFlags |= GTF_QMARK_CAST_INSTOF;
 
     LclVarDsc* lcl = lvaNewTemp(TYP_REF, true DEBUGARG("castclass null qmark temp"));
@@ -16737,11 +16737,6 @@ GenTreeIndir* Importer::gtNewMethodTableLookup(GenTree* obj)
 GenTreeOp* Importer::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 {
     return comp->gtNewCommaNode(op1, op2, type);
-}
-
-GenTreeQmark* Importer::gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2)
-{
-    return comp->gtNewQmarkNode(type, cond, op1, op2);
 }
 
 GenTreeBoundsChk* Importer::gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind)

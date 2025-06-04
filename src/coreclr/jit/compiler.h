@@ -2212,7 +2212,6 @@ public:
     GenTreeAllocObj* gtNewAllocObjNode(CORINFO_RESOLVED_TOKEN* resolvedToken, bool useParent);
     GenTreeIndir* gtNewMethodTableLookup(GenTree* obj);
     GenTreeOp* gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type = TYP_UNDEF);
-    GenTreeQmark* gtNewQmarkNode(var_types type, GenTree* cond, GenTree* op1, GenTree* op2);
     GenTreeBoundsChk* gtNewBoundsChk(GenTree* index, GenTree* length, ThrowHelperKind kind);
     GenTreeIndexAddr* gtNewArrayIndexAddr(GenTree* arr, GenTree* ind, var_types elemType);
     GenTreeIndexAddr* gtNewStringIndexAddr(GenTree* arr, GenTree* ind);
@@ -4312,7 +4311,6 @@ private:
 
 #ifdef DEBUG
     void moMorphClearDebugNodeMorphed(GenTree* tree);
-    void moPreExpandQmarkChecks(GenTree* expr);
     void moPostExpandQmarkChecks();
 #endif
 

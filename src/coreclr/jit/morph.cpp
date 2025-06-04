@@ -12870,45 +12870,6 @@ void Compiler::moConvertSyncReturnToLeave(BasicBlock* block)
 }
 #endif // FEATURE_EH_FUNCLETS
 
-#ifdef DEBUG
-static GenTreeWalkResult moAssertNoQmark(GenTree** use, GenTree* user, void* data)
-{
-    assert(!(*use)->IsQmark());
-    return GenTreeWalkResult::Continue;
-}
-
-// Verify that the importer has created QMARK nodes in a way we can
-// process them. The following is allowed:
-//
-// 1. A top level QMARK. Top level QMARK is of the form:
-//     a) (bool) ? (void) : (void) OR
-//     b) V0N = (bool) ? (type) : (type)
-//
-// 2. Recursion is allowed at the top level, i.e., a GT_QMARK can be a child
-//    of either op1 of colon or op2 of colon but not a child of any other
-//    operator.
-void Compiler::moPreExpandQmarkChecks(GenTree* expr)
-{
-    GenTreeLclStore* store    = nullptr;
-    GenTreeQmark*    topQmark = moGetTopLevelQmark(expr, &store);
-
-    // If the top level QMARK is null, then scan the tree to make sure
-    // there are no QMARKs within it.
-    if (topQmark == nullptr)
-    {
-        fgWalkTreePre(&expr, moAssertNoQmark);
-    }
-    else
-    {
-        // We could probably expand the cond node also, but don't think the extra effort is necessary,
-        // so let's just assert the cond node of a top level QMARK doesn't have further top level QMARKs.
-        fgWalkTreePre(&topQmark->gtOp1, moAssertNoQmark);
-        moPreExpandQmarkChecks(topQmark->GetOp(1));
-        moPreExpandQmarkChecks(topQmark->GetOp(2));
-    }
-}
-#endif // DEBUG
-
 GenTreeQmark* Compiler::moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** store)
 {
     *store = nullptr;
@@ -13250,12 +13211,9 @@ void Compiler::moExpandQmarkNodes()
         {
             for (Statement* const stmt : block->Statements())
             {
-                GenTree* expr = stmt->GetRootNode();
-                INDEBUG(moPreExpandQmarkChecks(expr);)
-
                 GenTreeLclStore* store = nullptr;
 
-                if (GenTreeQmark* qmark = moGetTopLevelQmark(expr, &store))
+                if (GenTreeQmark* qmark = moGetTopLevelQmark(stmt->GetRootNode(), &store))
                 {
                     moExpandQmarkStmt(block, stmt, qmark, store);
                 }
@@ -13269,7 +13227,6 @@ void Compiler::moExpandQmarkNodes()
 }
 
 #ifdef DEBUG
-// Make sure we don't have any more GT_QMARK nodes.
 void Compiler::moPostExpandQmarkChecks()
 {
     for (BasicBlock* const block : Blocks())
@@ -13277,7 +13234,10 @@ void Compiler::moPostExpandQmarkChecks()
         for (Statement* const stmt : block->Statements())
         {
             GenTree* expr = stmt->GetRootNode();
-            fgWalkTreePre(&expr, moAssertNoQmark);
+            fgWalkTreePre(&expr, [](GenTree** use, GenTree* user, void* data) {
+                assert(!(*use)->IsQmark());
+                return GenTreeWalkResult::Continue;
+            });
         }
     }
 }
