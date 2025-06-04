@@ -4237,17 +4237,17 @@ private:
     GenTree* moExpandVirtualVtableCallTarget(GenTreeCall* call);
     GenTree* moExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr);
     GenTree* moMorphLeaf(GenTree* tree);
-    GenTree* moMorphInitStruct(GenTree* store, GenTree* value);
-    GenTree* moMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* value);
+    GenTree* moMorphStructInit(GenTree* store, GenTree* value);
+    GenTree* moMorphStructInitLclStore(GenTreeLclRef* store, GenTree* value);
     GenTree* moMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLclVar, GenTree* initVal);
-    GenTree* moMorphInitStructConstant(GenTreeIntCon* initVal,
+    GenTree* moMorphStructInitConstant(GenTreeIntCon* initVal,
                                        var_types      type,
                                        bool           extendToActualType,
                                        var_types      simdBaseType);
     GenTree* moMorphStructComma(GenTree* tree);
     GenTree* moMorphStructStore(GenTree* store, GenTree* value);
     GenTree* moMorphDynBlk(GenTreeDynBlk* dynBlk);
-    GenTree* moMorphCopyStruct(GenTree* store, GenTree* value);
+    GenTree* moMorphStructCopy(GenTree* store, GenTree* value);
     GenTree* moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* moMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
@@ -4456,7 +4456,7 @@ private:
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
     // Rewrite appearances of implicit byrefs (manifest the implied additional level of indirection)
     // or stack params of x86 varargs methods.
-    void fgMorphIndirectParams(Statement* stmt);
+    void moMorphIndirectParams(Statement* stmt);
 #endif
 
     enum TypeProducerKind

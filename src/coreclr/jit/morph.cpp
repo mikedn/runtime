@@ -5,6 +5,999 @@
 #include "allocacheck.h"
 #include "valuenum.h"
 
+GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
+{
+    assert(!csePhase);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        if (static_cast<unsigned>(JitConfig.JitBreakMorphTree()) == tree->GetID())
+        {
+            noway_assert(!"JitBreakMorphTree hit");
+        }
+    }
+
+    int thisMorphNum = 0;
+
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
+    {
+        thisMorphNum = morphNum++;
+        printf("\nfgMorphTree (before %d):\n", thisMorphNum);
+        gtDispTree(tree);
+    }
+
+    // moMorphTree can potentially replace a tree with another, and
+    // the caller has to store the return value correctly.
+    // Turn this on to always make copy of "tree" here to shake out
+    // hidden/un-updated references.
+
+    if (compStressCompile(STRESS_GENERIC_CHECK, 0))
+    {
+        GenTree* copy = new (this, LargeOpOpcode()) GenTree(GT_NOP, TYP_VOID);
+        copy->ReplaceWith(tree);
+        DEBUG_DESTROY_NODE(tree);
+        tree = copy;
+    }
+#endif // DEBUG
+
+    if (fgGlobalMorph)
+    {
+        // FIELD_ADDR sequences may collapse to nothing, deal with them first so that
+        // we can continue as if they didn't exist in the first place.
+        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
+        {
+            tree = moMorphFieldAddr(field, mac);
+        }
+
+        // INDEX_ADDR cannot just collapse to nothing but let's handle it in similar
+        // manner for the sake of consistency. These nodes are not supposed to appear
+        // after global morph.
+        if (GenTreeIndexAddr* index = tree->IsIndexAddr())
+        {
+            if (!opts.MinOpts())
+            {
+                tree = moMorphIndexAddr(index);
+            }
+        }
+
+        if (tree->IsIndir())
+        {
+            // An indirection gets a default address context if it isn't address taken.
+            mac = nullptr;
+        }
+
+        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
+
+#if LOCAL_ASSERTION_PROP
+        if (morphAssertionCount != 0)
+        {
+            tree = morphAssertionPropagate(tree);
+        }
+#endif
+    }
+
+    INDEBUG(GenTree* oldTree = tree);
+    unsigned kind = tree->OperKind();
+
+    if (kind & GTK_LEAF)
+    {
+        if (tree->IsNumericConst())
+        {
+            // Clear any exception flags or other unnecessary flags that
+            // may have been set before folding this node to a constant.
+            tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
+        }
+        else if (GenTreeStrCon* str = tree->IsStrCon())
+        {
+            tree = moMorphTree(moMorphStrCon(str, fgGlobalMorphStmt));
+        }
+        else
+        {
+            tree = moMorphLeaf(tree);
+        }
+
+        goto DONE;
+    }
+
+    if (kind & GTK_SMPOP)
+    {
+        tree = moMorphSmpOp(tree->AsOp(), mac);
+
+        goto DONE;
+    }
+
+    switch (tree->GetOper())
+    {
+        case GT_QMARK:
+            tree = moMorphQmark(tree->AsQmark(), mac);
+            break;
+
+        case GT_CALL:
+            if (tree->CallMayThrow(this))
+            {
+                tree->AddSideEffects(GTF_EXCEPT);
+            }
+            else
+            {
+                tree->RemoveSideEffects(GTF_EXCEPT);
+            }
+            tree = moMorphCall(tree->AsCall(), fgGlobalMorphStmt);
+            break;
+
+        case GT_ARR_ELEM:
+            moMorphArrElem(tree->AsArrElem());
+            break;
+
+        case GT_PHI:
+            assert(!tree->HasSideEffects());
+            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
+            {
+                use.SetNode(use.GetNode());
+                assert(!use.GetNode()->HasSideEffects());
+            }
+            break;
+
+        case GT_FIELD_LIST:
+            tree->RemoveSideEffects(GTF_ALL_EFFECT);
+            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
+            {
+                use.SetNode(moMorphTree(use.GetNode()));
+                tree->AddSideEffects(use.GetNode()->GetSideEffects());
+            }
+            break;
+
+#ifdef FEATURE_HW_INTRINSICS
+        case GT_HWINTRINSIC:
+            moMorphHWIntrinsic(tree->AsHWIntrinsic());
+            break;
+#endif
+
+        case GT_CMPXCHG:
+        case GT_COPY_BLK:
+        case GT_INIT_BLK:
+            tree->AsTernaryOp()->SetOp(0, moMorphTree(tree->AsTernaryOp()->GetOp(0)));
+            tree->AsTernaryOp()->SetOp(1, moMorphTree(tree->AsTernaryOp()->GetOp(1)));
+            tree->AsTernaryOp()->SetOp(2, moMorphTree(tree->AsTernaryOp()->GetOp(2)));
+
+            if (tree->OperIs(GT_CMPXCHG))
+            {
+                tree->RemoveSideEffects(GTF_EXCEPT | GTF_CALL);
+            }
+            else
+            {
+                tree = moMorphDynBlk(tree->AsDynBlk());
+
+                if (!tree->IsDynBlk())
+                {
+                    goto DONE;
+                }
+
+                tree->RemoveSideEffects(GTF_CALL);
+
+                if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
+                {
+                    tree->AddSideEffects(GTF_EXCEPT);
+                }
+            }
+
+            tree->AddSideEffects(tree->AsTernaryOp()->GetOp(0)->GetSideEffects() |
+                                 tree->AsTernaryOp()->GetOp(1)->GetSideEffects() |
+                                 tree->AsTernaryOp()->GetOp(2)->GetSideEffects());
+            break;
+
+        default:
+            INDEBUG(gtDispTree(tree);)
+            unreached();
+    }
+
+DONE:
+    moMorphTreeDone(tree DEBUGARG(oldTree) DEBUGARG(thisMorphNum));
+
+    return tree;
+}
+
+// This function is called to complete the morphing of a tree node
+// It should only be called once for each node.
+// If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
+// to enforce the invariant that each node is only morphed once.
+void Compiler::moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG(int morphNum))
+{
+#ifdef DEBUG
+    if (verbose && JitConfig.TreesBeforeAfterMorph())
+    {
+        JITDUMPTREE(tree, "\nfgMorphTree (after %d):\n", morphNum);
+        printf(""); // in our logic this causes a flush
+    }
+#endif
+
+    if (!fgGlobalMorph)
+    {
+        return;
+    }
+
+#ifdef DEBUG
+    // The way global morph tries to prevent double/lack of morphing of a node
+    // is rather convoluted. The overall idea is that moMorphTree is called on
+    // `tree` and:
+    //   - it modifies the tree node itself (e.g. by changing its type or even
+    //     its oper), but does not create new nodes and returns the same `tree`.
+    //     Then moMorphTreeDone sets GTF_DEBUG_NODE_MORPHED on `tree` (and does
+    //     expect that it hasn't been set).
+    //   - it inserts new nodes (typically as `tree` operands) but still returns
+    //     the same `tree`.
+    //     For `tree` this works as in the previous case.
+    //     For inserted nodes the morphing code is more or less expected to call
+    //     moMorphTreeDone, at least when nodes may affect assertion propagation
+    //     (e.g. new store node, new indir node etc.). Failure to do so is not
+    //     immediately detected, but can later result in asserts if other nodes
+    //     are removed such that these new nodes reach moMorphTreeDone.
+    //   - it returns a new node and possibly drops `tree` on the floor.
+    //     Here things are a bit bizarre - moMorphTreeDone expects that the new
+    //     node has GTF_DEBUG_NODE_MORPHED already set. Not clear why, perhaps
+    //     the idea was that if you create a new node you should also pass it to
+    //     moMorphTree. But if you create a new node in morph then it is likely
+    //     that it can be considered to already be morphed. In any case, it's
+    //     fine for the morphing code to simply set GTF_DEBUG_NODE_MORPHED on
+    //     the new node. It should not call moMorphTreeDone though, that's done
+    //     anyway in moMorphTree.
+    //     If the original `tree` is not dropped then moMorphTreeDone should be
+    //     called on it too, unless morphing code is certain that `tree` does
+    //     not influence assertion propagation.
+    //   - it simply drops `tree` on the floor and returns a descendant node.
+    //     Such a node should have been morphed and have GTF_DEBUG_NODE_MORPHED
+    //     set so this will work fine.
+    //     However, it can result in double assertion generation, which should
+    //     be harmless but may have some throughput cost.
+    // Note that removing nodes from the tree after it has been morphed is not
+    // tracked in any way, even though node removal could theoretically affect
+    // assertion propagation. But this should be impossible, assignments and
+    // indirections are side effects and morph does not have enough information
+    // to remove them, except in the "expression always throws" case. And then
+    // assertion propagation is no longer relevant since the rest of the code
+    // in the basic block will also be removed.
+
+    if ((oldTree != nullptr) && (oldTree != tree))
+    {
+        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) && "ERROR: Did not morph this node!");
+    }
+    else
+    {
+        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
+    }
+
+    tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
+#endif // DEBUG
+
+#if LOCAL_ASSERTION_PROP
+    if (!tree->IsNumericConst() && (morphAssertionTable != nullptr))
+    {
+        if (morphAssertionCount != 0)
+        {
+            if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+            {
+                morphAssertionKill(tree->AsLclRef()->GetLcl() DEBUGARG(tree->AsLclRef()));
+            }
+        }
+
+        morphAssertionGenerate(tree);
+    }
+#endif // LOCAL_ASSERTION_PROP
+}
+
+#ifdef DEBUG
+void Compiler::moMorphClearDebugNodeMorphed(GenTree* tree)
+{
+    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+    tree->VisitOperands([this](GenTree* child) {
+        moMorphClearDebugNodeMorphed(child);
+        return GenTree::VisitResult::Continue;
+    });
+}
+#endif
+
+GenTree* Compiler::moMorphLeaf(GenTree* tree)
+{
+    assert(tree->OperIsLeaf());
+
+    if (tree->OperIs(GT_LCL_LOAD))
+    {
+        return moMorphLclLoad(tree->AsLclLoad());
+    }
+
+    if (tree->OperIs(GT_LCL_LOAD_FLD))
+    {
+        if (tree->AsLclLoadFld()->GetLcl()->IsAddressExposed())
+        {
+            tree->AddSideEffects(GTF_GLOB_REF);
+        }
+
+        return tree;
+    }
+
+    if (GenTreeMethodAddr* method = tree->IsMethodAddr())
+    {
+        CORINFO_CONST_LOOKUP entry;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+        if (method->GetR2REntryPoint().addr != nullptr)
+        {
+            entry = method->GetR2REntryPoint();
+        }
+        else
+#endif
+        {
+            info.compCompHnd->getFunctionFixedEntryPoint(method->GetMethodHandle(), &entry);
+        }
+
+        switch (entry.accessType)
+        {
+            case IAT_PPVALUE:
+                DEBUG_DESTROY_NODE(tree);
+                tree = gtNewIndLoad(TYP_I_IMPL, entry.addr, HandleKind::ConstData, true);
+                tree = gtNewIndLoad(TYP_I_IMPL, tree);
+                tree->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+                return moMorphTree(tree);
+            case IAT_PVALUE:
+                DEBUG_DESTROY_NODE(tree);
+                tree = gtNewIndLoad(TYP_I_IMPL, entry.addr, HandleKind::MethodAddr, true);
+                return moMorphTree(tree);
+            case IAT_VALUE:
+                tree->ChangeToIntCon(entry.handle, HandleKind::MethodAddr);
+                return tree;
+            default:
+                unreached();
+        }
+    }
+
+    return tree;
+}
+
+GenTree* Compiler::moMorphLclLoad(GenTreeLclLoad* load)
+{
+    LclVarDsc* lcl = load->GetLcl();
+
+    if (lcl->IsAddressExposed())
+    {
+        load->AddSideEffects(GTF_GLOB_REF);
+    }
+
+    // Small int params, address exposed locals and promoted fields are widened on load.
+    // We may need to insert a widening cast, if assertion propagation doesn't tell us
+    // that the value previously stored in the local isn't already widened.
+
+    if (!fgGlobalMorph || !lcl->lvNormalizeOnLoad())
+    {
+        return load;
+    }
+
+#if LOCAL_ASSERTION_PROP
+    if ((morphAssertionCount != 0) && morphAssertionIsTypeRange(load, lcl->GetType()))
+    {
+        return load;
+    }
+#endif
+
+    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
+    // be needed for address exposed locals, we could just keep the small int typed
+    // LCL_LOAD as it performs implicit widening like LCL_LOAD_FLD and INT do.
+    // The importer already sets the type of all loads from small int locals to INT,
+    // with the exception of parameter loads, which have the same small type as the
+    // parameter they load from.
+    load->SetType(TYP_INT);
+    moMorphTreeDone(load);
+
+    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), load);
+    INDEBUG(conv->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+    return conv;
+}
+
+GenTree* Compiler::moMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
+{
+    assert(fgGlobalMorph);
+
+    // TODO-CQ: Do this for block->isRunRarely(). Doing that currently will
+    // guarantee slow performance for that block. Instead cache the return value
+    // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
+
+    bool useLazyStrCns = false;
+
+    if (fgMorphBlock->KindIs(BBJ_THROW))
+    {
+        useLazyStrCns = true;
+    }
+    else if (GenTreeCall* call = stmt->GetRootNode()->IsCall())
+    {
+        // Quick check: if the root node of the current statement happens to be a noreturn call.
+        useLazyStrCns = call->IsNoReturn() || moIsThrow(call);
+    }
+
+    if (useLazyStrCns)
+    {
+        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->GetModuleHandle());
+
+        if (helper != CORINFO_HELP_UNDEF)
+        {
+            GenTree*          token = gtNewIconNode(RidFromToken(tree->GetToken()));
+            GenTreeCall::Use* args;
+
+            if (helper == CORINFO_HELP_STRCNS_CURRENT_MODULE)
+            {
+                args = gtNewCallArgs(token);
+            }
+            else
+            {
+                assert(helper == CORINFO_HELP_STRCNS);
+                args = gtNewCallArgs(token, gtNewIconEmbModHndNode(tree->GetModuleHandle()));
+            }
+
+            return gtNewHelperCallNode(helper, TYP_REF, args);
+        }
+    }
+
+    void*          addr;
+    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->GetModuleHandle(), tree->GetToken(), &addr);
+    return gtNewStringLiteralNode(iat, addr);
+}
+
+GenTree* Compiler::moMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str)
+{
+    assert(index->GetArray() == str);
+
+    if (GenTreeIntCon* intCon = index->GetIndex()->IsIntConFitsInInt32())
+    {
+        const int32_t cnsIndex = intCon->GetInt32Value();
+
+        if (cnsIndex >= 0)
+        {
+            int             length;
+            const char16_t* chars =
+                info.compCompHnd->getStringLiteral(str->GetModuleHandle(), str->GetToken(), &length);
+
+            if ((cnsIndex < length) && (str != nullptr))
+            {
+                GenTree* cnsCharNode = gtNewIconNode(chars[cnsIndex], TYP_INT);
+                INDEBUG(cnsCharNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                return cnsCharNode;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+GenTree* Compiler::moMorphIndexAddr(GenTreeIndexAddr* tree)
+{
+    // In minopts, we don't expand INDEX_ADDR in order to minimize the size of the IR. As minopts compilation
+    // time is roughly proportional to the size of the IR, this helps keep compilation times down.
+    // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
+    // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
+    // minopts).
+
+    assert(!opts.MinOpts());
+
+    // When we are optimizing, we fully expand INDEX_ADDR to something like:
+    //
+    //   COMMA(ARR_BOUNDS_CHK(index, ARR_LENGTH(array)), IND(ADD(array, ADD(MUL(index, elemSize), dataOffs))))
+    //
+    // This expansion explicitly exposes the bounds check and the address calculation to the optimizer, which allows
+    // for more straightforward bounds-check removal, CSE, etc.
+
+    GenTreeLclStore*  arrayTmpStore = nullptr;
+    GenTreeLclStore*  indexTmpStore = nullptr;
+    GenTreeBoundsChk* boundsCheck   = nullptr;
+
+    GenTree* array       = tree->GetArray();
+    GenTree* index       = tree->GetIndex();
+    uint8_t  lenOffs     = tree->GetLenOffs();
+    uint8_t  dataOffs    = tree->GetDataOffs();
+    unsigned elemSize    = tree->GetElemSize();
+    unsigned elemTypeNum = tree->GetElemTypeNum();
+
+    if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
+    {
+        // The array and index will have multiple uses so we need to store them to temps,
+        // unless they're simple, side effect free expressions.
+
+        constexpr int MAX_ARR_COMPLEXITY   = 4;
+        constexpr int MAX_INDEX_COMPLEXITY = 4;
+
+        GenTree* array2 = nullptr;
+
+        if (array->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || array->OperIs(GT_LCL_LOAD_FLD) ||
+            gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
+        {
+            LclVarDsc* arrayTmpLcl = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
+
+            arrayTmpStore = gtNewLclStore(arrayTmpLcl, array->GetType(), array);
+
+            array  = gtNewLclLoad(arrayTmpLcl, array->GetType());
+            array2 = gtNewLclLoad(arrayTmpLcl, array->GetType());
+        }
+        else
+        {
+            array2 = gtCloneExpr(array);
+            noway_assert(array2 != nullptr);
+        }
+
+        GenTree* arrLen = gtNewArrLen(array2, lenOffs);
+
+#ifdef TARGET_64BIT
+        // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case
+        // of a 64 bit architecture this means the array index can potentially be a TYP_LONG, so for this case,
+        // the comparison will have to be widen to 64 bits.
+        if (index->TypeIs(TYP_LONG))
+        {
+            arrLen = gtNewOperNode(GT_SXT, TYP_LONG, arrLen);
+        }
+#endif
+
+        GenTree* index2 = nullptr;
+
+        if (index->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || index->OperIs(GT_LCL_LOAD_FLD) ||
+            gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
+        {
+            var_types  indexTmpType = varActualType(index->GetType());
+            LclVarDsc* indexTmpLcl  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
+
+            indexTmpStore = gtNewLclStore(indexTmpLcl, indexTmpType, index);
+
+            index  = gtNewLclLoad(indexTmpLcl, indexTmpType);
+            index2 = gtNewLclLoad(indexTmpLcl, indexTmpType);
+        }
+        else
+        {
+            index2 = gtCloneExpr(index);
+            noway_assert(index2 != nullptr);
+        }
+
+        boundsCheck = gtNewBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
+    }
+
+    GenTree* offset = index;
+
+#ifdef TARGET_64BIT
+    if (!offset->TypeIs(TYP_LONG))
+    {
+        if (offset->OperIs(GT_CNS_INT))
+        {
+            offset->SetType(TYP_LONG);
+        }
+        else
+        {
+            offset = gtNewOperNode(GT_SXT, TYP_LONG, offset);
+        }
+    }
+#endif
+
+    if (elemSize > 1)
+    {
+        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, gtNewIconNode(elemSize, TYP_I_IMPL));
+    }
+
+    // The element address is ADD(array, ADD(MUL(index, elemSize), dataOffs)). Compared to other possible
+    // associations this has the advantage that the offset computation depends only on the element size
+    // so it can be CSEd on its own (e.g. floatArray[i] and intArray[i] have the same offset expression
+    // even if the array and the element type are different). This also minimizes the number of byrefs
+    // since only the final ADD produces one.
+    // It does slightly complicate array element address pattern matching as done in vnIsArrayElemAddr
+    // because we need to check the inner ADD to find the data offset constant. That would be simpler
+    // with ADD(ADD(array, MUL(index, elemSize)), dataOffs) but then the entire expression depends on
+    // "array" so CSEing is more limited.
+
+    FieldSeqNode* arrayElement = GetFieldSeqStore()->GetArrayElement(elemTypeNum, dataOffs);
+
+    offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, offset, gtNewIconNode(dataOffs, arrayElement));
+
+    GenTree* addr = tree;
+
+    // TODO-MIKE-Cleanup: The tree may have a zero field sequence, is should be transferred to the
+    // offset node. Doing so results in some diffs that need to be reviewed so do this separately.
+
+    addr->SetOper(GT_ADD);
+    addr->AsOp()->SetOp(0, array);
+    addr->AsOp()->SetOp(1, offset);
+    addr->SetSideEffects(array->GetSideEffects() | offset->GetSideEffects());
+    addr->gtFlags &= ~GTF_INX_RNGCHK;
+
+    if (boundsCheck != nullptr)
+    {
+        addr = gtNewCommaNode(boundsCheck, addr);
+
+        if (indexTmpStore != nullptr)
+        {
+            addr = gtNewCommaNode(indexTmpStore, addr);
+        }
+
+        if (arrayTmpStore != nullptr)
+        {
+            addr = gtNewCommaNode(arrayTmpStore, addr);
+        }
+    }
+
+    return addr;
+}
+
+unsigned Compiler::moGetLargeFieldOffsetNullCheckTemp(var_types type)
+{
+    unsigned index;
+
+    switch (type)
+    {
+        case TYP_I_IMPL:
+            index = 0;
+            break;
+        case TYP_BYREF:
+            index = 1;
+            break;
+        case TYP_REF:
+            index = 2;
+            break;
+        default:
+            unreached();
+    }
+
+    assert(index < _countof(fgLargeFieldOffsetNullCheckTemps));
+
+    if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
+    {
+        fgLargeFieldOffsetNullCheckTemps[index] =
+            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"))->GetLclNum();
+    }
+
+    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
+    assert(lvaGetDesc(lclNum)->GetType() == type);
+    return lclNum;
+}
+
+GenTree* Compiler::moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac)
+{
+    GenTreeFieldAddr* firstField    = field;
+    GenTree*          addr          = field->GetAddr();
+    target_size_t     offset        = field->GetOffset();
+    FieldSeqStore*    fieldSeqStore = GetFieldSeqStore();
+    FieldSeqNode*     fieldSeq      = field->MayOverlap() ? FieldSeqNode::NotAField() : field->GetFieldSeq();
+
+    while (GenTreeFieldAddr* nextField = addr->IsFieldAddr())
+    {
+        field = nextField;
+        addr  = field->GetAddr();
+        offset += field->GetOffset();
+
+        if (field->MayOverlap())
+        {
+            fieldSeq = FieldSeqNode::NotAField();
+        }
+        else
+        {
+            fieldSeq = fieldSeqStore->Append(field->GetFieldSeq(), fieldSeq);
+        }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+        if (field->GetR2RFieldLookupAddr() != nullptr)
+        {
+            // R2R field lookup is used only for fields of reference
+            // types so this must be the last field in the sequence.
+            assert(!addr->IsFieldAddr());
+            break;
+        }
+#endif
+    }
+
+    // Static struct fields are boxed and never null.
+    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
+
+    // Note that using gtAddrCouldBeNull with field addresses is a bit of a chicken & egg
+    // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
+    // to be non null only if we add an explicit null check and we don't rely on the IND
+    // to fault. But we've already ensured that addr isn't ADDR(FIELD) so we can rely on
+    // addr being non null both to elide the explicit null check and remove the exception
+    // side effect from the IND node.
+    addrMayBeNull = addrMayBeNull && gtAddrCouldBeNull(addr);
+
+    // Static field addresses are never null.
+    if (addrMayBeNull)
+    {
+        FieldSeqNode* lastField = field->GetFieldSeq();
+
+        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
+        {
+            addrMayBeNull = false;
+        }
+    }
+
+    INDEBUG(GenTreeLclAddr* lclAddr = addr->IsLocalAddrExpr();)
+    assert((lclAddr == nullptr) || lclAddr->GetLcl()->IsAddressExposed());
+
+    // null MAC means we encounter the FIELD_ADDR first. This is equivalent to a MAC_Addr
+    // with zero offset.
+    MorphAddrContext defMAC(true);
+    if (mac == nullptr)
+    {
+        mac = &defMAC;
+    }
+
+    bool explicitNullCheckRequired = false;
+
+    if (addrMayBeNull)
+    {
+        target_size_t totalOffset = mac->offset + offset;
+
+        // TODO-MIKE-Review: It's odd that in the address take case we check for R2R
+        // fields, but not in the indir case. In theory, the R2R field offset could
+        // change enough to put us over the "big offset" limit.
+
+        if (!mac->isOffsetConstant || fgIsBigOffset(totalOffset))
+        {
+            explicitNullCheckRequired = true;
+        }
+        else if (mac->isAddressTaken)
+        {
+            // TODO-MIKE-Review: This code is dubious. The original thinking was probably that
+            // null + 0 = null so we don't need a null check because an indir that uses the
+            // resulting address will fault anyway. But the resulting address may be further
+            // adjusted by an ADD that isn't included in the MAC offset (e.g. the ADD is in a
+            // different tree) or the indir is somewhere else, after other side effects, so we
+            // end up reordering side effects.
+
+            // In R2R mode the field offset for some fields may change when the code
+            // is loaded. So we can't rely on a zero offset here to suppress the null check.
+            // See GitHub issue #16454.
+
+            explicitNullCheckRequired = (totalOffset != 0)
+#ifdef FEATURE_READYTORUN_COMPILER
+                                        || (field->GetR2RFieldLookupAddr() != nullptr)
+#endif
+                ;
+        }
+    }
+
+    var_types       addrType      = addr->GetType();
+    GenTree*        nullCheck     = nullptr;
+    GenTreeLclLoad* nullCheckAddr = nullptr;
+
+    if (explicitNullCheckRequired)
+    {
+        GenTreeLclStore* store = nullptr;
+        LclVarDsc*       lcl;
+
+        if (addr->OperIs(GT_LCL_LOAD))
+        {
+            nullCheckAddr = addr->AsLclLoad();
+            lcl           = nullCheckAddr->GetLcl();
+        }
+        else
+        {
+            lcl   = lvaGetDesc(moGetLargeFieldOffsetNullCheckTemp(addrType));
+            store = gtNewLclStore(lcl, addrType, addr);
+        }
+
+        nullCheck = gtNewNullCheck(gtNewLclLoad(lcl, addrType));
+
+        if (store != nullptr)
+        {
+            nullCheck = gtNewCommaNode(store, nullCheck);
+        }
+
+        addr = gtNewLclLoad(lcl, addrType);
+    }
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (void* lookupAddr = field->GetR2RFieldLookupAddr())
+    {
+        GenTree* r2rOffset = gtNewIndLoad(TYP_I_IMPL, lookupAddr, HandleKind::ConstData, true);
+
+        addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
+    }
+#endif
+
+    // TODO-MIKE-Cleanup: The ADD node should always be returned to avoid the zero offset field map crap.
+
+    if (offset != 0)
+    {
+        GenTree* addOffset = firstField;
+
+        addOffset->ChangeOper(GT_ADD);
+        addOffset->SetType(varTypeAddrAdd(addr->GetType()));
+        addOffset->AsOp()->SetOp(0, addr);
+        addOffset->AsOp()->SetOp(1, gtNewIntConFieldOffset(offset, fieldSeq));
+        addOffset->SetSideEffects(addr->GetSideEffects());
+
+        addr = addOffset;
+    }
+    else
+    {
+        AddZeroOffsetFieldSeq(addr, fieldSeq);
+    }
+
+    if (nullCheck != nullptr)
+    {
+        addr = gtNewCommaNode(nullCheck, addr);
+
+        // TODO-MIKE-Cleanup: Workaround to reduce diffs when switching from FIELD to FIELD_ADDR.
+        // ADDR(FIELD) required FIELD to have DONT_CSE and this flag survived through a series of
+        // convoluted tranforms: ADDR(FIELD(x)) - ADDR(IND(COMMA(n, x))) - ADDR(COMMA(n, IND(x)))
+        // - COMMA(n, ADDR(IND(x))) - COMMA(n, x). So pretty much all field addresses that needed
+        // explicit null checks were not CSE candidates. Which isn't necessarily bad as CSE seems
+        // far too happy to CSE cheap constant additions, even if there's no good mechanism to
+        // ensure that such CSEing doesn't result in worse register allocation and/or spilling.
+        // But this didn't affect all explicit null checks - since the decision to insert the null
+        // check doesn't take into account local assertion propagation, sometimes the COMMA ended
+        // up being removed before having a chance to infect other nodes with DONT_CSE.
+        //
+        // So we're going to set DONT_CSE when we detect and address taken field case and if the
+        // null check cannot be eliminated by local assertion propagation. This almost matches
+        // the original behaviour with one exception: DONT_CSE was also applied if the field
+        // address was immediately used by an IND - IND(ADDR(FIELD)) - but we can't detect this
+        // case anymore because everything is IND(FIELD_ADDR) now. But since we have an IND the
+        // DONT_CSE should be set as part of address mode marking. And hey, that's bonkers too.
+        //
+        // Now, can we just skip adding the null check COMMA if assertion propagation tells that
+        // the address is not null? In theory yes, but it looks like there are other problems
+        // that are hidden in this convoluted morphing process. One is that eliminating a null
+        // check based on local assertion propagation would require us to set GTF_ORDER_SIDEEFF
+        // on some node and it's not quite clear which one. optAssertionProp sets it on the
+        // NULLCHECK node but then it looks like COMMA morphing code manages to drop it, likely
+        // by accident. In any case, attempting to skip NULLCHECK generation like this produces
+        // other diffs.
+
+        if (mac->isAddressTaken)
+        {
+#if LOCAL_ASSERTION_PROP
+            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) || !morphAssertionIsNotNull(nullCheckAddr))
+#endif
+            {
+                addr->SetDoNotCSE();
+            }
+        }
+    }
+
+    return addr;
+}
+
+GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
+{
+    ALLOCA_CHECK();
+    assert(fgGlobalMorph);
+    assert(!csePhase);
+
+    GenTree* condExpr = qmark->GetCondition();
+    GenTree* thenExpr = qmark->GetThen();
+    GenTree* elseExpr = qmark->GetElse();
+
+    if (condExpr->OperIsRelop())
+    {
+        condExpr->gtFlags |= GTF_DONT_CSE;
+    }
+    else
+    {
+        noway_assert(condExpr->gtEffectiveVal()->IsIntCon());
+    }
+
+    condExpr = moMorphTree(condExpr, mac);
+    qmark->SetCondition(condExpr);
+
+    if (GenTreeIntCon* cond = condExpr->IsIntCon())
+    {
+        GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
+
+        return moMorphTree(result);
+    }
+
+    if (moIsCommaThrow(condExpr DEBUGARG(true)))
+    {
+        fgRemoveRestOfBlock = true;
+        assert(condExpr->OperIs(GT_COMMA));
+
+        if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
+        {
+            return condExpr;
+        }
+
+        if (qmark->TypeIs(TYP_VOID))
+        {
+            return condExpr->AsOp()->GetOp(0);
+        }
+
+        GenTree* value = condExpr->AsOp()->GetOp(1);
+
+        if (varTypeIsFloating(qmark->GetType()))
+        {
+            value->ChangeToDblCon(qmark->GetType(), 0.0);
+        }
+#ifndef TARGET_64BIT
+        else if (qmark->TypeIs(TYP_LONG))
+        {
+            value->ChangeToLngCon(0);
+        }
+#endif
+        else
+        {
+            assert(varTypeIsIntOrI(qmark->GetType()));
+
+            value->ChangeToIntCon(varActualType(qmark->GetType()), 0);
+        }
+
+        condExpr->SetType(value->GetType());
+
+        return condExpr;
+    }
+
+    // If only one of the then/else expressions throws then the rest of the block is
+    // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
+    // then/else morphing. We could also handle the case of both then/else throwing
+    // but that doesn't seem to ever happen currently.
+    bool removeRestOfBlock = fgRemoveRestOfBlock;
+
+#if LOCAL_ASSERTION_PROP
+    // The local assertion propagation state after morphing the condition expression
+    // applies to both then and else expressions, we need to save it before morphing
+    // one expression and restore it before morphing the other expression.
+
+    unsigned        entryAssertionCount = 0;
+    MorphAssertion* entryAssertionTable = nullptr;
+
+    if (morphAssertionCount != 0)
+    {
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
+        unsigned tableSize  = morphAssertionTableSize(morphAssertionCount);
+        entryAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        entryAssertionCount = morphAssertionCount;
+        morphAssertionGetTable(entryAssertionTable, entryAssertionCount);
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    elseExpr = moMorphTree(elseExpr, mac);
+    qmark->SetElse(elseExpr);
+    fgRemoveRestOfBlock = removeRestOfBlock;
+
+#if LOCAL_ASSERTION_PROP
+    unsigned        elseAssertionCount = 0;
+    MorphAssertion* elseAssertionTable = nullptr;
+
+    // We also need to save the local assertion propagation state after morphing the
+    // first of the then/else expressions. Later we need to merge the two states by
+    // removing assertions that are not present in both states.
+    if (morphAssertionCount != 0)
+    {
+        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
+        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
+        elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
+        elseAssertionCount = morphAssertionCount;
+        morphAssertionGetTable(elseAssertionTable, elseAssertionCount);
+        morphAssertionSetCount(0);
+    }
+
+    if (entryAssertionCount != 0)
+    {
+        morphAssertionSetTable(entryAssertionTable, entryAssertionCount);
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    thenExpr = moMorphTree(thenExpr, mac);
+    qmark->SetThen(thenExpr);
+    fgRemoveRestOfBlock = removeRestOfBlock;
+
+#if LOCAL_ASSERTION_PROP
+    // Merge assertions after then/else morphing.
+    if (morphAssertionCount != 0)
+    {
+        morphAssertionMerge(elseAssertionCount, elseAssertionTable DEBUGARG(qmark));
+    }
+#endif // LOCAL_ASSERTION_PROP
+
+    qmark->SetSideEffects(condExpr->GetSideEffects() | thenExpr->GetSideEffects() | elseExpr->GetSideEffects());
+
+    if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(elseExpr->GetType()) && !varTypeIsGC(thenExpr->GetType()))
+    {
+        qmark->SetType(varActualType(elseExpr->GetType()));
+    }
+
+    compQmarkUsed = true;
+
+    return qmark;
+}
+
 GenTree* Compiler::moMorphConvPost(GenTreeUnOp* conv)
 {
     assert(conv->OperIs(GT_CONV) && varTypeIsSmallInt(conv->GetType()));
@@ -583,8026 +1576,6 @@ bool Compiler::moMorphNarrowTreeRec(GenTree* const tree, const var_types type, c
             noway_assert(!doit);
             return false;
     }
-}
-
-#ifdef DEBUG
-void CallArgInfo::Dump() const
-{
-#ifdef WINDOWS_X86_ABI
-    if (m_isReturn)
-    {
-        printf("return:");
-    }
-    else
-#endif
-    {
-        printf("arg %u:", m_argNum);
-    }
-
-    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->GetOper()), varTypeName(m_argType));
-
-    if (IsImplicitByRef())
-    {
-        printf(", implicit by-ref");
-    }
-
-    if (m_regCount != 0)
-    {
-#ifdef UNIX_AMD64_ABI
-        printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
-#else
-        printf(", %u %s reg%s (", m_regCount, varTypeName(GetRegType()), m_regCount == 1 ? "" : "s");
-#endif
-        for (unsigned i = 0; i < m_regCount; i++)
-        {
-            const char* regName = getRegName(GetRegNum(i));
-#ifdef UNIX_AMD64_ABI
-            printf("%s%s %s", i == 0 ? "" : ", ", regName, varTypeName(GetRegType(i)));
-#else
-            printf("%s%s", i == 0 ? "" : ", ", regName);
-#endif
-        }
-        printf(")");
-    }
-
-    if (m_slotCount == 1)
-    {
-        printf(", 1 slot (%u)", m_slotNum);
-    }
-    else if (m_slotCount > 1)
-    {
-        printf(", %u slots (%u..%u)", m_slotCount, m_slotNum, m_slotNum + m_slotCount - 1);
-    }
-
-    if (HasTemp())
-    {
-        printf(", temp V%02u", m_tempLclNum);
-    }
-
-#if FEATURE_FIXED_OUT_ARGS
-    if (m_isLateUseNeeded)
-    {
-        printf(", needLateUse");
-    }
-#endif
-
-    if (m_isNonStandard)
-    {
-        printf(", isNonStandard");
-    }
-
-    printf("\n");
-}
-
-void CallInfo::Dump() const
-{
-    for (unsigned i = 0; i < argCount; i++)
-    {
-        argTable[i]->Dump();
-    }
-}
-#endif // DEBUG
-
-CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
-    : argTable(numArgs == 0 ? nullptr : new (comp, CMK_CallInfo) CallArgInfo*[numArgs])
-#ifdef DEBUG
-    , argTableSize(numArgs)
-#endif
-{
-}
-
-// CallInfo "copy constructor"
-//
-// This method needs to act like a copy constructor for CallInfo.
-// The newCall needs to have its CallInfo initialized such that
-// we have newCall that is an exact copy of the oldCall.
-// We have to take care since the argument information
-// in the argTable contains pointers that must point to the
-// new arguments and not the old arguments.
-//
-CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
-{
-    CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
-
-#ifdef DEBUG
-    argTableSize = oldArgInfo->argTableSize;
-#endif
-    argCount           = oldArgInfo->argCount;
-    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
-#ifdef UNIX_X86_ABI
-    stackAlignmentDone = oldArgInfo->stackAlignmentDone;
-    stackAlignPadding  = oldArgInfo->stackAlignPadding;
-#endif
-
-    assert(oldCall->HasArgsSetup());
-
-    if (argCount == 0)
-    {
-        return;
-    }
-
-    argTable = new (compiler, CMK_CallInfo) CallArgInfo*[argCount];
-
-    for (unsigned i = 0; i < argCount; i++)
-    {
-        argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
-    }
-
-    GenTreeCall::UseIterator newUse    = newCall->Uses().begin();
-    GenTreeCall::UseIterator newUseEnd = newCall->Uses().end();
-    GenTreeCall::UseIterator oldUse    = oldCall->Uses().begin();
-    GenTreeCall::UseIterator oldUseEnd = newCall->Uses().end();
-
-    for (; newUse != newUseEnd; ++newUse, ++oldUse)
-    {
-        for (unsigned i = 0; i < argCount; i++)
-        {
-            if (argTable[i]->GetUse() == oldUse.GetUse())
-            {
-                argTable[i]->SetUse(newUse.GetUse());
-                break;
-            }
-
-            if (argTable[i]->GetSetupUse() == oldUse.GetUse())
-            {
-                argTable[i]->SetSetupUse(newUse.GetUse());
-                break;
-            }
-        }
-    }
-}
-
-void CallInfo::AddArg(CallArgInfo* argInfo)
-{
-    assert(argCount < argTableSize);
-    argTable[argCount++] = argInfo;
-}
-
-#if FEATURE_FIXED_OUT_ARGS
-static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
-{
-    if (compiler->fgUseThrowHelperBlocks() || !tree->HasAnySideEffect(GTF_EXCEPT))
-    {
-        return false;
-    }
-
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
-        GenTree* node = *use;
-
-        if (!node->HasAnySideEffect(GTF_EXCEPT))
-        {
-            return GenTreeWalkResult::Skip;
-        }
-
-        switch (node->GetOper())
-        {
-            case GT_OVF_U:
-            case GT_OVF_TRUNC:
-            case GT_OVF_STRUNC:
-            case GT_OVF_UTRUNC:
-            case GT_OVF_SADD:
-            case GT_OVF_UADD:
-            case GT_OVF_SSUB:
-            case GT_OVF_USUB:
-            case GT_OVF_SMUL:
-            case GT_OVF_UMUL:
-            case GT_OVF_SCONV:
-            case GT_OVF_UCONV:
-            case GT_OVF_FTOS:
-            case GT_OVF_FTOU:
-            case GT_BOUNDS_CHECK:
-                return GenTreeWalkResult::Abort;
-
-            case GT_INDEX_ADDR:
-                if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
-                {
-                    return GenTreeWalkResult::Abort;
-                }
-                break;
-
-            default:
-                break;
-        }
-
-        return GenTreeWalkResult::Continue;
-    }) == GenTreeWalkResult::Abort;
-}
-
-static bool HasLclHeap(Compiler* compiler, GenTree* tree)
-{
-    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
-        return (*use)->OperIs(GT_LCLHEAP) ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
-    }) == GenTreeWalkResult::Abort;
-}
-#endif // FEATURE_FIXED_OUT_ARGS
-
-void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
-{
-    assert(!call->HasArgsSetup());
-
-    bool needsTemps = false;
-    bool hasRegArgs = false;
-
-    for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
-    {
-        CallArgInfo& argInfo = *argTable[argIndex];
-
-        if (argInfo.GetRegCount() == 0)
-        {
-            assert(HasStackArgs());
-
-#if !FEATURE_FIXED_OUT_ARGS
-            // On x86 we use push instructions to pass arguments, so stack args must
-            // be evaluated in order, only reg args can (and need) to be moved to the
-            // "late" arg list.
-            continue;
-#endif
-        }
-        else
-        {
-#if FEATURE_ARG_SPLIT
-            assert(!argInfo.IsSplit() || HasStackArgs());
-#endif
-
-            hasRegArgs = true;
-        }
-
-        GenTree* arg = argInfo.GetNode();
-
-        if (argInfo.HasTemp())
-        {
-            needsTemps = true;
-        }
-        else if (call->IsExpandedEarly() && call->IsVirtualVtable() && (argInfo.GetUse() == call->GetThisArg()) &&
-                 !arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-        {
-            argInfo.SetTempNeeded();
-            needsTemps = true;
-        }
-
-        // If the argument tree contains a store (GTF_ASG) then the argument and and every
-        // earlier argument (except constants) must be evaluated into temps since there may
-        // be other arguments that follow and they may use the value being assigned.
-        //
-        // EXAMPLE: ArgTab is "a, a=5, a"
-        //          -> when we see the second arg "a=5"
-        //             we know the first two arguments "a, a=5" have to be evaluated into temps
-        //
-        // For the case of a store, we only know that there exist some store someplace in
-        // in the tree. We don't know where it stores to so we are very conservative here
-        // and assume that any local variable could have been modified.
-
-        if (arg->HasAnySideEffect(GTF_ASG))
-        {
-            // TODO-MIKE-Review: This check seems overly conservative. If an arg contains
-            // a store then it only needs a temp if it will be moved to the late arg list
-            // (because, say, it's a register arg), so the store doesn't reorder with
-            // subsequent args that may use whatever location the store changes.
-            //
-            // Likewise, previous arguments only need temps if they're going to be moved to
-            // the late arg list.
-            //
-            // This should probably be more precise, even at the cost of throughput. It's
-            // rare for normal code to contain stores in arg trees, it's more likely that
-            // such assignments were introduced by the JIT (e.g. bound checks, null checks,
-            // multi use etc.) and stores to new temps that aren't used anywhere else except
-            // this particular arg tree.
-
-            if (argCount > 1)
-            {
-                argInfo.SetTempNeeded();
-                needsTemps = true;
-            }
-
-            // For all previous arguments, unless they are constants or local addresses
-            // we require that they be evaluated into temps
-
-            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
-            {
-                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
-
-                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
-
-                GenTree* node = prevArgInfo.GetNode();
-
-                // Constants and local addresses obviously do not need temps.
-                // The `this` arg also does not need a temp, if it's ever stored
-                // to the importer replaces it with a normal local.
-
-                if (!node->OperIsConst() && !node->OperIs(GT_LCL_ADDR) &&
-                    !(node->OperIs(GT_LCL_LOAD) &&
-                      (node->AsLclLoad()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
-                {
-                    prevArgInfo.SetTempNeeded();
-                    needsTemps = true;
-                }
-            }
-        }
-
-        bool treatLikeCall = arg->HasAnySideEffect(GTF_CALL);
-
-#if FEATURE_FIXED_OUT_ARGS
-        // Like calls, if this argument has a tree that will do an inline throw,
-        // a call to a jit helper, then we need to treat it like a call (but only
-        // if there are/were any stack args).
-        // This means unnesting, sorting, etc.  Technically this is overly
-        // conservative, but I want to avoid as much special-case debug-only code
-        // as possible, so leveraging the GTF_CALL flag is the easiest.
-
-        if (!treatLikeCall && (argCount > 1) && HasInlineThrowHelperCall(compiler, arg))
-        {
-            for (unsigned otherArgIndex = 0; otherArgIndex < argCount; otherArgIndex++)
-            {
-                if ((otherArgIndex != argIndex) && (argTable[otherArgIndex]->GetRegCount() == 0))
-                {
-                    treatLikeCall = true;
-                    break;
-                }
-            }
-        }
-#endif // FEATURE_FIXED_OUT_ARGS
-
-        // If it contains a call (GTF_CALL) then itself and everything before the call
-        // with a GLOB_EFFECT must eval to temp (this is because everything with SIDE_EFFECT
-        // has to be kept in the right order since we will move the call to the first position)
-        //
-        // For calls we don't have to be quite as conservative as we are with stores,
-        // since the call won't be modifying any non-address taken locals.
-
-        if (treatLikeCall)
-        {
-            if (argCount > 1) // If this is not the only argument
-            {
-                argInfo.SetTempNeeded();
-                needsTemps = true;
-            }
-            else if (varTypeIsFloating(arg->GetType()) && arg->IsCall())
-            {
-                // Spill all arguments that are floating point calls
-                argInfo.SetTempNeeded();
-                needsTemps = true;
-            }
-
-            // All previous arguments may need to be evaluated into temps
-            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
-            {
-                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
-
-                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
-
-                // For all previous arguments, if they have any side effect
-                // we require that they be evaluated into a temp
-                if (prevArgInfo.GetNode()->HasSideEffects())
-                {
-                    prevArgInfo.SetTempNeeded();
-                    needsTemps = true;
-                }
-#if FEATURE_FIXED_OUT_ARGS
-                // Stack argument have to be moved after the call, since
-                // both calls use the same outgoing args stack are.
-                else if (prevArgInfo.GetSlotCount() != 0)
-                {
-                    prevArgInfo.SetIsLateUseNeeded();
-                }
-#endif
-            }
-        }
-    }
-
-    // TODO-MIKE-Cleanup: It's not entirely clear what the code below is trying to do.
-    //   * Introduces temps for args that contain LCLHEAP, only on non-x86 targets.
-    //     Obviously, you cannot stack allocate after some args have already been stored
-    //     to the outgoing area since stack allocation moves the outgoing area. But:
-    //     - The same is true on x86 - once args have been pushed, no stack allocation
-    //       can be done. This was lumped together with GTF_EXCEPT checks but the two
-    //       are slightly different.
-    //     - Introducing a temp for the arg that uses LCLHEAP solves only one part of
-    //       the problem. Temps must also be introduced for any previous stack args.
-    //     - But IL requires the stack be empty before localalloc so it's not clear
-    //       if it's possible to have a LCLHEAP in the middle of the arg list.
-    //       Inlining a method that uses LCLHEAP? But that's currently blocked.
-    //       And if only the first arg can contain LCLHEAP then we don't need to do
-    //       anything, even if it's a stack arg, because the arg will be stored to the
-    //       stack only after stack allocation happens.
-    //     - Except that on x86 the first IL arg may be pushed last if StdCall/Cdecl
-    //       calling conventions are used.
-    //   * On x86 this code also introduces temps for reg args that may throw exceptions.
-    //     That's because they're going to be moved to the late arg list so we need to
-    //     ensure that the exception is still thrown at the right time. But:
-    //     - What about non-x86 targets? These too have reg args that get moved to the
-    //       late arg list. Well, that's simple - exception are incorrectly reordered on
-    //       such targets: Sink(x, y, z, x / y, a[x]); throws DivByZero on x86 and NullRef
-    //       on all other targets.
-    //     - Also, such temps are not always required. They're only needed if subsequent
-    //       args have interfering side effects.
-    //     - Old comments gave a different justification to the introduction of temps on
-    //       x86 - "we previously recorded a stack depth of zero when morphing the register
-    //       arguments of any IND_LOAD with a GTF_IND_RNGCHK flag". The flag no longer exists
-    //       and the "recorded stack depth" likely refers to work that's now done post lowering
-    //       by StackLevelSetter.
-    //   * And on top of it all it's not clear why this need to be done in a loop separate
-    //     from the one above that deals with assignments and calls.
-    //
-    //     The usual mess.
-    //
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#if FEATURE_FIXED_OUT_ARGS
-    if (HasStackArgs() && compiler->compLocallocUsed)
-#else
-    if (HasStackArgs())
-#endif
-    {
-        for (unsigned i = 0; i < argCount; i++)
-        {
-            CallArgInfo& argInfo = *argTable[i];
-
-            if (argInfo.IsTempNeeded() || argInfo.HasTemp() || (argInfo.GetRegCount() == 0))
-            {
-                continue;
-            }
-
-            GenTree* arg = argInfo.GetNode();
-
-            if (arg->HasAnySideEffect(GTF_EXCEPT))
-            {
-#if FEATURE_FIXED_OUT_ARGS
-                if (HasLclHeap(compiler, arg))
-#endif
-                {
-                    argInfo.SetTempNeeded();
-                    needsTemps = true;
-                }
-            }
-        }
-    }
-
-    if (hasRegArgs || needsTemps)
-    {
-        CallArgInfo*  sortedArgTableArray[32];
-        CallArgInfo** sortedArgTable = sortedArgTableArray;
-
-        if (argCount > _countof(sortedArgTableArray))
-        {
-            sortedArgTable = compiler->getAllocator(CMK_CallInfo).allocate<CallArgInfo*>(argCount);
-        }
-
-        memcpy(sortedArgTable, argTable, argCount * sizeof(argTable[0]));
-
-        SortArgs(compiler, call, sortedArgTable);
-        SpillArgs(compiler, call, sortedArgTable);
-    }
-
-    call->gtCallMoreFlags |= GTF_CALL_M_HAS_ARGS_SETUP;
-}
-
-void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
-{
-    // The idea is to move all "simple" arguments like constants and local vars
-    // to the end of the table, and move the complex arguments towards the beginning
-    // of the table. This will help prevent registers from being spilled by
-    // allowing us to evaluate the more complex arguments before the simpler arguments.
-    // The argTable ends up looking like:
-    //     +------------------------------------+  <--- argTable[argCount - 1]
-    //     |          constants                 |
-    //     +------------------------------------+
-    //     |    local var / local field         |
-    //     +------------------------------------+
-    //     | remaining arguments sorted by cost |
-    //     +------------------------------------+
-    //     | temps - argTable[].IsTempNeeded()  |
-    //     +------------------------------------+
-    //     |  args with calls (GTF_CALL)        |
-    //     +------------------------------------+  <--- argTable[0]
-
-    // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems that the resulting order is only
-    // used in SpillArgs so:
-    //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
-    //   - The number of args is typically low so it may be better to allocate a separate array and
-    //     pass that to SpillArgs.
-    //   - Sorting isn't stable. For example, when const args are moved to the end of the table their
-    //     relative order is preserved. But the args they're displacing lose their ordering relative
-    //     to the non-displaced args. This would probably be a bug if it weren't for the first issue,
-    //     the new order is relevant only to late args. If 2 args with calls get reordered in doesn't
-    //     matter because such args get temps and only temp uses in the arg list get ordered. So it
-    //     seems that stability doesn't matter, except for the added confusion.
-
-    ssize_t first = 0;
-    ssize_t last  = static_cast<ssize_t>(argCount) - 1;
-
-    // Move all constant args to the end of the arg table.
-    for (ssize_t i = last; i >= first; i--)
-    {
-        if (argTable[i]->GetNode()->OperIs(GT_CNS_INT))
-        {
-            std::swap(argTable[i], argTable[last]);
-            last--;
-        }
-    }
-
-    // Move all call args to the beginning of the arg table.
-    for (ssize_t i = first; i <= last; i++)
-    {
-        if (argTable[i]->GetNode()->HasAnySideEffect(GTF_CALL))
-        {
-            std::swap(argTable[i], argTable[first]);
-            first++;
-        }
-    }
-
-    // Move all args with temps to the beginning of the arg table, after the calls.
-    for (ssize_t i = first; i <= last; i++)
-    {
-        if (argTable[i]->IsTempNeeded() || argTable[i]->HasTemp())
-        {
-            std::swap(argTable[i], argTable[first]);
-            first++;
-        }
-    }
-
-    // Move all local args to the end of the arg table, before the constants.
-    for (ssize_t i = last; i >= first; i--)
-    {
-        // Ignore STRUCT locals because they were previously wrapped in OBJ(ADDR(...)) so they were treated differently.
-        if (argTable[i]->GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !argTable[i]->GetNode()->TypeIs(TYP_STRUCT))
-        {
-            std::swap(argTable[i], argTable[last]);
-            last--;
-        }
-    }
-
-    // Order any remaining args by execution cost.
-
-    // TODO-MIKE-Cleanup: Why execution cost?! It makes no difference if one arg takes 30 cycles
-    // to be computed and another only 3. What matters is how many registers each arg tree needs
-    // for evaluation (so the "cost" should really be the value returned by gtSetEvalOrder - a
-    // Sethi-Ullman number approximation). Not surprisingly, attempting to change this results
-    // in diffs that aren't all improvements.
-
-    if (first < last)
-    {
-        for (ssize_t i = first; i <= last; i++)
-        {
-            GenTree* arg = argTable[i]->GetNode();
-
-            // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
-            // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
-
-            // TODO-MIKE-Cleanup: These should probably be moved to gtSetEvalOrder, they're here only to
-            // keep diffs small.
-
-            if (arg->OperIs(GT_LCL_LOAD))
-            {
-                arg->SetCosts(9, 7);
-            }
-            else if (arg->OperIs(GT_LCL_LOAD_FLD))
-            {
-                arg->SetCosts(9, 9);
-            }
-            else
-            {
-                compiler->gtSetCosts(arg);
-            }
-        }
-
-        // TODO-MIKE-Cleanup: This could use jitstd::sort but there are a few diffs caused by sorting instability.
-
-        while (first < last)
-        {
-            unsigned maxCost      = argTable[first]->GetNode()->GetCostEx();
-            ssize_t  maxCostIndex = first;
-
-            for (ssize_t i = first + 1; i <= last; i++)
-            {
-                if (argTable[i]->GetNode()->GetCostEx() > maxCost)
-                {
-                    maxCost      = argTable[i]->GetNode()->GetCostEx();
-                    maxCostIndex = i;
-                }
-            }
-
-            std::swap(argTable[maxCostIndex], argTable[first]);
-            first++;
-        }
-    }
-
-#ifdef DEBUG
-    if (compiler->verbose)
-    {
-        printf("\nSorted arg table:\n");
-
-        for (unsigned i = 0; i < argCount; i++)
-        {
-            argTable[i]->Dump();
-        }
-
-        printf("\n");
-    }
-#endif
-}
-
-void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** sortedArgs) const
-{
-    GenTreeCall::Use* lateArgUseListHead = nullptr;
-    GenTreeCall::Use* lateArgUseListTail = nullptr;
-
-    for (unsigned i = 0; i < argCount; i++)
-    {
-        CallArgInfo& argInfo = *sortedArgs[i];
-
-        assert(argInfo.GetSetupUse() == nullptr);
-
-#if !FEATURE_FIXED_OUT_ARGS
-        // On x86 we use push instructions to pass arguments:
-        //   Only the register arguments need to be replaced with placeholder nodes.
-        //   Stack arguments are evaluated and pushed in order.
-        assert(!argInfo.IsLateUseNeeded());
-
-        if (argInfo.GetRegCount() == 0)
-        {
-            continue;
-        }
-#endif
-
-        GenTreeCall::Use* use      = argInfo.GetUse();
-        GenTree*          arg      = use->GetNode();
-        GenTree*          setupArg = nullptr;
-
-        if (argInfo.HasTemp())
-        {
-            JITDUMPTREE(arg, "Arg temp is already created:\n");
-
-#ifdef TARGET_64BIT
-            // moSetupCallArgs creates temps only for implicit by-ref args, which makes handling
-            // this case trivial - the late arg is the address of the created temp local.
-
-            assert(argInfo.IsImplicitByRef());
-
-            LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo.GetTempLclNum());
-            compiler->lvaSetAddressExposed(tempLcl);
-            use->SetNode(compiler->gtNewLclAddr(tempLcl));
-            setupArg = arg;
-#else
-            unreached();
-#endif
-        }
-        else if (argInfo.IsTempNeeded())
-        {
-            JITDUMPTREE(arg, "Creating temp for arg:\n");
-
-            // We may have started with a struct arg and changed it to a FP/SIMD arg.
-            if (varTypeUsesFloatReg(arg->GetType()))
-            {
-                compiler->compFloatingPointUsed = true;
-            }
-
-            LclVarDsc* tempLcl = compiler->lvaAllocTemp(true DEBUGARG("argument with side effect"));
-
-            argInfo.SetTempLclNum(tempLcl->GetLclNum());
-
-            if (!varTypeIsStruct(arg->GetType()))
-            {
-                var_types type = varActualType(arg->GetType());
-                tempLcl->SetType(type);
-                setupArg = compiler->gtNewLclStore(tempLcl, type, arg);
-            }
-            else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
-            {
-                compiler->lvaSetStruct(tempLcl, arg->AsCall()->GetRetLayout(), false);
-                tempLcl->lvIsMultiRegRet = true;
-                tempLcl->lvFieldAccessed = true;
-
-                LclVarDsc* dstLcl     = tempLcl;
-                var_types  dstLclType = tempLcl->GetType();
-
-                StructPromotionHelper structPromotion(compiler);
-
-                if (structPromotion.TryPromoteStructLocal(tempLcl))
-                {
-                    if (tempLcl->GetPromotedFieldCount() == 1)
-                    {
-                        LclVarDsc* promotedFieldLcl = compiler->lvaGetDesc(tempLcl->GetPromotedFieldLclNum(0));
-
-                        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
-                        {
-                            arg->SetType(promotedFieldLcl->GetType());
-
-                            dstLcl     = promotedFieldLcl;
-                            dstLclType = promotedFieldLcl->GetType();
-
-                            tempLcl->lvIsMultiRegRet = false;
-                        }
-                    }
-                }
-
-                setupArg = compiler->gtNewLclStore(dstLcl, dstLclType, arg);
-            }
-            else if (varTypeIsSIMD(arg->GetType()))
-            {
-                if (ClassLayout* layout = compiler->typGetVectorLayout(arg))
-                {
-                    compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
-                }
-                else
-                {
-                    // We may not be able to recover the struct handle from HWINTRINSIC
-                    // nodes and SIMD typed IND nodes.
-
-                    // TODO-MIKE-Cleanup: So why bother at all?
-
-                    assert(arg->IsHWIntrinsic() || arg->OperIs(GT_IND_LOAD));
-                    tempLcl->lvType = arg->GetType();
-                }
-
-                setupArg = compiler->gtNewLclStore(tempLcl, arg->GetType(), arg);
-                setupArg = compiler->moMorphStructStore(setupArg, arg);
-            }
-#ifndef TARGET_X86
-            else if (arg->OperIs(GT_MKREFANY))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                unreached();
-#else
-                compiler->lvaSetStruct(tempLcl, compiler->typGetObjLayout(compiler->impGetRefAnyClass()), false);
-                setupArg = compiler->abiMorphMkRefAnyToStore(tempLcl, arg->AsOp());
-#endif
-            }
-#endif
-            else
-            {
-                ClassLayout* layout = compiler->typGetStructLayout(arg);
-                compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
-                setupArg = compiler->gtNewLclStore(tempLcl, TYP_STRUCT, arg);
-                setupArg = compiler->moMorphStructStore(setupArg, arg);
-            }
-
-            use->SetNode(compiler->gtNewLclLoad(tempLcl, varActualType(tempLcl->GetType())));
-        }
-        else if ((argInfo.GetRegCount() != 0) || argInfo.IsLateUseNeeded())
-        {
-            // No temp needed - the original arg tree is moved to the late arg list.
-        }
-        else
-        {
-            continue;
-        }
-
-        argInfo.SetIsLateUse();
-
-        if (lateArgUseListTail == nullptr)
-        {
-            lateArgUseListHead = use;
-        }
-        else
-        {
-            lateArgUseListTail->SetNext(use);
-        }
-
-        lateArgUseListTail = use;
-
-        if (setupArg != nullptr)
-        {
-            JITDUMPTREE(setupArg, "Created arg setup tree:\n");
-
-            argInfo.SetSetupUse(compiler->gtNewCallArgs(setupArg));
-        }
-    }
-
-    if (lateArgUseListHead == nullptr)
-    {
-        return;
-    }
-
-    GenTreeCall::Use** prevUseLink = &call->m_uses;
-
-    for (unsigned i = 0; i < argCount; i++)
-    {
-        CallArgInfo&      argInfo = *argTable[i];
-        GenTreeCall::Use* use     = argInfo.GetSetupUse();
-
-        if (use == nullptr)
-        {
-            if (argInfo.IsLateUse())
-            {
-                continue;
-            }
-
-            use = argInfo.GetUse();
-        }
-
-        *prevUseLink = use;
-        prevUseLink  = &use->NextRef();
-    }
-
-    *prevUseLink = lateArgUseListHead;
-    lateArgUseListTail->SetNext(nullptr);
-}
-
-//------------------------------------------------------------------------------
-// fgMakeMultiUse : If the node is a local, clone it, otherwise insert a comma form temp
-//
-// Arguments:
-//    ppTree  - a pointer to the child node we will be replacing with the comma expression that
-//              evaluates ppTree to a temp and returns the result
-//
-// Return Value:
-//    A fresh LCL_LOAD node referencing the temp which has not been used
-
-GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
-{
-    GenTree* tree = *pOp;
-
-    // TODO-MIKE-Review: We could clone LCL_ADDR too but it looks like
-    // fgMakeMultiUse has very few uses and none them could reasonably
-    // have LCL_ADDRs involved.
-
-    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-    {
-        return gtCloneSimple(tree);
-    }
-    else
-    {
-        return fgInsertCommaFormTemp(pOp);
-    }
-}
-
-GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
-{
-    GenTree* tree = *use;
-    assert(!varTypeIsStruct(tree->GetType()));
-
-    var_types        type  = varActualType(tree->GetType());
-    LclVarDsc*       lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
-    GenTreeLclStore* store = gtNewLclStore(lcl, type, tree);
-    GenTreeLclLoad*  load  = gtNewLclLoad(lcl, type);
-    *use                   = gtNewCommaNode(store, load, type);
-    return gtNewLclLoad(lcl, type);
-}
-
-// This method only computes the arg table and arg entries for the call (the fgArgInfo),
-// and makes no modification of the args themselves.
-// The IR for the call args can change for calls with non-standard arguments: some non-standard
-// arguments add new call argument IR nodes.
-void Compiler::moInitCallnfo(GenTreeCall* call)
-{
-    assert((call->GetInfo() == nullptr) && !call->HasArgsSetup());
-    assert(call->RequiresRetBufArg() == call->HasRetBufArg());
-
-    JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
-
-#ifdef TARGET_X86
-    // These are handled by special code in LIR/lowering.
-    assert(!call->IsHelperCall(CORINFO_HELP_LLSH) && !call->IsHelperCall(CORINFO_HELP_LRSH) &&
-           !call->IsHelperCall(CORINFO_HELP_LRSZ));
-#endif
-#if defined(TARGET_X86) || defined(TARGET_ARM)
-    assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
-#endif
-
-    const bool callIsVararg = call->IsVarargs();
-
-#ifdef TARGET_UNIX
-    NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
-#endif
-
-    // Data structure for keeping track of non-standard args. Non-standard args are those that are not passed
-    // following the normal calling convention or in the normal argument registers. We either mark existing
-    // arguments as non-standard (such as the x8 return buffer register on ARM64), or we manually insert the
-    // non-standard arguments into the argument list, below.
-    class NonStandardArgs
-    {
-        GenTree* args[4];
-        RegNum   regs[4];
-        unsigned count = 0;
-
-    public:
-        void Add(GenTree* node, RegNum reg)
-        {
-            assert((node != nullptr) && (reg != REG_NA));
-            noway_assert(count < _countof(args));
-            args[count] = node;
-            regs[count] = reg;
-            count++;
-        }
-
-        RegNum FindReg(GenTree* node) const
-        {
-            for (unsigned i = 0; i < count; i++)
-            {
-                if (node == args[i])
-                {
-                    return regs[i];
-                }
-            }
-
-            return REG_NA;
-        }
-    } nonStandardArgs;
-
-    unsigned numArgs = 0;
-
-    for (GenTreeCall::Use& use : call->Uses())
-    {
-        numArgs++;
-    }
-
-    // Insert or mark non-standard args. These are either outside the normal calling convention, or
-    // arguments registers that don't follow the normal progression of argument registers in the calling
-    // convention (such as for the ARM64 fixed return buffer argument x8).
-    // The logic here must remain in sync with HasNonStandardAddedArgs, which is used to map arguments
-    // in the implementation of fast tail call.
-    CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_ARM64
-    if (call->HasFixedRetBufArg())
-    {
-        nonStandardArgs.Add(call->GetRetBufArg()->GetNode(), REG_ARG_RET_BUFF);
-    }
-#endif
-
-#ifdef TARGET_ARM
-    if (call->IsWrapperDelegateInvoke())
-    {
-        // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
-        // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
-        // R4, a callee-saved register, with a special value. Since R4 is a callee-saved register, its value needs
-        // to be preserved. Thus, the VM uses a wrapper delegate IL stub, which preserves R4 and also sets up R4
-        // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
-        // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
-
-        GenTree* arg = call->GetThisArg()->GetNode();
-
-        // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_LOAD_FLD
-        // is bad for CQ, especially on ARM where we don't have memory operands.
-        if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-        {
-            arg = gtCloneSimple(arg);
-        }
-        else
-        {
-            GenTreeLclLoad* tmp = fgInsertCommaFormTemp(&arg);
-            call->GetThisArg()->SetNode(arg);
-            call->AddSideEffects(GTF_ASG);
-            arg = tmp;
-        }
-
-        GenTree* cellOffset = gtNewIconNode(static_cast<ssize_t>(eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell));
-        GenTree* newArg     = gtNewOperNode(GT_ADD, TYP_BYREF, arg, cellOffset);
-
-        gtAppendNewCallArg(call, newArg);
-
-        nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
-        numArgs++;
-    }
-    else
-#endif // TARGET_ARM
-#ifndef TARGET_X86
-        if (call->IsVirtualStubIndirect())
-    {
-        GenTree* stubAddrArg = gtCloneSimple(call->GetCallAddr());
-
-        gtInsertNewCallArgAfter(stubAddrArg, call->GetThisArg());
-
-        nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
-        numArgs++;
-    }
-    else if (call->IsVirtualStubDirect())
-    {
-        assert(call->m_entryPointAddr != nullptr);
-        assert(call->m_entryPointAccessType == IAT_PVALUE);
-
-        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-        cellAddress->SetDumpHandle(call->GetMethodHandle());
-
-        gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
-
-        nonStandardArgs.Add(cellAddress, info.virtualStubParamRegNum);
-        numArgs++;
-    }
-    else
-#endif // TARGET_X86
-#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
-        if (call->IsR2RRelativeIndir())
-    {
-        // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
-        // for indirection cell address, which ZapIndirectHelperThunk expects.
-
-        assert(call->m_entryPointAddr != nullptr);
-        assert(call->m_entryPointAccessType == IAT_PVALUE);
-
-        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-        cellAddress->SetDumpHandle(call->GetMethodHandle());
-        // Don't attempt to CSE this constant on ARM32.
-        // This constant has specific register requirements, and LSRA doesn't
-        // currently correctly handle them when the value is in a CSE'd local.
-        ARM_ONLY(cellAddress->SetDoNotCSE());
-
-        if (GenTreeCall::Use* thisUse = call->HasThisArg())
-        {
-            gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
-        }
-        else
-        {
-            gtPrependNewCallArg(call, cellAddress);
-        }
-
-        nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
-        numArgs++;
-    }
-    else
-#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
-        if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
-    {
-        assert(!call->IsUnmanaged());
-
-        GenTree* target = nullptr;
-        GenTree* cookie = nullptr;
-
-        for (GenTreeCall::Use* use = call->m_uses; use->GetNext() != nullptr; use = use->GetNext())
-        {
-            cookie = use->GetNode();
-            target = use->GetNext()->GetNode();
-        }
-
-        nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
-        nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
-    }
-
-    CallInfo* callInfo = new (this, CMK_CallInfo) CallInfo(this, call, numArgs);
-
-#ifdef TARGET_X86
-    unsigned maxIntArgRegNum;
-
-    if (call->IsUnmanaged())
-    {
-        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
-        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
-               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
-        assert(!call->HasThisArg());
-
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-    }
-    else if (callIsVararg)
-    {
-        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
-    }
-    else
-    {
-        maxIntArgRegNum = MAX_REG_ARG;
-    }
-#endif // TARGET_X86
-
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
-
-    bool anyFloatStackArgs = false;
-
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
-
-    unsigned intArgRegNum = 0;
-    unsigned fltArgRegNum = 0;
-    unsigned argIndex     = 0;
-    unsigned nextSlotNum  = INIT_ARG_STACK_SLOT;
-
-    auto AllocateStackSlots = [&nextSlotNum](unsigned slotCount, unsigned alignment) {
-        unsigned firstSlot = roundUp(nextSlotNum, alignment);
-        nextSlotNum        = firstSlot + slotCount;
-        return firstSlot;
-    };
-
-    for (GenTreeCall::Use& args : call->Uses())
-    {
-        GenTree* const  argNode = args.GetNode();
-        var_types const argType = argNode->GetType();
-
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
-
-        unsigned     size            = 0;
-        var_types    sigType         = TYP_UNDEF;
-        unsigned     argAlign        = 1;
-        const bool   isStructArg     = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize      = 0;
-        var_types    structBaseType  = TYP_STRUCT;
-        bool         passStructByRef = false;
-        var_types    hfaType         = TYP_UNDEF;
-        unsigned     hfaSlots        = 0;
-
-        if (isStructArg)
-        {
-            structSize = layout->GetSize();
-            sigType    = TYP_STRUCT;
-
-            layout->EnsureHfaInfo(this);
-
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
-            {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
-
-                compFloatingPointUsed = true;
-            }
-
-#ifdef TARGET_ARM
-            argAlign = info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle());
-            argAlign = roundUp(argAlign, REGSIZE_BYTES) / REGSIZE_BYTES;
-#endif
-
-            StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
-
-            structBaseType  = howToPassStruct.type;
-            passStructByRef = howToPassStruct.kind == SPK_ByReference;
-
-#if defined(WINDOWS_AMD64_ABI)
-            size = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
-            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else
-            {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!passStructByRef || (size == 1));
-            }
-#else
-#error Unsupported or unset target architecture
-#endif
-
-            if (howToPassStruct.kind == SPK_PrimitiveType)
-            {
-                // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
-                // or for a struct of two floats. This causes the struct to be address-taken.
-                size = 1 ARM_ONLY(+(structBaseType == TYP_DOUBLE));
-            }
-        }
-        else
-        {
-            sigType = static_cast<var_types>(args.GetSigTypeNum());
-
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(sigType != TYP_STRUCT);
-
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES) / REGSIZE_BYTES;
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
-        }
-
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
-
-        if (argAlign == 2)
-        {
-            if (passUsingFloatRegs)
-            {
-                if (fltArgRegNum % 2 == 1)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
-
-        bool isRegArg = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-#ifdef OSX_ARM64_ABI
-        unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
-            {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
-                    {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_REG_ARG;
-                    }
-                    else
-#endif
-                    {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_REG_ARG;
-                    }
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
-
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                        {
-                            structFloatRegs++;
-                        }
-                        else
-                        {
-                            structIntRegs++;
-                        }
-                    }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_REG_ARG);
-                }
-            }
-            else if (passUsingFloatRegs)
-            {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
-            }
-
-            if (call->IsTailCallViaJitHelper())
-            {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(numArgs >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= numArgs - 4)
-                {
-                    isRegArg = false;
-                }
-            }
-#else
-#error Unknown target
-#endif
-        }
-
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
-        {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
-            {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
-            }
-        }
-        else
-        {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_REG_ARG) && anyFloatStackArgs)
-            {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
-            }
-        }
-#endif // TARGET_ARM
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
-        {
-            argInfo->SetSlots(AllocateStackSlots(size, argAlign), size);
-        }
-        else
-        {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount = size;
-#if FEATURE_ARG_SPLIT
-            unsigned firstSlot = 0;
-            unsigned slotCount = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount  = MAX_REG_ARG - intArgRegNum;
-                        slotCount = size - regCount;
-                        firstSlot = AllocateStackSlots(slotCount, 1);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
-            {
-                regCount = 1;
-            }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
-            else
-            {
-                argInfo->SetRegType(0, argType);
-            }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
-
-#if FEATURE_ARG_SPLIT
-            if (slotCount != 0)
-            {
-                argInfo->SetSlots(firstSlot, slotCount);
-            }
-#endif
-        }
-
-        if (isStructArg)
-        {
-            argInfo->SetIsImplicitByRef(passStructByRef);
-            argInfo->SetArgType(structBaseType == TYP_UNDEF ? argType : structBaseType);
-        }
-        else
-        {
-            argInfo->SetArgType(argType);
-        }
-
-        callInfo->AddArg(argInfo);
-    }
-
-    callInfo->SetStackArgsSlotCount(nextSlotNum);
-    call->SetInfo(callInfo);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Call [%06u] arg table after moInitCallnfo:\n", call->GetID());
-        callInfo->Dump();
-        printf("\n");
-    }
-#endif
-}
-
-void Compiler::moMorphCallArgs(GenTreeCall* const call)
-{
-    JITDUMP("Morphing call [%06u] args\n", call->GetID());
-
-    GenTreeFlags argsSideEffects = GTF_NONE;
-
-    for (GenTreeUse& use : call->Uses())
-    {
-        use.SetNode(moMorphTree(use.GetNode()));
-        argsSideEffects |= use.GetNode()->gtFlags;
-    }
-
-    if (GenTree* addr = call->GetCallAddr())
-    {
-        call->SetCallAddr(moMorphTree(addr));
-        argsSideEffects |= call->GetCallAddr()->gtFlags;
-    }
-
-    call->RemoveSideEffects(GTF_ASG);
-
-    if (!call->CallMayThrow(this))
-    {
-        call->RemoveSideEffects(GTF_EXCEPT);
-    }
-
-    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
-}
-
-void Compiler::moSetupCallArgs(GenTreeCall* const call)
-{
-    assert((call->GetInfo() != nullptr) && !call->HasArgsSetup());
-
-    JITDUMP("Setting up call [%06u] args\n", call->GetID());
-
-    GenTreeFlags argsSideEffects = GTF_NONE;
-    unsigned     argNum          = 0;
-
-    // Sometimes we need a second pass to morph args, most commonly for arguments
-    // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
-    // so if the args needs a temp SpillArgs won't be able to allocate one.
-    // Then the first pass does minimal or no morphing of the arg and the second
-    // pass replaces the arg with a FIELD_LIST node.
-    bool requires2ndPass = false;
-
-    for (GenTreeCall::Use& argUse : call->Uses())
-    {
-        CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum++);
-        GenTree*     arg     = argUse.GetNode();
-
-        assert(argInfo->GetSetupUse() == nullptr);
-
-        bool paramIsStruct = typIsLayoutNum(argUse.GetSigTypeNum());
-
-        if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
-        {
-            if (paramIsStruct && arg->OperIs(GT_CONV) &&
-                (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse.GetSigTypeNum())->GetSize()))
-            {
-                // This is a struct arg that became a primitive type arg due to struct promotion.
-                // Promoted struct fields are "normalized on load" but we don't need normalization
-                // because struct args do not need to be widened so we can drop the normalization
-                // cast.
-
-                arg = arg->AsUnOp()->GetOp(0);
-                argUse.SetNode(arg);
-            }
-
-#if defined(TARGET_WINDOWS) || defined(TARGET_ARM)
-            // win-arm64 varargs and arm-soft-fp pass floating point args in integer registers.
-            // win-x64 passes single float/double field structs in integer registers, if we
-            // promoted the struct, or if a float/double local was reinterpreted as a single
-            // FP field struct we need to bitcast the FP value to integer.
-            if ((argInfo->GetRegCount() != 0) &&
-#ifdef TARGET_ARM
-                // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
-                // case in lowering/codegen.
-                arg->TypeIs(TYP_FLOAT)
-#else
-                arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
-#endif
-                && genIsValidIntReg(argInfo->GetRegNum(0)))
-            {
-                arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
-                argUse.SetNode(arg);
-            }
-#endif // defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
-
-            bool argMatchesRegType =
-                (argInfo->GetRegCount() == 0) ||
-#ifdef TARGET_ARM
-                (arg->TypeIs(TYP_DOUBLE) && (argInfo->GetRegCount() == 2) && genIsValidIntReg(argInfo->GetRegNum(0))) ||
-#endif
-                (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
-            assert(argMatchesRegType);
-
-            continue;
-        }
-
-        // Non-standard args are expected to have primitive type.
-        assert(!argInfo->IsNonStandard());
-
-        // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
-        // temp arg copies? The struct arg morph code below doesn't handle that.
-        GenTree* argVal = arg->SkipComma();
-
-        assert(!argVal->OperIs(GT_FIELD_LIST, GT_LCL_DEF, GT_LCL_STORE));
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        if (argInfo->IsImplicitByRef())
-        {
-            assert(argInfo->IsSingleRegOrSlot());
-            abiMorphImplicitByRefStructArg(call, argInfo);
-            argsSideEffects |= argUse.GetNode()->gtFlags;
-            continue;
-        }
-#endif
-
-        if (argInfo->GetRegCount() != 0)
-        {
-#if FEATURE_MULTIREG_ARGS
-            if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
-            {
-                requires2ndPass |= true;
-            }
-            else
-#endif
-            {
-                abiMorphSingleRegStructArg(argInfo, argVal);
-            }
-
-            argsSideEffects |= argUse.GetNode()->gtFlags;
-            continue;
-        }
-
-        requires2ndPass |= abiMorphStackStructArg(argInfo, argVal);
-        argsSideEffects |= argUse.GetNode()->gtFlags;
-    }
-
-    call->GetInfo()->SetupArgs(this, call);
-    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
-
-#ifdef TARGET_X86
-    assert(!requires2ndPass);
-#else
-    if (requires2ndPass)
-    {
-        abiMorphArgs2ndPass(call);
-    }
-#endif
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Call [%06u] arg table after moSetupCallArgs:\n", call->GetID());
-        call->fgArgInfo->Dump();
-    }
-#endif
-}
-
-bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
-{
-    assert(argInfo->GetRegCount() == 0);
-
-    if (arg->IsIntegralConst(0))
-    {
-#ifdef TARGET_64BIT
-        // Args that require more than one slot are handled in codegen but in the single slot
-        // case we need to ensure that the entire slot is zeroed, not just the low 4 bytes.
-        if ((argInfo->GetSlotCount() == 1) &&
-            (typGetLayoutByNum(argInfo->GetSigTypeNum())->GetSize() > varTypeSize(arg->GetType())))
-        {
-            arg->SetType(TYP_LONG);
-        }
-#endif
-
-        return false;
-    }
-
-    assert(varTypeIsStruct(arg->GetType()));
-
-    if (arg->OperIs(GT_MKREFANY))
-    {
-#ifdef TARGET_X86
-        abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
-        return false;
-#else
-        return true;
-#endif
-    }
-
-    if (arg->OperIs(GT_LCL_LOAD) && varTypeIsStruct(arg->GetType()) &&
-        arg->AsLclLoad()->GetLcl()->IsIndependentPromoted())
-    {
-        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
-
-        if (lcl->GetPromotedFieldCount() > 1)
-        {
-            // If we need more than one field we need to generate a FIELD_LIST.
-            // If this argument ends up needing a temp then SpillArgs will
-            // need the struct layout to create the temp and FIELD_LIST doesn't
-            // have layout. So we have to do this transform after SpillArgs.
-            // On x86 we never need temps for stack args so we do it here.
-            CLANG_FORMAT_COMMENT_ANCHOR;
-
-#ifdef TARGET_X86
-            abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
-            return false;
-#else
-            return true;
-#endif
-        }
-
-        LclVarDsc* fieldLcl  = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-        var_types  fieldType = fieldLcl->GetType();
-
-        assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
-
-        arg->AsLclLoad()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
-        arg->SetType(fieldType);
-        arg->gtFlags = GTF_NONE;
-
-        argInfo->SetArgType(fieldType);
-
-        return false;
-    }
-
-#ifndef TARGET_X86
-    // On x86 we need to keep multireg calls unchanged since there are no multireg
-    // args and thus no second arg morphing pass. This also avoids the need for a
-    // temp and it's good for CQ, even if that's not exactly useful on x86, given
-    // the limited use of the native calling convention.
-    // TODO-MIKE-CQ: Avoiding the temp would be good on other targets as well, but
-    // currently that doesn't work because the rest of the arg morphing code always
-    // spills arg containing calls to temps, even the first evaluated arg, that has
-    // no outgoing arg area interference.
-    if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
-    {
-        return true;
-    }
-#endif
-
-    if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
-    {
-        // While not required for correctness, we can change the type of a struct arg to
-        // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
-        // USHORT. Currently CSE does not handle STRUCT OBJs but it can CSE an IND, even
-        // if this is a form a reinterpretation that has other limitations in VN/CSE.
-        //
-        // TODO-MIKE-CQ: Investigate reinterpretation effect on VN. For example, would
-        // VN be able to convert from a "zero map" to any primitive type in order to
-        // const propagate default struct initialization?
-
-        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
-
-        var_types argType   = argInfo->GetArgType();
-        bool      canRetype = false;
-
-        if (arg->OperIs(GT_IND_LOAD_OBJ))
-        {
-            canRetype = varTypeSize(argType) <= arg->AsIndLoadObj()->GetLayout()->GetSize();
-
-            if (canRetype)
-            {
-                arg->ChangeOper(GT_IND_LOAD);
-            }
-        }
-        else if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
-        {
-            canRetype = load->GetLclOffs() + varTypeSize(argType) <= load->GetLcl()->GetTypeSize();
-
-            if (canRetype)
-            {
-                arg->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
-            }
-        }
-        else if (arg->OperIs(GT_LCL_LOAD))
-        {
-            canRetype      = true;
-            LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
-            arg->ChangeToLclLoadFld(argType, lcl, 0, FieldSeqStore::NotAField());
-            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-        }
-
-        if (canRetype)
-        {
-            if (varTypeIsSmall(argType))
-            {
-                // argType is a signed type but this is a struct so sign extension isn't necessary.
-                // On XARCH it causes MOVSX to be generated, which has larger encoding than MOVZX.
-                argType = varTypeToSmallUnsigned(argType);
-            }
-
-            arg->SetType(argType);
-        }
-    }
-
-    return false;
-}
-
-void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
-{
-    assert(argInfo->GetRegCount() == 0);
-
-    LclVarDsc* lcl = arg->GetLcl();
-
-    if (!lcl->IsIndependentPromoted())
-    {
-        return;
-    }
-
-    assert(lcl->GetPromotedFieldCount() > 1);
-
-    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-
-    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
-    {
-        var_types       fieldType   = fieldLcl->GetType();
-        unsigned        fieldOffset = fieldLcl->GetPromotedFieldOffset();
-        GenTreeLclLoad* fieldLoad   = gtNewLclLoad(fieldLcl, fieldType);
-
-        assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
-
-        fieldList->AddField(this, fieldLoad, fieldOffset, fieldType);
-    }
-}
-
-void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
-{
-    assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
-
-    GenTree* dataPtr = arg->GetOp(0);
-    GenTree* type    = arg->GetOp(1);
-
-    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-    fieldList->AddField(this, dataPtr, OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
-    fieldList->AddField(this, type, OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
-}
-
-GenTreeFieldList* Compiler::abiMakeFieldList(GenTree* arg)
-{
-    return arg->ChangeToFieldList();
-}
-
-#ifndef TARGET_X86
-
-void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
-{
-    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
-    {
-        CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
-        GenTree*     arg     = argInfo->GetNode();
-
-        if (arg->OperIs(GT_MKREFANY))
-        {
-            abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
-            continue;
-        }
-
-        if (argInfo->GetRegCount() == 0)
-        {
-            arg = arg->SkipComma();
-
-            if (arg->OperIs(GT_LCL_LOAD))
-            {
-                abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
-            }
-            continue;
-        }
-
-#if FEATURE_MULTIREG_ARGS
-        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
-        {
-            if (arg->IsIntegralConst(0) || (varTypeIsStruct(arg->GetType()) && !arg->IsFieldList()))
-            {
-                GenTree* newArg = abiMorphMultiRegStructArg(argInfo, arg);
-
-                if (newArg != arg)
-                {
-                    argInfo->SetNode(newArg);
-                    call->AddSideEffects(newArg->GetSideEffects());
-                }
-            }
-
-            continue;
-        }
-#endif
-    }
-}
-
-#endif
-
-void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
-{
-    assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
-
-    var_types argRegType = argInfo->GetArgType();
-    unsigned  argSize    = 0;
-
-    if (varTypeIsSmall(argRegType))
-    {
-        // This being a struct, sign extension isn't needed so use unsigned small int types.
-        // On XARCH we get MOVZX which may end up being shorter than MOVSX.
-        argRegType = varTypeToSmallUnsigned(argRegType);
-    }
-
-    if (arg->IsIntegralConst(0))
-    {
-        if (varTypeIsFloating(argRegType))
-        {
-            arg->ChangeToDblCon(TYP_DOUBLE, 0);
-        }
-        else if (argRegType == TYP_LONG)
-        {
-            arg->SetType(TYP_LONG);
-        }
-        else if (varTypeIsGC(argRegType))
-        {
-            arg->SetType(TYP_I_IMPL);
-        }
-#ifdef FEATURE_HW_INTRINSICS
-        else if (varTypeIsSIMD(argRegType))
-        {
-            arg->ChangeOper(GT_HWINTRINSIC);
-            arg->SetType(argRegType);
-            arg->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(argRegType), TYP_FLOAT, varTypeSize(argRegType),
-                                               0);
-        }
-#endif
-        else
-        {
-            assert(varActualTypeIsInt(argRegType));
-        }
-
-        return;
-    }
-
-    if (arg->OperIs(GT_IND_LOAD_OBJ))
-    {
-        argSize = arg->AsIndLoadObj()->GetLayout()->GetSize();
-
-        assert(argSize <= argRegType);
-
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_X86)
-        // On win-x64 and x86 only register sized structs are passed in a register, others are passed by reference.
-        assert(argSize == varTypeSize(argRegType));
-#else
-        // On all other targets structs smaller than register size can be passed in a register, this includes
-        // structs that not only that they're smaller but they also don't match any available load instruction
-        // size (3, 5, 6...) and that will require additional processing.
-        assert(argSize <= varTypeSize(argRegType));
-
-        if (!isPow2(argSize))
-        {
-#ifdef TARGET_64BIT
-            assert((argSize == 3) || (argSize == 5) || (argSize == 6) || (argSize == 7));
-#else
-            assert(argSize == 3);
-#endif
-            assert(arg->TypeIs(TYP_STRUCT));
-
-            GenTree* addr           = arg->AsIndLoadObj()->GetAddr();
-            ssize_t  addrOffset     = 0;
-            GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
-
-            arg = abiNewMultiLoadIndir(addr, addrOffset, argSize);
-
-            if (addrTempAssign != nullptr)
-            {
-                arg = gtNewCommaNode(addrTempAssign, arg);
-            }
-
-            argInfo->SetNode(arg);
-
-            return;
-        }
-#endif // !defined(TARGET_AMD64) || defined(UNIX_AMD64_ABI)
-
-        arg->ChangeOper(GT_IND_LOAD);
-        arg->SetType(argRegType);
-
-        return;
-    }
-
-    if (arg->OperIs(GT_LCL_LOAD))
-    {
-        // Independent promoted locals require special handling. This includes promoted SIMD locals,
-        // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
-
-        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
-
-        if (lcl->IsPromoted())
-        {
-            if (argSize == 0)
-            {
-                argSize = lcl->GetLayout()->GetSize();
-            }
-
-            GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclLoad(), argRegType, argSize);
-
-            if (newArg != arg)
-            {
-                argInfo->SetNode(newArg);
-            }
-
-            return;
-        }
-    }
-
-#ifdef TARGET_64BIT
-    if (arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
-    {
-        // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
-        argInfo->SetNode(gtNewBitCastNode(argRegType, arg));
-        return;
-    }
-#endif
-
-    // At this point we have either an arbitrary SIMD tree or a LCL_VAR|FLD of
-    // either SIMD or primitive type. The arbitrary SIMD tree should already be
-    // using the correct register type but the LCL_VAR may have the wrong type
-    // due to reinterpretation.
-
-    if (!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-    {
-#if defined(UNIX_AMD64_ABI)
-        // SIMD8 is the only SIMD type passed in a single register on UNIX_AMD64_ABI.
-        // SIMD16 & SIMD32 should also be passed in a single XMM register but the ABI
-        // is currently broken.
-        assert(arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_DOUBLE));
-#elif defined(TARGET_AMD64)
-        // On win-x64 the only SIMD type passed in a register is SIMD8 and we have
-        // already handled that case. vectorcall is not currently supported.
-        unreached();
-#elif defined(TARGET_ARM64)
-        // On ARM64 SIMD8 and SIMD16 types may be passed in a vector register.
-        // SIMD12 is always a HFA and SIMD32 doesn't exist.
-        assert(arg->TypeIs(TYP_SIMD8, TYP_SIMD16));
-        assert(argRegType == arg->GetType());
-#else
-        // Other targets don't have SIMD types or pass them on the stack (x86).
-        unreached();
-#endif
-        return;
-    }
-
-    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_LOAD(_FLD)
-    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_LOAD_(FLD) may also have
-    // primitive type or an unexpected SIMD type (e.g. SIMD16 local passed in an INT reg).
-    // For now use LCL_LOAD_FLD to handle all such cases. In some cases BITCAST may be used
-    // but it's not clear which such cases, if any, are useful.
-
-    if (arg->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(arg->GetType())))
-    {
-        LclVarDsc* lcl = arg->AsLclRef()->GetLcl();
-
-        if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
-        {
-            load->SetType(argRegType);
-            load->SetFieldSeq(FieldSeqStore::NotAField());
-        }
-        else
-        {
-            arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
-        }
-
-        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-    }
-}
-
-GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_types argRegType, unsigned argSize)
-{
-    assert(argSize <= varTypeSize(argRegType));
-    assert(varTypeIsSingleReg(argRegType));
-
-    LclVarDsc* lcl = arg->GetLcl();
-    assert(argSize <= lcl->GetLayout()->GetSize());
-
-    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-    assert(!fieldLcl->TypeIs(TYP_STRUCT));
-
-    if ((fieldLcl->GetPromotedFieldOffset() == 0) && (argSize <= varTypeSize(fieldLcl->GetType())) &&
-        varTypeIsSingleReg(fieldLcl->GetType()))
-    {
-        // Handle the common case when the first field of the struct is large enough and can be loaded
-        // directly into the arg register. That's almost all single field structs, except those having
-        // a floating point or SIMD8 field that may need to be passed in an integer register (win-x64,
-        // win-arm64 varargs).
-
-        if (varTypeUsesFloatReg(fieldLcl->GetType()) == varTypeUsesFloatReg(argRegType))
-        {
-            arg->SetLcl(fieldLcl);
-            arg->SetType(fieldLcl->GetType());
-            return arg;
-        }
-
-#ifdef TARGET_64BIT
-        // Handle the win-x64 and win-arm64 varargs case. This doesn't occur now for floating point
-        // because single FLOAT/DOUBLE field structs aren't promoted. But it can be tested by
-        // reinterpreting a struct with more than one field.
-
-        if ((fieldLcl->TypeIs(TYP_FLOAT) && (argRegType == TYP_INT)) ||
-            (fieldLcl->TypeIs(TYP_DOUBLE) && (argRegType == TYP_LONG)) ||
-            (fieldLcl->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG)))
-        {
-            arg->SetLcl(fieldLcl);
-            arg->SetType(fieldLcl->GetType());
-            return gtNewBitCastNode(argRegType, arg);
-        }
-#endif // TARGET_64BIT
-    }
-
-    if (lcl->lvDoNotEnregister)
-    {
-        // If we need to use more than one field and the local is already DNER then just use LCL_FLD.
-        // Otherwise we'd just be generating multiple memory loads.
-
-        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
-
-        return arg;
-    }
-
-#ifdef TARGET_AMD64
-    // Special case for AMD64 ABIs - 2 float fields are passed in a single XMM reg on linux-x64 and
-    // an integer (LONG) reg on win-x64.
-    if ((lcl->GetPromotedFieldCount() >= 2) &&
-#ifdef UNIX_AMD64_ABI
-        (argRegType == TYP_DOUBLE)
-#else
-        (argRegType == TYP_LONG)
-#endif
-            )
-    {
-        LclVarDsc* field0Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-        LclVarDsc* field1Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(1));
-
-        if (field0Lcl->TypeIs(TYP_FLOAT) && (field0Lcl->GetPromotedFieldOffset() == 0) &&
-            field1Lcl->TypeIs(TYP_FLOAT) && (field1Lcl->GetPromotedFieldOffset() == 4))
-        {
-            GenTreeLclLoad* field0LclNode = gtNewLclLoad(field0Lcl, TYP_FLOAT);
-            GenTreeLclLoad* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
-
-            GenTree* doubleValue =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
-
-            return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
-        }
-    }
-#endif // TARGET_AMD64
-
-    // At this point the only remaining interesting cases are structs with more than one integer field
-    // passed in an integer register (e.g. 4 UBYTE fields passed in an INT register). Also, on 64 bit
-    // targets a FLOAT and an INT may be passed in a LONG register.
-    //
-    // Other interesting cases may arise due to reinterpretation but it's not clear which ones would be
-    // useful so let's keep this simple for now. One potential such case would be passing vector like
-    // structs as real vectors (e.g. a 4 FLOAT field struct passed as SIMD16).
-
-    GenTree* newArg = nullptr;
-
-    if (varTypeIsIntegral(argRegType))
-    {
-        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
-        {
-            LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
-            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-            unsigned   fieldSize   = varTypeSize(fieldLcl->GetType());
-
-            if (fieldOffset >= argSize)
-            {
-                // The local struct has more fields but we don't need all of them if the arg is smaller.
-                break;
-            }
-
-#ifdef TARGET_64BIT
-            // Even if the arg reg type is LONG we don't have to use LONG all other the place.
-            // For example, the first 2 SHORT fields of a 3 SHORT field struct can be packed using
-            // 32 bit operations. This reduces the need for INT to LONG casts, that the JIT doesn't
-            // handle very well. On X64 this also reduces the need for REX prefixes.
-            var_types newArgType = fieldOffset + fieldSize > 4 ? TYP_LONG : TYP_INT;
-#else
-            var_types newArgType      = TYP_INT;
-#endif
-
-            GenTree* field = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
-
-            if (varTypeIsSmall(fieldLcl->GetType()))
-            {
-                // Promoted fields are always normalize on load currently.
-                assert(fieldLcl->lvNormalizeOnLoad());
-
-                // In general we need to zero extend small int values so the upper bits don't
-                // interfere with subsequent fields.
-                bool needZeroExtend = true;
-
-                if (fieldOffset + fieldSize >= argSize)
-                {
-                    // Field is at the end of the arg struct, bits past the end of the arg struct
-                    // aren't required to have any particular value in any ABI.
-                    needZeroExtend = false;
-                }
-                else if ((argSize > 4) && (newArgType == TYP_INT) && ((i + 1) < lcl->GetPromotedFieldCount()) &&
-                         (lvaGetDesc(lcl->GetPromotedFieldLclNum(i + 1))->GetPromotedFieldOffset() >= 4))
-                {
-                    // This is the last field in an intermediary INT value. There may be padding
-                    // bits after it but they're not required to have a specific value. And we're
-                    // going to zero extend to LONG so the upper 32 bit will be zero anyway.
-                    // This covers the case of Nullable<int|float> and other similar "tagged" values,
-                    // such as SqlInt32.
-                    needZeroExtend = false;
-                }
-
-                if (needZeroExtend)
-                {
-                    var_types type = varTypeToSmallUnsigned(fieldLcl->GetType());
-
-#if LOCAL_ASSERTION_PROP
-                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclLoad(), type))
-#endif
-                    {
-                        field->SetType(TYP_INT);
-                        field = gtNewOperNode(GT_CONV, varConvType(type), field);
-                    }
-                }
-            }
-#ifdef TARGET_64BIT
-            else if (fieldLcl->GetType() == TYP_INT)
-            {
-                // INT may need to be widened to LONG later.
-            }
-            else if (fieldLcl->GetType() == TYP_FLOAT)
-            {
-                // On 64 bit targets a FLOAT and and INT field may end up being passed in a LONG register.
-                field = gtNewBitCastNode(TYP_INT, field);
-            }
-#endif
-            else
-            {
-                // We've run into a LONG/REF/BYREF/DOUBLE/SIMDn field. The normal cases involving such types have
-                // already been handled so this can only happen due to weird reinterpretation (e.g. struct with a
-                // LONG field being passed as a struct with an INT field). Just give up and use LCL_FLD.
-                newArg = nullptr;
-                break;
-            }
-
-#ifdef TARGET_64BIT
-            if (newArgType == TYP_LONG)
-            {
-                field = gtNewOperNode(GT_UXT, TYP_LONG, field);
-            }
-#endif
-
-            if (fieldOffset != 0)
-            {
-                // TODO-MIKE-CQ: On ARM32 OR + LSH should produced a single ORR with shifted register
-                // instruction but lowering/codegen doesn't know that. ARM64 does generate ORR with
-                // shifter register and UBFX but not BFI and sometimes that would be useful too.
-                field = gtNewOperNode(GT_LSH, newArgType, field, gtNewIconNode(static_cast<ssize_t>(fieldOffset) * 8));
-            }
-
-            if (newArg == nullptr)
-            {
-                newArg = field;
-            }
-            else
-            {
-#ifdef TARGET_64BIT
-                if (varActualType(newArg->GetType()) != newArgType)
-                {
-                    assert(varActualTypeIsInt(newArg->GetType()));
-
-                    newArg = gtNewOperNode(GT_UXT, TYP_LONG, newArg);
-                }
-#endif
-
-                newArg = gtNewOperNode(GT_OR, newArgType, newArg, field);
-            }
-        }
-    }
-
-    if (newArg == nullptr)
-    {
-        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
-        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-        return arg;
-    }
-
-    return newArg;
-}
-
-#ifndef TARGET_X86
-
-GenTree* Compiler::abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany)
-{
-    GenTreeLclStoreFld* storePtrField =
-        gtNewLclStoreFld(TYP_BYREF, tempLcl, OFFSETOF__CORINFO_TypedReference__dataPtr, mkrefany->GetOp(0));
-    storePtrField->SetFieldSeq(GetRefanyValueField());
-    GenTreeLclStoreFld* storeTypeField =
-        gtNewLclStoreFld(TYP_I_IMPL, tempLcl, OFFSETOF__CORINFO_TypedReference__type, mkrefany->GetOp(1));
-    storeTypeField->SetFieldSeq(GetRefanyTypeField());
-
-#ifdef WINDOWS_AMD64_ABI
-    assert(tempLcl->lvIsImplicitByRefArgTemp);
-    storePtrField->AddSideEffects(GTF_GLOB_REF);
-    storeTypeField->AddSideEffects(GTF_GLOB_REF);
-#endif
-
-    return gtNewCommaNode(storePtrField, storeTypeField);
-}
-
-#endif
-
-#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
-
-GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
-{
-    assert(argInfo->IsHfaArg());
-    assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
-    assert(argInfo->GetSlotCount() == 0);
-
-    LclVarDsc* lcl       = arg->GetLcl();
-    var_types  regType   = argInfo->GetRegType(0);
-    unsigned   regCount  = argInfo->GetRegCount();
-    unsigned   regSize   = varTypeSize(regType);
-    unsigned   regOffset = 0;
-
-    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
-    {
-        var_types fieldType = fieldLcl->GetType();
-
-        if (regOffset != fieldLcl->GetPromotedFieldOffset())
-        {
-            break;
-        }
-
-        if (regType == fieldType)
-        {
-            regOffset += regSize;
-        }
-        else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
-        {
-            regOffset += varTypeSize(fieldType);
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    if (regOffset != regCount * regSize)
-    {
-        return abiMorphMultiRegLclArg(argInfo, arg);
-    }
-
-    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    for (unsigned reg = 0, field = 0; reg < regCount; reg++)
-    {
-        unsigned regOffset = reg * regSize;
-
-        LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
-        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-        var_types  fieldType   = fieldLcl->GetType();
-
-        GenTree* fieldNode = gtNewLclLoad(fieldLcl, fieldType);
-
-        if (fieldLcl->IsAddressExposed())
-        {
-            fieldNode->AddSideEffects(GTF_GLOB_REF);
-        }
-
-#ifdef FEATURE_SIMD
-        if (fieldType != regType)
-        {
-            assert(regType == TYP_FLOAT);
-            assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
-            assert((regOffset - fieldOffset) % 4 == 0);
-
-            fieldNode =
-                gtNewSimdGetElementNode(fieldType, regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
-
-            if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
-            {
-                field++;
-            }
-        }
-        else
-#endif
-        {
-            assert(fieldType == regType);
-            assert(regOffset == fieldOffset);
-
-            field++;
-        }
-
-        list->AddField(this, fieldNode, regOffset, regType);
-    }
-
-    return list;
-}
-
-struct AbiRegFieldMap
-{
-    struct
-    {
-        uint8_t   reg;
-        var_types type;
-        uint16_t  offset;
-        unsigned  lclNum;
-    } fields[12];
-
-    unsigned count = 0;
-    unsigned firstStackField;
-
-    AbiRegFieldMap(Compiler* compiler, LclVarDsc* lcl, CallArgInfo* argInfo)
-    {
-        assert(!argInfo->IsHfaArg());
-
-        unsigned regCount = argInfo->GetRegCount();
-        unsigned field    = 0;
-        unsigned reg      = 0;
-
-        while (reg < regCount && field < lcl->GetPromotedFieldCount())
-        {
-            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-            LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
-            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-
-            if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
-            {
-                if ((count == 0) || (fields[count - 1].reg != reg))
-                {
-                    // This register doesn't overlap any promoted field. Must be padding
-                    // so we can just load 0. We have to add the register to the list
-                    // otherwise the backend may not allocate the register correctly.
-                    auto& f  = fields[count++];
-                    f.reg    = static_cast<uint8_t>(reg);
-                    f.lclNum = BAD_VAR_NUM;
-                }
-
-                reg++;
-                continue;
-            }
-
-            assert(count < _countof(fields));
-
-            auto& f  = fields[count++];
-            f.reg    = static_cast<uint8_t>(reg);
-            f.type   = fieldLcl->GetType();
-            f.offset = static_cast<uint16_t>(fieldOffset);
-            f.lclNum = fieldLclNum;
-
-            if (fieldOffset + varTypeSize(f.type) <= reg * REGSIZE_BYTES + REGSIZE_BYTES)
-            {
-                field++;
-            }
-            else
-            {
-                reg++;
-            }
-        }
-
-        firstStackField = count;
-
-        if (argInfo->GetSlotCount() > 0)
-        {
-            unsigned argSize = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
-
-            while (field < lcl->GetPromotedFieldCount())
-            {
-                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
-                LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
-                unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
-
-                if (fieldOffset >= argSize)
-                {
-                    break;
-                }
-
-                auto& f  = fields[count++];
-                f.reg    = static_cast<uint8_t>(reg++);
-                f.type   = fieldLcl->GetType();
-                f.offset = static_cast<uint16_t>(fieldOffset);
-                f.lclNum = fieldLclNum;
-
-                field++;
-            }
-        }
-    }
-
-    bool IsSupported(CallArgInfo* argInfo) const
-    {
-        for (unsigned i = 0; i < count && fields[i].reg < argInfo->GetRegCount(); i++)
-        {
-            // For now we allow only integral fields that have matching register/field
-            // offsets. This implies that only a single integral field can be passed
-            // in a register. abiMorphSingleRegLclArgPromoted can be used to pack
-            // multiple integral fields in a single register but the the CQ results are
-            // currently a bit hit and miss.
-
-            if ((fields[i].lclNum != BAD_VAR_NUM) && !varTypeUsesFloatReg(fields[i].type) &&
-                (fields[i].offset != fields[i].reg * REGSIZE_BYTES))
-            {
-                return false;
-            }
-
-            if ((i > 0) && (fields[i - 1].reg == fields[i].reg) &&
-                !(varTypeUsesFloatReg(fields[i - 1].type) && varTypeUsesFloatReg(fields[i].type)))
-            {
-                return false;
-            }
-        }
-
-        // Make sure we don't have a field that crosses the arg boundary, codegen does
-        // not handle it properly. This can only happen due to struct reinterpretation in
-        // user code. In some cases we could narrow down the field but it's not worth it.
-
-        unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
-        unsigned argSize   = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
-
-        if (fieldSize > argSize)
-        {
-            return false;
-        }
-
-        if (firstStackField < count)
-        {
-            // The first stack field must not straddle the reg-stack boundary, codegen does
-            // not handle this well or at all. Alignment requirements normally prevent this
-            // from happening, at least for primitive types. Vector2/3/4 can cross this
-            // boundary easily, due to their 4 byte alignment, but they're not supported on
-            // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
-            //
-            // Alignment requirements can be circumvented by reinterpretation (e.g. struct
-            // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
-            // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
-            // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
-            // kind of splitting for DOUBLE and it's too unusual to even bother trying.
-            //
-            // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
-            // so it works just fine in codegen. Besides, VM messed up the alignment of
-            // Vector128 on ARM so this happens "naturally", without any reinterpretation...
-
-            if ((fields[firstStackField].offset < argInfo->GetRegCount() * REGSIZE_BYTES)
-#ifdef TARGET_ARM
-                && (fields[firstStackField].type != TYP_LONG)
-#endif
-                    )
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-};
-
-GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const AbiRegFieldMap& map)
-{
-    GenTreeFieldList* list     = new (this, GT_FIELD_LIST) GenTreeFieldList();
-    GenTree*          regValue = nullptr;
-
-    for (unsigned i = 0; i < map.count; i++)
-    {
-        unsigned regIndex  = map.fields[i].reg;
-        unsigned regOffset = regIndex * REGSIZE_BYTES;
-
-        if (map.fields[i].lclNum == BAD_VAR_NUM)
-        {
-            var_types regType = argInfo->GetRegType(regIndex);
-            list->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
-            continue;
-        }
-
-        GenTree*  fieldValue  = gtNewLclLoad(lvaGetDesc(map.fields[i].lclNum), map.fields[i].type);
-        var_types fieldType   = map.fields[i].type;
-        unsigned  fieldOffset = map.fields[i].offset;
-
-        if (lvaGetDesc(map.fields[i].lclNum)->IsAddressExposed())
-        {
-            fieldValue->AddSideEffects(GTF_GLOB_REF);
-        }
-
-        if (regIndex >= argInfo->GetRegCount())
-        {
-            list->AddField(this, fieldValue, fieldOffset, fieldType);
-            continue;
-        }
-
-#ifdef WINDOWS_X86_ABI
-        // Handle win-x86 multireg return of a struct with a single vector field
-        // (in principle the field should be SIMD8 but this is the only multireg
-        // case on x86 so we don't care what exact SIMD type it is, we just need
-        // to get INT values out of it).
-
-        if (varTypeIsSIMD(fieldType))
-        {
-            assert(argInfo->GetRegType(regIndex) == TYP_INT);
-
-            unsigned extractOffset = regOffset - fieldOffset;
-            assert(extractOffset % 4 == 0);
-
-            regValue = NewExtractVectorElement(fieldType, TYP_INT, fieldValue, extractOffset / 4);
-        }
-        else
-#elif defined(TARGET_64BIT)
-        // On 64 bit targets we may need to pack 2 FLOAT fields into a LONG/DOUBLE
-        // and we also have to deal with vector fields that span multiple registers
-        // (x86 doesn't have multireg args and ARM doesn't have vector support).
-
-        if (fieldOffset < regOffset)
-        {
-            // A vector overlaps the previous register, extract a FLOAT or a DOUBLE,
-            // depending on the remaining size. We might have to extract 2 FLOATS if
-            // the current vector offset isn't properly aligned to extract a DOUBLE.
-
-            assert(varTypeIsSIMD(fieldType));
-
-            unsigned extractOffset = regOffset - fieldOffset;
-            unsigned extractSize   = min(REGSIZE_BYTES, varTypeSize(fieldType) - extractOffset);
-
-            if (extractSize == 4)
-            {
-                assert((extractOffset % 4) == 0);
-
-                fieldValue  = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
-                fieldOffset = regOffset;
-            }
-            else if ((extractOffset % 8 == 0))
-            {
-                fieldValue  = NewExtractVectorElement(fieldType, TYP_DOUBLE, fieldValue, extractOffset / 8);
-                fieldOffset = regOffset;
-            }
-            else
-            {
-                assert(extractSize == 8);
-                assert(extractOffset % 4 == 0);
-
-                regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
-                fieldValue = gtNewLclLoad(fieldValue->AsLclLoad()->GetLcl(), fieldType);
-                fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
-
-                fieldOffset = regOffset + 4;
-                fieldType   = TYP_FLOAT;
-            }
-        }
-        else if (varTypeIsSIMD(fieldType) && (fieldOffset == regOffset + 4))
-        {
-            // The vector overlaps the second half of an eightbyte, extract a FLOAT
-            // and continue as if this was a FLOAT field.
-
-            fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, 0);
-            fieldType  = TYP_FLOAT;
-        }
-
-        if ((fieldType == TYP_FLOAT) && (fieldOffset == regOffset + 4))
-        {
-            assert(regValue->TypeIs(TYP_FLOAT));
-
-            regValue = gtNewSimdHWIntrinsicNode(
-#ifdef UNIX_AMD64_ABI
-                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-#elif defined(TARGET_ARM64)
-                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8,
-#else
-#error Unknown target
-#endif
-                regValue, fieldValue);
-        }
-        else
-#endif // TARGET_64BIT
-        {
-            assert(fieldOffset == regOffset);
-            regValue = fieldValue;
-        }
-
-        if ((i == map.count - 1) || (map.fields[i + 1].reg != regIndex))
-        {
-            var_types regType = argInfo->GetRegType(regIndex);
-
-#ifdef TARGET_64BIT
-            if (regValue->TypeIs(TYP_FLOAT, TYP_DOUBLE, TYP_SIMD8) && !varTypeUsesFloatReg(regType))
-            {
-                regValue = gtNewBitCastNode(regValue->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, regValue);
-            }
-            else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
-            {
-                regValue = NewExtractVectorElement(regValue->GetType(), TYP_LONG, regValue, 0);
-            }
-            else if (varTypeIsIntegral(regValue->GetType()) && varTypeUsesFloatReg(regType))
-            {
-                regValue = gtNewBitCastNode(varTypeSize(regValue->GetType()) <= 4 ? TYP_FLOAT : TYP_DOUBLE, regValue);
-            }
-#else
-            assert(!varTypeUsesFloatReg(regType));
-
-            if (regValue->TypeIs(TYP_FLOAT))
-            {
-                regValue = gtNewBitCastNode(TYP_INT, regValue);
-            }
-            else if (regValue->TypeIs(TYP_LONG, TYP_DOUBLE))
-            {
-                // Skip the next register, decomposition will split the LONG
-                // field into 2 INT fields, DOUBLE will be handled in codegen.
-                i++;
-            }
-#endif
-
-            list->AddField(this, regValue, regIndex * REGSIZE_BYTES, regType);
-        }
-    }
-
-    return list;
-}
-
-GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
-{
-#ifdef DEBUG
-    if (verbose)
-    {
-        printf("Morphing multireg struct ");
-        argInfo->Dump();
-    }
-#endif
-
-    assert(argInfo->GetRegCount() != 0);
-
-    if (arg->IsIntegralConst(0))
-    {
-        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
-        {
-            return arg;
-        }
-
-        GenTreeFieldList* fieldList = abiMakeFieldList(arg);
-
-        for (unsigned i = 0, regOffset = 0; i < argInfo->GetRegCount() + argInfo->GetSlotCount(); i++)
-        {
-#if FEATURE_ARG_SPLIT
-            var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
-#else
-            var_types regType = argInfo->GetRegType(i);
-#endif
-
-#ifdef FEATURE_HW_INTRINSICS
-            if (varTypeIsSIMD(regType))
-            {
-                fieldList->AddField(this, gtNewZeroSimdHWIntrinsicNode(regType, TYP_FLOAT), regOffset, regType);
-            }
-            else
-#endif
-            {
-                fieldList->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
-            }
-
-            regOffset += varTypeSize(regType);
-        }
-
-        return fieldList;
-    }
-
-    assert(varTypeIsStruct(arg->GetType()));
-
-    // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
-    // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
-    // multiple loads and those loads may have associated optimization issues in VN
-    // due to the lack of field sequences. Even if they do get CSEed the result may
-    // still be poor - SIMD typed loads from the same location would get a CSE temp
-    // and then those multi reg loads from the same location will get their own CSE
-    // temps. abiMorphMultiRegSimdArg would only generate one SIMD load and then
-    // extract the registers via register to register operations.
-
-    if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-    {
-        if (arg->OperIs(GT_LCL_LOAD) && arg->AsLclLoad()->GetLcl()->IsPromoted())
-        {
-            if (argInfo->IsHfaArg())
-            {
-                return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclLoad());
-            }
-
-            AbiRegFieldMap map(this, arg->AsLclLoad()->GetLcl(), argInfo);
-
-            if (map.IsSupported(argInfo))
-            {
-                return abiMorphMultiRegLclArgPromoted(argInfo, map);
-            }
-        }
-
-        return abiMorphMultiRegLclArg(argInfo, arg->AsLclRef());
-    }
-
-    if (arg->OperIs(GT_IND_LOAD_OBJ))
-    {
-        return abiMorphMultiRegObjArg(argInfo, arg->AsIndLoadObj());
-    }
-
-    if (arg->OperIs(GT_CALL) && arg->TypeIs(TYP_STRUCT))
-    {
-        return abiMorphMultiRegCallArg(argInfo, arg->AsCall());
-    }
-
-#ifdef FEATURE_SIMD
-    // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
-    return abiMorphMultiRegSimdArg(argInfo, arg);
-#else
-    unreached();
-#endif
-}
-
-#ifdef FEATURE_SIMD
-
-GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
-{
-    assert(varTypeIsSIMD(arg->GetType()));
-    assert(!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ));
-
-    unsigned regCount = argInfo->GetRegCount();
-#if FEATURE_ARG_SPLIT
-    regCount += argInfo->GetSlotCount();
-#endif
-
-#if defined(TARGET_ARM64)
-    assert((regCount >= 2) && (regCount <= 4));
-    assert((argInfo->GetRegType() == TYP_FLOAT) || (argInfo->GetRegType() == TYP_I_IMPL));
-#elif defined(UNIX_AMD64_ABI)
-    assert(regCount == 2);
-    assert(argInfo->GetRegType(0) == TYP_DOUBLE);
-    assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
-#elif defined(WINDOWS_X86_ABI)
-    assert(regCount == 2);
-    assert((argInfo->GetRegType(0) == TYP_INT) && (argInfo->GetRegType(1) == TYP_INT));
-#else
-#error Unknown target.
-#endif
-
-    bool argIsZero      = false;
-    bool argIsCreate    = false;
-    bool argIsBroadcast = false;
-
-    if (GenTreeHWIntrinsic* hwi = arg->IsHWIntrinsic())
-    {
-        switch (hwi->GetIntrinsic())
-        {
-            case NI_Vector128_get_Zero:
-#ifdef TARGET_ARM64
-            case NI_Vector64_get_Zero:
-#endif
-                argIsZero = true;
-                break;
-
-            case NI_Vector128_Create:
-#ifdef TARGET_ARM64
-            case NI_Vector64_Create:
-#endif
-                if ((hwi->GetSimdBaseType() == TYP_FLOAT)
-#ifdef TARGET_ARM64
-                    && (argInfo->GetRegType() == TYP_FLOAT)
-#endif
-                        )
-                {
-                    if (hwi->IsUnary())
-                    {
-                        argIsBroadcast = true;
-                    }
-                    else
-                    {
-                        argIsCreate = true;
-                    }
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    LclVarDsc* tempLcl    = nullptr;
-    GenTree*   tempAssign = nullptr;
-
-    if (argIsBroadcast)
-    {
-        arg = arg->AsHWIntrinsic()->GetOp(0);
-
-        assert(arg->TypeIs(TYP_FLOAT));
-
-        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_LOAD))
-        {
-            tempLcl    = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
-            tempAssign = gtNewLclStore(tempLcl, TYP_FLOAT, arg);
-
-            arg = gtNewLclLoad(tempLcl, TYP_FLOAT);
-        }
-
-#ifdef UNIX_AMD64_ABI
-        if (arg->IsDblCon())
-        {
-            // CSE is dumb - it CSEs FP constants and that prevents us from recognizing
-            // constant vector creation in lowering. Well, recognizing constant vector
-            // creation is lowering is just as dumb...
-            arg->SetDoNotCSE();
-        }
-
-        arg = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, arg, gtCloneExpr(arg));
-        // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
-        // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
-        arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
-
-        LclVarDsc* dblTempLcl    = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
-        GenTree*   dblTempAssign = gtNewLclStore(dblTempLcl, TYP_DOUBLE, arg);
-
-        if (tempAssign != nullptr)
-        {
-            tempAssign = gtNewCommaNode(tempAssign, dblTempAssign);
-        }
-        else
-        {
-            tempAssign = dblTempAssign;
-        }
-
-        arg = gtNewLclLoad(dblTempLcl, TYP_DOUBLE);
-#endif // UNIX_AMD64_ABI
-    }
-    else if (!argIsZero && !argIsCreate)
-    {
-        ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
-
-        tempLcl    = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
-        tempAssign = gtNewLclStore(tempLcl, arg->GetType(), arg);
-    }
-
-    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    for (unsigned i = 0, regOffset = 0, createOpIndex = 0; i < regCount; i++)
-    {
-#if FEATURE_ARG_SPLIT
-        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
-#else
-        var_types regType = argInfo->GetRegType(i);
-#endif
-        unsigned regSize = varTypeSize(regType);
-        GenTree* regValue;
-
-        if (argIsBroadcast)
-        {
-            regValue = i == 0 ? arg : gtCloneExpr(arg);
-        }
-        else if (argIsCreate && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
-        {
-            regValue = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
-            assert(regValue->TypeIs(TYP_FLOAT));
-#ifdef TARGET_ARM64
-            assert(regType == TYP_FLOAT);
-#endif
-
-#ifdef UNIX_AMD64_ABI
-            if ((regType == TYP_DOUBLE) && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
-            {
-                GenTree* regValue2 = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
-                assert(regValue2->TypeIs(TYP_FLOAT));
-                regValue = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_Create, TYP_FLOAT, 16, regValue, regValue2);
-            }
-#endif
-        }
-        else if (argIsCreate || argIsZero)
-        {
-            regValue = gtNewZeroConNode(regType);
-        }
-        else
-        {
-            regValue = gtNewLclLoad(tempLcl, arg->GetType());
-            regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
-        }
-
-        if ((i == 0) && (tempAssign != nullptr))
-        {
-            regValue = gtNewCommaNode(tempAssign, regValue);
-        }
-
-        fieldList->AddField(this, regValue, regOffset, regType);
-        regOffset += regSize;
-    }
-
-    return fieldList;
-}
-
-#endif // FEATURE_SIMD
-
-GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg)
-{
-    LclVarDsc*   lcl       = arg->GetLcl();
-    ClassLayout* argLayout = arg->OperIs(GT_LCL_LOAD) ? lcl->GetLayout() : arg->AsLclLoadFld()->GetLayout(this);
-
-#ifdef TARGET_ARM
-    // If an argument is passed in registers we'd like to build a FIELD_LIST with
-    // one field for each register. But split args are problematic - they are also
-    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
-    // with one field per slot isn't an option because there may be too many and
-    // having one field for all slots doesn't work either because we don't have a
-    // layout to describe such a partial "view" of a struct.
-    // So we give up if there are too many slots.
-    //
-    // For promoted struct locals this means that we'll end up with dependent promotion.
-    // This isn't very common (because it means the struct has long or double fields,
-    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
-    // the number of reg and slots that is also 4).
-
-    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
-    {
-        if (arg->OperIs(GT_LCL_LOAD))
-        {
-            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
-        }
-
-        return arg;
-    }
-
-    // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
-    // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
-    //
-    // However, attempting to enable this on other targets results in code size regressions and disabling
-    // this on ARM32 results in code size improvements. More investigation is required to determine which
-    // is better so for now let's keep this as it was.
-    //
-    // Speaking of how it was - this code was originally in moSetupCallArgs so the temp was introduced before
-    // SetupArgs/SortArgs/SpillArgs. Neither place is ideal:
-    //    - Introducing one temp before SetupArgs is problematic because SetupArgs can blindly
-    //      introduce even more temps due to the presence of GTF_ASG.
-    //    - Introducing a temp for a promoted local after SetupArgs "misses" the nested call args case
-    //      so we risk spilling the promoted fields before the call, reload them after the call and then
-    //      store them again to memory (because this temp is DNER).
-    // What may be best is to introduce the temp in SetupArgs itself so we can do it before any nested
-    // call and avoid unnecessary spilling. But it may not be worth the trouble:
-    //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
-    //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
-    //    - Doing this here instead of moSetupCallArgs shows practically no diffs (actually a 8 bytes improvement).
-    //    - Doing this here minimizes the use of the messy "late" arg mechanism.
-
-    GenTree* tempAssign = nullptr;
-
-    if (arg->OperIs(GT_LCL_LOAD) && lcl->IsIndependentPromoted())
-    {
-        lcl = abiAllocateStructArgTemp(argLayout);
-
-        tempAssign = gtNewLclStore(lcl, lcl->GetType(), arg);
-        tempAssign = moMorphStructStore(tempAssign, arg);
-
-        arg->SetLcl(lcl);
-    }
-#endif // TARGET_ARM
-
-    unsigned regCount = argInfo->GetRegCount();
-#if FEATURE_ARG_SPLIT
-    regCount += argInfo->GetSlotCount();
-#endif
-
-    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    unsigned lclOffset = arg->OperIs(GT_LCL_LOAD_FLD) ? arg->AsLclLoadFld()->GetLclOffs() : 0;
-    unsigned lclSize   = lcl->GetTypeSize();
-#ifdef FEATURE_SIMD
-    bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
-#endif
-
-    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-    {
-#if FEATURE_ARG_SPLIT
-        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
-#else
-        var_types regType = argInfo->GetRegType(i);
-#endif
-
-        if (regType == TYP_I_IMPL)
-        {
-            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-            // split args and we don't have any type info for stack slots.
-
-            assert(regOffset % REGSIZE_BYTES == 0);
-
-#ifdef UNIX_AMD64_ABI
-            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
-#else
-            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
-#endif
-        }
-
-        unsigned regSize = varTypeSize(regType);
-        GenTree* regValue;
-
-        if (lclOffset >= lclSize)
-        {
-            // Make sure we add a field for every arg register, even if we somehow end up with
-            // a smaller local variable as source. If a field is missing, the backend may get
-            // confused and fail to allocate the register to this arg and instead allocated it
-            // to the next arg. Just passing a zero is safer and easier to debug.
-            regValue = gtNewZeroConNode(regType);
-        }
-#ifdef FEATURE_SIMD
-        else if (lclIsSIMD && (lclOffset % regSize == 0))
-        {
-            // Note that the VM ARM64 ABI doesn't recognize HVAs so a struct with a single
-            // Vector128 field will be passed in 2 GPRs instead of a single SIMD reg.
-            assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
-
-            GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
-            GenTree* simdValue    = gtNewLclLoad(lcl, lcl->GetType());
-
-            if (lcl->IsAddressExposed())
-            {
-                simdValue->AddSideEffects(GTF_GLOB_REF);
-            }
-
-            regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
-        }
-        else
-#endif
-        {
-            lvaSetDoNotEnregister(lcl DEBUG_ARG(DNER_LocalField));
-
-            regValue = gtNewLclLoadFld(regType, lcl, lclOffset);
-
-            if (lcl->IsAddressExposed())
-            {
-                regValue->AddSideEffects(GTF_GLOB_REF);
-            }
-        }
-
-#ifdef TARGET_ARM
-        if (tempAssign != nullptr)
-        {
-            regValue   = gtNewCommaNode(tempAssign, regValue);
-            tempAssign = nullptr;
-        }
-#endif
-
-        fieldList->AddField(this, regValue, regOffset, regType);
-        regOffset += regSize;
-        lclOffset += regSize;
-    }
-
-    return fieldList;
-}
-
-GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg)
-{
-#ifdef TARGET_ARM
-    // If an argument is passed in registers we'd like to build a FIELD_LIST with
-    // one field for each register. But split args are problematic - they are also
-    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
-    // with one field per slot isn't an option because there may be too many and
-    // having one field for all slots doesn't work either because we don't have a
-    // layout to describe such a partial "view" of a struct.
-    // So we give up if there are too many slots.
-
-    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
-    {
-        return arg;
-    }
-#endif
-
-    ClassLayout* argLayout = arg->GetLayout();
-    unsigned     argSize   = argLayout->GetSize();
-
-    GenTree* addr           = arg->GetAddr();
-    ssize_t  addrOffset     = 0;
-    GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
-
-    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
-
-    unsigned regCount = argInfo->GetRegCount();
-#if FEATURE_ARG_SPLIT
-    regCount += argInfo->GetSlotCount();
-#endif
-
-    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
-    {
-#if FEATURE_ARG_SPLIT
-        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
-#else
-        var_types regType = argInfo->GetRegType(i);
-#endif
-
-        if (regType == TYP_I_IMPL)
-        {
-            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
-            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
-            // split args and we don't have any type info for the stack slots.
-
-            assert(regOffset % REGSIZE_BYTES == 0);
-
-#ifdef UNIX_AMD64_ABI
-            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
-#else
-            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
-#endif
-        }
-
-        GenTree* regAddr = (i == 0) ? addr : gtCloneExpr(addr);
-        GenTree* regIndir;
-        unsigned regIndirSize;
-
-        if (!varTypeIsIntegral(regType) || (argSize - regOffset >= REGSIZE_BYTES))
-        {
-            regIndirSize = varTypeSize(regType);
-
-            if (addrOffset + regOffset != 0)
-            {
-                regAddr = gtNewOperNode(GT_ADD, varTypeAddrAdd(regAddr->GetType()), regAddr,
-                                        gtNewIconNode(addrOffset + regOffset, TYP_I_IMPL));
-                regAddr->gtFlags |= GTF_DONT_CSE;
-            }
-
-            regIndir = gtNewIndLoad(regType, regAddr);
-            regIndir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(regAddr);
-        }
-        else
-        {
-            regIndirSize = argSize - regOffset;
-            regIndir     = abiNewMultiLoadIndir(regAddr, addrOffset + regOffset, regIndirSize);
-        }
-
-        if ((i == 0) && (addrTempAssign != nullptr))
-        {
-            regIndir = gtNewCommaNode(addrTempAssign, regIndir, regType);
-        }
-
-        fieldList->AddField(this, regIndir, regOffset, regType);
-        regOffset += regIndirSize;
-
-        assert(regOffset <= argSize);
-    }
-
-    return fieldList;
-}
-
-GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize)
-{
-    GenTree* addr       = *addrInOut;
-    ssize_t  addrOffset = 0;
-
-    // Extract constant offsets that appear when passing struct typed class fields
-    // so they can be folded with the register offset.
-    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
-    {
-        ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
-
-#if defined(TARGET_AMD64)
-        if ((offset >= INT32_MIN) && (offset <= INT32_MAX - indirSize))
-#elif defined(WINDOWS_X86_ABI)
-        if (static_cast<unsigned>(offset) <= UINT32_MAX - indirSize)
-#elif defined(TARGET_ARMARCH)
-        // For simplicity, limit the offset to values that are valid address mode
-        // offsets, no matter what the indirection type is.
-        if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(indirSize)))
-#else
-#error Unknown target.
-#endif
-        {
-            addr       = addr->AsOp()->GetOp(0);
-            addrOffset = offset;
-        }
-    }
-
-    // We need to use the address tree multiple times. If it has side effects or
-    // it is too expensive to evaluate then we need to "spill" it to a temp.
-    bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
-
-    if (!addrTempRequired)
-    {
-        gtSetCosts(addr);
-        addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
-    }
-
-    GenTree* addrAsg = nullptr;
-
-    if (addrTempRequired)
-    {
-        LclVarDsc* addrLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
-
-        addrAsg = gtNewLclStore(addrLcl, addr->GetType(), addr);
-        addr    = gtNewLclLoad(addrLcl, addr->GetType());
-    }
-
-    *addrInOut     = addr;
-    *addrOffsetOut = addrOffset;
-    return addrAsg;
-}
-
-GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned loadSize)
-{
-    auto Load = [&](var_types type, GenTree* addr, ssize_t offset) {
-        if (offset != 0)
-        {
-            addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
-            addr->gtFlags |= GTF_DONT_CSE;
-        }
-        GenTreeIndir* load = gtNewIndLoad(type, addr);
-        load->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
-        return load;
-    };
-    auto LeftShift = [&](GenTree* op1, unsigned amount) {
-        return gtNewOperNode(GT_LSH, varActualType(op1->GetType()), op1, gtNewIconNode(amount));
-    };
-    auto Or = [&](GenTree* op1, GenTree* op2) { return gtNewOperNode(GT_OR, varActualType(op1->GetType()), op1, op2); };
-    auto Clone  = [&](GenTree* expr) { return gtCloneExpr(expr); };
-    auto Extend = [&](GenTree* value) { return gtNewOperNode(GT_UXT, TYP_LONG, value); };
-
-    if (loadSize == 1)
-    {
-        return Load(TYP_UBYTE, addr, addrOffset);
-    }
-
-#ifdef TARGET_64BIT
-    if (loadSize < 4)
-#else
-    assert(loadSize < 4);
-#endif
-    {
-        GenTree* load = Load(TYP_USHORT, addr, addrOffset);
-
-        if (loadSize == 3)
-        {
-            GenTree* load2 = Load(TYP_UBYTE, Clone(addr), addrOffset + 2);
-            load           = Or(load, LeftShift(load2, 16));
-        }
-
-        return load;
-    }
-
-#ifdef TARGET_64BIT
-    assert(loadSize < 8);
-
-    GenTree* load = Load(TYP_INT, addr, addrOffset);
-
-    if (loadSize > 4)
-    {
-        GenTree* load4 = Load(loadSize == 5 ? TYP_UBYTE : TYP_USHORT, Clone(addr), addrOffset + 4);
-
-        if (loadSize == 7)
-        {
-            GenTree* load6 = Load(TYP_UBYTE, Clone(addr), addrOffset + 6);
-            load4          = Or(load4, LeftShift(load6, 16));
-        }
-
-        load = Or(Extend(load), LeftShift(Extend(load4), 32));
-    }
-
-    return load;
-#endif
-}
-
-GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
-{
-    LclVarDsc*        lcl = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
-    GenTreeLclLoad*   src = gtNewLclLoad(lcl, lcl->GetType());
-    GenTreeFieldList* fieldList;
-
-    StructPromotionHelper structPromotion(this);
-    lcl->lvIsMultiRegRet = true;
-    lcl->lvFieldAccessed = true;
-
-    LclVarDsc* storeLcl  = nullptr;
-    var_types  storeType = TYP_UNDEF;
-
-    if (!structPromotion.TryPromoteStructLocal(lcl))
-    {
-        fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
-
-        storeLcl  = lcl;
-        storeType = lcl->GetType();
-    }
-    else
-    {
-        if (argInfo->IsHfaArg())
-        {
-            fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
-        }
-        else
-        {
-            AbiRegFieldMap regMap(this, lcl, argInfo);
-
-            if (regMap.IsSupported(argInfo))
-            {
-                fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
-            }
-            else
-            {
-                fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
-            }
-        }
-
-        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
-        {
-            LclVarDsc* promotedFieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
-
-            if (varTypeIsSIMD(promotedFieldLcl->GetType()))
-            {
-                arg->SetType(promotedFieldLcl->GetType());
-
-                lcl->lvIsMultiRegRet = false;
-
-                storeLcl  = promotedFieldLcl;
-                storeType = promotedFieldLcl->GetType();
-            }
-        }
-
-        if (storeLcl == nullptr)
-        {
-            lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
-
-            storeLcl  = lcl;
-            storeType = lcl->GetType();
-        }
-    }
-
-    GenTreeLclStore* store = gtNewLclStore(storeLcl, storeType, arg);
-
-    GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
-    firstUse->SetNode(gtNewCommaNode(store, firstUse->GetNode()));
-    fieldList->AddSideEffects(store->GetSideEffects());
-
-    return fieldList;
-}
-
-#endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-
-LclVarDsc* Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
-{
-    assert(argLayout->IsValueClass());
-
-    unsigned tempLclNum = BAD_VAR_NUM;
-
-    if (!opts.MinOpts())
-    {
-        if (m_abiStructArgTemps == nullptr)
-        {
-            m_abiStructArgTemps      = hashBv::Create(this);
-            m_abiStructArgTempsInUse = hashBv::Create(this);
-        }
-        else
-        {
-            indexType index = m_abiStructArgTemps->FindFirstBit([this, argLayout](indexType i) {
-                return (lvaGetDesc(static_cast<unsigned>(i))->GetLayout() == argLayout) &&
-                       !m_abiStructArgTempsInUse->testBit(i);
-            });
-
-            if (index != -1)
-            {
-                tempLclNum = static_cast<unsigned>(index);
-                JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
-            }
-        }
-    }
-
-    if (tempLclNum == BAD_VAR_NUM)
-    {
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("implicit-by-ref arg temp"));
-#else
-        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
-#endif
-
-        lvaSetStruct(lcl, argLayout, false);
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-        lvaSetAddressExposed(lcl);
-        lcl->lvIsImplicitByRefArgTemp = true;
-#endif
-
-        tempLclNum = lcl->GetLclNum();
-
-        if (m_abiStructArgTemps != nullptr)
-        {
-            m_abiStructArgTemps->setBit(tempLclNum);
-        }
-    }
-
-    if (m_abiStructArgTempsInUse != nullptr)
-    {
-        m_abiStructArgTempsInUse->setBit(tempLclNum);
-    }
-
-    return lvaGetDesc(tempLclNum);
-}
-
-void Compiler::abiFreeAllStructArgTemps()
-{
-    if (m_abiStructArgTempsInUse != nullptr)
-    {
-        m_abiStructArgTempsInUse->ZeroAll();
-    }
-}
-
-#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-
-void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
-{
-    GenTree* arg = argInfo->GetNode();
-
-    if (arg->TypeIs(TYP_BYREF, TYP_I_IMPL))
-    {
-        return;
-    }
-
-    if (arg->OperIs(GT_MKREFANY))
-    {
-#if defined(WINDOWS_AMD64_ABI)
-        LclVarDsc* tempLcl = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
-        argInfo->SetNode(abiMorphMkRefAnyToStore(tempLcl, arg->AsOp()));
-        argInfo->SetTempLclNum(tempLcl->GetLclNum());
-
-        return;
-#else
-        unreached();
-#endif
-    }
-
-    // If we're optimizing, see if we can avoid making a copy.
-    // We don't need a copy if this is the last use of an implicit by-ref local.
-    if (opts.OptimizationEnabled())
-    {
-        GenTreeLclLoad* const lclNode = arg->IsImplicitByrefIndir(this);
-
-        if (lclNode != nullptr)
-        {
-            LclVarDsc* const lcl              = lclNode->GetLcl();
-            const unsigned   totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
-
-            // We don't have liveness so we rely on other indications of last use.
-            //
-            // We handle these cases:
-            //
-            // * (must not copy) If the call is a tail call, the use is a last use.
-            //   We must skip the copy if we have a fast tail call.
-            //
-            // * (may not copy) if the call is noreturn, the use is a last use.
-            //   We also check for just one reference here as we are not doing
-            //   alias analysis of the call's parameters, or checking if the call
-            //   site is not within some try region.
-            //
-            // * (may not copy) if there is exactly one use of the local in the method,
-            //   and the call is not in loop, this is a last use.
-            //
-            const bool isTailCallLastUse = call->IsTailCall();
-            const bool isCallLastUse     = (totalAppearances == 1) && !fgMightHaveLoop();
-            const bool isNoReturnLastUse = (totalAppearances == 1) && call->IsNoReturn();
-            if (isTailCallLastUse || isCallLastUse || isNoReturnLastUse)
-            {
-                argInfo->SetNode(lclNode);
-
-                JITDUMP("did not need to make outgoing copy for last use of implicit byref V%02u\n", lcl->GetLclNum());
-                return;
-            }
-        }
-    }
-
-    // Note that this is the parameter's layout rather that the argument's layout.
-    // They should be identical, unless the IL is invalid or we hit the pesky
-    // A<Canon> vs. A<C> issue. In general it doesn't matter if the 2 layouts
-    // do not match. VN might get confused due to mismatched field sequences but
-    // then this temp is never read from.
-    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
-
-    LclVarDsc* tempLcl = abiAllocateStructArgTemp(argLayout);
-
-    // Replace the argument with a store to the temp, SpillArgs will later add
-    // a use of the temp to the late arg list.
-
-    // Due to single field struct promotion it is possible that the argument has SIMD
-    // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
-    // because moMorphCopyStruct has problems with this kind of type mismatches.
-
-    // TODO-MIKE-Cleanup: This should probably be extended to other type mismatches
-    // that arise from single field struct promotion. moMorphCopyStruct shouldn't have
-    // to deal with fall out from poorly designed struct promotion. Small int types
-    // may need some extra care. Since we're dealing with structs, widening isn't
-    // required but we need to be sure that the correct type is used to store the arg
-    // value - it may be that the struct has 2 bytes (a SHORT field) and the arg may
-    // have type UBYTE (e.g. an IND) - we do need to store 2 bytes, not 1, so using
-    // the arg type isn't correct.
-
-    // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
-
-    GenTree* store;
-
-    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
-    {
-        store = gtNewLclStoreFld(arg->GetType(), tempLcl, 0, arg);
-    }
-    else
-    {
-        store = gtNewLclStore(tempLcl, tempLcl->GetType(), arg);
-    }
-
-    store->AddSideEffects(GTF_GLOB_REF);
-
-    if (varTypeIsStruct(store->GetType()))
-    {
-        store = moMorphStructStore(store, arg);
-    }
-
-    argInfo->SetNode(store);
-    argInfo->SetTempLclNum(tempLcl->GetLclNum());
-}
-
-#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-
-// Reassociate associative, commutative operations into a 'left-deep' tree,
-// i.e. into something like this: (((a op b) op c) op d) op...
-void Compiler::moMoveOpsLeft(GenTreeOp* tree)
-{
-    assert(fgGlobalMorph && (vnStore == nullptr));
-    assert(tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR));
-    assert(tree->GetOp(1)->GetOper() == tree->GetOper());
-
-    GenTreeOp* const tree2 = tree->GetOp(1)->AsOp();
-
-    if (((tree->gtFlags | tree2->gtFlags) & GTF_BOOLEAN) != 0)
-    {
-        // We could deal with this, but we were always broken and just hit the assert
-        // below regarding flags, which means it's not frequent, so will just bail out.
-
-        return;
-    }
-
-    genTreeOps const oper = tree->GetOper();
-    GenTree* const   op1  = tree->GetOp(0);
-    GenTree* const   op2  = tree2->GetOp(0);
-    GenTree* const   op3  = tree2->GetOp(1);
-
-    if (varTypeIsGC(op2->GetType()) != varTypeIsGC(tree2->GetType()))
-    {
-        // phOptimizeBools can create OR of two GC pointers yielding a I_IMPL.
-        // We can not reorder such OR trees.
-
-        return;
-    }
-
-    if (varTypeIsGC(op1->GetType()) && (oper == GT_ADD))
-    {
-        // We cannot reassociate GC pointer additions, doing that could create
-        // a GC pointer that points outside the GC object and the GC has no way
-        // to update such pointers (e.g. x ADD (1000 ADD -999)).
-
-        assert(varTypeIsGC(tree->GetType()));
-
-        return;
-    }
-
-    // Change "(op1 op (op2 op op3))" to "(op1 op op2) op op3"
-
-    tree2->SetOp(0, op1);
-    tree2->SetOp(1, op2);
-
-    // Make sure we aren't throwing away any needed flags.
-    noway_assert((tree2->gtFlags &
-                  ~(GTF_ALL_EFFECT | // We'll recompute the side effects from the new operands
-                    GTF_DONT_CSE |   // We'll keep this
-                    GTF_REVERSE_OPS  // This will be re-calculated later
-                    )) == GTF_NONE);
-
-    tree2->gtFlags = (tree2->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | op2->GetSideEffects();
-
-    if (varTypeIsGC(op1->GetType()))
-    {
-        noway_assert(((oper == GT_OR) && varTypeIsI(tree->GetType()) && tree2->TypeIs(TYP_I_IMPL)));
-
-        tree2->SetType(tree->GetType());
-    }
-    else if (varTypeIsGC(op3->GetType()))
-    {
-        // Neither op2 nor op1 are GC. So op2 isn't either.
-        noway_assert(op1->TypeIs(TYP_I_IMPL) && op2->TypeIs(TYP_I_IMPL));
-
-        tree2->SetType(TYP_I_IMPL);
-    }
-
-    if (op2->GetOper() == oper)
-    {
-        moMoveOpsLeft(tree2);
-    }
-
-    tree->SetOp(0, tree2);
-    tree->SetOp(1, op3);
-
-    if (op3->GetOper() == oper)
-    {
-        moMoveOpsLeft(tree);
-    }
-}
-
-GenTree* Compiler::moMorphStringIndexIndir(GenTreeIndexAddr* index, GenTreeStrCon* str)
-{
-    assert(index->GetArray() == str);
-
-    if (GenTreeIntCon* intCon = index->GetIndex()->IsIntConFitsInInt32())
-    {
-        const int32_t cnsIndex = intCon->GetInt32Value();
-
-        if (cnsIndex >= 0)
-        {
-            int             length;
-            const char16_t* chars =
-                info.compCompHnd->getStringLiteral(str->GetModuleHandle(), str->GetToken(), &length);
-
-            if ((cnsIndex < length) && (str != nullptr))
-            {
-                GenTree* cnsCharNode = gtNewIconNode(chars[cnsIndex], TYP_INT);
-                INDEBUG(cnsCharNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                return cnsCharNode;
-            }
-        }
-    }
-
-    return nullptr;
-}
-
-GenTree* Compiler::moMorphIndexAddr(GenTreeIndexAddr* tree)
-{
-    // In minopts, we don't expand INDEX_ADDR in order to minimize the size of the IR. As minopts compilation
-    // time is roughly proportional to the size of the IR, this helps keep compilation times down.
-    // Furthermore, this representation typically saves on code size in minopts w.r.t. the complete expansion
-    // performed when optimizing, as it does not require LclVar nodes (which are always stack loads/stores in
-    // minopts).
-
-    assert(!opts.MinOpts());
-
-    // When we are optimizing, we fully expand INDEX_ADDR to something like:
-    //
-    //   COMMA(ARR_BOUNDS_CHK(index, ARR_LENGTH(array)), IND(ADD(array, ADD(MUL(index, elemSize), dataOffs))))
-    //
-    // This expansion explicitly exposes the bounds check and the address calculation to the optimizer, which allows
-    // for more straightforward bounds-check removal, CSE, etc.
-
-    GenTreeLclStore*  arrayTmpStore = nullptr;
-    GenTreeLclStore*  indexTmpStore = nullptr;
-    GenTreeBoundsChk* boundsCheck   = nullptr;
-
-    GenTree* array       = tree->GetArray();
-    GenTree* index       = tree->GetIndex();
-    uint8_t  lenOffs     = tree->GetLenOffs();
-    uint8_t  dataOffs    = tree->GetDataOffs();
-    unsigned elemSize    = tree->GetElemSize();
-    unsigned elemTypeNum = tree->GetElemTypeNum();
-
-    if ((tree->gtFlags & GTF_INX_RNGCHK) != 0)
-    {
-        // The array and index will have multiple uses so we need to store them to temps,
-        // unless they're simple, side effect free expressions.
-
-        constexpr int MAX_ARR_COMPLEXITY   = 4;
-        constexpr int MAX_INDEX_COMPLEXITY = 4;
-
-        GenTree* array2 = nullptr;
-
-        if (array->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || array->OperIs(GT_LCL_LOAD_FLD) ||
-            gtComplexityExceeds(array, MAX_ARR_COMPLEXITY))
-        {
-            LclVarDsc* arrayTmpLcl = lvaNewTemp(array->GetType(), true DEBUGARG("arr expr"));
-
-            arrayTmpStore = gtNewLclStore(arrayTmpLcl, array->GetType(), array);
-
-            array  = gtNewLclLoad(arrayTmpLcl, array->GetType());
-            array2 = gtNewLclLoad(arrayTmpLcl, array->GetType());
-        }
-        else
-        {
-            array2 = gtCloneExpr(array);
-            noway_assert(array2 != nullptr);
-        }
-
-        GenTree* arrLen = gtNewArrLen(array2, lenOffs);
-
-#ifdef TARGET_64BIT
-        // The CLI Spec allows an array to be indexed by either an int32 or a native int.  In the case
-        // of a 64 bit architecture this means the array index can potentially be a TYP_LONG, so for this case,
-        // the comparison will have to be widen to 64 bits.
-        if (index->TypeIs(TYP_LONG))
-        {
-            arrLen = gtNewOperNode(GT_SXT, TYP_LONG, arrLen);
-        }
-#endif
-
-        GenTree* index2 = nullptr;
-
-        if (index->HasAnySideEffect(GTF_ASG | GTF_CALL | GTF_GLOB_REF) || index->OperIs(GT_LCL_LOAD_FLD) ||
-            gtComplexityExceeds(index, MAX_INDEX_COMPLEXITY))
-        {
-            var_types  indexTmpType = varActualType(index->GetType());
-            LclVarDsc* indexTmpLcl  = lvaNewTemp(indexTmpType, true DEBUGARG("index expr"));
-
-            indexTmpStore = gtNewLclStore(indexTmpLcl, indexTmpType, index);
-
-            index  = gtNewLclLoad(indexTmpLcl, indexTmpType);
-            index2 = gtNewLclLoad(indexTmpLcl, indexTmpType);
-        }
-        else
-        {
-            index2 = gtCloneExpr(index);
-            noway_assert(index2 != nullptr);
-        }
-
-        boundsCheck = gtNewBoundsChk(index2, arrLen, ThrowHelperKind::IndexOutOfRange);
-    }
-
-    GenTree* offset = index;
-
-#ifdef TARGET_64BIT
-    if (!offset->TypeIs(TYP_LONG))
-    {
-        if (offset->OperIs(GT_CNS_INT))
-        {
-            offset->SetType(TYP_LONG);
-        }
-        else
-        {
-            offset = gtNewOperNode(GT_SXT, TYP_LONG, offset);
-        }
-    }
-#endif
-
-    if (elemSize > 1)
-    {
-        offset = gtNewOperNode(GT_MUL, TYP_I_IMPL, offset, gtNewIconNode(elemSize, TYP_I_IMPL));
-    }
-
-    // The element address is ADD(array, ADD(MUL(index, elemSize), dataOffs)). Compared to other possible
-    // associations this has the advantage that the offset computation depends only on the element size
-    // so it can be CSEd on its own (e.g. floatArray[i] and intArray[i] have the same offset expression
-    // even if the array and the element type are different). This also minimizes the number of byrefs
-    // since only the final ADD produces one.
-    // It does slightly complicate array element address pattern matching as done in vnIsArrayElemAddr
-    // because we need to check the inner ADD to find the data offset constant. That would be simpler
-    // with ADD(ADD(array, MUL(index, elemSize)), dataOffs) but then the entire expression depends on
-    // "array" so CSEing is more limited.
-
-    FieldSeqNode* arrayElement = GetFieldSeqStore()->GetArrayElement(elemTypeNum, dataOffs);
-
-    offset = gtNewOperNode(GT_ADD, TYP_I_IMPL, offset, gtNewIconNode(dataOffs, arrayElement));
-
-    GenTree* addr = tree;
-
-    // TODO-MIKE-Cleanup: The tree may have a zero field sequence, is should be transferred to the
-    // offset node. Doing so results in some diffs that need to be reviewed so do this separately.
-
-    addr->SetOper(GT_ADD);
-    addr->AsOp()->SetOp(0, array);
-    addr->AsOp()->SetOp(1, offset);
-    addr->SetSideEffects(array->GetSideEffects() | offset->GetSideEffects());
-    addr->gtFlags &= ~GTF_INX_RNGCHK;
-
-    if (boundsCheck != nullptr)
-    {
-        addr = gtNewCommaNode(boundsCheck, addr);
-
-        if (indexTmpStore != nullptr)
-        {
-            addr = gtNewCommaNode(indexTmpStore, addr);
-        }
-
-        if (arrayTmpStore != nullptr)
-        {
-            addr = gtNewCommaNode(arrayTmpStore, addr);
-        }
-    }
-
-    return addr;
-}
-
-GenTree* Compiler::moMorphLclLoad(GenTreeLclLoad* load)
-{
-    LclVarDsc* lcl = load->GetLcl();
-
-    if (lcl->IsAddressExposed())
-    {
-        load->AddSideEffects(GTF_GLOB_REF);
-    }
-
-    // Small int params, address exposed locals and promoted fields are widened on load.
-    // We may need to insert a widening cast, if assertion propagation doesn't tell us
-    // that the value previously stored in the local isn't already widened.
-
-    if (!fgGlobalMorph || !lcl->lvNormalizeOnLoad())
-    {
-        return load;
-    }
-
-#if LOCAL_ASSERTION_PROP
-    if ((morphAssertionCount != 0) && morphAssertionIsTypeRange(load, lcl->GetType()))
-    {
-        return load;
-    }
-#endif
-
-    // TODO-MIKE-Review: Doing this for P-DEP fields is dubious. And this should not
-    // be needed for address exposed locals, we could just keep the small int typed
-    // LCL_LOAD as it performs implicit widening like LCL_LOAD_FLD and INT do.
-    // The importer already sets the type of all loads from small int locals to INT,
-    // with the exception of parameter loads, which have the same small type as the
-    // parameter they load from.
-    load->SetType(TYP_INT);
-    moMorphTreeDone(load);
-
-    GenTreeUnOp* conv = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), load);
-    INDEBUG(conv->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-    return conv;
-}
-
-unsigned Compiler::moGetLargeFieldOffsetNullCheckTemp(var_types type)
-{
-    unsigned index;
-
-    switch (type)
-    {
-        case TYP_I_IMPL:
-            index = 0;
-            break;
-        case TYP_BYREF:
-            index = 1;
-            break;
-        case TYP_REF:
-            index = 2;
-            break;
-        default:
-            unreached();
-    }
-
-    assert(index < _countof(fgLargeFieldOffsetNullCheckTemps));
-
-    if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
-    {
-        fgLargeFieldOffsetNullCheckTemps[index] =
-            lvaNewTemp(type, false DEBUGARG("large field offset null check temp"))->GetLclNum();
-    }
-
-    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
-    assert(lvaGetDesc(lclNum)->GetType() == type);
-    return lclNum;
-}
-
-GenTree* Compiler::moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* mac)
-{
-    GenTreeFieldAddr* firstField    = field;
-    GenTree*          addr          = field->GetAddr();
-    target_size_t     offset        = field->GetOffset();
-    FieldSeqStore*    fieldSeqStore = GetFieldSeqStore();
-    FieldSeqNode*     fieldSeq      = field->MayOverlap() ? FieldSeqNode::NotAField() : field->GetFieldSeq();
-
-    while (GenTreeFieldAddr* nextField = addr->IsFieldAddr())
-    {
-        field = nextField;
-        addr  = field->GetAddr();
-        offset += field->GetOffset();
-
-        if (field->MayOverlap())
-        {
-            fieldSeq = FieldSeqNode::NotAField();
-        }
-        else
-        {
-            fieldSeq = fieldSeqStore->Append(field->GetFieldSeq(), fieldSeq);
-        }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-        if (field->GetR2RFieldLookupAddr() != nullptr)
-        {
-            // R2R field lookup is used only for fields of reference
-            // types so this must be the last field in the sequence.
-            assert(!addr->IsFieldAddr());
-            break;
-        }
-#endif
-    }
-
-    // Static struct fields are boxed and never null.
-    bool addrMayBeNull = !field->GetFieldSeq()->IsBoxedValueField();
-
-    // Note that using gtAddrCouldBeNull with field addresses is a bit of a chicken & egg
-    // case due to it returning false for ADDR(FIELD). But then ADDR(FIELD) is guaranteed
-    // to be non null only if we add an explicit null check and we don't rely on the IND
-    // to fault. But we've already ensured that addr isn't ADDR(FIELD) so we can rely on
-    // addr being non null both to elide the explicit null check and remove the exception
-    // side effect from the IND node.
-    addrMayBeNull = addrMayBeNull && gtAddrCouldBeNull(addr);
-
-    // Static field addresses are never null.
-    if (addrMayBeNull)
-    {
-        FieldSeqNode* lastField = field->GetFieldSeq();
-
-        if (lastField->IsField() && info.compCompHnd->isFieldStatic(lastField->GetFieldHandle()))
-        {
-            addrMayBeNull = false;
-        }
-    }
-
-    INDEBUG(GenTreeLclAddr* lclAddr = addr->IsLocalAddrExpr();)
-    assert((lclAddr == nullptr) || lclAddr->GetLcl()->IsAddressExposed());
-
-    // null MAC means we encounter the FIELD_ADDR first. This is equivalent to a MAC_Addr
-    // with zero offset.
-    MorphAddrContext defMAC(true);
-    if (mac == nullptr)
-    {
-        mac = &defMAC;
-    }
-
-    bool explicitNullCheckRequired = false;
-
-    if (addrMayBeNull)
-    {
-        target_size_t totalOffset = mac->offset + offset;
-
-        // TODO-MIKE-Review: It's odd that in the address take case we check for R2R
-        // fields, but not in the indir case. In theory, the R2R field offset could
-        // change enough to put us over the "big offset" limit.
-
-        if (!mac->isOffsetConstant || fgIsBigOffset(totalOffset))
-        {
-            explicitNullCheckRequired = true;
-        }
-        else if (mac->isAddressTaken)
-        {
-            // TODO-MIKE-Review: This code is dubious. The original thinking was probably that
-            // null + 0 = null so we don't need a null check because an indir that uses the
-            // resulting address will fault anyway. But the resulting address may be further
-            // adjusted by an ADD that isn't included in the MAC offset (e.g. the ADD is in a
-            // different tree) or the indir is somewhere else, after other side effects, so we
-            // end up reordering side effects.
-
-            // In R2R mode the field offset for some fields may change when the code
-            // is loaded. So we can't rely on a zero offset here to suppress the null check.
-            // See GitHub issue #16454.
-
-            explicitNullCheckRequired = (totalOffset != 0)
-#ifdef FEATURE_READYTORUN_COMPILER
-                                        || (field->GetR2RFieldLookupAddr() != nullptr)
-#endif
-                ;
-        }
-    }
-
-    var_types       addrType      = addr->GetType();
-    GenTree*        nullCheck     = nullptr;
-    GenTreeLclLoad* nullCheckAddr = nullptr;
-
-    if (explicitNullCheckRequired)
-    {
-        GenTreeLclStore* store = nullptr;
-        LclVarDsc*       lcl;
-
-        if (addr->OperIs(GT_LCL_LOAD))
-        {
-            nullCheckAddr = addr->AsLclLoad();
-            lcl           = nullCheckAddr->GetLcl();
-        }
-        else
-        {
-            lcl   = lvaGetDesc(moGetLargeFieldOffsetNullCheckTemp(addrType));
-            store = gtNewLclStore(lcl, addrType, addr);
-        }
-
-        nullCheck = gtNewNullCheck(gtNewLclLoad(lcl, addrType));
-
-        if (store != nullptr)
-        {
-            nullCheck = gtNewCommaNode(store, nullCheck);
-        }
-
-        addr = gtNewLclLoad(lcl, addrType);
-    }
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    if (void* lookupAddr = field->GetR2RFieldLookupAddr())
-    {
-        GenTree* r2rOffset = gtNewIndLoad(TYP_I_IMPL, lookupAddr, HandleKind::ConstData, true);
-
-        addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addrType), addr, r2rOffset);
-    }
-#endif
-
-    // TODO-MIKE-Cleanup: The ADD node should always be returned to avoid the zero offset field map crap.
-
-    if (offset != 0)
-    {
-        GenTree* addOffset = firstField;
-
-        addOffset->ChangeOper(GT_ADD);
-        addOffset->SetType(varTypeAddrAdd(addr->GetType()));
-        addOffset->AsOp()->SetOp(0, addr);
-        addOffset->AsOp()->SetOp(1, gtNewIntConFieldOffset(offset, fieldSeq));
-        addOffset->SetSideEffects(addr->GetSideEffects());
-
-        addr = addOffset;
-    }
-    else
-    {
-        AddZeroOffsetFieldSeq(addr, fieldSeq);
-    }
-
-    if (nullCheck != nullptr)
-    {
-        addr = gtNewCommaNode(nullCheck, addr);
-
-        // TODO-MIKE-Cleanup: Workaround to reduce diffs when switching from FIELD to FIELD_ADDR.
-        // ADDR(FIELD) required FIELD to have DONT_CSE and this flag survived through a series of
-        // convoluted tranforms: ADDR(FIELD(x)) - ADDR(IND(COMMA(n, x))) - ADDR(COMMA(n, IND(x)))
-        // - COMMA(n, ADDR(IND(x))) - COMMA(n, x). So pretty much all field addresses that needed
-        // explicit null checks were not CSE candidates. Which isn't necessarily bad as CSE seems
-        // far too happy to CSE cheap constant additions, even if there's no good mechanism to
-        // ensure that such CSEing doesn't result in worse register allocation and/or spilling.
-        // But this didn't affect all explicit null checks - since the decision to insert the null
-        // check doesn't take into account local assertion propagation, sometimes the COMMA ended
-        // up being removed before having a chance to infect other nodes with DONT_CSE.
-        //
-        // So we're going to set DONT_CSE when we detect and address taken field case and if the
-        // null check cannot be eliminated by local assertion propagation. This almost matches
-        // the original behaviour with one exception: DONT_CSE was also applied if the field
-        // address was immediately used by an IND - IND(ADDR(FIELD)) - but we can't detect this
-        // case anymore because everything is IND(FIELD_ADDR) now. But since we have an IND the
-        // DONT_CSE should be set as part of address mode marking. And hey, that's bonkers too.
-        //
-        // Now, can we just skip adding the null check COMMA if assertion propagation tells that
-        // the address is not null? In theory yes, but it looks like there are other problems
-        // that are hidden in this convoluted morphing process. One is that eliminating a null
-        // check based on local assertion propagation would require us to set GTF_ORDER_SIDEEFF
-        // on some node and it's not quite clear which one. optAssertionProp sets it on the
-        // NULLCHECK node but then it looks like COMMA morphing code manages to drop it, likely
-        // by accident. In any case, attempting to skip NULLCHECK generation like this produces
-        // other diffs.
-
-        if (mac->isAddressTaken)
-        {
-#if LOCAL_ASSERTION_PROP
-            if ((nullCheckAddr == nullptr) || (morphAssertionCount == 0) || !morphAssertionIsNotNull(nullCheckAddr))
-#endif
-            {
-                addr->SetDoNotCSE();
-            }
-        }
-    }
-
-    return addr;
-}
-
-// Check to see if this tail call can be optimized as epilog+jmp.
-// Returns true or false based on whether the callee can be fastTailCalled
-//
-// This function is target specific and each target will make the fastTailCall
-// decision differently. See the notes below.
-//
-// This function calls moInitCallnfo to initialize the arg info table, which
-// is used to analyze the argument. This function can alter the call arguments
-// by adding argument IR nodes for non-standard arguments.
-//
-// win-x64:
-//   A fast tail call can be made whenever the number of callee arguments
-//   is less than or equal to the number of caller arguments, or we have four
-//   or fewer callee arguments. This is because, on Windows AMD64, each
-//   argument uses exactly one register or one 8-byte stack slot. Thus, we only
-//   need to count arguments, and not be concerned with the size of each
-//   incoming or outgoing argument.
-//
-// Can fast tail call examples:
-//    -- Callee will have all register arguments --
-//    caller(int, int, int, int)
-//    callee(int, int, float, int)
-//
-//    -- Callee requires stack space that is equal or less than the caller --
-//    caller(struct, struct, struct, struct, struct, struct)
-//    callee(int, int, int, int, int, int)
-//
-//    -- Callee requires stack space that is less than the caller --
-//    caller(struct, double, struct, float, struct, struct)
-//    callee(int, int, int, int, int)
-//
-//    -- Callee will have all register arguments --
-//    caller(int)
-//    callee(int, int, int, int)
-//
-// Cannot fast tail call examples:
-//    -- Callee requires stack space that is larger than the caller --
-//    caller(struct, double, struct, float, struct, struct)
-//    callee(int, int, int, int, int, double, double, double)
-//
-//    -- Callee has a byref struct argument --
-//    caller(int, int, int)
-//    callee(struct(size 3 bytes))
-//
-// unix-x64 & arm64:
-//    A fastTailCall decision can be made whenever the callee's stack space is
-//    less than or equal to the caller's stack space. There are many permutations
-//    of when the caller and callee have different stack sizes if there are
-//    structs being passed to either the caller or callee.
-//
-// Exceptions:
-//    If the callee has a 9 to 16 byte struct argument and the callee has
-//    stack arguments, the decision will be to not fast tail call. This is
-//    because before moSetupCallArgs is done, the struct is unknown whether it
-//    will be placed on the stack or enregistered. Therefore, the conservative
-//    decision of do not fast tail call is taken. This limitations should be
-//    removed if/when moSetupCallArgs no longer depends on moCanFastTailCall.
-//
-// Can fast tail call examples:
-//    -- Callee will have all register arguments --
-//    caller(int, int, int, int)
-//    callee(int, int, float, int)
-//
-//    -- Callee requires stack space that is equal to the caller --
-//    caller({ long, long }, { int, int }, { int }, { int }, { int }, { int }) -- 6 int register arguments, 16 byte
-//    stack
-//    space
-//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
-//
-//    -- Callee requires stack space that is less than the caller --
-//    caller({ long, long }, int, { long, long }, int, { long, long }, { long, long }) 6 int register arguments, 32 byte
-//    stack
-//    space
-//    callee(int, int, int, int, int, int, { long, long } ) // 6 int register arguments, 16 byte stack space
-//
-//    -- Callee will have all register arguments --
-//    caller(int)
-//    callee(int, int, int, int)
-//
-// Cannot fast tail call examples:
-//    -- Callee requires stack space that is larger than the caller --
-//    caller(float, float, float, float, float, float, float, float) -- 8 float register arguments
-//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
-//
-//    -- Callee has structs which cannot be enregistered (Implementation Limitation) --
-//    caller(float, float, float, float, float, float, float, float, { double, double, double }) -- 8 float register
-//    arguments, 24 byte stack space
-//    callee({ double, double, double }) -- 24 bytes stack space
-//
-//    -- Callee requires stack space and has a struct argument >8 bytes and <16 bytes (Implementation Limitation) --
-//    caller(int, int, int, int, int, int, { double, double, double }) -- 6 int register arguments, 24 byte stack space
-//    callee(int, int, int, int, int, int, { int, int }) -- 6 int registers, 16 byte stack space
-//
-//    -- Caller requires stack space and nCalleeArgs > nCallerArgs (Bug) --
-//    caller({ double, double, double, double, double, double }) // 48 byte stack
-//    callee(int, int) -- 2 int registers
-
-#if FEATURE_FASTTAILCALL
-bool Compiler::moCanFastTailCall(GenTreeCall* call, const char** failReason)
-{
-    assert(!call->IsExplicitTailCall() || impTailCallRetTypeCompatible(call, false));
-
-    auto reportFastTailCallDecision = [&](const char* reason, unsigned calleeArgStackSize = UINT_MAX,
-                                          unsigned callerArgStackSize = UINT_MAX) {
-        *failReason = reason;
-
-#ifdef DEBUG
-        if (JitConfig.JitReportFastTailCallDecisions() == 1)
-        {
-            if (CORINFO_METHOD_HANDLE handle = call->GetMethodHandle())
-            {
-                printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: %s -- Decision: ",
-                       info.compFullName, eeGetMethodFullName(handle));
-            }
-            else
-            {
-                printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: IndirectCall -- "
-                       "Decision: ",
-                       info.compFullName);
-            }
-
-            if (reason == nullptr)
-            {
-                printf("Will fast tailcall");
-            }
-            else
-            {
-                printf("Will not fast tailcall (%s)", reason);
-            }
-
-            if ((callerArgStackSize != UINT_MAX) && (calleeArgStackSize != UINT_MAX))
-            {
-                printf(" (CallerArgStackSize: %d, CalleeArgStackSize: %d)", callerArgStackSize, calleeArgStackSize);
-            }
-
-            printf("\n\n");
-        }
-        else
-        {
-            if (reason == nullptr)
-            {
-                JITDUMP("[Fast tailcall decision]: Will fast tailcall\n");
-            }
-            else
-            {
-                JITDUMP("[Fast tailcall decision]: Will not fast tailcall (%s)\n", reason);
-            }
-        }
-#endif // DEBUG
-    };
-
-    if (JitConfig.FastTailCalls() == 0)
-    {
-        reportFastTailCallDecision("Configuration doesn't allow fast tail calls");
-        return false;
-    }
-
-    if (call->IsStressTailCall())
-    {
-        reportFastTailCallDecision("Fast tail calls are not performed under tail call stress");
-        return false;
-    }
-
-    if (compLocallocUsed)
-    {
-        reportFastTailCallDecision("Localloc used");
-        return false;
-    }
-
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARMARCH)
-    // We will currently decide to not fast tail call on win-arm32/64 if the caller or callee is a vararg
-    // method. This is due to the ABI differences for native vararg methods for these platforms. There is
-    // work required to shuffle arguments to the correct locations.
-    if (info.compIsVarArgs || call->IsVarargs())
-    {
-        reportFastTailCallDecision("Fast tail calls with varargs not supported on Windows ARM/ARM64");
-        return false;
-    }
-#endif
-
-#ifdef TARGET_AMD64
-    // Enabling fast tail calls from methods that need GS cookie check would
-    // require codegen side work to emit GS cookie check before a tail call.
-    if (getNeedsGSSecurityCookie())
-    {
-        reportFastTailCallDecision("GS Security cookie check required");
-        return false;
-    }
-#endif
-
-    if (info.compHasNextCallRetAddr)
-    {
-        reportFastTailCallDecision("Uses NextCallReturnAddress intrinsic");
-        return false;
-    }
-
-    if (call->HasRetBufArg() && (info.compRetBuffArg == BAD_VAR_NUM))
-    {
-        reportFastTailCallDecision("Callee has RetBuf but caller does not.");
-        return false;
-    }
-
-    moInitCallnfo(call);
-
-    unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
-    unsigned callerArgStackSize = codeGen->paramsStackSize;
-
-    // For a fast tail call the caller will use its incoming arg stack space to place
-    // arguments, so if the callee requires more arg stack space than is available here
-    // the fast tail call cannot be performed. This is common to all platforms.
-    // Note that the GC'ness of on stack args need not match since the arg setup area is
-    // marked as non-interruptible for fast tail calls.
-    if (calleeArgStackSize > callerArgStackSize)
-    {
-        reportFastTailCallDecision("Not enough incoming arg space", calleeArgStackSize, callerArgStackSize);
-        return false;
-    }
-
-#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
-    // Implicit byref parameters are allocated on the caller frame so we cannot
-    // fast tail call in these situation as we need to keep our frame around.
-    if (moCallHasMustCopyByrefParameter(call->GetInfo()))
-    {
-        reportFastTailCallDecision("Callee has a byref parameter");
-        return false;
-    }
-#endif
-
-    reportFastTailCallDecision(nullptr);
-    return true;
-}
-#endif // FEATURE_FASTTAILCALL
-
-#if FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
-// Check to see if this call has a byref parameter that requires a struct copy in the caller.
-// Returns true or false based on whether this call has a byref parameter that requires
-// a struct copy in the caller.
-bool Compiler::moCallHasMustCopyByrefParameter(CallInfo* callInfo)
-{
-    for (unsigned index = 0; index < callInfo->GetArgCount(); ++index)
-    {
-        CallArgInfo* argInfo = callInfo->GetArgInfo(index);
-
-        if (!argInfo->IsImplicitByRef())
-        {
-            continue;
-        }
-
-        if (!opts.OptimizationEnabled())
-        {
-            return true;
-        }
-
-        GenTreeLclLoad* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
-
-        if (lclNode == nullptr)
-        {
-            // If the implicit by-ref arg isn't itself an implicit by-ref parameter then
-            // we need to make a local copy and thus can't fast tail call. N.B. that it
-            // may be possible to avoid copying a local variable (e.g. if the arg is its
-            // last use) but then we'd be passing the address of that local so we still
-            // can't fast tail call.
-
-            return true;
-        }
-
-        LclVarDsc* lcl = lclNode->GetLcl();
-
-        JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->GetID(),
-                lcl->GetLclNum());
-
-        const unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
-        const unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
-        assert(totalAppearances >= callAppearances);
-
-        if (totalAppearances == 1)
-        {
-            JITDUMP("Arg is the only use of V%02u\n", lcl->GetLclNum());
-
-            continue;
-        }
-
-        if (totalAppearances > callAppearances)
-        {
-            // TODO-MIKE-Review: Main added this to fix a bug (likely the one noted in the TODOs
-            // bellow). However, it seems that this is more conservative than it needs to be,
-            // we probably only care if those non call appearances are due to the local being
-            // address exposed.
-
-            JITDUMP("Arg V%02u has %u non arg uses\n", lcl->GetLclNum(), totalAppearances - callAppearances);
-
-            return true;
-        }
-
-        // If the param has multiple uses then some of them may appear in other args of this call,
-        // either because the param (or a portion of it) is passed in multiple args or because its
-        // address is somehow passed in an arg. We need to scan the arg list to find such uses so
-        // this has quadratic complexity.
-
-        if (callInfo->GetArgCount() > 6)
-        {
-            JITDUMP("Arg alias analysis too costly, call has %u args\n", callInfo->GetArgCount());
-
-            return true;
-        }
-
-        for (unsigned index2 = 0; index2 < callInfo->GetArgCount(); ++index2)
-        {
-            if (index2 == index)
-            {
-                continue;
-            }
-
-            CallArgInfo* argInfo2 = callInfo->GetArgInfo(index2);
-            GenTree*     argNode2 = argInfo2->GetNode();
-
-            JITDUMPTREE(argNode2, "Checking other arg:\n");
-
-            if (argNode2->OperIsConst())
-            {
-                // A const arg can't alias a parameter.
-                continue;
-            }
-
-            if (argInfo2->IsImplicitByRef())
-            {
-                GenTreeLclLoad* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
-
-                if ((lclNode2 != nullptr) && (lclNode->GetLcl() == lclNode2->GetLcl()))
-                {
-                    JITDUMP("Implicit byref param V%02u value is passed in multiple args\n");
-                    return true;
-                }
-
-                // TODO-MIKE-Review: Old code had a dump message saying "that the arg refers to different
-                // implicit byref local". This seems bogus - there's nothing stopping one from storing
-                // the address of any param into whatever struct gets passed here.
-                continue;
-            }
-
-            if ((argInfo2->GetArgType() != TYP_BYREF) && (argInfo2->GetArgType() != TYP_I_IMPL))
-            {
-                // TODO-MIKE-Review: Similar to the above comment. We could have a struct parameter that
-                // contains the address of any param.
-                continue;
-            }
-
-            if (argNode2->OperIs(GT_LCL_LOAD) && (argNode2->AsLclLoad()->GetLcl() == lclNode->GetLcl()))
-            {
-                JITDUMP("Implicit byref param V%02u address is also passed in an arg\n");
-                return true;
-            }
-
-            if (argNode2->OperIs(GT_LCL_LOAD) && argNode2->AsLclLoad()->GetLcl()->IsParam())
-            {
-                // Other params can't alias implicit byref params.
-
-                // TODO-MIKE-Review: Here we go again - the initial param value cannot indeed alias an
-                // implicit by-ref param but one could store the address of one param in another param.
-                continue;
-            }
-
-            if (lcl->lvHasLdAddrOp)
-            {
-                // We have no idea what address this argument contains. If the parameter is address
-                // exposed then it could contain its address.
-
-                // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
-                // used instead but that one gets reset in lvaRetypeImplicitByRefParams.
-                // Maybe lvaRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use
-                // it here, though care needs to be taken because nothing will ever update it.
-                // Or use lvHasLdAddrOp for implicit byref params and lvAddrExposed for anything else.
-
-                JITDUMP("V%02u is address exposed\n", lcl->GetLclNum());
-                return true;
-            }
-        }
-
-        JITDUMP("No other arg can alias V%02u\n", lcl->GetLclNum());
-    }
-
-    return false;
-}
-#endif // FEATURE_FASTTAILCALL && (defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64))
-
-// Attempt to morph a call that the importer has identified as a potential
-// tailcall to an actual tailcall and return the placeholder node to use in
-// this case.
-//
-// Returns a node to use if the call was morphed into a tailcall. If this
-// function returns a node the call is done being morphed and the new node
-// should be used. Otherwise the call will have been demoted to a regular call
-// and should go through normal morph.
-//
-// This is called only for calls that the importer has already identified as
-// potential tailcalls. It will do profitability and legality checks and
-// classify which kind of tailcall we are able to (or should) do, along with
-// modifying the trees to perform that kind of tailcall.
-//
-GenTree* Compiler::moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
-{
-    assert(call->IsExplicitTailCall() ^ call->IsImplicitTailCall());
-
-    auto failTailCall = [&](const char* reason, LclVarDsc* lcl = nullptr) {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nRejecting tail call in morph for call [%06u]: %s", call->GetID(), reason);
-            if (lcl != nullptr)
-            {
-                printf(" " FMT_LCL, lcl->GetLclNum());
-            }
-            printf("\n");
-        }
-#endif
-
-        info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
-                                                 call->IsExplicitTailCall(), TAILCALL_FAIL, reason);
-
-        call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#if FEATURE_TAILCALL_OPT
-        call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
-#endif
-    };
-
-    if (call->IsSpecialIntrinsic())
-    {
-        failTailCall("Might turn into an intrinsic");
-        return nullptr;
-    }
-
-    // Heuristic: regular calls to noreturn methods can sometimes be
-    // merged, so if we have multiple such calls, we defer tail calling.
-    // TODO: re-examine this; now that we're merging before morph we
-    // don't need to worry about interfering with merges.
-    if (call->IsNoReturn() && (optNoReturnCallCount > 1))
-    {
-        failTailCall("Defer tail calling throw helper; anticipating merge");
-        return nullptr;
-    }
-
-#ifdef DEBUG
-    if (opts.compGcChecks && (info.compRetType == TYP_REF))
-    {
-        failTailCall("COMPlus_JitGCChecks or stress might have interposed a call to CORINFO_HELP_CHECK_OBJ, "
-                     "invalidating tailcall opportunity");
-        return nullptr;
-    }
-#endif
-
-    // We have to ensure to pass the incoming retValBuf as the
-    // outgoing one. Using a temp will not do as this function will
-    // not regain control to do the copy. This can happen when inlining
-    // a tailcall which also has a potential tailcall in it: the IL looks
-    // like we can do a tailcall, but the trees generated use a temp for the inlinee's
-    // result. TODO-CQ: Fix this.
-    if (info.compRetBuffArg != BAD_VAR_NUM)
-    {
-        noway_assert(call->TypeIs(TYP_VOID));
-
-        GenTree* retValBuf = call->GetRetBufArg()->GetNode();
-
-        if (!retValBuf->IsLclLoad() || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
-        {
-            failTailCall("Need to copy return buffer");
-            return nullptr;
-        }
-    }
-
-    // We are still not sure whether it can be a tail call. Because, when converting
-    // a call to an implicit tail call, we must check that there are no locals with
-    // their address taken.  If this is the case, we have to assume that the address
-    // has been leaked and the current stack frame must live until after the final
-    // call.
-
-    // Verify that none of vars has lvHasLdAddrOp or lvAddrExposed bit set. Note
-    // that lvHasLdAddrOp is much more conservative.  We cannot just base it on
-    // lvAddrExposed alone since it is not guaranteed to be set on all VarDscs
-    // during morph stage. The reason for also checking lvAddrExposed is that in case
-    // of vararg methods user args are marked as addr exposed but not lvHasLdAddrOp.
-    // The combination of lvHasLdAddrOp and lvAddrExposed though conservative allows us
-    // never to be incorrect.
-    //
-    // TODO-Throughput: have a compiler level flag to indicate whether method has vars whose
-    // address is taken. Such a flag could be set whenever lvHasLdAddrOp or LvAddrExposed
-    // is set. This avoids the need for iterating through all lcl vars of the current
-    // method.  Right now throughout the code base we are not consistently using 'set'
-    // method to set lvHasLdAddrOp and lvAddrExposed flags.
-
-    bool isImplicitOrStressTailCall = call->IsImplicitTailCall() || call->IsStressTailCall();
-
-    if (isImplicitOrStressTailCall && compLocallocUsed)
-    {
-        failTailCall("Localloc used");
-        return nullptr;
-    }
-
-    bool hasStructParam = false;
-
-    for (LclVarDsc* lcl : Locals())
-    {
-        if (lcl->IsPromotedField() && lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
-        {
-            // This was a promoted field of an implicit byref param but promotion was
-            // undone. It's not used so ignore it.
-            continue;
-        }
-
-        // If the method is marked as an explicit tail call we will skip the
-        // following three hazard checks.
-        // We still must check for any struct parameters and set 'hasStructParam'
-        // so that we won't transform the recursive tail call into a loop.
-        if (isImplicitOrStressTailCall)
-        {
-            // TODO-MIKE-Review: Shouldn't this check only lvAddrExposed? This is likely
-            // the same issue moCallHasMustCopyByrefParameter has that it can't use
-            // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
-            if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
-            {
-                failTailCall("Local address taken", lcl);
-                return nullptr;
-            }
-
-            if (lcl->IsAddressExposed())
-            {
-                failTailCall("Local address taken", lcl);
-                return nullptr;
-            }
-
-            if (lcl->IsPromoted() && lcl->IsParam())
-            {
-                failTailCall("Has Struct Promoted Param", lcl);
-                return nullptr;
-            }
-
-            // A tail call removes the method from the stack, which means the pinning
-            // goes away for the callee.
-            if (lcl->IsPinning())
-            {
-                failTailCall("Has pinning local", lcl);
-                return nullptr;
-            }
-        }
-
-        if (varTypeIsStruct(lcl->GetType()) && lcl->IsParam())
-        {
-            // This prevents transforming a recursive tail call into a loop
-            // but doesn't prevent tail call optimization so we need to
-            // look at the rest of parameters.
-            hasStructParam = true;
-        }
-    }
-
-    if (!moCheckStmtAfterTailCall(stmt))
-    {
-        failTailCall("Unexpected statements after the tail call");
-        return nullptr;
-    }
-
-#if FEATURE_FASTTAILCALL
-    const char* failReason      = nullptr;
-    const bool  canFastTailCall = moCanFastTailCall(call, &failReason);
-#else
-    const char*       failReason      = "Fast tailcalls are not supported on this platform";
-    constexpr bool    canFastTailCall = false;
-#endif
-
-    CORINFO_TAILCALL_HELPERS tailCallHelpers;
-#ifdef TARGET_X86
-    bool tailCallViaJitHelper = false;
-#endif
-    bool fastTailCallToLoop = false;
-
-    if (!canFastTailCall)
-    {
-        if (call->IsImplicitTailCall())
-        {
-            // Implicit or opportunistic tail calls are always dispatched via fast tail call
-            // mechanism and never via tail call helper for perf.
-            failTailCall(failReason);
-            return nullptr;
-        }
-
-        assert(call->IsExplicitTailCall());
-
-        // We do not currently handle non-standard args except for VSD stubs.
-        if (!call->IsVirtualStub() && call->HasNonStandardAddedArgs(this))
-        {
-            failTailCall(
-                "Method with non-standard args passed in callee trash register cannot be tail called via helper");
-            return nullptr;
-        }
-
-#ifdef TARGET_X86
-        if (moCanTailCallViaJitHelper())
-        {
-            tailCallViaJitHelper = true;
-        }
-        else
-#endif
-        {
-            // Make sure we can get the helpers. We do this last as the runtime
-            // will likely be required to generate these.
-
-            TailCallSiteInfo* const            tailCallInfo = call->GetExplicitTailCallInfo();
-            CORINFO_RESOLVED_TOKEN*            token        = nullptr;
-            CORINFO_GET_TAILCALL_HELPERS_FLAGS flags        = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(0);
-
-            if (!tailCallInfo->IsCalli())
-            {
-                token = tailCallInfo->GetToken();
-
-                if (tailCallInfo->IsCallvirt())
-                {
-                    flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_IS_CALLVIRT);
-                }
-            }
-
-            if (call->HasThisArg() && !call->GetThisArg()->GetNode()->TypeIs(TYP_REF))
-            {
-                flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_THIS_ARG_IS_BYREF);
-            }
-
-            if (!info.compCompHnd->getTailCallHelpers(token, tailCallInfo->GetSig(), flags, &tailCallHelpers))
-            {
-                failTailCall("Tail call help not available");
-                return nullptr;
-            }
-        }
-    }
-    else
-    {
-#if FEATURE_TAILCALL_OPT
-        // TODO-CQ: enable the transformation when the method has a struct parameter that can be passed in a
-        // register or return type is a struct that can be passed in a register.
-        //
-        // TODO-CQ: if the method being compiled requires generic context reported in gc-info (either through
-        // hidden generic context param or through keep alive thisptr), then while transforming a recursive
-        // call to such a method requires that the generic context stored on stack slot be updated. Right now,
-        // moMorphRecursiveFastTailCallIntoLoop is not handling update of generic context while transforming
-        // a recursive call into a loop. Another option is to modify gtIsRecursiveCall() to check that the
-        // generic type parameters of both caller and callee generic method are the same.
-        fastTailCallToLoop = JitConfig.TailCallLoopOpt() && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
-                             !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam &&
-                             !varTypeIsStruct(call->GetType());
-#endif
-    }
-
-    // We are now committed to performing a tailcall. Report the decision.
-    CorInfoTailCall tailCallResult;
-
-    if (fastTailCallToLoop)
-    {
-        tailCallResult = TAILCALL_RECURSIVE;
-    }
-    else if (canFastTailCall)
-    {
-        tailCallResult = TAILCALL_OPTIMIZED;
-    }
-    else
-    {
-        tailCallResult = TAILCALL_HELPER;
-    }
-
-    info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
-                                             call->IsExplicitTailCall(), tailCallResult, nullptr);
-
-    if (call->IsExpandedEarly() && call->IsVirtualVtable())
-    {
-        if (tailCallResult == TAILCALL_HELPER)
-        {
-            // We will always expand this late in lower instead.
-            // (see LowerTailCallViaJitHelper as it needs some work
-            // for us to be able to expand this earlier in morph)
-            call->ClearExpandedEarly();
-        }
-        else if ((tailCallResult == TAILCALL_OPTIMIZED) &&
-                 call->GetThisArg()->GetNode()->HasAnySideEffect(GTF_SIDE_EFFECT))
-        {
-            // We generate better code when we expand this late in lower instead.
-            call->ClearExpandedEarly();
-        }
-    }
-
-    // Now actually morph the call.
-    compTailCallUsed = true;
-
-#if FEATURE_TAILCALL_OPT
-    if (fastTailCallToLoop)
-    {
-        call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_TO_LOOP;
-        JITDUMP("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call [%06u]\n", call->GetID());
-    }
-#endif
-
-    // If this block has a flow successor, make suitable updates.
-    BasicBlock*       callBlock = fgMorphBlock;
-    BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
-
-    if (nextBlock == nullptr)
-    {
-        assert(callBlock->bbJumpKind == BBJ_RETURN);
-    }
-    else
-    {
-        // Flow no longer reaches nextBlock from here.
-        fgRemoveRefPred(nextBlock, callBlock);
-
-        // Adjust profile weights.
-        // Note if this is a tail call to loop, further updates
-        // are needed once we install the loop edge.
-        if (callBlock->hasProfileWeight() && nextBlock->hasProfileWeight())
-        {
-            // Since we have linear flow we can update the next block weight.
-            BasicBlock::weight_t const blockWeight   = callBlock->bbWeight;
-            BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
-            BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
-
-            // If the math would result in a negative weight then there's
-            // no local repair we can do; just leave things inconsistent.
-            if (newNextWeight >= 0)
-            {
-                // Note if we'd already morphed the IR in nextblock we might
-                // have done something profile sensitive that we should arguably reconsider.
-                JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n", nextBlock->bbNum,
-                        nextWeight, newNextWeight);
-
-                nextBlock->setBBProfileWeight(newNextWeight);
-            }
-            else
-            {
-                JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
-                        " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                        nextBlock->bbNum, nextWeight, callBlock->bbNum, blockWeight);
-            }
-
-            // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
-            // is a BBJ_RETURN, as we allow a little bit of flow after a tail call.
-            if (nextBlock->bbJumpKind != BBJ_RETURN)
-            {
-                BasicBlock* nextNextBlock = nextBlock->GetUniqueSucc();
-
-                // Check if we have a sequence of stores where the same variable is assigned to
-                // temp locals over and over. Also allow casts sequences, and blocks with NOPs.
-                if (nextNextBlock->bbJumpKind != BBJ_RETURN)
-                {
-                    // Make sure the block has a single statement and the root node is STORE_LCL_VAR(LCL_VAR)
-
-                    assert(nextBlock->GetFirstStatement() == nextBlock->GetLastStatement());
-                    GenTree* store = nextBlock->GetFirstStatement()->GetRootNode();
-                    assert(store->OperIs(GT_LCL_STORE));
-                    LclVarDsc* lcl = store->AsLclStore()->GetLcl();
-
-                    for (; nextNextBlock->bbJumpKind != BBJ_RETURN; nextNextBlock = nextNextBlock->GetUniqueSucc())
-                    {
-                        assert(nextNextBlock->GetFirstStatement() == nextNextBlock->GetLastStatement());
-
-                        store = nextNextBlock->GetFirstStatement()->GetRootNode();
-
-                        if (!store->OperIs(GT_NOP))
-                        {
-                            GenTree* value = store->AsLclStore()->GetValue();
-
-                            while (value->OperIs(GT_CONV))
-                            {
-                                value = value->AsUnOp()->GetOp(0);
-                            }
-
-                            assert(value->AsLclLoad()->GetLcl() == lcl);
-                            lcl = value->AsLclLoad()->GetLcl();
-                        }
-                    }
-                }
-
-                assert(nextNextBlock->bbJumpKind == BBJ_RETURN);
-
-                if (nextNextBlock->hasProfileWeight())
-                {
-                    BasicBlock::weight_t const nextNextWeight    = nextNextBlock->bbWeight;
-                    BasicBlock::weight_t const newNextNextWeight = nextNextWeight - blockWeight;
-
-                    // If the math would result in an negative weight then there's
-                    // no local repair we can do; just leave things inconsistent.
-                    if (newNextNextWeight >= 0)
-                    {
-                        JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n",
-                                nextNextBlock->bbNum, nextNextWeight, newNextNextWeight);
-
-                        nextNextBlock->setBBProfileWeight(newNextNextWeight);
-                    }
-                    else
-                    {
-                        JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
-                                " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
-                                nextNextBlock->bbNum, nextNextWeight, callBlock->bbNum, blockWeight);
-                    }
-                }
-            }
-        }
-    }
-
-#if !FEATURE_TAILCALL_OPT_SHARED_RETURN
-    // We enable shared-ret tail call optimization for recursive calls even if
-    // FEATURE_TAILCALL_OPT_SHARED_RETURN is not defined.
-    if (gtIsRecursiveCall(call))
-#endif
-    {
-        // Many tailcalls will have call and ret in the same block, and thus be
-        // BBJ_RETURN, but if the call falls through to a ret, and we are doing a
-        // tailcall, change it here.
-        callBlock->bbJumpKind = BBJ_RETURN;
-    }
-
-    GenTree* stmtExpr = stmt->GetRootNode();
-
-#ifdef DEBUG
-    // Tail call needs to be in one of the following IR forms
-    //    Either a call stmt or
-    //    RETURN(CALL(..)) or RETURN(CAST(CALL(..)))
-    //    var = CALL(..) or var = (CAST(CALL(..)))
-    //    COMMA(CALL(..), NOP) or COMMA(CAST(CALL(..)), NOP)
-    // In the above,
-    //    CASTs may be nested.
-    if (stmtExpr->IsCall())
-    {
-        assert(stmtExpr == call);
-    }
-    else
-    {
-        GenTree* value;
-
-        if (stmtExpr->OperIs(GT_RETURN))
-        {
-            value = stmtExpr->AsUnOp()->GetOp(0);
-        }
-        else if (stmtExpr->OperIs(GT_COMMA))
-        {
-            value = stmtExpr->AsOp()->GetOp(0);
-            assert(stmtExpr->AsOp()->GetOp(1)->IsNothingNode());
-        }
-        else
-        {
-            value = stmtExpr->AsLclStore()->GetValue();
-        }
-
-        while (value->OperIs(GT_CONV))
-        {
-            value = value->AsUnOp()->GetOp(0);
-        }
-
-        assert(value == call);
-    }
-#endif
-
-    if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
-    {
-        // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
-        // calls with (to the JIT) regular control flow so we do not need to do
-        // much special handling.
-
-        return moMorphTailCallViaHelpers(call, tailCallHelpers, stmt);
-    }
-
-    // Otherwise we will transform into something that does not return. For fast tailcalls
-    // a "jump" and for tailcall via JIT helper a call to a JIT helper that does not return.
-    // So peel off everything after the call.
-    Statement* nextMorphStmt = stmt->GetNextStmt();
-    JITDUMP("Remove all stmts after the call.\n");
-    while (nextMorphStmt != nullptr)
-    {
-        Statement* stmtToRemove = nextMorphStmt;
-        nextMorphStmt           = stmtToRemove->GetNextStmt();
-        fgRemoveStmt(callBlock, stmtToRemove);
-    }
-
-    bool     isRootReplaced = false;
-    GenTree* root           = stmt->GetRootNode();
-
-    if (root != call)
-    {
-        JITDUMP("Replace root node [%06u] with [%06u] tail call node.\n", root->GetID(), call->GetID());
-        isRootReplaced = true;
-        stmt->SetRootNode(call);
-    }
-
-    var_types retType = call->GetType();
-
-    // Avoid potential extra work for the return (for example, vzeroupper)
-    call->SetType(TYP_VOID);
-    call->SetRetSigType(TYP_VOID);
-    call->SetRetLayout(nullptr);
-    call->GetRetDesc()->Reset();
-    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
-    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
-#if FEATURE_TAILCALL_OPT
-    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
-#endif
-
-    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
-
-#ifdef TARGET_X86
-    static_assert_no_msg(!canFastTailCall);
-    assert(tailCallViaJitHelper);
-
-    GenTreeLclStore* thisTempStore = moMorphTailCallViaJitHelper(call, stmt);
-
-    // Tail call via JIT helper: The VM can't use return address hijacking
-    // if we're not going to return and the helper doesn't have enough info
-    // to safely poll, so we poll before the tail call, if the block isn't
-    // already safe. Since tail call via helper is a slow mechanism it
-    // doesn't matter whether we emit GC poll. his is done to be in parity
-    // with Jit64. Also this avoids GC info size increase if all most all
-    // methods are expected to be tail calls (e.g. F#).
-    //
-    // Note that we can avoid emitting GC-poll if we know that the current
-    // BB is dominated by a GC-SafePoint block. But we don't have dominator
-    // info at this point. One option is to just add a place holder node for
-    // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
-    // is dominated by a GC-SafePoint. For now it not clear whether
-    // optimizing slow tail calls is worth the effort. As a low cost check,
-    // we check whether the first and current basic blocks are GC-SafePoints.
-
-    BasicBlock* newCallBlock = callBlock;
-
-    if (!fgFirstBB->HasGCSafePoint() && !callBlock->HasGCSafePoint())
-    {
-        newCallBlock = fgCreateGCPoll(GCPOLL_INLINE, callBlock);
-    }
-
-    Statement* thisTempStmt = nullptr;
-
-    if (thisTempStore != nullptr)
-    {
-        thisTempStmt = fgInsertStmtBefore(newCallBlock, stmt, thisTempStore);
-    }
-
-    if (newCallBlock == callBlock)
-    {
-        // We didn't insert a poll block, so we need to morph the call and the this
-        // temp store now (normally they'd be morphed when we get to the poll block).
-
-        if (thisTempStore != nullptr)
-        {
-            // Don't morph the store itself to avoid complications with
-            // it being removed if the value becomes a COMMA throw.
-            // TODO-MIKE-Cleanup: Would be nice to handle this properly.
-            // Can we just morph the call args before doing the tail call transform?
-            fgGlobalMorphStmt  = thisTempStmt;
-            GenTree* thisValue = moMorphTree(thisTempStore->GetValue());
-            thisTempStore->SetValue(thisValue);
-            thisTempStore->SetSideEffects(thisValue->GetSideEffects() | GTF_ASG);
-            fgGlobalMorphStmt = stmt;
-        }
-
-        GenTree* temp = moMorphCall(call, stmt);
-        noway_assert(temp == call);
-    }
-    else
-    {
-        // fgCreateGCPoll has created new blocks and moved the call to one of them.
-        callBlock    = newCallBlock;
-        fgMorphBlock = callBlock;
-    }
-
-    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
-
-    // We call CORINFO_HELP_TAILCALL which does not return, so we will
-    // not need epilogue.
-    callBlock->bbJumpKind = BBJ_THROW;
-#else
-    // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
-    // fgSetFullyInterruptiblePhase is going to mark the method as fully
-    // interruptible if the block containing this tail call is reachable
-    // without executing any call.
-
-    GenTree* temp = moMorphCall(call, stmt);
-    noway_assert(temp == call);
-    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
-    callBlock->bbFlags |= BBF_HAS_JMP;
-#endif
-
-    if (isRootReplaced)
-    {
-        // We have replaced the root node of this stmt and deleted the rest,
-        // but we still have the deleted, dead nodes on the `fgMorph*` stack
-        // if the root node was an `STORE_LCL_VAR`, `RET` or `CAST`.
-        // Return a zero con node to exit morphing of the old trees without asserts
-        // and forbid POST_ORDER morphing doing something wrong with our call.
-
-        return moMorphTree(gtNewZeroConNode(varTypeIsStruct(retType) ? TYP_INT : retType));
-    }
-
-    return call;
-}
-
-// This transforms
-//     CALL
-//         {callTarget}
-//         {this}
-//         {args}
-//   into
-//     stmt CALL StoreArgsStub
-//         {callTarget}         (depending on flags provided by the runtime)
-//         {this}               (as a regular arg)
-//         {args}
-//     stmt CALL Dispatcher
-//         ReturnAddress address
-//         {CallTargetStub}
-//         ReturnValue address
-//     LCL_LOAD ReturnValue
-// whenever the call node returns a value. If the call node does not return
-// a value the last LCL_LOAD will not be there.
-//
-GenTree* Compiler::moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
-{
-    JITDUMPTREE(call, "moMorphTailCallViaHelpers (before):\n");
-
-    // R2R requires different handling but we don't support tailcall via
-    // helpers in R2R yet, so just leave it for now.
-    // TODO: R2R: TailCallViaHelper
-    assert(!opts.IsReadyToRun());
-    assert(!call->IsHelperCall());
-    // We come this route only for tail prefixed calls that cannot be dispatched as
-    // fast tail calls
-    assert(!call->IsImplicitTailCall());
-
-    Statement* newStmt             = nullptr;
-    const bool isVirtual           = call->IsVirtual();
-    const bool stubNeedsTargetAddr = (help.flags & CORINFO_TAILCALL_STORE_TARGET) != 0;
-    const bool stubNeedsThisLcl    = stubNeedsTargetAddr && isVirtual;
-    LclVarDsc* thisLcl             = nullptr;
-
-    if (stubNeedsThisLcl)
-    {
-        GenTree* thisArg = call->GetThisArg()->GetNode();
-
-        // TODO-MIKE-Review: Reusing an existing local isn't correct if the
-        // subsequent args are modifying that local. Old code did it like this.
-        if (GenTreeLclLoad* thisLoad = thisArg->IsLclLoad())
-        {
-            thisLcl = thisLoad->GetLcl();
-        }
-        else
-        {
-            thisLcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call thisptr"));
-            newStmt = fgInsertStmtBefore(fgMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
-            call->GetThisArg()->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
-        }
-    }
-
-    Statement* storeArgsStmt = fgInsertStmtBefore(fgMorphBlock, stmt, call);
-
-    if (newStmt == nullptr)
-    {
-        newStmt = storeArgsStmt;
-    }
-
-    GenTree* result = moCreateCallDispatcherAndGetResult(call, help, stmt);
-
-    if (call->IsVirtualStub())
-    {
-#if FEATURE_FASTTAILCALL
-        // Remove the VSD hidden arg since we turn this into a direct call.
-        // The extra arg will be the first arg so this needs to be done before
-        // we handle the return buffer below. This arg is only added when fast
-        // tail calls are supported, because in that case we call moInitCallnfo.
-        call->ResetArgInfo();
-#endif
-        call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
-    }
-
-    if (call->HasRetBufArg())
-    {
-        assert(call->GetRetBufArg()->GetNode()->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
-
-        call->RemoveRetBufArg();
-        call->fgArgInfo = nullptr;
-    }
-
-    if (call->HasThisArg())
-    {
-        call->fgArgInfo = nullptr;
-    }
-
-    if (stubNeedsTargetAddr)
-    {
-        GenTree* addr;
-
-        if (isVirtual)
-        {
-            TailCallSiteInfo* const tailCallInfo = call->GetExplicitTailCallInfo();
-
-            assert(!tailCallInfo->GetSig()->hasTypeArg());
-
-            CORINFO_CALLINFO_FLAGS flags = CORINFO_CALLINFO_LDFTN;
-
-            if (tailCallInfo->IsCallvirt())
-            {
-                flags = static_cast<CORINFO_CALLINFO_FLAGS>(flags | CORINFO_CALLINFO_CALLVIRT);
-            }
-
-            CORINFO_CALL_INFO callInfo;
-            info.compCompHnd->getCallInfo(tailCallInfo->GetToken(), nullptr, info.compMethodHnd, flags, &callInfo);
-
-            GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
-            addr              = moGetVirtMethodPointerTree(thisLoad, tailCallInfo->GetToken(), &callInfo);
-        }
-        else if (!call->IsIndirectCall())
-        {
-            CORINFO_CONST_LOOKUP lookup;
-            info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
-
-            addr = gtNewConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
-        }
-        else
-        {
-            addr = call->GetCallAddr();
-        }
-
-        gtAppendNewCallArg(call, addr);
-        call->fgArgInfo = nullptr;
-    }
-
-    call->SetMethodHandle(help.hStoreArgs);
-    call->SetCallAddr(nullptr);
-    call->SetIntrinsic(NI_Illegal);
-    call->ClearEntryPoint();
-    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_EXPLICIT_TAILCALL | GTF_CALL_M_HAS_THIS_ARG);
-#if FEATURE_TAILCALL_OPT
-    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
-#endif
-#ifdef TARGET_ARM
-    call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
-#endif
-    call->SetType(TYP_VOID);
-    call->SetRetSigType(TYP_VOID);
-    call->SetRetLayout(nullptr);
-    call->GetRetDesc()->Reset();
-
-    for (Statement* s = newStmt; s != stmt; s = s->GetNextStmt())
-    {
-        fgGlobalMorphStmt = s;
-        s->SetRootNode(moMorphTree(s->GetRootNode()));
-        fgGlobalMorphStmt = stmt;
-    }
-
-    return moMorphTree(result);
-}
-
-GenTree* Compiler::moCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
-                                                      const CORINFO_TAILCALL_HELPERS& helpers,
-                                                      Statement*                      stmt)
-{
-    GenTree*   retVal         = nullptr;
-    GenTree*   retBuffStore   = nullptr;
-    LclVarDsc* dispRetBuffLcl = nullptr;
-
-    if (call->HasRetBufArg())
-    {
-        // Caller return buffer address may point to GC heap while the dispatcher expects the return value
-        // address to point to the stack. We use a temporary stack allocated return buffer to hold the
-        // value during the dispatcher call and copy the value back to the caller return buffer after that.
-        dispRetBuffLcl = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
-
-        LclVarDsc* retBuffLcl = lvaGetDesc(info.compRetBuffArg);
-
-        GenTree* src     = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
-        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
-        retBuffStore     = gtNewIndStoreObj(dispRetBuffLcl->GetLayout(), dstAddr, src);
-
-        if (!call->TypeIs(TYP_VOID))
-        {
-            retVal = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
-        }
-    }
-    else if (!call->TypeIs(TYP_VOID))
-    {
-        dispRetBuffLcl = lvaAllocTemp(false DEBUGARG("Return value for tail call dispatcher"));
-
-        if (varTypeIsStruct(call->GetType()))
-        {
-            lvaSetStruct(dispRetBuffLcl, call->GetRetLayout(), false);
-        }
-        else
-        {
-            dispRetBuffLcl->SetType(call->GetType());
-        }
-
-        if (varTypeIsSmall(call->GetRetSigType()))
-        {
-            // Use a LCL_FLD to widen small int return, the local is already address exposed
-            // so it's not worth adding an extra cast by relying on "normalize on load".
-            retVal = gtNewLclLoadFld(call->GetRetSigType(), dispRetBuffLcl, 0);
-        }
-        else
-        {
-            retVal = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
-        }
-
-        if (varTypeIsStruct(call->GetType()) && (info.retDesc.GetRegCount() > 1))
-        {
-            retVal->gtFlags |= GTF_DONT_CSE;
-        }
-    }
-
-    LclVarDsc* retAddrLcl;
-
-    if (lvaRetAddrVar == BAD_VAR_NUM)
-    {
-        retAddrLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
-        lvaSetAddressExposed(retAddrLcl);
-        lvaRetAddrVar = retAddrLcl->GetLclNum();
-    }
-    else
-    {
-        retAddrLcl = lvaGetDesc(lvaRetAddrVar);
-    }
-
-    GenTree* retAddrSlot = gtNewLclAddr(retAddrLcl);
-    GenTree* calleeAddr  = new (this, GT_METHOD_ADDR) GenTreeMethodAddr(helpers.hCallTarget);
-    GenTree* retBufAddr;
-
-    if (dispRetBuffLcl == nullptr)
-    {
-        retBufAddr = gtNewZeroConNode(TYP_I_IMPL);
-    }
-    else
-    {
-        lvaSetAddressExposed(dispRetBuffLcl);
-        retBufAddr = gtNewLclAddr(dispRetBuffLcl);
-    }
-
-    GenTreeCall::Use* dispatcherArgs = gtNewCallArgs(retAddrSlot, calleeAddr, retBufAddr);
-    GenTree* dispatcherCall = gtNewUserCallNode(helpers.hDispatcher, TYP_VOID, dispatcherArgs, stmt->GetILOffsetX());
-
-    if ((retVal == nullptr) && (retBuffStore == nullptr))
-    {
-        return dispatcherCall;
-    }
-
-    fgInsertStmtBefore(fgMorphBlock, stmt, dispatcherCall);
-
-    if (retVal == nullptr)
-    {
-        return retBuffStore;
-    }
-
-    if (retBuffStore != nullptr)
-    {
-        fgInsertStmtBefore(fgMorphBlock, stmt, retBuffStore);
-    }
-
-    return retVal;
-}
-
-GenTree* Compiler::moGetRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
-                                          const CORINFO_RUNTIME_LOOKUP& lookup,
-                                          void*                         compileTimeHandle)
-{
-    assert(!compIsForInlining());
-
-    // If pRuntimeLookup->indirections is equal to CORINFO_USEHELPER, it specifies that a run-time helper should be
-    // used; otherwise, it specifies the number of indirections via pRuntimeLookup->offsets array.
-    if ((lookup.indirections == CORINFO_USEHELPER) || lookup.testForNull || lookup.testForFixup)
-    {
-        // If the first condition is true, runtime lookup tree is available only via the run-time helper function.
-        // TODO-CQ If the second or third condition is true, we are always using the slow path since we can't
-        // introduce control flow at this point. See impRuntimeLookupToTree for the logic to avoid calling the helper.
-        // The long-term solution is to introduce a new node representing a runtime lookup, create instances
-        // of that node both in the importer and here, and expand the node in lower (introducing control flow if
-        // necessary).
-        return gtNewRuntimeLookupHelperCallNode(lookup, gtNewRuntimeContextTree(kind), compileTimeHandle);
-    }
-
-    GenTree* result = gtNewRuntimeContextTree(kind);
-
-    ArrayStack<GenTree*> stmts(getAllocator(CMK_ArrayStack));
-
-    auto cloneTree = [&](GenTree** use DEBUGARG(const char* reason)) -> GenTree* {
-        GenTree* tree = *use;
-
-        if (!tree->HasAnySideEffect(GTF_GLOB_EFFECT))
-        {
-            GenTree* clone = gtCloneComplex(tree);
-
-            if (clone != nullptr)
-            {
-                return clone;
-            }
-        }
-
-        assert(varTypeIsI(tree->GetType()));
-        LclVarDsc* tempLcl = lvaNewTemp(tree->GetType(), true DEBUGARG(reason));
-        stmts.Push(gtNewLclStore(tempLcl, tree->GetType(), tree));
-        *use = gtNewLclLoad(tempLcl, tree->GetType());
-        return gtNewLclLoad(tempLcl, tree->GetType());
-    };
-
-    // Apply repeated indirections
-    for (unsigned i = 0; i < lookup.indirections; i++)
-    {
-        GenTree* preInd = nullptr;
-        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
-        {
-            preInd = cloneTree(&result DEBUGARG("moGetRuntimeLookupTree indirectOffset"));
-        }
-
-        if (i != 0)
-        {
-            result = gtNewIndLoad(TYP_I_IMPL, result);
-            result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-        }
-
-        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
-        {
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, preInd, result);
-        }
-
-        if (lookup.offsets[i] != 0)
-        {
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(lookup.offsets[i], TYP_I_IMPL));
-        }
-    }
-
-    assert(!lookup.testForNull);
-
-    if (lookup.indirections > 0)
-    {
-        assert(!lookup.testForFixup);
-
-        result = gtNewIndLoad(TYP_I_IMPL, result);
-        result->gtFlags |= GTF_IND_NONFAULTING;
-    }
-
-    // Produces GT_COMMA(stmt1, GT_COMMA(stmt2, ... GT_COMMA(stmtN, result)))
-
-    while (!stmts.Empty())
-    {
-        result = gtNewCommaNode(stmts.Pop(), result);
-    }
-
-    JITDUMPTREE(result, "Created runtime lookup tree:");
-
-    return result;
-}
-
-GenTree* Compiler::moGetVirtMethodPointerTree(GenTree*                thisPtr,
-                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
-                                              CORINFO_CALL_INFO*      callInfo)
-{
-    GenTree* exactTypeDesc   = moGetTokenHandleTree(resolvedToken, true);
-    GenTree* exactMethodDesc = moGetTokenHandleTree(resolvedToken, false);
-
-    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL,
-                               gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
-}
-
-GenTree* Compiler::moGetTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent)
-{
-    CORINFO_GENERICHANDLE_RESULT embedInfo;
-    info.compCompHnd->embedGenericHandle(resolvedToken, parent, &embedInfo);
-
-    if (!embedInfo.lookup.lookupKind.needsRuntimeLookup)
-    {
-        return gtNewConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
-                                    embedInfo.compileTimeHandle);
-    }
-
-    GenTree* result = moGetRuntimeLookupTree(embedInfo.lookup.lookupKind.runtimeLookupKind,
-                                             embedInfo.lookup.runtimeLookup, embedInfo.compileTimeHandle);
-
-    if (result != nullptr)
-    {
-        result = gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
-    }
-
-    return result;
-}
-
-#ifdef TARGET_X86
-bool Compiler::moCanTailCallViaJitHelper()
-{
-    // The JIT helper does not properly handle the case where localloc was used.
-    return !compLocallocUsed;
-}
-
-GenTree* Compiler::moExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call)
-{
-    GenTreeCall::Use* delegateThisUse = call->GetThisArg();
-    GenTreeLclLoad*   delegateThis    = delegateThisUse->GetNode()->AsLclLoad();
-    GenTree*          thisOffset      = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
-    GenTree*          targetThisAddr  = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);
-    GenTree*          targetThis      = gtNewIndLoad(TYP_REF, targetThisAddr);
-    // Make this load non-faulting, this prevents moSetupCallArgs from adding an
-    // unnecessary temp due to exception interference with the load below.
-    targetThis->gtFlags |= GTF_IND_NONFAULTING;
-    targetThis->RemoveSideEffects(GTF_EXCEPT);
-    delegateThisUse->SetNode(targetThis);
-
-    delegateThis          = gtNewLclLoad(delegateThis->GetLcl(), delegateThis->GetType());
-    GenTree* targetOffset = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateFirstTarget, TYP_I_IMPL);
-    GenTree* targetAddr   = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, targetOffset);
-    return gtNewIndLoad(TYP_I_IMPL, targetAddr);
-}
-
-GenTree* Compiler::moExpandDirectTailCallViaJitHelper(GenTreeCall* call)
-{
-    assert(!call->IsIndirectCall() && !call->IsUnmanaged() && !call->IsHelperCall());
-
-    CORINFO_CONST_LOOKUP entryPoint;
-
-#ifdef FEATURE_READYTORUN_COMPILER
-    if (call->m_entryPointAddr != nullptr)
-    {
-        entryPoint = call->GetEntryPoint();
-    }
-    else
-#endif
-    {
-        assert(!call->IsHelperCall());
-
-        info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, CORINFO_ACCESS_NONNULL);
-    }
-
-    return gtNewConstLookupTree(entryPoint, HandleKind::MethodAddr,
-                                call->GetMethodHandle() DEBUGARG(call->GetMethodHandle()));
-}
-
-GenTreeLclStore* Compiler::moMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt)
-{
-    JITDUMPTREE(call, "moMorphTailCallViaJitHelper (before):\n");
-
-    assert(!call->IsUnmanaged());
-    assert(!call->IsHelperCall());
-    assert(!call->IsImplicitTailCall());
-    // Indirect VSD calls are not supported (the importer blocks such tail calls).
-    noway_assert(!call->IsVirtualStubIndirect());
-
-    LclVarDsc*       thisLcl       = nullptr;
-    GenTreeLclStore* thisTempStore = nullptr;
-
-    // The call will be transformed into a helper call so it can no longer have a special
-    // `this` arg, we need to change it to a normal (first) argument. This may result in
-    // an ordering problem
-    //   - the first argument is passed in a register and will become a late arg
-    //   - the target argument is passed on stack so it will be evaluated before late args
-    //   - the target expression may depend on `this` (e.g. virtual vtable call)
-    // So we need to ensure that the value of `this` is available for target's expression.
-    // We do this by spilling `this` to a temp, if it's not already a local.
-    if (GenTreeCall::Use* thisUse = call->HasThisArg())
-    {
-        GenTree* thisArg = thisUse->GetNode();
-
-        // The runtime requires that we perform a null check on the `this` argument before tail
-        // calling to a virtual dispatch stub. This requirement is a consequence of limitations
-        // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
-        // in a dispatch stub that has unmanaged caller.
-        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->IsVirtualStub())
-        {
-            // TODO-MIKE-Review: Not adding a temp if `this` is LCL_LOAD is dubious, what if some
-            // other argument expression modifies it?
-            if (thisArg->OperIs(GT_LCL_LOAD))
-            {
-                thisLcl = thisArg->AsLclLoad()->GetLcl();
-            }
-            else
-            {
-                thisLcl       = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call this temp"));
-                thisTempStore = gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg);
-                thisArg       = gtNewLclLoad(thisLcl, thisLcl->GetType());
-
-                thisUse->SetNode(thisArg);
-            }
-        }
-    }
-
-    // The tailcall helper has 4 extra arguments:
-    //   JIT_TailCall(<function args>, int numOldStackSlots, int numNewStackSlots, int flags, void* target)
-    //
-    // Note that the special arguments are on the stack, whereas the function arguments follow
-    // the normal convention: there might be register arguments in ECX and EDX. The stack will
-    // look like (highest address at the top):
-    //      first normal stack argument
-    //      ...
-    //      last normal stack argument
-    //      numOldStackSlots - the number of stack slots used by caller parameters
-    //      numNewStackSlots - the number of stack slots needed for callee parameters
-    //      flags
-    //      target
-    //
-    // 'flags' is a bitmask where:
-    //      1 - restore callee-save registers (EDI, ESI, EBX). The JIT always saves all
-    //          callee-saved registers for tailcall functions. Note that the helper assumes
-    //          that the callee-saved registers live immediately below EBP, and must have been
-    //          pushed in this order: EDI, ESI, EBX.
-    //      2 - call target is a virtual stub dispatch.
-    //
-    // The tail call helper lives in vm\i386\jithelp.asm. See that function for more details
-    // on the custom calling convention.
-
-    GenTree* numOldStackSlotsArg = gtNewIconNode(static_cast<int>(codeGen->paramsStackSize / REGSIZE_BYTES));
-    // We haven't yet morphed the args so we don't know the number of stack slots this call uses.
-    // Lowering will change this to the correct value.
-    GenTree* numNewStackSlotsArg = gtNewIconNode(0);
-    GenTree* flagsArg            = gtNewIconNode(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));
-    GenTree* targetArg;
-
-    if (call->IsIndirectCall())
-    {
-        targetArg = call->GetCallAddr();
-    }
-    else if (call->IsDelegateInvoke())
-    {
-        targetArg = moExpandDelegateInvokeTailCallViaJitHelper(call);
-    }
-    else if (call->IsVirtualVtable())
-    {
-        targetArg = moExpandVirtualVtableCallTarget(call->GetMethodHandle(), gtNewLclLoad(thisLcl, TYP_REF));
-    }
-    else if (call->IsVirtualStubDirect())
-    {
-        // Normally we'd need an indirection to get the actual target address but
-        // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
-        targetArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
-    }
-    else
-    {
-        targetArg = moExpandDirectTailCallViaJitHelper(call);
-    }
-
-    call->SetHelperFunc(CORINFO_HELP_TAILCALL);
-    call->m_entryPointAccessType = IAT_VALUE;
-    call->m_entryPointAddr       = nullptr;
-    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
-    // Technically this call does not return but some other code expects "no return" only on "user" calls.
-    call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY | GTF_CALL_M_HAS_THIS_ARG);
-    call->fgArgInfo = nullptr;
-
-    gtAppendCallArgs(call, gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg));
-
-    JITDUMPTREE(call, "moMorphTailCallViaJitHelper (after):\n");
-
-    return thisTempStore;
-}
-#endif // TARGET_X86
-
-void Compiler::moMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* call)
-{
-    assert(call->IsTailCallConvertibleToLoop());
-    Statement* lastStmt = block->lastStmt();
-    assert(call == lastStmt->GetRootNode());
-
-    // All arguments whose trees may involve caller parameter local variables need to be assigned to temps first;
-    // then the temps need to be assigned to the method parameters. This is done so that the caller parameters are
-    // not re-assigned before call arguments depending on them are evaluated.
-    // tmpStoreInsertionPoint and paramStoreInsertionPoint keep track of where the next temp or parameter store
-    // should be inserted.
-
-    Statement* earlyArgInsertionPoint   = lastStmt;
-    Statement* tempStoreInsertionPoint  = lastStmt;
-    Statement* paramStoreInsertionPoint = lastStmt;
-    IL_OFFSETX ilOffset                 = lastStmt->GetILOffsetX();
-
-    for (GenTreeCall::Use& use : call->Uses())
-    {
-        GenTree* argNode = use.GetNode();
-
-        // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
-        // and the linear search it performs. This is the only non-DEBUG code that needs it.
-
-        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
-
-        if (argInfo->GetSetupUse() == &use)
-        {
-            // This is a setup node so we need to hoist it.
-            fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
-        }
-        else
-        {
-            // This is an actual argument that needs to be stored to the corresponding caller parameter.
-            Statement* paramStoreStmt =
-                moStoreRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
-                                                     paramStoreInsertionPoint);
-
-            if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
-            {
-                // All temp assignments will happen before the first param store.
-                tempStoreInsertionPoint = paramStoreStmt;
-            }
-        }
-    }
-
-    // If the method has starg.s 0 or ldarga.s 0 a special local (lvaThisLclNum) is created so that
-    // compThisArg stays immutable. Normally it's assigned in fgFirstBBScratch block. Since that
-    // block won't be in the loop (it's assumed to have no predecessors), we need to update the special local here.
-
-    if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
-    {
-        LclVarDsc* thisParamLcl = lvaGetDesc(info.GetThisParamLclNum());
-        GenTree*   value        = gtNewLclLoad(thisParamLcl, thisParamLcl->GetType());
-        GenTree*   store        = gtNewLclStore(lvaGetDesc(lvaThisLclNum), thisParamLcl->GetType(), value);
-        fgInsertStmtBefore(block, paramStoreInsertionPoint, gtNewStmt(store, ilOffset));
-    }
-
-    // If compInitMem is set, we may need to zero-initialize some locals. Normally it's done in the prolog
-    // but this loop can't include the prolog. Since we don't have liveness information, we initialize all
-    // all non-parameter IL locals as well as temp structs with GC fields.
-    // Liveness phase will remove unnecessary initializations.
-
-    if (info.compInitMem || compSuppressedZeroInit)
-    {
-        for (LclVarDsc* lcl : Locals())
-        {
-            if (lcl->IsParam())
-            {
-                continue;
-            }
-
-#if FEATURE_FIXED_OUT_ARGS
-            if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
-            {
-                continue;
-            }
-#endif
-            bool isUserLocal        = lcl->GetLclNum() < info.compLocalsCount;
-            bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
-            bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
-
-            if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
-            {
-                moMorphCreateLclInit(lcl, block, lastStmt, ilOffset);
-            }
-        }
-    }
-
-    fgRemoveStmt(block, lastStmt);
-
-    if (opts.IsOSR())
-    {
-        // Todo: this may not look like a viable loop header.
-        // Might need the moral equivalent of a scratch BB.
-        block->bbJumpDest = fgEntryBB;
-    }
-    else
-    {
-        // Ensure we have a scratch block and then target the next block.
-        // Loop detection needs to see a pred out of the loop, so mark the scratch
-        // block BBF_DONT_REMOVE to prevent empty block removal on it.
-        fgEnsureFirstBBisScratch();
-        fgFirstBB->bbFlags |= BBF_DONT_REMOVE;
-        block->bbJumpDest = fgFirstBB->bbNext;
-    }
-
-    block->bbJumpKind = BBJ_ALWAYS;
-    fgAddRefPred(block->bbJumpDest, block);
-    block->bbFlags &= ~BBF_HAS_JMP;
-}
-
-void Compiler::moMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset)
-{
-    if (lcl->IsIndependentPromoted())
-    {
-        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
-        {
-            moMorphCreateLclInit(fieldLcl, block, beforeStmt, ilOffset);
-        }
-
-        return;
-    }
-
-    var_types lclType = lcl->GetType();
-    GenTree*  init    = nullptr;
-
-    if (!varTypeIsStruct(lclType))
-    {
-        init = gtNewZeroConNode(varActualType(lclType));
-    }
-#ifdef FEATURE_SIMD
-    else if (varTypeIsSIMD(lclType))
-    {
-        init = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
-    }
-#endif
-    else
-    {
-        init = gtNewIconNode(0);
-    }
-
-    init = gtNewLclStore(lcl, lclType, init);
-
-    if (lcl->IsAddressExposed())
-    {
-        init->AddSideEffects(GTF_GLOB_REF);
-    }
-
-    fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
-}
-
-// Store argument to a recursive call to the corresponding caller parameter.
-Statement* Compiler::moStoreRecursiveCallArgToCallerParam(GenTree*     arg,
-                                                          CallArgInfo* argInfo,
-                                                          BasicBlock*  block,
-                                                          IL_OFFSETX   ilOffset,
-                                                          Statement*   tmpStoreInsertionPoint,
-                                                          Statement*   paramStoreInsertionPoint)
-{
-    // Call arguments should be stored to temps first and then the temps should be
-    // stored to parameters because some argument trees may reference parameters
-    // directly.
-
-    GenTree*   argInTemp             = nullptr;
-    LclVarDsc* originalArgLcl        = lvaGetDesc(argInfo->GetArgNum());
-    bool       needToAssignParameter = true;
-
-    // TODO-CQ: enable calls with struct arguments passed in registers.
-    noway_assert(!varTypeIsStruct(arg->GetType()));
-
-    if (argInfo->HasTemp() || arg->IsIntCon() || arg->IsDblCon())
-    {
-        // The argument is already stored to a temp or is a const.
-        argInTemp = arg;
-    }
-    else if (arg->OperIs(GT_LCL_LOAD))
-    {
-        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
-
-        if (!lcl->IsParam())
-        {
-            // The argument is a non-parameter local so it doesn't need to be stored to a temp.
-            argInTemp = arg;
-        }
-        else if (lcl == originalArgLcl)
-        {
-            // The argument is the same parameter local that we were about to store so
-            // we can skip it.
-            needToAssignParameter = false;
-        }
-    }
-
-    // TODO: We don't need temp stores if we can prove that the argument tree doesn't involve
-    // any caller parameters. Some common cases are handled above but we may be able to eliminate
-    // more temp stores.
-
-    if (!needToAssignParameter)
-    {
-        return nullptr;
-    }
-
-    if (argInTemp == nullptr)
-    {
-        // The argument is not stored to a temp. We need to create a new temp and insert a store.
-        // TODO: we can avoid a temp store if we can prove that the argument tree
-        // doesn't involve any caller parameters.
-        LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
-
-        GenTreeLclStore* tmpStore = gtNewLclStore(tmpLcl, arg->GetType(), arg);
-        fgInsertStmtBefore(block, tmpStoreInsertionPoint, gtNewStmt(tmpStore, ilOffset));
-        argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
-    }
-
-    // Now store the temp to the parameter.
-    assert(originalArgLcl->IsParam());
-    GenTreeLclStore* paramStore     = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
-    Statement*       paramStoreStmt = gtNewStmt(paramStore, ilOffset);
-
-    fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
-
-    return paramStoreStmt;
-}
-
-bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
-{
-    if (call->IsFastTailCall())
-    {
-        return false;
-    }
-
-    if (call->IsUnmanaged() && call->IsSuppressGCTransition())
-    {
-        return false;
-    }
-
-    if (call->IsIndirectCall())
-    {
-        return true;
-    }
-
-    if (call->IsUserCall())
-    {
-        return (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0;
-    }
-
-    if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
-    {
-        return true;
-    }
-
-    return false;
-}
-
-GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
-{
-    if ((call->IsHelperCall(CORINFO_HELP_VIRTUAL_FUNC_PTR)
-#ifdef FEATURE_READYTORUN_COMPILER
-         || call->IsHelperCall(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR)
-#endif
-             ) &&
-        (stmt != nullptr) && (call == stmt->GetRootNode()))
-    {
-        // This is call to CORINFO_HELP_VIRTUAL_FUNC_PTR with ignored result.
-        // Transform it into a null check.
-
-        return moMorphTree(gtNewNullCheck(call->GetFirstArg()));
-    }
-
-    // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
-    // We need to do these before the arguments are morphed.
-    if (call->IsSpecialIntrinsic() && opts.OptimizationEnabled())
-    {
-        if (GenTree* optTree = gtFoldExprCall(call))
-        {
-            return moMorphTree(optTree);
-        }
-    }
-
-    if (fgGlobalMorph)
-    {
-        if (call->IsTailCallCandidate())
-        {
-            if (GenTree* newNode = moMorphPotentialTailCall(call, stmt))
-            {
-                return newNode;
-            }
-        }
-
-        // TODO-MIKE-Cleanup: This should be moved to lowering (or LSRA's "build",
-        // only rpMustCreateEBPFrame needs it and doing it here is premature as
-        // calls can be removed later.
-        if (call->IsIndirectCall())
-        {
-            optCallCount++;
-            optIndirectCallCount++;
-        }
-        else if (call->IsUserCall())
-        {
-            optCallCount++;
-
-            if (call->IsVirtual())
-            {
-                optIndirectCallCount++;
-            }
-        }
-    }
-
-    assert(!call->IsTailCallCandidate());
-
-    BasicBlock* callBlock = fgMorphBlock;
-
-    // Mark the block as a GC safe point for the call if possible.
-    // In the event the call indicates the block isn't a GC safe point
-    // and the call is unmanaged with a GC transition suppression request
-    // then insert a GC poll.
-    if (IsCallGCSafePoint(call))
-    {
-        callBlock->bbFlags |= BBF_GC_SAFE_POINT;
-    }
-
-    // Regardless of the state of the basic block with respect to GC safe point,
-    // we will always insert a GC Poll for scenarios involving a suppressed GC
-    // transition. Only mark the block for GC Poll insertion on the first morph.
-    if (fgGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
-    {
-        callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
-        optMethodFlags |= OMF_NEEDS_GCPOLLS;
-    }
-
-    // TODO-MIKE-Cleanup: Only CSE needs this.
-    // Move this to SsaBuilder, where BBF_HAS_NULLCHECK and other similar flags are set.
-    // Note that there is code below that can remove the call, but we're still setting
-    // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
-    // this flag for those, that may affect CSE.
-    callBlock->bbFlags |= BBF_HAS_CALL;
-
-    if (call->GetInfo() == nullptr)
-    {
-        moInitCallnfo(call);
-    }
-
-    moMorphCallArgs(call);
-
-    if (!call->HasArgsSetup())
-    {
-        moSetupCallArgs(call);
-    }
-
-    if (call->IsExpandedEarly() && call->IsVirtualVtable())
-    {
-        if (call->GetCallAddr() == nullptr)
-        {
-            assert(fgGlobalMorph);
-            call->SetCallAddr(moExpandVirtualVtableCallTarget(call));
-        }
-
-        call->SetCallAddr(moMorphTree(call->GetCallAddr()));
-        call->AddSideEffects(call->GetCallAddr()->GetSideEffects());
-    }
-
-    // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
-    // This needs to be done after the arguments are morphed to ensure constant propagation has already taken place.
-    if (opts.OptimizationEnabled() && call->IsHelperCall(CORINFO_HELP_ARRADDR_ST))
-    {
-        GenTree* value = call->GetArgNodeByArgNum(2);
-
-        if (value->IsIntegralConst(0))
-        {
-            return moRemoveArrayStoreHelperCall(call, value);
-        }
-    }
-
-    if (call->IsNoReturn())
-    {
-        // If we know that the call does not return then we can set fgRemoveRestOfBlock
-        // to remove all subsequent statements and change the call's basic block to BBJ_THROW.
-        // As a result the compiler won't need to preserve live registers across the call.
-        //
-        // This isn't need for tail calls as there shouldn't be any code after the call anyway.
-        // Besides, the tail call code is part of the epilog and converting the block to
-        // BBJ_THROW would result in the tail call being dropped as the epilog is generated
-        // only for BBJ_RETURN blocks.
-
-        if (!call->IsTailCall())
-        {
-            fgRemoveRestOfBlock = true;
-        }
-    }
-
-    return call;
-}
-
-GenTree* Compiler::moRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value)
-{
-    assert((value == call->GetArgNodeByArgNum(2)) && (value->AsIntCon()->GetValue() == 0));
-
-    GenTree* arr   = call->GetArgNodeByArgNum(0);
-    GenTree* index = call->GetArgNodeByArgNum(1);
-
-    // Either or both of the array and index arguments may have been spilled to temps by moSetupCallArgs.
-    // Copy the spill trees as well if necessary.
-    GenTreeOp* argSetup = nullptr;
-    for (GenTreeCall::Use& use : call->Uses())
-    {
-        GenTree* const arg = use.GetNode();
-        if (!arg->OperIs(GT_LCL_DEF, GT_LCL_STORE))
-        {
-            continue;
-        }
-
-        assert(arg != arr);
-        assert(arg != index);
-
-        GenTree* op1 = argSetup;
-        if (op1 == nullptr)
-        {
-            op1 = gtNewNothingNode();
-            INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-        }
-
-        argSetup = gtNewCommaNode(op1, arg);
-        INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    }
-
-#ifdef DEBUG
-    auto resetMorphedFlag = [](GenTree** use, GenTree* user, void* data) {
-        (*use)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-        return GenTreeWalkResult::Continue;
-    };
-
-    fgWalkTreePost(&arr, resetMorphedFlag);
-    fgWalkTreePost(&index, resetMorphedFlag);
-    fgWalkTreePost(&value, resetMorphedFlag);
-#endif // DEBUG
-
-    GenTree* result;
-
-    if (arr->IsIntegralConst(0))
-    {
-        result = gtNewIndLoad(TYP_I_IMPL, arr);
-    }
-    else
-    {
-        GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
-        GenTreeIndir*     arrIndexNode = gtNewIndexLoad(TYP_REF, addr);
-
-        if (!fgGlobalMorph && !opts.MinOpts())
-        {
-            arrIndexNode->SetAddr(moMorphIndexAddr(addr));
-        }
-
-        arrIndexNode->SetOper(GT_IND_STORE);
-        arrIndexNode->SetValue(value);
-        arrIndexNode->AddSideEffects(GTF_ASG | value->GetSideEffects());
-
-        result = arrIndexNode;
-    }
-
-    result = moMorphTree(result);
-
-    if (argSetup != nullptr)
-    {
-        result = gtNewCommaNode(argSetup, result);
-        INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    }
-
-    return result;
-}
-
-// Expand and return the call target address for a VirtualCall
-// The code here should match that generated by LowerVirtualVtableCall
-GenTree* Compiler::moExpandVirtualVtableCallTarget(GenTreeCall* call)
-{
-    JITDUMP("Expanding virtual call target for %d.%s:\n", call->GetID(), GenTree::OpName(call->GetOper()));
-
-    assert(call->IsUserCall());
-
-    GenTree* thisPtr = call->GetArgInfoByArgNum(0)->GetNode();
-
-    return moExpandVirtualVtableCallTarget(call->GetMethodHandle(), thisPtr);
-}
-
-GenTree* Compiler::moExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr)
-{
-    // moSetupCallArgs must enforce this invariant by creating a temp
-    // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) may be bad for CQ.
-    noway_assert(thisPtr->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
-    thisPtr = gtCloneSimple(thisPtr);
-    assert(thisPtr != nullptr);
-
-    unsigned vtabOffsOfIndirection;
-    unsigned vtabOffsAfterIndirection;
-    bool     isRelative;
-    info.compCompHnd->getMethodVTableOffset(methodHandle, &vtabOffsOfIndirection, &vtabOffsAfterIndirection,
-                                            &isRelative);
-
-    // Dereference the this pointer to obtain the method table, it is called vtab below
-    static_assert_no_msg(VPTR_OFFS == 0);
-    GenTree* vtab = gtNewIndLoad(TYP_I_IMPL, thisPtr);
-    vtab->gtFlags |= GTF_IND_INVARIANT;
-
-    GenTree* result;
-
-    // Get the appropriate vtable chunk
-    if (vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK)
-    {
-        // Note this isRelative code path is currently never executed
-        // as the VM doesn't ever return:  isRelative == true
-        if (isRelative)
-        {
-            // MethodTable offset is a relative pointer.
-            //
-            // Additional temporary variable is used to store virtual table pointer.
-            // Address of method is obtained by the next computations:
-            //
-            // Save relative offset to tmp (vtab is virtual table pointer, vtabOffsOfIndirection is offset of
-            // vtable-1st-level-indirection):
-            // tmp = vtab
-            //
-            // Save address of method to result (vtabOffsAfterIndirection is offset of vtable-2nd-level-indirection):
-            // result = [tmp + vtabOffsOfIndirection + vtabOffsAfterIndirection + [tmp + vtabOffsOfIndirection]]
-            //
-            //
-            // When isRelative is true we need to setup two temporary variables
-            // var1 = vtab
-            // var2 = var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
-            // result = [var2] + var2
-            //
-            LclVarDsc* varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"));
-            LclVarDsc* varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"));
-            GenTree*   asgVar1 = gtNewLclStore(varNum1, TYP_I_IMPL, vtab);
-
-            // [tmp + vtabOffsOfIndirection]
-            GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
-                                              gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            tmpTree1 = gtNewIndLoad(TYP_I_IMPL, tmpTree1);
-            tmpTree1->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-
-            // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection
-            GenTree* tmpTree2 =
-                gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
-                              gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL));
-
-            // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
-            tmpTree2         = gtNewOperNode(GT_ADD, TYP_I_IMPL, tmpTree2, tmpTree1);
-            GenTree* asgVar2 = gtNewLclStore(varNum2, TYP_I_IMPL, tmpTree2);
-
-            result = gtNewIndLoad(TYP_I_IMPL, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2]
-            // This last indirection is not invariant.
-            result->gtFlags |= GTF_IND_NONFAULTING;
-
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2] + var2
-            result = gtNewCommaNode(asgVar1, gtNewCommaNode(asgVar2, result));
-        }
-        else
-        {
-            // result = [vtab + vtabOffsOfIndirection]
-            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, vtab, gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
-            result = gtNewIndLoad(TYP_I_IMPL, result);
-            result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-        }
-    }
-    else
-    {
-        result = vtab;
-        assert(!isRelative);
-    }
-
-    if (!isRelative)
-    {
-        // Load the function address
-        // result = [result + vtabOffsAfterIndirection]
-        result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(vtabOffsAfterIndirection, TYP_INT));
-        result = gtNewIndLoad(TYP_I_IMPL, result);
-        // This last indirection is not invariant.
-        result->gtFlags |= GTF_IND_NONFAULTING;
-    }
-
-    return result;
-}
-
-GenTree* Compiler::moMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
-{
-    assert(fgGlobalMorph);
-
-    // TODO-CQ: Do this for block->isRunRarely(). Doing that currently will
-    // guarantee slow performance for that block. Instead cache the return value
-    // of CORINFO_HELP_STRCNS and go to cache first giving reasonable perf.
-
-    bool useLazyStrCns = false;
-
-    if (fgMorphBlock->KindIs(BBJ_THROW))
-    {
-        useLazyStrCns = true;
-    }
-    else if (GenTreeCall* call = stmt->GetRootNode()->IsCall())
-    {
-        // Quick check: if the root node of the current statement happens to be a noreturn call.
-        useLazyStrCns = call->IsNoReturn() || moIsThrow(call);
-    }
-
-    if (useLazyStrCns)
-    {
-        CorInfoHelpFunc helper = info.compCompHnd->getLazyStringLiteralHelper(tree->GetModuleHandle());
-
-        if (helper != CORINFO_HELP_UNDEF)
-        {
-            GenTree*          token = gtNewIconNode(RidFromToken(tree->GetToken()));
-            GenTreeCall::Use* args;
-
-            if (helper == CORINFO_HELP_STRCNS_CURRENT_MODULE)
-            {
-                args = gtNewCallArgs(token);
-            }
-            else
-            {
-                assert(helper == CORINFO_HELP_STRCNS);
-                args = gtNewCallArgs(token, gtNewIconEmbModHndNode(tree->GetModuleHandle()));
-            }
-
-            return gtNewHelperCallNode(helper, TYP_REF, args);
-        }
-    }
-
-    void*          addr;
-    InfoAccessType iat = info.compCompHnd->constructStringLiteral(tree->GetModuleHandle(), tree->GetToken(), &addr);
-    return gtNewStringLiteralNode(iat, addr);
-}
-
-GenTree* Compiler::moMorphLeaf(GenTree* tree)
-{
-    assert(tree->OperIsLeaf());
-
-    if (tree->OperIs(GT_LCL_LOAD))
-    {
-        return moMorphLclLoad(tree->AsLclLoad());
-    }
-
-    if (tree->OperIs(GT_LCL_LOAD_FLD))
-    {
-        if (tree->AsLclLoadFld()->GetLcl()->IsAddressExposed())
-        {
-            tree->AddSideEffects(GTF_GLOB_REF);
-        }
-
-        return tree;
-    }
-
-    if (GenTreeMethodAddr* method = tree->IsMethodAddr())
-    {
-        CORINFO_CONST_LOOKUP entry;
-
-#ifdef FEATURE_READYTORUN_COMPILER
-        if (method->GetR2REntryPoint().addr != nullptr)
-        {
-            entry = method->GetR2REntryPoint();
-        }
-        else
-#endif
-        {
-            info.compCompHnd->getFunctionFixedEntryPoint(method->GetMethodHandle(), &entry);
-        }
-
-        switch (entry.accessType)
-        {
-            case IAT_PPVALUE:
-                DEBUG_DESTROY_NODE(tree);
-                tree = gtNewIndLoad(TYP_I_IMPL, entry.addr, HandleKind::ConstData, true);
-                tree = gtNewIndLoad(TYP_I_IMPL, tree);
-                tree->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
-                return moMorphTree(tree);
-            case IAT_PVALUE:
-                DEBUG_DESTROY_NODE(tree);
-                tree = gtNewIndLoad(TYP_I_IMPL, entry.addr, HandleKind::MethodAddr, true);
-                return moMorphTree(tree);
-            case IAT_VALUE:
-                tree->ChangeToIntCon(entry.handle, HandleKind::MethodAddr);
-                return tree;
-            default:
-                unreached();
-        }
-    }
-
-    return tree;
-}
-
-GenTree* Compiler::moMorphInitStruct(GenTree* store, GenTree* value)
-{
-    JITDUMPTREE(store, "\nfgMorphInitStruct (before):\n");
-
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
-    assert(varTypeIsStruct(store->GetType()));
-    assert(value->OperIs(GT_INIT_VAL) || value->IsIntegralConst(0));
-
-    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
-    {
-        store = moMorphLclStoreStructInit(store->AsLclRef(), value);
-    }
-
-    return store;
-}
-
-GenTree* Compiler::moMorphLclStoreStructInit(GenTreeLclRef* store, GenTree* src)
-{
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
-    assert(varTypeIsStruct(store->GetType()));
-    assert(src->OperIs(GT_INIT_VAL) || src->IsIntCon(0));
-
-    LclVarDsc* lcl = store->GetLcl();
-
-#if LOCAL_ASSERTION_PROP
-    if (morphAssertionCount != 0)
-    {
-        morphAssertionKill(lcl DEBUGARG(store));
-    }
-#endif
-
-    unsigned      size     = 0;
-    unsigned      lclOffs  = 0;
-    unsigned      lclSize  = lcl->GetTypeSize();
-    FieldSeqNode* fieldSeq = nullptr;
-
-    if (store->OperIs(GT_LCL_STORE))
-    {
-        size = store->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
-    }
-    else
-    {
-        GenTreeLclStoreFld* field = store->AsLclStoreFld();
-
-        size     = field->TypeIs(TYP_STRUCT) ? field->GetLayout(this)->GetSize() : varTypeSize(store->GetType());
-        lclOffs  = field->GetLclOffs();
-        fieldSeq = field->GetFieldSeq();
-    }
-
-    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
-
-    if (lcl->IsPromoted() && (lclOffs == 0) && (size == lclSize))
-    {
-        assert(varTypeIsStruct(lcl->GetType()));
-
-        if (GenTree* promotedTree = moMorphPromoteLocalInitStruct(store, lcl, initVal))
-        {
-            return promotedTree;
-        }
-    }
-
-    if ((size != 0) && !lcl->TypeIs(TYP_BLK) && initVal->IsIntCon())
-    {
-        // TODO-MIKE-Cleanup/CQ Attempting to convert block init into scalar/SIMD init
-        // results in all sorts of diffs. One may expect that not blocking enregistration
-        // due to the use block init would be an improvement but it turns out that there
-        // are all sorts of issues in the backend that produce diffs and CQ issues:
-        //   - `byte_location = 0;` generates
-        //         mov byte ptr [rsi], 0
-        //     but block init produces
-        //         xor eax, eax
-        //         mov byte ptr [rsi], al
-        //     Block init is worse, unless a register happens to already contain 0,
-        //     then scalar init is worse due to the extra immediate.
-        //   - `float_location = 0;` generates
-        //         xorps xmm0, xmm0
-        //         movss [rsi], xmm0
-        //     but block init generates
-        //         xor eax, eax
-        //         mov [rsi], eax
-        //     which is smaller. Either version can be better depending on the availability
-        //     of a zero in an integer or float register.
-        //   - Vector3 block init generates
-        //         xor eax, eax
-        //         mov [rsi], rax
-        //         mov [rsi+8], eax
-        //     but SIMD init generates
-        //         xorps xmm0, xmm0
-        //         movsd [rsi], xmm0
-        //         pshufd xmm1, xmm0, 2
-        //         movss [rsi], xmm1
-        //     Removing the extra shuffle should be easy but then we hit again the float/int
-        //     constant issue - what's better depends on what kind of zero register happens
-        //     to be available.
-        //   - Integer 0 and REF/BYREF 0 aren't the same thing for LSRA and thus block init
-        //     of a GC pointer location tends to generate better code by reusing a 0 register.
-        //   - On 32 bit targets there are also differences between long scalar init and
-        //     block init. Scalar init usually produces better code but not always it seems.
-        //
-        //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
-
-        var_types initType     = TYP_UNDEF;
-        var_types initBaseType = TYP_UNDEF;
-
-        if ((fieldSeq != nullptr) && fieldSeq->GetTail()->IsField())
-        {
-            CORINFO_CLASS_HANDLE fieldClassHandle;
-            var_types            fieldBaseType = TYP_UNDEF;
-            var_types            fieldType     = CorTypeToVarType(
-                info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
-
-            assert(!varTypeIsSIMD(fieldType));
-
-            if (fieldType == TYP_STRUCT)
-            {
-                fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
-            }
-
-            if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
-                !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
-#ifndef TARGET_64BIT
-                && (fieldType != TYP_LONG)
-#endif
-                    )
-            {
-                initType     = fieldType;
-                initBaseType = fieldBaseType;
-            }
-        }
-
-        if ((initType == TYP_UNDEF) && (initVal->IsIntCon(0) || !lcl->TypeIs(TYP_STRUCT)))
-        {
-            if ((lclOffs == 0) && (size == lclSize) && !varTypeIsFloating(lcl->GetType())
-#ifndef TARGET_64BIT
-                && !lcl->TypeIs(TYP_LONG)
-#endif
-                    )
-            {
-                initType = lcl->GetType();
-
-                if (varTypeIsSIMD(initType))
-                {
-                    initBaseType = lcl->GetLayout()->GetElementType();
-                }
-
-                store->ChangeOper(GT_LCL_STORE);
-            }
-        }
-
-        if (initType == TYP_UNDEF)
-        {
-            // TODO-MIKE-Review: The backend was changed in master to no longer support zeroing SIMD
-            // typed locals by assigning a CNS_INT(0) so we have to change this to be a SIMD init.
-            // Still, zeroing a Vector2/3 in memory using GPRs produces smaller code so perhaps we
-            // need to do something else - if it's a LCL_FLD (or a LCL_VAR if the local is already
-            // DNER) we can change its type to TYP_STRUCT to get the normal block initialization.
-            // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
-            // convert it here to SIMD init and then deal with it in lowering/codegen.
-
-            if (varTypeIsSIMD(store->GetType()))
-            {
-                initType     = store->GetType();
-                initBaseType = TYP_FLOAT;
-            }
-        }
-
-        if (initType != TYP_UNDEF)
-        {
-            if (initType == TYP_STRUCT)
-            {
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
-            }
-            else
-            {
-                initVal =
-                    moMorphInitStructConstant(initVal->AsIntCon(), initType,
-                                              store->OperIs(GT_LCL_STORE) && lcl->lvNormalizeOnStore(), initBaseType);
-            }
-
-            store->SetType(initType);
-
-            if (store->OperIs(GT_LCL_STORE_FLD))
-            {
-                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-            }
-
-            store->SetOp(0, initVal);
-
-            JITDUMPTREE(store, "moMorphInitStruct (after converting to scalar init):\n");
-
-            return store;
-        }
-    }
-
-    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
-
-    JITDUMPTREE(store, "moMorphInitStruct (after):\n");
-
-    return store;
-}
-
-// Morph a block initialization constant node to be suitable for non-block initialization.
-// Returns the original node, changed to a suitable typed constant node or a new vector
-// node for vector destinations.
-GenTree* Compiler::moMorphInitStructConstant(GenTreeIntCon* initVal,
-                                             var_types      type,
-                                             bool           extendToActualType,
-                                             var_types      simdBaseType)
-{
-    assert((type != TYP_STRUCT) && (varTypeNodeType(type) == type));
-
-    var_types initPatternType;
-
-    if (varTypeIsSIMD(type))
-    {
-        if (simdBaseType == TYP_LONG)
-        {
-            // It is not useful to produce a 64 bit init pattern, especially on 32 bit targets.
-            initPatternType = TYP_INT;
-        }
-        else
-        {
-#ifdef TARGET_ARM64
-            // TODO-MIKE-ARM64-CQ Codegen doesn't properly recognize zero if the base type is float.
-            initPatternType = TYP_INT;
-#else
-            // TODO-MIKE-Review: This may be unnecessary when VPBROADCAST is available
-            initPatternType = varActualType(simdBaseType);
-#endif
-        }
-    }
-    else
-    {
-        initPatternType = type;
-    }
-
-    int64_t initPattern = (initVal->AsIntCon()->GetValue() & 0xFF) * 0x0101010101010101LL;
-
-    if (initPatternType == TYP_FLOAT)
-    {
-        initVal->ChangeToDblCon(TYP_FLOAT, jitstd::bit_cast<float>(static_cast<uint32_t>(initPattern & UINT32_MAX)));
-    }
-    else if (initPatternType == TYP_DOUBLE)
-    {
-        initVal->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(initPattern));
-    }
-#ifndef TARGET_64BIT
-    else if (initPatternType == TYP_LONG)
-    {
-        initVal->ChangeToLngCon(initPattern);
-    }
-#endif
-    else
-    {
-        if (varTypeSize(initPatternType) <= 4)
-        {
-            // Keep only as many bits as are needed to avoid creating "large" constants.
-            initPattern &= (int64_t(1) << (varTypeSize(initPatternType) * 8)) - 1;
-
-            if (extendToActualType)
-            {
-                if (initPatternType == TYP_BYTE)
-                {
-                    initPattern = static_cast<int8_t>(initPattern);
-                }
-                else if (initPatternType == TYP_SHORT)
-                {
-                    initPattern = static_cast<int16_t>(initPattern);
-                }
-            }
-        }
-
-#ifdef TARGET_64BIT
-        initVal->AsIntCon()->SetValue(initPattern);
-#else
-        initVal->AsIntCon()->SetValue(static_cast<int32_t>(initPattern));
-#endif
-        initVal->SetType(varActualType(initPatternType));
-    }
-
-#ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(type))
-    {
-        if (initPattern == 0)
-        {
-            return gtNewZeroSimdHWIntrinsicNode(type, initPatternType);
-        }
-        else
-        {
-            return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, varTypeSize(type),
-                                            initVal);
-        }
-    }
-#endif
-
-    return initVal;
-}
-
-GenTree* Compiler::moMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLcl, GenTree* initVal)
-{
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
-    assert(varTypeIsStruct(destLcl->GetType()));
-    assert(destLcl->IsPromoted());
-
-    if (destLcl->lvDoNotEnregister && (destLcl->GetPromotedFieldCount() > 1))
-    {
-        JITDUMP(" dest is already DNER and has more than one field.\n");
-        return nullptr;
-    }
-
-    if (destLcl->IsAddressExposed() && destLcl->lvContainsHoles)
-    {
-        JITDUMP(" dest is address exposed and contains holes.\n");
-        return nullptr;
-    }
-
-    if (destLcl->lvCustomLayout && destLcl->lvContainsHoles)
-    {
-        // TODO-1stClassStructs: there are no reasons for this pessimization, delete it.
-        JITDUMP(" dest has custom layout and contains holes.\n");
-        return nullptr;
-    }
-
-    if (!initVal->OperIs(GT_CNS_INT))
-    {
-        JITDUMP(" source is not constant.\n");
-        return nullptr;
-    }
-
-    if ((initVal->AsIntCon()->GetValue() & 0xFF) != 0)
-    {
-        for (LclVarDsc* destFieldLcl : PromotedFields(destLcl))
-        {
-            if (varTypeIsGC(destFieldLcl->GetType()))
-            {
-                JITDUMP(" dest contains GC and fields and source constant is not 0.\n");
-                return nullptr;
-            }
-        }
-    }
-
-    JITDUMP(" using field by field initialization.\n");
-
-    const unsigned fieldCount = destLcl->GetPromotedFieldCount();
-    GenTree*       fieldStores[StructPromotionHelper::GetMaxFieldCount()];
-
-    for (unsigned i = 0; i < fieldCount; ++i)
-    {
-        LclVarDsc* destFieldLcl = lvaGetDesc(destLcl->GetPromotedFieldLclNum(i));
-
-        var_types type     = destFieldLcl->GetType();
-        var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
-
-        GenTree* value = moMorphInitStructConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
-                                                   destFieldLcl->lvNormalizeOnStore(), baseType);
-
-        fieldStores[i] = gtNewLclStore(destFieldLcl, type, value);
-
-        if (destFieldLcl->IsAddressExposed())
-        {
-            fieldStores[i]->AddSideEffects(GTF_GLOB_REF);
-        }
-    }
-
-    return moMorphPromoteStore(store, nullptr, fieldStores, destLcl->GetPromotedFieldCount());
-}
-
-GenTree* Compiler::moMorphStructComma(GenTree* tree)
-{
-    assert(tree->OperIs(GT_COMMA) && varTypeIsStruct(tree->GetType()));
-
-    // Change COMMA(..., indir(addr)) into indir(COMMA(..., addr)).
-    //
-    // Only do this for indirs, STRUCT COMMA(..., LCL_VAR) may appear during CSE and
-    // we can't take local's address because that would make it addr-exposed.
-    // This transform is done to simplify indir promotion, when we need the indir
-    // address anyway. But the temps created by CSE are not promoted so we can keep
-    // the COMMA as is. And if they were promoted, the correct way to promote in this
-    // case would be to extract the COMMA side effects and reattach them to the first
-    // promoted field store.
-
-    // TODO-MIKE-Review: Should this be blocked entirely post global morph?
-    // No promotion should be needed after global morph and this transform
-    // does NOT update COMMA value numbers.
-
-    ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-    for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
-    {
-        assert(comma->GetType() == tree->GetType());
-        commas.Push(comma->AsOp());
-    }
-
-    GenTree* effectiveVal = commas.Top()->GetOp(1);
-
-    if (!effectiveVal->IsIndir())
-    {
-        return tree;
-    }
-
-    GenTree* effectiveValAddr = effectiveVal->AsIndir()->GetAddr();
-    commas.Top()->SetOp(1, effectiveValAddr);
-    GenTreeFlags sideEffects = tree->GetSideEffects();
-
-    while (!commas.Empty())
-    {
-        GenTreeOp* comma = commas.Pop();
-        comma->SetType(TYP_BYREF);
-        comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-    }
-
-    GenTree* indir;
-
-    if (effectiveVal->OperIs(GT_IND_LOAD))
-    {
-        indir = gtNewIndLoad(effectiveVal->GetType(), tree);
-    }
-    else
-    {
-        indir = gtNewIndLoadObj(effectiveVal->AsIndLoadObj()->GetLayout(), tree);
-    }
-
-    indir->SetSideEffects(sideEffects);
-    INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    return indir;
-}
-
-GenTree* Compiler::moMorphStructStore(GenTree* store, GenTree* value)
-{
-    if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
-    {
-        return moMorphInitStruct(store, value);
-    }
-    else
-    {
-        return moMorphCopyStruct(store, value);
-    }
-}
-
-#ifdef FEATURE_SIMD
-
-GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl)
-{
-    assert(varTypeIsSIMD(srcLcl->GetType()));
-    // Only Vector2/3/4 are promoted.
-    assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
-
-    var_types dstType = store->GetType();
-#ifdef TARGET_XARCH
-    NamedIntrinsic create = NI_Vector128_Create;
-    unsigned       numOps = 4;
-#elif defined(TARGET_ARM64)
-    NamedIntrinsic create  = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps  = dstType == TYP_SIMD8 ? 2 : 4;
-#else
-#error Unsupported platform
-#endif
-
-    unsigned srcFieldCount = srcLcl->GetPromotedFieldCount();
-    GenTree* ops[4];
-
-    for (unsigned i = 0; i < numOps; i++)
-    {
-        if (i < srcFieldCount)
-        {
-            ops[i] = gtNewLclLoad(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i)), TYP_FLOAT);
-        }
-        else
-        {
-            ops[i] = gtNewDconNode(0, TYP_FLOAT);
-        }
-    }
-
-    store->SetValue(gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
-
-    JITDUMPTREE(store, "moMorphCopyStruct (after SIMD source promotion):\n\n");
-
-    return store;
-}
-
-GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLcl)
-{
-    assert(varTypeIsSIMD(dstLcl->GetType()));
-    // Only Vector2/3/4 are promoted.
-    assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
-
-    GenTree* src         = store->GetOp(0);
-    bool     srcIsZero   = false;
-    bool     srcIsCreate = false;
-
-    if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
-    {
-        switch (hwi->GetIntrinsic())
-        {
-#ifdef TARGET_ARM64
-            case NI_Vector64_get_Zero:
-#endif
-            case NI_Vector128_get_Zero:
-                srcIsZero = true;
-                break;
-
-#ifdef TARGET_ARM64
-            case NI_Vector64_Create:
-#endif
-            case NI_Vector128_Create:
-                // TODO-MIKE-CQ: Promote broadcast create.
-                srcIsCreate = !hwi->IsUnary();
-
-                // We can use Create's operands directly only if they don't interfere with the field
-                // assignments we're going to generate. Otherwise we'll treat Create as any other
-                // intrinsic - store it into a temp.
-                // TODO-MIKE-CQ: It would be better to add a temp for each Create operand, packing and
-                // unpacking SIMD values is rather expensive.
-                for (unsigned i = 0; i < hwi->GetNumOps() && srcIsCreate; i++)
-                {
-                    GenTree* op = hwi->GetOp(i);
-
-                    if (op->OperIs(GT_LCL_LOAD))
-                    {
-                        LclVarDsc* lcl = op->AsLclLoad()->GetLcl();
-
-                        if (lcl->IsPromotedField() && (lcl->GetPromotedFieldParentLclNum() == dstLcl->GetLclNum()))
-                        {
-                            srcIsCreate = false;
-                        }
-                    }
-                    else if (!op->IsDblCon())
-                    {
-                        // TODO-MIKE-CQ: This is overly conservative, we need to check if the op tree contains
-                        // any references to the destination local, including its promoted fields. Basically
-                        // something like impHasLclRef but that also checks for promoted fields.
-                        srcIsCreate = false;
-                    }
-                }
-                break;
-
-#ifdef TARGET_XARCH
-            case NI_SSE2_ShiftRightLogical128BitLane:
-                // TODO-MIKE-Review: Hmm, ARM64 doesn't zero out the upper Vector3 element?
-                // TODO-MIKE-CQ: It would be better to insert zeroes instead of shifting...
-                if (dstLcl->GetPromotedFieldCount() < 4)
-                {
-                    unsigned expectedShiftImm = (4 - dstLcl->GetPromotedFieldCount()) * 4;
-
-                    if (hwi->GetOp(1)->IsIntegralConst(expectedShiftImm))
-                    {
-                        if (GenTreeHWIntrinsic* shl = hwi->GetOp(0)->IsHWIntrinsic())
-                        {
-                            if ((shl->GetIntrinsic() == NI_SSE2_ShiftLeftLogical128BitLane) &&
-                                shl->GetOp(1)->IsIntegralConst(expectedShiftImm))
-                            {
-                                src = shl->GetOp(0);
-                            }
-                        }
-                    }
-                }
-                break;
-#endif
-            default:
-                break;
-        }
-    }
-
-    GenTree* tempStore = nullptr;
-
-    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_LOAD))
-    {
-        LclVarDsc* tmpLcl = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
-
-        tempStore = gtNewLclStore(tmpLcl, src->GetType(), src);
-        src       = gtNewLclLoad(tmpLcl, src->GetType());
-    }
-
-    GenTree*       fieldStores[StructPromotionHelper::GetMaxFieldCount()];
-    const unsigned fieldCount = dstLcl->GetPromotedFieldCount();
-
-    for (unsigned i = 0; i < fieldCount; i++)
-    {
-        unsigned   fieldIndex = dstLcl->GetPromotedFieldCount() - 1 - i;
-        LclVarDsc* fieldLcl   = lvaGetDesc(dstLcl->GetPromotedFieldLclNum(fieldIndex));
-
-        GenTree* fieldSrc;
-
-        if (srcIsCreate && (i < src->AsHWIntrinsic()->GetNumOps()))
-        {
-            fieldSrc = src->AsHWIntrinsic()->GetOp(fieldIndex);
-            assert(fieldSrc->TypeIs(TYP_FLOAT));
-        }
-        else if (srcIsCreate || srcIsZero)
-        {
-            fieldSrc = gtNewDconNode(0, TYP_FLOAT);
-        }
-        else
-        {
-            src = gtNewLclLoad(src->AsLclLoad()->GetLcl(), src->GetType());
-            // TODO-MIKE-Cleanup: If the source is DNER we should create a LCL_FLD instead.
-            // Or maybe copy it to a temp to avoid generating multiple loads, that would
-            // work well when we have extractps, but if we don't know how the value was
-            // stored to memory in the first place we risk blocking store forwarding.
-            src->AddSideEffects(src->AsLclLoad()->GetLcl()->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-            fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
-        }
-
-        fieldStores[i] = gtNewLclStore(fieldLcl, TYP_FLOAT, fieldSrc);
-    }
-
-    return moMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
-}
-
-#endif // FEATURE_SIMD
-
-GenTree* Compiler::moMorphDynBlk(GenTreeDynBlk* dynBlk)
-{
-    assert(dynBlk->TypeIs(TYP_VOID));
-
-    GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
-
-    if (constSize == nullptr)
-    {
-        return dynBlk;
-    }
-
-    if (constSize->GetUInt32Value() == 0)
-    {
-        GenTree* nop = gtNewNothingNode();
-        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-        return nop;
-    }
-
-    ClassLayout* layout  = typGetBlkLayout(constSize->GetUInt32Value());
-    GenTree*     dstAddr = dynBlk->GetAddr();
-    GenTree*     src     = dynBlk->GetValue();
-
-    if (dynBlk->OperIs(GT_COPY_BLK))
-    {
-        src = new (this, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(src, layout);
-        src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
-
-        if (dynBlk->IsVolatile())
-        {
-            src->AsBlk()->SetVolatile();
-        }
-    }
-    else if (!src->IsIntegralConst(0))
-    {
-        src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
-    }
-
-    dynBlk->ChangeOper(GT_IND_STORE_BLK);
-
-    GenTreeIndStoreBlk* store = dynBlk->AsIndStoreBlk();
-    store->SetType(TYP_STRUCT);
-    store->SetLayout(layout);
-    store->SetKind(StructStoreKind::Invalid);
-    store->SetAddr(dstAddr);
-    store->SetValue(src);
-
-    return dynBlk;
-}
-
-GenTree* Compiler::moMorphCopyStruct(GenTree* store, GenTree* src)
-{
-    JITDUMPTREE(store, "\nfgMorphCopyStruct: (before)\n");
-
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
-    assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
-    assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
-
-    if (GenTreeCall* call = src->IsCall())
-    {
-#if FEATURE_MULTIREG_RET
-        if (call->HasMultiRegRetVal())
-        {
-            if (store->OperIs(GT_LCL_STORE))
-            {
-                LclVarDsc* lcl = store->AsLclStore()->GetLcl();
-
-                // TODO-MIKE-Cleanup: This isn't quite right, lvIsMultiRegRet should be set before promoting.
-                // The problem is that the importer doesn't set it if the local is indirectly accessed (via
-                // an OBJ). LocalAddressVisitor then eliminates the OBJ and avoids dependent promotion but
-                // lvIsMultiRegRet isn't set and that breaks SSA. Setting lvIsMultiRegRet allows things to
-                // work correctly but we may still end up with dependent promotion instead of not promoting
-                // to begin with.
-
-                if (lcl->IsIndependentPromoted())
-                {
-                    lcl->lvIsMultiRegRet = true;
-                }
-            }
-            else if (store->OperIs(GT_IND_STORE_OBJ) && varTypeIsSIMD(store->GetType()))
-            {
-                store->ChangeOper(GT_IND_STORE);
-            }
-
-            return store;
-        }
-#endif
-
-#ifdef WINDOWS_AMD64_ABI
-        if (src->TypeIs(TYP_SIMD8) && (call->GetRegType(0) == TYP_LONG))
-        {
-            src->SetType(TYP_LONG);
-            src = gtNewBitCastNode(TYP_SIMD8, src);
-
-            if (store->IsIndir())
-            {
-                store->AsIndir()->SetValue(src);
-            }
-            else
-            {
-                store->AsLclRef()->SetOp(0, src);
-            }
-        }
-#endif
-    }
-
-    if (src->OperIs(GT_COMMA))
-    {
-        src = moMorphStructComma(src);
-
-        if (store->IsIndir())
-        {
-            store->AsIndir()->SetValue(src);
-        }
-        else
-        {
-            store->AsLclRef()->SetOp(0, src);
-        }
-    }
-
-    JITDUMPTREE(store, "moMorphCopyStruct: (after moMorphStructComma)\n");
-
-    LclVarDsc* destLcl     = nullptr;
-    unsigned   destLclOffs = 0;
-    bool       destPromote = false;
-
-    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
-    {
-        destLclOffs = store->AsLclRef()->GetLclOffs();
-        destLcl     = store->AsLclRef()->GetLcl();
-
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionCount != 0)
-        {
-            morphAssertionKill(destLcl DEBUGARG(store->AsLclRef()));
-        }
-#endif
-    }
-    else
-    {
-        assert(store->OperIs(GT_IND_STORE_OBJ) || (store->OperIs(GT_IND_STORE) && varTypeIsSIMD(store->GetType())));
-    }
-
-    LclVarDsc* srcLcl     = nullptr;
-    unsigned   srcLclOffs = 0;
-    bool       srcPromote = false;
-
-    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
-    {
-        srcLclOffs = src->AsLclRef()->GetLclOffs();
-        srcLcl     = src->AsLclRef()->GetLcl();
-    }
-    else if (GenTreeLclUse* use = src->IsLclUse())
-    {
-        srcLcl = use->GetDef()->GetLcl();
-    }
-    else if (src->IsExtract())
-    {
-        // TODO-MIKE-SSA: Figure out what to do with this, do we need to treat it as a local?
-    }
-    else if (src->OperIs(GT_COMMA))
-    {
-        // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
-        // nor the store destination are expected to be promoted so we don't
-        // need to do anything, we'll just keep the struct copy as is.
-        assert(src->SkipComma()->IsLclUse() || !src->SkipComma()->AsLclLoad()->GetLcl()->IsPromoted());
-        assert((destLcl == nullptr) || !destLcl->IsIndependentPromoted());
-    }
-    else if (!src->OperIs(GT_IND_LOAD_OBJ))
-    {
-        // For SIMD copies the source can be any SIMD typed tree or a CALL.
-        assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
-    }
-
-    // Check to see if we are doing a copy to/from the same local block.
-    // If so, morph it to a nop.
-    if ((destLcl != nullptr) && (srcLcl == destLcl) && (destLclOffs == srcLclOffs))
-    {
-        JITDUMP("Self-copy; replaced with a NOP.\n");
-        GenTree* nop = gtNewNothingNode();
-        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-        return nop;
-    }
-
-    unsigned destSize;
-
-    if (!store->TypeIs(TYP_STRUCT))
-    {
-        destSize = varTypeSize(store->GetType());
-    }
-    else if (store->OperIs(GT_LCL_STORE))
-    {
-        destSize = destLcl->GetLayout()->GetSize();
-    }
-    else if (store->OperIs(GT_LCL_STORE_FLD))
-    {
-        destSize = store->AsLclStoreFld()->GetLayout(this)->GetSize();
-    }
-    else
-    {
-        destSize = store->AsIndStoreObj()->GetLayout()->GetSize();
-    }
-
-    if ((destLcl != nullptr) && destLcl->IsPromoted() && (destLclOffs == 0) && (destLcl->GetTypeSize() == destSize) &&
-        (!destLcl->lvDoNotEnregister || (destLcl->GetPromotedFieldCount() == 1)))
-    {
-        assert(varTypeIsStruct(destLcl->GetType()));
-
-        destPromote = true;
-
-        JITDUMP("dest is promoted local\n");
-    }
-
-    if ((srcLcl != nullptr) && srcLcl->IsPromoted() && (srcLclOffs == 0) && (srcLcl->GetTypeSize() == destSize) &&
-        (!srcLcl->lvDoNotEnregister || (srcLcl->GetPromotedFieldCount() == 1)))
-    {
-        assert(varTypeIsStruct(srcLcl->GetType()));
-
-        srcPromote = true;
-
-        JITDUMP("src is promoted local\n");
-    }
-
-#ifdef FEATURE_SIMD
-    if (!destPromote && srcPromote && varTypeIsSIMD(srcLcl->GetType()) && store->OperIs(GT_LCL_STORE))
-    {
-        return moMorphPromoteVecLoad(store->AsLclStore(), srcLcl);
-    }
-
-    if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
-        src->OperIs(GT_LCL_LOAD, GT_BITCAST, GT_HWINTRINSIC))
-    {
-        return moMorphPromoteVecStore(store->AsLclRef(), destLcl);
-    }
-#endif // FEATURE_SIMD
-
-    bool promote = true;
-
-    if (!destPromote && !srcPromote)
-    {
-        promote = false;
-    }
-    else if (destPromote && destLcl->lvCustomLayout && destLcl->lvContainsHoles)
-    {
-        JITDUMP("dest has custom layout and contains holes\n");
-        promote = false;
-    }
-    else if (srcPromote && srcLcl->lvCustomLayout && srcLcl->lvContainsHoles)
-    {
-        JITDUMP("src has custom layout and contains holes\n");
-        promote = false;
-    }
-    else if (src->OperIs(GT_CALL))
-    {
-        JITDUMP("src is a call\n");
-        promote = false;
-    }
-    else if (src->IsHWIntrinsic())
-    {
-        JITDUMP("src is a HWINTRINSIC node\n");
-        promote = false;
-    }
-#if defined(TARGET_ARM)
-    else if (src->IsIndir() && src->AsIndir()->IsUnaligned())
-    {
-        JITDUMP("src is unaligned\n");
-        promote = false;
-    }
-    else if (store->IsIndir() && store->AsIndir()->IsUnaligned())
-    {
-        JITDUMP("dest is unaligned\n");
-        promote = false;
-    }
-#endif // TARGET_ARM
-    else if (destPromote && srcPromote)
-    {
-        // Both structs should be of the same type, or each have the same number of fields, each having
-        // the same type and offset. Actually, the destination could have less fields than the source
-        // but there doesn't appear to be any such case in the entire FX. Copies between variables of
-        // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
-        // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
-        if (destLcl->GetLayout() != srcLcl->GetLayout())
-        {
-            bool sameLayout = destLcl->GetPromotedFieldCount() == srcLcl->GetPromotedFieldCount();
-
-            for (unsigned i = 0; sameLayout && i < destLcl->GetPromotedFieldCount(); i++)
-            {
-                LclVarDsc* destFieldLcl = lvaGetDesc(destLcl->GetPromotedFieldLclNum(i));
-                LclVarDsc* srcFieldLcl  = lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i));
-
-                assert(!destFieldLcl->TypeIs(TYP_STRUCT));
-
-                if ((destFieldLcl->GetPromotedFieldOffset() != srcFieldLcl->GetPromotedFieldOffset()) ||
-                    (destFieldLcl->GetType() != srcFieldLcl->GetType()))
-                {
-                    sameLayout = false;
-                }
-            }
-
-            if (!sameLayout)
-            {
-                promote = false;
-                JITDUMP("dest and src have different layout\n");
-            }
-        }
-    }
-
-    if (!promote)
-    {
-        if (store->TypeIs(TYP_STRUCT))
-        {
-            if (srcLcl != nullptr)
-            {
-                lvaSetDoNotEnregister(srcLcl DEBUGARG(DNER_BlockOp));
-            }
-
-            if (destLcl != nullptr)
-            {
-                lvaSetDoNotEnregister(destLcl DEBUGARG(DNER_BlockOp));
-            }
-        }
-        else
-        {
-            assert(varTypeIsSIMD(store->GetType()));
-
-            if (src->OperIs(GT_IND_LOAD_OBJ))
-            {
-                src->ChangeOper(GT_IND_LOAD);
-            }
-
-            if (store->OperIs(GT_IND_STORE_OBJ))
-            {
-                store->ChangeOper(GT_IND_STORE);
-            }
-        }
-
-        JITDUMPTREE(store, "moMorphCopyStruct: (after)\n");
-
-        return store;
-    }
-
-    assert(destPromote || srcPromote);
-    assert(!destPromote || (destLcl != nullptr));
-    assert(!srcPromote || (srcLcl != nullptr));
-    assert(!destPromote || !srcPromote || (destLcl->GetPromotedFieldCount() == srcLcl->GetPromotedFieldCount()));
-
-    auto PromoteLclLoad = [this](GenTree** loads, LclVarDsc* lcl) {
-        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
-        {
-            GenTree* load = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
-            load->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-            *loads++ = load;
-        }
-    };
-
-    auto PromoteLclStore = [this](GenTree** stores, GenTree** loads, LclVarDsc* lcl) {
-        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
-        {
-            GenTree* store = gtNewLclStore(fieldLcl, fieldLcl->GetType(), *loads++);
-            store->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-            *stores++ = store;
-        }
-    };
-
-    auto SplitLclLoad = [this](GenTree** loads, GenTreeLclRef* load, LclVarDsc* promotedLcl) {
-        LclVarDsc* lcl     = load->GetLcl();
-        unsigned   lclOffs = load->GetLclOffs();
-
-        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
-        FieldSeqNode*  baseFieldSeq  = FieldSeqNode::NotAField();
-
-        // We don't have a field sequence for the destination field but one can be obtained from
-        // the source field if the destination and source have the same type. Of course, other
-        // cases could be handled by querying the VM for destination fields and trying to find
-        // ones that are suitable for the current offset and type but this should be a rare case.
-
-        if (load->OperIs(GT_LCL_LOAD))
-        {
-            if (lcl->GetLayout() == promotedLcl->GetLayout())
-            {
-                baseFieldSeq = nullptr;
-            }
-        }
-        else if (FieldSeqNode* fieldSeq = load->AsLclLoadFld()->GetFieldSeq())
-        {
-            if (fieldSeq->IsField() && (load->AsLclLoadFld()->GetLayout(this) == promotedLcl->GetLayout()))
-            {
-                baseFieldSeq = fieldSeq;
-            }
-        }
-
-        for (LclVarDsc* promotedFieldLcl : PromotedFields(promotedLcl))
-        {
-            unsigned      loadFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
-            FieldSeqNode* loadFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
-
-            GenTreeLclLoadFld* fieldLoad = gtNewLclLoadFld(promotedFieldLcl->GetType(), lcl, loadFieldOffs);
-            fieldLoad->SetFieldSeq(loadFieldSeq);
-            fieldLoad->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
-            *loads++ = fieldLoad;
-        }
-
-        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-    };
-
-    auto SplitLclStore = [this](GenTree** stores, GenTreeLclRef* store, GenTree** loads, LclVarDsc* promotedLcl) {
-        LclVarDsc* lcl     = store->GetLcl();
-        unsigned   lclOffs = store->GetLclOffs();
-
-        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
-        FieldSeqNode*  baseFieldSeq  = FieldSeqNode::NotAField();
-
-        // We don't have a field sequence for the destination field but one can be obtained from
-        // the source field if the destination and source have the same type. Of course, other
-        // cases could be handled by querying the VM for destination fields and trying to find
-        // ones that are suitable for the current offset and type but this should be a rare case.
-
-        if (store->OperIs(GT_LCL_STORE))
-        {
-            if (lcl->GetLayout() == promotedLcl->GetLayout())
-            {
-                baseFieldSeq = nullptr;
-            }
-        }
-        else if (FieldSeqNode* fieldSeq = store->AsLclStoreFld()->GetFieldSeq())
-        {
-            if (fieldSeq->IsField() && (store->AsLclStoreFld()->GetLayout(this) == promotedLcl->GetLayout()))
-            {
-                baseFieldSeq = fieldSeq;
-            }
-        }
-
-        for (LclVarDsc* promotedFieldLcl : PromotedFields(promotedLcl))
-        {
-            unsigned      storeFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
-            FieldSeqNode* storeFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
-
-            GenTreeLclStoreFld* fieldStore =
-                gtNewLclStoreFld(promotedFieldLcl->GetType(), lcl, storeFieldOffs, *loads++);
-            fieldStore->SetFieldSeq(storeFieldSeq);
-            fieldStore->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
-            *stores++ = fieldStore;
-        }
-
-        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
-    };
-
-    auto SplitIndAddr = [this](GenTree* addresses[], GenTreeIndir* indir, LclVarDsc* promotedLcl) -> GenTree* {
-        assert(indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_STORE, GT_IND_STORE_OBJ));
-
-        GenTree*      addr         = indir->GetAddr();
-        LclVarDsc*    addrSpillLcl = nullptr;
-        GenTree*      addrStore    = nullptr;
-        unsigned      baseOffs     = 0;
-        FieldSeqNode* baseFieldSeq = FieldSeqNode::NotAField();
-
-        if (promotedLcl->GetPromotedFieldCount() > 1)
-        {
-            // TODO-MIKE-CQ: This doesn't handle the array case. The array data offset (or the entire
-            // element offset if the index is constant) is hidden under a COMMA and another ADD. We
-            // could try to extract the offset from that tree but then vnIsArrayElemAddr will have
-            // a difficult time recovering array element information.
-
-            if (addr->OperIs(GT_ADD))
-            {
-                if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
-                {
-#ifdef TARGET_XARCH
-                    ssize_t maxOffset = INT32_MAX;
-#else
-                    ssize_t maxOffset = 4095;
-#endif
-                    // The maximum offset depends on the last promoted field offset, not the struct
-                    // size. But such cases are so rare that it's not worth the trouble to get the
-                    // last field offset.
-                    maxOffset -= promotedLcl->GetTypeSize();
-
-                    if ((offset->GetValue() > 0) && (offset->GetValue() <= maxOffset))
-                    {
-                        baseOffs     = offset->GetUInt32Value();
-                        baseFieldSeq = offset->GetFieldSeq();
-                        addr         = addr->AsOp()->GetOp(0);
-
-                        // The original load must have the same layout as the promoted local, otherwise
-                        // we can't generate correct field sequences and we need to use NotAField.
-
-                        if (!indir->IsBlk() || (indir->AsBlk()->GetLayout() != promotedLcl->GetLayout()))
-                        {
-                            baseFieldSeq = FieldSeqNode::NotAField();
-                        }
-                    }
-                }
-            }
-
-            if (addr->OperIs(GT_LCL_LOAD))
-            {
-                LclVarDsc* addrLcl = addr->AsLclLoad()->GetLcl();
-
-                bool isMemoryLoadOrAliased = addrLcl->lvDoNotEnregister || addrLcl->IsAddressExposed();
-                // If we're splitting the address of an indirect load then it means we're going to
-                // promote a local store, so we must copy the address to a temp if addrLcl happens
-                // to be one of the promoted fields.
-                bool isStoredPromotedField = indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ) &&
-                                             addrLcl->IsPromotedField() &&
-                                             (addrLcl->GetPromotedFieldParentLclNum() == promotedLcl->GetLclNum());
-
-                if (!isMemoryLoadOrAliased && !isStoredPromotedField)
-                {
-                    assert(addr->GetSideEffects() == GTF_NONE);
-
-                    addrSpillLcl = addr->AsLclLoad()->GetLcl();
-                }
-            }
-
-            if (addrSpillLcl == nullptr)
-            {
-                addrSpillLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
-                addrStore    = gtNewLclStore(addrSpillLcl, addr->GetType(), addr);
-                addr         = gtNewLclLoad(addrSpillLcl, addr->GetType());
-            }
-        }
-
-        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
-        {
-            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
-
-            unsigned      fieldOffset = promotedFieldLcl->GetPromotedFieldOffset();
-            FieldSeqNode* fieldSeq    = promotedFieldLcl->GetPromotedFieldSeq();
-
-            if (baseOffs != 0)
-            {
-                fieldOffset += baseOffs;
-                fieldSeq = GetFieldSeqStore()->Append(baseFieldSeq, fieldSeq);
-            }
-
-            GenTree* fieldAddr = (i == 0) ? addr : gtNewLclLoad(addrSpillLcl, addr->GetType());
-
-            if (fieldOffset == 0)
-            {
-                AddZeroOffsetFieldSeq(fieldAddr, fieldSeq);
-            }
-            else
-            {
-                fieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, fieldAddr, gtNewIconNode(fieldOffset, fieldSeq));
-            }
-
-            addresses[i] = fieldAddr;
-        }
-
-        return addrStore;
-    };
-
-    auto SplitIndLoad = [&](GenTree* loads[], GenTreeIndir* load, LclVarDsc* promotedLcl) {
-        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
-        {
-            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
-
-            // TODO-MIKE-Fix: This ignores volatile. It's not clear how volatile should be handled,
-            // block promotion, transfer volatile to all field indirs, transfer volatile only to the
-            // first/last field indir? Luckily volatile is unusual on struct indirs.
-
-            GenTree* fieldLoad = gtNewIndLoad(promotedFieldLcl->GetType(), loads[i]);
-            fieldLoad->gtFlags |= load->gtFlags & (GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP);
-            fieldLoad->gtFlags |= load->gtFlags & GTF_GLOB_REF;
-
-            if ((load->gtFlags & GTF_IND_NONFAULTING) == 0)
-            {
-                fieldLoad->AddSideEffects(GTF_EXCEPT);
-            }
-
-            loads[i] = fieldLoad;
-        }
-    };
-
-    auto SplitIndStore = [&](GenTree* stores[], GenTreeIndir* store, GenTree* loads[], LclVarDsc* promotedLcl) {
-        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
-        {
-            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
-
-            // TODO-MIKE-Fix: This ignores volatile. It's not clear how volatile should be handled,
-            // block promotion, transfer volatile to all field indirs, transfer volatile only to the
-            // first/last field indir? Luckily volatile is unusual on struct indirs.
-
-            GenTree* fieldStore = gtNewIndStore(promotedFieldLcl->GetType(), stores[i], loads[i]);
-            fieldStore->gtFlags |= store->gtFlags & (GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP);
-            fieldStore->gtFlags |= store->gtFlags & GTF_GLOB_REF;
-
-            if ((store->gtFlags & GTF_IND_NONFAULTING) == 0)
-            {
-                fieldStore->AddSideEffects(GTF_EXCEPT);
-            }
-
-            stores[i] = fieldStore;
-        }
-    };
-
-    unsigned fieldCount = 0;
-    GenTree* fieldLoads[StructPromotionHelper::GetMaxFieldCount()];
-    GenTree* fieldStores[StructPromotionHelper::GetMaxFieldCount()];
-    GenTree* tempStore = nullptr;
-
-    if (srcPromote)
-    {
-        fieldCount = srcLcl->GetPromotedFieldCount();
-        PromoteLclLoad(fieldLoads, srcLcl);
-    }
-    else if (srcLcl != nullptr)
-    {
-        SplitLclLoad(fieldLoads, src->AsLclRef(), destLcl);
-    }
-    else
-    {
-        tempStore = SplitIndAddr(fieldLoads, src->AsIndir(), destLcl);
-        SplitIndLoad(fieldLoads, src->AsIndir(), destLcl);
-    }
-
-    if (destPromote)
-    {
-        fieldCount = destLcl->GetPromotedFieldCount();
-        PromoteLclStore(fieldStores, fieldLoads, destLcl);
-    }
-    else if (destLcl != nullptr)
-    {
-        SplitLclStore(fieldStores, store->AsLclRef(), fieldLoads, srcLcl);
-    }
-    else
-    {
-        tempStore = SplitIndAddr(fieldStores, store->AsIndir(), srcLcl);
-        SplitIndStore(fieldStores, store->AsIndir(), fieldLoads, srcLcl);
-    }
-
-    return moMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
-}
-
-GenTree* Compiler::moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
-{
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ));
-
-    const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
-    GenTree*   tree       = tempStore;
-
-    if (tree == nullptr)
-    {
-        tree = fieldStores[0];
-        fieldStores++;
-        fieldCount--;
-    }
-
-    for (unsigned i = 0; i < fieldCount; i++)
-    {
-        GenTree* fieldStore = fieldStores[i];
-        assert(fieldStore->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE));
-
-        if (isStmtRoot)
-        {
-            Statement* stmt = fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, tree);
-            JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
-
-#if LOCAL_ASSERTION_PROP
-            if (morphAssertionTable != nullptr)
-            {
-                if (tree->OperIs(GT_LCL_STORE))
-                {
-                    morphAssertionGenerate(tree);
-                }
-            }
-#endif
-
-            tree = fieldStore;
-        }
-        else
-        {
-#if LOCAL_ASSERTION_PROP
-            if (morphAssertionTable != nullptr)
-            {
-                if (tree->OperIs(GT_LCL_STORE))
-                {
-                    morphAssertionGenerate(tree);
-                }
-
-                morphAssertionGenerate(fieldStore);
-            }
-#endif
-
-            tree = gtNewCommaNode(tree, fieldStore);
-        }
-    }
-
-    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
-    JITDUMPTREE(tree, "Promoted struct store:\n");
-
-    return tree;
-}
-
-// Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.
-GenTree* Compiler::moMorphAssociative(GenTreeOp* tree)
-{
-    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
-    assert(varTypeIsIntegralOrI(tree->GetType()));
-
-    // op1 can be COMMA, in this case we're going to fold
-    // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
-    // This can only be done during global morph. Otherwise, there is a chance of violating VNs invariants and/or
-    // modifying a tree that is an active CSE candidate.
-
-    GenTree* op1 = tree->GetOp(0);
-    GenTree* op2 = tree->GetOp(1);
-
-    if (op1->OperIs(GT_COMMA))
-    {
-        if (!fgGlobalMorph)
-        {
-            return nullptr;
-        }
-
-        op1 = op1->SkipComma();
-    }
-
-    if (op1->GetOper() != tree->GetOper())
-    {
-        return nullptr;
-    }
-
-    if (op1->AsOp()->GetOp(0)->IsIntCon() || !op1->AsOp()->GetOp(1)->IsIntCon() || !op2->IsIntCon())
-    {
-        return nullptr;
-    }
-
-    GenTreeIntCon* c1 = op1->AsOp()->GetOp(1)->AsIntCon();
-    GenTreeIntCon* c2 = tree->GetOp(1)->AsIntCon();
-
-    if (c1->TypeIs(TYP_REF) || (c1->GetType() != c2->GetType()))
-    {
-        return nullptr;
-    }
-
-    GenTreeIntCon* foldedCns = gtFoldExprConst(gtNewOperNode(tree->GetOper(), c1->GetType(), c1, c2))->IsIntCon();
-
-    if (foldedCns == nullptr)
-    {
-        return nullptr;
-    }
-
-    c1->SetValue(foldedCns->GetValue());
-    c1->SetVNP(foldedCns->GetVNP());
-    c1->SetFieldSeq(foldedCns->GetFieldSeq());
-
-    op1 = tree->GetOp(0);
-
-    if (vnStore != nullptr)
-    {
-        op1->SetVNP(tree->GetVNP());
-    }
-
-    DEBUG_DESTROY_NODE(tree);
-    DEBUG_DESTROY_NODE(c2);
-    DEBUG_DESTROY_NODE(foldedCns);
-    INDEBUG(c1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-
-    return op1;
-}
-
-GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value)
-{
-    assert(fgGlobalMorph);
-
-    if (varActualTypeIsInt(store->GetType()))
-    {
-        LclVarDsc* lcl = store->GetLcl();
-
-        if (lcl->lvNormalizeOnStore())
-        {
-            store->SetType(TYP_INT);
-
-            if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
-            {
-                value = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), value);
-                store->SetValue(value);
-            }
-        }
-    }
-
-    return value;
-}
-
-GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
-{
-    ALLOCA_CHECK();
-    assert(fgGlobalMorph);
-    assert(!csePhase);
-
-    GenTree* condExpr = qmark->GetCondition();
-    GenTree* thenExpr = qmark->GetThen();
-    GenTree* elseExpr = qmark->GetElse();
-
-    if (condExpr->OperIsRelop())
-    {
-        condExpr->gtFlags |= GTF_DONT_CSE;
-    }
-    else
-    {
-        noway_assert(condExpr->gtEffectiveVal()->IsIntCon());
-    }
-
-    condExpr = moMorphTree(condExpr, mac);
-    qmark->SetCondition(condExpr);
-
-    if (GenTreeIntCon* cond = condExpr->IsIntCon())
-    {
-        GenTree* result = cond->GetValue() != 0 ? thenExpr : elseExpr;
-
-        return moMorphTree(result);
-    }
-
-    if (moIsCommaThrow(condExpr DEBUGARG(true)))
-    {
-        fgRemoveRestOfBlock = true;
-        assert(condExpr->OperIs(GT_COMMA));
-
-        if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
-        {
-            return condExpr;
-        }
-
-        if (qmark->TypeIs(TYP_VOID))
-        {
-            return condExpr->AsOp()->GetOp(0);
-        }
-
-        GenTree* value = condExpr->AsOp()->GetOp(1);
-
-        if (varTypeIsFloating(qmark->GetType()))
-        {
-            value->ChangeToDblCon(qmark->GetType(), 0.0);
-        }
-#ifndef TARGET_64BIT
-        else if (qmark->TypeIs(TYP_LONG))
-        {
-            value->ChangeToLngCon(0);
-        }
-#endif
-        else
-        {
-            assert(varTypeIsIntOrI(qmark->GetType()));
-
-            value->ChangeToIntCon(varActualType(qmark->GetType()), 0);
-        }
-
-        condExpr->SetType(value->GetType());
-
-        return condExpr;
-    }
-
-    // If only one of the then/else expressions throws then the rest of the block is
-    // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
-    // then/else morphing. We could also handle the case of both then/else throwing
-    // but that doesn't seem to ever happen currently.
-    bool removeRestOfBlock = fgRemoveRestOfBlock;
-
-#if LOCAL_ASSERTION_PROP
-    // The local assertion propagation state after morphing the condition expression
-    // applies to both then and else expressions, we need to save it before morphing
-    // one expression and restore it before morphing the other expression.
-
-    unsigned        entryAssertionCount = 0;
-    MorphAssertion* entryAssertionTable = nullptr;
-
-    if (morphAssertionCount != 0)
-    {
-        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be bad idea");
-        unsigned tableSize  = morphAssertionTableSize(morphAssertionCount);
-        entryAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
-        entryAssertionCount = morphAssertionCount;
-        morphAssertionGetTable(entryAssertionTable, entryAssertionCount);
-    }
-#endif // LOCAL_ASSERTION_PROP
-
-    elseExpr = moMorphTree(elseExpr, mac);
-    qmark->SetElse(elseExpr);
-    fgRemoveRestOfBlock = removeRestOfBlock;
-
-#if LOCAL_ASSERTION_PROP
-    unsigned        elseAssertionCount = 0;
-    MorphAssertion* elseAssertionTable = nullptr;
-
-    // We also need to save the local assertion propagation state after morphing the
-    // first of the then/else expressions. Later we need to merge the two states by
-    // removing assertions that are not present in both states.
-    if (morphAssertionCount != 0)
-    {
-        static_assert(morphAssertionMaxCount <= 64, "ALLOCA() may be a bad idea");
-        unsigned tableSize = morphAssertionTableSize(morphAssertionCount);
-        elseAssertionTable = (MorphAssertion*)ALLOCA(tableSize);
-        elseAssertionCount = morphAssertionCount;
-        morphAssertionGetTable(elseAssertionTable, elseAssertionCount);
-        morphAssertionSetCount(0);
-    }
-
-    if (entryAssertionCount != 0)
-    {
-        morphAssertionSetTable(entryAssertionTable, entryAssertionCount);
-    }
-#endif // LOCAL_ASSERTION_PROP
-
-    thenExpr = moMorphTree(thenExpr, mac);
-    qmark->SetThen(thenExpr);
-    fgRemoveRestOfBlock = removeRestOfBlock;
-
-#if LOCAL_ASSERTION_PROP
-    // Merge assertions after then/else morphing.
-    if (morphAssertionCount != 0)
-    {
-        morphAssertionMerge(elseAssertionCount, elseAssertionTable DEBUGARG(qmark));
-    }
-#endif // LOCAL_ASSERTION_PROP
-
-    qmark->SetSideEffects(condExpr->GetSideEffects() | thenExpr->GetSideEffects() | elseExpr->GetSideEffects());
-
-    if (varTypeIsGC(qmark->GetType()) && !varTypeIsGC(elseExpr->GetType()) && !varTypeIsGC(thenExpr->GetType()))
-    {
-        qmark->SetType(varActualType(elseExpr->GetType()));
-    }
-
-    compQmarkUsed = true;
-
-    return qmark;
 }
 
 GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
@@ -10883,209 +3856,179 @@ GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
     return tree;
 }
 
-void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
+// Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.
+GenTree* Compiler::moMorphAssociative(GenTreeOp* tree)
 {
-    assert(varTypeIsStruct(ret->GetType()));
+    assert(tree->OperIs(GT_ADD, GT_MUL, GT_OR, GT_AND, GT_XOR));
+    assert(varTypeIsIntegralOrI(tree->GetType()));
 
-#if FEATURE_MULTIREG_RET
-    if (info.retDesc.GetRegCount() > 1)
+    // op1 can be COMMA, in this case we're going to fold
+    // "(op (COMMA(... (op X C1))) C2)" to "(COMMA(... (op X C3)))"
+    // This can only be done during global morph. Otherwise, there is a chance of violating VNs invariants and/or
+    // modifying a tree that is an active CSE candidate.
+
+    GenTree* op1 = tree->GetOp(0);
+    GenTree* op2 = tree->GetOp(1);
+
+    if (op1->OperIs(GT_COMMA))
     {
-        assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
-
-        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
-
-        while (val->OperIs(GT_COMMA))
+        if (!fgGlobalMorph)
         {
-            commas.Push(val->AsOp());
-            val = val->AsOp()->GetOp(1);
+            return nullptr;
         }
 
-        if (val->IsFieldList())
-        {
-            return;
-        }
-
-        if (GenTreeCall* call = val->IsCall())
-        {
-            bool registersMatch = call->GetRegCount() == info.retDesc.GetRegCount();
-
-            for (unsigned i = 0; i < call->GetRegCount() && registersMatch; i++)
-            {
-                if (call->GetRetDesc()->GetRegNum(i) != info.retDesc.GetRegNum(i))
-                {
-                    registersMatch = false;
-                }
-            }
-
-            if (registersMatch)
-            {
-                return;
-            }
-        }
-        else if (val->OperIs(GT_LCL_LOAD_FLD) && varTypeIsSIMD(val->GetType()))
-        {
-            val->AsLclLoadFld()->SetLayout(info.GetRetLayout(), this);
-        }
-
-        GenTreeCall::Use use(val);
-        use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
-        CallArgInfo argInfo(&use, 0, true);
-        argInfo.SetRegCount(info.retDesc.GetRegCount());
-        argInfo.SetArgType(val->GetType());
-
-#ifdef UNIX_AMD64_ABI
-        for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
-        {
-            argInfo.SetRegNum(i, info.retDesc.GetRegNum(i));
-            argInfo.SetRegType(i, info.retDesc.GetRegType(i));
-        }
-#else
-        var_types  regType = info.retDesc.GetRegType(0);
-
-        if (varTypeIsGC(regType))
-        {
-            regType = TYP_I_IMPL;
-        }
-
-        argInfo.SetRegType(regType);
-#endif
-
-        val = abiMorphMultiRegStructArg(&argInfo, val);
-
-        var_types retType = varActualType(val->GetType());
-
-#ifdef WINDOWS_X86_ABI
-        // TODO-MIKE-Cleanup: abiMorphMultiRegStructArg manages to generate a FIELD_LIST
-        // with a single LONG/DOUBLE field, this doesn't seem right and it certainly doesn't
-        // work correctly on x86. ARM32 multireg args may also be affected.
-        if (GenTreeFieldList* fieldList = val->IsFieldList())
-        {
-            GenTreeFieldList::Use* field = fieldList->Uses().GetHead();
-
-            if (field->GetNext() == nullptr)
-            {
-                val = field->GetNode();
-                assert(val->TypeIs(TYP_LONG, TYP_DOUBLE));
-
-                if (val->TypeIs(TYP_DOUBLE))
-                {
-                    retType = TYP_LONG;
-                }
-            }
-        }
-#endif
-
-        if (!commas.Empty())
-        {
-            commas.Top()->SetOp(1, val);
-
-            for (unsigned i = 0; i < commas.Size(); i++)
-            {
-                GenTreeOp* comma = commas.Top(i);
-                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
-                comma->SetType(retType);
-            }
-
-            ret->SetSideEffects(commas.Bottom()->GetSideEffects());
-        }
-        else
-        {
-            ret->SetOp(0, val);
-            ret->SetSideEffects(val->GetSideEffects());
-        }
-
-        ret->SetType(retType);
-
-        return;
+        op1 = op1->SkipComma();
     }
-#endif // FEATURE_MULTIREG_RET
 
-    if (val->IsIntegralConst(0))
+    if (op1->GetOper() != tree->GetOper())
     {
-        var_types regType = varActualType(info.retDesc.GetRegType(0));
+        return nullptr;
+    }
 
-        if (varTypeIsFloating(regType))
-        {
-            val->ChangeToDblCon(TYP_DOUBLE, 0);
-        }
-        else if (regType == TYP_LONG)
-        {
-            val->SetType(TYP_LONG);
-        }
-        else if (varTypeIsGC(regType))
-        {
-            val->SetType(TYP_I_IMPL);
-        }
-#ifdef FEATURE_HW_INTRINSICS
-        else if (varTypeIsSIMD(regType))
-        {
-            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
-            val->ChangeOper(GT_HWINTRINSIC);
-            val->SetType(regType);
-            val->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(regType), TYP_FLOAT, varTypeSize(regType), 0);
-        }
-#endif
-        else
-        {
-            assert(regType == TYP_INT);
-        }
+    if (op1->AsOp()->GetOp(0)->IsIntCon() || !op1->AsOp()->GetOp(1)->IsIntCon() || !op2->IsIntCon())
+    {
+        return nullptr;
+    }
 
-        ret->SetType(regType);
+    GenTreeIntCon* c1 = op1->AsOp()->GetOp(1)->AsIntCon();
+    GenTreeIntCon* c2 = tree->GetOp(1)->AsIntCon();
+
+    if (c1->TypeIs(TYP_REF) || (c1->GetType() != c2->GetType()))
+    {
+        return nullptr;
+    }
+
+    GenTreeIntCon* foldedCns = gtFoldExprConst(gtNewOperNode(tree->GetOper(), c1->GetType(), c1, c2))->IsIntCon();
+
+    if (foldedCns == nullptr)
+    {
+        return nullptr;
+    }
+
+    c1->SetValue(foldedCns->GetValue());
+    c1->SetVNP(foldedCns->GetVNP());
+    c1->SetFieldSeq(foldedCns->GetFieldSeq());
+
+    op1 = tree->GetOp(0);
+
+    if (vnStore != nullptr)
+    {
+        op1->SetVNP(tree->GetVNP());
+    }
+
+    DEBUG_DESTROY_NODE(tree);
+    DEBUG_DESTROY_NODE(c2);
+    DEBUG_DESTROY_NODE(foldedCns);
+    INDEBUG(c1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
+    return op1;
+}
+
+// Reassociate associative, commutative operations into a 'left-deep' tree,
+// i.e. into something like this: (((a op b) op c) op d) op...
+void Compiler::moMoveOpsLeft(GenTreeOp* tree)
+{
+    assert(fgGlobalMorph && (vnStore == nullptr));
+    assert(tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR));
+    assert(tree->GetOp(1)->GetOper() == tree->GetOper());
+
+    GenTreeOp* const tree2 = tree->GetOp(1)->AsOp();
+
+    if (((tree->gtFlags | tree2->gtFlags) & GTF_BOOLEAN) != 0)
+    {
+        // We could deal with this, but we were always broken and just hit the assert
+        // below regarding flags, which means it's not frequent, so will just bail out.
 
         return;
     }
 
-    if (val->OperIs(GT_LCL_LOAD))
+    genTreeOps const oper = tree->GetOper();
+    GenTree* const   op1  = tree->GetOp(0);
+    GenTree* const   op2  = tree2->GetOp(0);
+    GenTree* const   op3  = tree2->GetOp(1);
+
+    if (varTypeIsGC(op2->GetType()) != varTypeIsGC(tree2->GetType()))
     {
-        LclVarDsc* lcl = val->AsLclLoad()->GetLcl();
+        // phOptimizeBools can create OR of two GC pointers yielding a I_IMPL.
+        // We can not reorder such OR trees.
 
-#ifdef TARGET_AMD64
-        if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
-        {
-            // Only Vector2/3/4 are promoted.
-            assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
-
-            // TODO-MIKE-Review: Could we get here on ARM64 due to Vector2/Vector64
-            // reinterpretation?
-
-            val = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
-                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
-
-            var_types regType = varActualType(info.retDesc.GetRegType(0));
-            assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
-
-            val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
-
-            ret->SetOp(0, val);
-            ret->SetType(regType);
-
-            return;
-        }
-#endif
+        return;
     }
 
-#ifdef WINDOWS_AMD64_ABI
-    if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
+    if (varTypeIsGC(op1->GetType()) && (oper == GT_ADD))
     {
-        if (val->IsCall())
-        {
-            assert(val->TypeIs(TYP_SIMD8));
-            val->SetType(TYP_LONG);
-        }
-        else if (val->TypeIs(TYP_SIMD8))
-        {
-            val = gtNewBitCastNode(TYP_LONG, val);
-        }
-        else
-        {
-            val = gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, val, gtNewIconNode(0));
-        }
+        // We cannot reassociate GC pointer additions, doing that could create
+        // a GC pointer that points outside the GC object and the GC has no way
+        // to update such pointers (e.g. x ADD (1000 ADD -999)).
 
-        ret->SetOp(0, val);
-        ret->SetType(TYP_LONG);
+        assert(varTypeIsGC(tree->GetType()));
+
+        return;
     }
-#endif
+
+    // Change "(op1 op (op2 op op3))" to "(op1 op op2) op op3"
+
+    tree2->SetOp(0, op1);
+    tree2->SetOp(1, op2);
+
+    // Make sure we aren't throwing away any needed flags.
+    noway_assert((tree2->gtFlags &
+                  ~(GTF_ALL_EFFECT | // We'll recompute the side effects from the new operands
+                    GTF_DONT_CSE |   // We'll keep this
+                    GTF_REVERSE_OPS  // This will be re-calculated later
+                    )) == GTF_NONE);
+
+    tree2->gtFlags = (tree2->gtFlags & GTF_DONT_CSE) | op1->GetSideEffects() | op2->GetSideEffects();
+
+    if (varTypeIsGC(op1->GetType()))
+    {
+        noway_assert(((oper == GT_OR) && varTypeIsI(tree->GetType()) && tree2->TypeIs(TYP_I_IMPL)));
+
+        tree2->SetType(tree->GetType());
+    }
+    else if (varTypeIsGC(op3->GetType()))
+    {
+        // Neither op2 nor op1 are GC. So op2 isn't either.
+        noway_assert(op1->TypeIs(TYP_I_IMPL) && op2->TypeIs(TYP_I_IMPL));
+
+        tree2->SetType(TYP_I_IMPL);
+    }
+
+    if (op2->GetOper() == oper)
+    {
+        moMoveOpsLeft(tree2);
+    }
+
+    tree->SetOp(0, tree2);
+    tree->SetOp(1, op3);
+
+    if (op3->GetOper() == oper)
+    {
+        moMoveOpsLeft(tree);
+    }
+}
+
+GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value)
+{
+    assert(fgGlobalMorph);
+
+    if (varActualTypeIsInt(store->GetType()))
+    {
+        LclVarDsc* lcl = store->GetLcl();
+
+        if (lcl->lvNormalizeOnStore())
+        {
+            store->SetType(TYP_INT);
+
+            if (gtIsSmallIntCastNeeded(value, lcl->GetType()))
+            {
+                value = gtNewOperNode(GT_CONV, varConvType(lcl->GetType()), value);
+                store->SetValue(value);
+            }
+        }
+    }
+
+    return value;
 }
 
 // Transform a % b into the equivalent a - (a / b) * b (see ECMA III 3.55 and III.3.56).
@@ -11609,296 +4552,7489 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     tree->SetOper(rotateOp, GenTree::PRESERVE_VN);
 }
 
-#ifdef DEBUG
-void Compiler::moMorphClearDebugNodeMorphed(GenTree* tree)
-{
-    tree->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
-    tree->VisitOperands([this](GenTree* child) {
-        moMorphClearDebugNodeMorphed(child);
-        return GenTree::VisitResult::Continue;
-    });
-}
-#endif
-
-GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
-{
-    assert(tree != nullptr);
-    assert(!csePhase);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        if (static_cast<unsigned>(JitConfig.JitBreakMorphTree()) == tree->GetID())
-        {
-            noway_assert(!"JitBreakMorphTree hit");
-        }
-    }
-
-    int thisMorphNum = 0;
-
-    if (verbose && JitConfig.TreesBeforeAfterMorph())
-    {
-        thisMorphNum = morphNum++;
-        printf("\nfgMorphTree (before %d):\n", thisMorphNum);
-        gtDispTree(tree);
-    }
-
-    // moMorphTree can potentially replace a tree with another, and
-    // the caller has to store the return value correctly.
-    // Turn this on to always make copy of "tree" here to shake out
-    // hidden/un-updated references.
-
-    if (compStressCompile(STRESS_GENERIC_CHECK, 0))
-    {
-        GenTree* copy = new (this, LargeOpOpcode()) GenTree(GT_NOP, TYP_VOID);
-        copy->ReplaceWith(tree);
-        DEBUG_DESTROY_NODE(tree);
-        tree = copy;
-    }
-#endif // DEBUG
-
-    if (fgGlobalMorph)
-    {
-        // FIELD_ADDR sequences may collapse to nothing, deal with them first so that
-        // we can continue as if they didn't exist in the first place.
-        if (GenTreeFieldAddr* field = tree->IsFieldAddr())
-        {
-            tree = moMorphFieldAddr(field, mac);
-        }
-
-        // INDEX_ADDR cannot just collapse to nothing but let's handle it in similar
-        // manner for the sake of consistency. These nodes are not supposed to appear
-        // after global morph.
-        if (GenTreeIndexAddr* index = tree->IsIndexAddr())
-        {
-            if (!opts.MinOpts())
-            {
-                tree = moMorphIndexAddr(index);
-            }
-        }
-
-        if (tree->IsIndir())
-        {
-            // An indirection gets a default address context if it isn't address taken.
-            mac = nullptr;
-        }
-
-        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
-
-#if LOCAL_ASSERTION_PROP
-        if (morphAssertionCount != 0)
-        {
-            tree = morphAssertionPropagate(tree);
-        }
-#endif
-    }
-
-    INDEBUG(GenTree* oldTree = tree);
-    unsigned kind = tree->OperKind();
-
-    if (kind & GTK_LEAF)
-    {
-        if (tree->IsNumericConst())
-        {
-            // Clear any exception flags or other unnecessary flags that
-            // may have been set before folding this node to a constant.
-            tree->gtFlags &= ~(GTF_ALL_EFFECT | GTF_REVERSE_OPS);
-        }
-        else if (GenTreeStrCon* str = tree->IsStrCon())
-        {
-            tree = moMorphTree(moMorphStrCon(str, fgGlobalMorphStmt));
-        }
-        else
-        {
-            tree = moMorphLeaf(tree);
-        }
-
-        goto DONE;
-    }
-
-    if (kind & GTK_SMPOP)
-    {
-        tree = moMorphSmpOp(tree->AsOp(), mac);
-
-        goto DONE;
-    }
-
-    switch (tree->GetOper())
-    {
-        case GT_QMARK:
-            tree = moMorphQmark(tree->AsQmark(), mac);
-            break;
-
-        case GT_CALL:
-            if (tree->CallMayThrow(this))
-            {
-                tree->AddSideEffects(GTF_EXCEPT);
-            }
-            else
-            {
-                tree->RemoveSideEffects(GTF_EXCEPT);
-            }
-            tree = moMorphCall(tree->AsCall(), fgGlobalMorphStmt);
-            break;
-
-        case GT_ARR_ELEM:
-            moMorphArrElem(tree->AsArrElem());
-            break;
-
-        case GT_PHI:
-            assert(!tree->HasSideEffects());
-            for (GenTreePhi::Use& use : tree->AsPhi()->Uses())
-            {
-                use.SetNode(use.GetNode());
-                assert(!use.GetNode()->HasSideEffects());
-            }
-            break;
-
-        case GT_FIELD_LIST:
-            tree->RemoveSideEffects(GTF_ALL_EFFECT);
-            for (GenTreeFieldList::Use& use : tree->AsFieldList()->Uses())
-            {
-                use.SetNode(moMorphTree(use.GetNode()));
-                tree->AddSideEffects(use.GetNode()->GetSideEffects());
-            }
-            break;
-
 #ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-            moMorphHWIntrinsic(tree->AsHWIntrinsic());
-            break;
+GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
+{
+#ifdef TARGET_AMD64
+    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
+        tree->GetOp(1)->IsIntegralConst(0))
+    {
+        if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
+        {
+            if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
+                (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
+            {
+                uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
+                uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
+                uint64_t bits  = bits0 | (bits1 << 32);
+
+                if (tree->TypeIs(TYP_LONG))
+                {
+                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
+                }
+
+                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
+            }
+        }
+    }
 #endif
 
-        case GT_CMPXCHG:
-        case GT_COPY_BLK:
-        case GT_INIT_BLK:
-            tree->AsTernaryOp()->SetOp(0, moMorphTree(tree->AsTernaryOp()->GetOp(0)));
-            tree->AsTernaryOp()->SetOp(1, moMorphTree(tree->AsTernaryOp()->GetOp(1)));
-            tree->AsTernaryOp()->SetOp(2, moMorphTree(tree->AsTernaryOp()->GetOp(2)));
+    GenTreeFlags sideEffects = GTF_NONE;
 
-            if (tree->OperIs(GT_CMPXCHG))
-            {
-                tree->RemoveSideEffects(GTF_EXCEPT | GTF_CALL);
-            }
-            else
-            {
-                tree = moMorphDynBlk(tree->AsDynBlk());
-
-                if (!tree->IsDynBlk())
-                {
-                    goto DONE;
-                }
-
-                tree->RemoveSideEffects(GTF_CALL);
-
-                if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
-                {
-                    tree->AddSideEffects(GTF_EXCEPT);
-                }
-            }
-
-            tree->AddSideEffects(tree->AsTernaryOp()->GetOp(0)->GetSideEffects() |
-                                 tree->AsTernaryOp()->GetOp(1)->GetSideEffects() |
-                                 tree->AsTernaryOp()->GetOp(2)->GetSideEffects());
-            break;
-
-        default:
-            INDEBUG(gtDispTree(tree);)
-            unreached();
+    if (tree->IsMemoryLoadOrStore())
+    {
+        sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
+        if (tree->IsMemoryStore())
+        {
+            sideEffects |= GTF_ASG;
+        }
     }
 
-DONE:
-    moMorphTreeDone(tree DEBUGARG(oldTree) DEBUGARG(thisMorphNum));
+    for (GenTreeHWIntrinsic::Use& use : tree->Uses())
+    {
+        use.SetNode(moMorphTree(use.GetNode()));
+        sideEffects |= use.GetNode()->GetSideEffects();
+    }
+
+    tree->SetSideEffects(sideEffects);
 
     return tree;
 }
+#endif // FEATURE_HW_INTRINSICS
 
-// This function is called to complete the morphing of a tree node
-// It should only be called once for each node.
-// If DEBUG is defined the flag GTF_DEBUG_NODE_MORPHED is checked and updated,
-// to enforce the invariant that each node is only morphed once.
-void Compiler::moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG(int morphNum))
+void Compiler::moMorphArrElem(GenTreeArrElem* arrElem)
 {
-#ifdef DEBUG
-    if (verbose && JitConfig.TreesBeforeAfterMorph())
+    GenTreeFlags sideEffects = GTF_NONE;
+
+    for (GenTreeArrElem::Use& use : arrElem->Uses())
     {
-        JITDUMPTREE(tree, "\nfgMorphTree (after %d):\n", morphNum);
-        printf(""); // in our logic this causes a flush
+        GenTree* op = moMorphTree(use.GetNode());
+        sideEffects |= op->GetSideEffects();
+        use.SetNode(op);
+    }
+
+    arrElem->SetSideEffects(sideEffects | GTF_EXCEPT);
+
+    if (fgGlobalMorph)
+    {
+        fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, fgMorphBlock);
+    }
+}
+
+GenTree* Compiler::fgMakeMultiUse(GenTree** pOp)
+{
+    GenTree* tree = *pOp;
+
+    // TODO-MIKE-Review: We could clone LCL_ADDR too but it looks like
+    // fgMakeMultiUse has very few uses and none them could reasonably
+    // have LCL_ADDRs involved.
+
+    if (tree->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        return gtCloneSimple(tree);
+    }
+    else
+    {
+        return fgInsertCommaFormTemp(pOp);
+    }
+}
+
+GenTreeLclLoad* Compiler::fgInsertCommaFormTemp(GenTree** use)
+{
+    GenTree* tree = *use;
+    assert(!varTypeIsStruct(tree->GetType()));
+
+    var_types        type  = varActualType(tree->GetType());
+    LclVarDsc*       lcl   = lvaNewTemp(type, true DEBUGARG("fgInsertCommaFormTemp temp"));
+    GenTreeLclStore* store = gtNewLclStore(lcl, type, tree);
+    GenTreeLclLoad*  load  = gtNewLclLoad(lcl, type);
+    *use                   = gtNewCommaNode(store, load, type);
+    return gtNewLclLoad(lcl, type);
+}
+
+#ifdef DEBUG
+void CallArgInfo::Dump() const
+{
+#ifdef WINDOWS_X86_ABI
+    if (m_isReturn)
+    {
+        printf("return:");
+    }
+    else
+#endif
+    {
+        printf("arg %u:", m_argNum);
+    }
+
+    printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->GetOper()), varTypeName(m_argType));
+
+    if (IsImplicitByRef())
+    {
+        printf(", implicit by-ref");
+    }
+
+    if (m_regCount != 0)
+    {
+#ifdef UNIX_AMD64_ABI
+        printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
+#else
+        printf(", %u %s reg%s (", m_regCount, varTypeName(GetRegType()), m_regCount == 1 ? "" : "s");
+#endif
+        for (unsigned i = 0; i < m_regCount; i++)
+        {
+            const char* regName = getRegName(GetRegNum(i));
+#ifdef UNIX_AMD64_ABI
+            printf("%s%s %s", i == 0 ? "" : ", ", regName, varTypeName(GetRegType(i)));
+#else
+            printf("%s%s", i == 0 ? "" : ", ", regName);
+#endif
+        }
+        printf(")");
+    }
+
+    if (m_slotCount == 1)
+    {
+        printf(", 1 slot (%u)", m_slotNum);
+    }
+    else if (m_slotCount > 1)
+    {
+        printf(", %u slots (%u..%u)", m_slotCount, m_slotNum, m_slotNum + m_slotCount - 1);
+    }
+
+    if (HasTemp())
+    {
+        printf(", temp V%02u", m_tempLclNum);
+    }
+
+#if FEATURE_FIXED_OUT_ARGS
+    if (m_isLateUseNeeded)
+    {
+        printf(", needLateUse");
     }
 #endif
 
-    if (!fgGlobalMorph)
+    if (m_isNonStandard)
+    {
+        printf(", isNonStandard");
+    }
+
+    printf("\n");
+}
+
+void CallInfo::Dump() const
+{
+    for (unsigned i = 0; i < argCount; i++)
+    {
+        argTable[i]->Dump();
+    }
+}
+#endif // DEBUG
+
+CallInfo::CallInfo(Compiler* comp, GenTreeCall* call, unsigned numArgs)
+    : argTable(numArgs == 0 ? nullptr : new (comp, CMK_CallInfo) CallArgInfo*[numArgs])
+#ifdef DEBUG
+    , argTableSize(numArgs)
+#endif
+{
+}
+
+// CallInfo "copy constructor"
+//
+// This method needs to act like a copy constructor for CallInfo.
+// The newCall needs to have its CallInfo initialized such that
+// we have newCall that is an exact copy of the oldCall.
+// We have to take care since the argument information
+// in the argTable contains pointers that must point to the
+// new arguments and not the old arguments.
+//
+CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCall)
+{
+    CallInfo* oldArgInfo = oldCall->AsCall()->GetInfo();
+
+#ifdef DEBUG
+    argTableSize = oldArgInfo->argTableSize;
+#endif
+    argCount           = oldArgInfo->argCount;
+    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
+#ifdef UNIX_X86_ABI
+    stackAlignmentDone = oldArgInfo->stackAlignmentDone;
+    stackAlignPadding  = oldArgInfo->stackAlignPadding;
+#endif
+
+    assert(oldCall->HasArgsSetup());
+
+    if (argCount == 0)
     {
         return;
     }
 
-#ifdef DEBUG
-    // The way global morph tries to prevent double/lack of morphing of a node
-    // is rather convoluted. The overall idea is that moMorphTree is called on
-    // `tree` and:
-    //   - it modifies the tree node itself (e.g. by changing its type or even
-    //     its oper), but does not create new nodes and returns the same `tree`.
-    //     Then moMorphTreeDone sets GTF_DEBUG_NODE_MORPHED on `tree` (and does
-    //     expect that it hasn't been set).
-    //   - it inserts new nodes (typically as `tree` operands) but still returns
-    //     the same `tree`.
-    //     For `tree` this works as in the previous case.
-    //     For inserted nodes the morphing code is more or less expected to call
-    //     moMorphTreeDone, at least when nodes may affect assertion propagation
-    //     (e.g. new store node, new indir node etc.). Failure to do so is not
-    //     immediately detected, but can later result in asserts if other nodes
-    //     are removed such that these new nodes reach moMorphTreeDone.
-    //   - it returns a new node and possibly drops `tree` on the floor.
-    //     Here things are a bit bizarre - moMorphTreeDone expects that the new
-    //     node has GTF_DEBUG_NODE_MORPHED already set. Not clear why, perhaps
-    //     the idea was that if you create a new node you should also pass it to
-    //     moMorphTree. But if you create a new node in morph then it is likely
-    //     that it can be considered to already be morphed. In any case, it's
-    //     fine for the morphing code to simply set GTF_DEBUG_NODE_MORPHED on
-    //     the new node. It should not call moMorphTreeDone though, that's done
-    //     anyway in moMorphTree.
-    //     If the original `tree` is not dropped then moMorphTreeDone should be
-    //     called on it too, unless morphing code is certain that `tree` does
-    //     not influence assertion propagation.
-    //   - it simply drops `tree` on the floor and returns a descendant node.
-    //     Such a node should have been morphed and have GTF_DEBUG_NODE_MORPHED
-    //     set so this will work fine.
-    //     However, it can result in double assertion generation, which should
-    //     be harmless but may have some throughput cost.
-    // Note that removing nodes from the tree after it has been morphed is not
-    // tracked in any way, even though node removal could theoretically affect
-    // assertion propagation. But this should be impossible, assignments and
-    // indirections are side effects and morph does not have enough information
-    // to remove them, except in the "expression always throws" case. And then
-    // assertion propagation is no longer relevant since the rest of the code
-    // in the basic block will also be removed.
+    argTable = new (compiler, CMK_CallInfo) CallArgInfo*[argCount];
 
-    if ((oldTree != nullptr) && (oldTree != tree))
+    for (unsigned i = 0; i < argCount; i++)
     {
-        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) != 0) && "ERROR: Did not morph this node!");
-    }
-    else
-    {
-        assert(((tree->gtDebugFlags & GTF_DEBUG_NODE_MORPHED) == 0) && "ERROR: Already morphed this node!");
+        argTable[i] = new (compiler, CMK_CallInfo) CallArgInfo(*oldArgInfo->argTable[i]);
     }
 
-    tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;
-#endif // DEBUG
+    GenTreeCall::UseIterator newUse    = newCall->Uses().begin();
+    GenTreeCall::UseIterator newUseEnd = newCall->Uses().end();
+    GenTreeCall::UseIterator oldUse    = oldCall->Uses().begin();
+    GenTreeCall::UseIterator oldUseEnd = newCall->Uses().end();
 
-#if LOCAL_ASSERTION_PROP
-    if (!tree->IsNumericConst() && (morphAssertionTable != nullptr))
+    for (; newUse != newUseEnd; ++newUse, ++oldUse)
     {
-        if (morphAssertionCount != 0)
+        for (unsigned i = 0; i < argCount; i++)
         {
-            if (tree->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+            if (argTable[i]->GetUse() == oldUse.GetUse())
             {
-                morphAssertionKill(tree->AsLclRef()->GetLcl() DEBUGARG(tree->AsLclRef()));
+                argTable[i]->SetUse(newUse.GetUse());
+                break;
+            }
+
+            if (argTable[i]->GetSetupUse() == oldUse.GetUse())
+            {
+                argTable[i]->SetSetupUse(newUse.GetUse());
+                break;
+            }
+        }
+    }
+}
+
+void CallInfo::AddArg(CallArgInfo* argInfo)
+{
+    assert(argCount < argTableSize);
+    argTable[argCount++] = argInfo;
+}
+
+#if FEATURE_FIXED_OUT_ARGS
+static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
+{
+    if (compiler->fgUseThrowHelperBlocks() || !tree->HasAnySideEffect(GTF_EXCEPT))
+    {
+        return false;
+    }
+
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
+        GenTree* node = *use;
+
+        if (!node->HasAnySideEffect(GTF_EXCEPT))
+        {
+            return GenTreeWalkResult::Skip;
+        }
+
+        switch (node->GetOper())
+        {
+            case GT_OVF_U:
+            case GT_OVF_TRUNC:
+            case GT_OVF_STRUNC:
+            case GT_OVF_UTRUNC:
+            case GT_OVF_SADD:
+            case GT_OVF_UADD:
+            case GT_OVF_SSUB:
+            case GT_OVF_USUB:
+            case GT_OVF_SMUL:
+            case GT_OVF_UMUL:
+            case GT_OVF_SCONV:
+            case GT_OVF_UCONV:
+            case GT_OVF_FTOS:
+            case GT_OVF_FTOU:
+            case GT_BOUNDS_CHECK:
+                return GenTreeWalkResult::Abort;
+
+            case GT_INDEX_ADDR:
+                if ((node->gtFlags & GTF_INX_RNGCHK) != 0)
+                {
+                    return GenTreeWalkResult::Abort;
+                }
+                break;
+
+            default:
+                break;
+        }
+
+        return GenTreeWalkResult::Continue;
+    }) == GenTreeWalkResult::Abort;
+}
+
+static bool HasLclHeap(Compiler* compiler, GenTree* tree)
+{
+    return compiler->fgWalkTreePre(&tree, [](GenTree** use, GenTree* user, void* data) {
+        return (*use)->OperIs(GT_LCLHEAP) ? GenTreeWalkResult::Abort : GenTreeWalkResult::Continue;
+    }) == GenTreeWalkResult::Abort;
+}
+#endif // FEATURE_FIXED_OUT_ARGS
+
+void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
+{
+    assert(!call->HasArgsSetup());
+
+    bool needsTemps = false;
+    bool hasRegArgs = false;
+
+    for (unsigned argIndex = 0; argIndex < argCount; argIndex++)
+    {
+        CallArgInfo& argInfo = *argTable[argIndex];
+
+        if (argInfo.GetRegCount() == 0)
+        {
+            assert(HasStackArgs());
+
+#if !FEATURE_FIXED_OUT_ARGS
+            // On x86 we use push instructions to pass arguments, so stack args must
+            // be evaluated in order, only reg args can (and need) to be moved to the
+            // "late" arg list.
+            continue;
+#endif
+        }
+        else
+        {
+#if FEATURE_ARG_SPLIT
+            assert(!argInfo.IsSplit() || HasStackArgs());
+#endif
+
+            hasRegArgs = true;
+        }
+
+        GenTree* arg = argInfo.GetNode();
+
+        if (argInfo.HasTemp())
+        {
+            needsTemps = true;
+        }
+        else if (call->IsExpandedEarly() && call->IsVirtualVtable() && (argInfo.GetUse() == call->GetThisArg()) &&
+                 !arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+        {
+            argInfo.SetTempNeeded();
+            needsTemps = true;
+        }
+
+        // If the argument tree contains a store (GTF_ASG) then the argument and and every
+        // earlier argument (except constants) must be evaluated into temps since there may
+        // be other arguments that follow and they may use the value being assigned.
+        //
+        // EXAMPLE: ArgTab is "a, a=5, a"
+        //          -> when we see the second arg "a=5"
+        //             we know the first two arguments "a, a=5" have to be evaluated into temps
+        //
+        // For the case of a store, we only know that there exist some store someplace in
+        // in the tree. We don't know where it stores to so we are very conservative here
+        // and assume that any local variable could have been modified.
+
+        if (arg->HasAnySideEffect(GTF_ASG))
+        {
+            // TODO-MIKE-Review: This check seems overly conservative. If an arg contains
+            // a store then it only needs a temp if it will be moved to the late arg list
+            // (because, say, it's a register arg), so the store doesn't reorder with
+            // subsequent args that may use whatever location the store changes.
+            //
+            // Likewise, previous arguments only need temps if they're going to be moved to
+            // the late arg list.
+            //
+            // This should probably be more precise, even at the cost of throughput. It's
+            // rare for normal code to contain stores in arg trees, it's more likely that
+            // such assignments were introduced by the JIT (e.g. bound checks, null checks,
+            // multi use etc.) and stores to new temps that aren't used anywhere else except
+            // this particular arg tree.
+
+            if (argCount > 1)
+            {
+                argInfo.SetTempNeeded();
+                needsTemps = true;
+            }
+
+            // For all previous arguments, unless they are constants or local addresses
+            // we require that they be evaluated into temps
+
+            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
+            {
+                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
+
+                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
+
+                GenTree* node = prevArgInfo.GetNode();
+
+                // Constants and local addresses obviously do not need temps.
+                // The `this` arg also does not need a temp, if it's ever stored
+                // to the importer replaces it with a normal local.
+
+                if (!node->OperIsConst() && !node->OperIs(GT_LCL_ADDR) &&
+                    !(node->OperIs(GT_LCL_LOAD) &&
+                      (node->AsLclLoad()->GetLcl()->GetLclNum() == compiler->info.GetThisParamLclNum())))
+                {
+                    prevArgInfo.SetTempNeeded();
+                    needsTemps = true;
+                }
             }
         }
 
-        morphAssertionGenerate(tree);
+        bool treatLikeCall = arg->HasAnySideEffect(GTF_CALL);
+
+#if FEATURE_FIXED_OUT_ARGS
+        // Like calls, if this argument has a tree that will do an inline throw,
+        // a call to a jit helper, then we need to treat it like a call (but only
+        // if there are/were any stack args).
+        // This means unnesting, sorting, etc.  Technically this is overly
+        // conservative, but I want to avoid as much special-case debug-only code
+        // as possible, so leveraging the GTF_CALL flag is the easiest.
+
+        if (!treatLikeCall && (argCount > 1) && HasInlineThrowHelperCall(compiler, arg))
+        {
+            for (unsigned otherArgIndex = 0; otherArgIndex < argCount; otherArgIndex++)
+            {
+                if ((otherArgIndex != argIndex) && (argTable[otherArgIndex]->GetRegCount() == 0))
+                {
+                    treatLikeCall = true;
+                    break;
+                }
+            }
+        }
+#endif // FEATURE_FIXED_OUT_ARGS
+
+        // If it contains a call (GTF_CALL) then itself and everything before the call
+        // with a GLOB_EFFECT must eval to temp (this is because everything with SIDE_EFFECT
+        // has to be kept in the right order since we will move the call to the first position)
+        //
+        // For calls we don't have to be quite as conservative as we are with stores,
+        // since the call won't be modifying any non-address taken locals.
+
+        if (treatLikeCall)
+        {
+            if (argCount > 1) // If this is not the only argument
+            {
+                argInfo.SetTempNeeded();
+                needsTemps = true;
+            }
+            else if (varTypeIsFloating(arg->GetType()) && arg->IsCall())
+            {
+                // Spill all arguments that are floating point calls
+                argInfo.SetTempNeeded();
+                needsTemps = true;
+            }
+
+            // All previous arguments may need to be evaluated into temps
+            for (unsigned prevArgIndex = 0; prevArgIndex < argIndex; prevArgIndex++)
+            {
+                CallArgInfo& prevArgInfo = *argTable[prevArgIndex];
+
+                assert(prevArgInfo.GetArgNum() < argInfo.GetArgNum());
+
+                // For all previous arguments, if they have any side effect
+                // we require that they be evaluated into a temp
+                if (prevArgInfo.GetNode()->HasSideEffects())
+                {
+                    prevArgInfo.SetTempNeeded();
+                    needsTemps = true;
+                }
+#if FEATURE_FIXED_OUT_ARGS
+                // Stack argument have to be moved after the call, since
+                // both calls use the same outgoing args stack are.
+                else if (prevArgInfo.GetSlotCount() != 0)
+                {
+                    prevArgInfo.SetIsLateUseNeeded();
+                }
+#endif
+            }
+        }
     }
-#endif // LOCAL_ASSERTION_PROP
+
+    // TODO-MIKE-Cleanup: It's not entirely clear what the code below is trying to do.
+    //   * Introduces temps for args that contain LCLHEAP, only on non-x86 targets.
+    //     Obviously, you cannot stack allocate after some args have already been stored
+    //     to the outgoing area since stack allocation moves the outgoing area. But:
+    //     - The same is true on x86 - once args have been pushed, no stack allocation
+    //       can be done. This was lumped together with GTF_EXCEPT checks but the two
+    //       are slightly different.
+    //     - Introducing a temp for the arg that uses LCLHEAP solves only one part of
+    //       the problem. Temps must also be introduced for any previous stack args.
+    //     - But IL requires the stack be empty before localalloc so it's not clear
+    //       if it's possible to have a LCLHEAP in the middle of the arg list.
+    //       Inlining a method that uses LCLHEAP? But that's currently blocked.
+    //       And if only the first arg can contain LCLHEAP then we don't need to do
+    //       anything, even if it's a stack arg, because the arg will be stored to the
+    //       stack only after stack allocation happens.
+    //     - Except that on x86 the first IL arg may be pushed last if StdCall/Cdecl
+    //       calling conventions are used.
+    //   * On x86 this code also introduces temps for reg args that may throw exceptions.
+    //     That's because they're going to be moved to the late arg list so we need to
+    //     ensure that the exception is still thrown at the right time. But:
+    //     - What about non-x86 targets? These too have reg args that get moved to the
+    //       late arg list. Well, that's simple - exception are incorrectly reordered on
+    //       such targets: Sink(x, y, z, x / y, a[x]); throws DivByZero on x86 and NullRef
+    //       on all other targets.
+    //     - Also, such temps are not always required. They're only needed if subsequent
+    //       args have interfering side effects.
+    //     - Old comments gave a different justification to the introduction of temps on
+    //       x86 - "we previously recorded a stack depth of zero when morphing the register
+    //       arguments of any IND_LOAD with a GTF_IND_RNGCHK flag". The flag no longer exists
+    //       and the "recorded stack depth" likely refers to work that's now done post lowering
+    //       by StackLevelSetter.
+    //   * And on top of it all it's not clear why this need to be done in a loop separate
+    //     from the one above that deals with assignments and calls.
+    //
+    //     The usual mess.
+    //
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#if FEATURE_FIXED_OUT_ARGS
+    if (HasStackArgs() && compiler->compLocallocUsed)
+#else
+    if (HasStackArgs())
+#endif
+    {
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            CallArgInfo& argInfo = *argTable[i];
+
+            if (argInfo.IsTempNeeded() || argInfo.HasTemp() || (argInfo.GetRegCount() == 0))
+            {
+                continue;
+            }
+
+            GenTree* arg = argInfo.GetNode();
+
+            if (arg->HasAnySideEffect(GTF_EXCEPT))
+            {
+#if FEATURE_FIXED_OUT_ARGS
+                if (HasLclHeap(compiler, arg))
+#endif
+                {
+                    argInfo.SetTempNeeded();
+                    needsTemps = true;
+                }
+            }
+        }
+    }
+
+    if (hasRegArgs || needsTemps)
+    {
+        CallArgInfo*  sortedArgTableArray[32];
+        CallArgInfo** sortedArgTable = sortedArgTableArray;
+
+        if (argCount > _countof(sortedArgTableArray))
+        {
+            sortedArgTable = compiler->getAllocator(CMK_CallInfo).allocate<CallArgInfo*>(argCount);
+        }
+
+        memcpy(sortedArgTable, argTable, argCount * sizeof(argTable[0]));
+
+        SortArgs(compiler, call, sortedArgTable);
+        SpillArgs(compiler, call, sortedArgTable);
+    }
+
+    call->gtCallMoreFlags |= GTF_CALL_M_HAS_ARGS_SETUP;
+}
+
+void CallInfo::SortArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** argTable) const
+{
+    // The idea is to move all "simple" arguments like constants and local vars
+    // to the end of the table, and move the complex arguments towards the beginning
+    // of the table. This will help prevent registers from being spilled by
+    // allowing us to evaluate the more complex arguments before the simpler arguments.
+    // The argTable ends up looking like:
+    //     +------------------------------------+  <--- argTable[argCount - 1]
+    //     |          constants                 |
+    //     +------------------------------------+
+    //     |    local var / local field         |
+    //     +------------------------------------+
+    //     | remaining arguments sorted by cost |
+    //     +------------------------------------+
+    //     | temps - argTable[].IsTempNeeded()  |
+    //     +------------------------------------+
+    //     |  args with calls (GTF_CALL)        |
+    //     +------------------------------------+  <--- argTable[0]
+
+    // TODO-MIKE-Cleanup: Arg table sorting is kind of weird. It seems that the resulting order is only
+    // used in SpillArgs so:
+    //   - It only affects the ordering of the late args, sorting "normal" args is probably a waste.
+    //   - The number of args is typically low so it may be better to allocate a separate array and
+    //     pass that to SpillArgs.
+    //   - Sorting isn't stable. For example, when const args are moved to the end of the table their
+    //     relative order is preserved. But the args they're displacing lose their ordering relative
+    //     to the non-displaced args. This would probably be a bug if it weren't for the first issue,
+    //     the new order is relevant only to late args. If 2 args with calls get reordered in doesn't
+    //     matter because such args get temps and only temp uses in the arg list get ordered. So it
+    //     seems that stability doesn't matter, except for the added confusion.
+
+    ssize_t first = 0;
+    ssize_t last  = static_cast<ssize_t>(argCount) - 1;
+
+    // Move all constant args to the end of the arg table.
+    for (ssize_t i = last; i >= first; i--)
+    {
+        if (argTable[i]->GetNode()->OperIs(GT_CNS_INT))
+        {
+            std::swap(argTable[i], argTable[last]);
+            last--;
+        }
+    }
+
+    // Move all call args to the beginning of the arg table.
+    for (ssize_t i = first; i <= last; i++)
+    {
+        if (argTable[i]->GetNode()->HasAnySideEffect(GTF_CALL))
+        {
+            std::swap(argTable[i], argTable[first]);
+            first++;
+        }
+    }
+
+    // Move all args with temps to the beginning of the arg table, after the calls.
+    for (ssize_t i = first; i <= last; i++)
+    {
+        if (argTable[i]->IsTempNeeded() || argTable[i]->HasTemp())
+        {
+            std::swap(argTable[i], argTable[first]);
+            first++;
+        }
+    }
+
+    // Move all local args to the end of the arg table, before the constants.
+    for (ssize_t i = last; i >= first; i--)
+    {
+        // Ignore STRUCT locals because they were previously wrapped in OBJ(ADDR(...)) so they were treated differently.
+        if (argTable[i]->GetNode()->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !argTable[i]->GetNode()->TypeIs(TYP_STRUCT))
+        {
+            std::swap(argTable[i], argTable[last]);
+            last--;
+        }
+    }
+
+    // Order any remaining args by execution cost.
+
+    // TODO-MIKE-Cleanup: Why execution cost?! It makes no difference if one arg takes 30 cycles
+    // to be computed and another only 3. What matters is how many registers each arg tree needs
+    // for evaluation (so the "cost" should really be the value returned by gtSetEvalOrder - a
+    // Sethi-Ullman number approximation). Not surprisingly, attempting to change this results
+    // in diffs that aren't all improvements.
+
+    if (first < last)
+    {
+        for (ssize_t i = first; i <= last; i++)
+        {
+            GenTree* arg = argTable[i]->GetNode();
+
+            // Try to keep STRUCT typed LCL_VAR args in the same position they were when wrapped in OBJs
+            // by setting the same costs an OBJ(ADDR(LCL_VAR|FLD)) tree would have.
+
+            // TODO-MIKE-Cleanup: These should probably be moved to gtSetEvalOrder, they're here only to
+            // keep diffs small.
+
+            if (arg->OperIs(GT_LCL_LOAD))
+            {
+                arg->SetCosts(9, 7);
+            }
+            else if (arg->OperIs(GT_LCL_LOAD_FLD))
+            {
+                arg->SetCosts(9, 9);
+            }
+            else
+            {
+                compiler->gtSetCosts(arg);
+            }
+        }
+
+        // TODO-MIKE-Cleanup: This could use jitstd::sort but there are a few diffs caused by sorting instability.
+
+        while (first < last)
+        {
+            unsigned maxCost      = argTable[first]->GetNode()->GetCostEx();
+            ssize_t  maxCostIndex = first;
+
+            for (ssize_t i = first + 1; i <= last; i++)
+            {
+                if (argTable[i]->GetNode()->GetCostEx() > maxCost)
+                {
+                    maxCost      = argTable[i]->GetNode()->GetCostEx();
+                    maxCostIndex = i;
+                }
+            }
+
+            std::swap(argTable[maxCostIndex], argTable[first]);
+            first++;
+        }
+    }
+
+#ifdef DEBUG
+    if (compiler->verbose)
+    {
+        printf("\nSorted arg table:\n");
+
+        for (unsigned i = 0; i < argCount; i++)
+        {
+            argTable[i]->Dump();
+        }
+
+        printf("\n");
+    }
+#endif
+}
+
+void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** sortedArgs) const
+{
+    GenTreeCall::Use* lateArgUseListHead = nullptr;
+    GenTreeCall::Use* lateArgUseListTail = nullptr;
+
+    for (unsigned i = 0; i < argCount; i++)
+    {
+        CallArgInfo& argInfo = *sortedArgs[i];
+
+        assert(argInfo.GetSetupUse() == nullptr);
+
+#if !FEATURE_FIXED_OUT_ARGS
+        // On x86 we use push instructions to pass arguments:
+        //   Only the register arguments need to be replaced with placeholder nodes.
+        //   Stack arguments are evaluated and pushed in order.
+        assert(!argInfo.IsLateUseNeeded());
+
+        if (argInfo.GetRegCount() == 0)
+        {
+            continue;
+        }
+#endif
+
+        GenTreeCall::Use* use      = argInfo.GetUse();
+        GenTree*          arg      = use->GetNode();
+        GenTree*          setupArg = nullptr;
+
+        if (argInfo.HasTemp())
+        {
+            JITDUMPTREE(arg, "Arg temp is already created:\n");
+
+#ifdef TARGET_64BIT
+            // moSetupCallArgs creates temps only for implicit by-ref args, which makes handling
+            // this case trivial - the late arg is the address of the created temp local.
+
+            assert(argInfo.IsImplicitByRef());
+
+            LclVarDsc* tempLcl = compiler->lvaGetDesc(argInfo.GetTempLclNum());
+            compiler->lvaSetAddressExposed(tempLcl);
+            use->SetNode(compiler->gtNewLclAddr(tempLcl));
+            setupArg = arg;
+#else
+            unreached();
+#endif
+        }
+        else if (argInfo.IsTempNeeded())
+        {
+            JITDUMPTREE(arg, "Creating temp for arg:\n");
+
+            // We may have started with a struct arg and changed it to a FP/SIMD arg.
+            if (varTypeUsesFloatReg(arg->GetType()))
+            {
+                compiler->compFloatingPointUsed = true;
+            }
+
+            LclVarDsc* tempLcl = compiler->lvaAllocTemp(true DEBUGARG("argument with side effect"));
+
+            argInfo.SetTempLclNum(tempLcl->GetLclNum());
+
+            if (!varTypeIsStruct(arg->GetType()))
+            {
+                var_types type = varActualType(arg->GetType());
+                tempLcl->SetType(type);
+                setupArg = compiler->gtNewLclStore(tempLcl, type, arg);
+            }
+            else if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+            {
+                compiler->lvaSetStruct(tempLcl, arg->AsCall()->GetRetLayout(), false);
+                tempLcl->lvIsMultiRegRet = true;
+                tempLcl->lvFieldAccessed = true;
+
+                LclVarDsc* dstLcl     = tempLcl;
+                var_types  dstLclType = tempLcl->GetType();
+
+                StructPromotionHelper structPromotion(compiler);
+
+                if (structPromotion.TryPromoteStructLocal(tempLcl))
+                {
+                    if (tempLcl->GetPromotedFieldCount() == 1)
+                    {
+                        LclVarDsc* promotedFieldLcl = compiler->lvaGetDesc(tempLcl->GetPromotedFieldLclNum(0));
+
+                        if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+                        {
+                            arg->SetType(promotedFieldLcl->GetType());
+
+                            dstLcl     = promotedFieldLcl;
+                            dstLclType = promotedFieldLcl->GetType();
+
+                            tempLcl->lvIsMultiRegRet = false;
+                        }
+                    }
+                }
+
+                setupArg = compiler->gtNewLclStore(dstLcl, dstLclType, arg);
+            }
+            else if (varTypeIsSIMD(arg->GetType()))
+            {
+                if (ClassLayout* layout = compiler->typGetVectorLayout(arg))
+                {
+                    compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
+                }
+                else
+                {
+                    // We may not be able to recover the struct handle from HWINTRINSIC
+                    // nodes and SIMD typed IND nodes.
+
+                    // TODO-MIKE-Cleanup: So why bother at all?
+
+                    assert(arg->IsHWIntrinsic() || arg->OperIs(GT_IND_LOAD));
+                    tempLcl->lvType = arg->GetType();
+                }
+
+                setupArg = compiler->gtNewLclStore(tempLcl, arg->GetType(), arg);
+                setupArg = compiler->moMorphStructStore(setupArg, arg);
+            }
+#ifndef TARGET_X86
+            else if (arg->OperIs(GT_MKREFANY))
+            {
+#ifdef WINDOWS_AMD64_ABI
+                unreached();
+#else
+                compiler->lvaSetStruct(tempLcl, compiler->typGetObjLayout(compiler->impGetRefAnyClass()), false);
+                setupArg = compiler->abiMorphMkRefAnyToStore(tempLcl, arg->AsOp());
+#endif
+            }
+#endif
+            else
+            {
+                ClassLayout* layout = compiler->typGetStructLayout(arg);
+                compiler->lvaSetStruct(tempLcl, layout, /* checkUnsafeBuffer */ false);
+                setupArg = compiler->gtNewLclStore(tempLcl, TYP_STRUCT, arg);
+                setupArg = compiler->moMorphStructStore(setupArg, arg);
+            }
+
+            use->SetNode(compiler->gtNewLclLoad(tempLcl, varActualType(tempLcl->GetType())));
+        }
+        else if ((argInfo.GetRegCount() != 0) || argInfo.IsLateUseNeeded())
+        {
+            // No temp needed - the original arg tree is moved to the late arg list.
+        }
+        else
+        {
+            continue;
+        }
+
+        argInfo.SetIsLateUse();
+
+        if (lateArgUseListTail == nullptr)
+        {
+            lateArgUseListHead = use;
+        }
+        else
+        {
+            lateArgUseListTail->SetNext(use);
+        }
+
+        lateArgUseListTail = use;
+
+        if (setupArg != nullptr)
+        {
+            JITDUMPTREE(setupArg, "Created arg setup tree:\n");
+
+            argInfo.SetSetupUse(compiler->gtNewCallArgs(setupArg));
+        }
+    }
+
+    if (lateArgUseListHead == nullptr)
+    {
+        return;
+    }
+
+    GenTreeCall::Use** prevUseLink = &call->m_uses;
+
+    for (unsigned i = 0; i < argCount; i++)
+    {
+        CallArgInfo&      argInfo = *argTable[i];
+        GenTreeCall::Use* use     = argInfo.GetSetupUse();
+
+        if (use == nullptr)
+        {
+            if (argInfo.IsLateUse())
+            {
+                continue;
+            }
+
+            use = argInfo.GetUse();
+        }
+
+        *prevUseLink = use;
+        prevUseLink  = &use->NextRef();
+    }
+
+    *prevUseLink = lateArgUseListHead;
+    lateArgUseListTail->SetNext(nullptr);
+}
+
+// This method only computes the arg table and arg entries for the call (the fgArgInfo),
+// and makes no modification of the args themselves.
+// The IR for the call args can change for calls with non-standard arguments: some non-standard
+// arguments add new call argument IR nodes.
+void Compiler::moInitCallnfo(GenTreeCall* call)
+{
+    assert((call->GetInfo() == nullptr) && !call->HasArgsSetup());
+    assert(call->RequiresRetBufArg() == call->HasRetBufArg());
+
+    JITDUMP("\nInitializing call [%06u] arg info\n", call->GetID());
+
+#ifdef TARGET_X86
+    // These are handled by special code in LIR/lowering.
+    assert(!call->IsHelperCall(CORINFO_HELP_LLSH) && !call->IsHelperCall(CORINFO_HELP_LRSH) &&
+           !call->IsHelperCall(CORINFO_HELP_LRSZ));
+#endif
+#if defined(TARGET_X86) || defined(TARGET_ARM)
+    assert(!call->IsHelperCall(CORINFO_HELP_INIT_PINVOKE_FRAME));
+#endif
+
+    const bool callIsVararg = call->IsVarargs();
+
+#ifdef TARGET_UNIX
+    NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
+#endif
+
+    // Data structure for keeping track of non-standard args. Non-standard args are those that are not passed
+    // following the normal calling convention or in the normal argument registers. We either mark existing
+    // arguments as non-standard (such as the x8 return buffer register on ARM64), or we manually insert the
+    // non-standard arguments into the argument list, below.
+    class NonStandardArgs
+    {
+        GenTree* args[4];
+        RegNum   regs[4];
+        unsigned count = 0;
+
+    public:
+        void Add(GenTree* node, RegNum reg)
+        {
+            assert((node != nullptr) && (reg != REG_NA));
+            noway_assert(count < _countof(args));
+            args[count] = node;
+            regs[count] = reg;
+            count++;
+        }
+
+        RegNum FindReg(GenTree* node) const
+        {
+            for (unsigned i = 0; i < count; i++)
+            {
+                if (node == args[i])
+                {
+                    return regs[i];
+                }
+            }
+
+            return REG_NA;
+        }
+    } nonStandardArgs;
+
+    unsigned numArgs = 0;
+
+    for (GenTreeCall::Use& use : call->Uses())
+    {
+        numArgs++;
+    }
+
+    // Insert or mark non-standard args. These are either outside the normal calling convention, or
+    // arguments registers that don't follow the normal progression of argument registers in the calling
+    // convention (such as for the ARM64 fixed return buffer argument x8).
+    // The logic here must remain in sync with HasNonStandardAddedArgs, which is used to map arguments
+    // in the implementation of fast tail call.
+    CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef TARGET_ARM64
+    if (call->HasFixedRetBufArg())
+    {
+        nonStandardArgs.Add(call->GetRetBufArg()->GetNode(), REG_ARG_RET_BUFF);
+    }
+#endif
+
+#ifdef TARGET_ARM
+    if (call->IsWrapperDelegateInvoke())
+    {
+        // A non-standard calling convention using wrapper delegate invoke is used on ARM, only, for wrapper
+        // delegates. It is used for VSD delegate calls where the VSD custom calling convention ABI requires passing
+        // R4, a callee-saved register, with a special value. Since R4 is a callee-saved register, its value needs
+        // to be preserved. Thus, the VM uses a wrapper delegate IL stub, which preserves R4 and also sets up R4
+        // correctly for the VSD call. The VM is simply reusing an existing mechanism (wrapper delegate IL stub)
+        // to achieve its goal for delegate VSD call. See COMDelegate::NeedsWrapperDelegate() in the VM for details.
+
+        GenTree* arg = call->GetThisArg()->GetNode();
+
+        // TODO-MIKE-Review: This is probably one of those cases where allowing LCL_LOAD_FLD
+        // is bad for CQ, especially on ARM where we don't have memory operands.
+        if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+        {
+            arg = gtCloneSimple(arg);
+        }
+        else
+        {
+            GenTreeLclLoad* tmp = fgInsertCommaFormTemp(&arg);
+            call->GetThisArg()->SetNode(arg);
+            call->AddSideEffects(GTF_ASG);
+            arg = tmp;
+        }
+
+        GenTree* cellOffset = gtNewIconNode(static_cast<ssize_t>(eeGetEEInfo()->offsetOfWrapperDelegateIndirectCell));
+        GenTree* newArg     = gtNewOperNode(GT_ADD, TYP_BYREF, arg, cellOffset);
+
+        gtAppendNewCallArg(call, newArg);
+
+        nonStandardArgs.Add(newArg, info.virtualStubParamRegNum);
+        numArgs++;
+    }
+    else
+#endif // TARGET_ARM
+#ifndef TARGET_X86
+        if (call->IsVirtualStubIndirect())
+    {
+        GenTree* stubAddrArg = gtCloneSimple(call->GetCallAddr());
+
+        gtInsertNewCallArgAfter(stubAddrArg, call->GetThisArg());
+
+        nonStandardArgs.Add(stubAddrArg, info.virtualStubParamRegNum);
+        numArgs++;
+    }
+    else if (call->IsVirtualStubDirect())
+    {
+        assert(call->m_entryPointAddr != nullptr);
+        assert(call->m_entryPointAccessType == IAT_PVALUE);
+
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+        cellAddress->SetDumpHandle(call->GetMethodHandle());
+
+        gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
+
+        nonStandardArgs.Add(cellAddress, info.virtualStubParamRegNum);
+        numArgs++;
+    }
+    else
+#endif // TARGET_X86
+#if defined(FEATURE_READYTORUN_COMPILER) && defined(TARGET_ARMARCH)
+        if (call->IsR2RRelativeIndir())
+    {
+        // For ARM32/64, we dispatch code same as VSD using info.virtualStubParamRegNum
+        // for indirection cell address, which ZapIndirectHelperThunk expects.
+
+        assert(call->m_entryPointAddr != nullptr);
+        assert(call->m_entryPointAccessType == IAT_PVALUE);
+
+        GenTreeIntCon* cellAddress = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+        cellAddress->SetDumpHandle(call->GetMethodHandle());
+        // Don't attempt to CSE this constant on ARM32.
+        // This constant has specific register requirements, and LSRA doesn't
+        // currently correctly handle them when the value is in a CSE'd local.
+        ARM_ONLY(cellAddress->SetDoNotCSE());
+
+        if (GenTreeCall::Use* thisUse = call->HasThisArg())
+        {
+            gtInsertNewCallArgAfter(cellAddress, call->GetThisArg());
+        }
+        else
+        {
+            gtPrependNewCallArg(call, cellAddress);
+        }
+
+        nonStandardArgs.Add(cellAddress, REG_R2R_INDIRECT_PARAM);
+        numArgs++;
+    }
+    else
+#endif // FEATURE_READYTORUN_COMPILER && TARGET_ARMARCH
+        if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
+    {
+        assert(!call->IsUnmanaged());
+
+        GenTree* target = nullptr;
+        GenTree* cookie = nullptr;
+
+        for (GenTreeCall::Use* use = call->m_uses; use->GetNext() != nullptr; use = use->GetNext())
+        {
+            cookie = use->GetNode();
+            target = use->GetNext()->GetNode();
+        }
+
+        nonStandardArgs.Add(target, REG_PINVOKE_TARGET_PARAM);
+        nonStandardArgs.Add(cookie, REG_PINVOKE_COOKIE_PARAM);
+    }
+
+    CallInfo* callInfo = new (this, CMK_CallInfo) CallInfo(this, call, numArgs);
+
+#ifdef TARGET_X86
+    unsigned maxIntArgRegNum;
+
+    if (call->IsUnmanaged())
+    {
+        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
+        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
+               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
+        assert(!call->HasThisArg());
+
+        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
+    }
+    else if (callIsVararg)
+    {
+        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
+        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
+    }
+    else
+    {
+        maxIntArgRegNum = MAX_REG_ARG;
+    }
+#endif // TARGET_X86
+
+#ifdef TARGET_ARM
+    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
+    // to the "Procedure Call Standard for the ARM Architecture" document, especially
+    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
+    // appear in a lower-numbered register than floating point argument N. That is, argument
+    // register allocation is not strictly increasing. To support this, we need to keep track of unused
+    // floating-point argument registers that we can back-fill. We only support 4-byte float and
+    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
+    // only back-fill single registers, since there is no way with these types to create
+    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
+    // available (with 16 FP argument registers). Consider this code:
+    //
+    // struct HFA { float x, y, z; }; // a three element HFA
+    // void bar(float a1,   // passed in f0
+    //          double a2,  // passed in f2/f3; skip f1 for alignment
+    //          HFA a3,     // passed in f4/f5/f6
+    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
+    //          HFA a5,     // passed in f10/f11/f12
+    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
+    //                      // slots
+    //          float a7,   // passed in f1 (back-filled)
+    //          float a8,   // passed in f7 (back-filled)
+    //          float a9,   // passed in f13 (back-filled)
+    //          float a10)  // passed on the stack in [OutArg+0]
+    //
+    // Note that if we ever support FP types with larger alignment requirements, then there could
+    // be more than single register back-fills.
+    //
+    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
+    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
+    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
+    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
+    // and prevent any additional floating-point arguments from going in registers.
+
+    bool anyFloatStackArgs = false;
+
+    regMaskTP intArgSkippedRegMask = RBM_NONE;
+    regMaskTP fltArgSkippedRegMask = RBM_NONE;
+#endif //  TARGET_ARM
+
+    unsigned intArgRegNum = 0;
+    unsigned fltArgRegNum = 0;
+    unsigned argIndex     = 0;
+    unsigned nextSlotNum  = INIT_ARG_STACK_SLOT;
+
+    auto AllocateStackSlots = [&nextSlotNum](unsigned slotCount, unsigned alignment) {
+        unsigned firstSlot = roundUp(nextSlotNum, alignment);
+        nextSlotNum        = firstSlot + slotCount;
+        return firstSlot;
+    };
+
+    for (GenTreeCall::Use& args : call->Uses())
+    {
+        GenTree* const  argNode = args.GetNode();
+        var_types const argType = argNode->GetType();
+
+        // We should not have setup the arguments yet
+        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+
+        unsigned     size            = 0;
+        var_types    sigType         = TYP_UNDEF;
+        unsigned     argAlign        = 1;
+        const bool   isStructArg     = typIsLayoutNum(args.GetSigTypeNum());
+        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
+        unsigned     structSize      = 0;
+        var_types    structBaseType  = TYP_STRUCT;
+        bool         passStructByRef = false;
+        var_types    hfaType         = TYP_UNDEF;
+        unsigned     hfaSlots        = 0;
+
+        if (isStructArg)
+        {
+            structSize = layout->GetSize();
+            sigType    = TYP_STRUCT;
+
+            layout->EnsureHfaInfo(this);
+
+            if (layout->IsHfa()
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
+                && !callIsVararg
+#endif
+                )
+            {
+                hfaType  = layout->GetHfaElementType();
+                hfaSlots = layout->GetHfaRegCount();
+
+                compFloatingPointUsed = true;
+            }
+
+#ifdef TARGET_ARM
+            argAlign = info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle());
+            argAlign = roundUp(argAlign, REGSIZE_BYTES) / REGSIZE_BYTES;
+#endif
+
+            StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
+
+            structBaseType  = howToPassStruct.type;
+            passStructByRef = howToPassStruct.kind == SPK_ByReference;
+
+#if defined(WINDOWS_AMD64_ABI)
+            size = 1;
+#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
+            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+#elif defined(TARGET_ARM64)
+            if (hfaType != TYP_UNDEF)
+            {
+                size = hfaSlots;
+            }
+            else
+            {
+                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
+                assert(!passStructByRef || (size == 1));
+            }
+#else
+#error Unsupported or unset target architecture
+#endif
+
+            if (howToPassStruct.kind == SPK_PrimitiveType)
+            {
+                // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
+                // or for a struct of two floats. This causes the struct to be address-taken.
+                size = 1 ARM_ONLY(+(structBaseType == TYP_DOUBLE));
+            }
+        }
+        else
+        {
+            sigType = static_cast<var_types>(args.GetSigTypeNum());
+
+            // The signature type should type should never be STRUCT, for struct params we should have
+            // a layout instead. If it is then it's likely that we have a helper call with struct params.
+            assert(sigType != TYP_STRUCT);
+
+            // We may get primitive args for struct params but never the other way around.
+            assert(!varTypeIsStruct(argType));
+
+            assert((varActualType(sigType) == varActualType(argType)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
+                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
+
+#ifdef TARGET_ARM
+            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES) / REGSIZE_BYTES;
+#endif
+
+#ifdef TARGET_64BIT
+            size = 1;
+#else
+            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
+#endif
+        }
+
+#if defined(TARGET_ARM)
+        const bool passUsingFloatRegs =
+            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
+
+        if (argAlign == 2)
+        {
+            if (passUsingFloatRegs)
+            {
+                if (fltArgRegNum % 2 == 1)
+                {
+                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
+                    fltArgRegNum++;
+                }
+            }
+            else if (intArgRegNum < MAX_REG_ARG)
+            {
+                if (intArgRegNum % 2 == 1)
+                {
+                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
+                    intArgRegNum++;
+                }
+            }
+        }
+#elif defined(TARGET_ARM64)
+        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
+#elif defined(TARGET_AMD64)
+        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
+#elif defined(TARGET_X86)
+        const bool passUsingFloatRegs = false;
+#else
+#error Unsupported or unset target architecture
+#endif
+
+        bool isRegArg = false;
+#ifdef TARGET_ARM
+        bool     isBackFilled     = false;
+        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
+#endif
+#ifdef OSX_ARM64_ABI
+        unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
+#endif
+        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
+
+        if (nonStdRegNum != REG_NA)
+        {
+            assert(!passUsingFloatRegs);
+            assert(size == 1);
+
+            isRegArg = nonStdRegNum != REG_STK;
+        }
+        else
+        {
+#if defined(TARGET_ARM)
+            if (passUsingFloatRegs)
+            {
+                // First, see if it can be back-filled
+                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
+                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
+                    (size == 1))                          // The size to back-fill is one float register
+                {
+                    isBackFilled              = true;
+                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
+                    fltArgSkippedRegMask &= ~backFillBitMask;
+                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
+                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
+                }
+
+                // Does the entire float, double, or HFA fit in the FP arg registers?
+                // Check if the last register needed is still in the argument register range.
+                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
+
+                if (!isRegArg)
+                {
+                    anyFloatStackArgs = true;
+                }
+            }
+            else
+            {
+                isRegArg = intArgRegNum < MAX_REG_ARG;
+            }
+#elif defined(TARGET_ARM64)
+            if (passUsingFloatRegs)
+            {
+                // Check if the last register needed is still in the fp argument register range.
+                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
+
+                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
+                if ((hfaType != TYP_UNDEF) && !isRegArg)
+                {
+                    // recompute the 'size' so that it represent the number of stack slots
+                    // rather than the number of registers
+                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+
+                    // We also must update fltArgRegNum so that we no longer try to
+                    // allocate any new floating point registers for args
+                    // This prevents us from backfilling a subsequent arg into d7
+                    fltArgRegNum = MAX_FLOAT_REG_ARG;
+                }
+            }
+            else
+            {
+                // Check if the last register needed is still in the int argument register range.
+                isRegArg = (intArgRegNum + (size - 1)) < MAX_REG_ARG;
+
+                // Did we run out of registers when we had a 16-byte struct (size===2) ?
+                // (i.e we only have one register remaining but we needed two registers to pass this arg)
+                // This prevents us from backfilling a subsequent arg into x7
+                if (!isRegArg && (size > 1))
+                {
+#ifdef TARGET_WINDOWS
+                    // win-arm64 native varargs allows splitting a 16 byte struct
+                    // between x7 and a the first stack slot
+                    if (callIsVararg)
+                    {
+                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_REG_ARG;
+                    }
+                    else
+#endif
+                    {
+                        // We also must update intArgRegNum so that we no longer try to
+                        // allocate any new general purpose registers for args
+                        intArgRegNum = MAX_REG_ARG;
+                    }
+                }
+            }
+#elif defined(UNIX_AMD64_ABI)
+            if (isStructArg)
+            {
+                if (layout->GetSysVAmd64AbiRegCount() != 0)
+                {
+                    unsigned structFloatRegs = 0;
+                    unsigned structIntRegs   = 0;
+
+                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
+                    {
+                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
+                        {
+                            structFloatRegs++;
+                        }
+                        else
+                        {
+                            structIntRegs++;
+                        }
+                    }
+
+                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
+                               (intArgRegNum + structIntRegs <= MAX_REG_ARG);
+                }
+            }
+            else if (passUsingFloatRegs)
+            {
+                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
+            }
+            else
+            {
+                isRegArg = intArgRegNum < MAX_REG_ARG;
+            }
+#elif defined(WINDOWS_AMD64_ABI)
+            assert(size == 1);
+            isRegArg = intArgRegNum < MAX_REG_ARG;
+#elif defined(TARGET_X86)
+            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
+            {
+                assert(size == 1);
+                isRegArg = intArgRegNum < maxIntArgRegNum;
+            }
+
+            if (call->IsTailCallViaJitHelper())
+            {
+                // The last 4 args of the tail call helper are always passed on the stack.
+                assert(numArgs >= 4);
+                assert(!passUsingFloatRegs);
+
+                if (argIndex >= numArgs - 4)
+                {
+                    isRegArg = false;
+                }
+            }
+#else
+#error Unknown target
+#endif
+        }
+
+#ifdef TARGET_ARM
+        if (passUsingFloatRegs)
+        {
+            // If we ever allocate a floating point argument to the stack, then
+            // all subsequent HFA/float/double arguments go on the stack.
+            if (!isRegArg)
+            {
+                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
+                {
+                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
+                }
+            }
+        }
+        else
+        {
+            // If we're going to split a struct between integer registers and the stack, check to
+            // see if we've already assigned a floating-point arg to the stack.
+            if (isRegArg && (intArgRegNum + size > MAX_REG_ARG) && anyFloatStackArgs)
+            {
+                isRegArg = false;
+
+                // Skip the rest of the integer argument registers
+                for (; intArgRegNum < MAX_REG_ARG; intArgRegNum++)
+                {
+                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
+                }
+            }
+        }
+#endif // TARGET_ARM
+
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
+
+        if (!isRegArg)
+        {
+            argInfo->SetSlots(AllocateStackSlots(size, argAlign), size);
+        }
+        else
+        {
+            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
+
+            if (nonStdRegNum != REG_NA)
+            {
+                regs[0] = nonStdRegNum;
+            }
+#ifdef UNIX_AMD64_ABI
+            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
+            {
+                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
+
+                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
+                {
+                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
+                    {
+                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
+                    }
+                    else
+                    {
+                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
+                    }
+                }
+            }
+#endif // UNIX_AMD64_ABI
+            else
+            {
+                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
+                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
+            }
+
+            unsigned regCount = size;
+#if FEATURE_ARG_SPLIT
+            unsigned firstSlot = 0;
+            unsigned slotCount = 0;
+#endif
+
+            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
+            {
+#ifdef WINDOWS_AMD64_ABI
+                assert(regCount == 1);
+
+                intArgRegNum++;
+                fltArgRegNum++;
+#else // !WINDOWS_AMD64_ABI
+                if (passUsingFloatRegs)
+                {
+                    fltArgRegNum += regCount;
+                    // No supported architecture supports partial structs using float registers.
+                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
+                }
+                else
+                {
+#if FEATURE_ARG_SPLIT
+                    if (intArgRegNum + regCount > MAX_REG_ARG)
+                    {
+                        // This indicates a partial enregistration of a struct arg
+                        assert(isStructArg);
+
+                        regCount  = MAX_REG_ARG - intArgRegNum;
+                        slotCount = size - regCount;
+                        firstSlot = AllocateStackSlots(slotCount, 1);
+                    }
+#endif
+
+                    intArgRegNum += regCount;
+                }
+#endif // WINDOWS_AMD64_ABI
+            }
+
+#ifdef TARGET_ARM
+            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
+            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
+            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
+            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
+            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
+
+            if (hfaType != TYP_UNDEF)
+            {
+                regCount = hfaSlots;
+
+                if (hfaType == TYP_DOUBLE)
+                {
+                    assert((regCount & 1) == 0);
+                    regCount = hfaSlots / 2;
+                }
+            }
+            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
+            {
+                regCount = 1;
+            }
+#endif
+
+            argInfo->SetRegCount(regCount);
+            argInfo->SetRegNum(0, regs[0]);
+            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
+
+#if defined(UNIX_AMD64_ABI)
+            assert(regCount <= 2);
+
+            if (regCount == 2)
+            {
+                argInfo->SetRegNum(1, regs[1]);
+            }
+
+            if (isStructArg)
+            {
+                for (unsigned i = 0; i < regCount; i++)
+                {
+                    // TODO-MIKE-Review: Does this really need to be the actual type?
+                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
+                }
+            }
+            else
+            {
+                argInfo->SetRegType(0, argType);
+            }
+#elif defined(TARGET_ARMARCH)
+            if (hfaType != TYP_UNDEF)
+            {
+                argInfo->SetRegType(hfaType);
+            }
+            else if (varTypeIsFloating(argType) && opts.UseHfa())
+            {
+                argInfo->SetRegType(argType);
+            }
+#endif
+
+#if FEATURE_ARG_SPLIT
+            if (slotCount != 0)
+            {
+                argInfo->SetSlots(firstSlot, slotCount);
+            }
+#endif
+        }
+
+        if (isStructArg)
+        {
+            argInfo->SetIsImplicitByRef(passStructByRef);
+            argInfo->SetArgType(structBaseType == TYP_UNDEF ? argType : structBaseType);
+        }
+        else
+        {
+            argInfo->SetArgType(argType);
+        }
+
+        callInfo->AddArg(argInfo);
+    }
+
+    callInfo->SetStackArgsSlotCount(nextSlotNum);
+    call->SetInfo(callInfo);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Call [%06u] arg table after moInitCallnfo:\n", call->GetID());
+        callInfo->Dump();
+        printf("\n");
+    }
+#endif
+}
+
+void Compiler::moMorphCallArgs(GenTreeCall* const call)
+{
+    JITDUMP("Morphing call [%06u] args\n", call->GetID());
+
+    GenTreeFlags argsSideEffects = GTF_NONE;
+
+    for (GenTreeUse& use : call->Uses())
+    {
+        use.SetNode(moMorphTree(use.GetNode()));
+        argsSideEffects |= use.GetNode()->gtFlags;
+    }
+
+    if (GenTree* addr = call->GetCallAddr())
+    {
+        call->SetCallAddr(moMorphTree(addr));
+        argsSideEffects |= call->GetCallAddr()->gtFlags;
+    }
+
+    call->RemoveSideEffects(GTF_ASG);
+
+    if (!call->CallMayThrow(this))
+    {
+        call->RemoveSideEffects(GTF_EXCEPT);
+    }
+
+    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
+}
+
+void Compiler::moSetupCallArgs(GenTreeCall* const call)
+{
+    assert((call->GetInfo() != nullptr) && !call->HasArgsSetup());
+
+    JITDUMP("Setting up call [%06u] args\n", call->GetID());
+
+    GenTreeFlags argsSideEffects = GTF_NONE;
+    unsigned     argNum          = 0;
+
+    // Sometimes we need a second pass to morph args, most commonly for arguments
+    // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
+    // so if the args needs a temp SpillArgs won't be able to allocate one.
+    // Then the first pass does minimal or no morphing of the arg and the second
+    // pass replaces the arg with a FIELD_LIST node.
+    bool requires2ndPass = false;
+
+    for (GenTreeCall::Use& argUse : call->Uses())
+    {
+        CallArgInfo* argInfo = call->GetArgInfoByArgNum(argNum++);
+        GenTree*     arg     = argUse.GetNode();
+
+        assert(argInfo->GetSetupUse() == nullptr);
+
+        bool paramIsStruct = typIsLayoutNum(argUse.GetSigTypeNum());
+
+        if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
+        {
+            if (paramIsStruct && arg->OperIs(GT_CONV) &&
+                (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse.GetSigTypeNum())->GetSize()))
+            {
+                // This is a struct arg that became a primitive type arg due to struct promotion.
+                // Promoted struct fields are "normalized on load" but we don't need normalization
+                // because struct args do not need to be widened so we can drop the normalization
+                // cast.
+
+                arg = arg->AsUnOp()->GetOp(0);
+                argUse.SetNode(arg);
+            }
+
+#if defined(TARGET_WINDOWS) || defined(TARGET_ARM)
+            // win-arm64 varargs and arm-soft-fp pass floating point args in integer registers.
+            // win-x64 passes single float/double field structs in integer registers, if we
+            // promoted the struct, or if a float/double local was reinterpreted as a single
+            // FP field struct we need to bitcast the FP value to integer.
+            if ((argInfo->GetRegCount() != 0) &&
+#ifdef TARGET_ARM
+                // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
+                // case in lowering/codegen.
+                arg->TypeIs(TYP_FLOAT)
+#else
+                arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
+#endif
+                && genIsValidIntReg(argInfo->GetRegNum(0)))
+            {
+                arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
+                argUse.SetNode(arg);
+            }
+#endif // defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
+
+            bool argMatchesRegType =
+                (argInfo->GetRegCount() == 0) ||
+#ifdef TARGET_ARM
+                (arg->TypeIs(TYP_DOUBLE) && (argInfo->GetRegCount() == 2) && genIsValidIntReg(argInfo->GetRegNum(0))) ||
+#endif
+                (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
+            assert(argMatchesRegType);
+
+            continue;
+        }
+
+        // Non-standard args are expected to have primitive type.
+        assert(!argInfo->IsNonStandard());
+
+        // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
+        // temp arg copies? The struct arg morph code below doesn't handle that.
+        GenTree* argVal = arg->SkipComma();
+
+        assert(!argVal->OperIs(GT_FIELD_LIST, GT_LCL_DEF, GT_LCL_STORE));
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        if (argInfo->IsImplicitByRef())
+        {
+            assert(argInfo->IsSingleRegOrSlot());
+            abiMorphImplicitByRefStructArg(call, argInfo);
+            argsSideEffects |= argUse.GetNode()->gtFlags;
+            continue;
+        }
+#endif
+
+        if (argInfo->GetRegCount() != 0)
+        {
+#if FEATURE_MULTIREG_ARGS
+            if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
+            {
+                requires2ndPass |= true;
+            }
+            else
+#endif
+            {
+                abiMorphSingleRegStructArg(argInfo, argVal);
+            }
+
+            argsSideEffects |= argUse.GetNode()->gtFlags;
+            continue;
+        }
+
+        requires2ndPass |= abiMorphStackStructArg(argInfo, argVal);
+        argsSideEffects |= argUse.GetNode()->gtFlags;
+    }
+
+    call->GetInfo()->SetupArgs(this, call);
+    call->AddSideEffects(argsSideEffects & GTF_ALL_EFFECT);
+
+#ifdef TARGET_X86
+    assert(!requires2ndPass);
+#else
+    if (requires2ndPass)
+    {
+        abiMorphArgs2ndPass(call);
+    }
+#endif
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Call [%06u] arg table after moSetupCallArgs:\n", call->GetID());
+        call->fgArgInfo->Dump();
+    }
+#endif
+}
+
+bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert(argInfo->GetRegCount() == 0);
+
+    if (arg->IsIntegralConst(0))
+    {
+#ifdef TARGET_64BIT
+        // Args that require more than one slot are handled in codegen but in the single slot
+        // case we need to ensure that the entire slot is zeroed, not just the low 4 bytes.
+        if ((argInfo->GetSlotCount() == 1) &&
+            (typGetLayoutByNum(argInfo->GetSigTypeNum())->GetSize() > varTypeSize(arg->GetType())))
+        {
+            arg->SetType(TYP_LONG);
+        }
+#endif
+
+        return false;
+    }
+
+    assert(varTypeIsStruct(arg->GetType()));
+
+    if (arg->OperIs(GT_MKREFANY))
+    {
+#ifdef TARGET_X86
+        abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
+        return false;
+#else
+        return true;
+#endif
+    }
+
+    if (arg->OperIs(GT_LCL_LOAD) && varTypeIsStruct(arg->GetType()) &&
+        arg->AsLclLoad()->GetLcl()->IsIndependentPromoted())
+    {
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
+
+        if (lcl->GetPromotedFieldCount() > 1)
+        {
+            // If we need more than one field we need to generate a FIELD_LIST.
+            // If this argument ends up needing a temp then SpillArgs will
+            // need the struct layout to create the temp and FIELD_LIST doesn't
+            // have layout. So we have to do this transform after SpillArgs.
+            // On x86 we never need temps for stack args so we do it here.
+            CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef TARGET_X86
+            abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
+            return false;
+#else
+            return true;
+#endif
+        }
+
+        LclVarDsc* fieldLcl  = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+        var_types  fieldType = fieldLcl->GetType();
+
+        assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
+
+        arg->AsLclLoad()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
+        arg->SetType(fieldType);
+        arg->gtFlags = GTF_NONE;
+
+        argInfo->SetArgType(fieldType);
+
+        return false;
+    }
+
+#ifndef TARGET_X86
+    // On x86 we need to keep multireg calls unchanged since there are no multireg
+    // args and thus no second arg morphing pass. This also avoids the need for a
+    // temp and it's good for CQ, even if that's not exactly useful on x86, given
+    // the limited use of the native calling convention.
+    // TODO-MIKE-CQ: Avoiding the temp would be good on other targets as well, but
+    // currently that doesn't work because the rest of the arg morphing code always
+    // spills arg containing calls to temps, even the first evaluated arg, that has
+    // no outgoing arg area interference.
+    if (arg->IsCall() && (arg->AsCall()->GetRegCount() > 1))
+    {
+        return true;
+    }
+#endif
+
+    if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
+    {
+        // While not required for correctness, we can change the type of a struct arg to
+        // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
+        // USHORT. Currently CSE does not handle STRUCT OBJs but it can CSE an IND, even
+        // if this is a form a reinterpretation that has other limitations in VN/CSE.
+        //
+        // TODO-MIKE-CQ: Investigate reinterpretation effect on VN. For example, would
+        // VN be able to convert from a "zero map" to any primitive type in order to
+        // const propagate default struct initialization?
+
+        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
+
+        var_types argType   = argInfo->GetArgType();
+        bool      canRetype = false;
+
+        if (arg->OperIs(GT_IND_LOAD_OBJ))
+        {
+            canRetype = varTypeSize(argType) <= arg->AsIndLoadObj()->GetLayout()->GetSize();
+
+            if (canRetype)
+            {
+                arg->ChangeOper(GT_IND_LOAD);
+            }
+        }
+        else if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
+        {
+            canRetype = load->GetLclOffs() + varTypeSize(argType) <= load->GetLcl()->GetTypeSize();
+
+            if (canRetype)
+            {
+                arg->AsLclLoadFld()->SetFieldSeq(FieldSeqStore::NotAField());
+            }
+        }
+        else if (arg->OperIs(GT_LCL_LOAD))
+        {
+            canRetype      = true;
+            LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
+            arg->ChangeToLclLoadFld(argType, lcl, 0, FieldSeqStore::NotAField());
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+        }
+
+        if (canRetype)
+        {
+            if (varTypeIsSmall(argType))
+            {
+                // argType is a signed type but this is a struct so sign extension isn't necessary.
+                // On XARCH it causes MOVSX to be generated, which has larger encoding than MOVZX.
+                argType = varTypeToSmallUnsigned(argType);
+            }
+
+            arg->SetType(argType);
+        }
+    }
+
+    return false;
+}
+
+void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
+{
+    assert(argInfo->GetRegCount() == 0);
+
+    LclVarDsc* lcl = arg->GetLcl();
+
+    if (!lcl->IsIndependentPromoted())
+    {
+        return;
+    }
+
+    assert(lcl->GetPromotedFieldCount() > 1);
+
+    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+    {
+        var_types       fieldType   = fieldLcl->GetType();
+        unsigned        fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        GenTreeLclLoad* fieldLoad   = gtNewLclLoad(fieldLcl, fieldType);
+
+        assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
+
+        fieldList->AddField(this, fieldLoad, fieldOffset, fieldType);
+    }
+}
+
+void Compiler::abiMorphMkRefAnyToFieldList(CallArgInfo* argInfo, GenTreeOp* arg)
+{
+    assert(argInfo->GetRegCount() + argInfo->GetSlotCount() == 2);
+
+    GenTree* dataPtr = arg->GetOp(0);
+    GenTree* type    = arg->GetOp(1);
+
+    GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+    fieldList->AddField(this, dataPtr, OFFSETOF__CORINFO_TypedReference__dataPtr, TYP_BYREF);
+    fieldList->AddField(this, type, OFFSETOF__CORINFO_TypedReference__type, TYP_I_IMPL);
+}
+
+GenTreeFieldList* Compiler::abiMakeFieldList(GenTree* arg)
+{
+    return arg->ChangeToFieldList();
+}
+
+void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
+{
+    assert(varTypeIsStruct(ret->GetType()));
+
+#if FEATURE_MULTIREG_RET
+    if (info.retDesc.GetRegCount() > 1)
+    {
+        assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
+
+        ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+
+        while (val->OperIs(GT_COMMA))
+        {
+            commas.Push(val->AsOp());
+            val = val->AsOp()->GetOp(1);
+        }
+
+        if (val->IsFieldList())
+        {
+            return;
+        }
+
+        if (GenTreeCall* call = val->IsCall())
+        {
+            bool registersMatch = call->GetRegCount() == info.retDesc.GetRegCount();
+
+            for (unsigned i = 0; i < call->GetRegCount() && registersMatch; i++)
+            {
+                if (call->GetRetDesc()->GetRegNum(i) != info.retDesc.GetRegNum(i))
+                {
+                    registersMatch = false;
+                }
+            }
+
+            if (registersMatch)
+            {
+                return;
+            }
+        }
+        else if (val->OperIs(GT_LCL_LOAD_FLD) && varTypeIsSIMD(val->GetType()))
+        {
+            val->AsLclLoadFld()->SetLayout(info.GetRetLayout(), this);
+        }
+
+        GenTreeCall::Use use(val);
+        use.SetSigTypeNum(typGetLayoutNum(info.GetRetLayout()));
+        CallArgInfo argInfo(&use, 0, true);
+        argInfo.SetRegCount(info.retDesc.GetRegCount());
+        argInfo.SetArgType(val->GetType());
+
+#ifdef UNIX_AMD64_ABI
+        for (unsigned i = 0; i < info.retDesc.GetRegCount(); i++)
+        {
+            argInfo.SetRegNum(i, info.retDesc.GetRegNum(i));
+            argInfo.SetRegType(i, info.retDesc.GetRegType(i));
+        }
+#else
+        var_types regType = info.retDesc.GetRegType(0);
+
+        if (varTypeIsGC(regType))
+        {
+            regType = TYP_I_IMPL;
+        }
+
+        argInfo.SetRegType(regType);
+#endif
+
+        val = abiMorphMultiRegStructArg(&argInfo, val);
+
+        var_types retType = varActualType(val->GetType());
+
+#ifdef WINDOWS_X86_ABI
+        // TODO-MIKE-Cleanup: abiMorphMultiRegStructArg manages to generate a FIELD_LIST
+        // with a single LONG/DOUBLE field, this doesn't seem right and it certainly doesn't
+        // work correctly on x86. ARM32 multireg args may also be affected.
+        if (GenTreeFieldList* fieldList = val->IsFieldList())
+        {
+            GenTreeFieldList::Use* field = fieldList->Uses().GetHead();
+
+            if (field->GetNext() == nullptr)
+            {
+                val = field->GetNode();
+                assert(val->TypeIs(TYP_LONG, TYP_DOUBLE));
+
+                if (val->TypeIs(TYP_DOUBLE))
+                {
+                    retType = TYP_LONG;
+                }
+            }
+        }
+#endif
+
+        if (!commas.Empty())
+        {
+            commas.Top()->SetOp(1, val);
+
+            for (unsigned i = 0; i < commas.Size(); i++)
+            {
+                GenTreeOp* comma = commas.Top(i);
+                comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+                comma->SetType(retType);
+            }
+
+            ret->SetSideEffects(commas.Bottom()->GetSideEffects());
+        }
+        else
+        {
+            ret->SetOp(0, val);
+            ret->SetSideEffects(val->GetSideEffects());
+        }
+
+        ret->SetType(retType);
+
+        return;
+    }
+#endif // FEATURE_MULTIREG_RET
+
+    if (val->IsIntegralConst(0))
+    {
+        var_types regType = varActualType(info.retDesc.GetRegType(0));
+
+        if (varTypeIsFloating(regType))
+        {
+            val->ChangeToDblCon(TYP_DOUBLE, 0);
+        }
+        else if (regType == TYP_LONG)
+        {
+            val->SetType(TYP_LONG);
+        }
+        else if (varTypeIsGC(regType))
+        {
+            val->SetType(TYP_I_IMPL);
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (varTypeIsSIMD(regType))
+        {
+            // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
+            val->ChangeOper(GT_HWINTRINSIC);
+            val->SetType(regType);
+            val->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(regType), TYP_FLOAT, varTypeSize(regType), 0);
+        }
+#endif
+        else
+        {
+            assert(regType == TYP_INT);
+        }
+
+        ret->SetType(regType);
+
+        return;
+    }
+
+    if (val->OperIs(GT_LCL_LOAD))
+    {
+        LclVarDsc* lcl = val->AsLclLoad()->GetLcl();
+
+#ifdef TARGET_AMD64
+        if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+        {
+            // Only Vector2/3/4 are promoted.
+            assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+            // TODO-MIKE-Review: Could we get here on ARM64 due to Vector2/Vector64
+            // reinterpretation?
+
+            val = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
+                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
+
+            var_types regType = varActualType(info.retDesc.GetRegType(0));
+            assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
+
+            val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
+
+            ret->SetOp(0, val);
+            ret->SetType(regType);
+
+            return;
+        }
+#endif
+    }
+
+#ifdef WINDOWS_AMD64_ABI
+    if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
+    {
+        if (val->IsCall())
+        {
+            assert(val->TypeIs(TYP_SIMD8));
+            val->SetType(TYP_LONG);
+        }
+        else if (val->TypeIs(TYP_SIMD8))
+        {
+            val = gtNewBitCastNode(TYP_LONG, val);
+        }
+        else
+        {
+            val = gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, val, gtNewIconNode(0));
+        }
+
+        ret->SetOp(0, val);
+        ret->SetType(TYP_LONG);
+    }
+#endif
+}
+
+#ifndef TARGET_X86
+
+void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
+{
+    for (unsigned i = 0; i < call->GetInfo()->GetArgCount(); i++)
+    {
+        CallArgInfo* argInfo = call->GetInfo()->GetArgInfo(i);
+        GenTree*     arg     = argInfo->GetNode();
+
+        if (arg->OperIs(GT_MKREFANY))
+        {
+            abiMorphMkRefAnyToFieldList(argInfo, arg->AsOp());
+            continue;
+        }
+
+        if (argInfo->GetRegCount() == 0)
+        {
+            arg = arg->SkipComma();
+
+            if (arg->OperIs(GT_LCL_LOAD))
+            {
+                abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
+            }
+            continue;
+        }
+
+#if FEATURE_MULTIREG_ARGS
+        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 1)
+        {
+            if (arg->IsIntegralConst(0) || (varTypeIsStruct(arg->GetType()) && !arg->IsFieldList()))
+            {
+                GenTree* newArg = abiMorphMultiRegStructArg(argInfo, arg);
+
+                if (newArg != arg)
+                {
+                    argInfo->SetNode(newArg);
+                    call->AddSideEffects(newArg->GetSideEffects());
+                }
+            }
+
+            continue;
+        }
+#endif
+    }
+}
+
+#endif
+
+void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
+
+    var_types argRegType = argInfo->GetArgType();
+    unsigned  argSize    = 0;
+
+    if (varTypeIsSmall(argRegType))
+    {
+        // This being a struct, sign extension isn't needed so use unsigned small int types.
+        // On XARCH we get MOVZX which may end up being shorter than MOVSX.
+        argRegType = varTypeToSmallUnsigned(argRegType);
+    }
+
+    if (arg->IsIntegralConst(0))
+    {
+        if (varTypeIsFloating(argRegType))
+        {
+            arg->ChangeToDblCon(TYP_DOUBLE, 0);
+        }
+        else if (argRegType == TYP_LONG)
+        {
+            arg->SetType(TYP_LONG);
+        }
+        else if (varTypeIsGC(argRegType))
+        {
+            arg->SetType(TYP_I_IMPL);
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (varTypeIsSIMD(argRegType))
+        {
+            arg->ChangeOper(GT_HWINTRINSIC);
+            arg->SetType(argRegType);
+            arg->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(argRegType), TYP_FLOAT, varTypeSize(argRegType),
+                                               0);
+        }
+#endif
+        else
+        {
+            assert(varActualTypeIsInt(argRegType));
+        }
+
+        return;
+    }
+
+    if (arg->OperIs(GT_IND_LOAD_OBJ))
+    {
+        argSize = arg->AsIndLoadObj()->GetLayout()->GetSize();
+
+        assert(argSize <= argRegType);
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_X86)
+        // On win-x64 and x86 only register sized structs are passed in a register, others are passed by reference.
+        assert(argSize == varTypeSize(argRegType));
+#else
+        // On all other targets structs smaller than register size can be passed in a register, this includes
+        // structs that not only that they're smaller but they also don't match any available load instruction
+        // size (3, 5, 6...) and that will require additional processing.
+        assert(argSize <= varTypeSize(argRegType));
+
+        if (!isPow2(argSize))
+        {
+#ifdef TARGET_64BIT
+            assert((argSize == 3) || (argSize == 5) || (argSize == 6) || (argSize == 7));
+#else
+            assert(argSize == 3);
+#endif
+            assert(arg->TypeIs(TYP_STRUCT));
+
+            GenTree* addr           = arg->AsIndLoadObj()->GetAddr();
+            ssize_t  addrOffset     = 0;
+            GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
+
+            arg = abiNewMultiLoadIndir(addr, addrOffset, argSize);
+
+            if (addrTempAssign != nullptr)
+            {
+                arg = gtNewCommaNode(addrTempAssign, arg);
+            }
+
+            argInfo->SetNode(arg);
+
+            return;
+        }
+#endif // !defined(WINDOWS_AMD64_ABI) && !defined(TARGET_X86)
+
+        arg->ChangeOper(GT_IND_LOAD);
+        arg->SetType(argRegType);
+
+        return;
+    }
+
+    if (arg->OperIs(GT_LCL_LOAD))
+    {
+        // Independent promoted locals require special handling. This includes promoted SIMD locals,
+        // such as a promoted SIMD8 local being passed in a LONG register on win-x64.
+
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
+
+        if (lcl->IsPromoted())
+        {
+            if (argSize == 0)
+            {
+                argSize = lcl->GetLayout()->GetSize();
+            }
+
+            GenTree* newArg = abiMorphSingleRegLclArgPromoted(arg->AsLclLoad(), argRegType, argSize);
+
+            if (newArg != arg)
+            {
+                argInfo->SetNode(newArg);
+            }
+
+            return;
+        }
+    }
+
+#ifdef TARGET_64BIT
+    if (arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
+    {
+        // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
+        argInfo->SetNode(gtNewBitCastNode(argRegType, arg));
+        return;
+    }
+#endif
+
+    // At this point we have either an arbitrary SIMD tree or a LCL_VAR|FLD of
+    // either SIMD or primitive type. The arbitrary SIMD tree should already be
+    // using the correct register type but the LCL_VAR may have the wrong type
+    // due to reinterpretation.
+
+    if (!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+#if defined(UNIX_AMD64_ABI)
+        // SIMD8 is the only SIMD type passed in a single register on unix-x64.
+        // SIMD16 & SIMD32 should also be passed in a single XMM register but the ABI
+        // is currently broken.
+        assert(arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_DOUBLE));
+#elif defined(TARGET_AMD64)
+        // On win-x64 the only SIMD type passed in a register is SIMD8 and we have
+        // already handled that case. vectorcall is not currently supported.
+        unreached();
+#elif defined(TARGET_ARM64)
+        // On ARM64 SIMD8 and SIMD16 types may be passed in a vector register.
+        // SIMD12 is always a HFA and SIMD32 doesn't exist.
+        assert(arg->TypeIs(TYP_SIMD8, TYP_SIMD16));
+        assert(argRegType == arg->GetType());
+#else
+        // Other targets don't have SIMD types or pass them on the stack (x86).
+        unreached();
+#endif
+        return;
+    }
+
+    // Normally at this point we should have a STRUCT or suitable SIMD typed LCL_LOAD(_FLD)
+    // but due to reinterpretation via OBJ(ADDR(LCL_VAR)) the LCL_LOAD_(FLD) may also have
+    // primitive type or an unexpected SIMD type (e.g. SIMD16 local passed in an INT reg).
+    // For now use LCL_LOAD_FLD to handle all such cases. In some cases BITCAST may be used
+    // but it's not clear which such cases, if any, are useful.
+
+    if (arg->TypeIs(TYP_STRUCT) || (varTypeUsesFloatReg(argRegType) != varTypeUsesFloatReg(arg->GetType())))
+    {
+        LclVarDsc* lcl = arg->AsLclRef()->GetLcl();
+
+        if (GenTreeLclLoadFld* load = arg->IsLclLoadFld())
+        {
+            load->SetType(argRegType);
+            load->SetFieldSeq(FieldSeqStore::NotAField());
+        }
+        else
+        {
+            arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
+        }
+
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+    }
+}
+
+GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_types argRegType, unsigned argSize)
+{
+    assert(argSize <= varTypeSize(argRegType));
+    assert(varTypeIsSingleReg(argRegType));
+
+    LclVarDsc* lcl = arg->GetLcl();
+    assert(argSize <= lcl->GetLayout()->GetSize());
+
+    LclVarDsc* fieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+    assert(!fieldLcl->TypeIs(TYP_STRUCT));
+
+    if ((fieldLcl->GetPromotedFieldOffset() == 0) && (argSize <= varTypeSize(fieldLcl->GetType())) &&
+        varTypeIsSingleReg(fieldLcl->GetType()))
+    {
+        // Handle the common case when the first field of the struct is large enough and can be loaded
+        // directly into the arg register. That's almost all single field structs, except those having
+        // a floating point or SIMD8 field that may need to be passed in an integer register (win-x64,
+        // win-arm64 varargs).
+
+        if (varTypeUsesFloatReg(fieldLcl->GetType()) == varTypeUsesFloatReg(argRegType))
+        {
+            arg->SetLcl(fieldLcl);
+            arg->SetType(fieldLcl->GetType());
+            return arg;
+        }
+
+#ifdef TARGET_64BIT
+        // Handle the win-x64 and win-arm64 varargs case. This doesn't occur now for floating point
+        // because single FLOAT/DOUBLE field structs aren't promoted. But it can be tested by
+        // reinterpreting a struct with more than one field.
+
+        if ((fieldLcl->TypeIs(TYP_FLOAT) && (argRegType == TYP_INT)) ||
+            (fieldLcl->TypeIs(TYP_DOUBLE) && (argRegType == TYP_LONG)) ||
+            (fieldLcl->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG)))
+        {
+            arg->SetLcl(fieldLcl);
+            arg->SetType(fieldLcl->GetType());
+            return gtNewBitCastNode(argRegType, arg);
+        }
+#endif // TARGET_64BIT
+    }
+
+    if (lcl->lvDoNotEnregister)
+    {
+        // If we need to use more than one field and the local is already DNER then just use LCL_FLD.
+        // Otherwise we'd just be generating multiple memory loads.
+
+        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
+
+        return arg;
+    }
+
+#ifdef TARGET_AMD64
+    // Special case for AMD64 ABIs - 2 float fields are passed in a single XMM reg on linux-x64 and
+    // an integer (LONG) reg on win-x64.
+    if ((lcl->GetPromotedFieldCount() >= 2) &&
+#ifdef UNIX_AMD64_ABI
+        (argRegType == TYP_DOUBLE)
+#else
+        (argRegType == TYP_LONG)
+#endif
+            )
+    {
+        LclVarDsc* field0Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+        LclVarDsc* field1Lcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(1));
+
+        if (field0Lcl->TypeIs(TYP_FLOAT) && (field0Lcl->GetPromotedFieldOffset() == 0) &&
+            field1Lcl->TypeIs(TYP_FLOAT) && (field1Lcl->GetPromotedFieldOffset() == 4))
+        {
+            GenTreeLclLoad* field0LclNode = gtNewLclLoad(field0Lcl, TYP_FLOAT);
+            GenTreeLclLoad* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
+
+            GenTree* doubleValue =
+                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
+
+            return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
+        }
+    }
+#endif // TARGET_AMD64
+
+    // At this point the only remaining interesting cases are structs with more than one integer field
+    // passed in an integer register (e.g. 4 UBYTE fields passed in an INT register). Also, on 64 bit
+    // targets a FLOAT and an INT may be passed in a LONG register.
+    //
+    // Other interesting cases may arise due to reinterpretation but it's not clear which ones would be
+    // useful so let's keep this simple for now. One potential such case would be passing vector like
+    // structs as real vectors (e.g. a 4 FLOAT field struct passed as SIMD16).
+
+    GenTree* newArg = nullptr;
+
+    if (varTypeIsIntegral(argRegType))
+    {
+        for (unsigned i = 0; i < lcl->GetPromotedFieldCount(); i++)
+        {
+            LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(i));
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+            unsigned   fieldSize   = varTypeSize(fieldLcl->GetType());
+
+            if (fieldOffset >= argSize)
+            {
+                // The local struct has more fields but we don't need all of them if the arg is smaller.
+                break;
+            }
+
+#ifdef TARGET_64BIT
+            // Even if the arg reg type is LONG we don't have to use LONG all other the place.
+            // For example, the first 2 SHORT fields of a 3 SHORT field struct can be packed using
+            // 32 bit operations. This reduces the need for INT to LONG casts, that the JIT doesn't
+            // handle very well. On X64 this also reduces the need for REX prefixes.
+            var_types newArgType = fieldOffset + fieldSize > 4 ? TYP_LONG : TYP_INT;
+#else
+            var_types newArgType      = TYP_INT;
+#endif
+
+            GenTree* field = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
+
+            if (varTypeIsSmall(fieldLcl->GetType()))
+            {
+                // Promoted fields are always normalize on load currently.
+                assert(fieldLcl->lvNormalizeOnLoad());
+
+                // In general we need to zero extend small int values so the upper bits don't
+                // interfere with subsequent fields.
+                bool needZeroExtend = true;
+
+                if (fieldOffset + fieldSize >= argSize)
+                {
+                    // Field is at the end of the arg struct, bits past the end of the arg struct
+                    // aren't required to have any particular value in any ABI.
+                    needZeroExtend = false;
+                }
+                else if ((argSize > 4) && (newArgType == TYP_INT) && ((i + 1) < lcl->GetPromotedFieldCount()) &&
+                         (lvaGetDesc(lcl->GetPromotedFieldLclNum(i + 1))->GetPromotedFieldOffset() >= 4))
+                {
+                    // This is the last field in an intermediary INT value. There may be padding
+                    // bits after it but they're not required to have a specific value. And we're
+                    // going to zero extend to LONG so the upper 32 bit will be zero anyway.
+                    // This covers the case of Nullable<int|float> and other similar "tagged" values,
+                    // such as SqlInt32.
+                    needZeroExtend = false;
+                }
+
+                if (needZeroExtend)
+                {
+                    var_types type = varTypeToSmallUnsigned(fieldLcl->GetType());
+
+#if LOCAL_ASSERTION_PROP
+                    if ((morphAssertionCount == 0) || !morphAssertionIsTypeRange(field->AsLclLoad(), type))
+#endif
+                    {
+                        field->SetType(TYP_INT);
+                        field = gtNewOperNode(GT_CONV, varConvType(type), field);
+                    }
+                }
+            }
+#ifdef TARGET_64BIT
+            else if (fieldLcl->GetType() == TYP_INT)
+            {
+                // INT may need to be widened to LONG later.
+            }
+            else if (fieldLcl->GetType() == TYP_FLOAT)
+            {
+                // On 64 bit targets a FLOAT and and INT field may end up being passed in a LONG register.
+                field = gtNewBitCastNode(TYP_INT, field);
+            }
+#endif
+            else
+            {
+                // We've run into a LONG/REF/BYREF/DOUBLE/SIMDn field. The normal cases involving such types have
+                // already been handled so this can only happen due to weird reinterpretation (e.g. struct with a
+                // LONG field being passed as a struct with an INT field). Just give up and use LCL_FLD.
+                newArg = nullptr;
+                break;
+            }
+
+#ifdef TARGET_64BIT
+            if (newArgType == TYP_LONG)
+            {
+                field = gtNewOperNode(GT_UXT, TYP_LONG, field);
+            }
+#endif
+
+            if (fieldOffset != 0)
+            {
+                // TODO-MIKE-CQ: On ARM32 OR + LSH should produced a single ORR with shifted register
+                // instruction but lowering/codegen doesn't know that. ARM64 does generate ORR with
+                // shifter register and UBFX but not BFI and sometimes that would be useful too.
+                field = gtNewOperNode(GT_LSH, newArgType, field, gtNewIconNode(static_cast<ssize_t>(fieldOffset) * 8));
+            }
+
+            if (newArg == nullptr)
+            {
+                newArg = field;
+            }
+            else
+            {
+#ifdef TARGET_64BIT
+                if (varActualType(newArg->GetType()) != newArgType)
+                {
+                    assert(varActualTypeIsInt(newArg->GetType()));
+
+                    newArg = gtNewOperNode(GT_UXT, TYP_LONG, newArg);
+                }
+#endif
+
+                newArg = gtNewOperNode(GT_OR, newArgType, newArg, field);
+            }
+        }
+    }
+
+    if (newArg == nullptr)
+    {
+        arg->ChangeToLclLoadFld(argRegType, lcl, 0, FieldSeqStore::NotAField());
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+        return arg;
+    }
+
+    return newArg;
+}
+
+#ifndef TARGET_X86
+
+GenTree* Compiler::abiMorphMkRefAnyToStore(LclVarDsc* tempLcl, GenTreeOp* mkrefany)
+{
+    GenTreeLclStoreFld* storePtrField =
+        gtNewLclStoreFld(TYP_BYREF, tempLcl, OFFSETOF__CORINFO_TypedReference__dataPtr, mkrefany->GetOp(0));
+    storePtrField->SetFieldSeq(GetRefanyValueField());
+    GenTreeLclStoreFld* storeTypeField =
+        gtNewLclStoreFld(TYP_I_IMPL, tempLcl, OFFSETOF__CORINFO_TypedReference__type, mkrefany->GetOp(1));
+    storeTypeField->SetFieldSeq(GetRefanyTypeField());
+
+#ifdef WINDOWS_AMD64_ABI
+    assert(tempLcl->lvIsImplicitByRefArgTemp);
+    storePtrField->AddSideEffects(GTF_GLOB_REF);
+    storeTypeField->AddSideEffects(GTF_GLOB_REF);
+#endif
+
+    return gtNewCommaNode(storePtrField, storeTypeField);
+}
+
+#endif
+
+#if FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+
+GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad* arg)
+{
+    assert(argInfo->IsHfaArg());
+    assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
+    assert(argInfo->GetSlotCount() == 0);
+
+    LclVarDsc* lcl       = arg->GetLcl();
+    var_types  regType   = argInfo->GetRegType(0);
+    unsigned   regCount  = argInfo->GetRegCount();
+    unsigned   regSize   = varTypeSize(regType);
+    unsigned   regOffset = 0;
+
+    for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+    {
+        var_types fieldType = fieldLcl->GetType();
+
+        if (regOffset != fieldLcl->GetPromotedFieldOffset())
+        {
+            break;
+        }
+
+        if (regType == fieldType)
+        {
+            regOffset += regSize;
+        }
+        else if (varTypeIsSIMD(fieldType) && (regType == TYP_FLOAT))
+        {
+            regOffset += varTypeSize(fieldType);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (regOffset != regCount * regSize)
+    {
+        return abiMorphMultiRegLclArg(argInfo, arg);
+    }
+
+    GenTreeFieldList* list = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned reg = 0, field = 0; reg < regCount; reg++)
+    {
+        unsigned regOffset = reg * regSize;
+
+        LclVarDsc* fieldLcl    = lvaGetDesc(lcl->GetPromotedFieldLclNum(field));
+        unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+        var_types  fieldType   = fieldLcl->GetType();
+
+        GenTree* fieldNode = gtNewLclLoad(fieldLcl, fieldType);
+
+        if (fieldLcl->IsAddressExposed())
+        {
+            fieldNode->AddSideEffects(GTF_GLOB_REF);
+        }
+
+#ifdef FEATURE_SIMD
+        if (fieldType != regType)
+        {
+            assert(regType == TYP_FLOAT);
+            assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
+            assert((regOffset - fieldOffset) % 4 == 0);
+
+            fieldNode =
+                gtNewSimdGetElementNode(fieldType, regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
+
+            if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
+            {
+                field++;
+            }
+        }
+        else
+#endif
+        {
+            assert(fieldType == regType);
+            assert(regOffset == fieldOffset);
+
+            field++;
+        }
+
+        list->AddField(this, fieldNode, regOffset, regType);
+    }
+
+    return list;
+}
+
+struct AbiRegFieldMap
+{
+    struct
+    {
+        uint8_t   reg;
+        var_types type;
+        uint16_t  offset;
+        unsigned  lclNum;
+    } fields[12];
+
+    unsigned count = 0;
+    unsigned firstStackField;
+
+    AbiRegFieldMap(Compiler* compiler, LclVarDsc* lcl, CallArgInfo* argInfo)
+    {
+        assert(!argInfo->IsHfaArg());
+
+        unsigned regCount = argInfo->GetRegCount();
+        unsigned field    = 0;
+        unsigned reg      = 0;
+
+        while (reg < regCount && field < lcl->GetPromotedFieldCount())
+        {
+            unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+            LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+            unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+            if (fieldOffset >= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                if ((count == 0) || (fields[count - 1].reg != reg))
+                {
+                    // This register doesn't overlap any promoted field. Must be padding
+                    // so we can just load 0. We have to add the register to the list
+                    // otherwise the backend may not allocate the register correctly.
+                    auto& f  = fields[count++];
+                    f.reg    = static_cast<uint8_t>(reg);
+                    f.lclNum = BAD_VAR_NUM;
+                }
+
+                reg++;
+                continue;
+            }
+
+            assert(count < _countof(fields));
+
+            auto& f  = fields[count++];
+            f.reg    = static_cast<uint8_t>(reg);
+            f.type   = fieldLcl->GetType();
+            f.offset = static_cast<uint16_t>(fieldOffset);
+            f.lclNum = fieldLclNum;
+
+            if (fieldOffset + varTypeSize(f.type) <= reg * REGSIZE_BYTES + REGSIZE_BYTES)
+            {
+                field++;
+            }
+            else
+            {
+                reg++;
+            }
+        }
+
+        firstStackField = count;
+
+        if (argInfo->GetSlotCount() > 0)
+        {
+            unsigned argSize = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+            while (field < lcl->GetPromotedFieldCount())
+            {
+                unsigned   fieldLclNum = lcl->GetPromotedFieldLclNum(field);
+                LclVarDsc* fieldLcl    = compiler->lvaGetDesc(fieldLclNum);
+                unsigned   fieldOffset = fieldLcl->GetPromotedFieldOffset();
+
+                if (fieldOffset >= argSize)
+                {
+                    break;
+                }
+
+                auto& f  = fields[count++];
+                f.reg    = static_cast<uint8_t>(reg++);
+                f.type   = fieldLcl->GetType();
+                f.offset = static_cast<uint16_t>(fieldOffset);
+                f.lclNum = fieldLclNum;
+
+                field++;
+            }
+        }
+    }
+
+    bool IsSupported(CallArgInfo* argInfo) const
+    {
+        for (unsigned i = 0; i < count && fields[i].reg < argInfo->GetRegCount(); i++)
+        {
+            // For now we allow only integral fields that have matching register/field
+            // offsets. This implies that only a single integral field can be passed
+            // in a register. abiMorphSingleRegLclArgPromoted can be used to pack
+            // multiple integral fields in a single register but the the CQ results are
+            // currently a bit hit and miss.
+
+            if ((fields[i].lclNum != BAD_VAR_NUM) && !varTypeUsesFloatReg(fields[i].type) &&
+                (fields[i].offset != fields[i].reg * REGSIZE_BYTES))
+            {
+                return false;
+            }
+
+            if ((i > 0) && (fields[i - 1].reg == fields[i].reg) &&
+                !(varTypeUsesFloatReg(fields[i - 1].type) && varTypeUsesFloatReg(fields[i].type)))
+            {
+                return false;
+            }
+        }
+
+        // Make sure we don't have a field that crosses the arg boundary, codegen does
+        // not handle it properly. This can only happen due to struct reinterpretation in
+        // user code. In some cases we could narrow down the field but it's not worth it.
+
+        unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
+        unsigned argSize   = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+
+        if (fieldSize > argSize)
+        {
+            return false;
+        }
+
+        if (firstStackField < count)
+        {
+            // The first stack field must not straddle the reg-stack boundary, codegen does
+            // not handle this well or at all. Alignment requirements normally prevent this
+            // from happening, at least for primitive types. Vector2/3/4 can cross this
+            // boundary easily, due to their 4 byte alignment, but they're not supported on
+            // ARM and on ARM64 split args are very rare (win-arm64 varargs only).
+            //
+            // Alignment requirements can be circumvented by reinterpretation (e.g. struct
+            // with 2 DOUBLE/LONG fields passed as struct with 4 INT fields, the later has
+            // alignment 4 and thus can be passed in r1,r2,r3 and a stack slot,
+            // see split-arg-double-reg-and-stack.cs). It's somewhat difficult to handle this
+            // kind of splitting for DOUBLE and it's too unusual to even bother trying.
+            //
+            // We'll make an exception for LONG on ARM though, it gets decomposed to 2 INTs
+            // so it works just fine in codegen. Besides, VM messed up the alignment of
+            // Vector128 on ARM so this happens "naturally", without any reinterpretation...
+
+            if ((fields[firstStackField].offset < argInfo->GetRegCount() * REGSIZE_BYTES)
+#ifdef TARGET_ARM
+                && (fields[firstStackField].type != TYP_LONG)
+#endif
+                    )
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+};
+
+GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const AbiRegFieldMap& map)
+{
+    GenTreeFieldList* list     = new (this, GT_FIELD_LIST) GenTreeFieldList();
+    GenTree*          regValue = nullptr;
+
+    for (unsigned i = 0; i < map.count; i++)
+    {
+        unsigned regIndex  = map.fields[i].reg;
+        unsigned regOffset = regIndex * REGSIZE_BYTES;
+
+        if (map.fields[i].lclNum == BAD_VAR_NUM)
+        {
+            var_types regType = argInfo->GetRegType(regIndex);
+            list->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
+            continue;
+        }
+
+        GenTree*  fieldValue  = gtNewLclLoad(lvaGetDesc(map.fields[i].lclNum), map.fields[i].type);
+        var_types fieldType   = map.fields[i].type;
+        unsigned  fieldOffset = map.fields[i].offset;
+
+        if (lvaGetDesc(map.fields[i].lclNum)->IsAddressExposed())
+        {
+            fieldValue->AddSideEffects(GTF_GLOB_REF);
+        }
+
+        if (regIndex >= argInfo->GetRegCount())
+        {
+            list->AddField(this, fieldValue, fieldOffset, fieldType);
+            continue;
+        }
+
+#ifdef WINDOWS_X86_ABI
+        // Handle win-x86 multireg return of a struct with a single vector field
+        // (in principle the field should be SIMD8 but this is the only multireg
+        // case on x86 so we don't care what exact SIMD type it is, we just need
+        // to get INT values out of it).
+
+        if (varTypeIsSIMD(fieldType))
+        {
+            assert(argInfo->GetRegType(regIndex) == TYP_INT);
+
+            unsigned extractOffset = regOffset - fieldOffset;
+            assert(extractOffset % 4 == 0);
+
+            regValue = NewExtractVectorElement(fieldType, TYP_INT, fieldValue, extractOffset / 4);
+        }
+        else
+#elif defined(TARGET_64BIT)
+        // On 64 bit targets we may need to pack 2 FLOAT fields into a LONG/DOUBLE
+        // and we also have to deal with vector fields that span multiple registers
+        // (x86 doesn't have multireg args and ARM doesn't have vector support).
+
+        if (fieldOffset < regOffset)
+        {
+            // A vector overlaps the previous register, extract a FLOAT or a DOUBLE,
+            // depending on the remaining size. We might have to extract 2 FLOATS if
+            // the current vector offset isn't properly aligned to extract a DOUBLE.
+
+            assert(varTypeIsSIMD(fieldType));
+
+            unsigned extractOffset = regOffset - fieldOffset;
+            unsigned extractSize   = min(REGSIZE_BYTES, varTypeSize(fieldType) - extractOffset);
+
+            if (extractSize == 4)
+            {
+                assert((extractOffset % 4) == 0);
+
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldOffset = regOffset;
+            }
+            else if ((extractOffset % 8 == 0))
+            {
+                fieldValue  = NewExtractVectorElement(fieldType, TYP_DOUBLE, fieldValue, extractOffset / 8);
+                fieldOffset = regOffset;
+            }
+            else
+            {
+                assert(extractSize == 8);
+                assert(extractOffset % 4 == 0);
+
+                regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldValue = gtNewLclLoad(fieldValue->AsLclLoad()->GetLcl(), fieldType);
+                fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
+
+                fieldOffset = regOffset + 4;
+                fieldType   = TYP_FLOAT;
+            }
+        }
+        else if (varTypeIsSIMD(fieldType) && (fieldOffset == regOffset + 4))
+        {
+            // The vector overlaps the second half of an eightbyte, extract a FLOAT
+            // and continue as if this was a FLOAT field.
+
+            fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, 0);
+            fieldType  = TYP_FLOAT;
+        }
+
+        if ((fieldType == TYP_FLOAT) && (fieldOffset == regOffset + 4))
+        {
+            assert(regValue->TypeIs(TYP_FLOAT));
+
+            regValue = gtNewSimdHWIntrinsicNode(
+#ifdef UNIX_AMD64_ABI
+                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+#elif defined(TARGET_ARM64)
+                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8,
+#else
+#error Unknown target
+#endif
+                regValue, fieldValue);
+        }
+        else
+#endif // TARGET_64BIT
+        {
+            assert(fieldOffset == regOffset);
+            regValue = fieldValue;
+        }
+
+        if ((i == map.count - 1) || (map.fields[i + 1].reg != regIndex))
+        {
+            var_types regType = argInfo->GetRegType(regIndex);
+
+#ifdef TARGET_64BIT
+            if (regValue->TypeIs(TYP_FLOAT, TYP_DOUBLE, TYP_SIMD8) && !varTypeUsesFloatReg(regType))
+            {
+                regValue = gtNewBitCastNode(regValue->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, regValue);
+            }
+            else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
+            {
+                regValue = NewExtractVectorElement(regValue->GetType(), TYP_LONG, regValue, 0);
+            }
+            else if (varTypeIsIntegral(regValue->GetType()) && varTypeUsesFloatReg(regType))
+            {
+                regValue = gtNewBitCastNode(varTypeSize(regValue->GetType()) <= 4 ? TYP_FLOAT : TYP_DOUBLE, regValue);
+            }
+#else
+            assert(!varTypeUsesFloatReg(regType));
+
+            if (regValue->TypeIs(TYP_FLOAT))
+            {
+                regValue = gtNewBitCastNode(TYP_INT, regValue);
+            }
+            else if (regValue->TypeIs(TYP_LONG, TYP_DOUBLE))
+            {
+                // Skip the next register, decomposition will split the LONG
+                // field into 2 INT fields, DOUBLE will be handled in codegen.
+                i++;
+            }
+#endif
+
+            list->AddField(this, regValue, regIndex * REGSIZE_BYTES, regType);
+        }
+    }
+
+    return list;
+}
+
+GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
+{
+#ifdef DEBUG
+    if (verbose)
+    {
+        printf("Morphing multireg struct ");
+        argInfo->Dump();
+    }
+#endif
+
+    assert(argInfo->GetRegCount() != 0);
+
+    if (arg->IsIntegralConst(0))
+    {
+        if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
+        {
+            return arg;
+        }
+
+        GenTreeFieldList* fieldList = abiMakeFieldList(arg);
+
+        for (unsigned i = 0, regOffset = 0; i < argInfo->GetRegCount() + argInfo->GetSlotCount(); i++)
+        {
+#if FEATURE_ARG_SPLIT
+            var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+            var_types regType = argInfo->GetRegType(i);
+#endif
+
+#ifdef FEATURE_HW_INTRINSICS
+            if (varTypeIsSIMD(regType))
+            {
+                fieldList->AddField(this, gtNewZeroSimdHWIntrinsicNode(regType, TYP_FLOAT), regOffset, regType);
+            }
+            else
+#endif
+            {
+                fieldList->AddField(this, gtNewZeroConNode(regType), regOffset, regType);
+            }
+
+            regOffset += varTypeSize(regType);
+        }
+
+        return fieldList;
+    }
+
+    assert(varTypeIsStruct(arg->GetType()));
+
+    // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
+    // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
+    // multiple loads and those loads may have associated optimization issues in VN
+    // due to the lack of field sequences. Even if they do get CSEed the result may
+    // still be poor - SIMD typed loads from the same location would get a CSE temp
+    // and then those multi reg loads from the same location will get their own CSE
+    // temps. abiMorphMultiRegSimdArg would only generate one SIMD load and then
+    // extract the registers via register to register operations.
+
+    if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        if (arg->OperIs(GT_LCL_LOAD) && arg->AsLclLoad()->GetLcl()->IsPromoted())
+        {
+            if (argInfo->IsHfaArg())
+            {
+                return abiMorphMultiRegHfaLclArgPromoted(argInfo, arg->AsLclLoad());
+            }
+
+            AbiRegFieldMap map(this, arg->AsLclLoad()->GetLcl(), argInfo);
+
+            if (map.IsSupported(argInfo))
+            {
+                return abiMorphMultiRegLclArgPromoted(argInfo, map);
+            }
+        }
+
+        return abiMorphMultiRegLclArg(argInfo, arg->AsLclRef());
+    }
+
+    if (arg->OperIs(GT_IND_LOAD_OBJ))
+    {
+        return abiMorphMultiRegObjArg(argInfo, arg->AsIndLoadObj());
+    }
+
+    if (arg->OperIs(GT_CALL) && arg->TypeIs(TYP_STRUCT))
+    {
+        return abiMorphMultiRegCallArg(argInfo, arg->AsCall());
+    }
+
+#ifdef FEATURE_SIMD
+    // If it's neither a local nor OBJ then it must be an arbitrary SIMD tree.
+    return abiMorphMultiRegSimdArg(argInfo, arg);
+#else
+    unreached();
+#endif
+}
+
+#ifdef FEATURE_SIMD
+
+GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
+{
+    assert(varTypeIsSIMD(arg->GetType()));
+    assert(!arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD, GT_IND_LOAD_OBJ));
+
+    unsigned regCount = argInfo->GetRegCount();
+#if FEATURE_ARG_SPLIT
+    regCount += argInfo->GetSlotCount();
+#endif
+
+#if defined(TARGET_ARM64)
+    assert((regCount >= 2) && (regCount <= 4));
+    assert((argInfo->GetRegType() == TYP_FLOAT) || (argInfo->GetRegType() == TYP_I_IMPL));
+#elif defined(UNIX_AMD64_ABI)
+    assert(regCount == 2);
+    assert(argInfo->GetRegType(0) == TYP_DOUBLE);
+    assert((argInfo->GetRegType(1) == TYP_FLOAT) || (argInfo->GetRegType(1) == TYP_DOUBLE));
+#elif defined(WINDOWS_X86_ABI)
+    assert(regCount == 2);
+    assert((argInfo->GetRegType(0) == TYP_INT) && (argInfo->GetRegType(1) == TYP_INT));
+#else
+#error Unknown target.
+#endif
+
+    bool argIsZero      = false;
+    bool argIsCreate    = false;
+    bool argIsBroadcast = false;
+
+    if (GenTreeHWIntrinsic* hwi = arg->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+            case NI_Vector128_get_Zero:
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Zero:
+#endif
+                argIsZero = true;
+                break;
+
+            case NI_Vector128_Create:
+#ifdef TARGET_ARM64
+            case NI_Vector64_Create:
+#endif
+                if ((hwi->GetSimdBaseType() == TYP_FLOAT)
+#ifdef TARGET_ARM64
+                    && (argInfo->GetRegType() == TYP_FLOAT)
+#endif
+                        )
+                {
+                    if (hwi->IsUnary())
+                    {
+                        argIsBroadcast = true;
+                    }
+                    else
+                    {
+                        argIsCreate = true;
+                    }
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    LclVarDsc* tempLcl    = nullptr;
+    GenTree*   tempAssign = nullptr;
+
+    if (argIsBroadcast)
+    {
+        arg = arg->AsHWIntrinsic()->GetOp(0);
+
+        assert(arg->TypeIs(TYP_FLOAT));
+
+        if (!arg->IsDblCon() && !arg->OperIs(GT_LCL_LOAD))
+        {
+            tempLcl    = lvaNewTemp(TYP_FLOAT, true DEBUGARG("multi-reg SIMD arg temp"));
+            tempAssign = gtNewLclStore(tempLcl, TYP_FLOAT, arg);
+
+            arg = gtNewLclLoad(tempLcl, TYP_FLOAT);
+        }
+
+#ifdef UNIX_AMD64_ABI
+        if (arg->IsDblCon())
+        {
+            // CSE is dumb - it CSEs FP constants and that prevents us from recognizing
+            // constant vector creation in lowering. Well, recognizing constant vector
+            // creation is lowering is just as dumb...
+            arg->SetDoNotCSE();
+        }
+
+        arg = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, arg, gtCloneExpr(arg));
+        // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
+        // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
+        arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
+
+        LclVarDsc* dblTempLcl    = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
+        GenTree*   dblTempAssign = gtNewLclStore(dblTempLcl, TYP_DOUBLE, arg);
+
+        if (tempAssign != nullptr)
+        {
+            tempAssign = gtNewCommaNode(tempAssign, dblTempAssign);
+        }
+        else
+        {
+            tempAssign = dblTempAssign;
+        }
+
+        arg = gtNewLclLoad(dblTempLcl, TYP_DOUBLE);
+#endif // UNIX_AMD64_ABI
+    }
+    else if (!argIsZero && !argIsCreate)
+    {
+        ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+
+        tempLcl    = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
+        tempAssign = gtNewLclStore(tempLcl, arg->GetType(), arg);
+    }
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    for (unsigned i = 0, regOffset = 0, createOpIndex = 0; i < regCount; i++)
+    {
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
+        unsigned regSize = varTypeSize(regType);
+        GenTree* regValue;
+
+        if (argIsBroadcast)
+        {
+            regValue = i == 0 ? arg : gtCloneExpr(arg);
+        }
+        else if (argIsCreate && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+        {
+            regValue = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+            assert(regValue->TypeIs(TYP_FLOAT));
+#ifdef TARGET_ARM64
+            assert(regType == TYP_FLOAT);
+#endif
+
+#ifdef UNIX_AMD64_ABI
+            if ((regType == TYP_DOUBLE) && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+            {
+                GenTree* regValue2 = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
+                assert(regValue2->TypeIs(TYP_FLOAT));
+                regValue = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_Create, TYP_FLOAT, 16, regValue, regValue2);
+            }
+#endif
+        }
+        else if (argIsCreate || argIsZero)
+        {
+            regValue = gtNewZeroConNode(regType);
+        }
+        else
+        {
+            regValue = gtNewLclLoad(tempLcl, arg->GetType());
+            regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+        }
+
+        if ((i == 0) && (tempAssign != nullptr))
+        {
+            regValue = gtNewCommaNode(tempAssign, regValue);
+        }
+
+        fieldList->AddField(this, regValue, regOffset, regType);
+        regOffset += regSize;
+    }
+
+    return fieldList;
+}
+
+#endif // FEATURE_SIMD
+
+GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* arg)
+{
+    LclVarDsc*   lcl       = arg->GetLcl();
+    ClassLayout* argLayout = arg->OperIs(GT_LCL_LOAD) ? lcl->GetLayout() : arg->AsLclLoadFld()->GetLayout(this);
+
+#ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+    //
+    // For promoted struct locals this means that we'll end up with dependent promotion.
+    // This isn't very common (because it means the struct has long or double fields,
+    // otherwise the number of promoted fields being limited to 4 it's not easy to exceed
+    // the number of reg and slots that is also 4).
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        if (arg->OperIs(GT_LCL_LOAD))
+        {
+            lvaSetDoNotEnregister(lcl DEBUGARG(DNER_IsStructArg));
+        }
+
+        return arg;
+    }
+
+    // TODO-MIKE-CQ: Temps are introduced for independent promoted locals that can't be passed directly
+    // only on ARM32 for "historical" reasons, it doesn't really make sense for this to be ARM32 only.
+    //
+    // However, attempting to enable this on other targets results in code size regressions and disabling
+    // this on ARM32 results in code size improvements. More investigation is required to determine which
+    // is better so for now let's keep this as it was.
+    //
+    // Speaking of how it was - this code was originally in moSetupCallArgs so the temp was introduced before
+    // SetupArgs/SortArgs/SpillArgs. Neither place is ideal:
+    //    - Introducing one temp before SetupArgs is problematic because SetupArgs can blindly
+    //      introduce even more temps due to the presence of GTF_ASG.
+    //    - Introducing a temp for a promoted local after SetupArgs "misses" the nested call args case
+    //      so we risk spilling the promoted fields before the call, reload them after the call and then
+    //      store them again to memory (because this temp is DNER).
+    // What may be best is to introduce the temp in SetupArgs itself so we can do it before any nested
+    // call and avoid unnecessary spilling. But it may not be worth the trouble:
+    //    - Promoted locals that cannot be loaded directly in registers are relatively rare and they'd
+    //      be even more rare with some improvements to abiMorphPromotedStructArgToFieldList.
+    //    - Doing this here instead of moSetupCallArgs shows practically no diffs (actually a 8 bytes improvement).
+    //    - Doing this here minimizes the use of the messy "late" arg mechanism.
+
+    GenTree* tempAssign = nullptr;
+
+    if (arg->OperIs(GT_LCL_LOAD) && lcl->IsIndependentPromoted())
+    {
+        lcl = abiAllocateStructArgTemp(argLayout);
+
+        tempAssign = gtNewLclStore(lcl, lcl->GetType(), arg);
+        tempAssign = moMorphStructStore(tempAssign, arg);
+
+        arg->SetLcl(lcl);
+    }
+#endif // TARGET_ARM
+
+    unsigned regCount = argInfo->GetRegCount();
+#if FEATURE_ARG_SPLIT
+    regCount += argInfo->GetSlotCount();
+#endif
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    unsigned lclOffset = arg->OperIs(GT_LCL_LOAD_FLD) ? arg->AsLclLoadFld()->GetLclOffs() : 0;
+    unsigned lclSize   = lcl->GetTypeSize();
+#ifdef FEATURE_SIMD
+    bool lclIsSIMD = varTypeIsSIMD(lcl->GetType()) && !lcl->IsPromoted() && !lcl->lvDoNotEnregister;
+#endif
+
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    {
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
+
+        if (regType == TYP_I_IMPL)
+        {
+            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+            // split args and we don't have any type info for stack slots.
+
+            assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+        }
+
+        unsigned regSize = varTypeSize(regType);
+        GenTree* regValue;
+
+        if (lclOffset >= lclSize)
+        {
+            // Make sure we add a field for every arg register, even if we somehow end up with
+            // a smaller local variable as source. If a field is missing, the backend may get
+            // confused and fail to allocate the register to this arg and instead allocated it
+            // to the next arg. Just passing a zero is safer and easier to debug.
+            regValue = gtNewZeroConNode(regType);
+        }
+#ifdef FEATURE_SIMD
+        else if (lclIsSIMD && (lclOffset % regSize == 0))
+        {
+            // Note that the VM ARM64 ABI doesn't recognize HVAs so a struct with a single
+            // Vector128 field will be passed in 2 GPRs instead of a single SIMD reg.
+            assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
+
+            GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
+            GenTree* simdValue    = gtNewLclLoad(lcl, lcl->GetType());
+
+            if (lcl->IsAddressExposed())
+            {
+                simdValue->AddSideEffects(GTF_GLOB_REF);
+            }
+
+            regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
+        }
+        else
+#endif
+        {
+            lvaSetDoNotEnregister(lcl DEBUG_ARG(DNER_LocalField));
+
+            regValue = gtNewLclLoadFld(regType, lcl, lclOffset);
+
+            if (lcl->IsAddressExposed())
+            {
+                regValue->AddSideEffects(GTF_GLOB_REF);
+            }
+        }
+
+#ifdef TARGET_ARM
+        if (tempAssign != nullptr)
+        {
+            regValue   = gtNewCommaNode(tempAssign, regValue);
+            tempAssign = nullptr;
+        }
+#endif
+
+        fieldList->AddField(this, regValue, regOffset, regType);
+        regOffset += regSize;
+        lclOffset += regSize;
+    }
+
+    return fieldList;
+}
+
+GenTree* Compiler::abiMorphMultiRegObjArg(CallArgInfo* argInfo, GenTreeIndLoadObj* arg)
+{
+#ifdef TARGET_ARM
+    // If an argument is passed in registers we'd like to build a FIELD_LIST with
+    // one field for each register. But split args are problematic - they are also
+    // passed on stack and the number of slots is unbounded. Building a FIELD_LIST
+    // with one field per slot isn't an option because there may be too many and
+    // having one field for all slots doesn't work either because we don't have a
+    // layout to describe such a partial "view" of a struct.
+    // So we give up if there are too many slots.
+
+    if (argInfo->IsSplit() && (argInfo->GetSlotCount() + argInfo->GetRegCount() > MAX_ARG_REG_COUNT))
+    {
+        return arg;
+    }
+#endif
+
+    ClassLayout* argLayout = arg->GetLayout();
+    unsigned     argSize   = argLayout->GetSize();
+
+    GenTree* addr           = arg->GetAddr();
+    ssize_t  addrOffset     = 0;
+    GenTree* addrTempAssign = abiMakeIndirAddrMultiUse(&addr, &addrOffset, argSize);
+
+    GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
+
+    unsigned regCount = argInfo->GetRegCount();
+#if FEATURE_ARG_SPLIT
+    regCount += argInfo->GetSlotCount();
+#endif
+
+    for (unsigned i = 0, regOffset = 0; i < regCount; i++)
+    {
+#if FEATURE_ARG_SPLIT
+        var_types regType = i < argInfo->GetRegCount() ? argInfo->GetRegType(i) : TYP_I_IMPL;
+#else
+        var_types regType = argInfo->GetRegType(i);
+#endif
+
+        if (regType == TYP_I_IMPL)
+        {
+            // On UNIX_AMD64_ABI the register types we have in CallArgInfo do have GC info
+            // but on other targets we only get TYP_I_IMPL. Also, other targets may have
+            // split args and we don't have any type info for the stack slots.
+
+            assert(regOffset % REGSIZE_BYTES == 0);
+
+#ifdef UNIX_AMD64_ABI
+            assert(regType == argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES));
+#else
+            regType       = argLayout->GetGCPtrType(regOffset / REGSIZE_BYTES);
+#endif
+        }
+
+        GenTree* regAddr = (i == 0) ? addr : gtCloneExpr(addr);
+        GenTree* regIndir;
+        unsigned regIndirSize;
+
+        if (!varTypeIsIntegral(regType) || (argSize - regOffset >= REGSIZE_BYTES))
+        {
+            regIndirSize = varTypeSize(regType);
+
+            if (addrOffset + regOffset != 0)
+            {
+                regAddr = gtNewOperNode(GT_ADD, varTypeAddrAdd(regAddr->GetType()), regAddr,
+                                        gtNewIconNode(addrOffset + regOffset, TYP_I_IMPL));
+                regAddr->gtFlags |= GTF_DONT_CSE;
+            }
+
+            regIndir = gtNewIndLoad(regType, regAddr);
+            regIndir->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(regAddr);
+        }
+        else
+        {
+            regIndirSize = argSize - regOffset;
+            regIndir     = abiNewMultiLoadIndir(regAddr, addrOffset + regOffset, regIndirSize);
+        }
+
+        if ((i == 0) && (addrTempAssign != nullptr))
+        {
+            regIndir = gtNewCommaNode(addrTempAssign, regIndir, regType);
+        }
+
+        fieldList->AddField(this, regIndir, regOffset, regType);
+        regOffset += regIndirSize;
+
+        assert(regOffset <= argSize);
+    }
+
+    return fieldList;
+}
+
+GenTree* Compiler::abiMakeIndirAddrMultiUse(GenTree** addrInOut, ssize_t* addrOffsetOut, unsigned indirSize)
+{
+    GenTree* addr       = *addrInOut;
+    ssize_t  addrOffset = 0;
+
+    // Extract constant offsets that appear when passing struct typed class fields
+    // so they can be folded with the register offset.
+    if (addr->OperIs(GT_ADD) && addr->AsOp()->GetOp(1)->IsIntCon())
+    {
+        ssize_t offset = addr->AsOp()->GetOp(1)->AsIntCon()->GetValue();
+
+#if defined(TARGET_AMD64)
+        if ((offset >= INT32_MIN) && (offset <= INT32_MAX - indirSize))
+#elif defined(WINDOWS_X86_ABI)
+        if (static_cast<unsigned>(offset) <= UINT32_MAX - indirSize)
+#elif defined(TARGET_ARMARCH)
+        // For simplicity, limit the offset to values that are valid address mode
+        // offsets, no matter what the indirection type is.
+        if ((offset >= -255) && (offset <= 255 - static_cast<ssize_t>(indirSize)))
+#else
+#error Unknown target.
+#endif
+        {
+            addr       = addr->AsOp()->GetOp(0);
+            addrOffset = offset;
+        }
+    }
+
+    // We need to use the address tree multiple times. If it has side effects or
+    // it is too expensive to evaluate then we need to "spill" it to a temp.
+    bool addrTempRequired = (addr->gtFlags & GTF_PERSISTENT_SIDE_EFFECTS) != 0;
+
+    if (!addrTempRequired)
+    {
+        gtSetCosts(addr);
+        addrTempRequired = addr->GetCostEx() > 4 * IND_COST_EX;
+    }
+
+    GenTree* addrAsg = nullptr;
+
+    if (addrTempRequired)
+    {
+        LclVarDsc* addrLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("call arg addr temp"));
+
+        addrAsg = gtNewLclStore(addrLcl, addr->GetType(), addr);
+        addr    = gtNewLclLoad(addrLcl, addr->GetType());
+    }
+
+    *addrInOut     = addr;
+    *addrOffsetOut = addrOffset;
+    return addrAsg;
+}
+
+GenTree* Compiler::abiNewMultiLoadIndir(GenTree* addr, ssize_t addrOffset, unsigned loadSize)
+{
+    auto Load = [&](var_types type, GenTree* addr, ssize_t offset) {
+        if (offset != 0)
+        {
+            addr = gtNewOperNode(GT_ADD, varTypeAddrAdd(addr->GetType()), addr, gtNewIconNode(offset, TYP_I_IMPL));
+            addr->gtFlags |= GTF_DONT_CSE;
+        }
+        GenTreeIndir* load = gtNewIndLoad(type, addr);
+        load->gtFlags |= GTF_GLOB_REF | gtGetIndirExceptionFlags(addr);
+        return load;
+    };
+    auto LeftShift = [&](GenTree* op1, unsigned amount) {
+        return gtNewOperNode(GT_LSH, varActualType(op1->GetType()), op1, gtNewIconNode(amount));
+    };
+    auto Or = [&](GenTree* op1, GenTree* op2) { return gtNewOperNode(GT_OR, varActualType(op1->GetType()), op1, op2); };
+    auto Clone  = [&](GenTree* expr) { return gtCloneExpr(expr); };
+    auto Extend = [&](GenTree* value) { return gtNewOperNode(GT_UXT, TYP_LONG, value); };
+
+    if (loadSize == 1)
+    {
+        return Load(TYP_UBYTE, addr, addrOffset);
+    }
+
+#ifdef TARGET_64BIT
+    if (loadSize < 4)
+#else
+    assert(loadSize < 4);
+#endif
+    {
+        GenTree* load = Load(TYP_USHORT, addr, addrOffset);
+
+        if (loadSize == 3)
+        {
+            GenTree* load2 = Load(TYP_UBYTE, Clone(addr), addrOffset + 2);
+            load           = Or(load, LeftShift(load2, 16));
+        }
+
+        return load;
+    }
+
+#ifdef TARGET_64BIT
+    assert(loadSize < 8);
+
+    GenTree* load = Load(TYP_INT, addr, addrOffset);
+
+    if (loadSize > 4)
+    {
+        GenTree* load4 = Load(loadSize == 5 ? TYP_UBYTE : TYP_USHORT, Clone(addr), addrOffset + 4);
+
+        if (loadSize == 7)
+        {
+            GenTree* load6 = Load(TYP_UBYTE, Clone(addr), addrOffset + 6);
+            load4          = Or(load4, LeftShift(load6, 16));
+        }
+
+        load = Or(Extend(load), LeftShift(Extend(load4), 32));
+    }
+
+    return load;
+#endif
+}
+
+GenTree* Compiler::abiMorphMultiRegCallArg(CallArgInfo* argInfo, GenTreeCall* arg)
+{
+    LclVarDsc*        lcl = lvaNewTemp(arg->GetRetLayout(), true DEBUGARG("multireg call arg temp"));
+    GenTreeLclLoad*   src = gtNewLclLoad(lcl, lcl->GetType());
+    GenTreeFieldList* fieldList;
+
+    StructPromotionHelper structPromotion(this);
+    lcl->lvIsMultiRegRet = true;
+    lcl->lvFieldAccessed = true;
+
+    LclVarDsc* storeLcl  = nullptr;
+    var_types  storeType = TYP_UNDEF;
+
+    if (!structPromotion.TryPromoteStructLocal(lcl))
+    {
+        fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+
+        storeLcl  = lcl;
+        storeType = lcl->GetType();
+    }
+    else
+    {
+        if (argInfo->IsHfaArg())
+        {
+            fieldList = abiMorphMultiRegHfaLclArgPromoted(argInfo, src)->AsFieldList();
+        }
+        else
+        {
+            AbiRegFieldMap regMap(this, lcl, argInfo);
+
+            if (regMap.IsSupported(argInfo))
+            {
+                fieldList = abiMorphMultiRegLclArgPromoted(argInfo, regMap)->AsFieldList();
+            }
+            else
+            {
+                fieldList = abiMorphMultiRegLclArg(argInfo, src)->AsFieldList();
+            }
+        }
+
+        if (lcl->IsIndependentPromoted() && (lcl->GetPromotedFieldCount() == 1))
+        {
+            LclVarDsc* promotedFieldLcl = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
+
+            if (varTypeIsSIMD(promotedFieldLcl->GetType()))
+            {
+                arg->SetType(promotedFieldLcl->GetType());
+
+                lcl->lvIsMultiRegRet = false;
+
+                storeLcl  = promotedFieldLcl;
+                storeType = promotedFieldLcl->GetType();
+            }
+        }
+
+        if (storeLcl == nullptr)
+        {
+            lcl->lvIsMultiRegRet = lcl->IsIndependentPromoted();
+
+            storeLcl  = lcl;
+            storeType = lcl->GetType();
+        }
+    }
+
+    GenTreeLclStore* store = gtNewLclStore(storeLcl, storeType, arg);
+
+    GenTreeFieldList::Use* firstUse = fieldList->Uses().GetHead();
+    firstUse->SetNode(gtNewCommaNode(store, firstUse->GetNode()));
+    fieldList->AddSideEffects(store->GetSideEffects());
+
+    return fieldList;
+}
+
+#endif // FEATURE_MULTIREG_ARGS || FEATURE_MULTIREG_RET
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
+
+LclVarDsc* Compiler::abiAllocateStructArgTemp(ClassLayout* argLayout)
+{
+    assert(argLayout->IsValueClass());
+
+    unsigned tempLclNum = BAD_VAR_NUM;
+
+    if (!opts.MinOpts())
+    {
+        if (m_abiStructArgTemps == nullptr)
+        {
+            m_abiStructArgTemps      = hashBv::Create(this);
+            m_abiStructArgTempsInUse = hashBv::Create(this);
+        }
+        else
+        {
+            indexType index = m_abiStructArgTemps->FindFirstBit([this, argLayout](indexType i) {
+                return (lvaGetDesc(static_cast<unsigned>(i))->GetLayout() == argLayout) &&
+                       !m_abiStructArgTempsInUse->testBit(i);
+            });
+
+            if (index != -1)
+            {
+                tempLclNum = static_cast<unsigned>(index);
+                JITDUMP("Reusing struct arg temp V%02u\n", tempLclNum);
+            }
+        }
+    }
+
+    if (tempLclNum == BAD_VAR_NUM)
+    {
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("implicit-by-ref arg temp"));
+#else
+        LclVarDsc* lcl = lvaAllocTemp(true DEBUGARG("struct arg temp"));
+#endif
+
+        lvaSetStruct(lcl, argLayout, false);
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+        lvaSetAddressExposed(lcl);
+        lcl->lvIsImplicitByRefArgTemp = true;
+#endif
+
+        tempLclNum = lcl->GetLclNum();
+
+        if (m_abiStructArgTemps != nullptr)
+        {
+            m_abiStructArgTemps->setBit(tempLclNum);
+        }
+    }
+
+    if (m_abiStructArgTempsInUse != nullptr)
+    {
+        m_abiStructArgTempsInUse->setBit(tempLclNum);
+    }
+
+    return lvaGetDesc(tempLclNum);
+}
+
+void Compiler::abiFreeAllStructArgTemps()
+{
+    if (m_abiStructArgTempsInUse != nullptr)
+    {
+        m_abiStructArgTempsInUse->ZeroAll();
+    }
+}
+
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_ARM)
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+
+void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* argInfo)
+{
+    GenTree* arg = argInfo->GetNode();
+
+    if (arg->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    {
+        return;
+    }
+
+    if (arg->OperIs(GT_MKREFANY))
+    {
+#if defined(WINDOWS_AMD64_ABI)
+        LclVarDsc* tempLcl = abiAllocateStructArgTemp(typGetObjLayout(impGetRefAnyClass()));
+        argInfo->SetNode(abiMorphMkRefAnyToStore(tempLcl, arg->AsOp()));
+        argInfo->SetTempLclNum(tempLcl->GetLclNum());
+
+        return;
+#else
+        unreached();
+#endif
+    }
+
+    // If we're optimizing, see if we can avoid making a copy.
+    // We don't need a copy if this is the last use of an implicit by-ref local.
+    if (opts.OptimizationEnabled())
+    {
+        GenTreeLclLoad* const lclNode = arg->IsImplicitByrefIndir(this);
+
+        if (lclNode != nullptr)
+        {
+            LclVarDsc* const lcl              = lclNode->GetLcl();
+            const unsigned   totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+
+            // We don't have liveness so we rely on other indications of last use.
+            //
+            // We handle these cases:
+            //
+            // * (must not copy) If the call is a tail call, the use is a last use.
+            //   We must skip the copy if we have a fast tail call.
+            //
+            // * (may not copy) if the call is noreturn, the use is a last use.
+            //   We also check for just one reference here as we are not doing
+            //   alias analysis of the call's parameters, or checking if the call
+            //   site is not within some try region.
+            //
+            // * (may not copy) if there is exactly one use of the local in the method,
+            //   and the call is not in loop, this is a last use.
+            //
+            const bool isTailCallLastUse = call->IsTailCall();
+            const bool isCallLastUse     = (totalAppearances == 1) && !fgMightHaveLoop();
+            const bool isNoReturnLastUse = (totalAppearances == 1) && call->IsNoReturn();
+            if (isTailCallLastUse || isCallLastUse || isNoReturnLastUse)
+            {
+                argInfo->SetNode(lclNode);
+
+                JITDUMP("did not need to make outgoing copy for last use of implicit byref V%02u\n", lcl->GetLclNum());
+                return;
+            }
+        }
+    }
+
+    // Note that this is the parameter's layout rather that the argument's layout.
+    // They should be identical, unless the IL is invalid or we hit the pesky
+    // A<Canon> vs. A<C> issue. In general it doesn't matter if the 2 layouts
+    // do not match. VN might get confused due to mismatched field sequences but
+    // then this temp is never read from.
+    ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
+
+    LclVarDsc* tempLcl = abiAllocateStructArgTemp(argLayout);
+
+    // Replace the argument with a store to the temp, SpillArgs will later add
+    // a use of the temp to the late arg list.
+
+    // Due to single field struct promotion it is possible that the argument has SIMD
+    // type while the temp has STRUCT type. Store the arg to the temp using LCL_FLD
+    // because moMorphStructCopy has problems with this kind of type mismatches.
+
+    // TODO-MIKE-Cleanup: This should probably be extended to other type mismatches
+    // that arise from single field struct promotion. moMorphStructCopy shouldn't have
+    // to deal with fall out from poorly designed struct promotion. Small int types
+    // may need some extra care. Since we're dealing with structs, widening isn't
+    // required but we need to be sure that the correct type is used to store the arg
+    // value - it may be that the struct has 2 bytes (a SHORT field) and the arg may
+    // have type UBYTE (e.g. an IND) - we do need to store 2 bytes, not 1, so using
+    // the arg type isn't correct.
+
+    // TODO-MIKE-CQ: SIMD12 stores should be widened to SIMD16 on 64 bit targets.
+
+    GenTree* store;
+
+    if (tempLcl->TypeIs(TYP_STRUCT) && varTypeIsSIMD(arg->GetType()))
+    {
+        store = gtNewLclStoreFld(arg->GetType(), tempLcl, 0, arg);
+    }
+    else
+    {
+        store = gtNewLclStore(tempLcl, tempLcl->GetType(), arg);
+    }
+
+    store->AddSideEffects(GTF_GLOB_REF);
+
+    if (varTypeIsStruct(store->GetType()))
+    {
+        store = moMorphStructStore(store, arg);
+    }
+
+    argInfo->SetNode(store);
+    argInfo->SetTempLclNum(tempLcl->GetLclNum());
+}
+
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+
+#if FEATURE_FASTTAILCALL
+// Check to see if this tail call can be optimized as epilog+jmp.
+// Returns true or false based on whether the callee can be fastTailCalled
+//
+// This function is target specific and each target will make the fastTailCall
+// decision differently. See the notes below.
+//
+// This function calls moInitCallnfo to initialize the arg info table, which
+// is used to analyze the argument. This function can alter the call arguments
+// by adding argument IR nodes for non-standard arguments.
+//
+// win-x64:
+//   A fast tail call can be made whenever the number of callee arguments
+//   is less than or equal to the number of caller arguments, or we have four
+//   or fewer callee arguments. This is because, on Windows AMD64, each
+//   argument uses exactly one register or one 8-byte stack slot. Thus, we only
+//   need to count arguments, and not be concerned with the size of each
+//   incoming or outgoing argument.
+//
+// Can fast tail call examples:
+//    -- Callee will have all register arguments --
+//    caller(int, int, int, int)
+//    callee(int, int, float, int)
+//
+//    -- Callee requires stack space that is equal or less than the caller --
+//    caller(struct, struct, struct, struct, struct, struct)
+//    callee(int, int, int, int, int, int)
+//
+//    -- Callee requires stack space that is less than the caller --
+//    caller(struct, double, struct, float, struct, struct)
+//    callee(int, int, int, int, int)
+//
+//    -- Callee will have all register arguments --
+//    caller(int)
+//    callee(int, int, int, int)
+//
+// Cannot fast tail call examples:
+//    -- Callee requires stack space that is larger than the caller --
+//    caller(struct, double, struct, float, struct, struct)
+//    callee(int, int, int, int, int, double, double, double)
+//
+//    -- Callee has a byref struct argument --
+//    caller(int, int, int)
+//    callee(struct(size 3 bytes))
+//
+// unix-x64 & arm64:
+//    A fastTailCall decision can be made whenever the callee's stack space is
+//    less than or equal to the caller's stack space. There are many permutations
+//    of when the caller and callee have different stack sizes if there are
+//    structs being passed to either the caller or callee.
+//
+// Exceptions:
+//    If the callee has a 9 to 16 byte struct argument and the callee has
+//    stack arguments, the decision will be to not fast tail call. This is
+//    because before moSetupCallArgs is done, the struct is unknown whether it
+//    will be placed on the stack or enregistered. Therefore, the conservative
+//    decision of do not fast tail call is taken. This limitations should be
+//    removed if/when moSetupCallArgs no longer depends on moCanFastTailCall.
+//
+// Can fast tail call examples:
+//    -- Callee will have all register arguments --
+//    caller(int, int, int, int)
+//    callee(int, int, float, int)
+//
+//    -- Callee requires stack space that is equal to the caller --
+//    caller({ long, long }, { int, int }, { int }, { int }, { int }, { int }) -- 6 int register arguments, 16 byte
+//    stack
+//    space
+//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
+//
+//    -- Callee requires stack space that is less than the caller --
+//    caller({ long, long }, int, { long, long }, int, { long, long }, { long, long }) 6 int register arguments, 32 byte
+//    stack
+//    space
+//    callee(int, int, int, int, int, int, { long, long } ) // 6 int register arguments, 16 byte stack space
+//
+//    -- Callee will have all register arguments --
+//    caller(int)
+//    callee(int, int, int, int)
+//
+// Cannot fast tail call examples:
+//    -- Callee requires stack space that is larger than the caller --
+//    caller(float, float, float, float, float, float, float, float) -- 8 float register arguments
+//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
+//
+//    -- Callee has structs which cannot be enregistered (Implementation Limitation) --
+//    caller(float, float, float, float, float, float, float, float, { double, double, double }) -- 8 float register
+//    arguments, 24 byte stack space
+//    callee({ double, double, double }) -- 24 bytes stack space
+//
+//    -- Callee requires stack space and has a struct argument >8 bytes and <16 bytes (Implementation Limitation) --
+//    caller(int, int, int, int, int, int, { double, double, double }) -- 6 int register arguments, 24 byte stack space
+//    callee(int, int, int, int, int, int, { int, int }) -- 6 int registers, 16 byte stack space
+//
+//    -- Caller requires stack space and nCalleeArgs > nCallerArgs (Bug) --
+//    caller({ double, double, double, double, double, double }) // 48 byte stack
+//    callee(int, int) -- 2 int registers
+
+bool Compiler::moCanFastTailCall(GenTreeCall* call, const char** failReason)
+{
+    assert(!call->IsExplicitTailCall() || impTailCallRetTypeCompatible(call, false));
+
+    auto reportFastTailCallDecision = [&](const char* reason, unsigned calleeArgStackSize = UINT_MAX,
+                                          unsigned callerArgStackSize = UINT_MAX) {
+        *failReason = reason;
+
+#ifdef DEBUG
+        if (JitConfig.JitReportFastTailCallDecisions() == 1)
+        {
+            if (CORINFO_METHOD_HANDLE handle = call->GetMethodHandle())
+            {
+                printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: %s -- Decision: ",
+                       info.compFullName, eeGetMethodFullName(handle));
+            }
+            else
+            {
+                printf("[Fast tailcall decision]: Caller: %s\n[Fast tailcall decision]: Callee: IndirectCall -- "
+                       "Decision: ",
+                       info.compFullName);
+            }
+
+            if (reason == nullptr)
+            {
+                printf("Will fast tailcall");
+            }
+            else
+            {
+                printf("Will not fast tailcall (%s)", reason);
+            }
+
+            if ((callerArgStackSize != UINT_MAX) && (calleeArgStackSize != UINT_MAX))
+            {
+                printf(" (CallerArgStackSize: %d, CalleeArgStackSize: %d)", callerArgStackSize, calleeArgStackSize);
+            }
+
+            printf("\n\n");
+        }
+        else
+        {
+            if (reason == nullptr)
+            {
+                JITDUMP("[Fast tailcall decision]: Will fast tailcall\n");
+            }
+            else
+            {
+                JITDUMP("[Fast tailcall decision]: Will not fast tailcall (%s)\n", reason);
+            }
+        }
+#endif // DEBUG
+    };
+
+    if (JitConfig.FastTailCalls() == 0)
+    {
+        reportFastTailCallDecision("Configuration doesn't allow fast tail calls");
+        return false;
+    }
+
+    if (call->IsStressTailCall())
+    {
+        reportFastTailCallDecision("Fast tail calls are not performed under tail call stress");
+        return false;
+    }
+
+    if (compLocallocUsed)
+    {
+        reportFastTailCallDecision("Localloc used");
+        return false;
+    }
+
+#if defined(TARGET_WINDOWS) && defined(TARGET_ARMARCH)
+    // We will currently decide to not fast tail call on win-arm32/64 if the caller or callee is a vararg
+    // method. This is due to the ABI differences for native vararg methods for these platforms. There is
+    // work required to shuffle arguments to the correct locations.
+    if (info.compIsVarArgs || call->IsVarargs())
+    {
+        reportFastTailCallDecision("Fast tail calls with varargs not supported on Windows ARM/ARM64");
+        return false;
+    }
+#endif
+
+#ifdef TARGET_AMD64
+    // Enabling fast tail calls from methods that need GS cookie check would
+    // require codegen side work to emit GS cookie check before a tail call.
+    if (getNeedsGSSecurityCookie())
+    {
+        reportFastTailCallDecision("GS Security cookie check required");
+        return false;
+    }
+#endif
+
+    if (info.compHasNextCallRetAddr)
+    {
+        reportFastTailCallDecision("Uses NextCallReturnAddress intrinsic");
+        return false;
+    }
+
+    if (call->HasRetBufArg() && (info.compRetBuffArg == BAD_VAR_NUM))
+    {
+        reportFastTailCallDecision("Callee has RetBuf but caller does not.");
+        return false;
+    }
+
+    moInitCallnfo(call);
+
+    unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
+    unsigned callerArgStackSize = codeGen->paramsStackSize;
+
+    // For a fast tail call the caller will use its incoming arg stack space to place
+    // arguments, so if the callee requires more arg stack space than is available here
+    // the fast tail call cannot be performed. This is common to all platforms.
+    // Note that the GC'ness of on stack args need not match since the arg setup area is
+    // marked as non-interruptible for fast tail calls.
+    if (calleeArgStackSize > callerArgStackSize)
+    {
+        reportFastTailCallDecision("Not enough incoming arg space", calleeArgStackSize, callerArgStackSize);
+        return false;
+    }
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+    // Implicit byref parameters are allocated on the caller frame so we cannot
+    // fast tail call in these situation as we need to keep our frame around.
+    if (moCallHasMustCopyByrefParameter(call->GetInfo()))
+    {
+        reportFastTailCallDecision("Callee has a byref parameter");
+        return false;
+    }
+#endif
+
+    reportFastTailCallDecision(nullptr);
+    return true;
+}
+
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+// Check to see if this call has a byref parameter that requires a struct copy in the caller.
+// Returns true or false based on whether this call has a byref parameter that requires
+// a struct copy in the caller.
+bool Compiler::moCallHasMustCopyByrefParameter(CallInfo* callInfo)
+{
+    for (unsigned index = 0; index < callInfo->GetArgCount(); ++index)
+    {
+        CallArgInfo* argInfo = callInfo->GetArgInfo(index);
+
+        if (!argInfo->IsImplicitByRef())
+        {
+            continue;
+        }
+
+        if (!opts.OptimizationEnabled())
+        {
+            return true;
+        }
+
+        GenTreeLclLoad* lclNode = argInfo->GetNode()->IsImplicitByrefIndir(this);
+
+        if (lclNode == nullptr)
+        {
+            // If the implicit by-ref arg isn't itself an implicit by-ref parameter then
+            // we need to make a local copy and thus can't fast tail call. N.B. that it
+            // may be possible to avoid copying a local variable (e.g. if the arg is its
+            // last use) but then we'd be passing the address of that local so we still
+            // can't fast tail call.
+
+            return true;
+        }
+
+        LclVarDsc* lcl = lclNode->GetLcl();
+
+        JITDUMP("Arg [%06u] is implicit byref V%02u, checking if it's aliased\n", argInfo->GetNode()->GetID(),
+                lcl->GetLclNum());
+
+        const unsigned totalAppearances = lcl->GetImplicitByRefParamAnyRefCount();
+        const unsigned callAppearances  = lcl->GetImplicitByRefParamCallRefCount();
+        assert(totalAppearances >= callAppearances);
+
+        if (totalAppearances == 1)
+        {
+            JITDUMP("Arg is the only use of V%02u\n", lcl->GetLclNum());
+
+            continue;
+        }
+
+        if (totalAppearances > callAppearances)
+        {
+            // TODO-MIKE-Review: Main added this to fix a bug (likely the one noted in the TODOs
+            // bellow). However, it seems that this is more conservative than it needs to be,
+            // we probably only care if those non call appearances are due to the local being
+            // address exposed.
+
+            JITDUMP("Arg V%02u has %u non arg uses\n", lcl->GetLclNum(), totalAppearances - callAppearances);
+
+            return true;
+        }
+
+        // If the param has multiple uses then some of them may appear in other args of this call,
+        // either because the param (or a portion of it) is passed in multiple args or because its
+        // address is somehow passed in an arg. We need to scan the arg list to find such uses so
+        // this has quadratic complexity.
+
+        if (callInfo->GetArgCount() > 6)
+        {
+            JITDUMP("Arg alias analysis too costly, call has %u args\n", callInfo->GetArgCount());
+
+            return true;
+        }
+
+        for (unsigned index2 = 0; index2 < callInfo->GetArgCount(); ++index2)
+        {
+            if (index2 == index)
+            {
+                continue;
+            }
+
+            CallArgInfo* argInfo2 = callInfo->GetArgInfo(index2);
+            GenTree*     argNode2 = argInfo2->GetNode();
+
+            JITDUMPTREE(argNode2, "Checking other arg:\n");
+
+            if (argNode2->OperIsConst())
+            {
+                // A const arg can't alias a parameter.
+                continue;
+            }
+
+            if (argInfo2->IsImplicitByRef())
+            {
+                GenTreeLclLoad* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
+
+                if ((lclNode2 != nullptr) && (lclNode->GetLcl() == lclNode2->GetLcl()))
+                {
+                    JITDUMP("Implicit byref param V%02u value is passed in multiple args\n");
+                    return true;
+                }
+
+                // TODO-MIKE-Review: Old code had a dump message saying "that the arg refers to different
+                // implicit byref local". This seems bogus - there's nothing stopping one from storing
+                // the address of any param into whatever struct gets passed here.
+                continue;
+            }
+
+            if ((argInfo2->GetArgType() != TYP_BYREF) && (argInfo2->GetArgType() != TYP_I_IMPL))
+            {
+                // TODO-MIKE-Review: Similar to the above comment. We could have a struct parameter that
+                // contains the address of any param.
+                continue;
+            }
+
+            if (argNode2->OperIs(GT_LCL_LOAD) && (argNode2->AsLclLoad()->GetLcl() == lclNode->GetLcl()))
+            {
+                JITDUMP("Implicit byref param V%02u address is also passed in an arg\n");
+                return true;
+            }
+
+            if (argNode2->OperIs(GT_LCL_LOAD) && argNode2->AsLclLoad()->GetLcl()->IsParam())
+            {
+                // Other params can't alias implicit byref params.
+
+                // TODO-MIKE-Review: Here we go again - the initial param value cannot indeed alias an
+                // implicit by-ref param but one could store the address of one param in another param.
+                continue;
+            }
+
+            if (lcl->lvHasLdAddrOp)
+            {
+                // We have no idea what address this argument contains. If the parameter is address
+                // exposed then it could contain its address.
+
+                // TODO-MIKE-CQ: lvHasLdAddrOp is likely overly conservative. lvAddrExposed should be
+                // used instead but that one gets reset in lvaRetypeImplicitByRefParams.
+                // Maybe lvaRetypeImplicitByRefParams could copy lvAddrExposed somewhere so we can use
+                // it here, though care needs to be taken because nothing will ever update it.
+                // Or use lvHasLdAddrOp for implicit byref params and lvAddrExposed for anything else.
+
+                JITDUMP("V%02u is address exposed\n", lcl->GetLclNum());
+                return true;
+            }
+        }
+
+        JITDUMP("No other arg can alias V%02u\n", lcl->GetLclNum());
+    }
+
+    return false;
+}
+#endif // defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
+#endif // FEATURE_FASTTAILCALL
+
+// Attempt to morph a call that the importer has identified as a potential
+// tailcall to an actual tailcall and return the placeholder node to use in
+// this case.
+//
+// Returns a node to use if the call was morphed into a tailcall. If this
+// function returns a node the call is done being morphed and the new node
+// should be used. Otherwise the call will have been demoted to a regular call
+// and should go through normal morph.
+//
+// This is called only for calls that the importer has already identified as
+// potential tailcalls. It will do profitability and legality checks and
+// classify which kind of tailcall we are able to (or should) do, along with
+// modifying the trees to perform that kind of tailcall.
+//
+GenTree* Compiler::moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
+{
+    assert(call->IsExplicitTailCall() ^ call->IsImplicitTailCall());
+
+    auto failTailCall = [&](const char* reason, LclVarDsc* lcl = nullptr) {
+#ifdef DEBUG
+        if (verbose)
+        {
+            printf("\nRejecting tail call in morph for call [%06u]: %s", call->GetID(), reason);
+            if (lcl != nullptr)
+            {
+                printf(" " FMT_LCL, lcl->GetLclNum());
+            }
+            printf("\n");
+        }
+#endif
+
+        info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
+                                                 call->IsExplicitTailCall(), TAILCALL_FAIL, reason);
+
+        call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+#if FEATURE_TAILCALL_OPT
+        call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+#endif
+    };
+
+    if (call->IsSpecialIntrinsic())
+    {
+        failTailCall("Might turn into an intrinsic");
+        return nullptr;
+    }
+
+    // Heuristic: regular calls to noreturn methods can sometimes be
+    // merged, so if we have multiple such calls, we defer tail calling.
+    // TODO: re-examine this; now that we're merging before morph we
+    // don't need to worry about interfering with merges.
+    if (call->IsNoReturn() && (optNoReturnCallCount > 1))
+    {
+        failTailCall("Defer tail calling throw helper; anticipating merge");
+        return nullptr;
+    }
+
+#ifdef DEBUG
+    if (opts.compGcChecks && (info.compRetType == TYP_REF))
+    {
+        failTailCall("COMPlus_JitGCChecks or stress might have interposed a call to CORINFO_HELP_CHECK_OBJ, "
+                     "invalidating tailcall opportunity");
+        return nullptr;
+    }
+#endif
+
+    // We have to ensure to pass the incoming retValBuf as the
+    // outgoing one. Using a temp will not do as this function will
+    // not regain control to do the copy. This can happen when inlining
+    // a tailcall which also has a potential tailcall in it: the IL looks
+    // like we can do a tailcall, but the trees generated use a temp for the inlinee's
+    // result. TODO-CQ: Fix this.
+    if (info.compRetBuffArg != BAD_VAR_NUM)
+    {
+        noway_assert(call->TypeIs(TYP_VOID));
+
+        GenTree* retValBuf = call->GetRetBufArg()->GetNode();
+
+        if (!retValBuf->IsLclLoad() || (retValBuf->AsLclLoad()->GetLcl()->GetLclNum() != info.compRetBuffArg))
+        {
+            failTailCall("Need to copy return buffer");
+            return nullptr;
+        }
+    }
+
+    // We are still not sure whether it can be a tail call. Because, when converting
+    // a call to an implicit tail call, we must check that there are no locals with
+    // their address taken.  If this is the case, we have to assume that the address
+    // has been leaked and the current stack frame must live until after the final
+    // call.
+
+    // Verify that none of vars has lvHasLdAddrOp or lvAddrExposed bit set. Note
+    // that lvHasLdAddrOp is much more conservative.  We cannot just base it on
+    // lvAddrExposed alone since it is not guaranteed to be set on all VarDscs
+    // during morph stage. The reason for also checking lvAddrExposed is that in case
+    // of vararg methods user args are marked as addr exposed but not lvHasLdAddrOp.
+    // The combination of lvHasLdAddrOp and lvAddrExposed though conservative allows us
+    // never to be incorrect.
+    //
+    // TODO-Throughput: have a compiler level flag to indicate whether method has vars whose
+    // address is taken. Such a flag could be set whenever lvHasLdAddrOp or LvAddrExposed
+    // is set. This avoids the need for iterating through all lcl vars of the current
+    // method.  Right now throughout the code base we are not consistently using 'set'
+    // method to set lvHasLdAddrOp and lvAddrExposed flags.
+
+    bool isImplicitOrStressTailCall = call->IsImplicitTailCall() || call->IsStressTailCall();
+
+    if (isImplicitOrStressTailCall && compLocallocUsed)
+    {
+        failTailCall("Localloc used");
+        return nullptr;
+    }
+
+    bool hasStructParam = false;
+
+    for (LclVarDsc* lcl : Locals())
+    {
+        if (lcl->IsPromotedField() && lvaGetDesc(lcl->GetPromotedFieldParentLclNum())->IsImplicitByRefParam())
+        {
+            // This was a promoted field of an implicit byref param but promotion was
+            // undone. It's not used so ignore it.
+            continue;
+        }
+
+        // If the method is marked as an explicit tail call we will skip the
+        // following three hazard checks.
+        // We still must check for any struct parameters and set 'hasStructParam'
+        // so that we won't transform the recursive tail call into a loop.
+        if (isImplicitOrStressTailCall)
+        {
+            // TODO-MIKE-Review: Shouldn't this check only lvAddrExposed? This is likely
+            // the same issue moCallHasMustCopyByrefParameter has that it can't use
+            // lvAddrExposed because it's reset by lvaRetypeImplicitByRefParams.
+            if (lcl->lvHasLdAddrOp && !lcl->IsImplicitByRefParam())
+            {
+                failTailCall("Local address taken", lcl);
+                return nullptr;
+            }
+
+            if (lcl->IsAddressExposed())
+            {
+                failTailCall("Local address taken", lcl);
+                return nullptr;
+            }
+
+            if (lcl->IsPromoted() && lcl->IsParam())
+            {
+                failTailCall("Has Struct Promoted Param", lcl);
+                return nullptr;
+            }
+
+            // A tail call removes the method from the stack, which means the pinning
+            // goes away for the callee.
+            if (lcl->IsPinning())
+            {
+                failTailCall("Has pinning local", lcl);
+                return nullptr;
+            }
+        }
+
+        if (varTypeIsStruct(lcl->GetType()) && lcl->IsParam())
+        {
+            // This prevents transforming a recursive tail call into a loop
+            // but doesn't prevent tail call optimization so we need to
+            // look at the rest of parameters.
+            hasStructParam = true;
+        }
+    }
+
+    if (!moCheckStmtAfterTailCall(stmt))
+    {
+        failTailCall("Unexpected statements after the tail call");
+        return nullptr;
+    }
+
+#if FEATURE_FASTTAILCALL
+    const char* failReason      = nullptr;
+    const bool  canFastTailCall = moCanFastTailCall(call, &failReason);
+#else
+    const char*       failReason      = "Fast tailcalls are not supported on this platform";
+    constexpr bool    canFastTailCall = false;
+#endif
+
+    CORINFO_TAILCALL_HELPERS tailCallHelpers;
+#ifdef TARGET_X86
+    bool tailCallViaJitHelper = false;
+#endif
+    bool fastTailCallToLoop = false;
+
+    if (!canFastTailCall)
+    {
+        if (call->IsImplicitTailCall())
+        {
+            // Implicit or opportunistic tail calls are always dispatched via fast tail call
+            // mechanism and never via tail call helper for perf.
+            failTailCall(failReason);
+            return nullptr;
+        }
+
+        assert(call->IsExplicitTailCall());
+
+        // We do not currently handle non-standard args except for VSD stubs.
+        if (!call->IsVirtualStub() && call->HasNonStandardAddedArgs(this))
+        {
+            failTailCall(
+                "Method with non-standard args passed in callee trash register cannot be tail called via helper");
+            return nullptr;
+        }
+
+#ifdef TARGET_X86
+        if (moCanTailCallViaJitHelper())
+        {
+            tailCallViaJitHelper = true;
+        }
+        else
+#endif
+        {
+            // Make sure we can get the helpers. We do this last as the runtime
+            // will likely be required to generate these.
+
+            TailCallSiteInfo* const            tailCallInfo = call->GetExplicitTailCallInfo();
+            CORINFO_RESOLVED_TOKEN*            token        = nullptr;
+            CORINFO_GET_TAILCALL_HELPERS_FLAGS flags        = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(0);
+
+            if (!tailCallInfo->IsCalli())
+            {
+                token = tailCallInfo->GetToken();
+
+                if (tailCallInfo->IsCallvirt())
+                {
+                    flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_IS_CALLVIRT);
+                }
+            }
+
+            if (call->HasThisArg() && !call->GetThisArg()->GetNode()->TypeIs(TYP_REF))
+            {
+                flags = static_cast<CORINFO_GET_TAILCALL_HELPERS_FLAGS>(flags | CORINFO_TAILCALL_THIS_ARG_IS_BYREF);
+            }
+
+            if (!info.compCompHnd->getTailCallHelpers(token, tailCallInfo->GetSig(), flags, &tailCallHelpers))
+            {
+                failTailCall("Tail call help not available");
+                return nullptr;
+            }
+        }
+    }
+    else
+    {
+#if FEATURE_TAILCALL_OPT
+        // TODO-CQ: enable the transformation when the method has a struct parameter that can be passed in a
+        // register or return type is a struct that can be passed in a register.
+        //
+        // TODO-CQ: if the method being compiled requires generic context reported in gc-info (either through
+        // hidden generic context param or through keep alive thisptr), then while transforming a recursive
+        // call to such a method requires that the generic context stored on stack slot be updated. Right now,
+        // moMorphRecursiveFastTailCallIntoLoop is not handling update of generic context while transforming
+        // a recursive call into a loop. Another option is to modify gtIsRecursiveCall() to check that the
+        // generic type parameters of both caller and callee generic method are the same.
+        fastTailCallToLoop = JitConfig.TailCallLoopOpt() && gtIsRecursiveCall(call) && !lvaReportParamTypeArg() &&
+                             !lvaKeepAliveAndReportThis() && !call->IsVirtual() && !hasStructParam &&
+                             !varTypeIsStruct(call->GetType());
+#endif
+    }
+
+    // We are now committed to performing a tailcall. Report the decision.
+    CorInfoTailCall tailCallResult;
+
+    if (fastTailCallToLoop)
+    {
+        tailCallResult = TAILCALL_RECURSIVE;
+    }
+    else if (canFastTailCall)
+    {
+        tailCallResult = TAILCALL_OPTIMIZED;
+    }
+    else
+    {
+        tailCallResult = TAILCALL_HELPER;
+    }
+
+    info.compCompHnd->reportTailCallDecision(nullptr, call->IsUserCall() ? call->GetMethodHandle() : nullptr,
+                                             call->IsExplicitTailCall(), tailCallResult, nullptr);
+
+    if (call->IsExpandedEarly() && call->IsVirtualVtable())
+    {
+        if (tailCallResult == TAILCALL_HELPER)
+        {
+            // We will always expand this late in lower instead.
+            // (see LowerTailCallViaJitHelper as it needs some work
+            // for us to be able to expand this earlier in morph)
+            call->ClearExpandedEarly();
+        }
+        else if ((tailCallResult == TAILCALL_OPTIMIZED) &&
+                 call->GetThisArg()->GetNode()->HasAnySideEffect(GTF_SIDE_EFFECT))
+        {
+            // We generate better code when we expand this late in lower instead.
+            call->ClearExpandedEarly();
+        }
+    }
+
+    // Now actually morph the call.
+    compTailCallUsed = true;
+
+#if FEATURE_TAILCALL_OPT
+    if (fastTailCallToLoop)
+    {
+        call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL_TO_LOOP;
+        JITDUMP("\nGTF_CALL_M_TAILCALL_TO_LOOP bit set for call [%06u]\n", call->GetID());
+    }
+#endif
+
+    // If this block has a flow successor, make suitable updates.
+    BasicBlock*       callBlock = fgMorphBlock;
+    BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
+
+    if (nextBlock == nullptr)
+    {
+        assert(callBlock->bbJumpKind == BBJ_RETURN);
+    }
+    else
+    {
+        // Flow no longer reaches nextBlock from here.
+        fgRemoveRefPred(nextBlock, callBlock);
+
+        // Adjust profile weights.
+        // Note if this is a tail call to loop, further updates
+        // are needed once we install the loop edge.
+        if (callBlock->hasProfileWeight() && nextBlock->hasProfileWeight())
+        {
+            // Since we have linear flow we can update the next block weight.
+            BasicBlock::weight_t const blockWeight   = callBlock->bbWeight;
+            BasicBlock::weight_t const nextWeight    = nextBlock->bbWeight;
+            BasicBlock::weight_t const newNextWeight = nextWeight - blockWeight;
+
+            // If the math would result in a negative weight then there's
+            // no local repair we can do; just leave things inconsistent.
+            if (newNextWeight >= 0)
+            {
+                // Note if we'd already morphed the IR in nextblock we might
+                // have done something profile sensitive that we should arguably reconsider.
+                JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n", nextBlock->bbNum,
+                        nextWeight, newNextWeight);
+
+                nextBlock->setBBProfileWeight(newNextWeight);
+            }
+            else
+            {
+                JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
+                        " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
+                        nextBlock->bbNum, nextWeight, callBlock->bbNum, blockWeight);
+            }
+
+            // If nextBlock is not a BBJ_RETURN, it should have a unique successor that
+            // is a BBJ_RETURN, as we allow a little bit of flow after a tail call.
+            if (nextBlock->bbJumpKind != BBJ_RETURN)
+            {
+                BasicBlock* nextNextBlock = nextBlock->GetUniqueSucc();
+
+                // Check if we have a sequence of stores where the same variable is assigned to
+                // temp locals over and over. Also allow casts sequences, and blocks with NOPs.
+                if (nextNextBlock->bbJumpKind != BBJ_RETURN)
+                {
+                    // Make sure the block has a single statement and the root node is STORE_LCL_VAR(LCL_VAR)
+
+                    assert(nextBlock->GetFirstStatement() == nextBlock->GetLastStatement());
+                    GenTree* store = nextBlock->GetFirstStatement()->GetRootNode();
+                    assert(store->OperIs(GT_LCL_STORE));
+                    LclVarDsc* lcl = store->AsLclStore()->GetLcl();
+
+                    for (; nextNextBlock->bbJumpKind != BBJ_RETURN; nextNextBlock = nextNextBlock->GetUniqueSucc())
+                    {
+                        assert(nextNextBlock->GetFirstStatement() == nextNextBlock->GetLastStatement());
+
+                        store = nextNextBlock->GetFirstStatement()->GetRootNode();
+
+                        if (!store->OperIs(GT_NOP))
+                        {
+                            GenTree* value = store->AsLclStore()->GetValue();
+
+                            while (value->OperIs(GT_CONV))
+                            {
+                                value = value->AsUnOp()->GetOp(0);
+                            }
+
+                            assert(value->AsLclLoad()->GetLcl() == lcl);
+                            lcl = value->AsLclLoad()->GetLcl();
+                        }
+                    }
+                }
+
+                assert(nextNextBlock->bbJumpKind == BBJ_RETURN);
+
+                if (nextNextBlock->hasProfileWeight())
+                {
+                    BasicBlock::weight_t const nextNextWeight    = nextNextBlock->bbWeight;
+                    BasicBlock::weight_t const newNextNextWeight = nextNextWeight - blockWeight;
+
+                    // If the math would result in an negative weight then there's
+                    // no local repair we can do; just leave things inconsistent.
+                    if (newNextNextWeight >= 0)
+                    {
+                        JITDUMP("Reducing profile weight of " FMT_BB " from " FMT_WT " to " FMT_WT "\n",
+                                nextNextBlock->bbNum, nextNextWeight, newNextNextWeight);
+
+                        nextNextBlock->setBBProfileWeight(newNextNextWeight);
+                    }
+                    else
+                    {
+                        JITDUMP("Not reducing profile weight of " FMT_BB " as its weight " FMT_WT
+                                " is less than direct flow pred " FMT_BB " weight " FMT_WT "\n",
+                                nextNextBlock->bbNum, nextNextWeight, callBlock->bbNum, blockWeight);
+                    }
+                }
+            }
+        }
+    }
+
+#if !FEATURE_TAILCALL_OPT_SHARED_RETURN
+    // We enable shared-ret tail call optimization for recursive calls even if
+    // FEATURE_TAILCALL_OPT_SHARED_RETURN is not defined.
+    if (gtIsRecursiveCall(call))
+#endif
+    {
+        // Many tailcalls will have call and ret in the same block, and thus be
+        // BBJ_RETURN, but if the call falls through to a ret, and we are doing a
+        // tailcall, change it here.
+        callBlock->bbJumpKind = BBJ_RETURN;
+    }
+
+    GenTree* stmtExpr = stmt->GetRootNode();
+
+#ifdef DEBUG
+    // Tail call needs to be in one of the following IR forms
+    //    Either a call stmt or
+    //    RETURN(CALL(..)) or RETURN(CAST(CALL(..)))
+    //    var = CALL(..) or var = (CAST(CALL(..)))
+    //    COMMA(CALL(..), NOP) or COMMA(CAST(CALL(..)), NOP)
+    // In the above,
+    //    CASTs may be nested.
+    if (stmtExpr->IsCall())
+    {
+        assert(stmtExpr == call);
+    }
+    else
+    {
+        GenTree* value;
+
+        if (stmtExpr->OperIs(GT_RETURN))
+        {
+            value = stmtExpr->AsUnOp()->GetOp(0);
+        }
+        else if (stmtExpr->OperIs(GT_COMMA))
+        {
+            value = stmtExpr->AsOp()->GetOp(0);
+            assert(stmtExpr->AsOp()->GetOp(1)->IsNothingNode());
+        }
+        else
+        {
+            value = stmtExpr->AsLclStore()->GetValue();
+        }
+
+        while (value->OperIs(GT_CONV))
+        {
+            value = value->AsUnOp()->GetOp(0);
+        }
+
+        assert(value == call);
+    }
+#endif
+
+    if (!canFastTailCall X86_ONLY(&&!tailCallViaJitHelper))
+    {
+        // For tailcall via CORINFO_TAILCALL_HELPERS we transform into regular
+        // calls with (to the JIT) regular control flow so we do not need to do
+        // much special handling.
+
+        return moMorphTailCallViaHelpers(call, tailCallHelpers, stmt);
+    }
+
+    // Otherwise we will transform into something that does not return. For fast tailcalls
+    // a "jump" and for tailcall via JIT helper a call to a JIT helper that does not return.
+    // So peel off everything after the call.
+    Statement* nextMorphStmt = stmt->GetNextStmt();
+    JITDUMP("Remove all stmts after the call.\n");
+    while (nextMorphStmt != nullptr)
+    {
+        Statement* stmtToRemove = nextMorphStmt;
+        nextMorphStmt           = stmtToRemove->GetNextStmt();
+        fgRemoveStmt(callBlock, stmtToRemove);
+    }
+
+    bool     isRootReplaced = false;
+    GenTree* root           = stmt->GetRootNode();
+
+    if (root != call)
+    {
+        JITDUMP("Replace root node [%06u] with [%06u] tail call node.\n", root->GetID(), call->GetID());
+        isRootReplaced = true;
+        stmt->SetRootNode(call);
+    }
+
+    var_types retType = call->GetType();
+
+    // Avoid potential extra work for the return (for example, vzeroupper)
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
+    call->gtCallMoreFlags |= GTF_CALL_M_TAILCALL;
+    call->gtCallMoreFlags &= ~GTF_CALL_M_EXPLICIT_TAILCALL;
+#if FEATURE_TAILCALL_OPT
+    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+#endif
+
+    JITDUMP("\nGTF_CALL_M_TAILCALL bit set for call [%06u]\n", call->GetID());
+
+#ifdef TARGET_X86
+    static_assert_no_msg(!canFastTailCall);
+    assert(tailCallViaJitHelper);
+
+    GenTreeLclStore* thisTempStore = moMorphTailCallViaJitHelper(call, stmt);
+
+    // Tail call via JIT helper: The VM can't use return address hijacking
+    // if we're not going to return and the helper doesn't have enough info
+    // to safely poll, so we poll before the tail call, if the block isn't
+    // already safe. Since tail call via helper is a slow mechanism it
+    // doesn't matter whether we emit GC poll. his is done to be in parity
+    // with Jit64. Also this avoids GC info size increase if all most all
+    // methods are expected to be tail calls (e.g. F#).
+    //
+    // Note that we can avoid emitting GC-poll if we know that the current
+    // BB is dominated by a GC-SafePoint block. But we don't have dominator
+    // info at this point. One option is to just add a place holder node for
+    // GC-poll (e.g. GT_GCPOLL) here and remove it in lowering if the block
+    // is dominated by a GC-SafePoint. For now it not clear whether
+    // optimizing slow tail calls is worth the effort. As a low cost check,
+    // we check whether the first and current basic blocks are GC-SafePoints.
+
+    BasicBlock* newCallBlock = callBlock;
+
+    if (!fgFirstBB->HasGCSafePoint() && !callBlock->HasGCSafePoint())
+    {
+        newCallBlock = fgCreateGCPoll(GCPOLL_INLINE, callBlock);
+    }
+
+    Statement* thisTempStmt = nullptr;
+
+    if (thisTempStore != nullptr)
+    {
+        thisTempStmt = fgInsertStmtBefore(newCallBlock, stmt, thisTempStore);
+    }
+
+    if (newCallBlock == callBlock)
+    {
+        // We didn't insert a poll block, so we need to morph the call and the this
+        // temp store now (normally they'd be morphed when we get to the poll block).
+
+        if (thisTempStore != nullptr)
+        {
+            // Don't morph the store itself to avoid complications with
+            // it being removed if the value becomes a COMMA throw.
+            // TODO-MIKE-Cleanup: Would be nice to handle this properly.
+            // Can we just morph the call args before doing the tail call transform?
+            fgGlobalMorphStmt  = thisTempStmt;
+            GenTree* thisValue = moMorphTree(thisTempStore->GetValue());
+            thisTempStore->SetValue(thisValue);
+            thisTempStore->SetSideEffects(thisValue->GetSideEffects() | GTF_ASG);
+            fgGlobalMorphStmt = stmt;
+        }
+
+        GenTree* temp = moMorphCall(call, stmt);
+        noway_assert(temp == call);
+    }
+    else
+    {
+        // fgCreateGCPoll has created new blocks and moved the call to one of them.
+        callBlock    = newCallBlock;
+        fgMorphBlock = callBlock;
+    }
+
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
+
+    // We call CORINFO_HELP_TAILCALL which does not return, so we will
+    // not need epilogue.
+    callBlock->bbJumpKind = BBJ_THROW;
+#else
+    // Fast Tail call as epilog + jmp - No need to insert GC-poll. Instead,
+    // fgSetFullyInterruptiblePhase is going to mark the method as fully
+    // interruptible if the block containing this tail call is reachable
+    // without executing any call.
+
+    GenTree* temp = moMorphCall(call, stmt);
+    noway_assert(temp == call);
+    noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
+    callBlock->bbFlags |= BBF_HAS_JMP;
+#endif
+
+    if (isRootReplaced)
+    {
+        // We have replaced the root node of this stmt and deleted the rest,
+        // but we still have the deleted, dead nodes on the `fgMorph*` stack
+        // if the root node was an `STORE_LCL_VAR`, `RET` or `CAST`.
+        // Return a zero con node to exit morphing of the old trees without asserts
+        // and forbid POST_ORDER morphing doing something wrong with our call.
+
+        return moMorphTree(gtNewZeroConNode(varTypeIsStruct(retType) ? TYP_INT : retType));
+    }
+
+    return call;
+}
+
+// Check that statements after the tail call stmt candidate are in one of expected forms:
+//  For void calls, we would have created a CALL in the stmt list.
+//  For non-void calls, we would have created a RETURN(CAST(CALL)).
+//  For calls returning structs, we would have a void CALL, followed by a RETURN.
+//  For debuggable code, it would be an store of the call to a temp
+//
+// We want to get rid of any of this extra trees, and just leave the call.
+bool Compiler::moCheckStmtAfterTailCall(Statement* callStmt)
+{
+    Statement* nextStmt = callStmt->GetNextStmt();
+
+    if (nextStmt == nullptr)
+    {
+        return true;
+    }
+
+    GenTree* callExpr = callStmt->GetRootNode();
+
+    if (!callExpr->OperIs(GT_LCL_STORE))
+    {
+        // The next stmt can be RETURN or RETURN(local), where "local" was the return buffer in the call.
+
+        GenTree* retExpr = nextStmt->GetRootNode();
+
+        noway_assert(retExpr->OperIs(GT_RETURN));
+
+        return nextStmt->GetNextStmt() == nullptr;
+    }
+
+    LclVarDsc* callResultLcl = callExpr->AsLclStore()->GetLcl();
+
+#if FEATURE_TAILCALL_OPT_SHARED_RETURN
+    // We can have a chain of assignments from the call result to various inline
+    // return spill temps. These are ok as long as the last one ultimately provides
+    // the return value or is ignored.
+    // And if we're returning a small type we may see a cast on the source side.
+    // TODO-MIKE-Review: This doesn't verify that the cast involves a small type.
+
+    for (; (nextStmt != nullptr) && (nextStmt->GetRootNode()->OperIs(GT_LCL_STORE, GT_NOP));
+         nextStmt = nextStmt->GetNextStmt())
+    {
+        if (nextStmt->GetRootNode()->OperIs(GT_LCL_STORE))
+        {
+            GenTreeLclStore* copyExpr = nextStmt->GetRootNode()->AsLclStore();
+            GenTree*         copySrc  = copyExpr->GetValue();
+
+            while (copySrc->OperIs(GT_CONV))
+            {
+                copySrc = copySrc->AsUnOp()->GetOp(0);
+            }
+
+            noway_assert(copySrc->OperIs(GT_LCL_LOAD) && (copySrc->AsLclLoad()->GetLcl() == callResultLcl));
+
+            callResultLcl = copyExpr->GetLcl();
+        }
+    }
+#endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
+
+    if (nextStmt != nullptr)
+    {
+        GenTree* retExpr = nextStmt->GetRootNode();
+        nextStmt         = nextStmt->GetNextStmt();
+
+        noway_assert(retExpr->OperIs(GT_RETURN));
+
+        GenTree* retValue = retExpr->AsUnOp()->GetOp(0);
+
+        while (retValue->OperIs(GT_CONV))
+        {
+            retValue = retValue->AsUnOp()->GetOp(0);
+        }
+
+        noway_assert(retValue->OperIs(GT_LCL_LOAD) && (retValue->AsLclLoad()->GetLcl() == callResultLcl));
+    }
+
+    return nextStmt == nullptr;
+}
+
+// This transforms
+//     CALL
+//         {callTarget}
+//         {this}
+//         {args}
+//   into
+//     stmt CALL StoreArgsStub
+//         {callTarget}         (depending on flags provided by the runtime)
+//         {this}               (as a regular arg)
+//         {args}
+//     stmt CALL Dispatcher
+//         ReturnAddress address
+//         {CallTargetStub}
+//         ReturnValue address
+//     LCL_LOAD ReturnValue
+// whenever the call node returns a value. If the call node does not return
+// a value the last LCL_LOAD will not be there.
+//
+GenTree* Compiler::moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TAILCALL_HELPERS& help, Statement* stmt)
+{
+    JITDUMPTREE(call, "moMorphTailCallViaHelpers (before):\n");
+
+    // R2R requires different handling but we don't support tailcall via
+    // helpers in R2R yet, so just leave it for now.
+    // TODO: R2R: TailCallViaHelper
+    assert(!opts.IsReadyToRun());
+    assert(!call->IsHelperCall());
+    // We come this route only for tail prefixed calls that cannot be dispatched as
+    // fast tail calls
+    assert(!call->IsImplicitTailCall());
+
+    Statement* newStmt             = nullptr;
+    const bool isVirtual           = call->IsVirtual();
+    const bool stubNeedsTargetAddr = (help.flags & CORINFO_TAILCALL_STORE_TARGET) != 0;
+    const bool stubNeedsThisLcl    = stubNeedsTargetAddr && isVirtual;
+    LclVarDsc* thisLcl             = nullptr;
+
+    if (stubNeedsThisLcl)
+    {
+        GenTree* thisArg = call->GetThisArg()->GetNode();
+
+        // TODO-MIKE-Review: Reusing an existing local isn't correct if the
+        // subsequent args are modifying that local. Old code did it like this.
+        if (GenTreeLclLoad* thisLoad = thisArg->IsLclLoad())
+        {
+            thisLcl = thisLoad->GetLcl();
+        }
+        else
+        {
+            thisLcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call thisptr"));
+            newStmt = fgInsertStmtBefore(fgMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
+            call->GetThisArg()->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
+        }
+    }
+
+    Statement* storeArgsStmt = fgInsertStmtBefore(fgMorphBlock, stmt, call);
+
+    if (newStmt == nullptr)
+    {
+        newStmt = storeArgsStmt;
+    }
+
+    GenTree* result = moCreateCallDispatcherAndGetResult(call, help, stmt);
+
+    if (call->IsVirtualStub())
+    {
+#if FEATURE_FASTTAILCALL
+        // Remove the VSD hidden arg since we turn this into a direct call.
+        // The extra arg will be the first arg so this needs to be done before
+        // we handle the return buffer below. This arg is only added when fast
+        // tail calls are supported, because in that case we call moInitCallnfo.
+        call->ResetArgInfo();
+#endif
+        call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
+    }
+
+    if (call->HasRetBufArg())
+    {
+        assert(call->GetRetBufArg()->GetNode()->AsLclLoad()->GetLcl()->GetLclNum() == info.compRetBuffArg);
+
+        call->RemoveRetBufArg();
+        call->fgArgInfo = nullptr;
+    }
+
+    if (call->HasThisArg())
+    {
+        call->fgArgInfo = nullptr;
+    }
+
+    if (stubNeedsTargetAddr)
+    {
+        GenTree* addr;
+
+        if (isVirtual)
+        {
+            TailCallSiteInfo* const tailCallInfo = call->GetExplicitTailCallInfo();
+
+            assert(!tailCallInfo->GetSig()->hasTypeArg());
+
+            CORINFO_CALLINFO_FLAGS flags = CORINFO_CALLINFO_LDFTN;
+
+            if (tailCallInfo->IsCallvirt())
+            {
+                flags = static_cast<CORINFO_CALLINFO_FLAGS>(flags | CORINFO_CALLINFO_CALLVIRT);
+            }
+
+            CORINFO_CALL_INFO callInfo;
+            info.compCompHnd->getCallInfo(tailCallInfo->GetToken(), nullptr, info.compMethodHnd, flags, &callInfo);
+
+            GenTree* thisLoad = gtNewLclLoad(thisLcl, thisLcl->GetType());
+            addr              = moGetVirtMethodPointerTree(thisLoad, tailCallInfo->GetToken(), &callInfo);
+        }
+        else if (!call->IsIndirectCall())
+        {
+            CORINFO_CONST_LOOKUP lookup;
+            info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &lookup);
+
+            addr = gtNewConstLookupTree(lookup, HandleKind::MethodAddr, call->GetMethodHandle());
+        }
+        else
+        {
+            addr = call->GetCallAddr();
+        }
+
+        gtAppendNewCallArg(call, addr);
+        call->fgArgInfo = nullptr;
+    }
+
+    call->SetMethodHandle(help.hStoreArgs);
+    call->SetCallAddr(nullptr);
+    call->SetIntrinsic(NI_Illegal);
+    call->ClearEntryPoint();
+    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_EXPLICIT_TAILCALL | GTF_CALL_M_HAS_THIS_ARG);
+#if FEATURE_TAILCALL_OPT
+    call->gtCallMoreFlags &= ~GTF_CALL_M_IMPLICIT_TAILCALL;
+#endif
+#ifdef TARGET_ARM
+    call->gtCallMoreFlags &= ~GTF_CALL_M_WRAPPER_DELEGATE_INV;
+#endif
+    call->SetType(TYP_VOID);
+    call->SetRetSigType(TYP_VOID);
+    call->SetRetLayout(nullptr);
+    call->GetRetDesc()->Reset();
+
+    for (Statement* s = newStmt; s != stmt; s = s->GetNextStmt())
+    {
+        fgGlobalMorphStmt = s;
+        s->SetRootNode(moMorphTree(s->GetRootNode()));
+        fgGlobalMorphStmt = stmt;
+    }
+
+    return moMorphTree(result);
+}
+
+GenTree* Compiler::moCreateCallDispatcherAndGetResult(GenTreeCall*                    call,
+                                                      const CORINFO_TAILCALL_HELPERS& helpers,
+                                                      Statement*                      stmt)
+{
+    GenTree*   retVal         = nullptr;
+    GenTree*   retBuffStore   = nullptr;
+    LclVarDsc* dispRetBuffLcl = nullptr;
+
+    if (call->HasRetBufArg())
+    {
+        // Caller return buffer address may point to GC heap while the dispatcher expects the return value
+        // address to point to the stack. We use a temporary stack allocated return buffer to hold the
+        // value during the dispatcher call and copy the value back to the caller return buffer after that.
+        dispRetBuffLcl = lvaNewTemp(call->GetRetLayout(), true DEBUGARG("substitute local for return buffer"));
+
+        LclVarDsc* retBuffLcl = lvaGetDesc(info.compRetBuffArg);
+
+        GenTree* src     = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
+        GenTree* dstAddr = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
+        retBuffStore     = gtNewIndStoreObj(dispRetBuffLcl->GetLayout(), dstAddr, src);
+
+        if (!call->TypeIs(TYP_VOID))
+        {
+            retVal = gtNewLclLoad(retBuffLcl, retBuffLcl->GetType());
+        }
+    }
+    else if (!call->TypeIs(TYP_VOID))
+    {
+        dispRetBuffLcl = lvaAllocTemp(false DEBUGARG("Return value for tail call dispatcher"));
+
+        if (varTypeIsStruct(call->GetType()))
+        {
+            lvaSetStruct(dispRetBuffLcl, call->GetRetLayout(), false);
+        }
+        else
+        {
+            dispRetBuffLcl->SetType(call->GetType());
+        }
+
+        if (varTypeIsSmall(call->GetRetSigType()))
+        {
+            // Use a LCL_FLD to widen small int return, the local is already address exposed
+            // so it's not worth adding an extra cast by relying on "normalize on load".
+            retVal = gtNewLclLoadFld(call->GetRetSigType(), dispRetBuffLcl, 0);
+        }
+        else
+        {
+            retVal = gtNewLclLoad(dispRetBuffLcl, dispRetBuffLcl->GetType());
+        }
+
+        if (varTypeIsStruct(call->GetType()) && (info.retDesc.GetRegCount() > 1))
+        {
+            retVal->gtFlags |= GTF_DONT_CSE;
+        }
+    }
+
+    LclVarDsc* retAddrLcl;
+
+    if (lvaRetAddrVar == BAD_VAR_NUM)
+    {
+        retAddrLcl = lvaNewTemp(TYP_I_IMPL, false DEBUGARG("Return address"));
+        lvaSetAddressExposed(retAddrLcl);
+        lvaRetAddrVar = retAddrLcl->GetLclNum();
+    }
+    else
+    {
+        retAddrLcl = lvaGetDesc(lvaRetAddrVar);
+    }
+
+    GenTree* retAddrSlot = gtNewLclAddr(retAddrLcl);
+    GenTree* calleeAddr  = new (this, GT_METHOD_ADDR) GenTreeMethodAddr(helpers.hCallTarget);
+    GenTree* retBufAddr;
+
+    if (dispRetBuffLcl == nullptr)
+    {
+        retBufAddr = gtNewZeroConNode(TYP_I_IMPL);
+    }
+    else
+    {
+        lvaSetAddressExposed(dispRetBuffLcl);
+        retBufAddr = gtNewLclAddr(dispRetBuffLcl);
+    }
+
+    GenTreeCall::Use* dispatcherArgs = gtNewCallArgs(retAddrSlot, calleeAddr, retBufAddr);
+    GenTree* dispatcherCall = gtNewUserCallNode(helpers.hDispatcher, TYP_VOID, dispatcherArgs, stmt->GetILOffsetX());
+
+    if ((retVal == nullptr) && (retBuffStore == nullptr))
+    {
+        return dispatcherCall;
+    }
+
+    fgInsertStmtBefore(fgMorphBlock, stmt, dispatcherCall);
+
+    if (retVal == nullptr)
+    {
+        return retBuffStore;
+    }
+
+    if (retBuffStore != nullptr)
+    {
+        fgInsertStmtBefore(fgMorphBlock, stmt, retBuffStore);
+    }
+
+    return retVal;
+}
+
+GenTree* Compiler::moGetRuntimeLookupTree(CORINFO_RUNTIME_LOOKUP_KIND   kind,
+                                          const CORINFO_RUNTIME_LOOKUP& lookup,
+                                          void*                         compileTimeHandle)
+{
+    assert(!compIsForInlining());
+
+    // If pRuntimeLookup->indirections is equal to CORINFO_USEHELPER, it specifies that a run-time helper should be
+    // used; otherwise, it specifies the number of indirections via pRuntimeLookup->offsets array.
+    if ((lookup.indirections == CORINFO_USEHELPER) || lookup.testForNull || lookup.testForFixup)
+    {
+        // If the first condition is true, runtime lookup tree is available only via the run-time helper function.
+        // TODO-CQ If the second or third condition is true, we are always using the slow path since we can't
+        // introduce control flow at this point. See impRuntimeLookupToTree for the logic to avoid calling the helper.
+        // The long-term solution is to introduce a new node representing a runtime lookup, create instances
+        // of that node both in the importer and here, and expand the node in lower (introducing control flow if
+        // necessary).
+        return gtNewRuntimeLookupHelperCallNode(lookup, gtNewRuntimeContextTree(kind), compileTimeHandle);
+    }
+
+    GenTree* result = gtNewRuntimeContextTree(kind);
+
+    ArrayStack<GenTree*> stmts(getAllocator(CMK_ArrayStack));
+
+    auto cloneTree = [&](GenTree** use DEBUGARG(const char* reason)) -> GenTree* {
+        GenTree* tree = *use;
+
+        if (!tree->HasAnySideEffect(GTF_GLOB_EFFECT))
+        {
+            GenTree* clone = gtCloneComplex(tree);
+
+            if (clone != nullptr)
+            {
+                return clone;
+            }
+        }
+
+        assert(varTypeIsI(tree->GetType()));
+        LclVarDsc* tempLcl = lvaNewTemp(tree->GetType(), true DEBUGARG(reason));
+        stmts.Push(gtNewLclStore(tempLcl, tree->GetType(), tree));
+        *use = gtNewLclLoad(tempLcl, tree->GetType());
+        return gtNewLclLoad(tempLcl, tree->GetType());
+    };
+
+    // Apply repeated indirections
+    for (unsigned i = 0; i < lookup.indirections; i++)
+    {
+        GenTree* preInd = nullptr;
+        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
+        {
+            preInd = cloneTree(&result DEBUGARG("moGetRuntimeLookupTree indirectOffset"));
+        }
+
+        if (i != 0)
+        {
+            result = gtNewIndLoad(TYP_I_IMPL, result);
+            result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+        }
+
+        if ((i == 1 && lookup.indirectFirstOffset) || (i == 2 && lookup.indirectSecondOffset))
+        {
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, preInd, result);
+        }
+
+        if (lookup.offsets[i] != 0)
+        {
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(lookup.offsets[i], TYP_I_IMPL));
+        }
+    }
+
+    assert(!lookup.testForNull);
+
+    if (lookup.indirections > 0)
+    {
+        assert(!lookup.testForFixup);
+
+        result = gtNewIndLoad(TYP_I_IMPL, result);
+        result->gtFlags |= GTF_IND_NONFAULTING;
+    }
+
+    // Produces GT_COMMA(stmt1, GT_COMMA(stmt2, ... GT_COMMA(stmtN, result)))
+
+    while (!stmts.Empty())
+    {
+        result = gtNewCommaNode(stmts.Pop(), result);
+    }
+
+    JITDUMPTREE(result, "Created runtime lookup tree:");
+
+    return result;
+}
+
+GenTree* Compiler::moGetVirtMethodPointerTree(GenTree*                thisPtr,
+                                              CORINFO_RESOLVED_TOKEN* resolvedToken,
+                                              CORINFO_CALL_INFO*      callInfo)
+{
+    GenTree* exactTypeDesc   = moGetTokenHandleTree(resolvedToken, true);
+    GenTree* exactMethodDesc = moGetTokenHandleTree(resolvedToken, false);
+
+    return gtNewHelperCallNode(CORINFO_HELP_VIRTUAL_FUNC_PTR, TYP_I_IMPL,
+                               gtNewCallArgs(thisPtr, exactTypeDesc, exactMethodDesc));
+}
+
+GenTree* Compiler::moGetTokenHandleTree(CORINFO_RESOLVED_TOKEN* resolvedToken, bool parent)
+{
+    CORINFO_GENERICHANDLE_RESULT embedInfo;
+    info.compCompHnd->embedGenericHandle(resolvedToken, parent, &embedInfo);
+
+    if (!embedInfo.lookup.lookupKind.needsRuntimeLookup)
+    {
+        return gtNewConstLookupTree(embedInfo.lookup.constLookup, TokenToHandleKind(resolvedToken->token),
+                                    embedInfo.compileTimeHandle);
+    }
+
+    GenTree* result = moGetRuntimeLookupTree(embedInfo.lookup.lookupKind.runtimeLookupKind,
+                                             embedInfo.lookup.runtimeLookup, embedInfo.compileTimeHandle);
+
+    if (result != nullptr)
+    {
+        result = gtNewRuntimeLookup(embedInfo.compileTimeHandle, embedInfo.handleType, result);
+    }
+
+    return result;
+}
+
+#ifdef TARGET_X86
+bool Compiler::moCanTailCallViaJitHelper()
+{
+    // The JIT helper does not properly handle the case where localloc was used.
+    return !compLocallocUsed;
+}
+
+GenTree* Compiler::moExpandDelegateInvokeTailCallViaJitHelper(GenTreeCall* call)
+{
+    GenTreeCall::Use* delegateThisUse = call->GetThisArg();
+    GenTreeLclLoad*   delegateThis    = delegateThisUse->GetNode()->AsLclLoad();
+    GenTree*          thisOffset      = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateInstance, TYP_I_IMPL);
+    GenTree*          targetThisAddr  = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, thisOffset);
+    GenTree*          targetThis      = gtNewIndLoad(TYP_REF, targetThisAddr);
+    // Make this load non-faulting, this prevents moSetupCallArgs from adding an
+    // unnecessary temp due to exception interference with the load below.
+    targetThis->gtFlags |= GTF_IND_NONFAULTING;
+    targetThis->RemoveSideEffects(GTF_EXCEPT);
+    delegateThisUse->SetNode(targetThis);
+
+    delegateThis          = gtNewLclLoad(delegateThis->GetLcl(), delegateThis->GetType());
+    GenTree* targetOffset = gtNewIconNode(eeGetEEInfo()->offsetOfDelegateFirstTarget, TYP_I_IMPL);
+    GenTree* targetAddr   = gtNewOperNode(GT_ADD, TYP_BYREF, delegateThis, targetOffset);
+    return gtNewIndLoad(TYP_I_IMPL, targetAddr);
+}
+
+GenTree* Compiler::moExpandDirectTailCallViaJitHelper(GenTreeCall* call)
+{
+    assert(!call->IsIndirectCall() && !call->IsUnmanaged() && !call->IsHelperCall());
+
+    CORINFO_CONST_LOOKUP entryPoint;
+
+#ifdef FEATURE_READYTORUN_COMPILER
+    if (call->m_entryPointAddr != nullptr)
+    {
+        entryPoint = call->GetEntryPoint();
+    }
+    else
+#endif
+    {
+        assert(!call->IsHelperCall());
+
+        info.compCompHnd->getFunctionEntryPoint(call->GetMethodHandle(), &entryPoint, CORINFO_ACCESS_NONNULL);
+    }
+
+    return gtNewConstLookupTree(entryPoint, HandleKind::MethodAddr,
+                                call->GetMethodHandle() DEBUGARG(call->GetMethodHandle()));
+}
+
+GenTreeLclStore* Compiler::moMorphTailCallViaJitHelper(GenTreeCall* call, Statement* stmt)
+{
+    JITDUMPTREE(call, "moMorphTailCallViaJitHelper (before):\n");
+
+    assert(!call->IsUnmanaged());
+    assert(!call->IsHelperCall());
+    assert(!call->IsImplicitTailCall());
+    // Indirect VSD calls are not supported (the importer blocks such tail calls).
+    noway_assert(!call->IsVirtualStubIndirect());
+
+    LclVarDsc*       thisLcl       = nullptr;
+    GenTreeLclStore* thisTempStore = nullptr;
+
+    // The call will be transformed into a helper call so it can no longer have a special
+    // `this` arg, we need to change it to a normal (first) argument. This may result in
+    // an ordering problem
+    //   - the first argument is passed in a register and will become a late arg
+    //   - the target argument is passed on stack so it will be evaluated before late args
+    //   - the target expression may depend on `this` (e.g. virtual vtable call)
+    // So we need to ensure that the value of `this` is available for target's expression.
+    // We do this by spilling `this` to a temp, if it's not already a local.
+    if (GenTreeCall::Use* thisUse = call->HasThisArg())
+    {
+        GenTree* thisArg = thisUse->GetNode();
+
+        // The runtime requires that we perform a null check on the `this` argument before tail
+        // calling to a virtual dispatch stub. This requirement is a consequence of limitations
+        // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
+        // in a dispatch stub that has unmanaged caller.
+        if (call->IsDelegateInvoke() || call->IsVirtualVtable() || call->IsVirtualStub())
+        {
+            // TODO-MIKE-Review: Not adding a temp if `this` is LCL_LOAD is dubious, what if some
+            // other argument expression modifies it?
+            if (thisArg->OperIs(GT_LCL_LOAD))
+            {
+                thisLcl = thisArg->AsLclLoad()->GetLcl();
+            }
+            else
+            {
+                thisLcl       = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call this temp"));
+                thisTempStore = gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg);
+                thisArg       = gtNewLclLoad(thisLcl, thisLcl->GetType());
+
+                thisUse->SetNode(thisArg);
+            }
+        }
+    }
+
+    // The tailcall helper has 4 extra arguments:
+    //   JIT_TailCall(<function args>, int numOldStackSlots, int numNewStackSlots, int flags, void* target)
+    //
+    // Note that the special arguments are on the stack, whereas the function arguments follow
+    // the normal convention: there might be register arguments in ECX and EDX. The stack will
+    // look like (highest address at the top):
+    //      first normal stack argument
+    //      ...
+    //      last normal stack argument
+    //      numOldStackSlots - the number of stack slots used by caller parameters
+    //      numNewStackSlots - the number of stack slots needed for callee parameters
+    //      flags
+    //      target
+    //
+    // 'flags' is a bitmask where:
+    //      1 - restore callee-save registers (EDI, ESI, EBX). The JIT always saves all
+    //          callee-saved registers for tailcall functions. Note that the helper assumes
+    //          that the callee-saved registers live immediately below EBP, and must have been
+    //          pushed in this order: EDI, ESI, EBX.
+    //      2 - call target is a virtual stub dispatch.
+    //
+    // The tail call helper lives in vm\i386\jithelp.asm. See that function for more details
+    // on the custom calling convention.
+
+    GenTree* numOldStackSlotsArg = gtNewIconNode(static_cast<int>(codeGen->paramsStackSize / REGSIZE_BYTES));
+    // We haven't yet morphed the args so we don't know the number of stack slots this call uses.
+    // Lowering will change this to the correct value.
+    GenTree* numNewStackSlotsArg = gtNewIconNode(0);
+    GenTree* flagsArg            = gtNewIconNode(0x01 | (call->IsVirtualStub() ? 0x2 : 0x0));
+    GenTree* targetArg;
+
+    if (call->IsIndirectCall())
+    {
+        targetArg = call->GetCallAddr();
+    }
+    else if (call->IsDelegateInvoke())
+    {
+        targetArg = moExpandDelegateInvokeTailCallViaJitHelper(call);
+    }
+    else if (call->IsVirtualVtable())
+    {
+        targetArg = moExpandVirtualVtableCallTarget(call->GetMethodHandle(), gtNewLclLoad(thisLcl, TYP_REF));
+    }
+    else if (call->IsVirtualStubDirect())
+    {
+        // Normally we'd need an indirection to get the actual target address but
+        // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
+        targetArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+    }
+    else
+    {
+        targetArg = moExpandDirectTailCallViaJitHelper(call);
+    }
+
+    call->SetHelperFunc(CORINFO_HELP_TAILCALL);
+    call->m_entryPointAccessType = IAT_VALUE;
+    call->m_entryPointAddr       = nullptr;
+    call->gtFlags &= ~(GTF_CALL_VIRT_KIND_MASK | GTF_CALL_DELEGATE_INV);
+    // Technically this call does not return but some other code expects "no return" only on "user" calls.
+    call->gtCallMoreFlags &= ~(GTF_CALL_M_DOES_NOT_RETURN | GTF_CALL_M_EXPANDED_EARLY | GTF_CALL_M_HAS_THIS_ARG);
+    call->fgArgInfo = nullptr;
+
+    gtAppendCallArgs(call, gtNewCallArgs(numOldStackSlotsArg, numNewStackSlotsArg, flagsArg, targetArg));
+
+    JITDUMPTREE(call, "moMorphTailCallViaJitHelper (after):\n");
+
+    return thisTempStore;
+}
+#endif // TARGET_X86
+
+void Compiler::moMorphRecursiveFastTailCallIntoLoop(BasicBlock* block, GenTreeCall* call)
+{
+    assert(call->IsTailCallConvertibleToLoop());
+    Statement* lastStmt = block->lastStmt();
+    assert(call == lastStmt->GetRootNode());
+
+    // All arguments whose trees may involve caller parameter local variables need to be assigned to temps first;
+    // then the temps need to be assigned to the method parameters. This is done so that the caller parameters are
+    // not re-assigned before call arguments depending on them are evaluated.
+    // tmpStoreInsertionPoint and paramStoreInsertionPoint keep track of where the next temp or parameter store
+    // should be inserted.
+
+    Statement* earlyArgInsertionPoint   = lastStmt;
+    Statement* tempStoreInsertionPoint  = lastStmt;
+    Statement* paramStoreInsertionPoint = lastStmt;
+    IL_OFFSETX ilOffset                 = lastStmt->GetILOffsetX();
+
+    for (GenTreeCall::Use& use : call->Uses())
+    {
+        GenTree* argNode = use.GetNode();
+
+        // TODO-MIKE-Cleanup: It should be possible to avoid calling GetArgInfoByArgNode here,
+        // and the linear search it performs. This is the only non-DEBUG code that needs it.
+
+        CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);
+
+        if (argInfo->GetSetupUse() == &use)
+        {
+            // This is a setup node so we need to hoist it.
+            fgInsertStmtBefore(block, earlyArgInsertionPoint, gtNewStmt(argNode, ilOffset));
+        }
+        else
+        {
+            // This is an actual argument that needs to be stored to the corresponding caller parameter.
+            Statement* paramStoreStmt =
+                moStoreRecursiveCallArgToCallerParam(argNode, argInfo, block, ilOffset, tempStoreInsertionPoint,
+                                                     paramStoreInsertionPoint);
+
+            if ((tempStoreInsertionPoint == lastStmt) && (paramStoreStmt != nullptr))
+            {
+                // All temp assignments will happen before the first param store.
+                tempStoreInsertionPoint = paramStoreStmt;
+            }
+        }
+    }
+
+    // If the method has starg.s 0 or ldarga.s 0 a special local (lvaThisLclNum) is created so that
+    // compThisArg stays immutable. Normally it's assigned in fgFirstBBScratch block. Since that
+    // block won't be in the loop (it's assumed to have no predecessors), we need to update the special local here.
+
+    if (!info.compIsStatic && (lvaThisLclNum != info.GetThisParamLclNum()))
+    {
+        LclVarDsc* thisParamLcl = lvaGetDesc(info.GetThisParamLclNum());
+        GenTree*   value        = gtNewLclLoad(thisParamLcl, thisParamLcl->GetType());
+        GenTree*   store        = gtNewLclStore(lvaGetDesc(lvaThisLclNum), thisParamLcl->GetType(), value);
+        fgInsertStmtBefore(block, paramStoreInsertionPoint, gtNewStmt(store, ilOffset));
+    }
+
+    // If compInitMem is set, we may need to zero-initialize some locals. Normally it's done in the prolog
+    // but this loop can't include the prolog. Since we don't have liveness information, we initialize all
+    // all non-parameter IL locals as well as temp structs with GC fields.
+    // Liveness phase will remove unnecessary initializations.
+
+    if (info.compInitMem || compSuppressedZeroInit)
+    {
+        for (LclVarDsc* lcl : Locals())
+        {
+            if (lcl->IsParam())
+            {
+                continue;
+            }
+
+#if FEATURE_FIXED_OUT_ARGS
+            if (lcl->GetLclNum() == lvaOutgoingArgSpaceVar)
+            {
+                continue;
+            }
+#endif
+            bool isUserLocal        = lcl->GetLclNum() < info.compLocalsCount;
+            bool structWithGCFields = lcl->TypeIs(TYP_STRUCT) && lcl->GetLayout()->HasGCPtr();
+            bool hadSuppressedInit  = lcl->lvSuppressedZeroInit;
+
+            if ((info.compInitMem && (isUserLocal || structWithGCFields)) || hadSuppressedInit)
+            {
+                moMorphCreateLclInit(lcl, block, lastStmt, ilOffset);
+            }
+        }
+    }
+
+    fgRemoveStmt(block, lastStmt);
+
+    if (opts.IsOSR())
+    {
+        // Todo: this may not look like a viable loop header.
+        // Might need the moral equivalent of a scratch BB.
+        block->bbJumpDest = fgEntryBB;
+    }
+    else
+    {
+        // Ensure we have a scratch block and then target the next block.
+        // Loop detection needs to see a pred out of the loop, so mark the scratch
+        // block BBF_DONT_REMOVE to prevent empty block removal on it.
+        fgEnsureFirstBBisScratch();
+        fgFirstBB->bbFlags |= BBF_DONT_REMOVE;
+        block->bbJumpDest = fgFirstBB->bbNext;
+    }
+
+    block->bbJumpKind = BBJ_ALWAYS;
+    fgAddRefPred(block->bbJumpDest, block);
+    block->bbFlags &= ~BBF_HAS_JMP;
+}
+
+void Compiler::moMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement* beforeStmt, IL_OFFSETX ilOffset)
+{
+    if (lcl->IsIndependentPromoted())
+    {
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+        {
+            moMorphCreateLclInit(fieldLcl, block, beforeStmt, ilOffset);
+        }
+
+        return;
+    }
+
+    var_types lclType = lcl->GetType();
+    GenTree*  init    = nullptr;
+
+    if (!varTypeIsStruct(lclType))
+    {
+        init = gtNewZeroConNode(varActualType(lclType));
+    }
+#ifdef FEATURE_SIMD
+    else if (varTypeIsSIMD(lclType))
+    {
+        init = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+    }
+#endif
+    else
+    {
+        init = gtNewIconNode(0);
+    }
+
+    init = gtNewLclStore(lcl, lclType, init);
+
+    if (lcl->IsAddressExposed())
+    {
+        init->AddSideEffects(GTF_GLOB_REF);
+    }
+
+    fgInsertStmtBefore(block, beforeStmt, gtNewStmt(init, ilOffset));
+}
+
+// Store argument to a recursive call to the corresponding caller parameter.
+Statement* Compiler::moStoreRecursiveCallArgToCallerParam(GenTree*     arg,
+                                                          CallArgInfo* argInfo,
+                                                          BasicBlock*  block,
+                                                          IL_OFFSETX   ilOffset,
+                                                          Statement*   tmpStoreInsertionPoint,
+                                                          Statement*   paramStoreInsertionPoint)
+{
+    // Call arguments should be stored to temps first and then the temps should be
+    // stored to parameters because some argument trees may reference parameters
+    // directly.
+
+    GenTree*   argInTemp             = nullptr;
+    LclVarDsc* originalArgLcl        = lvaGetDesc(argInfo->GetArgNum());
+    bool       needToAssignParameter = true;
+
+    // TODO-CQ: enable calls with struct arguments passed in registers.
+    noway_assert(!varTypeIsStruct(arg->GetType()));
+
+    if (argInfo->HasTemp() || arg->IsIntCon() || arg->IsDblCon())
+    {
+        // The argument is already stored to a temp or is a const.
+        argInTemp = arg;
+    }
+    else if (arg->OperIs(GT_LCL_LOAD))
+    {
+        LclVarDsc* lcl = arg->AsLclLoad()->GetLcl();
+
+        if (!lcl->IsParam())
+        {
+            // The argument is a non-parameter local so it doesn't need to be stored to a temp.
+            argInTemp = arg;
+        }
+        else if (lcl == originalArgLcl)
+        {
+            // The argument is the same parameter local that we were about to store so
+            // we can skip it.
+            needToAssignParameter = false;
+        }
+    }
+
+    // TODO: We don't need temp stores if we can prove that the argument tree doesn't involve
+    // any caller parameters. Some common cases are handled above but we may be able to eliminate
+    // more temp stores.
+
+    if (!needToAssignParameter)
+    {
+        return nullptr;
+    }
+
+    if (argInTemp == nullptr)
+    {
+        // The argument is not stored to a temp. We need to create a new temp and insert a store.
+        // TODO: we can avoid a temp store if we can prove that the argument tree
+        // doesn't involve any caller parameters.
+        LclVarDsc* tmpLcl = lvaNewTemp(arg->GetType(), true DEBUGARG("arg temp"));
+
+        GenTreeLclStore* tmpStore = gtNewLclStore(tmpLcl, arg->GetType(), arg);
+        fgInsertStmtBefore(block, tmpStoreInsertionPoint, gtNewStmt(tmpStore, ilOffset));
+        argInTemp = gtNewLclLoad(tmpLcl, arg->GetType());
+    }
+
+    // Now store the temp to the parameter.
+    assert(originalArgLcl->IsParam());
+    GenTreeLclStore* paramStore     = gtNewLclStore(originalArgLcl, originalArgLcl->GetType(), argInTemp);
+    Statement*       paramStoreStmt = gtNewStmt(paramStore, ilOffset);
+
+    fgInsertStmtBefore(block, paramStoreInsertionPoint, paramStoreStmt);
+
+    return paramStoreStmt;
+}
+
+bool Compiler::IsCallGCSafePoint(GenTreeCall* call)
+{
+    if (call->IsFastTailCall())
+    {
+        return false;
+    }
+
+    if (call->IsUnmanaged() && call->IsSuppressGCTransition())
+    {
+        return false;
+    }
+
+    if (call->IsIndirectCall())
+    {
+        return true;
+    }
+
+    if (call->IsUserCall())
+    {
+        return (call->gtCallMoreFlags & GTF_CALL_M_NOGCCHECK) == 0;
+    }
+
+    if (call->IsHelperCall(CORINFO_HELP_PINVOKE_CALLI))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
+{
+    if ((call->IsHelperCall(CORINFO_HELP_VIRTUAL_FUNC_PTR)
+#ifdef FEATURE_READYTORUN_COMPILER
+         || call->IsHelperCall(CORINFO_HELP_READYTORUN_VIRTUAL_FUNC_PTR)
+#endif
+             ) &&
+        (stmt != nullptr) && (call == stmt->GetRootNode()))
+    {
+        // This is call to CORINFO_HELP_VIRTUAL_FUNC_PTR with ignored result.
+        // Transform it into a null check.
+
+        return moMorphTree(gtNewNullCheck(call->GetFirstArg()));
+    }
+
+    // Morph Type.op_Equality, Type.op_Inequality, and Enum.HasFlag
+    // We need to do these before the arguments are morphed.
+    if (call->IsSpecialIntrinsic() && opts.OptimizationEnabled())
+    {
+        if (GenTree* optTree = gtFoldExprCall(call))
+        {
+            return moMorphTree(optTree);
+        }
+    }
+
+    if (fgGlobalMorph)
+    {
+        if (call->IsTailCallCandidate())
+        {
+            if (GenTree* newNode = moMorphPotentialTailCall(call, stmt))
+            {
+                return newNode;
+            }
+        }
+
+        // TODO-MIKE-Cleanup: This should be moved to lowering (or LSRA's "build",
+        // only rpMustCreateEBPFrame needs it and doing it here is premature as
+        // calls can be removed later.
+        if (call->IsIndirectCall())
+        {
+            optCallCount++;
+            optIndirectCallCount++;
+        }
+        else if (call->IsUserCall())
+        {
+            optCallCount++;
+
+            if (call->IsVirtual())
+            {
+                optIndirectCallCount++;
+            }
+        }
+    }
+
+    assert(!call->IsTailCallCandidate());
+
+    BasicBlock* callBlock = fgMorphBlock;
+
+    // Mark the block as a GC safe point for the call if possible.
+    // In the event the call indicates the block isn't a GC safe point
+    // and the call is unmanaged with a GC transition suppression request
+    // then insert a GC poll.
+    if (IsCallGCSafePoint(call))
+    {
+        callBlock->bbFlags |= BBF_GC_SAFE_POINT;
+    }
+
+    // Regardless of the state of the basic block with respect to GC safe point,
+    // we will always insert a GC Poll for scenarios involving a suppressed GC
+    // transition. Only mark the block for GC Poll insertion on the first morph.
+    if (fgGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
+    {
+        callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
+        optMethodFlags |= OMF_NEEDS_GCPOLLS;
+    }
+
+    // TODO-MIKE-Cleanup: Only CSE needs this.
+    // Move this to SsaBuilder, where BBF_HAS_NULLCHECK and other similar flags are set.
+    // Note that there is code below that can remove the call, but we're still setting
+    // this flag here. Also note that INTRINSIC nodes may become calls but we don't set
+    // this flag for those, that may affect CSE.
+    callBlock->bbFlags |= BBF_HAS_CALL;
+
+    if (call->GetInfo() == nullptr)
+    {
+        moInitCallnfo(call);
+    }
+
+    moMorphCallArgs(call);
+
+    if (!call->HasArgsSetup())
+    {
+        moSetupCallArgs(call);
+    }
+
+    if (call->IsExpandedEarly() && call->IsVirtualVtable())
+    {
+        if (call->GetCallAddr() == nullptr)
+        {
+            assert(fgGlobalMorph);
+            call->SetCallAddr(moExpandVirtualVtableCallTarget(call));
+        }
+
+        call->SetCallAddr(moMorphTree(call->GetCallAddr()));
+        call->AddSideEffects(call->GetCallAddr()->GetSideEffects());
+    }
+
+    // Morph stelem.ref helper call to store a null value, into a store into an array without the helper.
+    // This needs to be done after the arguments are morphed to ensure constant propagation has already taken place.
+    if (opts.OptimizationEnabled() && call->IsHelperCall(CORINFO_HELP_ARRADDR_ST))
+    {
+        GenTree* value = call->GetArgNodeByArgNum(2);
+
+        if (value->IsIntegralConst(0))
+        {
+            return moRemoveArrayStoreHelperCall(call, value);
+        }
+    }
+
+    if (call->IsNoReturn())
+    {
+        // If we know that the call does not return then we can set fgRemoveRestOfBlock
+        // to remove all subsequent statements and change the call's basic block to BBJ_THROW.
+        // As a result the compiler won't need to preserve live registers across the call.
+        //
+        // This isn't need for tail calls as there shouldn't be any code after the call anyway.
+        // Besides, the tail call code is part of the epilog and converting the block to
+        // BBJ_THROW would result in the tail call being dropped as the epilog is generated
+        // only for BBJ_RETURN blocks.
+
+        if (!call->IsTailCall())
+        {
+            fgRemoveRestOfBlock = true;
+        }
+    }
+
+    return call;
+}
+
+GenTree* Compiler::moRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* value)
+{
+    assert((value == call->GetArgNodeByArgNum(2)) && (value->AsIntCon()->GetValue() == 0));
+
+    GenTree* arr   = call->GetArgNodeByArgNum(0);
+    GenTree* index = call->GetArgNodeByArgNum(1);
+
+    // Either or both of the array and index arguments may have been spilled to temps by moSetupCallArgs.
+    // Copy the spill trees as well if necessary.
+    GenTreeOp* argSetup = nullptr;
+    for (GenTreeCall::Use& use : call->Uses())
+    {
+        GenTree* const arg = use.GetNode();
+        if (!arg->OperIs(GT_LCL_DEF, GT_LCL_STORE))
+        {
+            continue;
+        }
+
+        assert(arg != arr);
+        assert(arg != index);
+
+        GenTree* op1 = argSetup;
+        if (op1 == nullptr)
+        {
+            op1 = gtNewNothingNode();
+            INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+        }
+
+        argSetup = gtNewCommaNode(op1, arg);
+        INDEBUG(argSetup->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+#ifdef DEBUG
+    auto resetMorphedFlag = [](GenTree** use, GenTree* user, void* data) {
+        (*use)->gtDebugFlags &= ~GTF_DEBUG_NODE_MORPHED;
+        return GenTreeWalkResult::Continue;
+    };
+
+    fgWalkTreePost(&arr, resetMorphedFlag);
+    fgWalkTreePost(&index, resetMorphedFlag);
+    fgWalkTreePost(&value, resetMorphedFlag);
+#endif // DEBUG
+
+    GenTree* result;
+
+    if (arr->IsIntegralConst(0))
+    {
+        result = gtNewIndLoad(TYP_I_IMPL, arr);
+    }
+    else
+    {
+        GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
+        GenTreeIndir*     arrIndexNode = gtNewIndexLoad(TYP_REF, addr);
+
+        if (!fgGlobalMorph && !opts.MinOpts())
+        {
+            arrIndexNode->SetAddr(moMorphIndexAddr(addr));
+        }
+
+        arrIndexNode->SetOper(GT_IND_STORE);
+        arrIndexNode->SetValue(value);
+        arrIndexNode->AddSideEffects(GTF_ASG | value->GetSideEffects());
+
+        result = arrIndexNode;
+    }
+
+    result = moMorphTree(result);
+
+    if (argSetup != nullptr)
+    {
+        result = gtNewCommaNode(argSetup, result);
+        INDEBUG(result->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    }
+
+    return result;
+}
+
+// Expand and return the call target address for a VirtualCall
+// The code here should match that generated by LowerVirtualVtableCall
+GenTree* Compiler::moExpandVirtualVtableCallTarget(GenTreeCall* call)
+{
+    JITDUMP("Expanding virtual call target for %d.%s:\n", call->GetID(), GenTree::OpName(call->GetOper()));
+
+    assert(call->IsUserCall());
+
+    GenTree* thisPtr = call->GetArgInfoByArgNum(0)->GetNode();
+
+    return moExpandVirtualVtableCallTarget(call->GetMethodHandle(), thisPtr);
+}
+
+GenTree* Compiler::moExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodHandle, GenTree* thisPtr)
+{
+    // moSetupCallArgs must enforce this invariant by creating a temp
+    // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) may be bad for CQ.
+    noway_assert(thisPtr->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
+    thisPtr = gtCloneSimple(thisPtr);
+    assert(thisPtr != nullptr);
+
+    unsigned vtabOffsOfIndirection;
+    unsigned vtabOffsAfterIndirection;
+    bool     isRelative;
+    info.compCompHnd->getMethodVTableOffset(methodHandle, &vtabOffsOfIndirection, &vtabOffsAfterIndirection,
+                                            &isRelative);
+
+    // Dereference the this pointer to obtain the method table, it is called vtab below
+    static_assert_no_msg(VPTR_OFFS == 0);
+    GenTree* vtab = gtNewIndLoad(TYP_I_IMPL, thisPtr);
+    vtab->gtFlags |= GTF_IND_INVARIANT;
+
+    GenTree* result;
+
+    // Get the appropriate vtable chunk
+    if (vtabOffsOfIndirection != CORINFO_VIRTUALCALL_NO_CHUNK)
+    {
+        // Note this isRelative code path is currently never executed
+        // as the VM doesn't ever return:  isRelative == true
+        if (isRelative)
+        {
+            // MethodTable offset is a relative pointer.
+            //
+            // Additional temporary variable is used to store virtual table pointer.
+            // Address of method is obtained by the next computations:
+            //
+            // Save relative offset to tmp (vtab is virtual table pointer, vtabOffsOfIndirection is offset of
+            // vtable-1st-level-indirection):
+            // tmp = vtab
+            //
+            // Save address of method to result (vtabOffsAfterIndirection is offset of vtable-2nd-level-indirection):
+            // result = [tmp + vtabOffsOfIndirection + vtabOffsAfterIndirection + [tmp + vtabOffsOfIndirection]]
+            //
+            //
+            // When isRelative is true we need to setup two temporary variables
+            // var1 = vtab
+            // var2 = var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
+            // result = [var2] + var2
+            //
+            LclVarDsc* varNum1 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var1 - vtab"));
+            LclVarDsc* varNum2 = lvaNewTemp(TYP_I_IMPL, true DEBUGARG("var2 - relative"));
+            GenTree*   asgVar1 = gtNewLclStore(varNum1, TYP_I_IMPL, vtab);
+
+            // [tmp + vtabOffsOfIndirection]
+            GenTree* tmpTree1 = gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
+                                              gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
+            tmpTree1 = gtNewIndLoad(TYP_I_IMPL, tmpTree1);
+            tmpTree1->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+
+            // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection
+            GenTree* tmpTree2 =
+                gtNewOperNode(GT_ADD, TYP_I_IMPL, gtNewLclLoad(varNum1, TYP_I_IMPL),
+                              gtNewIconNode(vtabOffsOfIndirection + vtabOffsAfterIndirection, TYP_I_IMPL));
+
+            // var1 + vtabOffsOfIndirection + vtabOffsAfterIndirection + [var1 + vtabOffsOfIndirection]
+            tmpTree2         = gtNewOperNode(GT_ADD, TYP_I_IMPL, tmpTree2, tmpTree1);
+            GenTree* asgVar2 = gtNewLclStore(varNum2, TYP_I_IMPL, tmpTree2);
+
+            result = gtNewIndLoad(TYP_I_IMPL, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2]
+            // This last indirection is not invariant.
+            result->gtFlags |= GTF_IND_NONFAULTING;
+
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewLclLoad(varNum2, TYP_I_IMPL)); // [var2] + var2
+            result = gtNewCommaNode(asgVar1, gtNewCommaNode(asgVar2, result));
+        }
+        else
+        {
+            // result = [vtab + vtabOffsOfIndirection]
+            result = gtNewOperNode(GT_ADD, TYP_I_IMPL, vtab, gtNewIconNode(vtabOffsOfIndirection, TYP_I_IMPL));
+            result = gtNewIndLoad(TYP_I_IMPL, result);
+            result->gtFlags |= GTF_IND_NONFAULTING | GTF_IND_INVARIANT;
+        }
+    }
+    else
+    {
+        result = vtab;
+        assert(!isRelative);
+    }
+
+    if (!isRelative)
+    {
+        // Load the function address
+        // result = [result + vtabOffsAfterIndirection]
+        result = gtNewOperNode(GT_ADD, TYP_I_IMPL, result, gtNewIconNode(vtabOffsAfterIndirection, TYP_INT));
+        result = gtNewIndLoad(TYP_I_IMPL, result);
+        // This last indirection is not invariant.
+        result->gtFlags |= GTF_IND_NONFAULTING;
+    }
+
+    return result;
+}
+
+GenTree* Compiler::moMorphStructInit(GenTree* store, GenTree* value)
+{
+    JITDUMPTREE(store, "\nfgMorphInitStruct (before):\n");
+
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
+    assert(varTypeIsStruct(store->GetType()));
+    assert(value->OperIs(GT_INIT_VAL) || value->IsIntegralConst(0));
+
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+    {
+        store = moMorphStructInitLclStore(store->AsLclRef(), value);
+    }
+
+    return store;
+}
+
+GenTree* Compiler::moMorphStructInitLclStore(GenTreeLclRef* store, GenTree* src)
+{
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
+    assert(varTypeIsStruct(store->GetType()));
+    assert(src->OperIs(GT_INIT_VAL) || src->IsIntCon(0));
+
+    LclVarDsc* lcl = store->GetLcl();
+
+#if LOCAL_ASSERTION_PROP
+    if (morphAssertionCount != 0)
+    {
+        morphAssertionKill(lcl DEBUGARG(store));
+    }
+#endif
+
+    unsigned      size     = 0;
+    unsigned      lclOffs  = 0;
+    unsigned      lclSize  = lcl->GetTypeSize();
+    FieldSeqNode* fieldSeq = nullptr;
+
+    if (store->OperIs(GT_LCL_STORE))
+    {
+        size = store->TypeIs(TYP_STRUCT) ? lcl->GetLayout()->GetSize() : varTypeSize(lcl->GetType());
+    }
+    else
+    {
+        GenTreeLclStoreFld* field = store->AsLclStoreFld();
+
+        size     = field->TypeIs(TYP_STRUCT) ? field->GetLayout(this)->GetSize() : varTypeSize(store->GetType());
+        lclOffs  = field->GetLclOffs();
+        fieldSeq = field->GetFieldSeq();
+    }
+
+    GenTree* initVal = src->OperIs(GT_INIT_VAL) ? src->AsUnOp()->GetOp(0) : src;
+
+    if (lcl->IsPromoted() && (lclOffs == 0) && (size == lclSize))
+    {
+        assert(varTypeIsStruct(lcl->GetType()));
+
+        if (GenTree* promotedTree = moMorphPromoteLocalInitStruct(store, lcl, initVal))
+        {
+            return promotedTree;
+        }
+    }
+
+    if ((size != 0) && !lcl->TypeIs(TYP_BLK) && initVal->IsIntCon())
+    {
+        // TODO-MIKE-Cleanup/CQ Attempting to convert block init into scalar/SIMD init
+        // results in all sorts of diffs. One may expect that not blocking enregistration
+        // due to the use block init would be an improvement but it turns out that there
+        // are all sorts of issues in the backend that produce diffs and CQ issues:
+        //   - `byte_location = 0;` generates
+        //         mov byte ptr [rsi], 0
+        //     but block init produces
+        //         xor eax, eax
+        //         mov byte ptr [rsi], al
+        //     Block init is worse, unless a register happens to already contain 0,
+        //     then scalar init is worse due to the extra immediate.
+        //   - `float_location = 0;` generates
+        //         xorps xmm0, xmm0
+        //         movss [rsi], xmm0
+        //     but block init generates
+        //         xor eax, eax
+        //         mov [rsi], eax
+        //     which is smaller. Either version can be better depending on the availability
+        //     of a zero in an integer or float register.
+        //   - Vector3 block init generates
+        //         xor eax, eax
+        //         mov [rsi], rax
+        //         mov [rsi+8], eax
+        //     but SIMD init generates
+        //         xorps xmm0, xmm0
+        //         movsd [rsi], xmm0
+        //         pshufd xmm1, xmm0, 2
+        //         movss [rsi], xmm1
+        //     Removing the extra shuffle should be easy but then we hit again the float/int
+        //     constant issue - what's better depends on what kind of zero register happens
+        //     to be available.
+        //   - Integer 0 and REF/BYREF 0 aren't the same thing for LSRA and thus block init
+        //     of a GC pointer location tends to generate better code by reusing a 0 register.
+        //   - On 32 bit targets there are also differences between long scalar init and
+        //     block init. Scalar init usually produces better code but not always it seems.
+        //
+        //     So to sum it up - this is pretty much restricted to INT now to minimize diffs.
+
+        var_types initType     = TYP_UNDEF;
+        var_types initBaseType = TYP_UNDEF;
+
+        if ((fieldSeq != nullptr) && fieldSeq->GetTail()->IsField())
+        {
+            CORINFO_CLASS_HANDLE fieldClassHandle;
+            var_types            fieldBaseType = TYP_UNDEF;
+            var_types            fieldType     = CorTypeToVarType(
+                info.compCompHnd->getFieldType(fieldSeq->GetTail()->GetFieldHandle(), &fieldClassHandle));
+
+            assert(!varTypeIsSIMD(fieldType));
+
+            if (fieldType == TYP_STRUCT)
+            {
+                fieldType = typGetStructType(fieldClassHandle, &fieldBaseType);
+            }
+
+            if ((size == varTypeSize(fieldType)) && !varTypeIsSmall(fieldType) && !varTypeIsSIMD(fieldType) &&
+                !varTypeIsFloating(fieldType) && !varTypeIsGC(fieldType)
+#ifndef TARGET_64BIT
+                && (fieldType != TYP_LONG)
+#endif
+                    )
+            {
+                initType     = fieldType;
+                initBaseType = fieldBaseType;
+            }
+        }
+
+        if ((initType == TYP_UNDEF) && (initVal->IsIntCon(0) || !lcl->TypeIs(TYP_STRUCT)))
+        {
+            if ((lclOffs == 0) && (size == lclSize) && !varTypeIsFloating(lcl->GetType())
+#ifndef TARGET_64BIT
+                && !lcl->TypeIs(TYP_LONG)
+#endif
+                    )
+            {
+                initType = lcl->GetType();
+
+                if (varTypeIsSIMD(initType))
+                {
+                    initBaseType = lcl->GetLayout()->GetElementType();
+                }
+
+                store->ChangeOper(GT_LCL_STORE);
+            }
+        }
+
+        if (initType == TYP_UNDEF)
+        {
+            // TODO-MIKE-Review: The backend was changed in master to no longer support zeroing SIMD
+            // typed locals by assigning a CNS_INT(0) so we have to change this to be a SIMD init.
+            // Still, zeroing a Vector2/3 in memory using GPRs produces smaller code so perhaps we
+            // need to do something else - if it's a LCL_FLD (or a LCL_VAR if the local is already
+            // DNER) we can change its type to TYP_STRUCT to get the normal block initialization.
+            // But then retyping can cause other issues (VN, CSE etc.) so perhaps we should actually
+            // convert it here to SIMD init and then deal with it in lowering/codegen.
+
+            if (varTypeIsSIMD(store->GetType()))
+            {
+                initType     = store->GetType();
+                initBaseType = TYP_FLOAT;
+            }
+        }
+
+        if (initType != TYP_UNDEF)
+        {
+            if (initType == TYP_STRUCT)
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+            }
+            else
+            {
+                initVal =
+                    moMorphStructInitConstant(initVal->AsIntCon(), initType,
+                                              store->OperIs(GT_LCL_STORE) && lcl->lvNormalizeOnStore(), initBaseType);
+            }
+
+            store->SetType(initType);
+
+            if (store->OperIs(GT_LCL_STORE_FLD))
+            {
+                lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+            }
+
+            store->SetOp(0, initVal);
+
+            JITDUMPTREE(store, "moMorphStructInit (after converting to scalar init):\n");
+
+            return store;
+        }
+    }
+
+    lvaSetDoNotEnregister(lcl DEBUGARG(DNER_BlockOp));
+
+    JITDUMPTREE(store, "moMorphStructInit (after):\n");
+
+    return store;
+}
+
+// Morph a block initialization constant node to be suitable for non-block initialization.
+// Returns the original node, changed to a suitable typed constant node or a new vector
+// node for vector destinations.
+GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
+                                             var_types      type,
+                                             bool           extendToActualType,
+                                             var_types      simdBaseType)
+{
+    assert((type != TYP_STRUCT) && (varTypeNodeType(type) == type));
+
+    var_types initPatternType;
+
+    if (varTypeIsSIMD(type))
+    {
+        if (simdBaseType == TYP_LONG)
+        {
+            // It is not useful to produce a 64 bit init pattern, especially on 32 bit targets.
+            initPatternType = TYP_INT;
+        }
+        else
+        {
+#ifdef TARGET_ARM64
+            // TODO-MIKE-ARM64-CQ Codegen doesn't properly recognize zero if the base type is float.
+            initPatternType = TYP_INT;
+#else
+            // TODO-MIKE-Review: This may be unnecessary when VPBROADCAST is available
+            initPatternType = varActualType(simdBaseType);
+#endif
+        }
+    }
+    else
+    {
+        initPatternType = type;
+    }
+
+    int64_t initPattern = (initVal->AsIntCon()->GetValue() & 0xFF) * 0x0101010101010101LL;
+
+    if (initPatternType == TYP_FLOAT)
+    {
+        initVal->ChangeToDblCon(TYP_FLOAT, jitstd::bit_cast<float>(static_cast<uint32_t>(initPattern & UINT32_MAX)));
+    }
+    else if (initPatternType == TYP_DOUBLE)
+    {
+        initVal->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(initPattern));
+    }
+#ifndef TARGET_64BIT
+    else if (initPatternType == TYP_LONG)
+    {
+        initVal->ChangeToLngCon(initPattern);
+    }
+#endif
+    else
+    {
+        if (varTypeSize(initPatternType) <= 4)
+        {
+            // Keep only as many bits as are needed to avoid creating "large" constants.
+            initPattern &= (int64_t(1) << (varTypeSize(initPatternType) * 8)) - 1;
+
+            if (extendToActualType)
+            {
+                if (initPatternType == TYP_BYTE)
+                {
+                    initPattern = static_cast<int8_t>(initPattern);
+                }
+                else if (initPatternType == TYP_SHORT)
+                {
+                    initPattern = static_cast<int16_t>(initPattern);
+                }
+            }
+        }
+
+#ifdef TARGET_64BIT
+        initVal->AsIntCon()->SetValue(initPattern);
+#else
+        initVal->AsIntCon()->SetValue(static_cast<int32_t>(initPattern));
+#endif
+        initVal->SetType(varActualType(initPatternType));
+    }
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(type))
+    {
+        if (initPattern == 0)
+        {
+            return gtNewZeroSimdHWIntrinsicNode(type, initPatternType);
+        }
+        else
+        {
+            return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, varTypeSize(type),
+                                            initVal);
+        }
+    }
+#endif
+
+    return initVal;
+}
+
+GenTree* Compiler::moMorphPromoteLocalInitStruct(GenTree* store, LclVarDsc* destLcl, GenTree* initVal)
+{
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
+    assert(varTypeIsStruct(destLcl->GetType()));
+    assert(destLcl->IsPromoted());
+
+    if (destLcl->lvDoNotEnregister && (destLcl->GetPromotedFieldCount() > 1))
+    {
+        JITDUMP(" dest is already DNER and has more than one field.\n");
+        return nullptr;
+    }
+
+    if (destLcl->IsAddressExposed() && destLcl->lvContainsHoles)
+    {
+        JITDUMP(" dest is address exposed and contains holes.\n");
+        return nullptr;
+    }
+
+    if (destLcl->lvCustomLayout && destLcl->lvContainsHoles)
+    {
+        // TODO-1stClassStructs: there are no reasons for this pessimization, delete it.
+        JITDUMP(" dest has custom layout and contains holes.\n");
+        return nullptr;
+    }
+
+    if (!initVal->OperIs(GT_CNS_INT))
+    {
+        JITDUMP(" source is not constant.\n");
+        return nullptr;
+    }
+
+    if ((initVal->AsIntCon()->GetValue() & 0xFF) != 0)
+    {
+        for (LclVarDsc* destFieldLcl : PromotedFields(destLcl))
+        {
+            if (varTypeIsGC(destFieldLcl->GetType()))
+            {
+                JITDUMP(" dest contains GC and fields and source constant is not 0.\n");
+                return nullptr;
+            }
+        }
+    }
+
+    JITDUMP(" using field by field initialization.\n");
+
+    const unsigned fieldCount = destLcl->GetPromotedFieldCount();
+    GenTree*       fieldStores[StructPromotionHelper::GetMaxFieldCount()];
+
+    for (unsigned i = 0; i < fieldCount; ++i)
+    {
+        LclVarDsc* destFieldLcl = lvaGetDesc(destLcl->GetPromotedFieldLclNum(i));
+
+        var_types type     = destFieldLcl->GetType();
+        var_types baseType = varTypeIsSIMD(type) ? destFieldLcl->GetLayout()->GetElementType() : TYP_UNDEF;
+
+        GenTree* value = moMorphStructInitConstant(gtNewIconNode(initVal->AsIntCon()->GetValue()), type,
+                                                   destFieldLcl->lvNormalizeOnStore(), baseType);
+
+        fieldStores[i] = gtNewLclStore(destFieldLcl, type, value);
+
+        if (destFieldLcl->IsAddressExposed())
+        {
+            fieldStores[i]->AddSideEffects(GTF_GLOB_REF);
+        }
+    }
+
+    return moMorphPromoteStore(store, nullptr, fieldStores, destLcl->GetPromotedFieldCount());
+}
+
+GenTree* Compiler::moMorphStructComma(GenTree* tree)
+{
+    assert(tree->OperIs(GT_COMMA) && varTypeIsStruct(tree->GetType()));
+
+    // Change COMMA(..., indir(addr)) into indir(COMMA(..., addr)).
+    //
+    // Only do this for indirs, STRUCT COMMA(..., LCL_VAR) may appear during CSE and
+    // we can't take local's address because that would make it addr-exposed.
+    // This transform is done to simplify indir promotion, when we need the indir
+    // address anyway. But the temps created by CSE are not promoted so we can keep
+    // the COMMA as is. And if they were promoted, the correct way to promote in this
+    // case would be to extract the COMMA side effects and reattach them to the first
+    // promoted field store.
+
+    // TODO-MIKE-Review: Should this be blocked entirely post global morph?
+    // No promotion should be needed after global morph and this transform
+    // does NOT update COMMA value numbers.
+
+    ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
+    for (GenTree* comma = tree; comma->OperIs(GT_COMMA); comma = comma->AsOp()->GetOp(1))
+    {
+        assert(comma->GetType() == tree->GetType());
+        commas.Push(comma->AsOp());
+    }
+
+    GenTree* effectiveVal = commas.Top()->GetOp(1);
+
+    if (!effectiveVal->IsIndir())
+    {
+        return tree;
+    }
+
+    GenTree* effectiveValAddr = effectiveVal->AsIndir()->GetAddr();
+    commas.Top()->SetOp(1, effectiveValAddr);
+    GenTreeFlags sideEffects = tree->GetSideEffects();
+
+    while (!commas.Empty())
+    {
+        GenTreeOp* comma = commas.Pop();
+        comma->SetType(TYP_BYREF);
+        comma->SetSideEffects(comma->GetOp(0)->GetSideEffects() | comma->GetOp(1)->GetSideEffects());
+    }
+
+    GenTree* indir;
+
+    if (effectiveVal->OperIs(GT_IND_LOAD))
+    {
+        indir = gtNewIndLoad(effectiveVal->GetType(), tree);
+    }
+    else
+    {
+        indir = gtNewIndLoadObj(effectiveVal->AsIndLoadObj()->GetLayout(), tree);
+    }
+
+    indir->SetSideEffects(sideEffects);
+    INDEBUG(indir->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    return indir;
+}
+
+GenTree* Compiler::moMorphStructStore(GenTree* store, GenTree* value)
+{
+    if (value->OperIs(GT_INIT_VAL, GT_CNS_INT))
+    {
+        return moMorphStructInit(store, value);
+    }
+    else
+    {
+        return moMorphStructCopy(store, value);
+    }
+}
+
+#ifdef FEATURE_SIMD
+
+GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl)
+{
+    assert(varTypeIsSIMD(srcLcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    var_types dstType = store->GetType();
+#ifdef TARGET_XARCH
+    NamedIntrinsic create = NI_Vector128_Create;
+    unsigned       numOps = 4;
+#elif defined(TARGET_ARM64)
+    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
+    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
+#else
+#error Unsupported platform
+#endif
+
+    unsigned srcFieldCount = srcLcl->GetPromotedFieldCount();
+    GenTree* ops[4];
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        if (i < srcFieldCount)
+        {
+            ops[i] = gtNewLclLoad(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i)), TYP_FLOAT);
+        }
+        else
+        {
+            ops[i] = gtNewDconNode(0, TYP_FLOAT);
+        }
+    }
+
+    store->SetValue(gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
+
+    JITDUMPTREE(store, "moMorphStructCopy (after SIMD source promotion):\n\n");
+
+    return store;
+}
+
+GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLcl)
+{
+    assert(varTypeIsSIMD(dstLcl->GetType()));
+    // Only Vector2/3/4 are promoted.
+    assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
+
+    GenTree* src         = store->GetOp(0);
+    bool     srcIsZero   = false;
+    bool     srcIsCreate = false;
+
+    if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
+    {
+        switch (hwi->GetIntrinsic())
+        {
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Zero:
+#endif
+            case NI_Vector128_get_Zero:
+                srcIsZero = true;
+                break;
+
+#ifdef TARGET_ARM64
+            case NI_Vector64_Create:
+#endif
+            case NI_Vector128_Create:
+                // TODO-MIKE-CQ: Promote broadcast create.
+                srcIsCreate = !hwi->IsUnary();
+
+                // We can use Create's operands directly only if they don't interfere with the field
+                // assignments we're going to generate. Otherwise we'll treat Create as any other
+                // intrinsic - store it into a temp.
+                // TODO-MIKE-CQ: It would be better to add a temp for each Create operand, packing and
+                // unpacking SIMD values is rather expensive.
+                for (unsigned i = 0; i < hwi->GetNumOps() && srcIsCreate; i++)
+                {
+                    GenTree* op = hwi->GetOp(i);
+
+                    if (op->OperIs(GT_LCL_LOAD))
+                    {
+                        LclVarDsc* lcl = op->AsLclLoad()->GetLcl();
+
+                        if (lcl->IsPromotedField() && (lcl->GetPromotedFieldParentLclNum() == dstLcl->GetLclNum()))
+                        {
+                            srcIsCreate = false;
+                        }
+                    }
+                    else if (!op->IsDblCon())
+                    {
+                        // TODO-MIKE-CQ: This is overly conservative, we need to check if the op tree contains
+                        // any references to the destination local, including its promoted fields. Basically
+                        // something like impHasLclRef but that also checks for promoted fields.
+                        srcIsCreate = false;
+                    }
+                }
+                break;
+
+#ifdef TARGET_XARCH
+            case NI_SSE2_ShiftRightLogical128BitLane:
+                // TODO-MIKE-Review: Hmm, ARM64 doesn't zero out the upper Vector3 element?
+                // TODO-MIKE-CQ: It would be better to insert zeroes instead of shifting...
+                if (dstLcl->GetPromotedFieldCount() < 4)
+                {
+                    unsigned expectedShiftImm = (4 - dstLcl->GetPromotedFieldCount()) * 4;
+
+                    if (hwi->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                    {
+                        if (GenTreeHWIntrinsic* shl = hwi->GetOp(0)->IsHWIntrinsic())
+                        {
+                            if ((shl->GetIntrinsic() == NI_SSE2_ShiftLeftLogical128BitLane) &&
+                                shl->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                            {
+                                src = shl->GetOp(0);
+                            }
+                        }
+                    }
+                }
+                break;
+#endif
+            default:
+                break;
+        }
+    }
+
+    GenTree* tempStore = nullptr;
+
+    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_LOAD))
+    {
+        LclVarDsc* tmpLcl = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
+
+        tempStore = gtNewLclStore(tmpLcl, src->GetType(), src);
+        src       = gtNewLclLoad(tmpLcl, src->GetType());
+    }
+
+    GenTree*       fieldStores[StructPromotionHelper::GetMaxFieldCount()];
+    const unsigned fieldCount = dstLcl->GetPromotedFieldCount();
+
+    for (unsigned i = 0; i < fieldCount; i++)
+    {
+        unsigned   fieldIndex = dstLcl->GetPromotedFieldCount() - 1 - i;
+        LclVarDsc* fieldLcl   = lvaGetDesc(dstLcl->GetPromotedFieldLclNum(fieldIndex));
+
+        GenTree* fieldSrc;
+
+        if (srcIsCreate && (i < src->AsHWIntrinsic()->GetNumOps()))
+        {
+            fieldSrc = src->AsHWIntrinsic()->GetOp(fieldIndex);
+            assert(fieldSrc->TypeIs(TYP_FLOAT));
+        }
+        else if (srcIsCreate || srcIsZero)
+        {
+            fieldSrc = gtNewDconNode(0, TYP_FLOAT);
+        }
+        else
+        {
+            src = gtNewLclLoad(src->AsLclLoad()->GetLcl(), src->GetType());
+            // TODO-MIKE-Cleanup: If the source is DNER we should create a LCL_FLD instead.
+            // Or maybe copy it to a temp to avoid generating multiple loads, that would
+            // work well when we have extractps, but if we don't know how the value was
+            // stored to memory in the first place we risk blocking store forwarding.
+            src->AddSideEffects(src->AsLclLoad()->GetLcl()->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+            fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
+        }
+
+        fieldStores[i] = gtNewLclStore(fieldLcl, TYP_FLOAT, fieldSrc);
+    }
+
+    return moMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
+}
+
+#endif // FEATURE_SIMD
+
+GenTree* Compiler::moMorphDynBlk(GenTreeDynBlk* dynBlk)
+{
+    assert(dynBlk->TypeIs(TYP_VOID));
+
+    GenTreeIntCon* constSize = dynBlk->GetSize()->IsIntCon();
+
+    if (constSize == nullptr)
+    {
+        return dynBlk;
+    }
+
+    if (constSize->GetUInt32Value() == 0)
+    {
+        GenTree* nop = gtNewNothingNode();
+        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+        return nop;
+    }
+
+    ClassLayout* layout  = typGetBlkLayout(constSize->GetUInt32Value());
+    GenTree*     dstAddr = dynBlk->GetAddr();
+    GenTree*     src     = dynBlk->GetValue();
+
+    if (dynBlk->OperIs(GT_COPY_BLK))
+    {
+        src = new (this, GT_IND_LOAD_BLK) GenTreeIndLoadBlk(src, layout);
+        src->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
+
+        if (dynBlk->IsVolatile())
+        {
+            src->AsBlk()->SetVolatile();
+        }
+    }
+    else if (!src->IsIntegralConst(0))
+    {
+        src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
+    }
+
+    dynBlk->ChangeOper(GT_IND_STORE_BLK);
+
+    GenTreeIndStoreBlk* store = dynBlk->AsIndStoreBlk();
+    store->SetType(TYP_STRUCT);
+    store->SetLayout(layout);
+    store->SetKind(StructStoreKind::Invalid);
+    store->SetAddr(dstAddr);
+    store->SetValue(src);
+
+    return dynBlk;
+}
+
+GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
+{
+    JITDUMPTREE(store, "\nfgMorphCopyStruct: (before)\n");
+
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
+    assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
+    assert(!src->OperIs(GT_INIT_VAL, GT_CNS_INT));
+
+    if (GenTreeCall* call = src->IsCall())
+    {
+#if FEATURE_MULTIREG_RET
+        if (call->HasMultiRegRetVal())
+        {
+            if (store->OperIs(GT_LCL_STORE))
+            {
+                LclVarDsc* lcl = store->AsLclStore()->GetLcl();
+
+                // TODO-MIKE-Cleanup: This isn't quite right, lvIsMultiRegRet should be set before promoting.
+                // The problem is that the importer doesn't set it if the local is indirectly accessed (via
+                // an OBJ). LocalAddressVisitor then eliminates the OBJ and avoids dependent promotion but
+                // lvIsMultiRegRet isn't set and that breaks SSA. Setting lvIsMultiRegRet allows things to
+                // work correctly but we may still end up with dependent promotion instead of not promoting
+                // to begin with.
+
+                if (lcl->IsIndependentPromoted())
+                {
+                    lcl->lvIsMultiRegRet = true;
+                }
+            }
+            else if (store->OperIs(GT_IND_STORE_OBJ) && varTypeIsSIMD(store->GetType()))
+            {
+                store->ChangeOper(GT_IND_STORE);
+            }
+
+            return store;
+        }
+#endif
+
+#ifdef WINDOWS_AMD64_ABI
+        if (src->TypeIs(TYP_SIMD8) && (call->GetRegType(0) == TYP_LONG))
+        {
+            src->SetType(TYP_LONG);
+            src = gtNewBitCastNode(TYP_SIMD8, src);
+
+            if (store->IsIndir())
+            {
+                store->AsIndir()->SetValue(src);
+            }
+            else
+            {
+                store->AsLclRef()->SetOp(0, src);
+            }
+        }
+#endif
+    }
+
+    if (src->OperIs(GT_COMMA))
+    {
+        src = moMorphStructComma(src);
+
+        if (store->IsIndir())
+        {
+            store->AsIndir()->SetValue(src);
+        }
+        else
+        {
+            store->AsLclRef()->SetOp(0, src);
+        }
+    }
+
+    JITDUMPTREE(store, "moMorphStructCopy: (after moMorphStructComma)\n");
+
+    LclVarDsc* destLcl     = nullptr;
+    unsigned   destLclOffs = 0;
+    bool       destPromote = false;
+
+    if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
+    {
+        destLclOffs = store->AsLclRef()->GetLclOffs();
+        destLcl     = store->AsLclRef()->GetLcl();
+
+#if LOCAL_ASSERTION_PROP
+        if (morphAssertionCount != 0)
+        {
+            morphAssertionKill(destLcl DEBUGARG(store->AsLclRef()));
+        }
+#endif
+    }
+    else
+    {
+        assert(store->OperIs(GT_IND_STORE_OBJ) || (store->OperIs(GT_IND_STORE) && varTypeIsSIMD(store->GetType())));
+    }
+
+    LclVarDsc* srcLcl     = nullptr;
+    unsigned   srcLclOffs = 0;
+    bool       srcPromote = false;
+
+    if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    {
+        srcLclOffs = src->AsLclRef()->GetLclOffs();
+        srcLcl     = src->AsLclRef()->GetLcl();
+    }
+    else if (GenTreeLclUse* use = src->IsLclUse())
+    {
+        srcLcl = use->GetDef()->GetLcl();
+    }
+    else if (src->IsExtract())
+    {
+        // TODO-MIKE-SSA: Figure out what to do with this, do we need to treat it as a local?
+    }
+    else if (src->OperIs(GT_COMMA))
+    {
+        // During CSE we may see COMMA(..., LCL_VAR) but neither the CSE temp
+        // nor the store destination are expected to be promoted so we don't
+        // need to do anything, we'll just keep the struct copy as is.
+        assert(src->SkipComma()->IsLclUse() || !src->SkipComma()->AsLclLoad()->GetLcl()->IsPromoted());
+        assert((destLcl == nullptr) || !destLcl->IsIndependentPromoted());
+    }
+    else if (!src->OperIs(GT_IND_LOAD_OBJ))
+    {
+        // For SIMD copies the source can be any SIMD typed tree or a CALL.
+        assert(src->OperIs(GT_CALL) || varTypeIsSIMD(src->GetType()));
+    }
+
+    // Check to see if we are doing a copy to/from the same local block.
+    // If so, morph it to a nop.
+    if ((destLcl != nullptr) && (srcLcl == destLcl) && (destLclOffs == srcLclOffs))
+    {
+        JITDUMP("Self-copy; replaced with a NOP.\n");
+        GenTree* nop = gtNewNothingNode();
+        INDEBUG(nop->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+        return nop;
+    }
+
+    unsigned destSize;
+
+    if (!store->TypeIs(TYP_STRUCT))
+    {
+        destSize = varTypeSize(store->GetType());
+    }
+    else if (store->OperIs(GT_LCL_STORE))
+    {
+        destSize = destLcl->GetLayout()->GetSize();
+    }
+    else if (store->OperIs(GT_LCL_STORE_FLD))
+    {
+        destSize = store->AsLclStoreFld()->GetLayout(this)->GetSize();
+    }
+    else
+    {
+        destSize = store->AsIndStoreObj()->GetLayout()->GetSize();
+    }
+
+    if ((destLcl != nullptr) && destLcl->IsPromoted() && (destLclOffs == 0) && (destLcl->GetTypeSize() == destSize) &&
+        (!destLcl->lvDoNotEnregister || (destLcl->GetPromotedFieldCount() == 1)))
+    {
+        assert(varTypeIsStruct(destLcl->GetType()));
+
+        destPromote = true;
+
+        JITDUMP("dest is promoted local\n");
+    }
+
+    if ((srcLcl != nullptr) && srcLcl->IsPromoted() && (srcLclOffs == 0) && (srcLcl->GetTypeSize() == destSize) &&
+        (!srcLcl->lvDoNotEnregister || (srcLcl->GetPromotedFieldCount() == 1)))
+    {
+        assert(varTypeIsStruct(srcLcl->GetType()));
+
+        srcPromote = true;
+
+        JITDUMP("src is promoted local\n");
+    }
+
+#ifdef FEATURE_SIMD
+    if (!destPromote && srcPromote && varTypeIsSIMD(srcLcl->GetType()) && store->OperIs(GT_LCL_STORE))
+    {
+        return moMorphPromoteVecLoad(store->AsLclStore(), srcLcl);
+    }
+
+    if (destPromote && !srcPromote && varTypeIsSIMD(destLcl->GetType()) &&
+        src->OperIs(GT_LCL_LOAD, GT_BITCAST, GT_HWINTRINSIC))
+    {
+        return moMorphPromoteVecStore(store->AsLclRef(), destLcl);
+    }
+#endif // FEATURE_SIMD
+
+    bool promote = true;
+
+    if (!destPromote && !srcPromote)
+    {
+        promote = false;
+    }
+    else if (destPromote && destLcl->lvCustomLayout && destLcl->lvContainsHoles)
+    {
+        JITDUMP("dest has custom layout and contains holes\n");
+        promote = false;
+    }
+    else if (srcPromote && srcLcl->lvCustomLayout && srcLcl->lvContainsHoles)
+    {
+        JITDUMP("src has custom layout and contains holes\n");
+        promote = false;
+    }
+    else if (src->OperIs(GT_CALL))
+    {
+        JITDUMP("src is a call\n");
+        promote = false;
+    }
+    else if (src->IsHWIntrinsic())
+    {
+        JITDUMP("src is a HWINTRINSIC node\n");
+        promote = false;
+    }
+#if defined(TARGET_ARM)
+    else if (src->IsIndir() && src->AsIndir()->IsUnaligned())
+    {
+        JITDUMP("src is unaligned\n");
+        promote = false;
+    }
+    else if (store->IsIndir() && store->AsIndir()->IsUnaligned())
+    {
+        JITDUMP("dest is unaligned\n");
+        promote = false;
+    }
+#endif // TARGET_ARM
+    else if (destPromote && srcPromote)
+    {
+        // Both structs should be of the same type, or each have the same number of fields, each having
+        // the same type and offset. Actually, the destination could have less fields than the source
+        // but there doesn't appear to be any such case in the entire FX. Copies between variables of
+        // different types but same layout do occur though - Memory's implicit operator ReadOnlyMemory
+        // uses Unsafe.As to perform the conversion, instead of copying the struct field by field.
+        if (destLcl->GetLayout() != srcLcl->GetLayout())
+        {
+            bool sameLayout = destLcl->GetPromotedFieldCount() == srcLcl->GetPromotedFieldCount();
+
+            for (unsigned i = 0; sameLayout && i < destLcl->GetPromotedFieldCount(); i++)
+            {
+                LclVarDsc* destFieldLcl = lvaGetDesc(destLcl->GetPromotedFieldLclNum(i));
+                LclVarDsc* srcFieldLcl  = lvaGetDesc(srcLcl->GetPromotedFieldLclNum(i));
+
+                assert(!destFieldLcl->TypeIs(TYP_STRUCT));
+
+                if ((destFieldLcl->GetPromotedFieldOffset() != srcFieldLcl->GetPromotedFieldOffset()) ||
+                    (destFieldLcl->GetType() != srcFieldLcl->GetType()))
+                {
+                    sameLayout = false;
+                }
+            }
+
+            if (!sameLayout)
+            {
+                promote = false;
+                JITDUMP("dest and src have different layout\n");
+            }
+        }
+    }
+
+    if (!promote)
+    {
+        if (store->TypeIs(TYP_STRUCT))
+        {
+            if (srcLcl != nullptr)
+            {
+                lvaSetDoNotEnregister(srcLcl DEBUGARG(DNER_BlockOp));
+            }
+
+            if (destLcl != nullptr)
+            {
+                lvaSetDoNotEnregister(destLcl DEBUGARG(DNER_BlockOp));
+            }
+        }
+        else
+        {
+            assert(varTypeIsSIMD(store->GetType()));
+
+            if (src->OperIs(GT_IND_LOAD_OBJ))
+            {
+                src->ChangeOper(GT_IND_LOAD);
+            }
+
+            if (store->OperIs(GT_IND_STORE_OBJ))
+            {
+                store->ChangeOper(GT_IND_STORE);
+            }
+        }
+
+        JITDUMPTREE(store, "moMorphStructCopy: (after)\n");
+
+        return store;
+    }
+
+    assert(destPromote || srcPromote);
+    assert(!destPromote || (destLcl != nullptr));
+    assert(!srcPromote || (srcLcl != nullptr));
+    assert(!destPromote || !srcPromote || (destLcl->GetPromotedFieldCount() == srcLcl->GetPromotedFieldCount()));
+
+    auto PromoteLclLoad = [this](GenTree** loads, LclVarDsc* lcl) {
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+        {
+            GenTree* load = gtNewLclLoad(fieldLcl, fieldLcl->GetType());
+            load->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+            *loads++ = load;
+        }
+    };
+
+    auto PromoteLclStore = [this](GenTree** stores, GenTree** loads, LclVarDsc* lcl) {
+        for (LclVarDsc* fieldLcl : PromotedFields(lcl))
+        {
+            GenTree* store = gtNewLclStore(fieldLcl, fieldLcl->GetType(), *loads++);
+            store->AddSideEffects(fieldLcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
+            *stores++ = store;
+        }
+    };
+
+    auto SplitLclLoad = [this](GenTree** loads, GenTreeLclRef* load, LclVarDsc* promotedLcl) {
+        LclVarDsc* lcl     = load->GetLcl();
+        unsigned   lclOffs = load->GetLclOffs();
+
+        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
+        FieldSeqNode*  baseFieldSeq  = FieldSeqNode::NotAField();
+
+        // We don't have a field sequence for the destination field but one can be obtained from
+        // the source field if the destination and source have the same type. Of course, other
+        // cases could be handled by querying the VM for destination fields and trying to find
+        // ones that are suitable for the current offset and type but this should be a rare case.
+
+        if (load->OperIs(GT_LCL_LOAD))
+        {
+            if (lcl->GetLayout() == promotedLcl->GetLayout())
+            {
+                baseFieldSeq = nullptr;
+            }
+        }
+        else if (FieldSeqNode* fieldSeq = load->AsLclLoadFld()->GetFieldSeq())
+        {
+            if (fieldSeq->IsField() && (load->AsLclLoadFld()->GetLayout(this) == promotedLcl->GetLayout()))
+            {
+                baseFieldSeq = fieldSeq;
+            }
+        }
+
+        for (LclVarDsc* promotedFieldLcl : PromotedFields(promotedLcl))
+        {
+            unsigned      loadFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
+            FieldSeqNode* loadFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
+
+            GenTreeLclLoadFld* fieldLoad = gtNewLclLoadFld(promotedFieldLcl->GetType(), lcl, loadFieldOffs);
+            fieldLoad->SetFieldSeq(loadFieldSeq);
+            fieldLoad->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
+            *loads++ = fieldLoad;
+        }
+
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+    };
+
+    auto SplitLclStore = [this](GenTree** stores, GenTreeLclRef* store, GenTree** loads, LclVarDsc* promotedLcl) {
+        LclVarDsc* lcl     = store->GetLcl();
+        unsigned   lclOffs = store->GetLclOffs();
+
+        FieldSeqStore* fieldSeqStore = GetFieldSeqStore();
+        FieldSeqNode*  baseFieldSeq  = FieldSeqNode::NotAField();
+
+        // We don't have a field sequence for the destination field but one can be obtained from
+        // the source field if the destination and source have the same type. Of course, other
+        // cases could be handled by querying the VM for destination fields and trying to find
+        // ones that are suitable for the current offset and type but this should be a rare case.
+
+        if (store->OperIs(GT_LCL_STORE))
+        {
+            if (lcl->GetLayout() == promotedLcl->GetLayout())
+            {
+                baseFieldSeq = nullptr;
+            }
+        }
+        else if (FieldSeqNode* fieldSeq = store->AsLclStoreFld()->GetFieldSeq())
+        {
+            if (fieldSeq->IsField() && (store->AsLclStoreFld()->GetLayout(this) == promotedLcl->GetLayout()))
+            {
+                baseFieldSeq = fieldSeq;
+            }
+        }
+
+        for (LclVarDsc* promotedFieldLcl : PromotedFields(promotedLcl))
+        {
+            unsigned      storeFieldOffs = lclOffs + promotedFieldLcl->GetPromotedFieldOffset();
+            FieldSeqNode* storeFieldSeq  = fieldSeqStore->Append(baseFieldSeq, promotedFieldLcl->GetPromotedFieldSeq());
+
+            GenTreeLclStoreFld* fieldStore =
+                gtNewLclStoreFld(promotedFieldLcl->GetType(), lcl, storeFieldOffs, *loads++);
+            fieldStore->SetFieldSeq(storeFieldSeq);
+            fieldStore->gtFlags |= lcl->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE;
+            *stores++ = fieldStore;
+        }
+
+        lvaSetDoNotEnregister(lcl DEBUGARG(DNER_LocalField));
+    };
+
+    auto SplitIndAddr = [this](GenTree* addresses[], GenTreeIndir* indir, LclVarDsc* promotedLcl) -> GenTree* {
+        assert(indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ, GT_IND_STORE, GT_IND_STORE_OBJ));
+
+        GenTree*      addr         = indir->GetAddr();
+        LclVarDsc*    addrSpillLcl = nullptr;
+        GenTree*      addrStore    = nullptr;
+        unsigned      baseOffs     = 0;
+        FieldSeqNode* baseFieldSeq = FieldSeqNode::NotAField();
+
+        if (promotedLcl->GetPromotedFieldCount() > 1)
+        {
+            // TODO-MIKE-CQ: This doesn't handle the array case. The array data offset (or the entire
+            // element offset if the index is constant) is hidden under a COMMA and another ADD. We
+            // could try to extract the offset from that tree but then vnIsArrayElemAddr will have
+            // a difficult time recovering array element information.
+
+            if (addr->OperIs(GT_ADD))
+            {
+                if (GenTreeIntCon* offset = addr->AsOp()->GetOp(1)->IsIntCon())
+                {
+#ifdef TARGET_XARCH
+                    ssize_t maxOffset = INT32_MAX;
+#else
+                    ssize_t maxOffset = 4095;
+#endif
+                    // The maximum offset depends on the last promoted field offset, not the struct
+                    // size. But such cases are so rare that it's not worth the trouble to get the
+                    // last field offset.
+                    maxOffset -= promotedLcl->GetTypeSize();
+
+                    if ((offset->GetValue() > 0) && (offset->GetValue() <= maxOffset))
+                    {
+                        baseOffs     = offset->GetUInt32Value();
+                        baseFieldSeq = offset->GetFieldSeq();
+                        addr         = addr->AsOp()->GetOp(0);
+
+                        // The original load must have the same layout as the promoted local, otherwise
+                        // we can't generate correct field sequences and we need to use NotAField.
+
+                        if (!indir->IsBlk() || (indir->AsBlk()->GetLayout() != promotedLcl->GetLayout()))
+                        {
+                            baseFieldSeq = FieldSeqNode::NotAField();
+                        }
+                    }
+                }
+            }
+
+            if (addr->OperIs(GT_LCL_LOAD))
+            {
+                LclVarDsc* addrLcl = addr->AsLclLoad()->GetLcl();
+
+                bool isMemoryLoadOrAliased = addrLcl->lvDoNotEnregister || addrLcl->IsAddressExposed();
+                // If we're splitting the address of an indirect load then it means we're going to
+                // promote a local store, so we must copy the address to a temp if addrLcl happens
+                // to be one of the promoted fields.
+                bool isStoredPromotedField = indir->OperIs(GT_IND_LOAD, GT_IND_LOAD_OBJ) &&
+                                             addrLcl->IsPromotedField() &&
+                                             (addrLcl->GetPromotedFieldParentLclNum() == promotedLcl->GetLclNum());
+
+                if (!isMemoryLoadOrAliased && !isStoredPromotedField)
+                {
+                    assert(addr->GetSideEffects() == GTF_NONE);
+
+                    addrSpillLcl = addr->AsLclLoad()->GetLcl();
+                }
+            }
+
+            if (addrSpillLcl == nullptr)
+            {
+                addrSpillLcl = lvaNewTemp(addr->GetType(), true DEBUGARG("promoted struct address"));
+                addrStore    = gtNewLclStore(addrSpillLcl, addr->GetType(), addr);
+                addr         = gtNewLclLoad(addrSpillLcl, addr->GetType());
+            }
+        }
+
+        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
+        {
+            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
+
+            unsigned      fieldOffset = promotedFieldLcl->GetPromotedFieldOffset();
+            FieldSeqNode* fieldSeq    = promotedFieldLcl->GetPromotedFieldSeq();
+
+            if (baseOffs != 0)
+            {
+                fieldOffset += baseOffs;
+                fieldSeq = GetFieldSeqStore()->Append(baseFieldSeq, fieldSeq);
+            }
+
+            GenTree* fieldAddr = (i == 0) ? addr : gtNewLclLoad(addrSpillLcl, addr->GetType());
+
+            if (fieldOffset == 0)
+            {
+                AddZeroOffsetFieldSeq(fieldAddr, fieldSeq);
+            }
+            else
+            {
+                fieldAddr = gtNewOperNode(GT_ADD, TYP_BYREF, fieldAddr, gtNewIconNode(fieldOffset, fieldSeq));
+            }
+
+            addresses[i] = fieldAddr;
+        }
+
+        return addrStore;
+    };
+
+    auto SplitIndLoad = [&](GenTree* loads[], GenTreeIndir* load, LclVarDsc* promotedLcl) {
+        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
+        {
+            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
+
+            // TODO-MIKE-Fix: This ignores volatile. It's not clear how volatile should be handled,
+            // block promotion, transfer volatile to all field indirs, transfer volatile only to the
+            // first/last field indir? Luckily volatile is unusual on struct indirs.
+
+            GenTree* fieldLoad = gtNewIndLoad(promotedFieldLcl->GetType(), loads[i]);
+            fieldLoad->gtFlags |= load->gtFlags & (GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP);
+            fieldLoad->gtFlags |= load->gtFlags & GTF_GLOB_REF;
+
+            if ((load->gtFlags & GTF_IND_NONFAULTING) == 0)
+            {
+                fieldLoad->AddSideEffects(GTF_EXCEPT);
+            }
+
+            loads[i] = fieldLoad;
+        }
+    };
+
+    auto SplitIndStore = [&](GenTree* stores[], GenTreeIndir* store, GenTree* loads[], LclVarDsc* promotedLcl) {
+        for (unsigned i = 0; i < promotedLcl->GetPromotedFieldCount(); i++)
+        {
+            LclVarDsc* promotedFieldLcl = lvaGetDesc(promotedLcl->GetPromotedFieldLclNum(i));
+
+            // TODO-MIKE-Fix: This ignores volatile. It's not clear how volatile should be handled,
+            // block promotion, transfer volatile to all field indirs, transfer volatile only to the
+            // first/last field indir? Luckily volatile is unusual on struct indirs.
+
+            GenTree* fieldStore = gtNewIndStore(promotedFieldLcl->GetType(), stores[i], loads[i]);
+            fieldStore->gtFlags |= store->gtFlags & (GTF_IND_NONFAULTING | GTF_IND_TGT_NOT_HEAP | GTF_IND_TGT_HEAP);
+            fieldStore->gtFlags |= store->gtFlags & GTF_GLOB_REF;
+
+            if ((store->gtFlags & GTF_IND_NONFAULTING) == 0)
+            {
+                fieldStore->AddSideEffects(GTF_EXCEPT);
+            }
+
+            stores[i] = fieldStore;
+        }
+    };
+
+    unsigned fieldCount = 0;
+    GenTree* fieldLoads[StructPromotionHelper::GetMaxFieldCount()];
+    GenTree* fieldStores[StructPromotionHelper::GetMaxFieldCount()];
+    GenTree* tempStore = nullptr;
+
+    if (srcPromote)
+    {
+        fieldCount = srcLcl->GetPromotedFieldCount();
+        PromoteLclLoad(fieldLoads, srcLcl);
+    }
+    else if (srcLcl != nullptr)
+    {
+        SplitLclLoad(fieldLoads, src->AsLclRef(), destLcl);
+    }
+    else
+    {
+        tempStore = SplitIndAddr(fieldLoads, src->AsIndir(), destLcl);
+        SplitIndLoad(fieldLoads, src->AsIndir(), destLcl);
+    }
+
+    if (destPromote)
+    {
+        fieldCount = destLcl->GetPromotedFieldCount();
+        PromoteLclStore(fieldStores, fieldLoads, destLcl);
+    }
+    else if (destLcl != nullptr)
+    {
+        SplitLclStore(fieldStores, store->AsLclRef(), fieldLoads, srcLcl);
+    }
+    else
+    {
+        tempStore = SplitIndAddr(fieldStores, store->AsIndir(), srcLcl);
+        SplitIndStore(fieldStores, store->AsIndir(), fieldLoads, srcLcl);
+    }
+
+    return moMorphPromoteStore(store, tempStore, fieldStores, fieldCount);
+}
+
+GenTree* Compiler::moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount)
+{
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ));
+
+    const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
+    GenTree*   tree       = tempStore;
+
+    if (tree == nullptr)
+    {
+        tree = fieldStores[0];
+        fieldStores++;
+        fieldCount--;
+    }
+
+    for (unsigned i = 0; i < fieldCount; i++)
+    {
+        GenTree* fieldStore = fieldStores[i];
+        assert(fieldStore->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE));
+
+        if (isStmtRoot)
+        {
+            Statement* stmt = fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, tree);
+            JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
+
+#if LOCAL_ASSERTION_PROP
+            if (morphAssertionTable != nullptr)
+            {
+                if (tree->OperIs(GT_LCL_STORE))
+                {
+                    morphAssertionGenerate(tree);
+                }
+            }
+#endif
+
+            tree = fieldStore;
+        }
+        else
+        {
+#if LOCAL_ASSERTION_PROP
+            if (morphAssertionTable != nullptr)
+            {
+                if (tree->OperIs(GT_LCL_STORE))
+                {
+                    morphAssertionGenerate(tree);
+                }
+
+                morphAssertionGenerate(fieldStore);
+            }
+#endif
+
+            tree = gtNewCommaNode(tree, fieldStore);
+        }
+    }
+
+    INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED;)
+    JITDUMPTREE(tree, "Promoted struct store:\n");
+
+    return tree;
 }
 
 // Check and fold blocks of type BBJ_COND and BBJ_SWITCH on constants
@@ -12350,7 +12486,7 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
 #endif
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64) || defined(TARGET_X86)
-        fgMorphIndirectParams(stmt);
+        moMorphIndirectParams(stmt);
 #endif
 
         GenTree* oldTree     = stmt->GetRootNode();
@@ -12472,7 +12608,7 @@ void Compiler::phGlobalMorph()
     fgGlobalMorphStmt = nullptr;
     fgMorphBlock      = nullptr;
 
-#if (defined(TARGET_AMD64) && !defined(UNIX_AMD64_ABI)) || defined(TARGET_ARM64)
+#if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params
     lvaDemoteImplicitByRefParams();
     lvaRefCountState = RCS_INVALID;
@@ -12567,9 +12703,9 @@ void Compiler::moMorphBlocks()
 // For example a method returning void could have an empty block with jump kind BBJ_RETURN.
 // Such blocks do materialize as part of in-lining.
 //
-// A block with jump kind BBJ_RETURN does not necessarily need to end with GT_RETURN.
-// It could end with a tail call or rejected tail call or monitor.exit or a GT_INTRINSIC.
-// For now it is safe to explicitly check whether last stmt is GT_RETURN if genReturnLocal
+// A block with jump kind BBJ_RETURN does not necessarily need to end with RETURN.
+// It could end with a tail call or rejected tail call or monitor.exit or a INTRINSIC.
+// For now it is safe to explicitly check whether last stmt is RETURN if genReturnLocal
 // is BAD_VAR_NUM.
 //
 void Compiler::moMergeBlockReturn(BasicBlock* block)
@@ -12618,9 +12754,9 @@ void Compiler::moMergeBlockReturn(BasicBlock* block)
 
         GenTree* value = ret->AsUnOp()->GetOp(0);
 
-        // TODO-MIKE-Cleanup: Is this really needed? moMorphCopyStruct already handles COMMAs
+        // TODO-MIKE-Cleanup: Is this really needed? moMorphStructCopy already handles COMMAs
         // but the approach taken here is perhaps preferable. It eliminates the COMMA by
-        // extracting its side effect into a separate statement. moMorphCopyStruct keeps the
+        // extracting its side effect into a separate statement. moMorphStructCopy keeps the
         // COMMA but transforms it into an address and adds an OBJ. For locals this is bad
         // because it makes them address exposed. Fortunately it seems that struct locals
         // never appear under COMMAs. Known sources of struct COMMAs are static struct fields,
@@ -12666,7 +12802,7 @@ void Compiler::moMergeBlockReturn(BasicBlock* block)
     else if ((ret != nullptr) && ret->OperIs(GT_RETURN))
     {
         // If the return buffer address is being returned then we don't have a merged return
-        // temp because the address is just a LCL_VAR. Otherwise this has to be a VOID RETURN.
+        // temp because the address is just a LCL_ADDR. Otherwise this has to be a VOID RETURN.
 
         if (info.compRetBuffArg == BAD_VAR_NUM)
         {
@@ -12741,10 +12877,10 @@ static GenTreeWalkResult moAssertNoQmark(GenTree** use, GenTree* user, void* dat
     return GenTreeWalkResult::Continue;
 }
 
-// Verify that the importer has created GT_QMARK nodes in a way we can
+// Verify that the importer has created QMARK nodes in a way we can
 // process them. The following is allowed:
 //
-// 1. A top level qmark. Top level qmark is of the form:
+// 1. A top level QMARK. Top level QMARK is of the form:
 //     a) (bool) ? (void) : (void) OR
 //     b) V0N = (bool) ? (type) : (type)
 //
@@ -12756,8 +12892,8 @@ void Compiler::moPreExpandQmarkChecks(GenTree* expr)
     GenTreeLclStore* store    = nullptr;
     GenTreeQmark*    topQmark = moGetTopLevelQmark(expr, &store);
 
-    // If the top level Qmark is null, then scan the tree to make sure
-    // there are no qmarks within it.
+    // If the top level QMARK is null, then scan the tree to make sure
+    // there are no QMARKs within it.
     if (topQmark == nullptr)
     {
         fgWalkTreePre(&expr, moAssertNoQmark);
@@ -12765,10 +12901,10 @@ void Compiler::moPreExpandQmarkChecks(GenTree* expr)
     else
     {
         // We could probably expand the cond node also, but don't think the extra effort is necessary,
-        // so let's just assert the cond node of a top level qmark doesn't have further top level qmarks.
+        // so let's just assert the cond node of a top level QMARK doesn't have further top level QMARKs.
         fgWalkTreePre(&topQmark->gtOp1, moAssertNoQmark);
-        fgPreExpandQmarkChecks(topQmark->GetOp(1));
-        fgPreExpandQmarkChecks(topQmark->GetOp(2));
+        moPreExpandQmarkChecks(topQmark->GetOp(1));
+        moPreExpandQmarkChecks(topQmark->GetOp(2));
     }
 }
 #endif // DEBUG
@@ -12791,42 +12927,39 @@ GenTreeQmark* Compiler::moGetTopLevelQmark(GenTree* expr, GenTreeLclStore** stor
     return nullptr;
 }
 
-/*********************************************************************************
- *
- *  For a castclass helper call,
- *  Importer creates the following tree:
- *      tmp = (op1 == null) ? op1 : ((*op1 == (cse = op2, cse)) ? op1 : helper());
- *
- *  This method splits the qmark expression created by the importer into the
- *  following blocks: (block, asg, cond1, cond2, helper, remainder)
- *  Notice that op1 is the result for both the conditions. So we coalesce these
- *  assignments into a single block instead of two blocks resulting a nested diamond.
- *
- *                       +---------->-----------+
- *                       |          |           |
- *                       ^          ^           v
- *                       |          |           |
- *  block-->asg-->cond1--+-->cond2--+-->helper--+-->remainder
- *
- *  We expect to achieve the following codegen:
- *     mov      rsi, rdx                           tmp = op1                  // asgBlock
- *     test     rsi, rsi                           goto skip if tmp == null ? // cond1Block
- *     je       SKIP
- *     mov      rcx, 0x76543210                    cns = op2                  // cond2Block
- *     cmp      qword ptr [rsi], rcx               goto skip if *tmp == op2
- *     je       SKIP
- *     call     CORINFO_HELP_CHKCASTCLASS_SPECIAL  tmp = helper(cns, tmp)     // helperBlock
- *     mov      rsi, rax
- *  SKIP:                                                                     // remainderBlock
- *     tmp has the result.
- *
- */
+//  For a castclass helper call,
+//  Importer creates the following tree:
+//      tmp = (op1 == null) ? op1 : ((*op1 == (cse = op2, cse)) ? op1 : helper());
+//
+//  This method splits the QMARK expression created by the importer into the
+//  following blocks: (block, asg, cond1, cond2, helper, remainder)
+//  Notice that op1 is the result for both the conditions. So we coalesce these
+//  assignments into a single block instead of two blocks resulting a nested diamond.
+//
+//                       +---------->-----------+
+//                       |          |           |
+//                       ^          ^           v
+//                       |          |           |
+//  block-->asg-->cond1--+-->cond2--+-->helper--+-->remainder
+//
+//  We expect to achieve the following codegen:
+//     mov      rsi, rdx                           tmp = op1                  // asgBlock
+//     test     rsi, rsi                           goto skip if tmp == null ? // cond1Block
+//     je       SKIP
+//     mov      rcx, 0x76543210                    cns = op2                  // cond2Block
+//     cmp      qword ptr [rsi], rcx               goto skip if *tmp == op2
+//     je       SKIP
+//     call     CORINFO_HELP_CHKCASTCLASS_SPECIAL  tmp = helper(cns, tmp)     // helperBlock
+//     mov      rsi, rax
+//  SKIP:                                                                     // remainderBlock
+//     tmp has the result.
+//
 void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 {
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nExpanding CastInstOf qmark in " FMT_BB " (before)\n", block->bbNum);
+        printf("\nExpanding CastInstOf QMARK in " FMT_BB " (before)\n", block->bbNum);
         fgDispBasicBlocks(block, block, true);
     }
 #endif
@@ -12843,7 +12976,7 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
     GenTree* trueExpr  = qmark->GetThen();
     GenTree* falseExpr = qmark->GetElse();
 
-    // Get cond, true, false exprs for the nested qmark.
+    // Get cond, true, false exprs for the nested QMARK.
     GenTree* nestedQmark = falseExpr;
     GenTree* cond2Expr;
     GenTree* true2Expr;
@@ -12959,7 +13092,7 @@ void Compiler::moExpandQmarkForCastInstOf(BasicBlock* block, Statement* stmt)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nExpanding CastInstOf qmark in " FMT_BB " (after)\n", block->bbNum);
+        printf("\nExpanding CastInstOf QMARK in " FMT_BB " (after)\n", block->bbNum);
         fgDispBasicBlocks(block, remainderBlock, true);
     }
 #endif
@@ -12986,7 +13119,7 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nExpanding top-level qmark in " FMT_BB " (before)\n", block->bbNum);
+        printf("\nExpanding top-level QMARK in " FMT_BB " (before)\n", block->bbNum);
         fgDispBasicBlocks(block, block, true);
     }
 #endif
@@ -12999,7 +13132,7 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 
     bool hasTrueExpr  = !trueExpr->OperIs(GT_NOP);
     bool hasFalseExpr = !falseExpr->OperIs(GT_NOP);
-    assert(hasTrueExpr || hasFalseExpr); // We expect to have at least one arm of the qmark!
+    assert(hasTrueExpr || hasFalseExpr); // We expect to have at least one arm of the QMARK!
 
     // Create remainder, cond and "else" blocks. After this, the blocks are in this order:
     //     block ... condBlock ... elseBlock ... remainderBlock
@@ -13077,7 +13210,7 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
     Statement* jmpStmt = gtNewStmt(jmpTree, stmt->GetILOffsetX());
     fgInsertStmtAtEnd(condBlock, jmpStmt);
 
-    // Remove the original qmark statement.
+    // Remove the original QMARK statement.
     fgRemoveStmt(block, stmt);
 
     if (store == nullptr)
@@ -13119,7 +13252,7 @@ void Compiler::moExpandQmarkStmt(BasicBlock* block, Statement* stmt)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("\nExpanding top-level qmark in " FMT_BB " (after)\n", block->bbNum);
+        printf("\nExpanding top-level QMARK in " FMT_BB " (after)\n", block->bbNum);
         fgDispBasicBlocks(block, remainderBlock, true);
     }
 #endif
@@ -13134,7 +13267,7 @@ void Compiler::moExpandQmarkNodes()
             for (Statement* const stmt : block->Statements())
             {
                 GenTree* expr = stmt->GetRootNode();
-                INDEBUG(fgPreExpandQmarkChecks(expr);)
+                INDEBUG(moPreExpandQmarkChecks(expr);)
                 moExpandQmarkStmt(block, stmt);
             }
         }
@@ -13233,150 +13366,3 @@ void Compiler::AddZeroOffsetFieldSeq(GenTree* addr, FieldSeqNode* fieldSeq)
 
     (*m_zeroOffsetFieldMap)[addr] = fieldSeq;
 }
-
-// Check that statements after the tail call stmt candidate are in one of expected forms:
-//  For void calls, we would have created a CALL in the stmt list.
-//  For non-void calls, we would have created a RETURN(CAST(CALL)).
-//  For calls returning structs, we would have a void CALL, followed by a RETURN().
-//  For debuggable code, it would be an store of the call to a temp
-//
-// We want to get rid of any of this extra trees, and just leave the call.
-bool Compiler::moCheckStmtAfterTailCall(Statement* callStmt)
-{
-    Statement* nextStmt = callStmt->GetNextStmt();
-
-    if (nextStmt == nullptr)
-    {
-        return true;
-    }
-
-    GenTree* callExpr = callStmt->GetRootNode();
-
-    if (!callExpr->OperIs(GT_LCL_STORE))
-    {
-        // The next stmt can be RETURN() or RETURN(local), where "local" was the return buffer in the call.
-
-        GenTree* retExpr = nextStmt->GetRootNode();
-
-        noway_assert(retExpr->OperIs(GT_RETURN));
-
-        return nextStmt->GetNextStmt() == nullptr;
-    }
-
-    LclVarDsc* callResultLcl = callExpr->AsLclStore()->GetLcl();
-
-#if FEATURE_TAILCALL_OPT_SHARED_RETURN
-    // We can have a chain of assignments from the call result to various inline
-    // return spill temps. These are ok as long as the last one ultimately provides
-    // the return value or is ignored.
-    // And if we're returning a small type we may see a cast on the source side.
-    // TODO-MIKE-Review: This doesn't verify that the cast involves a small type.
-
-    for (; (nextStmt != nullptr) && (nextStmt->GetRootNode()->OperIs(GT_LCL_STORE, GT_NOP));
-         nextStmt = nextStmt->GetNextStmt())
-    {
-        if (nextStmt->GetRootNode()->OperIs(GT_LCL_STORE))
-        {
-            GenTreeLclStore* copyExpr = nextStmt->GetRootNode()->AsLclStore();
-            GenTree*         copySrc  = copyExpr->GetValue();
-
-            while (copySrc->OperIs(GT_CONV))
-            {
-                copySrc = copySrc->AsUnOp()->GetOp(0);
-            }
-
-            noway_assert(copySrc->OperIs(GT_LCL_LOAD) && (copySrc->AsLclLoad()->GetLcl() == callResultLcl));
-
-            callResultLcl = copyExpr->GetLcl();
-        }
-    }
-#endif // FEATURE_TAILCALL_OPT_SHARED_RETURN
-
-    if (nextStmt != nullptr)
-    {
-        GenTree* retExpr = nextStmt->GetRootNode();
-        nextStmt         = nextStmt->GetNextStmt();
-
-        noway_assert(retExpr->OperIs(GT_RETURN));
-
-        GenTree* retValue = retExpr->AsUnOp()->GetOp(0);
-
-        while (retValue->OperIs(GT_CONV))
-        {
-            retValue = retValue->AsUnOp()->GetOp(0);
-        }
-
-        noway_assert(retValue->OperIs(GT_LCL_LOAD) && (retValue->AsLclLoad()->GetLcl() == callResultLcl));
-    }
-
-    return nextStmt == nullptr;
-}
-
-void Compiler::moMorphArrElem(GenTreeArrElem* arrElem)
-{
-    GenTreeFlags sideEffects = GTF_NONE;
-
-    for (GenTreeArrElem::Use& use : arrElem->Uses())
-    {
-        GenTree* op = moMorphTree(use.GetNode());
-        sideEffects |= op->GetSideEffects();
-        use.SetNode(op);
-    }
-
-    arrElem->SetSideEffects(sideEffects | GTF_EXCEPT);
-
-    if (fgGlobalMorph)
-    {
-        fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, fgMorphBlock);
-    }
-}
-
-#ifdef FEATURE_HW_INTRINSICS
-GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
-{
-#ifdef TARGET_AMD64
-    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
-        tree->GetOp(1)->IsIntegralConst(0))
-    {
-        if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
-        {
-            if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
-                (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
-            {
-                uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
-                uint64_t bits1 = create->GetOp(1)->AsDblCon()->GetFloatBits();
-                uint64_t bits  = bits0 | (bits1 << 32);
-
-                if (tree->TypeIs(TYP_LONG))
-                {
-                    return tree->ChangeToIntCon(static_cast<ssize_t>(bits));
-                }
-
-                return tree->ChangeToDblCon(TYP_DOUBLE, jitstd::bit_cast<double>(bits));
-            }
-        }
-    }
-#endif
-
-    GenTreeFlags sideEffects = GTF_NONE;
-
-    if (tree->IsMemoryLoadOrStore())
-    {
-        sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
-        if (tree->IsMemoryStore())
-        {
-            sideEffects |= GTF_ASG;
-        }
-    }
-
-    for (GenTreeHWIntrinsic::Use& use : tree->Uses())
-    {
-        use.SetNode(moMorphTree(use.GetNode()));
-        sideEffects |= use.GetNode()->GetSideEffects();
-    }
-
-    tree->SetSideEffects(sideEffects);
-
-    return tree;
-}
-#endif

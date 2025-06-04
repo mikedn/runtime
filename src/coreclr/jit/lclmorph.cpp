@@ -1404,7 +1404,7 @@ private:
         if (IsMergedReturn(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // copy so leave it to moMorphCopyStruct to promote it.
+            // copy so leave it to moMorphStructCopy to promote it.
             return load;
         }
 
@@ -1504,7 +1504,7 @@ private:
         if (IsMergedReturn(ret))
         {
             // This is a merged return, it will be transformed into a struct
-            // copy so leave it to moMorphCopyStruct to handle it.
+            // copy so leave it to moMorphStructCopy to handle it.
 
             LclVarDsc* mergedLcl = m_compiler->lvaGetDesc(m_compiler->genReturnLocal);
             assert(mergedLcl->TypeIs(TYP_STRUCT));
@@ -3359,7 +3359,7 @@ void Compiler::lvaResetImplicitByRefParamsRefCount()
 // of implicit byref params to keep or discard.
 // For those which are kept, insert the appropriate initialization code.
 // For those which are to be discarded, annotate the promoted field locals
-// so that fgMorphIndirectParams will know to rewrite their appearances.
+// so that moMorphIndirectParams will know to rewrite their appearances.
 void Compiler::lvaRetypeImplicitByRefParams()
 {
     JITDUMP("\n*************** In lvaRetypeImplicitByRefParams()\n");
@@ -3414,7 +3414,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
             {
                 for (LclVarDsc* fieldLcl : PromotedFields(lcl))
                 {
-                    // Leave lvParentLcl pointing to the parameter so that fgMorphIndirectParams
+                    // Leave lvParentLcl pointing to the parameter so that moMorphIndirectParams
                     // will know to rewrite appearances of this local.
                     assert(fieldLcl->GetPromotedFieldParentLclNum() == lcl->GetLclNum());
 
@@ -3462,7 +3462,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
                 }
 
                 // Reset lvPromoted since the param is no longer promoted but set lvFieldLclStart
-                // to the new local's number so fgMorphIndirectParams knows how to replace param
+                // to the new local's number so moMorphIndirectParams knows how to replace param
                 // references. Set lvFieldCnt to 0 so lvaDemoteImplicitByRefParams doesn't
                 // attempt to "delete" the promoted fields as unused.
 
@@ -3494,7 +3494,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 
 // Traverse the entire statement tree and morph implicit byref or
 // x86 vararg stack parameter references in it.
-void Compiler::fgMorphIndirectParams(Statement* stmt)
+void Compiler::moMorphIndirectParams(Statement* stmt)
 {
     assert(fgGlobalMorph);
 
@@ -3514,7 +3514,7 @@ void Compiler::fgMorphIndirectParams(Statement* stmt)
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
 // Clear annotations for any implicit byref params that struct promotion
 // asked to promote. Appearances of these have now been rewritten by
-// fgMorphIndirectParams using indirections from the pointer parameter
+// moMorphIndirectParams using indirections from the pointer parameter
 // or references to the promoted fields, as appropriate.
 void Compiler::lvaDemoteImplicitByRefParams() const
 {
