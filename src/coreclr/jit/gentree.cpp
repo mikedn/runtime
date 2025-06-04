@@ -3326,9 +3326,6 @@ void GenTree::SetVTable()
 
 GenTreeOp* Compiler::gtNewCommaNode(GenTree* op1, GenTree* op2, var_types type)
 {
-    assert(op1 != nullptr);
-    assert(op2 != nullptr);
-
     // TODO-MIKE-Review: Use GTK_NOVALUE?
     bool isValue = !op2->OperIs(GT_LCL_DEF, GT_NULLCHECK, GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE,
                                 GT_IND_STORE_OBJ, GT_IND_STORE_BLK);

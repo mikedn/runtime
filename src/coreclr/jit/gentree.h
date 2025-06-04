@@ -2048,7 +2048,7 @@ protected:
 
     GenTreeUnOp(genTreeOps oper, var_types type, GenTree* op1) : GenTree(oper, type), gtOp1(op1)
     {
-        assert((op1 != nullptr) || NullOp1Legal());
+        assert(op1 != nullptr);
 
         if (op1 != nullptr)
         {
@@ -2134,8 +2134,8 @@ public:
     GenTreeOp(genTreeOps oper, var_types type, GenTree* op1, GenTree* op2) : GenTreeUnOp(oper, type, op1), gtOp2(op2)
     {
         assert(!GenTree::OperIsCompare(oper) || varTypeIsIntegral(type));
-        assert((op2 != nullptr) || NullOp2Legal());
-        assert(!OperIsUnary(oper) || (op2 == nullptr));
+        assert(op2 != nullptr);
+        assert(!OperIsUnary(oper));
 
         if (op2 != nullptr)
         {
@@ -5209,9 +5209,15 @@ class GenTreeIntrinsic : public GenTreeOp
 public:
     GenTreeIntrinsic(
         var_types type, NamedIntrinsic intrinsic, CORINFO_METHOD_HANDLE method, GenTree* op1, GenTree* op2 = nullptr)
-        : GenTreeOp(GT_INTRINSIC, type, op1, op2), m_intrinsicName(intrinsic), m_methodHandle(method)
+        : GenTreeOp(GT_INTRINSIC, type, op1), m_intrinsicName(intrinsic), m_methodHandle(method)
     {
         assert(intrinsic != NI_Illegal);
+
+        if (op2 != nullptr)
+        {
+            gtOp2 = op2;
+            gtFlags |= op2->GetSideEffects();
+        }
 
         if (method != nullptr)
         {
@@ -5934,10 +5940,12 @@ public:
     }
 
     GenTreeAddrMode(GenTree* index, unsigned scale, int32_t offset)
-        : GenTreeOp(GT_LEA, varActualType(index->GetType()), nullptr, index), m_scale(scale), m_offset(offset)
+        : GenTreeOp(GT_LEA, varActualType(index->GetType())), m_scale(scale), m_offset(offset)
     {
         assert((index != nullptr) && varTypeIsIntegral(index->GetType()));
         assert(scale > 1);
+
+        gtOp2 = index;
     }
 
     GenTreeAddrMode(var_types type, GenTree* base, GenTree* index, unsigned scale, int32_t offset)
