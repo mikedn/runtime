@@ -3721,7 +3721,7 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    if (opts.OptEnabled(CLFLG_TREETRANS) && tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH))
+    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH))
     {
         tree = moMorphSmpOpOptional(tree->AsOp());
     }
