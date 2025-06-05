@@ -3263,6 +3263,27 @@ DONE_MORPHING_CHILDREN:
 
                     goto DONE_MORPHING_CHILDREN;
                 }
+
+                if (op1->OperIs(GT_ADD))
+                {
+                    // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
+
+                    GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                    GenTreeIntCon* i2 = op2->AsIntCon();
+
+                    if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
+                    {
+                        ssize_t val1 = i1->GetValue();
+                        ssize_t val2 = i2->GetValue();
+
+                        op1->ChangeOper(GT_MUL);
+                        i1->SetValue(val2);
+                        tree->ChangeOper(GT_ADD);
+                        i2->SetValue(val1 * val2);
+
+                        return tree;
+                    }
+                }
             }
             else if (moOperIsBitwiseRotationRoot(oper))
             {
@@ -3272,6 +3293,29 @@ DONE_MORPHING_CHILDREN:
                 typ  = tree->GetType();
                 op1  = tree->AsOp()->GetOp(0);
                 op2  = tree->AsOp()->GetOp(1);
+            }
+            break;
+
+        case GT_LSH:
+            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
+            {
+                // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
+
+                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                GenTreeIntCon* i2 = op2->AsIntCon();
+
+                if ((i1 != nullptr) && (AddrMode::GetLshIndexScale(i2) != 0))
+                {
+                    ssize_t val1 = i1->GetValue();
+                    ssize_t val2 = i2->GetValue();
+
+                    op1->ChangeOper(GT_LSH);
+                    i1->SetValue(val2);
+                    tree->ChangeOper(GT_ADD);
+                    i2->SetValue(val1 << val2);
+
+                    return tree;
+                }
             }
             break;
 
@@ -3721,7 +3765,7 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH))
+    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL))
     {
         tree = moMorphSmpOpOptional(tree->AsOp());
     }
@@ -3731,13 +3775,13 @@ DONE_MORPHING_CHILDREN:
 
 GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
 {
-    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL, GT_LSH));
+    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL));
 
     genTreeOps oper = tree->GetOper();
     GenTree*   op1  = tree->GetOp(0);
     GenTree*   op2  = tree->GetOp(1);
 
-    if (fgGlobalMorph && tree->IsCommutative())
+    if (fgGlobalMorph)
     {
         if (tree->IsReverseOp())
         {
@@ -3782,49 +3826,6 @@ GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
                     }
                 }
             }
-            break;
-
-        case GT_MUL:
-            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
-            {
-                // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
-
-                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
-                GenTreeIntCon* i2 = op2->AsIntCon();
-
-                if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
-                {
-                    ssize_t val1 = i1->GetValue();
-                    ssize_t val2 = i2->GetValue();
-
-                    op1->ChangeOper(GT_MUL);
-                    i1->SetValue(val2);
-                    tree->ChangeOper(GT_ADD);
-                    i2->SetValue(val1 * val2);
-                }
-            }
-            break;
-
-        case GT_LSH:
-            if (op1->OperIs(GT_ADD) && op2->IsIntCon())
-            {
-                // Change "(x ADD i1) LSH i2" to "(x LSH i2) ADD (i1 LSH i2)"
-
-                GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
-                GenTreeIntCon* i2 = op2->AsIntCon();
-
-                if ((i1 != nullptr) && (AddrMode::GetLshIndexScale(i2) != 0))
-                {
-                    ssize_t val1 = i1->GetValue();
-                    ssize_t val2 = i2->GetValue();
-
-                    op1->ChangeOper(GT_LSH);
-                    i1->SetValue(val2);
-                    tree->ChangeOper(GT_ADD);
-                    i2->SetValue(val1 << val2);
-                }
-            }
-
             break;
 
         case GT_XOR:
