@@ -4274,7 +4274,6 @@ private:
     bool moMorphNarrowTree(GenTree* tree, var_types type);
     bool moMorphNarrowTreeRec(GenTree* tree, var_types type, bool doit);
 
-    static bool moOperIsBitwiseRotationRoot(genTreeOps oper);
     void moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT

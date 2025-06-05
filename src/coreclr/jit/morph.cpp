@@ -2987,6 +2987,7 @@ DONE_MORPHING_CHILDREN:
         case GT_AND:
         CM_ADD_OP:
             assert(varTypeIsIntegralOrI(tree->GetType()));
+            assert(tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR));
 
             // Commute any non-REF constants to the right
             if (op1->IsIntConCommon() && !op1->TypeIs(TYP_REF))
@@ -3005,18 +3006,15 @@ DONE_MORPHING_CHILDREN:
                 return op1;
             }
 
-            if (tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR))
+            if (GenTree* foldedTree = moMorphAssociative(tree->AsOp()))
             {
-                if (GenTree* foldedTree = moMorphAssociative(tree->AsOp()))
-                {
-                    tree = foldedTree;
-                    op1  = tree->AsOp()->GetOp(0);
-                    op2  = tree->AsOp()->GetOp(1);
+                tree = foldedTree;
+                op1  = tree->AsOp()->GetOp(0);
+                op2  = tree->AsOp()->GetOp(1);
 
-                    if (!tree->OperIs(oper))
-                    {
-                        return tree;
-                    }
+                if (!tree->OperIs(oper))
+                {
+                    return tree;
                 }
             }
 
@@ -3135,117 +3133,120 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-            else if ((oper == GT_MUL) && op2->IsIntCon())
+            else if (oper == GT_MUL)
             {
-                noway_assert(typ == op2->GetType());
-
-                ssize_t mult = op2->AsIntCon()->GetValue();
-
-                if (mult == 0)
+                if (GenTreeIntCon* i2 = op2->IsIntCon())
                 {
-                    if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT))
-                    {
-                        DEBUG_DESTROY_NODE(op1);
-                        DEBUG_DESTROY_NODE(tree);
+                    assert(typ == i2->GetType());
 
-                        return op2;
+                    ssize_t c2 = i2->GetValue();
+
+                    if (c2 == 0)
+                    {
+                        if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT))
+                        {
+                            DEBUG_DESTROY_NODE(op1);
+                            DEBUG_DESTROY_NODE(tree);
+
+                            return op2;
+                        }
+
+                        tree->ChangeOper(GT_COMMA);
+
+                        return tree;
                     }
 
-                    tree->ChangeOper(GT_COMMA);
+                    size_t abs_mult      = c2 >= 0 ? c2 : -c2;
+                    size_t lowestBit     = genFindLowestBit(abs_mult);
+                    bool   changeToShift = false;
 
-                    return tree;
-                }
-
-                size_t abs_mult      = (mult >= 0) ? mult : -mult;
-                size_t lowestBit     = genFindLowestBit(abs_mult);
-                bool   changeToShift = false;
-
-                if (abs_mult == lowestBit)
-                {
-                    if ((mult < 0) && (mult != SSIZE_T_MIN))
+                    if (abs_mult == lowestBit)
                     {
-                        op1 = gtNewOperNode(GT_NEG, typ, op1);
-                        moMorphTreeDone(op1);
-                        tree->AsOp()->SetOp(0, op1);
-                    }
-
-                    if (abs_mult == 1)
-                    {
-                        DEBUG_DESTROY_NODE(op2);
-                        DEBUG_DESTROY_NODE(tree);
-
-                        return op1;
-                    }
-
-                    op2->AsIntCon()->SetValue(genLog2(abs_mult));
-                    changeToShift = true;
-                }
-#if LEA_AVAILABLE
-                else if ((lowestBit > 1) && AddrMode::IsIndexScale(lowestBit) && optAvoidIntMult())
-                {
-                    int     shift  = genLog2(lowestBit);
-                    ssize_t factor = abs_mult >> shift;
-
-                    if ((factor == 3) || (factor == 5) || (factor == 9))
-                    {
-                        if ((mult < 0) && (mult != SSIZE_T_MIN))
+                        if ((c2 < 0) && (c2 != SSIZE_T_MIN))
                         {
                             op1 = gtNewOperNode(GT_NEG, typ, op1);
                             moMorphTreeDone(op1);
                             tree->AsOp()->SetOp(0, op1);
                         }
 
-                        op1 = gtNewOperNode(GT_MUL, typ, op1, gtNewIconNode(factor, typ));
-                        moMorphTreeDone(op1);
-                        tree->AsOp()->SetOp(0, op1);
+                        if (abs_mult == 1)
+                        {
+                            DEBUG_DESTROY_NODE(i2);
+                            DEBUG_DESTROY_NODE(tree);
 
-                        op2->AsIntCon()->SetValue(shift);
+                            return op1;
+                        }
+
+                        i2->SetValue(genLog2(abs_mult));
                         changeToShift = true;
                     }
-                }
+#if LEA_AVAILABLE
+                    else if ((lowestBit > 1) && AddrMode::IsIndexScale(lowestBit) && optAvoidIntMult())
+                    {
+                        int     shift  = genLog2(lowestBit);
+                        ssize_t factor = abs_mult >> shift;
+
+                        if ((factor == 3) || (factor == 5) || (factor == 9))
+                        {
+                            if ((c2 < 0) && (c2 != SSIZE_T_MIN))
+                            {
+                                op1 = gtNewOperNode(GT_NEG, typ, op1);
+                                moMorphTreeDone(op1);
+                                tree->AsOp()->SetOp(0, op1);
+                            }
+
+                            op1 = gtNewOperNode(GT_MUL, typ, op1, gtNewIconNode(factor, typ));
+                            moMorphTreeDone(op1);
+                            tree->AsOp()->SetOp(0, op1);
+
+                            i2->SetValue(shift);
+                            changeToShift = true;
+                        }
+                    }
 #endif // LEA_AVAILABLE
 
-                if (changeToShift)
-                {
-                    if (vnStore != nullptr)
+                    if (changeToShift)
                     {
+                        if (vnStore != nullptr)
+                        {
 #ifdef TARGET_64BIT
-                        op2->SetVNP(ValueNumPair{op2->TypeIs(TYP_LONG)
-                                                     ? vnStore->VNForLongCon(op2->AsIntCon()->GetInt64Value())
-                                                     : vnStore->VNForIntCon(op2->AsIntCon()->GetInt32Value())});
+                            op2->SetVNP(ValueNumPair{op2->TypeIs(TYP_LONG)
+                                                         ? vnStore->VNForLongCon(i2->GetInt64Value())
+                                                         : vnStore->VNForIntCon(i2->GetInt32Value())});
 #else
-                        op2->SetVNP(ValueNumPair{vnStore->VNForIntCon(op2->AsIntCon()->GetInt32Value())});
+                            op2->SetVNP(ValueNumPair{vnStore->VNForIntCon(i2->GetInt32Value())});
 #endif
+                        }
+
+                        oper = GT_LSH;
+                        tree->ChangeOper(GT_LSH, GenTree::PRESERVE_VN);
+
+                        goto DONE_MORPHING_CHILDREN;
                     }
 
-                    oper = GT_LSH;
-                    tree->ChangeOper(GT_LSH, GenTree::PRESERVE_VN);
-
-                    goto DONE_MORPHING_CHILDREN;
-                }
-
-                if (op1->OperIs(GT_ADD))
-                {
-                    // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
-
-                    GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
-                    GenTreeIntCon* i2 = op2->AsIntCon();
-
-                    if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
+                    if (op1->OperIs(GT_ADD))
                     {
-                        ssize_t val1 = i1->GetValue();
-                        ssize_t val2 = i2->GetValue();
+                        // Change "(x ADD i1) MUL i2" to "(x MUL i2) ADD (i1 MUL i2)"
 
-                        op1->ChangeOper(GT_MUL);
-                        i1->SetValue(val2);
-                        tree->ChangeOper(GT_ADD);
-                        i2->SetValue(val1 * val2);
+                        GenTreeIntCon* i1 = op1->AsOp()->GetOp(1)->IsIntCon();
+                        GenTreeIntCon* i2 = op2->AsIntCon();
 
-                        return tree;
+                        if ((i1 != nullptr) && (AddrMode::GetMulIndexScale(i2) != 0))
+                        {
+                            ssize_t val1 = i1->GetValue();
+                            ssize_t val2 = i2->GetValue();
+
+                            op1->ChangeOper(GT_MUL);
+                            i1->SetValue(val2);
+                            tree->ChangeOper(GT_ADD);
+                            i2->SetValue(val1 * val2);
+
+                            return tree;
+                        }
                     }
                 }
             }
-            else if (moOperIsBitwiseRotationRoot(oper))
+            else if ((oper == GT_OR) || (oper == GT_XOR))
             {
                 moRecognizeAndMorphBitwiseRotation(tree->AsOp());
 
@@ -3780,7 +3781,7 @@ GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
         tree->SetReverseOps(false);
     }
 
-    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
+    if (op2->GetOper() == oper)
     {
         // Reorder nested operators at the same precedence level to be left-recursive.
         // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
@@ -4293,11 +4294,6 @@ GenTree* Compiler::moMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 }
 #endif // TARGET_64BIT
 
-bool Compiler::moOperIsBitwiseRotationRoot(genTreeOps oper)
-{
-    return (oper == GT_OR) || (oper == GT_XOR);
-}
-
 void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 {
     // Recognized patterns:
@@ -4334,7 +4330,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     }
 
     genTreeOps oper = tree->GetOper();
-    assert(moOperIsBitwiseRotationRoot(oper));
+    assert((oper == GT_OR) || (oper == GT_XOR));
 
     GenTree*   op1 = tree->GetOp(0);
     GenTree*   op2 = tree->GetOp(1);
