@@ -2386,13 +2386,6 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            //
-            // Here we look for the following tree
-            //
-            //                        EQ/NE
-            //                        /  \.
-            //                      op1   CNS 0/1
-            //
             ival2 = INT_MAX; // The value of INT_MAX for ival2 just means that the constant value is not 0 or 1
 
             if (cns2->IsIntCon() && (cns2->AsIntCon()->GetUnsignedValue() <= 1u))
@@ -2411,18 +2404,8 @@ DONE_MORPHING_CHILDREN:
                 // If we don't have a comma and relop, we can't do this optimization
                 if (op1->OperIs(GT_COMMA) && op1->AsOp()->GetOp(1)->OperIsRelop())
                 {
-                    // Here we look for the following transformation
-                    //
-                    //                  EQ/NE                    Possible REVERSE(RELOP)
-                    //                  /  \                           /      \.
-                    //               COMMA CNS 0/1             ->   COMMA   relop_op2
-                    //              /   \                          /    \.
-                    //             x  RELOP                       x     relop_op1
-                    //               /    \.
-                    //         relop_op1  relop_op2
-                    //
-                    //
-                    //
+                    // EQ|NE(COMMA(x, RELOP(relop_op1, relop_op2)), 0|1) =>
+                    // (reverse) RELOP(COMMA(x, relop_op1), relop_op2)
                     GenTree*   comma = op1;
                     GenTreeOp* relop = comma->AsOp()->GetOp(1)->AsOp();
 
@@ -2499,18 +2482,7 @@ DONE_MORPHING_CHILDREN:
 
                 if (op1->OperIsRelop())
                 {
-                    // Here we look for the following tree
-                    //
-                    //                        EQ/NE           ->      RELOP/!RELOP
-                    //                        /  \                       /    \.
-                    //                     RELOP  CNS 0/1
-                    //                     /   \.
-                    //
-                    // Note that we will remove/destroy the EQ/NE node and move
-                    // the RELOP up into it's location.
-
-                    /* Here we reverse the RELOP if necessary */
-
+                    // EQ|NE(RELOP(x, y), 0|1) => (reverse) RELOP(x, y)
                     bool reverse = ((ival2 == 0) == (oper == GT_EQ));
 
                     if (reverse)
@@ -2524,19 +2496,7 @@ DONE_MORPHING_CHILDREN:
                     return op1;
                 }
 
-                //
-                // Now we check for a compare with the result of an '&' operator
-                //
-                // Here we look for the following transformation:
-                //
-                //                        EQ/NE                  EQ/NE
-                //                        /  \                   /  \.
-                //                      AND   CNS 0/1  ->      AND   CNS 0
-                //                     /   \                  /   \.
-                //                RSZ/RSH   CNS 1            x     CNS (1 << y)
-                //                  /  \.
-                //                 x   CNS_INT +y
-
+                // EQ|NE(AND(RSZ|RSH(x, c + y), 1), 0|1) => EQ|NE(AND(x, 1 << y), 0)
                 if (op1->OperIs(GT_AND))
                 {
                     GenTree* andOp    = op1;
