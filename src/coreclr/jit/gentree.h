@@ -2885,20 +2885,6 @@ public:
         return (gtFlags & GTF_VAR_MULTIREG) != 0;
     }
 
-    void ClearMultiReg()
-    {
-        gtFlags &= ~GTF_VAR_MULTIREG;
-    }
-
-    void SetMultiReg()
-    {
-        assert(OperIs(GT_LCL_STORE));
-        gtFlags |= GTF_VAR_MULTIREG;
-    }
-
-    unsigned GetMultiRegCount(Compiler* compiler) const;
-    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
-
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclVar, GenTreeLclRef)
 };
 
@@ -2941,6 +2927,19 @@ public:
 
     GenTree* GetOp(unsigned index) const = delete;
     void SetOp(unsigned index, GenTree* op) = delete;
+
+    void ClearMultiReg()
+    {
+        gtFlags &= ~GTF_VAR_MULTIREG;
+    }
+
+    void SetMultiReg()
+    {
+        gtFlags |= GTF_VAR_MULTIREG;
+    }
+
+    unsigned GetMultiRegCount(Compiler* compiler) const;
+    var_types GetMultiRegType(Compiler* compiler, unsigned regIndex);
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLclStore, GenTreeLclVar)
 };

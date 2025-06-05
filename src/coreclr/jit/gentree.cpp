@@ -3282,14 +3282,14 @@ bool Compiler::gtAddrCouldBeNull(GenTree* addr)
     return true;
 }
 
-unsigned GenTreeLclVar::GetMultiRegCount(Compiler* compiler) const
+unsigned GenTreeLclStore::GetMultiRegCount(Compiler* compiler) const
 {
     assert(IsMultiReg());
 
     return GetLcl()->GetPromotedFieldCount();
 }
 
-var_types GenTreeLclVar::GetMultiRegType(Compiler* compiler, unsigned regIndex)
+var_types GenTreeLclStore::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
     assert(IsMultiReg());
 
