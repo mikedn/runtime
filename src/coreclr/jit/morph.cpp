@@ -3248,12 +3248,35 @@ DONE_MORPHING_CHILDREN:
             }
             else if ((oper == GT_OR) || (oper == GT_XOR))
             {
-                moRecognizeAndMorphBitwiseRotation(tree->AsOp());
+                if (GenTree* rotate = moRecognizeAndMorphBitwiseRotation(tree->AsOp()))
+                {
+                    assert(rotate == tree);
 
-                oper = tree->GetOper();
-                typ  = tree->GetType();
-                op1  = tree->AsOp()->GetOp(0);
-                op2  = tree->AsOp()->GetOp(1);
+                    oper = tree->GetOper();
+                    typ  = tree->GetType();
+                    op1  = tree->AsOp()->GetOp(0);
+                    op2  = tree->AsOp()->GetOp(1);
+
+                    break;
+                }
+            }
+
+            if (tree->IsReverseOp())
+            {
+                std::swap(op1, op2);
+                tree->AsOp()->SetOp(0, op1);
+                tree->AsOp()->SetOp(1, op2);
+                tree->SetReverseOps(false);
+            }
+
+            if (fgGlobalMorph && (op2->GetOper() == oper))
+            {
+                // Reorder nested operators at the same precedence level to be left-recursive.
+                // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
+
+                moMoveOpsLeft(tree->AsOp());
+                op1 = tree->AsOp()->GetOp(0);
+                op2 = tree->AsOp()->GetOp(1);
             }
 
             if (oper == GT_XOR)
@@ -3283,6 +3306,27 @@ DONE_MORPHING_CHILDREN:
                     oper = GT_NOT;
 
                     goto DONE_MORPHING_CHILDREN;
+                }
+            }
+            else if (fgGlobalMorph && (oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
+            {
+                // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
+
+                if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
+                {
+                    // We cannot reassociate GC pointer additions, doing that could create
+                    // a GC pointer that points outside the GC object and the GC has no way
+                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
+
+                    GenTree* op3 = op1->AsOp()->GetOp(0);
+
+                    if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
+                    {
+                        tree->AsOp()->SetOp(1, i);
+                        op1->AsOp()->SetOp(1, op2);
+                        op1->AddSideEffects(op2->GetSideEffects());
+                        op2 = i;
+                    }
                 }
             }
             break;
@@ -3752,63 +3796,6 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 return comma;
-            }
-        }
-    }
-
-    if (fgGlobalMorph && tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL))
-    {
-        tree = moMorphSmpOpOptional(tree->AsOp());
-    }
-
-    return tree;
-}
-
-GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
-{
-    assert(fgGlobalMorph);
-    assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL));
-
-    genTreeOps oper = tree->GetOper();
-    GenTree*   op1  = tree->GetOp(0);
-    GenTree*   op2  = tree->GetOp(1);
-
-    if (tree->IsReverseOp())
-    {
-        std::swap(op1, op2);
-        tree->SetOp(0, op1);
-        tree->SetOp(1, op2);
-        tree->SetReverseOps(false);
-    }
-
-    if (op2->GetOper() == oper)
-    {
-        // Reorder nested operators at the same precedence level to be left-recursive.
-        // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
-
-        moMoveOpsLeft(tree->AsOp());
-        op1 = tree->GetOp(0);
-        op2 = tree->GetOp(1);
-    }
-
-    if ((oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
-    {
-        // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
-
-        if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
-        {
-            // We cannot reassociate GC pointer additions, doing that could create
-            // a GC pointer that points outside the GC object and the GC has no way
-            // to update such pointers (e.g. x ADD (1000 ADD -999)).
-
-            GenTree* op3 = op1->AsOp()->GetOp(0);
-
-            if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
-            {
-                tree->SetOp(1, i);
-                op1->AsOp()->SetOp(1, op2);
-                op1->AddSideEffects(op2->GetSideEffects());
-                op2 = i;
             }
         }
     }
@@ -4294,7 +4281,7 @@ GenTree* Compiler::moMorphMulLongCandidate(GenTreeOp* mul, MulLongCandidateKind 
 }
 #endif // TARGET_64BIT
 
-void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
+GenTree* Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 {
     // Recognized patterns:
     //
@@ -4326,7 +4313,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
         // We can't do anything if the tree has assignments, calls, or volatile
         // reads. Note that we allow GTF_EXCEPT side effect since any exceptions
         // thrown by the original tree will be thrown by the transformed tree as well.
-        return;
+        return nullptr;
     }
 
     genTreeOps oper = tree->GetOper();
@@ -4349,12 +4336,12 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     }
     else
     {
-        return;
+        return nullptr;
     }
 
     if (!GenTree::Compare(lsh->GetOp(0), rsz->GetOp(0)))
     {
-        return;
+        return nullptr;
     }
 
     assert(lsh->GetOp(0)->GetSideEffects() == rsz->GetOp(0)->GetSideEffects());
@@ -4363,7 +4350,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 
     if (!value->TypeIs(TYP_INT, TYP_LONG))
     {
-        return;
+        return nullptr;
     }
 
     var_types type    = value->GetType();
@@ -4390,7 +4377,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
         }
         else
         {
-            return;
+            return nullptr;
         }
     }
 
@@ -4403,7 +4390,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
         }
         else
         {
-            return;
+            return nullptr;
         }
     }
 
@@ -4411,7 +4398,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     {
         // The shift index is over masked, e.g., we have something like (x LSH (y AND 15))
         // OR (x RSZ (32 SUB y) AND 15 with 32 bit x. The transformation is not valid.
-        return;
+        return nullptr;
     }
 
     GenTreeOp* shiftAmountWithAdd    = nullptr;
@@ -4439,19 +4426,19 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 
         if ((delta == nullptr) || (delta->GetValue() != bitSize))
         {
-            return;
+            return nullptr;
         }
 
         if (!shiftAmountWithAdd->GetOp(0)->OperIs(GT_NEG))
         {
-            return;
+            return nullptr;
         }
 
         GenTree* otherShiftAmount = shiftAmountWithAdd->GetOp(0)->AsUnOp()->GetOp(0);
 
         if (!GenTree::Compare(otherShiftAmount, shiftAmountWithoutAdd))
         {
-            return;
+            return nullptr;
         }
 
         assert(otherShiftAmount->GetSideEffects() == shiftAmountWithoutAdd->GetSideEffects());
@@ -4462,7 +4449,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
             // TODO-X86-CQ: we need to handle variable-sized long shifts specially on x86.
             // LSH, RSH, and RSZ have helpers for this case. We may need to add helpers for
             // ROL and ROR.
-            return;
+            return nullptr;
         }
 #endif
 
@@ -4497,7 +4484,7 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     }
     else
     {
-        return;
+        return nullptr;
     }
 
     assert((rotateOp == GT_ROL) || (rotateOp == GT_ROR));
@@ -4505,6 +4492,8 @@ void Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
     tree->SetOp(0, value);
     tree->SetOp(1, rotateAmount);
     tree->SetOper(rotateOp, GenTree::PRESERVE_VN);
+
+    return tree;
 }
 
 #ifdef FEATURE_HW_INTRINSICS

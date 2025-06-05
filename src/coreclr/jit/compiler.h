@@ -4246,7 +4246,6 @@ private:
     GenTree* moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTree** fieldStores, unsigned fieldCount);
     GenTree* moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac = nullptr);
     GenTree* moMorphSmpOp(GenTree* tree, MorphAddrContext* mac = nullptr);
-    GenTree* moMorphSmpOpOptional(GenTreeOp* tree);
     GenTree* moMorphModToSubMulDiv(GenTreeOp* tree);
     GenTree* moMorphStrCon(GenTreeStrCon* tree, Statement* stmt);
     GenTree* moMorphAssociative(GenTreeOp* tree);
@@ -4274,7 +4273,7 @@ private:
     bool moMorphNarrowTree(GenTree* tree, var_types type);
     bool moMorphNarrowTreeRec(GenTree* tree, var_types type, bool doit);
 
-    void moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
+    GenTree* moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree);
 
 #ifndef TARGET_64BIT
     enum class MulLongCandidateKind
