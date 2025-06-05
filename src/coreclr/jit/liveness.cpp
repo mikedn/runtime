@@ -1297,7 +1297,7 @@ GenTree* Liveness::RemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicB
             {
                 comma->SetOp(0, sideEffects->AsOp()->GetOp(0));
                 comma->SetOp(1, sideEffects->AsOp()->GetOp(1));
-                comma->SetReverseOps(sideEffects->IsReverseOp());
+                comma->SetReverseOps(sideEffects->IsReverseOps());
             }
             else
             {

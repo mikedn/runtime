@@ -1621,9 +1621,9 @@ public:
         gtFlags &= ~GTF_DONT_CSE;
     }
 
-    bool IsReverseOp() const
+    bool IsReverseOps() const
     {
-        return (gtFlags & GTF_REVERSE_OPS) ? true : false;
+        return (gtFlags & GTF_REVERSE_OPS) != 0;
     }
 
     void SetReverseOps(bool reverseOps)
@@ -8440,7 +8440,7 @@ public:
 
 #ifdef FEATURE_HW_INTRINSICS
             case GT_HWINTRINSIC:
-                if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOp())
+                if (TVisitor::UseExecutionOrder && node->AsHWIntrinsic()->IsBinary() && node->IsReverseOps())
                 {
                     result = WalkTree(&node->AsHWIntrinsic()->GetUse(1).NodeRef(), node);
                     if (result == GenTreeWalkResult::Abort)
@@ -8544,7 +8544,7 @@ public:
                 GenTree** op1Use = &node->AsOp()->gtOp1;
                 GenTree** op2Use = &node->AsOp()->gtOp2;
 
-                if (TVisitor::UseExecutionOrder && node->IsReverseOp())
+                if (TVisitor::UseExecutionOrder && node->IsReverseOps())
                 {
                     std::swap(op1Use, op2Use);
                 }
@@ -8579,7 +8579,7 @@ public:
                 assert(*op1Use != nullptr);
                 assert(*op2Use != nullptr);
 
-                if (TVisitor::UseExecutionOrder && node->IsReverseOp())
+                if (TVisitor::UseExecutionOrder && node->IsReverseOps())
                 {
                     std::swap(op1Use, op2Use);
                 }

@@ -2424,7 +2424,7 @@ DONE_MORPHING_CHILDREN:
                     comma->SetSideEffects(comma->AsOp()->GetOp(0)->GetSideEffects() |
                                           comma->AsOp()->GetOp(1)->GetSideEffects());
 
-                    noway_assert(!relop->IsReverseOp());
+                    noway_assert(!relop->IsReverseOps());
                     relop->gtFlags |= tree->gtFlags & (GTF_DONT_CSE | GTF_ALL_EFFECT);
 
                     return relop;
@@ -3261,7 +3261,7 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            if (tree->IsReverseOp())
+            if (tree->IsReverseOps())
             {
                 std::swap(op1, op2);
                 tree->AsOp()->SetOp(0, op1);
@@ -4022,7 +4022,7 @@ GenTree* Compiler::moMorphModToSubMulDiv(GenTreeOp* tree)
     // That is, the "mul" will be evaluated in "normal" order, and the "sub" must
     // be set to be evaluated in reverse order.
     GenTree* mul = gtNewOperNode(GT_MUL, type, tree, gtCloneExpr(denominator));
-    assert(!mul->IsReverseOp());
+    assert(!mul->IsReverseOps());
     GenTree* sub = gtNewOperNode(GT_SUB, type, gtCloneExpr(numerator), mul);
     sub->SetReverseOps(true);
     INDEBUG(sub->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);

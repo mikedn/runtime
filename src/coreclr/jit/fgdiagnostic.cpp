@@ -1414,8 +1414,8 @@ void Compiler::fgDebugCheckNodeLinks(BasicBlock* block, Statement* stmt)
         }
         else if (tree->OperIsBinary() && (tree->AsOp()->gtOp1 != nullptr))
         {
-            expectedPrevTree = (tree->AsOp()->gtOp2 == nullptr) || tree->IsReverseOp() ? tree->AsOp()->GetOp(0)
-                                                                                       : tree->AsOp()->GetOp(1);
+            expectedPrevTree = (tree->AsOp()->gtOp2 == nullptr) || tree->IsReverseOps() ? tree->AsOp()->GetOp(0)
+                                                                                        : tree->AsOp()->GetOp(1);
         }
 
         noway_assert(expectedPrevTree == nullptr ||     // No expectations about the prev node

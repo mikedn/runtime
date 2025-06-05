@@ -1377,7 +1377,7 @@ public:
         GenTree* node = *use;
 
         // GTF_REVERSE_OPS is never set in LIR.
-        assert(!m_isLIR || !node->IsReverseOp());
+        assert(!m_isLIR || !node->IsReverseOps());
 
         // Check if the gtNext/gtPrev links are valid.
         assert(node->gtSeqNum == ++m_seqNum);
@@ -2945,18 +2945,18 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 break;
         }
 
-        if (tree->IsReverseOp())
+        if (tree->IsReverseOps())
         {
             std::swap(level1, level2);
         }
 
         if (allowSwap && ((level1 < level2) ||
-                          (compStressCompile(STRESS_REVERSE_FLAG, 60) && !tree->IsReverseOp() && !op2->OperIsConst())))
+                          (compStressCompile(STRESS_REVERSE_FLAG, 60) && !tree->IsReverseOps() && !op2->OperIsConst())))
         {
             GenTree* opA = op1;
             GenTree* opB = op2;
 
-            if (tree->IsReverseOp())
+            if (tree->IsReverseOps())
             {
                 std::swap(opA, opB);
             }
@@ -5048,7 +5048,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
 
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            if (m_node->AsHWIntrinsic()->IsBinary() && m_node->IsReverseOp())
+            if (m_node->AsHWIntrinsic()->IsBinary() && m_node->IsReverseOps())
             {
                 m_edge    = &m_node->AsHWIntrinsic()->GetUse(1).NodeRef();
                 m_advance = &GenTreeUseEdgeIterator::AdvanceHWIntrinsicReverseOp;
@@ -5088,7 +5088,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
         default:
             assert(m_node->OperIsBinary());
 
-            if (m_node->IsReverseOp())
+            if (m_node->IsReverseOps())
             {
                 m_edge    = &m_node->AsOp()->gtOp2;
                 m_advance = &GenTreeUseEdgeIterator::AdvanceBinOp0;
