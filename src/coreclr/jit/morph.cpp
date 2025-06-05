@@ -3294,6 +3294,36 @@ DONE_MORPHING_CHILDREN:
                 op1  = tree->AsOp()->GetOp(0);
                 op2  = tree->AsOp()->GetOp(1);
             }
+
+            if (oper == GT_XOR)
+            {
+                if (op2->IsIntegralConst(1) && op1->OperIsRelop())
+                {
+                    // Change "relop XOR 1" to "!relop"
+
+                    gtReverseRelop(op1->AsOp());
+
+                    DEBUG_DESTROY_NODE(op2);
+                    DEBUG_DESTROY_NODE(tree);
+
+                    return op1;
+                }
+
+                if (op2->IsIntegralConst(-1))
+                {
+                    // Change "x XOR -1" to "NOT x"
+
+                    tree->AsOp()->gtOp2 = nullptr;
+                    tree->ChangeOper(GT_NOT);
+
+                    DEBUG_DESTROY_NODE(op2);
+
+                    op2  = nullptr;
+                    oper = GT_NOT;
+
+                    goto DONE_MORPHING_CHILDREN;
+                }
+            }
             break;
 
         case GT_LSH:
@@ -3765,7 +3795,7 @@ DONE_MORPHING_CHILDREN:
         }
     }
 
-    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL))
+    if (fgGlobalMorph && tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL))
     {
         tree = moMorphSmpOpOptional(tree->AsOp());
     }
@@ -3775,84 +3805,51 @@ DONE_MORPHING_CHILDREN:
 
 GenTree* Compiler::moMorphSmpOpOptional(GenTreeOp* tree)
 {
+    assert(fgGlobalMorph);
     assert(tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL));
 
     genTreeOps oper = tree->GetOper();
     GenTree*   op1  = tree->GetOp(0);
     GenTree*   op2  = tree->GetOp(1);
 
-    if (fgGlobalMorph)
+    if (tree->IsReverseOp())
     {
-        if (tree->IsReverseOp())
-        {
-            std::swap(op1, op2);
-            tree->SetOp(0, op1);
-            tree->SetOp(1, op2);
-            tree->SetReverseOps(false);
-        }
-
-        if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
-        {
-            // Reorder nested operators at the same precedence level to be left-recursive.
-            // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
-
-            moMoveOpsLeft(tree->AsOp());
-            op1 = tree->GetOp(0);
-            op2 = tree->GetOp(1);
-        }
+        std::swap(op1, op2);
+        tree->SetOp(0, op1);
+        tree->SetOp(1, op2);
+        tree->SetReverseOps(false);
     }
 
-    switch (oper)
+    if (tree->OperIs(GT_ADD, GT_XOR, GT_OR, GT_AND, GT_MUL) && (op2->GetOper() == oper))
     {
-        case GT_ADD:
-            if (fgGlobalMorph && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
+        // Reorder nested operators at the same precedence level to be left-recursive.
+        // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
+
+        moMoveOpsLeft(tree->AsOp());
+        op1 = tree->GetOp(0);
+        op2 = tree->GetOp(1);
+    }
+
+    if ((oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
+    {
+        // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
+
+        if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
+        {
+            // We cannot reassociate GC pointer additions, doing that could create
+            // a GC pointer that points outside the GC object and the GC has no way
+            // to update such pointers (e.g. x ADD (1000 ADD -999)).
+
+            GenTree* op3 = op1->AsOp()->GetOp(0);
+
+            if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
             {
-                // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
-
-                if (GenTreeIntConCommon* i = op1->AsOp()->GetOp(1)->IsIntConCommon())
-                {
-                    // We cannot reassociate GC pointer additions, doing that could create
-                    // a GC pointer that points outside the GC object and the GC has no way
-                    // to update such pointers (e.g. x ADD (1000 ADD -999)).
-
-                    GenTree* op3 = op1->AsOp()->GetOp(0);
-
-                    if (!varTypeIsGC(op3->GetType()) && !varTypeIsGC(op2->GetType()))
-                    {
-                        tree->SetOp(1, i);
-                        op1->AsOp()->SetOp(1, op2);
-                        op1->AddSideEffects(op2->GetSideEffects());
-                        op2 = i;
-                    }
-                }
+                tree->SetOp(1, i);
+                op1->AsOp()->SetOp(1, op2);
+                op1->AddSideEffects(op2->GetSideEffects());
+                op2 = i;
             }
-            break;
-
-        case GT_XOR:
-            if (op2->IsIntegralConst(-1))
-            {
-                // Change "x XOR -1" to "NOT x"
-
-                tree->ChangeOper(GT_NOT);
-                tree->gtOp2 = nullptr;
-
-                DEBUG_DESTROY_NODE(op2);
-            }
-            else if (op2->IsIntegralConst(1) && op1->OperIsRelop())
-            {
-                // Change "relop XOR 1" to "!relop"
-
-                gtReverseRelop(op1->AsOp());
-
-                DEBUG_DESTROY_NODE(op2);
-                DEBUG_DESTROY_NODE(tree);
-
-                return op1;
-            }
-            break;
-
-        default:
-            break;
+        }
     }
 
     return tree;
