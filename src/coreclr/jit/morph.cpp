@@ -2901,7 +2901,7 @@ DONE_MORPHING_CHILDREN:
             // this condition is not checked before transformations.
             if (fgGlobalMorph)
             {
-                // Change (x SUB i1) to (x ADD -i1)
+                // (x SUB i1) => (x ADD -i1)
 
                 if (op2->IsIntCon() && !op2->IsIntConHandle())
                 {
@@ -2914,7 +2914,7 @@ DONE_MORPHING_CHILDREN:
                     goto CM_ADD_OP;
                 }
 
-                // Change (i1 SUB x) to (i1 ADD (NEG x))
+                // (i1 SUB x) => (i1 ADD (NEG x))
 
                 if (op1->IsIntCon())
                 {
@@ -2925,53 +2925,39 @@ DONE_MORPHING_CHILDREN:
                     tree->ChangeOper(GT_ADD);
                     goto CM_ADD_OP;
                 }
-            }
 
-            // Skip optimization if non-NEG operand is constant.
-            // Both op1 and op2 are not constant because it was already checked above.
-            if (opts.OptimizationEnabled() && fgGlobalMorph)
-            {
-                // a - -b = > a + b
-                // SUB(a, (NEG(b)) => ADD(a, b)
-
-                if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
+                if (opts.OptimizationEnabled())
                 {
-                    // tree: SUB
-                    // op1: a
-                    // op2: NEG
-                    // op2Child: b
+                    // SUB(a, (NEG(b)) => ADD(a, b)
 
-                    GenTree* op2Child = op2->AsUnOp()->GetOp(0); // b
-                    oper              = GT_ADD;
-                    tree->SetOper(GT_ADD, GenTree::PRESERVE_VN);
-                    tree->AsOp()->SetOp(1, op2Child);
+                    if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
+                    {
+                        GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
 
-                    DEBUG_DESTROY_NODE(op2);
+                        oper = GT_ADD;
+                        tree->SetOper(GT_ADD, GenTree::PRESERVE_VN);
+                        tree->AsOp()->SetOp(1, negOp2);
 
-                    op2 = op2Child;
-                }
+                        DEBUG_DESTROY_NODE(op2);
 
-                // -a - -b = > b - a
-                // SUB(NEG(a), (NEG(b)) => SUB(b, a)
+                        op2 = negOp2;
+                    }
 
-                if (op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG) && gtCanSwapOrder(op1, op2))
-                {
-                    // tree: SUB
-                    // op1: NEG
-                    // op1Child: a
-                    // op2: NEG
-                    // op2Child: b
+                    // SUB(NEG(a), (NEG(b)) => SUB(b, a)
 
-                    GenTree* op1Child = op1->AsUnOp()->GetOp(0); // a
-                    GenTree* op2Child = op2->AsUnOp()->GetOp(0); // b
-                    tree->AsOp()->SetOp(0, op2Child);
-                    tree->AsOp()->SetOp(1, op1Child);
+                    if (op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG) && gtCanSwapOrder(op1, op2))
+                    {
+                        GenTree* negOp1 = op1->AsUnOp()->GetOp(0);
+                        GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
+                        tree->AsOp()->SetOp(0, negOp2);
+                        tree->AsOp()->SetOp(1, negOp1);
 
-                    DEBUG_DESTROY_NODE(op1);
-                    DEBUG_DESTROY_NODE(op2);
+                        DEBUG_DESTROY_NODE(op1);
+                        DEBUG_DESTROY_NODE(op2);
 
-                    op1 = op2Child;
-                    op2 = op1Child;
+                        op1 = negOp2;
+                        op2 = negOp1;
+                    }
                 }
             }
             break;
