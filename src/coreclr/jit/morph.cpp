@@ -3446,14 +3446,12 @@ DONE_MORPHING_CHILDREN:
             }
 
             {
-                // Extract the side effects from the left side of the comma.  Since they don't "go" anywhere, this
-                // is all we need.
-
+                // Extract the side effects from the left side of the comma. Since they don't "go"
+                // anywhere, this is all we need.
                 // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
                 // hoisted expressions in loops.
-                GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE);
 
-                if (op1SideEffects != nullptr)
+                if (GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE))
                 {
                     // TODO-MIKE-Review: This doesn't update `op1`!?
                     tree->AsOp()->SetOp(0, op1SideEffects);
@@ -3467,7 +3465,6 @@ DONE_MORPHING_CHILDREN:
                     return op2;
                 }
 
-                /* If the right operand is just a void nop node, throw it away */
                 if (op2->IsNothingNode() && op1->TypeIs(TYP_VOID))
                 {
                     op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
@@ -3688,7 +3685,7 @@ DONE_MORPHING_CHILDREN:
     // TODO-MIKE-Cleanup: IND/OBJ/BLK were not removed as they could have been assignment
     // destinations. Can they be removed now?
 
-    if ((oper != GT_IND_LOAD) && (oper != GT_IND_LOAD_OBJ) && (oper != GT_IND_LOAD_BLK))
+    if ((oper != GT_IND_LOAD_OBJ) && (oper != GT_IND_LOAD_BLK))
     {
         assert((oper != GT_LCL_DEF) && (oper != GT_INIT_VAL) && (oper != GT_LCL_STORE));
 
