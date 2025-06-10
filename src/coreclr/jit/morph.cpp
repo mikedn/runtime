@@ -2253,10 +2253,11 @@ DONE_MORPHING_CHILDREN:
         case GT_LCL_STORE_FLD:
             if (varTypeIsStruct(typ))
             {
-                tree = moMorphStructStore(tree, op1);
+                return moMorphStructStore(tree, op1);
             }
-            else if ((tree->OperIs(GT_LCL_STORE_FLD) || (tree->AsLclStore()->GetLcl()->lvNormalizeOnLoad())) &&
-                     op1->OperIs(GT_CONV) && (varTypeSize(typ) <= varTypeSize(op1->GetType())))
+
+            if ((tree->OperIs(GT_LCL_STORE_FLD) || (tree->AsLclStore()->GetLcl()->lvNormalizeOnLoad())) &&
+                op1->OperIs(GT_CONV) && (varTypeSize(typ) <= varTypeSize(op1->GetType())))
             {
                 assert(varTypeIsSmall(op1->GetType()));
                 op1 = op1->AsUnOp()->GetOp(0);
@@ -2279,7 +2280,7 @@ DONE_MORPHING_CHILDREN:
                 op2 = op2->AsUnOp()->GetOp(0);
                 tree->AsIndir()->SetValue(op2);
             }
-            break;
+            return tree;
 
         case GT_BITCAST:
             if (op1->GetType() == tree->GetType())
@@ -2291,7 +2292,7 @@ DONE_MORPHING_CHILDREN:
             {
                 return moMorphGCBitcast(tree->AsUnOp());
             }
-            break;
+            return tree;
 
         case GT_INIT_VAL:
             if (op1->IsIntegralConst(0))
@@ -2314,7 +2315,7 @@ DONE_MORPHING_CHILDREN:
                     op1 = tree->AsUnOp()->GetOp(0);
                 }
             }
-            break;
+            return tree;
 
         case GT_EQ:
         case GT_NE:
@@ -2576,7 +2577,7 @@ DONE_MORPHING_CHILDREN:
             if (!cns2->IsIntConCommon() || !cns2->TypeIs(TYP_LONG) || ((cns2->AsIntConCommon()->GetValue() >> 31) != 0))
             {
                 noway_assert(tree->OperIsRelop());
-                break;
+                return tree;
             }
 
             // Is the first comparand mask operation of type long?
@@ -2594,7 +2595,7 @@ DONE_MORPHING_CHILDREN:
                 }
 
                 noway_assert(tree->OperIsRelop());
-                break;
+                return tree;
             }
 
             noway_assert(op1->TypeIs(TYP_LONG) && op1->OperIs(GT_AND));
@@ -2609,7 +2610,7 @@ DONE_MORPHING_CHILDREN:
                 if (!andMask->OperIs(GT_CNS_NATIVELONG) || ((andMask->AsIntConCommon()->GetValue() >> 32) != 0))
                 {
                     noway_assert(tree->OperIsRelop());
-                    break;
+                    return tree;
                 }
 
                 GenTree* andOp = op1->AsOp()->GetOp(0);
@@ -2625,7 +2626,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             noway_assert(tree->OperIsRelop());
-            break;
+            return tree;
 
         case GT_LT:
         case GT_LE:
@@ -2635,7 +2636,7 @@ DONE_MORPHING_CHILDREN:
             {
                 if (!op1->OperIs(GT_CNS_INT))
                 {
-                    break;
+                    return tree;
                 }
 
                 oper = GenTree::SwapRelop(oper);
@@ -2661,7 +2662,7 @@ DONE_MORPHING_CHILDREN:
                     goto EQNE;
                 }
 
-                break;
+                return tree;
             }
 
             // Convert 1 compares to 0 compares (e.g. x < 1 becomes x <= 0)
@@ -2704,7 +2705,7 @@ DONE_MORPHING_CHILDREN:
                     goto EQNE;
                 }
             }
-            break;
+            return tree;
 
         case GT_FTRUNC:
             assert(tree->TypeIs(TYP_FLOAT));
@@ -2718,7 +2719,7 @@ DONE_MORPHING_CHILDREN:
 
                 return op1;
             }
-            break;
+            return tree;
 
         case GT_FADD:
             if (op1->IsDblCon())
@@ -2737,30 +2738,23 @@ DONE_MORPHING_CHILDREN:
                 {
                     GenTree* a = op2->AsOp()->GetOp(0);
 
-                    oper = GT_FSUB;
                     tree->SetOper(GT_FSUB);
                     tree->AsOp()->SetOp(1, a);
 
                     DEBUG_DESTROY_NODE(op2);
-
-                    op2 = a;
                 }
                 else if (op1->OperIs(GT_FNEG) && gtCanSwapOrder(op1, op2))
                 {
                     GenTree* a = op1->AsOp()->GetOp(0);
 
-                    oper = GT_FSUB;
                     tree->SetOper(GT_FSUB);
                     tree->AsOp()->SetOp(0, op2);
                     tree->AsOp()->SetOp(1, a);
 
                     DEBUG_DESTROY_NODE(op1);
-
-                    op1 = op2;
-                    op2 = a;
                 }
             }
-            break;
+            return tree;
 
         case GT_FSUB:
             // SUB(op1, NEG(b)) => ADD(op1, b)
@@ -2771,13 +2765,10 @@ DONE_MORPHING_CHILDREN:
 
                 if (!op1->OperIs(GT_FNEG))
                 {
-                    oper = GT_FADD;
                     tree->SetOper(GT_FADD);
                     tree->AsOp()->SetOp(1, b);
 
                     DEBUG_DESTROY_NODE(op2);
-
-                    op2 = b;
                 }
                 else if (gtCanSwapOrder(op1, op2))
                 {
@@ -2788,12 +2779,9 @@ DONE_MORPHING_CHILDREN:
 
                     DEBUG_DESTROY_NODE(op1);
                     DEBUG_DESTROY_NODE(op2);
-
-                    op1 = b;
-                    op2 = a;
                 }
             }
-            break;
+            return tree;
 
         case GT_FMUL:
             if (op1->IsDblCon())
@@ -2825,7 +2813,6 @@ DONE_MORPHING_CHILDREN:
                             // Fold "x*2.0" to "x+x"
                             op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
                             op1  = tree->AsOp()->GetOp(0);
-                            oper = GT_FADD;
                             tree = gtNewOperNode(GT_FADD, tree->GetType(), op1, op2);
                             INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                         }
@@ -2835,20 +2822,21 @@ DONE_MORPHING_CHILDREN:
                         // Fold "x*1.0" to "x"
                         DEBUG_DESTROY_NODE(op2);
                         DEBUG_DESTROY_NODE(tree);
+
                         return op1;
                     }
                 }
             }
-            break;
+            return tree;
 
 #ifdef TARGET_ARM64
         case GT_DIV:
             fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
             fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
-            break;
+            return tree;
         case GT_UDIV:
             fgGetThrowHelperBlock(ThrowHelperKind::DivideByZero, currentBlock);
-            break;
+            return tree;
 #endif
 
         case GT_OVF_SMUL:
@@ -2872,7 +2860,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
-            break;
+            return tree;
 
         case GT_OVF_SADD:
         case GT_OVF_UADD:
@@ -2894,7 +2882,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             fgGetThrowHelperBlock(ThrowHelperKind::Overflow, currentBlock);
-            break;
+            return tree;
 
         case GT_SUB:
             // TODO #4104: there are a lot of other places where
@@ -2928,39 +2916,32 @@ DONE_MORPHING_CHILDREN:
 
                 if (opts.OptimizationEnabled())
                 {
-                    // SUB(a, (NEG(b)) => ADD(a, b)
+                    // SUB(a, NEG(b)) => ADD(a, b)
+                    // SUB(NEG(a), NEG(b)) => SUB(b, a)
 
                     if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
                     {
                         GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
 
-                        oper = GT_ADD;
                         tree->SetOper(GT_ADD, GenTree::PRESERVE_VN);
                         tree->AsOp()->SetOp(1, negOp2);
 
                         DEBUG_DESTROY_NODE(op2);
-
-                        op2 = negOp2;
                     }
-
-                    // SUB(NEG(a), (NEG(b)) => SUB(b, a)
-
-                    if (op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG) && gtCanSwapOrder(op1, op2))
+                    else if (op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG) && gtCanSwapOrder(op1, op2))
                     {
                         GenTree* negOp1 = op1->AsUnOp()->GetOp(0);
                         GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
+
                         tree->AsOp()->SetOp(0, negOp2);
                         tree->AsOp()->SetOp(1, negOp1);
 
                         DEBUG_DESTROY_NODE(op1);
                         DEBUG_DESTROY_NODE(op2);
-
-                        op1 = negOp2;
-                        op2 = negOp1;
                     }
                 }
             }
-            break;
+            return tree;
 
         case GT_MUL:
 #ifndef TARGET_64BIT
@@ -3071,51 +3052,36 @@ DONE_MORPHING_CHILDREN:
 
                 if (opts.OptimizationEnabled() && fgGlobalMorph)
                 {
-                    // - a + b = > b - a
                     // ADD((NEG(a), b) => SUB(b, a)
 
-                    // Skip optimization if non-NEG operand is constant.
                     if (op1->OperIs(GT_NEG) && !op2->OperIs(GT_NEG) && !op2->IsIntegralConst() &&
                         gtCanSwapOrder(op1, op2))
                     {
-                        // tree: ADD
-                        // op1: NEG
-                        // op2: b
-                        // op1Child: a
-
-                        GenTree* op1Child = op1->AsUnOp()->GetOp(0); // a
-                        oper              = GT_SUB;
+                        GenTree* negOp = op1->AsUnOp()->GetOp(0);
                         tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
                         tree->AsOp()->SetOp(0, op2);
-                        tree->AsOp()->SetOp(1, op1Child);
+                        tree->AsOp()->SetOp(1, negOp);
 
                         DEBUG_DESTROY_NODE(op1);
 
                         op1 = op2;
-                        op2 = op1Child;
+                        op2 = negOp;
                     }
 
-                    // a + -b = > a - b
                     // ADD(a, (NEG(b)) => SUB(a, b)
 
                     if (!op1->OperIs(GT_NEG) && op2->OperIs(GT_NEG))
                     {
-                        // a is non cosntant because it was already canonicalized to have
+                        // a is non constant because it was already canonicalized to have
                         // variable on the left and constant on the right.
 
-                        // tree: ADD
-                        // op1: a
-                        // op2: NEG
-                        // op2Child: b
-
-                        GenTree* op2Child = op2->AsUnOp()->GetOp(0); // a
-                        oper              = GT_SUB;
+                        GenTree* negOp = op2->AsUnOp()->GetOp(0);
                         tree->SetOper(GT_SUB, GenTree::PRESERVE_VN);
-                        tree->AsOp()->SetOp(1, op2Child);
+                        tree->AsOp()->SetOp(1, negOp);
 
                         DEBUG_DESTROY_NODE(op2);
 
-                        op2 = op2Child;
+                        op2 = negOp;
                     }
                 }
             }
@@ -3243,7 +3209,7 @@ DONE_MORPHING_CHILDREN:
                     op1  = tree->AsOp()->GetOp(0);
                     op2  = tree->AsOp()->GetOp(1);
 
-                    break;
+                    return tree;
                 }
             }
 
@@ -3311,11 +3277,10 @@ DONE_MORPHING_CHILDREN:
                         tree->AsOp()->SetOp(1, i);
                         op1->AsOp()->SetOp(1, op2);
                         op1->AddSideEffects(op2->GetSideEffects());
-                        op2 = i;
                     }
                 }
             }
-            break;
+            return tree;
 
         case GT_LSH:
             if (op1->OperIs(GT_ADD) && op2->IsIntCon())
@@ -3334,11 +3299,9 @@ DONE_MORPHING_CHILDREN:
                     i1->SetValue(val2);
                     tree->ChangeOper(GT_ADD);
                     i2->SetValue(val1 << val2);
-
-                    return tree;
                 }
             }
-            break;
+            return tree;
 
         case GT_ROL:
         case GT_ROR:
@@ -3355,11 +3318,10 @@ DONE_MORPHING_CHILDREN:
                 if (oper == GT_ROL)
                 {
                     amountOp->SetValue(bitSize - amount);
-                    oper = GT_ROR;
-                    tree->SetOper(oper);
+                    tree->SetOper(GT_ROR);
                 }
             }
-            break;
+            return tree;
 
         case GT_NEG:
             // Distribute integer negation over simple multiplication/division expressions
@@ -3399,12 +3361,12 @@ DONE_MORPHING_CHILDREN:
                 DEBUG_DESTROY_NODE(op1);
                 return op1op1;
             }
-            break;
+            return tree;
 
         case GT_CKFINITE:
             noway_assert(varTypeIsFloating(op1->GetType()));
             fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, currentBlock);
-            break;
+            return tree;
 
         case GT_INDEX_ADDR:
             assert(opts.MinOpts());
@@ -3414,7 +3376,7 @@ DONE_MORPHING_CHILDREN:
                 tree->AsIndexAddr()->SetThrowBlock(
                     fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, currentBlock));
             }
-            break;
+            return tree;
 
 #ifdef TARGET_ARM
         case GT_IND_LOAD:
@@ -3433,7 +3395,7 @@ DONE_MORPHING_CHILDREN:
                     }
                 }
             }
-            break;
+            return tree;
 #endif // TARGET_ARM
 
         case GT_COMMA:
@@ -3474,7 +3436,7 @@ DONE_MORPHING_CHILDREN:
                 }
             }
 
-            break;
+            return tree;
 
         case GT_JTRUE:
             if (fgRemoveRestOfBlock)
@@ -3506,17 +3468,15 @@ DONE_MORPHING_CHILDREN:
                 op1->SetRelopUnsigned(false);
                 op1->ChangeOper(GT_COMMA);
                 op1->SetType(op1->AsOp()->GetOp(0)->GetType());
-
-                return tree;
             }
-            break;
+            return tree;
 
         case GT_CONV:
             if (GenTree* morphed = moMorphConvPost(tree->AsUnOp()))
             {
                 return morphed;
             }
-            break;
+            return tree;
 
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
@@ -3526,7 +3486,7 @@ DONE_MORPHING_CHILDREN:
             }
 
             fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
-            break;
+            return tree;
 
         case GT_OVF_U:
             assert((typ == TYP_INT) || (typ == TYP_LONG));
@@ -3542,14 +3502,14 @@ DONE_MORPHING_CHILDREN:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
             fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
-            break;
+            return tree;
 
         case GT_TRUNC:
             if (GenTree* morphed = moMorphTruncatePost(tree->AsUnOp()))
             {
                 return morphed;
             }
-            break;
+            return tree;
 
 #ifdef TARGET_ARM
         case GT_INTRINSIC:
@@ -3565,7 +3525,7 @@ DONE_MORPHING_CHILDREN:
 
                 return call;
             }
-            break;
+            return tree;
 #endif
 
         case GT_UTOF:
@@ -3605,31 +3565,32 @@ DONE_MORPHING_CHILDREN:
                     tree = gtNewOperNode(GT_FTRUNC, TYP_FLOAT, tree);
                     INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
                 }
-
-                return tree;
             }
 #endif
-            break;
+            return tree;
 
         case GT_FTOU:
             assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
-            assert((typ == TYP_INT) || (typ == TYP_LONG));
 
             if (typ == TYP_INT)
             {
 #if !defined(TARGET_ARM64) && !defined(TARGET_ARM) && !defined(TARGET_AMD64)
                 helper = CORINFO_HELP_DBL2UINT;
                 goto FTOI_HELPER;
+#else
+                return tree;
 #endif
             }
             else
             {
+                assert(typ == TYP_LONG);
 #if !defined(TARGET_ARM64)
                 helper = CORINFO_HELP_DBL2ULNG;
                 goto FTOI_HELPER;
+#else
+                return tree;
 #endif
             }
-            break;
 
         case GT_FTOS:
             assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
@@ -3641,7 +3602,7 @@ DONE_MORPHING_CHILDREN:
                 goto FTOI_HELPER;
             }
 #endif
-            break;
+            return tree;
 
         case GT_OVF_FTOS:
             assert(op1->TypeIs(TYP_FLOAT, TYP_DOUBLE));
@@ -3670,10 +3631,8 @@ DONE_MORPHING_CHILDREN:
             return call;
 
         default:
-            break;
+            return tree;
     }
-
-    return tree;
 }
 
 // Try to simplify "(X op C1) op C2" to "X op C3" for associative operators.
