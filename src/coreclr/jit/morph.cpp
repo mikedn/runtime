@@ -2159,7 +2159,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         tree->AsOp()->SetOp(1, op2);
     }
 
-DONE_MORPHING_CHILDREN:
     GenTreeFlags flags = tree->gtFlags & ~(GTF_ASG | GTF_CALL | GTF_EXCEPT);
 
     if (op1 != nullptr)
@@ -2232,6 +2231,7 @@ DONE_MORPHING_CHILDREN:
         return tree;
     }
 
+REMORPH_POST:
     oper = tree->GetOper();
     typ  = tree->GetType();
     op1  = tree->AsOp()->gtOp1;
@@ -3170,10 +3170,9 @@ DONE_MORPHING_CHILDREN:
 #endif
                         }
 
-                        oper = GT_LSH;
                         tree->ChangeOper(GT_LSH, GenTree::PRESERVE_VN);
 
-                        goto DONE_MORPHING_CHILDREN;
+                        goto REMORPH_POST;
                     }
 
                     if (op1->OperIs(GT_ADD))
@@ -3254,10 +3253,7 @@ DONE_MORPHING_CHILDREN:
 
                     DEBUG_DESTROY_NODE(op2);
 
-                    op2  = nullptr;
-                    oper = GT_NOT;
-
-                    goto DONE_MORPHING_CHILDREN;
+                    goto REMORPH_POST;
                 }
             }
             else if (fgGlobalMorph && (oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
