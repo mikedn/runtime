@@ -1036,7 +1036,7 @@ GenTree* Compiler::moMorphConvPost(GenTreeUnOp* conv)
             return src;
         }
 
-        return nullptr;
+        return conv;
     }
 
     if (src->OperIs(GT_LCL_LOAD))
@@ -1060,7 +1060,7 @@ GenTree* Compiler::moMorphConvPost(GenTreeUnOp* conv)
         return src;
     }
 
-    return nullptr;
+    return conv;
 }
 
 GenTree* Compiler::moMorphOverflowConvPost(GenTreeUnOp* conv)
@@ -1208,7 +1208,7 @@ GenTree* Compiler::moMorphTruncatePost(GenTreeUnOp* trunc)
         return src;
     }
 
-    return nullptr;
+    return trunc;
 }
 
 bool Compiler::moMorphNarrowTree(GenTree* tree, var_types type)
@@ -2246,9 +2246,6 @@ REMORPH_POST:
         GenTree* cns2;
         size_t   ival2;
 
-        case GT_LCL_DEF:
-            return tree;
-
         case GT_LCL_STORE:
         case GT_LCL_STORE_FLD:
             if (varTypeIsStruct(typ))
@@ -2312,7 +2309,6 @@ REMORPH_POST:
                 if ((genReturnLocal == BAD_VAR_NUM) || ((tree->gtFlags & GTF_RET_MERGED) != 0))
                 {
                     abiMorphStructReturn(tree->AsUnOp(), op1);
-                    op1 = tree->AsUnOp()->GetOp(0);
                 }
             }
             return tree;
@@ -2569,7 +2565,7 @@ REMORPH_POST:
                     DEBUG_DESTROY_NODE(rshiftOp->AsOp()->GetOp(1));
                     DEBUG_DESTROY_NODE(rshiftOp);
                 }
-            } // END if (ival2 != INT_MAX)
+            }
 
         SKIP:
             // Now check for compares with small constant longs that can be cast to int
@@ -2736,20 +2732,20 @@ REMORPH_POST:
             {
                 if (op2->OperIs(GT_FNEG))
                 {
-                    GenTree* a = op2->AsOp()->GetOp(0);
+                    GenTree* negOp = op2->AsOp()->GetOp(0);
 
                     tree->SetOper(GT_FSUB);
-                    tree->AsOp()->SetOp(1, a);
+                    tree->AsOp()->SetOp(1, negOp);
 
                     DEBUG_DESTROY_NODE(op2);
                 }
                 else if (op1->OperIs(GT_FNEG) && gtCanSwapOrder(op1, op2))
                 {
-                    GenTree* a = op1->AsOp()->GetOp(0);
+                    GenTree* negOp = op1->AsOp()->GetOp(0);
 
                     tree->SetOper(GT_FSUB);
                     tree->AsOp()->SetOp(0, op2);
-                    tree->AsOp()->SetOp(1, a);
+                    tree->AsOp()->SetOp(1, negOp);
 
                     DEBUG_DESTROY_NODE(op1);
                 }
@@ -2761,21 +2757,21 @@ REMORPH_POST:
             // SUB(NEG(a), NEG(b)) => SUB(b, a)
             if (opts.OptimizationEnabled() && fgGlobalMorph && op2->OperIs(GT_FNEG))
             {
-                GenTree* b = op2->AsUnOp()->GetOp(0);
+                GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
 
                 if (!op1->OperIs(GT_FNEG))
                 {
                     tree->SetOper(GT_FADD);
-                    tree->AsOp()->SetOp(1, b);
+                    tree->AsOp()->SetOp(1, negOp2);
 
                     DEBUG_DESTROY_NODE(op2);
                 }
                 else if (gtCanSwapOrder(op1, op2))
                 {
-                    GenTree* a = op1->AsUnOp()->GetOp(0);
+                    GenTree* negOp1 = op1->AsUnOp()->GetOp(0);
 
-                    tree->AsOp()->SetOp(0, b);
-                    tree->AsOp()->SetOp(1, a);
+                    tree->AsOp()->SetOp(0, negOp2);
+                    tree->AsOp()->SetOp(1, negOp1);
 
                     DEBUG_DESTROY_NODE(op1);
                     DEBUG_DESTROY_NODE(op2);
@@ -2808,7 +2804,7 @@ REMORPH_POST:
                         bool needsComma = !op1->OperIsLeaf() && !op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD);
                         // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
                         // Unfortunately, it's not hoist loop code-friendly yet so let's do it later.
-                        if (!needsComma || ((currentBlock->bbFlags & BBF_IS_LIR) != 0))
+                        if (!needsComma || currentBlock->IsLIR())
                         {
                             // Fold "x*2.0" to "x+x"
                             op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
@@ -2853,9 +2849,10 @@ REMORPH_POST:
 
             if (op2->IsIntCon(1))
             {
-                oper = GT_MUL;
                 tree->SetOper(GT_MUL);
                 tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+
+                oper = GT_MUL;
                 goto CM_ADD_OP;
             }
 
@@ -2875,9 +2872,10 @@ REMORPH_POST:
         case GT_OVF_USUB:
             if (op2->IsIntCon(0))
             {
-                oper = GT_ADD;
                 tree->SetOper(GT_ADD);
                 tree->SetSideEffects(op1->GetSideEffects() | op2->GetSideEffects());
+
+                oper = GT_ADD;
                 goto CM_ADD_OP;
             }
 
@@ -2897,8 +2895,9 @@ REMORPH_POST:
                     // except when `op2` is a const byref.
 
                     op2->AsIntCon()->SetValue(-op2->AsIntCon()->GetValue());
-                    oper = GT_ADD;
                     tree->ChangeOper(GT_ADD);
+
+                    oper = GT_ADD;
                     goto CM_ADD_OP;
                 }
 
@@ -2909,8 +2908,9 @@ REMORPH_POST:
                     op2 = gtNewOperNode(GT_NEG, varActualType(op2->GetType()), op2);
                     moMorphTreeDone(op2);
                     tree->AsOp()->SetOp(1, op2);
-                    oper = GT_ADD;
                     tree->ChangeOper(GT_ADD);
+
+                    oper = GT_ADD;
                     goto CM_ADD_OP;
                 }
 
@@ -3030,6 +3030,7 @@ REMORPH_POST:
                         op2->SetType(tree->GetType());
                         DEBUG_DESTROY_NODE(op1);
                         DEBUG_DESTROY_NODE(tree);
+
                         return op2;
                     }
 
@@ -3348,7 +3349,7 @@ REMORPH_POST:
             FALLTHROUGH;
         case GT_FNEG:
         case GT_NOT:
-            // Remove double negation/not.
+            // NEG|NOT(NEG|NOT(x)) => x
             if (op1->OperIs(oper) && opts.OptimizationEnabled())
             {
                 JITDUMP("Remove double negation/not\n")
@@ -3360,7 +3361,7 @@ REMORPH_POST:
             return tree;
 
         case GT_CKFINITE:
-            noway_assert(varTypeIsFloating(op1->GetType()));
+            assert(varTypeIsFloating(op1->GetType()));
             fgGetThrowHelperBlock(ThrowHelperKind::Arithmetic, currentBlock);
             return tree;
 
@@ -3403,33 +3404,30 @@ REMORPH_POST:
                 typ = TYP_VOID;
             }
 
+            // Extract the side effects from the left side of the comma. Since they don't "go"
+            // anywhere, this is all we need.
+            // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
+            // hoisted expressions in loops.
+
+            if (GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE))
             {
-                // Extract the side effects from the left side of the comma. Since they don't "go"
-                // anywhere, this is all we need.
-                // The addition of "GTF_MAKE_CSE" below prevents us from throwing away (for example)
-                // hoisted expressions in loops.
+                tree->AsOp()->SetOp(0, op1SideEffects);
+                tree->SetSideEffects(op1SideEffects->GetSideEffects() | op2->GetSideEffects());
+            }
+            else
+            {
+                op2->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
+                DEBUG_DESTROY_NODE(tree);
+                DEBUG_DESTROY_NODE(op1);
+                return op2;
+            }
 
-                if (GenTree* op1SideEffects = gtExtractSideEffList(op1, GTF_SIDE_EFFECT | GTF_MAKE_CSE))
-                {
-                    // TODO-MIKE-Review: This doesn't update `op1`!?
-                    tree->AsOp()->SetOp(0, op1SideEffects);
-                    tree->SetSideEffects(op1SideEffects->GetSideEffects() | op2->GetSideEffects());
-                }
-                else
-                {
-                    op2->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
-                    DEBUG_DESTROY_NODE(tree);
-                    DEBUG_DESTROY_NODE(op1);
-                    return op2;
-                }
-
-                if (op2->IsNothingNode() && op1->TypeIs(TYP_VOID))
-                {
-                    op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
-                    DEBUG_DESTROY_NODE(tree);
-                    DEBUG_DESTROY_NODE(op2);
-                    return op1;
-                }
+            if (op2->IsNothingNode() && op1->TypeIs(TYP_VOID))
+            {
+                op1->gtFlags |= (tree->gtFlags & GTF_DONT_CSE);
+                DEBUG_DESTROY_NODE(tree);
+                DEBUG_DESTROY_NODE(op2);
+                return op1;
             }
 
             return tree;
@@ -3468,11 +3466,7 @@ REMORPH_POST:
             return tree;
 
         case GT_CONV:
-            if (GenTree* morphed = moMorphConvPost(tree->AsUnOp()))
-            {
-                return morphed;
-            }
-            return tree;
+            return moMorphConvPost(tree->AsUnOp());
 
         case GT_OVF_SCONV:
         case GT_OVF_UCONV:
@@ -3501,11 +3495,7 @@ REMORPH_POST:
             return tree;
 
         case GT_TRUNC:
-            if (GenTree* morphed = moMorphTruncatePost(tree->AsUnOp()))
-            {
-                return morphed;
-            }
-            return tree;
+            return moMorphTruncatePost(tree->AsUnOp());
 
 #ifdef TARGET_ARM
         case GT_INTRINSIC:
@@ -3544,6 +3534,7 @@ REMORPH_POST:
         case GT_STOF:
             assert(varActualTypeIsInt(op1->GetType()) || op1->TypeIs(TYP_LONG));
             assert((typ == TYP_FLOAT) || (typ == TYP_DOUBLE));
+
 #if defined(TARGET_X86) || defined(TARGET_ARM)
             if (op1->TypeIs(TYP_LONG))
             {
