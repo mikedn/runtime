@@ -3571,12 +3571,12 @@ private:
                 continue;
             }
 
-            compiler->fgRemoveRestOfBlock = false;
+            compiler->moRemoveRestOfBlock = false;
             INDEBUG(currentBlock = block);
 
             for (Statement* stmt = block->FirstNonPhiDef(); stmt != nullptr;)
             {
-                if (compiler->fgRemoveRestOfBlock)
+                if (compiler->moRemoveRestOfBlock)
                 {
                     compiler->fgRemoveStmt(block, stmt);
                     stmt = stmt->GetNextStmt();

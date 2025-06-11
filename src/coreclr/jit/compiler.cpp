@@ -652,9 +652,9 @@ void Compiler::compInit()
 
     m_inlineStrategy = new (this, CMK_Inlining) InlineStrategy(this);
 
-    for (unsigned i = 0; i < _countof(fgLargeFieldOffsetNullCheckTemps); i++)
+    for (unsigned i = 0; i < _countof(moLargeFieldOffsetNullCheckTemps); i++)
     {
-        fgLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
+        moLargeFieldOffsetNullCheckTemps[i] = BAD_VAR_NUM;
     }
 
     codeGenInit();

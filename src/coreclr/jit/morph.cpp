@@ -22,7 +22,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
 
     if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
-        thisMorphNum = morphNum++;
+        thisMorphNum = moMorphNum++;
         printf("\nfgMorphTree (before %d):\n", thisMorphNum);
         gtDispTree(tree);
     }
@@ -42,7 +42,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
     }
 #endif // DEBUG
 
-    if (fgGlobalMorph)
+    if (moGlobalMorph)
     {
         // FIELD_ADDR sequences may collapse to nothing, deal with them first so that
         // we can continue as if they didn't exist in the first place.
@@ -91,7 +91,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
         }
         else if (GenTreeStrCon* str = tree->IsStrCon())
         {
-            tree = moMorphTree(moMorphStrCon(str, fgGlobalMorphStmt));
+            tree = moMorphTree(moMorphStrCon(str, moGlobalMorphStmt));
         }
         else
         {
@@ -123,7 +123,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
             {
                 tree->RemoveSideEffects(GTF_EXCEPT);
             }
-            tree = moMorphCall(tree->AsCall(), fgGlobalMorphStmt);
+            tree = moMorphCall(tree->AsCall(), moGlobalMorphStmt);
             break;
 
         case GT_ARR_ELEM:
@@ -212,7 +212,7 @@ void Compiler::moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG
     }
 #endif
 
-    if (!fgGlobalMorph)
+    if (!moGlobalMorph)
     {
         return;
     }
@@ -367,7 +367,7 @@ GenTree* Compiler::moMorphLclLoad(GenTreeLclLoad* load)
     // We may need to insert a widening cast, if assertion propagation doesn't tell us
     // that the value previously stored in the local isn't already widened.
 
-    if (!fgGlobalMorph || !lcl->lvNormalizeOnLoad())
+    if (!moGlobalMorph || !lcl->lvNormalizeOnLoad())
     {
         return load;
     }
@@ -395,7 +395,7 @@ GenTree* Compiler::moMorphLclLoad(GenTreeLclLoad* load)
 
 GenTree* Compiler::moMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     // TODO-CQ: Do this for block->isRunRarely(). Doing that currently will
     // guarantee slow performance for that block. Instead cache the return value
@@ -403,7 +403,7 @@ GenTree* Compiler::moMorphStrCon(GenTreeStrCon* tree, Statement* stmt)
 
     bool useLazyStrCns = false;
 
-    if (fgMorphBlock->KindIs(BBJ_THROW))
+    if (moMorphBlock->KindIs(BBJ_THROW))
     {
         useLazyStrCns = true;
     }
@@ -638,15 +638,15 @@ unsigned Compiler::moGetLargeFieldOffsetNullCheckTemp(var_types type)
             unreached();
     }
 
-    assert(index < _countof(fgLargeFieldOffsetNullCheckTemps));
+    assert(index < _countof(moLargeFieldOffsetNullCheckTemps));
 
-    if (fgLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
+    if (moLargeFieldOffsetNullCheckTemps[index] == BAD_VAR_NUM)
     {
-        fgLargeFieldOffsetNullCheckTemps[index] =
+        moLargeFieldOffsetNullCheckTemps[index] =
             lvaNewTemp(type, false DEBUGARG("large field offset null check temp"))->GetLclNum();
     }
 
-    unsigned lclNum = fgLargeFieldOffsetNullCheckTemps[index];
+    unsigned lclNum = moLargeFieldOffsetNullCheckTemps[index];
     assert(lvaGetDesc(lclNum)->GetType() == type);
     return lclNum;
 }
@@ -817,7 +817,7 @@ GenTree* Compiler::moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 
         // TODO-MIKE-Cleanup: Workaround to reduce diffs when switching from FIELD to FIELD_ADDR.
         // ADDR(FIELD) required FIELD to have DONT_CSE and this flag survived through a series of
-        // convoluted tranforms: ADDR(FIELD(x)) - ADDR(IND(COMMA(n, x))) - ADDR(COMMA(n, IND(x)))
+        // convoluted transforms: ADDR(FIELD(x)) - ADDR(IND(COMMA(n, x))) - ADDR(COMMA(n, IND(x)))
         // - COMMA(n, ADDR(IND(x))) - COMMA(n, x). So pretty much all field addresses that needed
         // explicit null checks were not CSE candidates. Which isn't necessarily bad as CSE seems
         // far too happy to CSE cheap constant additions, even if there's no good mechanism to
@@ -828,7 +828,7 @@ GenTree* Compiler::moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
         //
         // So we're going to set DONT_CSE when we detect and address taken field case and if the
         // null check cannot be eliminated by local assertion propagation. This almost matches
-        // the original behaviour with one exception: DONT_CSE was also applied if the field
+        // the original behavior with one exception: DONT_CSE was also applied if the field
         // address was immediately used by an IND - IND(ADDR(FIELD)) - but we can't detect this
         // case anymore because everything is IND(FIELD_ADDR) now. But since we have an IND the
         // DONT_CSE should be set as part of address mode marking. And hey, that's bonkers too.
@@ -859,7 +859,7 @@ GenTree* Compiler::moMorphFieldAddr(GenTreeFieldAddr* field, MorphAddrContext* m
 GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 {
     ALLOCA_CHECK();
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(!csePhase);
 
     GenTree* condExpr = qmark->GetCondition();
@@ -887,7 +887,7 @@ GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     if (moIsCommaThrow(condExpr DEBUGARG(true)))
     {
-        fgRemoveRestOfBlock = true;
+        moRemoveRestOfBlock = true;
         assert(condExpr->OperIs(GT_COMMA));
 
         if (varActualType(qmark->GetType()) == varActualType(condExpr->GetType()))
@@ -925,10 +925,10 @@ GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
     }
 
     // If only one of the then/else expressions throws then the rest of the block is
-    // still reachable. We have to ignore the setting of fgRemoveRestOfBlock during
+    // still reachable. We have to ignore the setting of moRemoveRestOfBlock during
     // then/else morphing. We could also handle the case of both then/else throwing
     // but that doesn't seem to ever happen currently.
-    bool removeRestOfBlock = fgRemoveRestOfBlock;
+    bool removeRestOfBlock = moRemoveRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
     // The local assertion propagation state after morphing the condition expression
@@ -950,7 +950,7 @@ GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     elseExpr = moMorphTree(elseExpr, mac);
     qmark->SetElse(elseExpr);
-    fgRemoveRestOfBlock = removeRestOfBlock;
+    moRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
     unsigned        elseAssertionCount = 0;
@@ -977,7 +977,7 @@ GenTree* Compiler::moMorphQmark(GenTreeQmark* qmark, MorphAddrContext* mac)
 
     thenExpr = moMorphTree(thenExpr, mac);
     qmark->SetThen(thenExpr);
-    fgRemoveRestOfBlock = removeRestOfBlock;
+    moRemoveRestOfBlock = removeRestOfBlock;
 
 #if LOCAL_ASSERTION_PROP
     // Merge assertions after then/else morphing.
@@ -1121,7 +1121,7 @@ GenTree* Compiler::moMorphGCBitcast(GenTreeUnOp* bitcast)
 
 GenTree* Compiler::moMorphTruncate(GenTreeUnOp* trunc)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(trunc->OperIs(GT_TRUNC) && trunc->TypeIs(TYP_INT) && trunc->GetOp(0)->TypeIs(TYP_LONG));
 
     GenTree* src = trunc->GetOp(0);
@@ -1593,7 +1593,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         CorInfoHelpFunc helper;
 
         case GT_LCL_STORE:
-            if (fgGlobalMorph)
+            if (moGlobalMorph)
             {
                 op1 = moMorphNormalizeLclStore(tree->AsLclStore(), op1);
             }
@@ -1715,7 +1715,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_TRUNC:
         TRUNC:
-            if (fgGlobalMorph)
+            if (moGlobalMorph)
             {
                 if (GenTree* morphed = moMorphTruncate(tree->AsUnOp()))
                 {
@@ -1998,7 +1998,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // Replace "val / C" with "val * (1.0 / C)" if C is a power of two.
             // Powers of two within range are always exactly represented,
             // so multiplication by the reciprocal is safe in this scenario
-            if (fgGlobalMorph && op2->IsDblCon())
+            if (moGlobalMorph && op2->IsDblCon())
             {
                 double divisor = op2->AsDblCon()->GetValue();
 
@@ -2054,7 +2054,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         }
 
         case GT_RETURN:
-            if (fgGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
+            if (moGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
             {
                 // Small-typed return values are extended by the callee.
 
@@ -2237,7 +2237,7 @@ REMORPH_POST:
     op1  = tree->AsOp()->gtOp1;
     op2  = tree->AsOp()->gtGetOp2IfPresent();
 
-    BasicBlock*     currentBlock = fgMorphBlock;
+    BasicBlock*     currentBlock = moMorphBlock;
     CorInfoHelpFunc helper       = CORINFO_HELP_UNDEF;
 
     // Perform the required oper-specific postorder morphing
@@ -2597,7 +2597,7 @@ REMORPH_POST:
             noway_assert(op1->TypeIs(TYP_LONG) && op1->OperIs(GT_AND));
 
             // The transform below cannot preserve VNs.
-            if (fgGlobalMorph)
+            if (moGlobalMorph)
             {
                 // Is the result of the mask effectively an INT ?
 
@@ -2728,7 +2728,7 @@ REMORPH_POST:
 
             // ADD(op1, NEG(a)) => SUB(op1, a)
             // ADD(NEG(a), op2) => SUB(op2, a)
-            if (opts.OptimizationEnabled() && fgGlobalMorph)
+            if (opts.OptimizationEnabled() && moGlobalMorph)
             {
                 if (op2->OperIs(GT_FNEG))
                 {
@@ -2755,7 +2755,7 @@ REMORPH_POST:
         case GT_FSUB:
             // SUB(op1, NEG(b)) => ADD(op1, b)
             // SUB(NEG(a), NEG(b)) => SUB(b, a)
-            if (opts.OptimizationEnabled() && fgGlobalMorph && op2->OperIs(GT_FNEG))
+            if (opts.OptimizationEnabled() && moGlobalMorph && op2->OperIs(GT_FNEG))
             {
                 GenTree* negOp2 = op2->AsUnOp()->GetOp(0);
 
@@ -2885,7 +2885,7 @@ REMORPH_POST:
         case GT_SUB:
             // TODO #4104: there are a lot of other places where
             // this condition is not checked before transformations.
-            if (fgGlobalMorph)
+            if (moGlobalMorph)
             {
                 // (x SUB i1) => (x ADD -i1)
 
@@ -3038,7 +3038,7 @@ REMORPH_POST:
 
                     if ((op1->GetType() == tree->GetType()) || !op1->TypeIs(TYP_REF))
                     {
-                        if (fgGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
+                        if (moGlobalMorph && op2->IsIntCon() && (op2->AsIntCon()->GetFieldSeq() != nullptr) &&
                             (op2->AsIntCon()->GetFieldSeq() != FieldSeqStore::NotAField()))
                         {
                             AddZeroOffsetFieldSeq(op1, op2->AsIntCon()->GetFieldSeq());
@@ -3051,7 +3051,7 @@ REMORPH_POST:
                     }
                 }
 
-                if (opts.OptimizationEnabled() && fgGlobalMorph)
+                if (opts.OptimizationEnabled() && moGlobalMorph)
                 {
                     // ADD((NEG(a), b) => SUB(b, a)
 
@@ -3221,7 +3221,7 @@ REMORPH_POST:
                 tree->SetReverseOps(false);
             }
 
-            if (fgGlobalMorph && (op2->GetOper() == oper))
+            if (moGlobalMorph && (op2->GetOper() == oper))
             {
                 // Reorder nested operators at the same precedence level to be left-recursive.
                 // For example, change "x ADD (y ADD z)" to "(x ADD y) ADD z".
@@ -3257,7 +3257,7 @@ REMORPH_POST:
                     goto REMORPH_POST;
                 }
             }
-            else if (fgGlobalMorph && (oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
+            else if (moGlobalMorph && (oper == GT_ADD) && op1->OperIs(GT_ADD) && !op2->IsIntConCommon())
             {
                 // Change "(x ADD i) ADD y" to "(x ADD y) ADD i".
 
@@ -3433,7 +3433,7 @@ REMORPH_POST:
             return tree;
 
         case GT_JTRUE:
-            if (fgRemoveRestOfBlock)
+            if (moRemoveRestOfBlock)
             {
                 if (moIsCommaThrow(op1 DEBUGARG(true)))
                 {
@@ -3475,7 +3475,7 @@ REMORPH_POST:
                 return morphed;
             }
 
-            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, moMorphBlock);
             return tree;
 
         case GT_OVF_U:
@@ -3491,7 +3491,7 @@ REMORPH_POST:
         case GT_OVF_TRUNC:
         case GT_OVF_STRUNC:
         case GT_OVF_UTRUNC:
-            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, fgMorphBlock);
+            fgGetThrowHelperBlock(ThrowHelperKind::Overflow, moMorphBlock);
             return tree;
 
         case GT_TRUNC:
@@ -3638,7 +3638,7 @@ GenTree* Compiler::moMorphAssociative(GenTreeOp* tree)
 
     if (op1->OperIs(GT_COMMA))
     {
-        if (!fgGlobalMorph)
+        if (!moGlobalMorph)
         {
             return nullptr;
         }
@@ -3694,7 +3694,7 @@ GenTree* Compiler::moMorphAssociative(GenTreeOp* tree)
 // i.e. into something like this: (((a op b) op c) op d) op...
 void Compiler::moMoveOpsLeft(GenTreeOp* tree)
 {
-    assert(fgGlobalMorph && (vnStore == nullptr));
+    assert(moGlobalMorph && (vnStore == nullptr));
     assert(tree->OperIs(GT_ADD, GT_MUL, GT_AND, GT_OR, GT_XOR));
     assert(tree->GetOp(1)->GetOper() == tree->GetOper());
 
@@ -3776,7 +3776,7 @@ void Compiler::moMoveOpsLeft(GenTreeOp* tree)
 
 GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* value)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     if (varActualTypeIsInt(store->GetType()))
     {
@@ -4378,9 +4378,9 @@ void Compiler::moMorphArrElem(GenTreeArrElem* arrElem)
 
     arrElem->SetSideEffects(sideEffects | GTF_EXCEPT);
 
-    if (fgGlobalMorph)
+    if (moGlobalMorph)
     {
-        fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, fgMorphBlock);
+        fgGetThrowHelperBlock(ThrowHelperKind::IndexOutOfRange, moMorphBlock);
     }
 }
 
@@ -8986,7 +8986,7 @@ GenTree* Compiler::moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
 #endif
 
     // If this block has a flow successor, make suitable updates.
-    BasicBlock*       callBlock = fgMorphBlock;
+    BasicBlock*       callBlock = moMorphBlock;
     BasicBlock* const nextBlock = callBlock->GetUniqueSucc();
 
     if (nextBlock == nullptr)
@@ -9237,11 +9237,11 @@ GenTree* Compiler::moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
             // it being removed if the value becomes a COMMA throw.
             // TODO-MIKE-Cleanup: Would be nice to handle this properly.
             // Can we just morph the call args before doing the tail call transform?
-            fgGlobalMorphStmt  = thisTempStmt;
+            moGlobalMorphStmt  = thisTempStmt;
             GenTree* thisValue = moMorphTree(thisTempStore->GetValue());
             thisTempStore->SetValue(thisValue);
             thisTempStore->SetSideEffects(thisValue->GetSideEffects() | GTF_ASG);
-            fgGlobalMorphStmt = stmt;
+            moGlobalMorphStmt = stmt;
         }
 
         GenTree* temp = moMorphCall(call, stmt);
@@ -9251,7 +9251,7 @@ GenTree* Compiler::moMorphPotentialTailCall(GenTreeCall* call, Statement* stmt)
     {
         // fgCreateGCPoll has created new blocks and moved the call to one of them.
         callBlock    = newCallBlock;
-        fgMorphBlock = callBlock;
+        moMorphBlock = callBlock;
     }
 
     noway_assert(callBlock->bbJumpKind == BBJ_RETURN);
@@ -9413,12 +9413,12 @@ GenTree* Compiler::moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         else
         {
             thisLcl = lvaNewTemp(thisArg->GetType(), true DEBUGARG("tail call thisptr"));
-            newStmt = fgInsertStmtBefore(fgMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
+            newStmt = fgInsertStmtBefore(moMorphBlock, stmt, gtNewLclStore(thisLcl, thisLcl->GetType(), thisArg));
             call->GetThisArg()->SetNode(gtNewLclLoad(thisLcl, thisLcl->GetType()));
         }
     }
 
-    Statement* storeArgsStmt = fgInsertStmtBefore(fgMorphBlock, stmt, call);
+    Statement* storeArgsStmt = fgInsertStmtBefore(moMorphBlock, stmt, call);
 
     if (newStmt == nullptr)
     {
@@ -9510,9 +9510,9 @@ GenTree* Compiler::moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
 
     for (Statement* s = newStmt; s != stmt; s = s->GetNextStmt())
     {
-        fgGlobalMorphStmt = s;
+        moGlobalMorphStmt = s;
         s->SetRootNode(moMorphTree(s->GetRootNode()));
-        fgGlobalMorphStmt = stmt;
+        moGlobalMorphStmt = stmt;
     }
 
     return moMorphTree(result);
@@ -9609,7 +9609,7 @@ GenTree* Compiler::moCreateCallDispatcherAndGetResult(GenTreeCall*              
         return dispatcherCall;
     }
 
-    fgInsertStmtBefore(fgMorphBlock, stmt, dispatcherCall);
+    fgInsertStmtBefore(moMorphBlock, stmt, dispatcherCall);
 
     if (retVal == nullptr)
     {
@@ -9618,7 +9618,7 @@ GenTree* Compiler::moCreateCallDispatcherAndGetResult(GenTreeCall*              
 
     if (retBuffStore != nullptr)
     {
-        fgInsertStmtBefore(fgMorphBlock, stmt, retBuffStore);
+        fgInsertStmtBefore(moMorphBlock, stmt, retBuffStore);
     }
 
     return retVal;
@@ -10194,7 +10194,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
         }
     }
 
-    if (fgGlobalMorph)
+    if (moGlobalMorph)
     {
         if (call->IsTailCallCandidate())
         {
@@ -10225,7 +10225,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
 
     assert(!call->IsTailCallCandidate());
 
-    BasicBlock* callBlock = fgMorphBlock;
+    BasicBlock* callBlock = moMorphBlock;
 
     // Mark the block as a GC safe point for the call if possible.
     // In the event the call indicates the block isn't a GC safe point
@@ -10239,7 +10239,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
     // Regardless of the state of the basic block with respect to GC safe point,
     // we will always insert a GC Poll for scenarios involving a suppressed GC
     // transition. Only mark the block for GC Poll insertion on the first morph.
-    if (fgGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
+    if (moGlobalMorph && call->IsUnmanaged() && call->IsSuppressGCTransition())
     {
         callBlock->bbFlags |= (BBF_HAS_SUPPRESSGC_CALL | BBF_GC_SAFE_POINT);
         optMethodFlags |= OMF_NEEDS_GCPOLLS;
@@ -10268,7 +10268,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
     {
         if (call->GetCallAddr() == nullptr)
         {
-            assert(fgGlobalMorph);
+            assert(moGlobalMorph);
             call->SetCallAddr(moExpandVirtualVtableCallTarget(call));
         }
 
@@ -10290,7 +10290,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
 
     if (call->IsNoReturn())
     {
-        // If we know that the call does not return then we can set fgRemoveRestOfBlock
+        // If we know that the call does not return then we can set moRemoveRestOfBlock
         // to remove all subsequent statements and change the call's basic block to BBJ_THROW.
         // As a result the compiler won't need to preserve live registers across the call.
         //
@@ -10301,7 +10301,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
 
         if (!call->IsTailCall())
         {
-            fgRemoveRestOfBlock = true;
+            moRemoveRestOfBlock = true;
         }
     }
 
@@ -10362,7 +10362,7 @@ GenTree* Compiler::moRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
         GenTreeIndexAddr* addr         = gtNewArrayIndexAddr(arr, index, TYP_REF);
         GenTreeIndir*     arrIndexNode = gtNewIndexLoad(TYP_REF, addr);
 
-        if (!fgGlobalMorph && !opts.MinOpts())
+        if (!moGlobalMorph && !opts.MinOpts())
         {
             arrIndexNode->SetAddr(moMorphIndexAddr(addr));
         }
@@ -11744,7 +11744,7 @@ GenTree* Compiler::moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
 {
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE, GT_IND_STORE_OBJ));
 
-    const bool isStmtRoot = (fgGlobalMorphStmt != nullptr) && (fgGlobalMorphStmt->GetRootNode() == store);
+    const bool isStmtRoot = (moGlobalMorphStmt != nullptr) && (moGlobalMorphStmt->GetRootNode() == store);
     GenTree*   tree       = tempStore;
 
     if (tree == nullptr)
@@ -11761,7 +11761,7 @@ GenTree* Compiler::moMorphPromoteStore(GenTree* store, GenTree* tempStore, GenTr
 
         if (isStmtRoot)
         {
-            Statement* stmt = fgInsertStmtBefore(fgMorphBlock, fgGlobalMorphStmt, tree);
+            Statement* stmt = fgInsertStmtBefore(moMorphBlock, moGlobalMorphStmt, tree);
             JITDUMPTREE(tree, "Promoted struct field store statement " FMT_STMT ":\n", stmt->GetID());
 
 #if LOCAL_ASSERTION_PROP
@@ -12167,8 +12167,8 @@ bool Compiler::moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 {
     assert(!csePhase);
 
-    fgRemoveRestOfBlock = false;
-    fgMorphBlock        = block;
+    moRemoveRestOfBlock = false;
+    moMorphBlock        = block;
 
     GenTree* morph = moMorphTree(stmt->GetRootNode());
 
@@ -12176,11 +12176,11 @@ bool Compiler::moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
     {
         JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
         morph               = comma->GetOp(0)->AsCall();
-        fgRemoveRestOfBlock = true;
+        moRemoveRestOfBlock = true;
     }
     else if (moIsThrow(morph))
     {
-        fgRemoveRestOfBlock = true;
+        moRemoveRestOfBlock = true;
     }
 
     stmt->SetRootNode(morph);
@@ -12189,11 +12189,11 @@ bool Compiler::moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 
     JITDUMPTREE(morph, "%s %s tree:\n", msg, removedStmt ? "removed" : "morphed");
 
-    if (fgRemoveRestOfBlock)
+    if (moRemoveRestOfBlock)
     {
         JITDUMP("\n%s Block " FMT_BB " becomes a throw block.\n", msg, block->bbNum);
 
-        fgRemoveRestOfBlock = false;
+        moRemoveRestOfBlock = false;
 
         for (Statement* removeStmt : StatementList(stmt->GetNextStmt()))
         {
@@ -12222,20 +12222,20 @@ bool Compiler::moMorphBlockStmt(BasicBlock* block, Statement* stmt DEBUGARG(cons
 // This function should be called just once, during global morph, for a block.
 void Compiler::moMorphBlockStmts(BasicBlock* block)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
-    fgRemoveRestOfBlock = false;
-    fgMorphBlock        = block;
+    moRemoveRestOfBlock = false;
+    moMorphBlock        = block;
 
     for (Statement* const stmt : block->Statements())
     {
-        if (fgRemoveRestOfBlock)
+        if (moRemoveRestOfBlock)
         {
             fgRemoveStmt(block, stmt);
             continue;
         }
 
-        fgGlobalMorphStmt = stmt;
+        moGlobalMorphStmt = stmt;
 
 #ifdef DEBUG
         unsigned oldHash = 0;
@@ -12260,7 +12260,7 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
         abiFreeAllStructArgTemps();
 #endif
 
-        BasicBlock* currentBlock = fgMorphBlock;
+        BasicBlock* currentBlock = moMorphBlock;
 
         if ((stmt->GetRootNode() != oldTree) || (block != currentBlock))
         {
@@ -12319,12 +12319,12 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
         {
             JITDUMPTREE(comma->GetOp(1), "Removing unreachable tree from COMMA throw:\n");
             morphedTree         = comma->GetOp(0)->AsCall();
-            fgRemoveRestOfBlock = true;
+            moRemoveRestOfBlock = true;
         }
 
         stmt->SetRootNode(morphedTree);
 
-        if (fgRemoveRestOfBlock)
+        if (moRemoveRestOfBlock)
         {
             continue;
         }
@@ -12335,7 +12335,7 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
         }
     }
 
-    if (fgRemoveRestOfBlock)
+    if (moRemoveRestOfBlock)
     {
         moConvertToThrowBlock(block);
     }
@@ -12352,7 +12352,7 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
 #endif
 
     // Reset this back so that it doesn't leak out impacting other blocks
-    fgRemoveRestOfBlock = false;
+    moRemoveRestOfBlock = false;
 }
 
 void Compiler::phGlobalMorph()
@@ -12362,14 +12362,14 @@ void Compiler::phGlobalMorph()
     // Since moMorphTree can be called after various optimizations to re-arrange
     // the nodes we need a global flag to signal if we are during the one-pass
     // global morphing.
-    fgGlobalMorph = true;
+    moGlobalMorph = true;
 
     moMorphBlocks();
 
     // We are done with the global morphing phase
-    fgGlobalMorph     = false;
-    fgGlobalMorphStmt = nullptr;
-    fgMorphBlock      = nullptr;
+    moGlobalMorph     = false;
+    moGlobalMorphStmt = nullptr;
+    moMorphBlock      = nullptr;
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // Fix any LclVar annotations on discarded struct promotion temps for implicit by-ref params

@@ -3496,7 +3496,7 @@ void Compiler::lvaRetypeImplicitByRefParams()
 // x86 vararg stack parameter references in it.
 void Compiler::moMorphIndirectParams(Statement* stmt)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
 #if defined(TARGET_X86)
     if (!info.compIsVarArgs)

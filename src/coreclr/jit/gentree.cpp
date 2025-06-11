@@ -3765,7 +3765,7 @@ GenTreeLclLoad* Compiler::gtNewLclLoad(LclVarDsc* lcl, var_types type)
         simd12ToSimd16Widening = (type == TYP_SIMD16) && lcl->TypeIs(TYP_SIMD12);
 #endif
         assert((type == lcl->GetType()) || simd12ToSimd16Widening ||
-               (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)));
+               (lcl->IsImplicitByRefParam() && moGlobalMorph && lcl->TypeIs(TYP_BYREF)));
     }
 #endif
 
@@ -3782,7 +3782,7 @@ GenTreeLclLoad* Compiler::gtNewLclLoadLarge(LclVarDsc* lcl, var_types type)
         // Make an exception for implicit by-ref parameters during global morph, since
         // their type has been updated to byref but their appearances have not yet all
         // been rewritten and so may have struct type still.
-        assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && fgGlobalMorph && lcl->TypeIs(TYP_BYREF)));
+        assert((type == lcl->GetType()) || (lcl->IsImplicitByRefParam() && moGlobalMorph && lcl->TypeIs(TYP_BYREF)));
     }
 #endif
 
@@ -7355,7 +7355,7 @@ GenTree* Compiler::gtFoldExprCompare(GenTree* tree)
 
     JITDUMPTREE(tree, "\nFolding comparison with identical operands:\n");
 
-    if (fgGlobalMorph)
+    if (moGlobalMorph)
     {
         moMorphTreeDone(cons);
     }
@@ -7715,7 +7715,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
     // Helper function that creates a new IntCon node and morphs it, if required
     auto NewMorphedIntConNode = [&](int value) -> GenTreeIntCon* {
         GenTreeIntCon* icon = gtNewIconNode(value);
-        if (fgGlobalMorph)
+        if (moGlobalMorph)
         {
             moMorphTreeDone(icon);
         }
@@ -9636,7 +9636,7 @@ INTEGRAL_OVF:
     //
     // TODO-CQ: Once moSetupCallArgs is fixed this restriction could be removed.
 
-    if (!fgGlobalMorph)
+    if (!moGlobalMorph)
     {
         return tree;
     }
@@ -9748,7 +9748,7 @@ GenTree* Compiler::gtBuildCommaList(GenTree* list, GenTree* expr)
     // 'list' and 'expr' should have value numbers defined for both or for neither one (unless we are remorphing,
     // in which case a prior transform involving either node may have discarded or otherwise invalidated the value
     // numbers).
-    assert((list->GetVNP().BothDefined() == expr->GetVNP().BothDefined()) || !fgGlobalMorph);
+    assert((list->GetVNP().BothDefined() == expr->GetVNP().BothDefined()) || !moGlobalMorph);
 
     if (list->GetVNP().BothDefined() && expr->GetVNP().BothDefined())
     {

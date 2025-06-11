@@ -2371,7 +2371,7 @@ public:
     bool verbose      = false;
     bool verboseTrees = false;
     bool verboseSsa   = false; // If true, produce especially verbose dump output in SSA construction.
-    int  morphNum     = 0;     // This counts the the trees that have been morphed, allowing us to label each uniquely.
+    int  moMorphNum   = 0;     // This counts the the trees that have been morphed, allowing us to label each uniquely.
 
     void makeExtraStructQueries(CORINFO_CLASS_HANDLE structHandle, int level); // Make queries recursively 'level' deep.
 
@@ -3133,7 +3133,7 @@ public:
     // where it is used to detect tail-call chains.
     unsigned lvaRetAddrVar = BAD_VAR_NUM;
 
-    unsigned fgLargeFieldOffsetNullCheckTemps[3];
+    unsigned moLargeFieldOffsetNullCheckTemps[3];
 
 #if FEATURE_FIXED_OUT_ARGS
     unsigned lvaOutgoingArgSpaceVar = BAD_VAR_NUM;
@@ -3617,7 +3617,7 @@ public:
 
 #ifdef FEATURE_JIT_METHOD_PERF
     unsigned fgMeasureIR();
-#endif // FEATURE_JIT_METHOD_PERF
+#endif
 
     bool fgModified         = false; // True if the flow graph has been modified recently
     bool fgComputePredsDone = false; // Have we computed the bbPreds list
@@ -3634,8 +3634,6 @@ public:
     bool fgLinearOrder           = false;
 #endif
 
-    bool fgRemoveRestOfBlock; // true if we know that we will throw
-
     // The following are boolean flags that keep track of the state of internal data structures
 
     bool fgStmtListThreaded       = false; // true if the node list is now threaded
@@ -3649,9 +3647,6 @@ public:
     bool fgFuncletsCreated = false; // true if the funclet creation phase has been run
 #endif
 
-    bool fgGlobalMorph = false; // indicates if we are during the global morphing phase
-                                // since moMorphTree can be called from several places
-
     bool fgLoopCallMarked = false; // The following check for loops that don't execute calls
     bool fgHasLoops       = false; // True if this method has any loops, set in phComputeReachability
 
@@ -3663,9 +3658,14 @@ public:
     bool fgPrintInlinedMethods = false;
 #endif
 
-    BasicBlock::weight_t fgCalledCount = BB_ZERO_WEIGHT; // count of the number of times this method was called
-                                                         // This is derived from the profile data or is
-                                                         // BB_UNITY_WEIGHT when we don't have profile data
+    bool moGlobalMorph = false; // indicates if we are during the global morphing phase
+                                // since moMorphTree can be called from several places
+
+    bool moRemoveRestOfBlock; // true if we know that we will throw
+
+    weight_t fgCalledCount = BB_ZERO_WEIGHT; // count of the number of times this method was called
+                                             // This is derived from the profile data or is
+                                             // BB_UNITY_WEIGHT when we don't have profile data
 
     PhaseStatus phImport();
     PhaseStatus phTransformIndirectCalls();
@@ -4042,8 +4042,8 @@ public:
     bool fgDebugCheckOutgoingProfileData(BasicBlock* block);
 #endif
 
-    bool fgProfileWeightsEqual(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
-    bool fgProfileWeightsConsistent(BasicBlock::weight_t weight1, BasicBlock::weight_t weight2);
+    bool fgProfileWeightsEqual(weight_t weight1, weight_t weight2);
+    bool fgProfileWeightsConsistent(weight_t weight1, weight_t weight2);
 
 protected:
     BasicBlock** fgBBs; // Table of pointers to the BBs
@@ -4311,8 +4311,8 @@ private:
     void moPostExpandQmarkChecks();
 #endif
 
-    Statement*  fgGlobalMorphStmt = nullptr;
-    BasicBlock* fgMorphBlock      = nullptr;
+    Statement*  moGlobalMorphStmt = nullptr;
+    BasicBlock* moMorphBlock      = nullptr;
 
     unsigned moGetLargeFieldOffsetNullCheckTemp(var_types type); // We cache one temp per type to be
                                                                  // used when morphing big offset.

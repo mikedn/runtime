@@ -59,7 +59,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
 #ifdef FEATURE_READYTORUN_COMPILER
     call->SetR2REntryPoint(entryPoint);
 #endif
-    comp->fgMorphBlock = m_block;
+    comp->moMorphBlock = m_block;
     comp->moInitCallnfo(call);
     comp->moSetupCallArgs(call);
 

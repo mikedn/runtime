@@ -173,7 +173,7 @@ using DepBitVecOps = BitSetOps<MorphAssertionBitVecTraits>;
 
 void Compiler::morphAssertionInit()
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     if (!opts.OptimizationEnabled())
     {
@@ -194,7 +194,7 @@ void Compiler::morphAssertionInit()
 
 void Compiler::morphAssertionDone()
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     morphAssertionTable = nullptr;
     morphAssertionCount = 0;
@@ -202,7 +202,7 @@ void Compiler::morphAssertionDone()
 
 void Compiler::morphAssertionSetCount(unsigned count)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(count <= morphAssertionMaxCount);
 
     while (morphAssertionCount > count)
@@ -290,7 +290,7 @@ void Compiler::morphAssertionRemove(unsigned index)
 
 unsigned Compiler::morphAssertionTableSize(unsigned count)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(count <= morphAssertionMaxCount);
 
     return count * sizeof(MorphAssertion);
@@ -298,7 +298,7 @@ unsigned Compiler::morphAssertionTableSize(unsigned count)
 
 void Compiler::morphAssertionGetTable(MorphAssertion* table, unsigned count)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(count <= morphAssertionCount);
 
     memcpy(table, morphAssertionTable, count * sizeof(MorphAssertion));
@@ -306,7 +306,7 @@ void Compiler::morphAssertionGetTable(MorphAssertion* table, unsigned count)
 
 void Compiler::morphAssertionSetTable(const MorphAssertion* table, unsigned count)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(count <= morphAssertionMaxCount);
 
     memcpy(morphAssertionTable, table, count * sizeof(MorphAssertion));
@@ -316,7 +316,7 @@ void Compiler::morphAssertionSetTable(const MorphAssertion* table, unsigned coun
 void Compiler::morphAssertionMerge(unsigned              elseAssertionCount,
                                    const MorphAssertion* elseAssertionTable DEBUGARG(GenTreeQmark* qmark))
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     if (morphAssertionCount == 0)
     {
@@ -712,7 +712,7 @@ void Compiler::morphAssertionAdd(MorphAssertion& assertion)
 
 void Compiler::morphAssertionGenerate(GenTree* tree)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     INDEBUG(morphAssertionCurrentTree = tree);
 
     switch (tree->GetOper())
@@ -774,7 +774,7 @@ const MorphAssertion* Compiler::morphAssertionFindRange(unsigned lclNum)
 
 bool Compiler::morphAssertionIsTypeRange(GenTreeLclLoad* load, var_types type)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
     assert(varTypeIsSmall(type));
 
     // TODO-MIKE-Review: Check why BOOL is ignored, it behaves like UBYTE when used with casts.
@@ -1342,7 +1342,7 @@ GenTree* Compiler::morphAssertionPropagateIndir(GenTreeIndir* indir)
 
 bool Compiler::morphAssertionIsNotNull(GenTreeLclLoad* load)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     LclVarDsc* lcl    = load->GetLcl();
     unsigned   lclNum = lcl->GetLclNum();
@@ -1396,7 +1396,7 @@ GenTree* Compiler::morphAssertionPropagateCall(GenTreeCall* call)
 
 GenTree* Compiler::morphAssertionPropagate(GenTree* tree)
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     GenTree* newTree = tree;
 
@@ -1480,7 +1480,7 @@ void Compiler::morphAssertionKillSingle(unsigned lclNum DEBUGARG(GenTreeLclRef* 
 
 void Compiler::morphAssertionKill(LclVarDsc* lcl DEBUGARG(GenTreeLclRef* store))
 {
-    assert(fgGlobalMorph);
+    assert(moGlobalMorph);
 
     morphAssertionKillSingle(lcl->GetLclNum() DEBUGARG(store));
 

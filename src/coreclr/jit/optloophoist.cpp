@@ -121,7 +121,7 @@ void LoopHoist::HoistExpr(GenTree* expr, unsigned loopNum)
 
     // TODO-MIKE-Review: Is there anything to morph here? The hoisted tree
     // is a clone of another tree that was already morphed.
-    compiler->fgMorphBlock = preHead;
+    compiler->moMorphBlock = preHead;
     hoist                  = compiler->gtMorphTree(hoist);
 
     Statement* hoistStmt = compiler->fgNewStmtAtEnd(preHead, hoist);
