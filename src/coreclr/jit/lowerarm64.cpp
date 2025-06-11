@@ -1472,7 +1472,7 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
 
 GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV) && div->TypeIs(TYP_INT, TYP_LONG));
+    assert(div->OperIs(GT_SDIV) && div->TypeIs(TYP_INT, TYP_LONG));
 
     GenTreeIntCon* divisor = div->GetOp(1)->IsIntCon();
 
@@ -1542,8 +1542,8 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
 
         divisor->SetValue(magic);
 
-        // Insert a new GT_MULHI node in front of the existing GT_DIV/GT_MOD node.
-        // The existing node will later be transformed into a GT_ADD/GT_SUB that
+        // Insert a new MULHI node in front of the existing SDIV/SMOD node.
+        // The existing node will later be transformed into a ADD/SUB that
         // computes the final result. This way don't need to find and change the
         // use of the existing node.
         GenTree* mulhi = comp->gtNewOperNode(GT_SMULH, type, divisor, dividend);
@@ -1672,7 +1672,7 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
 
 GenTree* Lowering::LowerSignedDiv(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV) && div->TypeIs(TYP_INT, TYP_LONG));
+    assert(div->OperIs(GT_SDIV) && div->TypeIs(TYP_INT, TYP_LONG));
 
     GenTree* next = div->gtNext;
 

@@ -4666,8 +4666,8 @@ void cTreeFlags(Compiler* comp, GenTree* tree)
         case GT_MUL:
         case GT_LSH:
         case GT_COMMA:
-        case GT_MOD:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_UREM:
             break;
 
         default:

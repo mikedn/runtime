@@ -395,7 +395,7 @@ regMaskTP LinearScan::getKillSetForMul(GenTreeOp* node)
 
 regMaskTP LinearScan::getKillSetForModDiv(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_MOD, GT_DIV, GT_UMOD, GT_UDIV));
+    assert(node->OperIs(GT_SREM, GT_SDIV, GT_UREM, GT_UDIV));
 
     return RBM_RAX | RBM_RDX;
 }
@@ -549,9 +549,9 @@ regMaskTP LinearScan::getKillSetForNode(GenTree* node)
         case GT_UMULL:
 #endif
             return getKillSetForMul(node->AsOp());
-        case GT_MOD:
-        case GT_DIV:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_SDIV:
+        case GT_UREM:
         case GT_UDIV:
             return getKillSetForModDiv(node->AsOp());
 #endif // TARGET_XARCH
@@ -1146,14 +1146,14 @@ void LinearScan::BuildStressConstraints(GenTree* node, RefPositionIterator refPo
             //
             // For example consider the following IR on x86, where v01 and v02
             // are method args coming in ecx and edx respectively.
-            //   GT_DIV(v01, v02)
+            //   idiv v01, v02
             //
-            // For GT_DIV, the minRegCount will be 3 without adding kill set of GT_DIV node.
+            // For idiv, the minRegCount will be 3 without adding kill set of idiv node.
             //
             // Assume further JitStressRegs=2, which would constrain candidates to callee trashable
-            // regs { eax, ecx, edx } on use positions of v01 and v02.  LSRA allocates ecx for v01.
+            // regs { eax, ecx, edx } on use positions of v01 and v02. LSRA allocates ecx for v01.
             // The use position of v02 cannot be allocated a reg since it is marked delay-reg free and
-            // {eax,edx} are getting killed before the def of GT_DIV.  For this reason, minRegCount for
+            // {eax,edx} are getting killed before the def of idiv. For this reason, minRegCount for
             // the use position of v02 also needs to take into account the kill set of its consuming node.
             if (regMaskTP killMask = getKillSetForNode(node))
             {

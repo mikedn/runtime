@@ -739,9 +739,9 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
 }
 
 #ifdef TARGET_X86
-void CodeGen::GenUModLong(GenTreeOp* node)
+void CodeGen::GenURemLong(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_UMOD) && node->TypeIs(TYP_INT));
+    assert(node->OperIs(GT_UREM) && node->TypeIs(TYP_INT));
 
     GenTreeOp* const dividend = node->GetOp(0)->AsOp();
     assert(dividend->OperIs(GT_LONG));
@@ -811,14 +811,14 @@ void CodeGen::GenUModLong(GenTreeOp* node)
 }
 #endif // TARGET_X86
 
-void CodeGen::GenDivMod(GenTreeOp* div)
+void CodeGen::GenDivRem(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD) && varTypeIsIntOrI(div->GetType()));
+    assert(div->OperIs(GT_SDIV, GT_UDIV, GT_SREM, GT_UREM) && varTypeIsIntOrI(div->GetType()));
 
 #ifdef TARGET_X86
     if (div->GetOp(0)->TypeIs(TYP_LONG))
     {
-        GenUModLong(div);
+        GenURemLong(div);
 
         return;
     }
@@ -826,8 +826,8 @@ void CodeGen::GenDivMod(GenTreeOp* div)
 
     GenTree*  op1        = div->GetOp(0);
     GenTree*  op2        = div->GetOp(1);
-    bool      isUnsigned = div->OperIs(GT_UDIV, GT_UMOD);
-    bool      isDiv      = div->OperIs(GT_DIV, GT_UDIV);
+    bool      isUnsigned = div->OperIs(GT_UDIV, GT_UREM);
+    bool      isDiv      = div->OperIs(GT_SDIV, GT_UDIV);
     emitAttr  size       = emitTypeSize(div->GetType());
     regNumber dstReg     = div->GetRegNum();
 

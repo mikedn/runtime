@@ -152,7 +152,7 @@ constexpr uint8_t GetNodeAllocationSize(genTreeOps oper)
                    // Ensure that these are always large since they often get transformed into calls.
                    (oper == GT_INTRINSIC) || (oper == GT_ALLOCOBJ)
 #if USE_HELPERS_FOR_INT_DIV
-                   || (oper == GT_DIV) || (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)
+                   || (oper == GT_SDIV) || (oper == GT_UDIV) || (oper == GT_SREM) || (oper == GT_UREM)
 #endif
                ? TREE_NODE_SZ_LARGE
                : TREE_NODE_SZ_SMALL;
@@ -2068,14 +2068,14 @@ void Compiler::gtSetCosts(GenTree* tree)
 #endif
                 break;
 
-            case GT_MOD:
-            case GT_UMOD:
+            case GT_SREM:
+            case GT_UREM:
                 if (op2->IsIntCon() && isPow2(op2->AsIntCon()->GetValue()))
                 {
                     break;
                 }
                 FALLTHROUGH;
-            case GT_DIV:
+            case GT_SDIV:
             case GT_UDIV:
                 costEx += 19;
                 costSz += 2;
@@ -2860,14 +2860,14 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 allowSwap = false;
                 break;
 
-            case GT_MOD:
-            case GT_UMOD:
+            case GT_SREM:
+            case GT_UREM:
                 if (op2->IsIntCon() && isPow2(op2->AsIntCon()->GetValue()))
                 {
                     break;
                 }
                 FALLTHROUGH;
-            case GT_DIV:
+            case GT_SDIV:
             case GT_UDIV:
                 // Encourage the first operand to be evaluated (into EAX/EDX) first.
                 // TODO-MIKE-Review: Does ARMARCH need this?
@@ -4415,10 +4415,10 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
             case GT_MUL:
             case GT_OVF_SMUL:
             case GT_OVF_UMUL:
-            case GT_DIV:
-            case GT_MOD:
+            case GT_SDIV:
+            case GT_SREM:
             case GT_UDIV:
-            case GT_UMOD:
+            case GT_UREM:
                 if (tree->TypeIs(TYP_LONG))
                 {
                     // LONG multiplication/division usually requires helper calls on 32 bit targets.
@@ -4670,9 +4670,9 @@ bool GenTree::CallMayThrow(Compiler* comp) const
     return !AsCall()->IsHelperCall() || !HelperCallProperties::NoThrow(AsCall()->GetHelperFunc());
 }
 
-bool GenTree::DivModMayThrow(Compiler* comp) const
+bool GenTree::DivRemMayThrow(Compiler* comp) const
 {
-    assert(OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD));
+    assert(OperIs(GT_SDIV, GT_UDIV, GT_SREM, GT_UREM));
 
     GenTree* divisor = AsOp()->GetOp(1);
     return !divisor->IsIntegralConst() || divisor->IsIntegralConst(0) || divisor->IsIntegralConst(-1);
@@ -4692,11 +4692,11 @@ bool GenTree::OperMayThrow(Compiler* comp) const
         case GT_ARR_LENGTH:
             return IndirMayThrow(comp);
 
-        case GT_MOD:
-        case GT_DIV:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_SDIV:
+        case GT_UREM:
         case GT_UDIV:
-            return DivModMayThrow(comp);
+            return DivRemMayThrow(comp);
 
         case GT_INTRINSIC:
             // If this is an intrinsic that represents the object.GetType(), it can throw an NullReferenceException.
@@ -7854,7 +7854,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             }
             break;
 
-        case GT_DIV:
+        case GT_SDIV:
         case GT_UDIV:
             if ((op2 == cons) && (val == 1))
             {
@@ -9213,17 +9213,17 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     goto INTEGRAL_OVF;
 
-                case GT_DIV:
-                case GT_MOD:
+                case GT_SDIV:
+                case GT_SREM:
                     if ((i2 == 0) || ((i1 == INT32_MIN) && (i2 == -1)))
                     {
                         break;
                     }
-                    i = tree->OperIs(GT_DIV) ? (i1 / i2) : (i1 % i2);
+                    i = tree->OperIs(GT_SDIV) ? (i1 / i2) : (i1 % i2);
                     goto CNS_INT;
 
                 case GT_UDIV:
-                case GT_UMOD:
+                case GT_UREM:
                     if (i2 == 0)
                     {
                         break;
@@ -9379,17 +9379,17 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
                     }
                     goto INTEGRAL_OVF;
 
-                case GT_DIV:
-                case GT_MOD:
+                case GT_SDIV:
+                case GT_SREM:
                     if ((l2 == 0) || ((l1 == INT64_MIN) && (l2 == -1)))
                     {
                         break;
                     }
-                    l = tree->OperIs(GT_DIV) ? (l1 / l2) : (l1 % l2);
+                    l = tree->OperIs(GT_SDIV) ? (l1 / l2) : (l1 % l2);
                     goto CNS_LONG;
 
                 case GT_UDIV:
-                case GT_UMOD:
+                case GT_UREM:
                     if (l2 == 0)
                     {
                         break;

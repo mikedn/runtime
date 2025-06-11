@@ -298,9 +298,9 @@ void Lowering::ContainCheckShiftRotate(GenTreeOp* node)
     }
 }
 
-GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
+GenTree* Lowering::LowerConstIntDivRem(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD) && node->TypeIs(TYP_INT));
+    assert(node->OperIs(GT_SDIV, GT_SREM) && node->TypeIs(TYP_INT));
 
     GenTree* dividend = node->GetOp(0);
     GenTree* divisor  = node->GetOp(1);
@@ -312,7 +312,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 
     if (dividend->IsIntCon())
     {
-        // We shouldn't see a DIV/MOD with constant operands here but if we do then it's likely
+        // We shouldn't see a SDIV/SREM with constant operands here but if we do then it's likely
         // because optimizations are disabled or it's a case that's supposed to throw an exception.
         // Don't optimize this.
         return nullptr;
@@ -334,7 +334,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         return nullptr;
     }
 
-    bool isDiv = node->OperIs(GT_DIV);
+    bool isDiv = node->OperIs(GT_SDIV);
 
     if (isDiv && (divisorValue == INT32_MIN))
     {
@@ -425,13 +425,13 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
     return newDivMod->gtNext;
 }
 
-GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
+GenTree* Lowering::LowerSignedDivRem(GenTree* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD) && node->TypeIs(TYP_INT));
+    assert(node->OperIs(GT_SDIV, GT_SREM) && node->TypeIs(TYP_INT));
 
     GenTree* next = node->gtNext;
 
-    if (GenTree* newNode = LowerConstIntDivOrMod(node->AsOp()))
+    if (GenTree* newNode = LowerConstIntDivRem(node->AsOp()))
     {
         return newNode;
     }

@@ -1600,10 +1600,10 @@ bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
         case VNOP_ADD:
         case VNOP_SUB:
         case VNOP_MUL:
-        case VNOP_DIV:
-        case VNOP_MOD:
+        case VNOP_SDIV:
+        case VNOP_SREM:
         case VNOP_UDIV:
-        case VNOP_UMOD:
+        case VNOP_UREM:
         case VNOP_AND:
         case VNOP_OR:
         case VNOP_XOR:
@@ -1681,12 +1681,12 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
         case VNOP_MUL:
             return v0 * v1;
 
-        case VNOP_DIV:
+        case VNOP_SDIV:
             assert(v1 != 0);
             assert(!IsOverflowIntDiv(v0, v1));
             return v0 / v1;
 
-        case VNOP_MOD:
+        case VNOP_SREM:
             assert(v1 != 0);
             assert(!IsOverflowIntDiv(v0, v1));
             return v0 % v1;
@@ -1695,7 +1695,7 @@ static T EvalOp(VNFunc vnf, T v0, T v1)
             assert(v1 != 0);
             return static_cast<T>(static_cast<UT>(v0) / static_cast<UT>(v1));
 
-        case VNOP_UMOD:
+        case VNOP_UREM:
             assert(v1 != 0);
             return static_cast<T>(static_cast<UT>(v0) % static_cast<UT>(v1));
 
@@ -1814,14 +1814,14 @@ ValueNum ValueNumStore::EvalFuncForConstantArgs(var_types type, VNFunc func, Val
     assert((type0 == TYP_INT) || (type0 == TYP_LONG));
     assert(!VNFuncIsComparison(func) || (type == TYP_INT));
 
-    if ((func == VNOP_DIV) || (func == VNOP_MOD) || (func == VNOP_UDIV) || (func == VNOP_UMOD))
+    if ((func == VNOP_SDIV) || (func == VNOP_SREM) || (func == VNOP_UDIV) || (func == VNOP_UREM))
     {
         if (arg1Val == 0)
         {
             return NoVN;
         }
 
-        if (((func == VNOP_DIV) || (func == VNOP_MOD)) && (arg1Val == -1) &&
+        if (((func == VNOP_SDIV) || (func == VNOP_SREM)) && (arg1Val == -1) &&
             (arg0Val == (type0 == TYP_INT ? INT32_MIN : INT64_MIN)))
         {
             return NoVN;
@@ -2198,7 +2198,7 @@ ValueNum ValueNumStore::EvalUsingMathIdentity(var_types type, VNFunc func, Value
             }
             break;
 
-        case VNOP_DIV:
+        case VNOP_SDIV:
         case VNOP_UDIV:
             if (arg1VN == VNOneForType(type))
             {
@@ -2849,7 +2849,7 @@ ValueNum ValueNumStore::ExtractArrayElementIndex(const ArrayInfo& arrayInfo)
     }
     else
     {
-        indexVN = VNForFunc(TYP_I_IMPL, VNOP_DIV, offsetVN, VNForUPtrSizeIntCon(elemSize));
+        indexVN = VNForFunc(TYP_I_IMPL, VNOP_SDIV, offsetVN, VNForUPtrSizeIntCon(elemSize));
     }
 
     if (index != 0)
@@ -6639,10 +6639,10 @@ void ValueNumbering::NumberNode(GenTree* node)
             node->SetVNP(vnStore->PackExset(vnp, vnStore->ExsetUnion(exset1, exset2)));
             break;
         }
-        case GT_DIV:
+        case GT_SDIV:
         case GT_UDIV:
-        case GT_MOD:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_UREM:
             NumberDivMod(node->AsOp());
             break;
         case GT_OVF_SADD:
@@ -7435,13 +7435,13 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
     {
         // These translate to other function symbols:
         case CORINFO_HELP_DIV:
-            return VNOP_DIV;
+            return VNOP_SDIV;
         case CORINFO_HELP_MOD:
-            return VNOP_MOD;
+            return VNOP_SREM;
         case CORINFO_HELP_UDIV:
             return VNOP_UDIV;
         case CORINFO_HELP_UMOD:
-            return VNOP_UMOD;
+            return VNOP_UREM;
         case CORINFO_HELP_LLSH:
             return VNOP_LSH;
         case CORINFO_HELP_LRSH:
@@ -7454,13 +7454,13 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
         case CORINFO_HELP_ULMUL_OVF:
             return VNOP_MUL; // Is this the right thing?
         case CORINFO_HELP_LDIV:
-            return VNOP_DIV;
+            return VNOP_SDIV;
         case CORINFO_HELP_LMOD:
-            return VNOP_MOD;
+            return VNOP_SREM;
         case CORINFO_HELP_ULDIV:
             return VNOP_UDIV;
         case CORINFO_HELP_ULMOD:
-            return VNOP_UMOD;
+            return VNOP_UREM;
         case CORINFO_HELP_LNG2DBL:
             return VNF_STOFD;
         case CORINFO_HELP_ULNG2DBL:
@@ -7768,7 +7768,7 @@ void ValueNumbering::AddNullRefExset(GenTree* node, GenTree* addr)
 
 void ValueNumbering::NumberDivMod(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
+    assert(node->OperIs(GT_SDIV, GT_SREM, GT_UDIV, GT_UREM));
     assert(node->TypeIs(TYP_INT, TYP_LONG));
 
     ValueNumPair exset1;
@@ -7778,7 +7778,7 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
     ValueNumPair vnp   = vnStore->VNPairForFunc(node->GetType(), static_cast<VNFunc>(node->GetOper()), vnp1, vnp2);
     ValueNumPair exset = vnStore->ExsetUnion(exset1, exset2);
 
-    const bool      isSigned = node->OperIs(GT_DIV, GT_MOD);
+    const bool      isSigned = node->OperIs(GT_SDIV, GT_SREM);
     const var_types type     = varActualType(node->GetType());
     assert((type == TYP_INT) || (type == TYP_LONG));
 
@@ -7850,7 +7850,7 @@ void ValueNumbering::NumberDivMod(GenTreeOp* node)
 
 bool ValueNumbering::UsesDivideByConstOptimized(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD));
+    assert(div->OperIs(GT_SDIV, GT_SREM, GT_UDIV, GT_UREM));
 
     if (div->GetOp(0)->SkipComma()->IsIntCon())
     {
@@ -7866,7 +7866,7 @@ bool ValueNumbering::UsesDivideByConstOptimized(GenTreeOp* div)
 
     const var_types type = div->GetType();
 
-    if (div->OperIs(GT_DIV, GT_MOD))
+    if (div->OperIs(GT_SDIV, GT_SREM))
     {
         if (divisor == -1)
         {
@@ -7887,7 +7887,7 @@ bool ValueNumbering::UsesDivideByConstOptimized(GenTreeOp* div)
         }
     }
 
-    if (div->OperIs(GT_DIV))
+    if (div->OperIs(GT_SDIV))
     {
         // If the divisor is the minimum representable integer value then the result is either 0 or 1
         if ((type == TYP_INT && divisor == INT_MIN) || (type == TYP_LONG && divisor == INT64_MIN))
@@ -7905,7 +7905,7 @@ bool ValueNumbering::UsesDivideByConstOptimized(GenTreeOp* div)
         }
     }
 
-    return (divisor >= 3) || !div->OperIs(GT_DIV, GT_MOD);
+    return (divisor >= 3) || !div->OperIs(GT_SDIV, GT_SREM);
 }
 
 void ValueNumbering::NumberBoundsCheck(GenTreeBoundsChk* check)

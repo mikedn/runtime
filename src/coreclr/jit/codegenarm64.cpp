@@ -2437,9 +2437,9 @@ void CodeGen::GenBswap(GenTreeUnOp* bswap)
     DefReg(bswap);
 }
 
-void CodeGen::GenDivMod(GenTreeOp* div)
+void CodeGen::GenDivRem(GenTreeOp* div)
 {
-    assert(div->OperIs(GT_DIV, GT_UDIV) && varTypeIsIntegral(div->GetType()));
+    assert(div->OperIs(GT_SDIV, GT_UDIV) && varTypeIsIntegral(div->GetType()));
 
     GenTree* dividend = div->GetOp(0);
     GenTree* divisor  = div->GetOp(1);
@@ -2472,7 +2472,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
             checkDividend = divisor->AsIntCon()->GetValue() == -1;
         }
 
-        if (div->OperIs(GT_DIV) && checkDividend)
+        if (div->OperIs(GT_SDIV) && checkDividend)
         {
             insGroup* sdivLabel = emit.CreateTempLabel();
             emit.emitIns_R_I(INS_cmp, attr, divisorReg, -1);
@@ -2483,7 +2483,7 @@ void CodeGen::GenDivMod(GenTreeOp* div)
             emit.DefineTempLabel(sdivLabel);
         }
 
-        emit.emitIns_R_R_R(div->OperIs(GT_DIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
+        emit.emitIns_R_R_R(div->OperIs(GT_SDIV) ? INS_sdiv : INS_udiv, attr, dstReg, dividendReg, divisorReg);
     }
 
     DefReg(div);

@@ -9403,16 +9403,16 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 oper = GT_MUL;
                 goto MATH_OP2;
             case CEE_DIV:
-                oper = GT_DIV;
+                oper = GT_SDIV;
                 goto MATH_OP2;
             case CEE_DIV_UN:
                 oper = GT_UDIV;
                 goto MATH_OP2;
             case CEE_REM:
-                oper = GT_MOD;
+                oper = GT_SREM;
                 goto MATH_OP2;
             case CEE_REM_UN:
-                oper = GT_UMOD;
+                oper = GT_UREM;
                 goto MATH_OP2;
             case CEE_AND:
                 oper = GT_AND;
@@ -9442,7 +9442,7 @@ void Importer::impImportBlockCode(BasicBlock* block)
                 }
                 else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_OVF_SADD || oper == GT_OVF_UADD ||
                                                       oper == GT_SUB || oper == GT_OVF_SSUB || oper == GT_OVF_USUB)) ||
-                         (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_DIV)))
+                         (op2->IsIntegralConst(1) && (oper == GT_MUL || oper == GT_SDIV)))
                 {
                     // just push op1
                 }
@@ -9472,8 +9472,8 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
 #ifndef TARGET_64BIT
                     if ((type == TYP_LONG) &&
-                        ((oper == GT_MUL) || (oper == GT_OVF_SMUL) || (oper == GT_OVF_UMUL) || (oper == GT_DIV) ||
-                         (oper == GT_UDIV) || (oper == GT_MOD) || (oper == GT_UMOD)))
+                        ((oper == GT_MUL) || (oper == GT_OVF_SMUL) || (oper == GT_OVF_UMUL) || (oper == GT_SDIV) ||
+                         (oper == GT_UDIV) || (oper == GT_SREM) || (oper == GT_UREM)))
                     {
                         // LONG multiplication/division usually requires helper calls on 32 bit targets.
                         op1 = new (comp, GT_CALL) GenTreeOp(oper, type, op1, op2);
@@ -9489,9 +9489,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     {
                         op1->AddSideEffects(GTF_EXCEPT);
                     }
-                    else if (op1->OperIs(GT_DIV, GT_UDIV, GT_MOD, GT_UMOD))
+                    else if (op1->OperIs(GT_SDIV, GT_UDIV, GT_SREM, GT_UREM))
                     {
-                        if (op1->DivModMayThrow(comp))
+                        if (op1->DivRemMayThrow(comp))
                         {
                             op1->AddSideEffects(GTF_EXCEPT);
                         }

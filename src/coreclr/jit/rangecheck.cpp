@@ -1095,7 +1095,7 @@ Range RangeCheck::ComputeLeafRange(GenTree* expr) const
                 return Limit::Unknown();
         }
     }
-    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UMOD) && expr->TypeIs(TYP_INT))
+    else if (expr->OperIs(GT_AND, GT_RSH, GT_LSH, GT_UREM) && expr->TypeIs(TYP_INT))
     {
         GenTreeIntCon* op2 = expr->AsOp()->GetOp(1)->SkipComma()->IsIntCon();
 
@@ -1110,7 +1110,7 @@ Range RangeCheck::ComputeLeafRange(GenTree* expr) const
         {
             constLimit = op2->GetInt32Value();
         }
-        else if (expr->OperIs(GT_UMOD))
+        else if (expr->OperIs(GT_UREM))
         {
             constLimit = op2->GetInt32Value() - 1;
         }

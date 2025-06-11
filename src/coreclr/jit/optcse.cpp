@@ -96,10 +96,10 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
         case GT_TRUNC:
         case GT_BITCAST:
         case GT_SUB:
-        case GT_DIV:
-        case GT_MOD:
+        case GT_SDIV:
+        case GT_SREM:
         case GT_UDIV:
-        case GT_UMOD:
+        case GT_UREM:
         case GT_OR:
         case GT_AND:
         case GT_XOR:

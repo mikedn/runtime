@@ -136,7 +136,7 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
         case GT_MUL:
             nextNode = DecomposeMul(use);
             break;
-        case GT_UMOD:
+        case GT_UREM:
             nextNode = DecomposeUMod(use);
             break;
         case GT_LSH:
@@ -1159,14 +1159,14 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
     return StoreMultiRegNodeToLcl(use);
 }
 
-// Decompose GT_UMOD. The only GT_UMODs that make it to decompose are guaranteed to be
+// The only UREMs that make it to decompose are guaranteed to be
 // an unsigned long mod with op2 which is a cast to long from a constant int whose value
 // is between 2 and 0x3fffffff. All other GT_UMODs are morphed into helper calls.
-// These GT_UMODs will actually return an int value in RDX. In decompose, we make the lo
-// operation a TYP_INT GT_UMOD, with op2 as the original lo half and op1 as a GT_LONG.
+// These UREMs will actually return an int value in RDX. In decompose, we make the lo
+// operation a INT UREM, with op2 as the original lo half and op1 as a LONG.
 // We make the hi part 0, so we end up with:
 //
-// GT_UMOD[TYP_INT] ( GT_LONG [TYP_LONG] (loOp1, hiOp1), loOp2 [TYP_INT] )
+// UREM ( LONG (loOp1, hiOp1), loOp2 )
 //
 // With the expectation that we will generate:
 //
@@ -1174,14 +1174,14 @@ GenTree* DecomposeLongs::DecomposeMul(LIR::Use& use)
 // EAX = loOp1
 // reg = loOp2
 // idiv reg
-// EDX is the remainder, and result of GT_UMOD
+// EDX is the remainder, and result of UREM
 // mov hiReg = 0
 //
 GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
 {
     GenTreeOp* tree = use.Def()->AsOp();
 
-    assert(tree->OperIs(GT_UMOD));
+    assert(tree->OperIs(GT_UREM));
 
     GenTreeOp* op1 = tree->GetOp(0)->AsOp();
     GenTreeOp* op2 = tree->GetOp(1)->AsOp();
@@ -1194,11 +1194,9 @@ GenTree* DecomposeLongs::DecomposeUMod(LIR::Use& use)
     assert((loOp2->AsIntCon()->GetValue() >= 2) && (loOp2->AsIntCon()->GetValue() <= 0x3fffffff));
     assert(hiOp2->AsIntCon()->GetValue() == 0);
 
-    // Get rid of op2's hi part. We don't need it.
     Range().Unlink(hiOp2);
     Range().Unlink(op2);
 
-    // Lo part is the GT_UMOD
     GenTree* loResult = tree;
     loResult->AsOp()->SetOp(1, loOp2);
     loResult->SetType(TYP_INT);

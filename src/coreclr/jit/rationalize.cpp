@@ -252,10 +252,10 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             assert(!node->AsIntrinsic()->IsUserCall());
             break;
 
-        case GT_DIV:
+        case GT_SDIV:
         case GT_UDIV:
-        case GT_MOD:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_UREM:
             node->RemoveSideEffects(GTF_ALL_EFFECT & ~GTF_EXCEPT);
             break;
 

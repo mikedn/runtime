@@ -177,9 +177,9 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildKills(tree, Compiler::compHelperCallKillSet(CORINFO_HELP_STOP_FOR_GC));
             break;
 
-        case GT_MOD:
-        case GT_DIV:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_SDIV:
+        case GT_UREM:
         case GT_UDIV:
             BuildDivMod(tree->AsOp());
             break;
@@ -1416,7 +1416,7 @@ void LinearScan::BuildLclHeap(GenTreeUnOp* tree)
 
 void LinearScan::BuildDivMod(GenTreeOp* tree)
 {
-    assert(tree->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(tree->GetType()));
+    assert(tree->OperIs(GT_SDIV, GT_SREM, GT_UDIV, GT_UREM) && varTypeIsIntegral(tree->GetType()));
 
     GenTree* op1 = tree->GetOp(0);
     GenTree* op2 = tree->GetOp(1);
@@ -1424,7 +1424,7 @@ void LinearScan::BuildDivMod(GenTreeOp* tree)
 #ifdef TARGET_X86
     if (op1->OperIs(GT_LONG))
     {
-        assert(tree->OperIs(GT_UMOD));
+        assert(tree->OperIs(GT_UREM));
         assert(op1->isContained());
         assert(op2->IsIntCon());
 
@@ -1445,7 +1445,7 @@ void LinearScan::BuildDivMod(GenTreeOp* tree)
     BuildDelayFreeOperandUses(op2, op1, allIntRegs() & ~(RBM_RAX | RBM_RDX));
     BuildInternalUses();
     BuildKills(tree, RBM_RAX | RBM_RDX);
-    BuildDef(tree, tree->OperIs(GT_DIV, GT_UDIV) ? RBM_RAX : RBM_RDX);
+    BuildDef(tree, tree->OperIs(GT_SDIV, GT_UDIV) ? RBM_RAX : RBM_RDX);
 }
 
 void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)

@@ -1936,7 +1936,7 @@ private:
 
     GenTree* PropagateSignedDivision(const ASSERT_TP assertions, GenTreeOp* div, Statement* stmt)
     {
-        assert(div->OperIs(GT_DIV, GT_MOD) && div->TypeIs(TYP_INT));
+        assert(div->OperIs(GT_SDIV, GT_SREM) && div->TypeIs(TYP_INT));
 
         const int32_t* divisor = vnStore->IsConstInt32(vnStore->ExtractValue(div->GetOp(1)->GetConservativeVN()));
 
@@ -1956,7 +1956,7 @@ private:
 
         DBEXEC(verbose, TraceAssertion("propagating", *assertion);)
 
-        div->SetOper(div->OperIs(GT_DIV) ? GT_UDIV : GT_UMOD, GenTree::PRESERVE_VN);
+        div->SetOper(div->OperIs(GT_SDIV) ? GT_UDIV : GT_UREM, GenTree::PRESERVE_VN);
 
         return nullptr;
     }
@@ -2433,8 +2433,8 @@ private:
             case GT_GT:
             case GT_GE:
                 return PropagateRelop(assertions, node->AsOp(), stmt);
-            case GT_DIV:
-            case GT_MOD:
+            case GT_SDIV:
+            case GT_SREM:
                 return node->TypeIs(TYP_INT) ? PropagateSignedDivision(assertions, node->AsOp(), stmt) : nullptr;
             default:
                 return nullptr;
@@ -3242,10 +3242,10 @@ private:
                 case GT_MUL:
                 case GT_OVF_SMUL:
                 case GT_OVF_UMUL:
-                case GT_DIV:
-                case GT_MOD:
+                case GT_SDIV:
+                case GT_SREM:
                 case GT_UDIV:
-                case GT_UMOD:
+                case GT_UREM:
                 case GT_XOR:
                 case GT_AND:
                 case GT_LSH:
@@ -3434,7 +3434,7 @@ private:
             assert(!m_compiler->gtNodeHasSideEffects(tree, GTF_PERSISTENT_SIDE_EFFECTS));
 
             // Exception side effects on root may be ignored because the root is known to be a constant
-            // (e.g. VN may evaluate a DIV/MOD node to a constant and the node may still
+            // (e.g. VN may evaluate a DIV/REM node to a constant and the node may still
             // have GTF_EXCEPT set, even if it does not actually throw any exceptions).
             assert(m_vnStore->IsVNConstant(m_vnStore->ExtractValue(tree->GetConservativeVN())));
 

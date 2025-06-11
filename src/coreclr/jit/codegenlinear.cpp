@@ -749,13 +749,13 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             break;
 #endif
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-        case GT_DIV:
+        case GT_SDIV:
         case GT_UDIV:
 #ifdef TARGET_XARCH
-        case GT_MOD:
-        case GT_UMOD:
+        case GT_SREM:
+        case GT_UREM:
 #endif
-            GenDivMod(node->AsOp());
+            GenDivRem(node->AsOp());
             break;
 #endif
         case GT_ADD:

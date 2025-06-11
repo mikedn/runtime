@@ -104,7 +104,7 @@ GTNODE(INIT_VAL         , GenTreeOp           , GTK_UNOP|GTK_VN)   // Initializa
 GTNODE(RUNTIMELOOKUP    , GenTreeRuntimeLookup, GTK_UNOP|GTK_EXOP) // Runtime handle lookup
 GTNODE(BSWAP            , GenTreeOp           , GTK_UNOP|GTK_VN)   // Byte swap (32-bit or 64-bit)
 GTNODE(BSWAP16          , GenTreeOp           , GTK_UNOP|GTK_VN)   // Byte swap (16-bit)
-GTNODE(INC_SATURATE     , GenTreeOp           , GTK_UNOP)          // saturating increment, used in division by a constant (LowerUnsignedDivOrMod)
+GTNODE(INC_SATURATE     , GenTreeOp           , GTK_UNOP)          // saturating increment, used in division by a constant (LowerUnsignedDivRem)
 
 //-----------------------------------------------------------------------------
 //  Binary operators
@@ -119,10 +119,10 @@ GTNODE(FMOD             , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(ADD              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(SUB              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(MUL              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
-GTNODE(DIV              , GenTreeOp           , GTK_BINOP|GTK_VN)
-GTNODE(MOD              , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(SDIV             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(SREM             , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(UDIV             , GenTreeOp           , GTK_BINOP|GTK_VN)
-GTNODE(UMOD             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(UREM             , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(OR               , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(XOR              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(AND              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)

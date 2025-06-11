@@ -526,11 +526,11 @@ private:
     void GenIntCompare(GenTreeOp* cmp);
 #endif
 #ifdef TARGET_X86
-    void GenUModLong(GenTreeOp* node);
+    void GenURemLong(GenTreeOp* node);
 #endif
 
 #if defined(TARGET_ARM64) || defined(TARGET_XARCH)
-    void GenDivMod(GenTreeOp* node);
+    void GenDivRem(GenTreeOp* node);
 #endif
 
     void GenMul(GenTreeOp* mul);

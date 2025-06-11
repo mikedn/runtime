@@ -919,9 +919,9 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
     return nullptr;
 }
 
-bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
+bool Lowering::LowerUnsignedDivRem(GenTreeOp* divMod)
 {
-    assert(divMod->OperIs(GT_UDIV, GT_UMOD) && divMod->TypeIs(TYP_INT, TYP_LONG));
+    assert(divMod->OperIs(GT_UDIV, GT_UREM) && divMod->TypeIs(TYP_INT, TYP_LONG));
 
     GenTree* dividend = divMod->GetOp(0);
     GenTree* divisor  = divMod->GetOp(1);
@@ -940,7 +940,7 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
 
     if (dividend->IsIntCon())
     {
-        // We shouldn't see a DIV/MOD with constant operands here but if we do then it's likely
+        // We shouldn't see a UDIV/UREM with constant operands here but if we do then it's likely
         // because optimizations are disabled or it's a case that's supposed to throw an exception.
         // Don't optimize this.
         return false;
@@ -1145,9 +1145,9 @@ bool Lowering::LowerUnsignedDivOrMod(GenTreeOp* divMod)
     return true;
 }
 
-GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
+GenTree* Lowering::LowerConstIntDivRem(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD));
+    assert(node->OperIs(GT_SDIV, GT_SREM));
 
     GenTree* dividend = node->GetOp(0);
     GenTree* divisor  = node->GetOp(1);
@@ -1162,7 +1162,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 
     if (dividend->IsIntCon())
     {
-        // We shouldn't see a DIV/MOD with constant operands here but if we do then it's likely
+        // We shouldn't see a SDIV/SREM with constant operands here but if we do then it's likely
         // because optimizations are disabled or it's a case that's supposed to throw an exception.
         // Don't optimize this.
         return nullptr;
@@ -1184,7 +1184,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
         return nullptr;
     }
 
-    bool isDiv = node->OperIs(GT_DIV);
+    bool isDiv = node->OperIs(GT_SDIV);
 
     if (isDiv)
     {
@@ -1226,7 +1226,7 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
 
         divisor->AsIntCon()->SetValue(magic);
 
-        // Insert a new SMULH node in front of the existing DIV/MOD node.
+        // Insert a new SMULH node in front of the existing DIV/REM node.
         // The existing node will later be transformed into a ADD/SUB that
         // computes the final result. This way don't need to find and change
         // the use of the existing node.
@@ -1387,18 +1387,18 @@ GenTree* Lowering::LowerConstIntDivOrMod(GenTreeOp* node)
     return newDivMod->gtNext;
 }
 
-GenTree* Lowering::LowerSignedDivOrMod(GenTree* node)
+GenTree* Lowering::LowerSignedDivRem(GenTree* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD) && varTypeIsIntegral(node->GetType()));
+    assert(node->OperIs(GT_SDIV, GT_SREM) && varTypeIsIntegral(node->GetType()));
 
     GenTree* next = node->gtNext;
 
-    if (GenTree* newNode = LowerConstIntDivOrMod(node->AsOp()))
+    if (GenTree* newNode = LowerConstIntDivRem(node->AsOp()))
     {
         return newNode;
     }
 
-    ContainCheckDivOrMod(node->AsOp());
+    ContainCheckDivRem(node->AsOp());
 
     return next;
 }
@@ -3820,16 +3820,16 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
     }
 }
 
-void Lowering::ContainCheckDivOrMod(GenTreeOp* node)
+void Lowering::ContainCheckDivRem(GenTreeOp* node)
 {
-    assert(node->OperIs(GT_DIV, GT_MOD, GT_UDIV, GT_UMOD) && varTypeIsIntegral(node->GetType()));
+    assert(node->OperIs(GT_SDIV, GT_SREM, GT_UDIV, GT_UREM) && varTypeIsIntegral(node->GetType()));
 
 #ifdef TARGET_X86
     GenTree* dividend = node->GetOp(0);
 
     if (dividend->OperIs(GT_LONG))
     {
-        assert(node->OperIs(GT_UMOD));
+        assert(node->OperIs(GT_UREM));
         dividend->SetContained();
         return;
     }

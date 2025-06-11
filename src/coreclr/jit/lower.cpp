@@ -264,11 +264,11 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerUnsignedDiv(node->AsOp());
             break;
 
-        case GT_DIV:
+        case GT_SDIV:
             return LowerSignedDiv(node->AsOp());
 
-        case GT_UMOD:
-        case GT_MOD:
+        case GT_UREM:
+        case GT_SREM:
             unreached();
 
         case GT_LT:
@@ -379,17 +379,17 @@ GenTree* Lowering::LowerNode(GenTree* node)
 
 #ifndef USE_HELPERS_FOR_INT_DIV
         case GT_UDIV:
-        case GT_UMOD:
-            if (!LowerUnsignedDivOrMod(node->AsOp()))
+        case GT_UREM:
+            if (!LowerUnsignedDivRem(node->AsOp()))
             {
-                ContainCheckDivOrMod(node->AsOp());
+                ContainCheckDivRem(node->AsOp());
             }
             break;
 #endif
 
-        case GT_DIV:
-        case GT_MOD:
-            return LowerSignedDivOrMod(node);
+        case GT_SDIV:
+        case GT_SREM:
+            return LowerSignedDivRem(node);
 #endif // !TARGET_ARM64
 
         case GT_ROL:

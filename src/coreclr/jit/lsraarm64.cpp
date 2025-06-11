@@ -89,7 +89,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_FDIV:
         case GT_SMULH:
         case GT_UMULH:
-        case GT_DIV:
+        case GT_SDIV:
         case GT_UDIV:
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));

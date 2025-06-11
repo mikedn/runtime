@@ -57,7 +57,7 @@ private:
     void ContainCheckBinary(GenTreeOp* node);
     void ContainCheckBoundsChk(GenTreeBoundsChk* node);
 #ifdef TARGET_XARCH
-    void ContainCheckDivOrMod(GenTreeOp* node);
+    void ContainCheckDivRem(GenTreeOp* node);
     void ContainCheckMul(GenTreeOp* node);
     void ContainCheckCallAddr(GenTreeCall* call);
     void ContainCheckIntToFloat(GenTreeUnOp* node);
@@ -161,10 +161,10 @@ private:
     GenTree* LowerAdd(GenTreeOp* node);
 #ifndef TARGET_ARM64
 #ifndef USE_HELPERS_FOR_INT_DIV
-    bool LowerUnsignedDivOrMod(GenTreeOp* divMod);
+    bool LowerUnsignedDivRem(GenTreeOp* divMod);
 #endif
-    GenTree* LowerConstIntDivOrMod(GenTreeOp* node);
-    GenTree* LowerSignedDivOrMod(GenTree* node);
+    GenTree* LowerConstIntDivRem(GenTreeOp* node);
+    GenTree* LowerSignedDivRem(GenTree* node);
 #endif
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerIndStoreObj(GenTreeIndStoreObj* store);
