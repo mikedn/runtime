@@ -2823,7 +2823,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
 {
     assert(condition != EJ_jmp);
 
-    if (compiler->fgUseThrowHelperBlocks())
+    if (compiler->opts.UseThrowHelperBlocks())
     {
         if (throwBlock != nullptr)
         {

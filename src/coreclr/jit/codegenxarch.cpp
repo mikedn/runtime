@@ -8568,7 +8568,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
 {
     assert(condition != EJ_jmp);
 
-    bool useThrowHelperBlocks = compiler->fgUseThrowHelperBlocks();
+    bool useThrowHelperBlocks = compiler->opts.UseThrowHelperBlocks();
 
 #if defined(UNIX_X86_ABI) && defined(FEATURE_EH_FUNCLETS)
     // Inline exception-throwing code in funclet to make it possible to unwind funclet frames.

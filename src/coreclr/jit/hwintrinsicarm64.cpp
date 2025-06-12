@@ -270,18 +270,7 @@ void HWIntrinsicInfo::lookupImmBounds(
     *pUpperBound = upperBound;
 }
 
-//------------------------------------------------------------------------
-// impNonConstFallback: generate alternate code when the imm-arg is not a compile-time constant
-//
-// Arguments:
-//    intrinsic  -- intrinsic ID
-//    simdType   -- Vector type
-//    baseType   -- base type of the Vector64/128<T>
-//
-// Return Value:
-//     return the IR of semantic alternative on non-const imm-arg
-//
-GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
+GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
 {
     return nullptr;
 }
@@ -290,7 +279,7 @@ GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 {
     assert(!sig.hasThisParam);
 
-    if (!comp->featureSIMD())
+    if (!comp->opts.SIMDFeature())
     {
         return nullptr;
     }

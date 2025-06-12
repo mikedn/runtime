@@ -1414,7 +1414,7 @@ GenTree* DecomposeLongs::StoreMultiRegNodeToLcl(LIR::Use& use)
         return use.Def()->gtNext;
     }
 
-    if (!m_compiler->compEnregLocals() || m_compiler->lvaHaveManyLocals())
+    if (!m_compiler->opts.EnregLocals() || m_compiler->lvaHaveManyLocals())
     {
         use.ReplaceWithLclLoad(m_compiler);
 
@@ -1456,7 +1456,7 @@ GenTreeLclLoad* DecomposeLongs::RepresentOpAsLclLoad(GenTree* op, GenTree* user,
 
 void DecomposeLongs::PromoteLongVars()
 {
-    if (!m_compiler->compEnregLocals() || m_compiler->fgNoStructPromotion)
+    if (!m_compiler->opts.EnregLocals() || m_compiler->fgNoStructPromotion)
     {
         return;
     }

@@ -2357,7 +2357,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
         return false;
     }
 
-    if (!compiler->compEnregLocals())
+    if (!compiler->opts.EnregLocals())
     {
         if (lcl->lvIsMultiRegArg)
         {
@@ -2621,7 +2621,7 @@ void StructPromotionHelper::GetFieldInfo(unsigned index)
     if (field.type == TYP_STRUCT)
     {
 #ifdef FEATURE_SIMD
-        ClassLayout* layout = compiler->supportSIMDTypes() ? compiler->typGetObjLayout(typeHandle) : nullptr;
+        ClassLayout* layout = compiler->opts.SIMDTypes() ? compiler->typGetObjLayout(typeHandle) : nullptr;
 
         if ((layout != nullptr) && layout->IsVector())
         {

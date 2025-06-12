@@ -34,7 +34,7 @@ private:
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
     : comp(compiler)
     , framePointerRequired(compiler->opts.IsFramePointerRequired())
-    , throwHelperBlocksUsed(comp->fgUseThrowHelperBlocks() && comp->compUsesThrowHelper)
+    , throwHelperBlocksUsed(comp->opts.UseThrowHelperBlocks() && comp->compUsesThrowHelper)
 {
 }
 

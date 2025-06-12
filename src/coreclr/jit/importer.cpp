@@ -412,7 +412,7 @@ Statement* Importer::impAppendTree(GenTree* tree, unsigned spillDepth)
     impStmtListAppend(stmt);
 
 #ifdef FEATURE_SIMD
-    if (opts.OptimizationEnabled() && comp->featureSIMD())
+    if (opts.OptimizationEnabled() && opts.SIMDFeature())
     {
         m_impSIMDCoalescingBuffer.Mark(comp, stmt);
     }
@@ -3208,7 +3208,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
         assert(varTypeIsFloating(callType));
 
 #ifdef TARGET_XARCH
-        if (compExactlyDependsOn(InstructionSet_FMA) && comp->supportSIMDTypes())
+        if (compExactlyDependsOn(InstructionSet_FMA) && opts.SIMDTypes())
         {
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;

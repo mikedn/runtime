@@ -1496,7 +1496,7 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
                 message = "field of a dependently promoted struct";
                 break;
             case DNER_NoRegVars:
-                assert(!compEnregLocals());
+                assert(!opts.EnregLocals());
                 message = "opts.compFlags & CLFLG_REGVAR is not set";
                 break;
 #ifdef JIT32_GCENCODER
@@ -1528,8 +1528,8 @@ void Compiler::lvaSetDoNotEnregister(LclVarDsc* lcl DEBUGARG(DoNotEnregisterReas
 
 void Compiler::lvSetMinOptsDoNotEnreg()
 {
-    JITDUMP("compEnregLocals() is false, setting doNotEnreg flag for all locals.");
-    assert(!compEnregLocals());
+    JITDUMP("EnregLocals is false, setting doNotEnreg flag for all locals.");
+    assert(!opts.EnregLocals());
 
     for (LclVarDsc* lcl : Locals())
     {
@@ -2209,7 +2209,7 @@ struct LclVarDsc_BlendedCode_Less
 
 void Compiler::lvaMarkLivenessTrackedLocals()
 {
-    assert(opts.OptimizationEnabled() && compEnregLocals());
+    assert(opts.OptimizationEnabled() && opts.EnregLocals());
 
     lvaTrackedCount     = 0;
     lvaLiveSetWordCount = 0;

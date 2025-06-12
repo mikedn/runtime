@@ -209,7 +209,8 @@ bool Importer::IsSysNumVecIntrinsicSupported()
 #error Unsupported platform
 #endif
 
-    return JitConfig.EnableHWIntrinsic() && comp->featureSIMD() && comp->compOpportunisticallyDependsOn(minimumIsa);
+    return JitConfig.EnableHWIntrinsic() && comp->opts.SIMDFeature() &&
+           comp->compOpportunisticallyDependsOn(minimumIsa);
 #endif
 }
 

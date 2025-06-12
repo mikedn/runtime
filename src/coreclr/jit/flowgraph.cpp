@@ -1982,7 +1982,7 @@ BasicBlock* Compiler::fgGetThrowHelperBlock(ThrowHelperKind kind, BasicBlock* th
     // the 4 outgoing arg slots on the stack frame even if there are no other calls.
     compUsesThrowHelper = true;
 
-    if (!fgUseThrowHelperBlocks())
+    if (!opts.UseThrowHelperBlocks())
     {
         return nullptr;
     }
@@ -2090,7 +2090,7 @@ ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, BasicBl
 
 ThrowHelperBlock* Compiler::fgFindThrowHelperBlock(ThrowHelperKind kind, unsigned throwIndex)
 {
-    assert(fgUseThrowHelperBlocks());
+    assert(opts.UseThrowHelperBlocks());
 
     ThrowHelperBlock* found = nullptr;
     ThrowHelperBlock* prev  = nullptr;

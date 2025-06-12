@@ -1308,6 +1308,11 @@ public:
         return OptEnabled(CLFLG_CONSTANTFOLD);
     }
 
+    bool EnregLocals() const
+    {
+        return OptEnabled(CLFLG_REGVAR);
+    }
+
     bool IsReadyToRun() const
     {
 #ifdef FEATURE_READYTORUN_COMPILER
@@ -1325,6 +1330,23 @@ public:
         return false;
 #endif
     }
+
+#ifdef FEATURE_SIMD
+    bool SIMDFeature() const
+    {
+        return IsJitFlagSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
+    }
+
+    bool SIMDTypes() const
+    {
+#ifdef TARGET_ARM64
+        // We always enable this on ARM64 to support HVA types.
+        return true;
+#else
+        return SIMDFeature();
+#endif
+    }
+#endif // FEATURE_SIMD
 
     // true if we should use the PINVOKE_{BEGIN,END} helpers instead of generating PInvoke
     // transitions inline. Normally used by R2R, but also used when generating a reverse
@@ -1350,6 +1372,11 @@ public:
     void SetFramePointerRequired()
     {
         framePointerRequired = true;
+    }
+
+    bool UseThrowHelperBlocks() const
+    {
+        return !compDbgCode;
     }
 
     bool UseSoftFP()
@@ -4391,11 +4418,6 @@ public:
     ThrowHelperBlock* fgFindThrowHelperBlock(BasicBlock* block);
 #endif
 
-    bool fgUseThrowHelperBlocks() const
-    {
-        return !opts.compDbgCode;
-    }
-
     void inlReplaceRetExpr(BasicBlock* block, Statement* stmt);
     void inlFoldJTrue(BasicBlock* block);
     bool inlInlineCall(BasicBlock* block, Statement* stmt, GenTreeCall* call);
@@ -5005,21 +5027,6 @@ public:
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     */
 
-    bool featureSIMD() const
-    {
-        return opts.IsJitFlagSet(JitFlags::JIT_FLAG_FEATURE_SIMD);
-    }
-
-    bool supportSIMDTypes() const
-    {
-#ifdef TARGET_ARM64
-        // We always enable this on ARM64 to support HVA types.
-        return true;
-#else
-        return featureSIMD();
-#endif
-    }
-
     void lvaRecordSimdIntrinsicUse(GenTree* op);
     void lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load);
     void lvaRecordSimdIntrinsicUse(LclVarDsc* lcl);
@@ -5146,11 +5153,6 @@ public:
     }
 
     CompilerOptions opts;
-
-    bool compEnregLocals() const
-    {
-        return opts.OptEnabled(CLFLG_REGVAR);
-    }
 
     bool compEnregStructLocals() const
     {

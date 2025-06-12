@@ -9635,7 +9635,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
 void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throwKind, BasicBlock* throwBlock)
 {
-    if (compiler->fgUseThrowHelperBlocks())
+    if (compiler->opts.UseThrowHelperBlocks())
     {
         if (throwBlock != nullptr)
         {

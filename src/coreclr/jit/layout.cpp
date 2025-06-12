@@ -555,7 +555,7 @@ ClassLayout* Compiler::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
 var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType)
 {
 #ifdef FEATURE_SIMD
-    if (supportSIMDTypes())
+    if (opts.SIMDTypes())
     {
         ClassLayout* layout = typGetObjLayout(classHandle);
         if (layout->IsVector())
@@ -738,7 +738,7 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     if ((attribs & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) == 0)
     {
 #ifdef FEATURE_SIMD
-        if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->supportSIMDTypes() &&
+        if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->opts.SIMDTypes() &&
             (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->typGetLargestSimdTypeSize()))
         {
             m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);

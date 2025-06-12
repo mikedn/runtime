@@ -1143,7 +1143,7 @@ void Compiler::compInitOptions()
     opts.compDbgEnC  = false;
 #endif
 
-    opts.lvaEnregEHVars = compEnregLocals() && JitConfig.EnableEHWriteThru();
+    opts.lvaEnregEHVars = opts.EnregLocals() && JitConfig.EnableEHWriteThru();
 
 #if DEBUG
     if (opts.lvaEnregEHVars)

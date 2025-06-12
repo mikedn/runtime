@@ -4560,7 +4560,7 @@ void CallInfo::AddArg(CallArgInfo* argInfo)
 #if FEATURE_FIXED_OUT_ARGS
 static bool HasInlineThrowHelperCall(Compiler* compiler, GenTree* tree)
 {
-    if (compiler->fgUseThrowHelperBlocks() || !tree->HasAnySideEffect(GTF_EXCEPT))
+    if (compiler->opts.UseThrowHelperBlocks() || !tree->HasAnySideEffect(GTF_EXCEPT))
     {
         return false;
     }
@@ -12395,7 +12395,7 @@ void Compiler::moMorphBlocks()
     morphAssertionInit();
 #endif
 
-    if (!compEnregLocals())
+    if (!opts.EnregLocals())
     {
         // Morph is checking if lvDoNotEnregister is already set for some optimizations.
         // If we are running without `CLFLG_REGVAR` flag set (`compEnregLocals() == false`)

@@ -127,7 +127,7 @@ void Lowering::Run()
     }
     else
     {
-        assert(comp->compEnregLocals());
+        assert(comp->opts.EnregLocals());
 
         DBEXEC(comp->verbose, comp->lvaTableDump());
 
@@ -3919,7 +3919,7 @@ GenTree* Lowering::LowerArrElem(GenTreeArrElem* elem)
 void Lowering::VerifyAllLocalsImplicitlyReferenced()
 {
     assert(comp->opts.OptimizationDisabled());
-    assert(!comp->compEnregLocals());
+    assert(!comp->opts.EnregLocals());
     assert(!comp->fgLocalVarLivenessDone);
 
     for (LclVarDsc* lcl : comp->Locals())
@@ -4044,7 +4044,7 @@ void Lowering::MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value)
 
     bool canEnregister = false;
 
-    if (comp->compEnregLocals() && lcl->IsIndependentPromoted())
+    if (comp->opts.EnregLocals() && lcl->IsIndependentPromoted())
     {
         if (GenTreeCall* call = value->IsCall())
         {
