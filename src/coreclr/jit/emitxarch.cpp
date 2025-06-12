@@ -195,6 +195,7 @@ enum insFlags : uint32_t
 #endif
     INS_Flags_VexDstDstSrc = 1 << 25,
     INS_Flags_VexDstSrcSrc = 1 << 26,
+    INS_Flags_VexCommute   = 1 << 27
 };
 
 static insFlags InsFlags(instruction ins)
@@ -245,6 +246,7 @@ static insFlags InsFlags(instruction ins)
 #endif
         VexDstSrcSrc = INS_Flags_VexDstSrcSrc,
         VexDstDstSrc = INS_Flags_VexDstDstSrc,
+        VexCommute   = INS_Flags_VexCommute
     };
 
     static const uint32_t flags[]{
@@ -311,6 +313,13 @@ bool X86Emitter::IsVexDstDstSrc(instruction ins) const
 {
     return ::IsVexDstDstSrc(ins, UseVEXEncoding());
 }
+
+#ifdef TARGET_AMD64
+static bool IsVexCommute(instruction ins)
+{
+    return (InsFlags(ins) & INS_Flags_VexCommute) != 0;
+}
+#endif
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
 // register in the vvvv field.
@@ -2458,6 +2467,13 @@ void X86Emitter::emitIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegN
 void X86Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
+
+#ifdef TARGET_AMD64
+    if (!IsExtendedReg(reg2) && IsExtendedReg(reg3) && IsVexCommute(ins))
+    {
+        std::swap(reg2, reg3);
+    }
+#endif
 
     instrDesc* id = NewInstr();
     id->idIns(ins);

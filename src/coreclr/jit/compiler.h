@@ -4345,9 +4345,9 @@ private:
                                                                  // used when morphing big offset.
 
 #if LOCAL_ASSERTION_PROP
+public:
     struct MorphAssertion;
 
-public:
     static constexpr unsigned morphAssertionMaxCount = 64;
 
     unsigned                morphAssertionCount;
