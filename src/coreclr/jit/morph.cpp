@@ -2784,23 +2784,21 @@ REMORPH_POST:
                 tree->AsOp()->SetOp(1, op2);
             }
 
-            if (opts.OptimizationEnabled() && !op1->IsDblCon())
+            if (GenTreeDblCon* con = op2->IsDblCon())
             {
-                if (GenTreeDblCon* con = op2->IsDblCon())
+                if (con->GetValue() == 1.0)
                 {
-                    if (con->GetValue() == 2.0)
-                    {
-                        // Allow x * 2 to become x + x in codegen.
-                        con->SetDoNotCSE();
-                    }
-                    else if (con->GetValue() == 1.0)
-                    {
-                        // Fold "x*1.0" to "x"
-                        DEBUG_DESTROY_NODE(op2);
-                        DEBUG_DESTROY_NODE(tree);
+                    // Fold "x*1.0" to "x"
+                    DEBUG_DESTROY_NODE(op2);
+                    DEBUG_DESTROY_NODE(tree);
 
-                        return op1;
-                    }
+                    return op1;
+                }
+
+                if (con->GetValue() == 2.0)
+                {
+                    // Allow x * 2 to become x + x in codegen.
+                    con->SetDoNotCSE();
                 }
             }
             return tree;
