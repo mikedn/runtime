@@ -3198,14 +3198,7 @@ REMORPH_POST:
             {
                 if (GenTree* rotate = moRecognizeAndMorphBitwiseRotation(tree->AsOp()))
                 {
-                    assert(rotate == tree);
-
-                    oper = tree->GetOper();
-                    typ  = tree->GetType();
-                    op1  = tree->AsOp()->GetOp(0);
-                    op2  = tree->AsOp()->GetOp(1);
-
-                    return tree;
+                    return rotate;
                 }
             }
 
