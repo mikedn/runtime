@@ -206,6 +206,12 @@ GenTree* Lowering::LowerNode(GenTree* node)
             LowerIndStoreBlk(node->AsIndStoreBlk());
             break;
 
+#ifdef TARGET_ARM
+        case GT_FMUL:
+            LowerFloatMul(node->AsOp());
+            break;
+#endif
+
 #ifdef TARGET_ARM64
         case GT_FXT:
             LowerFloatExtend(node->AsUnOp());

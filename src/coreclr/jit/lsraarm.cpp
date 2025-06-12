@@ -116,10 +116,18 @@ void LinearScan::BuildNode(GenTree* tree)
 
         case GT_FADD:
         case GT_FSUB:
-        case GT_FMUL:
         case GT_FDIV:
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));
+            BuildDef(tree);
+            break;
+
+        case GT_FMUL:
+            BuildUse(tree->AsOp()->GetOp(0));
+            if (!tree->AsOp()->GetOp(1)->isContained())
+            {
+                BuildUse(tree->AsOp()->GetOp(1));
+            }
             BuildDef(tree);
             break;
 

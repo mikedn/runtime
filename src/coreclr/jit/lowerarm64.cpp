@@ -2130,7 +2130,15 @@ void Lowering::LowerFloatArithmetic(GenTreeOp* arith)
     emitAttr    size = emitTypeSize(arith->GetType());
     instruction ins  = insMap[arith->GetOper() - GT_FADD];
 
-    MakeInstr(arith, ins, size, op1, op2);
+    if ((ins == INS_fmul) && op2->IsDblCon2())
+    {
+        BlockRange().Unlink(op2);
+        MakeInstr(arith, ins, size, op1);
+    }
+    else
+    {
+        MakeInstr(arith, ins, size, op1, op2);
+    }
 }
 
 void Lowering::LowerIntrinsic(GenTreeIntrinsic* intrinsic)

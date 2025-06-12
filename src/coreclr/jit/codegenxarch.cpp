@@ -1321,15 +1321,25 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
                                               {INS_mulss, INS_mulsd},
                                               {INS_divss, INS_divsd}};
 
-    instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
-
-    GenTree* op1 = node->GetOp(0);
-    GenTree* op2 = node->GetOp(1);
+    GenTree* op1  = node->GetOp(0);
+    GenTree* op2  = node->GetOp(1);
+    emitAttr size = emitTypeSize(node->GetType());
 
     RegNum op1Reg = UseReg(op1);
-    UseRMRegs(op2);
 
-    inst_RV_RV_TT(ins, emitTypeSize(node->GetType()), node->GetRegNum(), op1Reg, op2, !compiler->canUseVexEncoding());
+    if (node->OperIs(GT_FMUL) && op2->IsDblCon2())
+    {
+        instruction ins = insMap[0][node->GetType() - TYP_FLOAT];
+
+        GetEmitter()->emitIns_SIMD_R_R_R(ins, size, node->GetRegNum(), op1Reg, op1Reg);
+    }
+    else
+    {
+        instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
+
+        UseRMRegs(op2);
+        inst_RV_RV_TT(ins, size, node->GetRegNum(), op1Reg, op2, !compiler->canUseVexEncoding());
+    }
 
     DefReg(node);
 }

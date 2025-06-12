@@ -178,6 +178,9 @@ private:
     void LowerUnsignedExtend(GenTreeUnOp* node);
 #endif
     void LowerRotateRight(GenTreeOp* node);
+#ifdef TARGET_ARM
+    void LowerFloatMul(GenTreeOp* mul);
+#endif
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* node);
     void CombineNot(GenTreeInstr* instr);

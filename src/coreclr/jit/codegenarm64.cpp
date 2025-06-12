@@ -8346,6 +8346,11 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
                 GetEmitter()->emitIns_R_R_R_I(INS_add, attr, dstReg, srcReg1, srcReg1, imm, INS_OPTS_LSL);
                 break;
 
+            case INS_fmul:
+                // Special case - INS_fmul with a single operand is treated as FADD ..., s0, s0
+                GetEmitter()->emitIns_R_R_R(INS_fadd, attr, dstReg, srcReg1, srcReg1);
+                break;
+
             case INS_add:
             case INS_sub:
             case INS_asr:

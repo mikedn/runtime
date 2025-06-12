@@ -2790,24 +2790,8 @@ REMORPH_POST:
                 {
                     if (con->GetValue() == 2.0)
                     {
-                        // TODO-MIKE-Review: Allowing LCL_LOAD_FLD (or DNER LCL_LOAD) may result in poor
-                        // CQ if CSE doesn't pick it up. But then the question is why the crap is this
-                        // being done here instead of codegen to begin with...
-                        // P.S. So this will add a COMMA if it ever runs in LIR?!? Dumbness never ends...
-                        // Basically this only works because morphing does not normally run in LIR
-                        // and it's only useful if this node happens to appear in the argument tree
-                        // of an INTRINSIC call, which is morphed during rationalization.
-                        bool needsComma = !op1->OperIsLeaf() && !op1->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD);
-                        // if op1 is not a leaf/local we have to introduce a temp via GT_COMMA.
-                        // Unfortunately, it's not hoist loop code-friendly yet so let's do it later.
-                        if (!needsComma || currentBlock->IsLIR())
-                        {
-                            // Fold "x*2.0" to "x+x"
-                            op2  = fgMakeMultiUse(&tree->AsOp()->gtOp1);
-                            op1  = tree->AsOp()->GetOp(0);
-                            tree = gtNewOperNode(GT_FADD, tree->GetType(), op1, op2);
-                            INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                        }
+                        // Allow x * 2 to become x + x in codegen.
+                        con->SetDoNotCSE();
                     }
                     else if (con->GetValue() == 1.0)
                     {

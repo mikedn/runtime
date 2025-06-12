@@ -324,12 +324,27 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     static_assert_no_msg(GT_FDIV - GT_FADD == 3);
     static constexpr instruction insMap[]{INS_vadd, INS_vsub, INS_vmul, INS_vdiv};
 
-    instruction ins  = insMap[node->GetOper() - GT_FADD];
-    RegNum      reg1 = UseReg(node->GetOp(0));
-    RegNum      reg2 = UseReg(node->GetOp(1));
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
 
-    GetEmitter()->emitIns_R_R_R(ins, emitTypeSize(node->GetType()), node->GetRegNum(), reg1, reg2);
+    instruction ins;
+    emitAttr    size = emitTypeSize(node->GetType());
+    RegNum      reg1 = UseReg(op1);
+    RegNum      reg2;
 
+    if (node->OperIs(GT_FMUL) && op2->isContained())
+    {
+        assert(op2->IsDblCon2());
+        ins  = INS_vadd;
+        reg2 = reg1;
+    }
+    else
+    {
+        ins  = insMap[node->GetOper() - GT_FADD];
+        reg2 = UseReg(op2);
+    }
+
+    GetEmitter()->emitIns_R_R_R(ins, size, node->GetRegNum(), reg1, reg2);
     DefReg(node);
 }
 

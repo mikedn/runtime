@@ -1504,6 +1504,7 @@ public:
 
     bool IsDblConPositiveZero() const;
     bool IsDblConNonPositiveZero() const;
+    bool IsDblCon2() const;
     bool IsHWIntrinsicZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
@@ -7558,6 +7559,11 @@ inline bool GenTree::IsDblConPositiveZero() const
 inline bool GenTree::IsDblConNonPositiveZero() const
 {
     return OperIs(GT_CNS_DBL) && !AsDblCon()->IsPositiveZero();
+}
+
+inline bool GenTree::IsDblCon2() const
+{
+    return OperIs(GT_CNS_DBL) && (AsDblCon()->GetValue() == 2);
 }
 
 inline bool GenTree::IsHWIntrinsicZero() const

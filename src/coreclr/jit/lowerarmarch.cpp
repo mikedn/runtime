@@ -56,6 +56,18 @@ bool Lowering::IsImmOperand(GenTree* operand, GenTree* instr) const
     }
 }
 
+void Lowering::LowerFloatMul(GenTreeOp* mul)
+{
+    assert(mul->OperIs(GT_FMUL));
+
+    GenTree* op2 = mul->GetOp(1);
+
+    if (op2->IsDblCon2())
+    {
+        op2->SetContained();
+    }
+}
+
 #endif // TARGET_ARM
 
 void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
