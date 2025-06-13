@@ -1800,28 +1800,24 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_SDIV:
-            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 0))
+            if (GenTreeIntCon* c2 = op2->IsIntCon())
             {
-                tree->ChangeOper(GT_UDIV);
-                return moMorphSmpOp(tree->AsOp(), mac);
-            }
-
-            if (opts.OptimizationEnabled())
-            {
-                // SDIV(NEG(a), C) => SDIV(a, NEG(C))
-                if (op1->OperIs(GT_NEG) && !op1->AsUnOp()->GetOp(0)->IsIntCon() && op2->IsIntCon() &&
-                    !op2->IsIntConHandle())
+                if (op1->IsArrLen() && (c2->GetValue() >= 0))
                 {
-                    ssize_t op2Value = op2->AsIntCon()->GetValue();
+                    tree->SetOper(GT_UDIV, GenTree::PRESERVE_VN);
+                    goto UDIV;
+                }
+
+                // SDIV(NEG(a), C) => SDIV(a, NEG(C))
+                if (op1->OperIs(GT_NEG) && opts.OptimizationEnabled())
+                {
+                    ssize_t op2Value = c2->GetValue();
 
                     if ((op2Value != 1) && (op2Value != -1))
                     {
-                        tree->AsOp()->SetOp(0, op1->AsUnOp()->GetOp(0));
-                        DEBUG_DESTROY_NODE(op1);
-                        tree->AsOp()->SetOp(1, gtNewIconNode(-op2Value, op2->GetType()));
-                        DEBUG_DESTROY_NODE(op2);
-
-                        return moMorphSmpOp(tree->AsOp(), mac);
+                        c2->SetValue(-op2Value);
+                        op1 = op1->AsUnOp()->GetOp(0);
+                        tree->AsOp()->SetOp(0, op1);
                     }
                 }
             }
@@ -1843,13 +1839,15 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif // !TARGET_64BIT
             break;
 
-#ifndef TARGET_64BIT
         case GT_UDIV:
+        UDIV:
+#ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
                 helper = CORINFO_HELP_ULDIV;
                 goto USE_HELPER_FOR_ARITH;
             }
+
 #if USE_HELPERS_FOR_INT_DIV
             if (typ == TYP_INT)
             {
@@ -1857,28 +1855,19 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 goto USE_HELPER_FOR_ARITH;
             }
 #endif
-            break;
 #endif // TARGET_64BIT
+            break;
 
         case GT_SREM:
             if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 0))
             {
-                tree->ChangeOper(GT_UREM);
-                return moMorphSmpOp(tree->AsOp(), mac);
+                tree->SetOper(GT_UREM, GenTree::PRESERVE_VN);
+                oper = GT_UREM;
             }
 
-            goto COMMON_REM;
+            FALLTHROUGH;
 
         case GT_UREM:
-#ifdef TARGET_X86
-            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_LNG) && opts.ConstantFold() &&
-                (op2->AsLngCon()->GetValue() >= 2) && (op2->AsLngCon()->GetValue() <= 0x3fffffff))
-            {
-                break;
-            }
-#endif
-
-        COMMON_REM:
             if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
             {
                 GenTree* zeroNode = gtNewZeroConNode(typ);
@@ -1890,6 +1879,14 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
+#ifdef TARGET_X86
+                if ((oper == GT_UREM) && op2->IsLngCon() && opts.OptimizationEnabled() &&
+                    op2->AsLngCon()->HasRange(2, 0x3fffffff))
+                {
+                    break;
+                }
+#endif
+
                 helper = oper == GT_UREM ? CORINFO_HELP_ULMOD : CORINFO_HELP_LMOD;
                 goto USE_HELPER_FOR_ARITH;
             }
@@ -1918,7 +1915,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // the redundant division. If there's no redundant division then
             // nothing is lost, lowering would have done this transform anyway.
 
-            if (tree->OperIs(GT_SREM) && op2->IsIntCon())
+            if ((oper == GT_SREM) && op2->IsIntCon())
             {
                 ssize_t divisorValue    = op2->AsIntCon()->GetValue();
                 size_t  absDivisorValue = divisorValue == SSIZE_T_MIN ? static_cast<size_t>(divisorValue)

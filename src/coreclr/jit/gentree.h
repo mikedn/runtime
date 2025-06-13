@@ -2706,6 +2706,11 @@ public:
         value = val;
     }
 
+    bool HasRange(int64_t min, int64_t max) const
+    {
+        return min <= value && value <= max;
+    }
+
     DECLARE_DEBUGGABLE_GENTREE(GenTreeLngCon, GenTreeIntConCommon)
 };
 #endif // !TARGET_64BIT
