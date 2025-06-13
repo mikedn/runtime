@@ -1879,29 +1879,24 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             goto ASSIGN_HELPER_FOR_MOD;
 
         case GT_UREM:
-#ifdef TARGET_XARCH
-            // If this is an unsigned long mod with a constant divisor, then don't
-            // morph to a helper call - it can be done faster inline using idiv.
-
-            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_NATIVELONG) && opts.ConstantFold() &&
-                (op2->AsIntConCommon()->GetValue() >= 2) && (op2->AsIntConCommon()->GetValue() <= 0x3fffffff))
+#ifdef TARGET_X86
+            if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_LNG) && opts.ConstantFold() &&
+                (op2->AsLngCon()->GetValue() >= 2) && (op2->AsLngCon()->GetValue() <= 0x3fffffff))
             {
                 op1 = moMorphTree(op1);
-                noway_assert(op1->TypeIs(TYP_LONG));
+                assert(op1->TypeIs(TYP_LONG));
                 tree->AsOp()->SetOp(0, op1);
 
-                // Only update with op1 as op2 is a constant.
                 tree->SetSideEffects(op1->GetSideEffects());
 
-                // If op1 is a constant, then do constant folding of the division operator.
-                if (op1->OperIs(GT_CNS_NATIVELONG))
+                if (op1->OperIs(GT_CNS_LNG))
                 {
                     tree = gtFoldExpr(tree);
                 }
 
                 return tree;
             }
-#endif // TARGET_XARCH
+#endif // TARGET_X86
 
         ASSIGN_HELPER_FOR_MOD:
             if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
