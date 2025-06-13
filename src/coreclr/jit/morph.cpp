@@ -1874,20 +1874,9 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             if ((typ == TYP_LONG) && op2->OperIs(GT_CNS_LNG) && opts.ConstantFold() &&
                 (op2->AsLngCon()->GetValue() >= 2) && (op2->AsLngCon()->GetValue() <= 0x3fffffff))
             {
-                op1 = moMorphTree(op1);
-                assert(op1->TypeIs(TYP_LONG));
-                tree->AsOp()->SetOp(0, op1);
-
-                tree->SetSideEffects(op1->GetSideEffects());
-
-                if (op1->OperIs(GT_CNS_LNG))
-                {
-                    tree = gtFoldExpr(tree);
-                }
-
-                return tree;
+                break;
             }
-#endif // TARGET_X86
+#endif
 
         COMMON_REM:
             if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
