@@ -114,7 +114,7 @@ GTNODE(FADD             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(FSUB             , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(FMUL             , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(FDIV             , GenTreeOp           , GTK_BINOP|GTK_VN)
-GTNODE(FMOD             , GenTreeOp           , GTK_BINOP|GTK_VN)
+GTNODE(FREM             , GenTreeOp           , GTK_BINOP|GTK_VN)
 
 GTNODE(ADD              , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 GTNODE(SUB              , GenTreeOp           , GTK_BINOP|GTK_VN)

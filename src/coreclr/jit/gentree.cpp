@@ -4404,10 +4404,10 @@ GenTree* Compiler::gtCloneExpr(GenTree* tree, GenTreeFlags addFlags, const LclVa
                 copy = new (this, oper) GenTreeBoundsChk(tree->AsBoundsChk());
                 break;
 
-            case GT_FMOD:
+            case GT_FREM:
                 // This is always converted to a helper call.
                 copy = new (this, GT_CALL)
-                    GenTreeOp(GT_FMOD, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
+                    GenTreeOp(GT_FREM, tree->GetType(), tree->AsOp()->GetOp(0), tree->AsOp()->GetOp(1));
                 INDEBUG(copy->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
                 break;
 

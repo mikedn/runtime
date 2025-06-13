@@ -9433,9 +9433,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
                     assert(!GenTree::IsOverflowOp(oper));
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
 
-                    op1 = new (comp, oper == GT_FMOD ? GT_CALL : oper) GenTreeOp(oper, type, op1, op2);
+                    op1 = new (comp, oper == GT_FREM ? GT_CALL : oper) GenTreeOp(oper, type, op1, op2);
 
-                    if (oper == GT_FMOD)
+                    if (oper == GT_FREM)
                     {
                         INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
                     }

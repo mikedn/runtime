@@ -1616,7 +1616,7 @@ bool ValueNumStore::CanEvalForConstantArgs2(VNFunc vnf)
         case VNOP_FSUB:
         case VNOP_FMUL:
         case VNOP_FDIV:
-        case VNOP_FMOD:
+        case VNOP_FREM:
         case VNF_COND_EQ:
         case VNF_COND_NE:
         case VNF_COND_SGT:
@@ -2050,7 +2050,7 @@ static T EvalFloatOp(VNFunc vnf, T v0, T v1)
             return FpMul<T, Traits>(v0, v1);
         case VNOP_FDIV:
             return FpDiv<T, Traits>(v0, v1);
-        case VNOP_FMOD:
+        case VNOP_FREM:
             return FpRem<T, Traits>(v0, v1);
         default:
             unreached();
@@ -7483,7 +7483,7 @@ VNFunc ValueNumbering::GetHelperCallFunc(CorInfoHelpFunc helpFunc)
             return VNF_OVF_FTOUL;
         case CORINFO_HELP_FLTREM:
         case CORINFO_HELP_DBLREM:
-            return VNOP_FMOD;
+            return VNOP_FREM;
         case CORINFO_HELP_FLTROUND:
         case CORINFO_HELP_DBLROUND:
             return VNF_Round;

@@ -1636,15 +1636,19 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 storeField->SetReverseOps(false);
                 tree = storeField;
 
-                oper = GT_LCL_STORE_FLD;
-                op1  = op2;
-                op2  = nullptr;
+                op1 = op2;
+                op2 = nullptr;
+
+                break;
             }
-            else if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && !op1->HasAnySideEffect(GTF_EXCEPT) &&
-                     !op2->HasAnySideEffect(GTF_EXCEPT))
+
+            if (((tree->gtFlags & GTF_IND_NONFAULTING) != 0) && !op1->HasAnySideEffect(GTF_EXCEPT) &&
+                !op2->HasAnySideEffect(GTF_EXCEPT))
             {
                 tree->RemoveSideEffects(GTF_EXCEPT);
+                break;
             }
+
             break;
 
         case GT_IND_LOAD:
@@ -1707,7 +1711,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 if (andOp2->IsIntConCommon() && ((andOp2->AsIntConCommon()->GetValue() >> maxBits) == 0))
                 {
                     tree->ChangeOper(GT_TRUNC);
-                    oper = GT_TRUNC;
                     goto TRUNC;
                 }
             }
@@ -1788,9 +1791,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_ARR_LENGTH:
             if (GenTreeStrCon* str = op1->IsStrCon())
             {
-                // Optimize `ldstr + String::get_Length()` to CNS_INT
-                // e.g. "Hello".Length => 5
-
                 if (GenTreeIntCon* iconNode = gtNewStringLiteralLength(str))
                 {
                     INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
@@ -1800,13 +1800,9 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_SDIV:
-            // array.Length is always positive so SDIV can be changed to UDIV if op2 is
-            // a positive constant. For 0 and 1 it doesn't matter if it's UDIV or SDIV.
-            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 2))
+            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 0))
             {
-                assert(tree->OperIs(GT_SDIV));
                 tree->ChangeOper(GT_UDIV);
-
                 return moMorphSmpOp(tree->AsOp(), mac);
             }
 
@@ -1865,18 +1861,13 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif // TARGET_64BIT
 
         case GT_SREM:
-            if (op1->OperIs(GT_ARR_LENGTH) && op2->IsIntegralConst() &&
-                (op2->AsIntCon()->GetValue() >= 2)) // for 0 and 1 it doesn't matter if it's UREM or SREM
+            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 0))
             {
                 tree->ChangeOper(GT_UREM);
                 return moMorphSmpOp(tree->AsOp(), mac);
             }
 
-            // Do not use optimizations (unlike UMOD's idiv optimizing during codegen) for signed mod.
-            // A similar optimization for signed mod will not work for a negative perfectly divisible
-            // HI-word. To make it correct, we would need to divide without the sign and then flip the
-            // result sign after mod. This requires 18 opcodes + flow making it not worthy to inline.
-            goto ASSIGN_HELPER_FOR_MOD;
+            goto COMMON_REM;
 
         case GT_UREM:
 #ifdef TARGET_X86
@@ -1898,7 +1889,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
 #endif // TARGET_X86
 
-        ASSIGN_HELPER_FOR_MOD:
+        COMMON_REM:
             if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
             {
                 GenTree* zeroNode = gtNewZeroConNode(typ);
@@ -1917,49 +1908,18 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #if USE_HELPERS_FOR_INT_DIV
             if (typ == TYP_INT)
             {
-                if (oper == GT_UREM)
-                {
-                    helper = CORINFO_HELP_UMOD;
-                    goto USE_HELPER_FOR_ARITH;
-                }
-                else if (oper == GT_SREM)
-                {
-                    helper = CORINFO_HELP_MOD;
-                    goto USE_HELPER_FOR_ARITH;
-                }
+                helper = oper == GT_UREM ? CORINFO_HELP_UMOD : CORINFO_HELP_MOD;
+                goto USE_HELPER_FOR_ARITH;
             }
 #endif
 #endif // !TARGET_64BIT
 
 #ifdef TARGET_ARM64
-            // For ARM64 we don't have a remainder instruction,
-            // The architecture manual suggests the following transformation to
-            // generate code for such operator:
-            //
-            // a % b = a - (a / b) * b;
-            //
-            // TODO: there are special cases where it can be done better, for example
-            // when the modulo operation is unsigned and the divisor is a
-            // integer constant power of two.  In this case, we can make the transform:
-            //
-            // a % b = a & (b - 1);
-            //
-            // Lower supports it for all cases except when `a` is constant, but
-            // in Morph we can't guarantee that `a` won't be transformed into a constant,
-            // so can't guarantee that lower will be able to do this optimization.
-            {
-                // Do "a % b = a - (a / b) * b" morph always, see TODO before this block.
-                bool doMorphModToSubMulDiv = true;
+            assert(!csePhase);
 
-                if (doMorphModToSubMulDiv)
-                {
-                    assert(!csePhase);
-
-                    tree = moMorphModToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->GetOp(0);
-                    op2  = tree->AsOp()->GetOp(1);
-                }
-            }
+            tree = moMorphRemToSubMulDiv(tree->AsOp());
+            op1  = tree->AsOp()->GetOp(0);
+            op2  = tree->AsOp()->GetOp(1);
 #else  // !TARGET_ARM64
             // If b is not a power of 2 constant then lowering replaces a % b
             // with a - (a / b) * b and applies magic division optimization to
@@ -1969,15 +1929,15 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // the redundant division. If there's no redundant division then
             // nothing is lost, lowering would have done this transform anyway.
 
-            if (tree->OperIs(GT_SREM) && op2->IsIntegralConst())
+            if (tree->OperIs(GT_SREM) && op2->IsIntCon())
             {
                 ssize_t divisorValue    = op2->AsIntCon()->GetValue();
-                size_t  absDivisorValue = (divisorValue == SSIZE_T_MIN) ? static_cast<size_t>(divisorValue)
-                                                                       : static_cast<size_t>(abs(divisorValue));
+                size_t  absDivisorValue = divisorValue == SSIZE_T_MIN ? static_cast<size_t>(divisorValue)
+                                                                     : static_cast<size_t>(abs(divisorValue));
 
                 if (!isPow2(absDivisorValue))
                 {
-                    tree = moMorphModToSubMulDiv(tree->AsOp());
+                    tree = moMorphRemToSubMulDiv(tree->AsOp());
                     op1  = tree->AsOp()->GetOp(0);
                     op2  = tree->AsOp()->GetOp(1);
                 }
@@ -1996,14 +1956,13 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 if (((typ == TYP_DOUBLE) && FloatingPointUtils::hasPreciseReciprocal(divisor)) ||
                     ((typ == TYP_FLOAT) && FloatingPointUtils::hasPreciseReciprocal(forceCastToFloat(divisor))))
                 {
-                    oper = GT_FMUL;
                     tree->ChangeOper(GT_FMUL);
                     op2->AsDblCon()->SetValue(1.0 / divisor);
                 }
             }
             break;
 
-        case GT_FMOD:
+        case GT_FREM:
             assert((op1->GetType() == tree->GetType()) && (op2->GetType() == tree->GetType()));
             assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
 
@@ -3775,7 +3734,7 @@ GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
 // its value into a temporary variable, an example:
 // (x * 2 - 1) % (y + 1) ->  t1 - (t2 * ( comma(t1 = x * 2 - 1, t1) / comma(t2 = y + 1, t2) ) )
 //
-GenTree* Compiler::moMorphModToSubMulDiv(GenTreeOp* tree)
+GenTree* Compiler::moMorphRemToSubMulDiv(GenTreeOp* tree)
 {
     if (tree->OperIs(GT_SREM))
     {
