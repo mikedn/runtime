@@ -1915,13 +1915,22 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             // the redundant division. If there's no redundant division then
             // nothing is lost, lowering would have done this transform anyway.
 
-            if ((oper == GT_SREM) && op2->IsIntCon())
+            if (GenTreeIntCon* c2 = op2->IsIntCon())
             {
-                ssize_t divisorValue    = op2->AsIntCon()->GetValue();
-                size_t  absDivisorValue = divisorValue == SSIZE_T_MIN ? static_cast<size_t>(divisorValue)
-                                                                     : static_cast<size_t>(abs(divisorValue));
+                size_t absDivisorValue;
 
-                if (!isPow2(absDivisorValue))
+                if (oper == GT_SREM)
+                {
+                    ssize_t divisorValue = c2->GetValue();
+                    absDivisorValue      = divisorValue == SSIZE_T_MIN ? static_cast<size_t>(divisorValue)
+                                                                  : static_cast<size_t>(abs(divisorValue));
+                }
+                else
+                {
+                    absDivisorValue = c2->GetUnsignedValue();
+                }
+
+                if ((absDivisorValue >= 3) && !isPow2(absDivisorValue))
                 {
                     tree = moMorphRemToSubMulDiv(tree->AsOp());
                     op1  = tree->AsOp()->GetOp(0);
