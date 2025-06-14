@@ -1800,12 +1800,20 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_SDIV:
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+
             if (GenTreeIntCon* c2 = op2->IsIntCon())
             {
                 if (op1->IsArrLen() && (c2->GetValue() >= 0))
                 {
                     tree->SetOper(GT_UDIV, GenTree::PRESERVE_VN);
                     goto UDIV;
+                }
+
+                if (c2->GetValue() == (typ == TYP_INT ? INT32_MIN : INT64_MIN))
+                {
+                    tree->SetOper(GT_EQ, GenTree::PRESERVE_VN);
+                    break;
                 }
 
                 // SDIV(NEG(a), C) => SDIV(a, NEG(C))

@@ -1148,20 +1148,7 @@ GenTree* Lowering::LowerConstIntDivRem(GenTreeOp* node)
         return nullptr;
     }
 
-    bool isDiv = node->OperIs(GT_SDIV);
-
-    if (isDiv)
-    {
-        if ((type == TYP_INT && divisorValue == INT_MIN) || (type == TYP_LONG && divisorValue == INT64_MIN))
-        {
-            // If the divisor is the minimum representable integer value then we can use a compare,
-            // the result is 1 iff the dividend equals divisor.
-            node->SetOper(GT_EQ);
-
-            return node;
-        }
-    }
-
+    bool   isDiv           = node->OperIs(GT_SDIV);
     size_t absDivisorValue = UAbs(divisorValue);
 
     if (!isPow2(absDivisorValue))

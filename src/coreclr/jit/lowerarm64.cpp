@@ -1493,15 +1493,6 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
 
     const var_types type = div->GetType();
 
-    if ((type == TYP_INT && divisorValue == INT32_MIN) || (type == TYP_LONG && divisorValue == INT64_MIN))
-    {
-        // If the divisor is the minimum representable integer value then we can use a compare,
-        // the result is 1 iff the dividend equals divisor.
-        div->SetOper(GT_EQ);
-
-        return div;
-    }
-
     uint64_t absDivisorValue = UAbs(divisorValue);
 
     if (!isPow2(absDivisorValue))
