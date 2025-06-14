@@ -1841,6 +1841,27 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
         case GT_UDIV:
         UDIV:
+            assert((typ == TYP_INT) || (typ == TYP_LONG));
+
+            if (GenTreeIntCon* c2 = op2->IsIntCon())
+            {
+                size_t divisorValue = c2->GetBits();
+
+                if (isPow2(divisorValue))
+                {
+                    c2->SetValue(genLog2(divisorValue));
+                    tree->SetOper(GT_RSZ, GenTree::PRESERVE_VN);
+                    break;
+                }
+
+                if (divisorValue > (typ == TYP_LONG ? (UINT64_MAX / 2) : (UINT32_MAX / 2)))
+                {
+                    tree->SetOper(GT_GE, GenTree::PRESERVE_VN);
+                    tree->SetRelopUnsigned(true);
+                    break;
+                }
+            }
+
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
@@ -1863,11 +1884,9 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             {
                 tree->SetOper(GT_UREM, GenTree::PRESERVE_VN);
                 oper = GT_UREM;
+                goto UREM;
             }
 
-            FALLTHROUGH;
-
-        case GT_UREM:
             if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
             {
                 GenTree* zeroNode = gtNewZeroConNode(typ);
@@ -1875,7 +1894,22 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 DEBUG_DESTROY_NODE(tree);
                 return zeroNode;
             }
+            goto COMMON_REM;
 
+        case GT_UREM:
+        UREM:
+            if (GenTreeIntCon* c2 = op2->IsIntCon())
+            {
+                size_t divisorValue = c2->GetBits();
+
+                if (isPow2(divisorValue))
+                {
+                    c2->SetValue(divisorValue - 1);
+                    tree->SetOper(GT_AND, GenTree::PRESERVE_VN);
+                    break;
+                }
+            }
+        COMMON_REM:
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {

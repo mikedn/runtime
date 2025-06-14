@@ -948,68 +948,27 @@ bool Lowering::LowerUnsignedDivRem(GenTreeOp* divMod)
 
     const var_types type = divMod->GetType();
 
-    size_t divisorValue = divisor->AsIntCon()->GetUnsignedValue();
+    size_t divisorValue = divisor->AsIntCon()->GetBits();
 
-    if (type == TYP_INT)
-    {
-        // Clear up the upper 32 bits of the value, they may be set to 1 because constants
-        // are treated as signed and stored in ssize_t which is 64 bit in size on 64 bit targets.
-        divisorValue &= UINT32_MAX;
-    }
-
-    if (divisorValue == 0)
+    if ((divisorValue == 0) || isPow2(divisorValue) || comp->opts.MinOpts())
     {
         return false;
     }
 
     const bool isDiv = divMod->OperIs(GT_UDIV);
-
-    if (isPow2(divisorValue))
-    {
-        if (isDiv)
-        {
-            divMod->SetOper(GT_RSZ);
-            divisor->AsIntCon()->SetValue(genLog2(divisorValue));
-            divisor->SetContained();
-            ;
-        }
-        else
-        {
-            divMod->SetOper(GT_AND);
-            divisor->AsIntCon()->SetValue(divisorValue - 1);
-            ContainCheckBinary(divMod);
-        }
-
-        return true;
-    }
-
-    if (isDiv)
-    {
-        // If the divisor is greater or equal than 2^(N - 1) then the result is 1
-        // iff the dividend is greater or equal than the divisor.
-        if (((type == TYP_INT) && (divisorValue > (UINT32_MAX / 2))) ||
-            ((type == TYP_LONG) && (divisorValue > (UINT64_MAX / 2))))
-        {
-            divMod->SetOper(GT_GE);
-            divMod->SetRelopUnsigned(true);
-            ContainCheckCompare(divMod);
-            return true;
-        }
-    }
-
-    if (comp->opts.MinOpts() || (divisorValue < 3))
-    {
-        return false;
-    }
-
-    size_t magic;
-    bool   increment;
-    int    preShift;
-    int    postShift;
-    bool   simpleMul = false;
+    size_t     magic;
+    bool       increment;
+    int        preShift;
+    int        postShift;
+    bool       simpleMul = false;
 
     if (type == TYP_INT)
     {
+        if (isDiv && divisorValue > UINT32_MAX / 2)
+        {
+            return false;
+        }
+
         magic = MagicDivide::GetUnsigned32Magic(static_cast<uint32_t>(divisorValue), &increment, &preShift, &postShift);
 
 #ifdef TARGET_64BIT
@@ -1031,6 +990,11 @@ bool Lowering::LowerUnsignedDivRem(GenTreeOp* divMod)
     }
     else
     {
+        if (isDiv && divisorValue > UINT64_MAX / 2)
+        {
+            return false;
+        }
+
 #ifdef TARGET_64BIT
         magic = MagicDivide::GetUnsigned64Magic(static_cast<uint64_t>(divisorValue), &increment, &preShift, &postShift);
 #else

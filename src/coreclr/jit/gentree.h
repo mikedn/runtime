@@ -2515,6 +2515,19 @@ public:
         return static_cast<size_t>(value);
     }
 
+    size_t GetBits() const
+    {
+        // TODO-MIKE-Cleanup: Replace GetUnsignedValue with this?
+        size_t bits = static_cast<size_t>(value);
+
+        if (gtType == TYP_INT)
+        {
+            bits &= UINT32_MAX;
+        }
+
+        return bits;
+    }
+
     uint8_t GetUInt8Value() const
     {
         return static_cast<uint8_t>(value & 0xFF);

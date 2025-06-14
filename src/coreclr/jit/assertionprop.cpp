@@ -1958,7 +1958,7 @@ private:
 
         div->SetOper(div->OperIs(GT_SDIV) ? GT_UDIV : GT_UREM, GenTree::PRESERVE_VN);
 
-        return nullptr;
+        return UpdateTree(div, div, stmt);
     }
 
     GenTree* PropagateComma(GenTreeOp* comma, Statement* stmt)

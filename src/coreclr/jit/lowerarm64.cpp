@@ -1374,35 +1374,9 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
     }
 
     const var_types type         = udiv->GetType();
-    const uint64_t  divisorValue = type == TYP_INT ? divisor->GetUInt32Value() : divisor->GetUInt64Value();
+    const uint64_t  divisorValue = divisor->GetBits();
 
-    if (divisorValue == 0)
-    {
-        return;
-    }
-
-    if (isPow2(divisorValue))
-    {
-        udiv->SetOper(GT_RSZ);
-        divisor->SetValue(genLog2(divisorValue));
-        divisor->SetContained();
-
-        return;
-    }
-
-    // If the divisor is greater or equal than 2^(N - 1) then the result is 1
-    // iff the dividend is greater or equal than the divisor.
-    if (((type == TYP_INT) && (divisorValue > (UINT32_MAX / 2))) ||
-        ((type == TYP_LONG) && (divisorValue > (UINT64_MAX / 2))))
-    {
-        udiv->SetOper(GT_GE);
-        udiv->SetRelopUnsigned(true);
-        ContainCheckCompare(udiv);
-
-        return;
-    }
-
-    if (comp->opts.MinOpts() || (divisorValue < 3))
+    if (divisorValue == 0 || isPow2(divisorValue) || comp->opts.MinOpts())
     {
         return;
     }
@@ -1415,6 +1389,11 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
 
     if (type == TYP_INT)
     {
+        if (divisorValue > UINT32_MAX / 2)
+        {
+            return;
+        }
+
         magic = MagicDivide::GetUnsigned32Magic(static_cast<uint32_t>(divisorValue), &increment, &preShift, &postShift);
 
         // avoid inc_saturate/multiple shifts by widening to 32x64 MULHI
@@ -1431,6 +1410,11 @@ void Lowering::LowerUnsignedDiv(GenTreeOp* udiv)
     }
     else
     {
+        if (divisorValue > UINT64_MAX / 2)
+        {
+            return;
+        }
+
         magic = MagicDivide::GetUnsigned64Magic(divisorValue, &increment, &preShift, &postShift);
     }
 
