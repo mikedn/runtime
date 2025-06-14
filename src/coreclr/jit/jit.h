@@ -102,8 +102,6 @@ inline IL_OFFSET jitGetILoffs(IL_OFFSETX offsx)
     return static_cast<IL_OFFSET>(offsx & ~IL_OFFSETX_BITS);
 }
 
-using ssize_t = ptrdiff_t;
-
 #if defined(LATE_DISASM) && (LATE_DISASM == 0)
 #undef LATE_DISASM
 #endif

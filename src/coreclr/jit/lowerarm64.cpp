@@ -1502,8 +1502,7 @@ GenTree* Lowering::LowerSignedConstDiv(GenTreeOp* div)
         return div;
     }
 
-    uint64_t absDivisorValue =
-        divisorValue == INT64_MIN ? static_cast<uint64_t>(divisorValue) : static_cast<uint64_t>(abs(divisorValue));
+    uint64_t absDivisorValue = UAbs(divisorValue);
 
     if (!isPow2(absDivisorValue))
     {

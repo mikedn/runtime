@@ -1885,7 +1885,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 if ((op1->IsArrLen() && (c2->GetValue() >= 0)) || (c2->GetValue() == 1))
                 {
                     tree->SetOper(GT_UREM, GenTree::PRESERVE_VN);
-                    oper = GT_UREM;
                     goto UREM;
                 }
             }
@@ -1906,7 +1905,17 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif
 #endif // !TARGET_64BIT
 
-            goto COMMON_REM;
+#ifdef TARGET_ARM64
+            assert(moGlobalMorph);
+#else
+            if (op2->IsIntCon() && !isPow2(UAbs(op2->AsIntCon()->GetValue())))
+#endif
+            {
+                tree = moMorphRemToSubMulDiv(tree->AsOp());
+                op1  = tree->AsOp()->GetOp(0);
+                op2  = tree->AsOp()->GetOp(1);
+            }
+            break;
 
         case GT_UREM:
         UREM:
@@ -1945,45 +1954,16 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #endif
 #endif // !TARGET_64BIT
 
-        COMMON_REM:
 #ifdef TARGET_ARM64
-            assert(!csePhase);
-
-            tree = moMorphRemToSubMulDiv(tree->AsOp());
-            op1  = tree->AsOp()->GetOp(0);
-            op2  = tree->AsOp()->GetOp(1);
-#else  // !TARGET_ARM64
-            // If b is not a power of 2 constant then lowering replaces a % b
-            // with a - (a / b) * b and applies magic division optimization to
-            // a / b. The code may already contain an a / b expression (e.g.
-            // x = a / 10; y = a % 10;) and then we end up with redundant code.
-            // If we convert % to / here we give CSE the opportunity to eliminate
-            // the redundant division. If there's no redundant division then
-            // nothing is lost, lowering would have done this transform anyway.
-
+            assert(moGlobalMorph);
+#else
             if (GenTreeIntCon* c2 = op2->IsIntCon())
+#endif
             {
-                size_t absDivisorValue;
-
-                if (oper == GT_SREM)
-                {
-                    ssize_t divisorValue = c2->GetValue();
-                    absDivisorValue      = divisorValue == SSIZE_T_MIN ? static_cast<size_t>(divisorValue)
-                                                                  : static_cast<size_t>(abs(divisorValue));
-                }
-                else
-                {
-                    absDivisorValue = c2->GetUnsignedValue();
-                }
-
-                if ((absDivisorValue >= 3) && !isPow2(absDivisorValue))
-                {
-                    tree = moMorphRemToSubMulDiv(tree->AsOp());
-                    op1  = tree->AsOp()->GetOp(0);
-                    op2  = tree->AsOp()->GetOp(1);
-                }
+                tree = moMorphRemToSubMulDiv(tree->AsOp());
+                op1  = tree->AsOp()->GetOp(0);
+                op2  = tree->AsOp()->GetOp(1);
             }
-#endif // !TARGET_ARM64
             break;
 
         case GT_FDIV:
@@ -3769,11 +3749,6 @@ GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
 // always done. For XARCH this transform is done if we know that magic
 // division will be used, in that case this transform allows CSE to
 // eliminate the redundant div from code like "x = a / 3; y = a % 3;".
-//
-// This method will produce the above expression in 'a' and 'b' are
-// leaf nodes, otherwise, if any of them is not a leaf it will spill
-// its value into a temporary variable, an example:
-// (x * 2 - 1) % (y + 1) ->  t1 - (t2 * ( comma(t1 = x * 2 - 1, t1) / comma(t2 = y + 1, t2) ) )
 //
 GenTree* Compiler::moMorphRemToSubMulDiv(GenTreeOp* tree)
 {

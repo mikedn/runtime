@@ -16,7 +16,23 @@
 #define BitScanForwardPtr BitScanForward
 #endif
 
-// return true if arg is a power of 2
+using ssize_t = ptrdiff_t;
+
+constexpr size_t UAbs(ssize_t value)
+{
+    if (value >= 0)
+    {
+        return static_cast<size_t>(value);
+    }
+
+    if (value == SSIZE_T_MIN)
+    {
+        return static_cast<size_t>(SSIZE_T_MAX) + 1;
+    }
+
+    return static_cast<size_t>(-value);
+}
+
 template <typename T>
 inline bool isPow2(T i)
 {

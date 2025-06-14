@@ -1162,8 +1162,7 @@ GenTree* Lowering::LowerConstIntDivRem(GenTreeOp* node)
         }
     }
 
-    size_t absDivisorValue =
-        (divisorValue == SSIZE_T_MIN) ? static_cast<size_t>(divisorValue) : static_cast<size_t>(abs(divisorValue));
+    size_t absDivisorValue = UAbs(divisorValue);
 
     if (!isPow2(absDivisorValue))
     {
