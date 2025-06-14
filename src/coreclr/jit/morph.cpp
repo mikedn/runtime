@@ -1880,20 +1880,32 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             break;
 
         case GT_SREM:
-            if (op1->IsArrLen() && op2->IsIntCon() && (op2->AsIntCon()->GetValue() >= 0))
+            if (GenTreeIntCon* c2 = op2->IsIntCon())
             {
-                tree->SetOper(GT_UREM, GenTree::PRESERVE_VN);
-                oper = GT_UREM;
-                goto UREM;
+                if ((op1->IsArrLen() && (c2->GetValue() >= 0)) || (c2->GetValue() == 1))
+                {
+                    tree->SetOper(GT_UREM, GenTree::PRESERVE_VN);
+                    oper = GT_UREM;
+                    goto UREM;
+                }
             }
 
-            if (!op1->HasAnySideEffect(GTF_SIDE_EFFECT) && op2->IsIntegralConst(1))
+#ifndef TARGET_64BIT
+            if (typ == TYP_LONG)
             {
-                GenTree* zeroNode = gtNewZeroConNode(typ);
-                INDEBUG(zeroNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                DEBUG_DESTROY_NODE(tree);
-                return zeroNode;
+                helper = CORINFO_HELP_LMOD;
+                goto USE_HELPER_FOR_ARITH;
             }
+
+#if USE_HELPERS_FOR_INT_DIV
+            if (typ == TYP_INT)
+            {
+                helper = CORINFO_HELP_MOD;
+                goto USE_HELPER_FOR_ARITH;
+            }
+#endif
+#endif // !TARGET_64BIT
+
             goto COMMON_REM;
 
         case GT_UREM:
@@ -1909,31 +1921,31 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     break;
                 }
             }
-        COMMON_REM:
+
+#ifdef TARGET_X86
+            if (op2->IsLngCon() && op2->AsLngCon()->HasRange(2, 0x3fffffff) && opts.OptimizationEnabled())
+            {
+                break;
+            }
+#endif
+
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-#ifdef TARGET_X86
-                if ((oper == GT_UREM) && op2->IsLngCon() && opts.OptimizationEnabled() &&
-                    op2->AsLngCon()->HasRange(2, 0x3fffffff))
-                {
-                    break;
-                }
-#endif
-
-                helper = oper == GT_UREM ? CORINFO_HELP_ULMOD : CORINFO_HELP_LMOD;
+                helper = CORINFO_HELP_ULMOD;
                 goto USE_HELPER_FOR_ARITH;
             }
 
 #if USE_HELPERS_FOR_INT_DIV
             if (typ == TYP_INT)
             {
-                helper = oper == GT_UREM ? CORINFO_HELP_UMOD : CORINFO_HELP_MOD;
+                helper = CORINFO_HELP_UMOD;
                 goto USE_HELPER_FOR_ARITH;
             }
 #endif
 #endif // !TARGET_64BIT
 
+        COMMON_REM:
 #ifdef TARGET_ARM64
             assert(!csePhase);
 
