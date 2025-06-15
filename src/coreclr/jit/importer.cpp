@@ -9430,15 +9430,9 @@ void Importer::impImportBlockCode(BasicBlock* block)
 
                 if (varTypeIsFloating(type))
                 {
-                    assert(!GenTree::IsOverflowOp(oper));
+                    assert((GT_ADD <= oper) && (oper <= GT_SREM));
                     oper = static_cast<genTreeOps>(oper - (GT_ADD - GT_FADD));
-
-                    op1 = new (comp, oper == GT_FREM ? GT_CALL : oper) GenTreeOp(oper, type, op1, op2);
-
-                    if (oper == GT_FREM)
-                    {
-                        INDEBUG(op1->gtDebugFlags |= GTF_DEBUG_NODE_LARGE);
-                    }
+                    op1  = new (comp, oper) GenTreeOp(oper, type, op1, op2);
                 }
                 else if ((op2->IsIntegralConst(0) && (oper == GT_ADD || oper == GT_OVF_SADD || oper == GT_OVF_UADD ||
                                                       oper == GT_SUB || oper == GT_OVF_SSUB || oper == GT_OVF_USUB)) ||

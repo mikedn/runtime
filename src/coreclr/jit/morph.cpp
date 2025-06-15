@@ -3575,9 +3575,11 @@ REMORPH_POST:
 
             helper = op1->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTREM : CORINFO_HELP_DBLREM;
 
-            call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
+            call = gtNewHelperCallNode(helper, typ, gtNewCallArgs(op1, op2));
             moInitCallnfo(call);
             moSetupCallArgs(call);
+            INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+
             return call;
 
         default:
