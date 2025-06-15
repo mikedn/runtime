@@ -1812,7 +1812,17 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 if (c2->GetValue() == (typ == TYP_INT ? INT32_MIN : INT64_MIN))
                 {
-                    tree->SetOper(GT_EQ, GenTree::PRESERVE_VN);
+                    if (typ == TYP_LONG)
+                    {
+                        op1 = gtNewOperNode(GT_EQ, TYP_INT, op1, op2);
+                        op2 = nullptr;
+                        tree->SetOper(GT_UXT, GenTree::PRESERVE_VN);
+                        tree->AsOp()->SetOp(0, op1);
+                    }
+                    else
+                    {
+                        tree->SetOper(GT_EQ, GenTree::PRESERVE_VN);
+                    }
                     break;
                 }
 
@@ -1864,8 +1874,19 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
                 if (divisorValue > (typ == TYP_LONG ? (UINT64_MAX / 2) : (UINT32_MAX / 2)))
                 {
-                    tree->SetOper(GT_GE, GenTree::PRESERVE_VN);
-                    tree->SetRelopUnsigned(true);
+                    if (typ == TYP_LONG)
+                    {
+                        op1 = gtNewOperNode(GT_GE, TYP_INT, op1, op2);
+                        op1->SetRelopUnsigned(true);
+                        op2 = nullptr;
+                        tree->SetOper(GT_UXT, GenTree::PRESERVE_VN);
+                        tree->AsOp()->SetOp(0, op1);
+                    }
+                    else
+                    {
+                        tree->SetOper(GT_GE, GenTree::PRESERVE_VN);
+                        tree->SetRelopUnsigned(true);
+                    }
                     break;
                 }
             }
@@ -3760,6 +3781,10 @@ GenTree* Compiler::moMorphNormalizeLclStore(GenTreeLclStore* store, GenTree* val
 //
 GenTree* Compiler::moMorphRemToSubMulDiv(GenTreeOp* tree)
 {
+    var_types type        = tree->GetType();
+    GenTree*  denominator = tree->GetOp(1);
+    GenTree*  numerator   = tree->GetOp(0);
+
     if (tree->OperIs(GT_SREM))
     {
         tree->SetOper(GT_SDIV);
@@ -3770,9 +3795,10 @@ GenTree* Compiler::moMorphRemToSubMulDiv(GenTreeOp* tree)
         tree->SetOper(GT_UDIV);
     }
 
-    var_types type        = tree->GetType();
-    GenTree*  denominator = tree->GetOp(1);
-    GenTree*  numerator   = tree->GetOp(0);
+    if (denominator->IsIntegralConst(0))
+    {
+        return tree;
+    }
 
     if (!numerator->OperIsLeaf())
     {
@@ -3790,7 +3816,6 @@ GenTree* Compiler::moMorphRemToSubMulDiv(GenTreeOp* tree)
     // That is, the "mul" will be evaluated in "normal" order, and the "sub" must
     // be set to be evaluated in reverse order.
     GenTree* mul = gtNewOperNode(GT_MUL, type, tree, gtCloneExpr(denominator));
-    assert(!mul->IsReverseOps());
     GenTree* sub = gtNewOperNode(GT_SUB, type, gtCloneExpr(numerator), mul);
     sub->SetReverseOps(true);
     INDEBUG(sub->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
