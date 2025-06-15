@@ -1590,7 +1590,9 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
     switch (oper)
     {
+#ifndef TARGET_64BIT
         CorInfoHelpFunc helper;
+#endif
 
         case GT_LCL_STORE:
             if (moGlobalMorph)
@@ -1740,8 +1742,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
         case GT_MUL:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
-            noway_assert(op2 != nullptr);
-
             if (op1->IsIntConCommon() && !op2->IsIntConCommon())
             {
                 std::swap(op1, op2);
@@ -1763,7 +1763,8 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 #ifndef TARGET_64BIT
             if (typ == TYP_LONG)
             {
-                MulLongCandidateKind kind = moMorphIsMulLongCandidate(tree->AsOp());
+                MulLongCandidateKind kind;
+                kind = moMorphIsMulLongCandidate(tree->AsOp());
 
                 if (kind != MulLongCandidateKind::None)
                 {
@@ -1783,7 +1784,24 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                     helper = CORINFO_HELP_LMUL;
                 }
 
-                goto USE_HELPER_FOR_ARITH;
+            USE_HELPER_FOR_ARITH:
+                assert(tree->OperIsBinary());
+
+                GenTree* oldTree = tree;
+
+                tree = gtFoldExpr(tree);
+
+                if (tree->OperIsLeaf() || (oldTree != tree))
+                {
+                    return oldTree != tree ? moMorphTree(tree) : moMorphLeaf(tree);
+                }
+
+                GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
+                moInitCallnfo(call);
+                moMorphCallArgs(call);
+                moSetupCallArgs(call);
+
+                return call;
             }
 #endif // !TARGET_64BIT
             break;
@@ -1905,7 +1923,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 goto USE_HELPER_FOR_ARITH;
             }
 #endif
-#endif // TARGET_64BIT
+#endif // !TARGET_64BIT
             break;
 
         case GT_SREM:
@@ -2011,47 +2029,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
             }
             break;
-
-        case GT_FREM:
-            assert((op1->GetType() == tree->GetType()) && (op2->GetType() == tree->GetType()));
-            assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
-
-            helper = op1->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTREM : CORINFO_HELP_DBLREM;
-
-#ifndef TARGET_64BIT
-        USE_HELPER_FOR_ARITH:
-#endif
-        {
-            noway_assert(tree->OperIsBinary());
-
-            GenTree* oldTree = tree;
-
-            // Try to constant fold before changing to a helper call,
-            // since helper calls are not currently constant folded.
-            tree = gtFoldExpr(tree);
-
-            // Were we able to fold it ?
-            // Note that gtFoldExpr may return a non-leaf even if successful
-            // e.g. for something like "expr / 1" - see also bug #290853
-            if (tree->OperIsLeaf() || (oldTree != tree))
-            {
-                return oldTree != tree ? moMorphTree(tree) : moMorphLeaf(tree);
-            }
-
-            // Did we fold it into a comma node with throw?
-            if (tree->OperIs(GT_COMMA))
-            {
-                noway_assert(moIsCommaThrow(tree DEBUGARG(false)));
-                return moMorphTree(tree);
-            }
-
-            GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
-            moInitCallnfo(call);
-            moMorphCallArgs(call);
-            moSetupCallArgs(call);
-
-            return call;
-        }
 
         case GT_RETURN:
             if (moGlobalMorph && varTypeIsSmall(info.compRetType) && gtIsSmallIntCastNeeded(op1, info.compRetType))
@@ -3590,6 +3567,17 @@ REMORPH_POST:
             moSetupCallArgs(call);
             INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
+            return call;
+
+        case GT_FREM:
+            assert((op1->GetType() == tree->GetType()) && (op2->GetType() == tree->GetType()));
+            assert(tree->TypeIs(TYP_FLOAT, TYP_DOUBLE));
+
+            helper = op1->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTREM : CORINFO_HELP_DBLREM;
+
+            call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
+            moInitCallnfo(call);
+            moSetupCallArgs(call);
             return call;
 
         default:
