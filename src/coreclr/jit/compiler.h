@@ -2317,7 +2317,6 @@ public:
     void gtChangeOperToNullCheck(GenTree* tree);
     bool gtIsRecursiveCall(GenTreeCall* call);
     bool gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle);
-    GenTree* gtFoldTypeCompare(GenTree* tree);
     GenTree* gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2);
     GenTree* gtOptimizeEnumHasFlag(GenTree* thisOp, GenTree* flagOp);
     CORINFO_CLASS_HANDLE gtGetHelperArgClassHandle(GenTree* array);

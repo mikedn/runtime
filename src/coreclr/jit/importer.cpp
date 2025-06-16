@@ -2924,7 +2924,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
                 impPopStack();
                 impPopStack();
 
-                optTree = gtFoldTypeCompare(optTree);
+                optTree = comp->gtFoldTypeCompare(optTree);
                 optTree = gtFoldExpr(optTree);
 
                 return optTree;
@@ -16925,11 +16925,6 @@ bool Importer::gtIsRecursiveCall(GenTreeCall* call)
 bool Importer::gtIsRecursiveCall(CORINFO_METHOD_HANDLE callMethodHandle)
 {
     return comp->gtIsRecursiveCall(callMethodHandle);
-}
-
-GenTree* Importer::gtFoldTypeCompare(GenTree* tree)
-{
-    return comp->gtFoldTypeCompare(tree);
 }
 
 GenTree* Importer::gtFoldTypeEqualityCall(bool isEq, GenTree* op1, GenTree* op2)

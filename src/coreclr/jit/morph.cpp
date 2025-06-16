@@ -1607,18 +1607,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
-        case GT_JTRUE:
-            if (op1->OperIsRelop())
-            {
-                op1->gtFlags |= GTF_DONT_CSE;
-            }
-            else
-            {
-                GenTree* effOp1 = op1->gtEffectiveVal();
-                noway_assert(effOp1->IsIntCon(0) || effOp1->IsIntCon(1));
-            }
-            break;
-
         case GT_IND_STORE:
         case GT_IND_STORE_OBJ:
             if (op1->OperIs(GT_LCL_ADDR) && !tree->AsIndir()->IsVolatile())
@@ -1739,6 +1727,17 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
             }
             break;
 
+        case GT_ARR_LENGTH:
+            if (GenTreeStrCon* str = op1->IsStrCon())
+            {
+                if (GenTreeIntCon* iconNode = gtNewStringLiteralLength(str))
+                {
+                    INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
+                    return iconNode;
+                }
+            }
+            break;
+
         case GT_MUL:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
@@ -1804,17 +1803,6 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 return call;
             }
 #endif // !TARGET_64BIT
-            break;
-
-        case GT_ARR_LENGTH:
-            if (GenTreeStrCon* str = op1->IsStrCon())
-            {
-                if (GenTreeIntCon* iconNode = gtNewStringLiteralLength(str))
-                {
-                    INDEBUG(iconNode->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
-                    return iconNode;
-                }
-            }
             break;
 
         case GT_SDIV:
@@ -2073,6 +2061,18 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
 
             break;
         }
+
+        case GT_JTRUE:
+            if (op1->OperIsRelop())
+            {
+                op1->gtFlags |= GTF_DONT_CSE;
+            }
+            else
+            {
+                GenTree* effOp1 = op1->gtEffectiveVal();
+                noway_assert(effOp1->IsIntCon(0) || effOp1->IsIntCon(1));
+            }
+            break;
 
         case GT_RUNTIMELOOKUP:
             return moMorphTree(op1);

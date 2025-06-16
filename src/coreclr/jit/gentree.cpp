@@ -7661,16 +7661,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetHelperArgClassHandle(GenTree* tree)
     return NO_CLASS_HANDLE;
 }
 
-//------------------------------------------------------------------------
-// gtFoldExprSpecial -- optimize binary ops with one constant operand
-//
-// Arguments:
-//   tree - tree to optimize
-//
-// Return value:
-//   Tree (possibly modified at root or below), or a new tree
-//   Any new tree is fully morphed, if necessary.
-//
+// Optimize binary ops with one constant operand
 GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
 {
     assert(tree->OperIsBinary());
@@ -7681,7 +7672,7 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
 
     assert(op1->OperIsConst() ^ op2->OperIsConst());
 
-    // We only consider TYP_INT for folding
+    // We only consider INT for folding
     // Do not fold pointer arithmetic (e.g. addressing modes!)
 
     if (!varTypeIsIntOrI(tree->GetType()))
@@ -7722,9 +7713,6 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
         return icon;
     };
 
-    // Here `op` is the non-constant operand, `cons` is the constant operand
-    // and `val` is the constant value.
-
     switch (oper)
     {
         case GT_LE:
@@ -7764,69 +7752,58 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             FALLTHROUGH;
         case GT_EQ:
         case GT_NE:
-
-            // Optimize boxed value classes; these are always false.  This IL is
-            // generated when a generic value is tested against null:
+            // Optimize boxed value classes; these are always false. This IL
+            // is generated when a generic value is tested against null:
             //     <T> ... foo(T x) { ... if ((object)x == null) ...
-            if ((val == 0) && op->IsBox())
-            {
-                JITDUMP("\nAttempting to optimize BOX(valueType) %s null [%06u]\n", GenTree::OpName(oper),
-                        tree->GetID());
 
-                // We don't expect GT_GT with signed compares, and we
-                // can't predict the result if we do see it, since the
-                // boxed object addr could have its high bit set.
-                if ((oper == GT_GT) && !tree->IsRelopUnsigned())
-                {
-                    JITDUMP(" bailing; unexpected signed compare via GT_GT\n");
-                }
-                else
-                {
-                    // The tree under the box must be side effect free
-                    // since we will drop it if we optimize.
-                    assert(!gtTreeHasSideEffects(op->AsBox()->GetOp(0), GTF_SIDE_EFFECT));
-
-                    // See if we can optimize away the box and related statements.
-                    GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox(), BR_REMOVE_AND_NARROW);
-                    bool     didOptimize   = (boxSourceTree != nullptr);
-
-                    // If optimization succeeded, remove the box.
-                    if (didOptimize)
-                    {
-                        // Set up the result of the compare.
-                        int compareResult = 0;
-                        if (oper == GT_GT)
-                        {
-                            // GT_GT(null, box) == false
-                            // GT_GT(box, null) == true
-                            compareResult = (op1 == op);
-                        }
-                        else if (oper == GT_EQ)
-                        {
-                            // GT_EQ(box, null) == false
-                            // GT_EQ(null, box) == false
-                            compareResult = 0;
-                        }
-                        else
-                        {
-                            assert(oper == GT_NE);
-                            // GT_NE(box, null) == true
-                            // GT_NE(null, box) == true
-                            compareResult = 1;
-                        }
-
-                        JITDUMP("\nSuccess: replacing BOX(valueType) %s null with %d\n", GenTree::OpName(oper),
-                                compareResult);
-
-                        return NewMorphedIntConNode(compareResult);
-                    }
-                }
-            }
-            else
+            if ((val != 0) || !op->IsBox())
             {
                 return gtFoldBoxNullable(tree);
             }
 
+            JITDUMP("\nAttempting to optimize BOX(valueType) %s null [%06u]\n", GenTree::OpName(oper), tree->GetID());
+
+            // We don't expect GT_GT with signed compares, and we
+            // can't predict the result if we do see it, since the
+            // boxed object addr could have its high bit set.
+            if ((oper == GT_GT) && !tree->IsRelopUnsigned())
+            {
+                JITDUMP(" bailing; UGT compare\n");
+                break;
+            }
+
+            // The tree under the box must be side effect free
+            // since we will drop it if we optimize.
+            assert(!gtTreeHasSideEffects(op->AsBox()->GetOp(0), GTF_SIDE_EFFECT));
+
+            if (GenTree* boxSourceTree = gtTryRemoveBoxUpstreamEffects(op->AsBox(), BR_REMOVE_AND_NARROW))
+            {
+                int result = 0;
+
+                if (oper == GT_GT)
+                {
+                    // GT(null, box) == false
+                    // GT(box, null) == true
+                    result = (op1 == op);
+                }
+                else if (oper == GT_EQ)
+                {
+                    // EQ(box, null) == false
+                    // EQ(null, box) == false
+                    result = 0;
+                }
+                else
+                {
+                    assert(oper == GT_NE);
+                    // NE(box, null) == true
+                    // NE(null, box) == true
+                    result = 1;
+                }
+
+                JITDUMP("\nSuccess: replacing BOX(valueType) %s null with %d\n", GenTree::OpName(oper), result);
+
+                return NewMorphedIntConNode(result);
+            }
             break;
 
         case GT_ADD:
@@ -7945,8 +7922,6 @@ GenTree* Compiler::gtFoldExprSpecial(GenTreeOp* tree)
             break;
     }
 
-    /* The node is not foldable */
-
     return tree;
 
 DONE_FOLD:
@@ -7956,16 +7931,6 @@ DONE_FOLD:
     return op;
 }
 
-//------------------------------------------------------------------------
-// gtFoldBoxNullable -- optimize a boxed nullable feeding a compare to zero
-//
-// Arguments:
-//   tree - binop tree to potentially optimize, must be
-//          GT_GT, GT_EQ, or GT_NE
-//
-// Return value:
-//   Tree (possibly modified below the root).
-//
 GenTree* Compiler::gtFoldBoxNullable(GenTree* tree)
 {
     assert(tree->OperIs(GT_GT, GT_EQ, GT_NE));
