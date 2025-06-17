@@ -164,7 +164,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
-    if (src->IsIntegralConst(0) && (putArg->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
     {
 #ifdef TARGET_ARM64
         assert(putArg->GetArgSize() == 16);
@@ -173,7 +173,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR,
                                       GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 #else
-        regNumber srcReg = src->GetRegNum();
+        RegNum srcReg = src->GetRegNum();
 
         for (unsigned offset = 0; offset < putArg->GetArgSize(); offset += REGSIZE_BYTES)
         {
@@ -195,7 +195,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 #ifdef TARGET_ARM64
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
         assert(storeIns == INS_str);
         srcReg = REG_ZR;
     }
@@ -446,7 +446,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
-    if (src->IsIntegralConst(0))
+    if (src->IsIntCon(0))
     {
         regNumber srcReg = src->GetRegNum();
 
@@ -455,7 +455,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
         for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
         {
-            // We can't write beyound the outgoing area area
+            // We can't write beyond the outgoing area area
             assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
 
             GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
@@ -869,7 +869,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
     if (src->OperIs(GT_CNS_INT))
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntCon(0));
 
         return size > INITBLK_UNROLL_LIMIT ? StructStoreKind::LargeInit : StructStoreKind::UnrollInit;
     }
@@ -1006,7 +1006,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     else
     {
 #ifdef TARGET_ARM64
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntCon(0));
         srcReg = REG_ZR;
 #else
         unreached();

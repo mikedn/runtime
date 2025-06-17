@@ -137,7 +137,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             {
                 GenTree* node = use.GetNode();
 
-                if (node->IsIntegralConst(0) || node->IsDblConPositiveZero())
+                if (node->IsIntCon(0) || node->IsDblConPositiveZero())
                 {
                     node->SetContained();
                 }
@@ -160,7 +160,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef TARGET_ARM64
-    if (src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
     {
         assert(comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()));
         assert(putArgStk->GetSlotCount() == 2);
@@ -170,7 +170,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    if (src->IsIntegralConst(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
+    if (src->IsIntCon(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
     {
         ClassLayout* layout = comp->typGetLayoutByNum(putArgStk->GetArgInfo()->GetSigTypeNum());
         assert(layout->GetSize() <= REGSIZE_BYTES);
@@ -183,7 +183,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero())
+    if (src->IsIntCon(0) || src->IsDblConPositiveZero())
     {
         src->SetContained();
     }
@@ -666,7 +666,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
 {
     GenTree* op = node->GetOp(0);
 
-    if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
+    if (op->IsDblConPositiveZero() || op->IsIntCon(0))
     {
         BlockRange().Unlink(op);
 
@@ -716,7 +716,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
         // Zero extending might be best as uxtb/h is faster than ins and we may get it for
         // free (e.g. if the operand is an indir or constant).
 
-        if (op->IsDblConPositiveZero() || (!varTypeIsSmall(eltType) && op->IsIntegralConst(0)))
+        if (op->IsDblConPositiveZero() || (!varTypeIsSmall(eltType) && op->IsIntCon(0)))
         {
             BlockRange().Unlink(op);
         }
@@ -1003,7 +1003,7 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
             ContainSIMD12MemToMemCopy(store, value);
         }
     }
-    else if (value->IsIntegralConst(0) || value->IsDblConPositiveZero())
+    else if (value->IsIntCon(0) || value->IsDblConPositiveZero())
     {
         value->SetContained();
     }
@@ -1071,7 +1071,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     GenTree* src = store->GetOp(0);
 
 #ifdef TARGET_ARM64
-    if (src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
+    if (src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
     {
         src->SetContained();
         return;
@@ -1097,7 +1097,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     // by zeroing a register and then storing it.
     var_types type = store->GetLcl()->GetRegisterType(store);
 
-    if (IsImmOperand(src, store) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsImmOperand(src, store) && (!src->IsIntCon(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
     }
@@ -1178,7 +1178,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     GenTree* value = node->GetOp(2);
 
-                    if (value->IsIntegralConst(0) || value->IsDblConPositiveZero())
+                    if (value->IsIntCon(0) || value->IsDblConPositiveZero())
                     {
                         value->SetContained();
                     }

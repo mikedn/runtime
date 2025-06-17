@@ -1876,7 +1876,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
             std::swap(loSrc1, loSrc2);
         }
 
-        if (loSrc2->IsIntegralConst(0))
+        if (loSrc2->IsIntCon(0))
         {
             BlockRange().Unlink(loSrc2);
             loCmp = loSrc1;
@@ -1893,7 +1893,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
             std::swap(hiSrc1, hiSrc2);
         }
 
-        if (hiSrc2->IsIntegralConst(0))
+        if (hiSrc2->IsIntCon(0))
         {
             BlockRange().Unlink(hiSrc2);
             hiCmp = hiSrc1;
@@ -1968,7 +1968,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 
         assert((condition == GT_LT) || (condition == GT_GE));
 
-        if (loSrc2->IsIntegralConst(0))
+        if (loSrc2->IsIntCon(0))
         {
             BlockRange().Unlink(loSrc2);
 
@@ -2257,7 +2257,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
 
             if (GenTreeHWIntrinsic* extract = use.GetNode()->IsHWIntrinsic())
             {
-                if ((extract->GetIntrinsic() == NI_Vector128_GetElement) && extract->GetOp(1)->IsIntegralConst(0) &&
+                if ((extract->GetIntrinsic() == NI_Vector128_GetElement) && extract->GetOp(1)->IsIntCon(0) &&
                     varTypeUsesFloatReg(extract->GetType()) && varTypeUsesFloatReg(extract->GetOp(0)->GetType()))
                 {
                     GenTree* vec = extract->GetOp(0);
@@ -3479,7 +3479,7 @@ GenTree* Lowering::LowerAdd(GenTreeOp* node)
     // It is not the best place to do such simple arithmetic optimizations,
     // but it allows us to avoid `LEA(addr, 0)` nodes and doing that in morph
     // requires more changes. Delete that part if we get an expression optimizer.
-    if (op2->IsIntegralConst(0))
+    if (op2->IsIntCon(0))
     {
         JITDUMPLIRNODE(node, "Lower: optimize val + 0: ");
         JITDUMPLIRNODE(op1, "Replaced with: ");
@@ -4755,7 +4755,7 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
 
     GenTree* src = store->GetValue();
 
-    if (varTypeIsSmall(regType) && !src->IsIntegralConst(0))
+    if (varTypeIsSmall(regType) && !src->IsIntCon(0))
     {
         // source operand INDIR will use a widening instruction
         // and generate worse code, like `movzx` instead of `mov`
@@ -4779,7 +4779,7 @@ bool Lowering::TryTransformStoreObjToStoreInd(GenTreeIndStoreObj* store)
     }
     else
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntCon(0));
 
         src->SetType(varActualType(regType));
     }

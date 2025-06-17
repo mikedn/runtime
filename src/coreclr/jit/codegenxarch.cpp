@@ -2162,7 +2162,7 @@ StructStoreKind GetStructStoreKind(bool isLocalStore, ClassLayout* layout, GenTr
 
     if (src->OperIs(GT_CNS_INT))
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntCon(0));
 
         return size > INITBLK_UNROLL_LIMIT ? StructStoreKind::LargeInit : StructStoreKind::UnrollInit;
     }
@@ -2356,11 +2356,11 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if (!src->isContained())
     {
-        srcIntReg = genConsumeReg(src);
+        srcIntReg = UseReg(src);
     }
     else
     {
-        assert(src->IsIntegralConst(0));
+        assert(src->IsIntCon(0));
     }
 
     emitter* emit = GetEmitter();
@@ -2394,9 +2394,9 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 #endif
             )
     {
-        regNumber srcXmmReg = store->GetSingleTempReg(RBM_ALLFLOAT);
+        RegNum srcXmmReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
-        if (src->gtSkipReloadOrCopy()->IsIntegralConst(0))
+        if (src->gtSkipReloadOrCopy()->IsIntCon(0))
         {
             // If the source is constant 0 then always use xorps, it's faster
             // than copying the constant from a GPR to a XMM register.
@@ -3156,7 +3156,7 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
     UseRMRegs(arrIndex);
     UseRMRegs(arrLen);
 
-    if (arrIndex->IsIntegralConst(0) && arrLen->isUsedFromReg())
+    if (arrIndex->IsIntCon(0) && arrLen->isUsedFromReg())
     {
         // arrIndex is 0 and arrLen is in a reg. In this case
         // we can generate
@@ -3453,8 +3453,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     // potentially handle this in the register allocator, but we can't always catch it there
     // because the target may not have a register allocated for it yet.
 
-    if (src->isUsedFromReg() && (src->GetRegNum() != dstReg) &&
-        (src->IsIntegralConst(0) || src->IsDblConPositiveZero()))
+    if (src->isUsedFromReg() && (src->GetRegNum() != dstReg) && (src->IsIntCon(0) || src->IsDblConPositiveZero()))
     {
         UseReg(src);
         src->ClearRegNum();
@@ -4922,7 +4921,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 
         ins = INS_test;
     }
-    else if (op1->isUsedFromReg() && op2->IsIntegralConst(0))
+    else if (op1->isUsedFromReg() && op2->IsIntCon(0))
     {
         if (compiler->opts.OptimizationEnabled())
         {
@@ -6042,7 +6041,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef WINDOWS_AMD64_ABI
     assert(putArgStk->GetSlotCount() == 1);
 #else
-    if (src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {

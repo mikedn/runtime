@@ -2275,7 +2275,7 @@ GenTree* Importer::ImportInitializeArrayIntrinsic(CORINFO_SIG_INFO* sig)
                     assert(Match::IsArgsFieldInit(lowerBoundStore, argIndex, newObjArrayArgsLcl));
                     GenTree* lowerBoundNode = lowerBoundStore->AsLclStoreFld()->GetValue();
 
-                    if (lowerBoundNode->IsIntegralConst(0))
+                    if (lowerBoundNode->IsIntCon(0))
                     {
                         isMDArray = false;
                     }
@@ -10965,8 +10965,8 @@ void Importer::ImportLocAlloc(BasicBlock* block)
         // site is not in a loop.
         if (compIsForInlining())
         {
-            InlineObservation obs = op2->IsIntegralConst() ? InlineObservation::CALLEE_LOCALLOC_TOO_LARGE
-                                                           : InlineObservation::CALLSITE_LOCALLOC_SIZE_UNKNOWN;
+            InlineObservation obs = op2->IsIntCon() ? InlineObservation::CALLEE_LOCALLOC_TOO_LARGE
+                                                    : InlineObservation::CALLSITE_LOCALLOC_SIZE_UNKNOWN;
             compInlineResult->NoteFatal(obs);
             return;
         }
@@ -15764,7 +15764,7 @@ void Importer::impImportInitBlk(unsigned prefixFlags)
     }
     else
     {
-        if (!initValue->IsIntegralConst(0))
+        if (!initValue->IsIntCon(0))
         {
             initValue = comp->gtNewOperNode(GT_INIT_VAL, TYP_STRUCT, initValue);
         }

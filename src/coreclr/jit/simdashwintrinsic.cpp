@@ -848,7 +848,7 @@ GenTree* Importer::impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
     assert(array->TypeIs(TYP_REF));
     assert((index == nullptr) || (varActualType(index->GetType()) == TYP_INT));
 
-    if ((index != nullptr) && index->IsIntegralConst(0))
+    if ((index != nullptr) && index->IsIntCon(0))
     {
         index = nullptr;
     }
@@ -3364,7 +3364,7 @@ LclVarDsc* SIMDCoalescingBuffer::IsSimdLocalExtract(GenTree* node) const
     if (GenTreeHWIntrinsic* extract = node->IsHWIntrinsic())
     {
         if ((extract->GetIntrinsic() != NI_Vector128_GetElement) || !extract->GetOp(0)->OperIs(GT_LCL_LOAD) ||
-            !extract->GetOp(1)->IsIntegralConst(m_index))
+            !extract->GetOp(1)->IsIntCon(m_index))
         {
             return nullptr;
         }

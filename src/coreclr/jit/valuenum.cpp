@@ -3079,7 +3079,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
         {
             if (value->OperIs(GT_CNS_INT))
             {
-                assert(value->IsIntegralConst(0));
+                assert(value->IsIntCon(0));
                 return vnStore->VNZeroForType(fieldType);
             }
 
@@ -3388,7 +3388,7 @@ void ValueNumbering::NumberLclDef(GenTreeLclDef* def)
         }
         else if (value->OperIs(GT_CNS_INT))
         {
-            assert(value->IsIntegralConst(0));
+            assert(value->IsIntCon(0));
             valueVNP.SetBoth(vnStore->ZeroMapVN());
         }
         else

@@ -176,7 +176,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
 
                 tree->RemoveSideEffects(GTF_CALL);
 
-                if (!tree->AsDynBlk()->GetSize()->IsIntegralConst(0))
+                if (!tree->AsDynBlk()->GetSize()->IsIntCon(0))
                 {
                     tree->AddSideEffects(GTF_EXCEPT);
                 }
@@ -2269,7 +2269,7 @@ REMORPH_POST:
             return tree;
 
         case GT_INIT_VAL:
-            if (op1->IsIntegralConst(0))
+            if (op1->IsIntCon(0))
             {
                 tree = op1;
             }
@@ -4284,7 +4284,7 @@ GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 {
 #ifdef TARGET_AMD64
     if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
-        tree->GetOp(1)->IsIntegralConst(0))
+        tree->GetOp(1)->IsIntCon(0))
     {
         if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
         {
@@ -6289,7 +6289,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
 #if FEATURE_MULTIREG_RET
     if (info.retDesc.GetRegCount() > 1)
     {
-        assert(varTypeIsStruct(val->GetType()) || val->IsIntegralConst(0));
+        assert(varTypeIsStruct(val->GetType()) || val->IsIntCon(0));
 
         ArrayStack<GenTreeOp*> commas(getAllocator(CMK_ArrayStack));
 
@@ -6399,7 +6399,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
     }
 #endif // FEATURE_MULTIREG_RET
 
-    if (val->IsIntegralConst(0))
+    if (val->IsIntCon(0))
     {
         var_types regType = varActualType(info.retDesc.GetRegType(0));
 
@@ -7370,7 +7370,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(argInfo->GetRegCount() != 0);
 
-    if (arg->IsIntegralConst(0))
+    if (arg->IsIntCon(0))
     {
         if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
         {
@@ -10246,7 +10246,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
     {
         GenTree* value = call->GetArgNodeByArgNum(2);
 
-        if (value->IsIntegralConst(0))
+        if (value->IsIntCon(0))
         {
             return moRemoveArrayStoreHelperCall(call, value);
         }
@@ -10317,7 +10317,7 @@ GenTree* Compiler::moRemoveArrayStoreHelperCall(GenTreeCall* call, GenTree* valu
 
     GenTree* result;
 
-    if (arr->IsIntegralConst(0))
+    if (arr->IsIntCon(0))
     {
         result = gtNewIndLoad(TYP_I_IMPL, arr);
     }
@@ -10467,7 +10467,7 @@ GenTree* Compiler::moMorphStructInit(GenTree* store, GenTree* value)
 
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
     assert(varTypeIsStruct(store->GetType()));
-    assert(value->OperIs(GT_INIT_VAL) || value->IsIntegralConst(0));
+    assert(value->OperIs(GT_INIT_VAL) || value->IsIntCon(0));
 
     if (store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
     {
@@ -11004,12 +11004,12 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
                 {
                     unsigned expectedShiftImm = (4 - dstLcl->GetPromotedFieldCount()) * 4;
 
-                    if (hwi->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                    if (hwi->GetOp(1)->IsIntCon(expectedShiftImm))
                     {
                         if (GenTreeHWIntrinsic* shl = hwi->GetOp(0)->IsHWIntrinsic())
                         {
                             if ((shl->GetIntrinsic() == NI_SSE2_ShiftLeftLogical128BitLane) &&
-                                shl->GetOp(1)->IsIntegralConst(expectedShiftImm))
+                                shl->GetOp(1)->IsIntCon(expectedShiftImm))
                             {
                                 src = shl->GetOp(0);
                             }
@@ -11103,7 +11103,7 @@ GenTree* Compiler::moMorphDynBlk(GenTreeDynBlk* dynBlk)
             src->AsBlk()->SetVolatile();
         }
     }
-    else if (!src->IsIntegralConst(0))
+    else if (!src->IsIntCon(0))
     {
         src = gtNewOperNode(GT_INIT_VAL, TYP_INT, src);
     }

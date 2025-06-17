@@ -4913,7 +4913,7 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
 #ifdef TARGET_ARM64
         if (src->isContained())
         {
-            assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero());
+            assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
             srcReg = REG_ZR;
         }
         else

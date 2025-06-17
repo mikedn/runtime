@@ -1883,7 +1883,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
             }
             else
             {
-                assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+                assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
                 srcReg = REG_ZR;
             }
@@ -1960,7 +1960,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (src->isContained())
     {
-        assert(src->IsIntegralConst(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
         srcReg = REG_ZR;
     }
@@ -2451,7 +2451,7 @@ void CodeGen::GenDivRem(GenTreeOp* div)
     emitAttr attr = emitActualTypeSize(div->GetType());
     Emitter& emit = *GetEmitter();
 
-    if (divisor->IsIntegralConst(0))
+    if (divisor->IsIntCon(0))
     {
         genJumpToThrowHlpBlk(EJ_jmp, ThrowHelperKind::DivideByZero);
     }
@@ -2841,7 +2841,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (value->isContained())
     {
-        assert(value->IsIntegralConst(0) || value->IsDblConPositiveZero() || value->IsHWIntrinsicZero());
+        assert(value->IsIntCon(0) || value->IsDblConPositiveZero() || value->IsHWIntrinsicZero());
         assert(varTypeSize(type) <= REGSIZE_BYTES);
 
         valueReg = REG_ZR;
@@ -3029,7 +3029,7 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
         assert(type1 == type2);
 
         // TODO-MIKE-Review: This is nonsense...
-        if (op2->IsIntegralConst(0))
+        if (op2->IsIntCon(0))
         {
             assert(op2->isContained());
             emit->emitIns_R_F(INS_fcmp, attr, reg1, 0.0);
@@ -3208,7 +3208,7 @@ void CodeGen::GenJCmp(GenTreeOp* tree, BasicBlock* block)
     }
     else
     {
-        assert(op2->IsIntegralConst(0));
+        assert(op2->IsIntCon(0));
 
         instruction ins = ((tree->gtFlags & GTF_JCMP_EQ) != 0) ? INS_cbz : INS_cbnz;
 

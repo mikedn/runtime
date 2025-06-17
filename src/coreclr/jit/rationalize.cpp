@@ -133,7 +133,7 @@ GenTreeWalkResult Rationalizer::RewriteNode(GenTree** useEdge, GenTree* user)
             unsigned offset = node->AsArrLen()->GetLenOffs();
             GenTree* addr;
 
-            if (array->IsIntegralConst(0))
+            if (array->IsIntCon(0))
             {
                 // If the array is NULL, then we should get a NULL reference
                 // exception when computing its length.  We need to maintain

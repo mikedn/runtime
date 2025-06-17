@@ -1310,7 +1310,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef WINDOWS_AMD64_ABI
     assert(putArgStk->GetSlotCount() == 1);
 #else
-    if ((src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1)))
+    if ((src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1)))
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -1556,7 +1556,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(numOps == 2);
                 assert(op2->IsIntCon() || op1->isContained());
 
-                if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntegralConst(0))
+                if (varTypeIsFloating(baseType) && !op1->isContained() && op2->IsIntCon(0))
                 {
                     tgtPrefUse = BuildUse(op1);
                     buildUses  = false;

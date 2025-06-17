@@ -369,14 +369,14 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     assert(intrin.op2->isContained());
 
-                    if (intrin.op3->IsIntegralConst(0) || intrin.op3->IsDblConPositiveZero())
+                    if (intrin.op3->IsIntCon(0) || intrin.op3->IsDblConPositiveZero())
                     {
                         ssize_t imm = intrin.op2->AsIntCon()->GetValue();
                         emit.emitIns_R_R_I(INS_ins, emitSize, defReg, REG_ZR, imm, opt);
                     }
                     else
                     {
-                        assert(intrin.op2->IsIntegralConst(0));
+                        assert(intrin.op2->IsIntCon(0));
                         double imm = intrin.op3->AsDblCon()->GetValue();
                         emit.emitIns_R_F(INS_fmov, emitSize, defReg, imm, opt);
                     }

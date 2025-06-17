@@ -1269,7 +1269,7 @@ GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierForm(GenTreeIndStore* store)
 
 GCInfo::WriteBarrierForm GCInfo::GetWriteBarrierFormFromAddress(GenTree* addr)
 {
-    if (addr->IsIntegralConst(0))
+    if (addr->IsIntCon(0))
     {
         // If the address is null it doesn't need a write barrier. Other constants
         // typically need write barriers, usually they're GC statics.

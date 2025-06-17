@@ -534,7 +534,7 @@ private:
                 std::swap(op1, op2);
             }
 
-            if (op2->IsIntegralConst(0))
+            if (op2->IsIntCon(0))
             {
                 op1->ChangeToIntCon(TYP_I_IMPL, 1);
 

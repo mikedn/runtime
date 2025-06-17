@@ -4713,7 +4713,7 @@ bool GenTree::OperMayThrow(Compiler* comp) const
 
         case GT_COPY_BLK:
         case GT_INIT_BLK:
-            return !AsDynBlk()->GetSize()->IsIntegralConst(0);
+            return !AsDynBlk()->GetSize()->IsIntCon(0);
 
         case GT_FIELD_ADDR:
             return comp->gtAddrCouldBeNull(AsFieldAddr()->GetAddr());
@@ -8198,7 +8198,7 @@ GenTree* Compiler::gtTryRemoveBoxUpstreamEffects(GenTreeBox* box, BoxRemovalOpti
 
         GenTree* storeOffset = storeAddr->AsOp()->GetOp(1);
 
-        if (!storeOffset->IsIntegralConst(TARGET_POINTER_SIZE))
+        if (!storeOffset->IsIntCon(TARGET_POINTER_SIZE))
         {
             JITDUMPTREE(store, " bailing; unexpected store offset\n");
 
@@ -8989,7 +8989,7 @@ GenTree* Compiler::gtFoldExprConst(GenTree* tree)
         {
             if (op1->IsStrCon() || op2->IsStrCon())
             {
-                if (op2->IsIntegralConst(0))
+                if (op2->IsIntCon(0))
                 {
                     if (tree->OperIs(GT_EQ))
                     {

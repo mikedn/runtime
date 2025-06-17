@@ -705,7 +705,7 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     {
         RefPosition* use = BuildUse(vec);
 
-        if (varTypeIsFloating(node->GetType()) && index->IsIntegralConst(0))
+        if (varTypeIsFloating(node->GetType()) && index->IsIntCon(0))
         {
             tgtPrefUse = use;
         }

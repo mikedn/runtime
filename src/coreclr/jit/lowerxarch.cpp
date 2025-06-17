@@ -493,7 +493,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef WINDOWS_AMD64_ABI
     assert(putArgStk->GetSlotCount() == 1);
 #else
-    if (src->IsIntegralConst(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
     {
         assert(comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()));
 
@@ -511,7 +511,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef TARGET_64BIT
-    if (src->IsIntegralConst(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
+    if (src->IsIntCon(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
     {
         ClassLayout* layout = comp->typGetLayoutByNum(putArgStk->GetArgInfo()->GetSigTypeNum());
         assert(layout->GetSize() <= REGSIZE_BYTES);
@@ -542,7 +542,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     //      xor rdx, rdx
     //      push rdx
 
-    if (IsImmOperand(src, putArgStk) AMD64_ONLY(&&!src->IsIntegralConst(0)))
+    if (IsImmOperand(src, putArgStk) AMD64_ONLY(&&!src->IsIntCon(0)))
     {
         src->SetContained();
     }
@@ -883,7 +883,7 @@ GenTree* Lowering::LowerCompare(GenTreeOp* cmp)
     }
 #endif
 
-    if (cmp->GetOp(1)->IsIntegralConst() && comp->opts.OptimizationEnabled())
+    if (cmp->GetOp(1)->IsIntCon() && comp->opts.OptimizationEnabled())
     {
         GenTree* next = OptimizeConstCompare(cmp);
 
@@ -1392,9 +1392,8 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
     // The node following the relop sequence
     GenTree* next = first;
 
-    while ((next != nullptr) && next->IsIntegralConst(0) && (next->gtNext != nullptr) &&
-           next->gtNext->OperIs(GT_EQ, GT_NE) && (next->gtNext->AsOp()->GetOp(0) == relop) &&
-           (next->gtNext->AsOp()->GetOp(1) == next))
+    while ((next != nullptr) && next->IsIntCon(0) && (next->gtNext != nullptr) && next->gtNext->OperIs(GT_EQ, GT_NE) &&
+           (next->gtNext->AsOp()->GetOp(0) == relop) && (next->gtNext->AsOp()->GetOp(1) == next))
     {
         relop = next->gtNext;
         next  = relop->gtNext;
@@ -1966,7 +1965,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
     GenTree* op2 = op->AsOp()->GetOp(1);
     BlockRange().Unlink(op);
 
-    if (op1->IsIntegralConst(0) && op2->IsIntegralConst(0))
+    if (op1->IsIntCon(0) && op2->IsIntCon(0))
     {
         node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
         BlockRange().Unlink(op1);
@@ -1975,7 +1974,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
         return;
     }
 
-    if (op2->IsIntegralConst(0))
+    if (op2->IsIntCon(0))
     {
         node->SetIntrinsic(NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, 1);
         node->SetOp(0, op1);
@@ -1987,7 +1986,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
 
     GenTree* movd1;
 
-    if (op1->IsIntegralConst(0))
+    if (op1->IsIntCon(0))
     {
         movd1 = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_LONG);
         BlockRange().Unlink(op1);
@@ -2038,7 +2037,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     }
 #endif
 
-    if (op->IsDblConPositiveZero() || op->IsIntegralConst(0))
+    if (op->IsDblConPositiveZero() || op->IsIntCon(0))
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
@@ -2136,7 +2135,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
 
     auto ScalarToVector128 = [this](var_types eltType, GenTree* scalar) -> GenTree* {
-        if (scalar->IsIntegralConst(0) || scalar->IsDblConPositiveZero())
+        if (scalar->IsIntCon(0) || scalar->IsDblConPositiveZero())
         {
             scalar->ChangeOper(GT_HWINTRINSIC);
             scalar->SetType(TYP_SIMD16);
@@ -3764,7 +3763,7 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
     // and INT or LONG store of zero to memory, because we can generate smaller
     // code by zeroing a register and then storing it.
 
-    if (IsImmOperand(value, store) && (!value->IsIntegralConst(0) || varTypeIsSmall(store->GetType())))
+    if (IsImmOperand(value, store) && (!value->IsIntCon(0) || varTypeIsSmall(store->GetType())))
     {
         value->SetContained();
     }
@@ -3871,7 +3870,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
 
     var_types type = store->GetLcl()->GetRegisterType(store);
 
-    if (IsImmOperand(src, store) && (!src->IsIntegralConst(0) || varTypeIsSmall(type)))
+    if (IsImmOperand(src, store) && (!src->IsIntCon(0) || varTypeIsSmall(type)))
     {
         src->SetContained();
         return;
@@ -3880,9 +3879,9 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     if (src->OperIsRMWMemOp() && IsMemStore(store) && varTypeIsIntegral(store->GetType()) &&
         !src->HasImplicitFlagsDef() && !src->HasImplicitFlagsUse())
     {
-        // TODO-MIKE-CQ: This usually fails when address exposed small int LCL_VARs
+        // TODO-MIKE-CQ: This usually fails when address exposed small int LCL_LOADs
         // are involved due to useless casts. The load is hidden by a widening cast
-        // that's not really needed because LCL_VARs that load from memory do implicit
+        // that's not really needed because LCL_LOADs that load from memory do implicit
         // widening. There may also be a narrowing cast on stores to such locals, even
         // though it's not required due to load widening.
 
