@@ -33,7 +33,7 @@
 //  any inlining; thus inlinee profile data should be available and
 //  representative.
 //
-bool Compiler::fgHaveProfileData()
+bool Compiler::fgHaveProfileData() const
 {
     return fgPgoSchema != nullptr;
 }
@@ -48,7 +48,7 @@ bool Compiler::fgHaveProfileData()
 // Note:
 //   See notes for fgHaveProfileData.
 //
-bool Compiler::fgHaveSufficientProfileData()
+bool Compiler::fgHaveSufficientProfileData() const
 {
     if (!fgHaveProfileData())
     {
@@ -74,7 +74,7 @@ bool Compiler::fgHaveSufficientProfileData()
 // Note:
 //   See notes for fgHaveProfileData.
 //
-bool Compiler::fgHaveTrustedProfileData()
+bool Compiler::fgHaveTrustedProfileData() const
 {
     if (!fgHaveProfileData())
     {
@@ -274,11 +274,11 @@ class Instrumentor
 {
 protected:
     Compiler* m_comp;
-    unsigned  m_schemaCount;
-    unsigned  m_instrCount;
+    unsigned  m_schemaCount = 0;
+    unsigned  m_instrCount  = 0;
 
 protected:
-    Instrumentor(Compiler* comp) : m_comp(comp), m_schemaCount(0), m_instrCount(0)
+    Instrumentor(Compiler* comp) : m_comp(comp)
     {
     }
 
@@ -287,7 +287,10 @@ public:
     {
         return false;
     }
-    virtual void Prepare(bool preImport)
+    virtual void PreImport()
+    {
+    }
+    virtual void PostImport()
     {
     }
     virtual void BuildSchemaElements(BasicBlock* block, Schema& schema)
@@ -302,11 +305,13 @@ public:
     virtual void SuppressProbes()
     {
     }
-    unsigned SchemaCount()
+
+    unsigned SchemaCount() const
     {
         return m_schemaCount;
     }
-    unsigned InstrCount()
+
+    unsigned InstrCount() const
     {
         return m_instrCount;
     }
@@ -330,39 +335,31 @@ public:
 class BlockCountInstrumentor : public Instrumentor
 {
 private:
-    BasicBlock* m_entryBlock;
+    BasicBlock* m_entryBlock = nullptr;
 
 public:
-    BlockCountInstrumentor(Compiler* comp) : Instrumentor(comp), m_entryBlock(nullptr)
+    BlockCountInstrumentor(Compiler* comp) : Instrumentor(comp)
     {
     }
     bool ShouldProcess(BasicBlock* block) override
     {
         return ((block->bbFlags & (BBF_INTERNAL | BBF_IMPORTED)) == BBF_IMPORTED);
     }
-    void Prepare(bool isPreImport) override;
+    void PreImport() override;
+    void PostImport() override;
     void BuildSchemaElements(BasicBlock* block, Schema& schema) override;
     void Instrument(BasicBlock* block, Schema& schema, BYTE* profileMemory) override;
     void InstrumentMethodEntry(Schema& schema, BYTE* profileMemory) override;
 };
 
-//------------------------------------------------------------------------
-// BlockCountInstrumentor::Prepare: prepare for count instrumentation
-//
-// Arguments:
-//   preImport - true if this is the prepare call that happens before
-//      importation
-//
-void BlockCountInstrumentor::Prepare(bool preImport)
+void BlockCountInstrumentor::PreImport()
 {
-    if (preImport)
-    {
-        return;
-    }
+}
 
+void BlockCountInstrumentor::PostImport()
+{
 #ifdef DEBUG
     // Set schema index to invalid value
-    //
     for (BasicBlock* const block : m_comp->Blocks())
     {
         block->bbCountSchemaIndex = -1;
@@ -960,22 +957,18 @@ private:
         m_edgeProbeCount++;
     }
 
-    unsigned m_blockCount;
-    unsigned m_probeCount;
-    unsigned m_edgeProbeCount;
-    bool     m_badcode;
+    unsigned m_blockCount     = 0;
+    unsigned m_probeCount     = 0;
+    unsigned m_edgeProbeCount = 0;
+    bool     m_badcode        = false;
 
 public:
-    EfficientEdgeCountInstrumentor(Compiler* comp)
-        : Instrumentor(comp)
-        , SpanningTreeVisitor()
-        , m_blockCount(0)
-        , m_probeCount(0)
-        , m_edgeProbeCount(0)
-        , m_badcode(false)
+    EfficientEdgeCountInstrumentor(Compiler* comp) : Instrumentor(comp), SpanningTreeVisitor()
     {
     }
-    void Prepare(bool isPreImport) override;
+
+    void PreImport() override;
+    void PostImport() override;
     bool ShouldProcess(BasicBlock* block) override
     {
         return ((block->bbFlags & BBF_IMPORTED) == BBF_IMPORTED);
@@ -1018,45 +1011,36 @@ public:
     }
 };
 
-//------------------------------------------------------------------------
-// EfficientEdgeCountInstrumentor:Prepare: analyze the flow graph to
-//   determine which edges should be instrumented.
+// Analyze the flow graph to determine which edges should be instrumented.
 //
-// Arguments:
-//   preImport - true if this is the prepare call that happens before
-//      importation
+// Build a (maximum weight) spanning tree and designate the non-tree
+// edges as the ones needing instrumentation.
 //
-// Notes:
-//   Build a (maximum weight) spanning tree and designate the non-tree
-//   edges as the ones needing instrumentation.
+// For non-critical edges, instrumentation happens in either the
+// predecessor or successor blocks.
 //
-//   For non-critical edges, instrumentation happens in either the
-//   predecessor or successor blocks.
+// Note we may only schematize and instrument a subset of the full
+// set of instrumentation envisioned here, if the method is partially
+// imported, as subsequent "passes" will bypass un-imported blocks.
 //
-//   Note we may only schematize and instrument a subset of the full
-//   set of instrumentation envisioned here, if the method is partially
-//   imported, as subsequent "passes" will bypass un-imported blocks.
+// It might be preferable to export the full schema but only
+// selectively instrument; this would make merging and importing
+// of data simpler, as all schemas for a method would agree, no
+// matter what importer-level opts were applied.
 //
-//   It might be preferable to export the full schema but only
-//   selectively instrument; this would make merging and importing
-//   of data simpler, as all schemas for a method would agree, no
-//   matter what importer-level opts were applied.
-//
-void EfficientEdgeCountInstrumentor::Prepare(bool preImport)
+void EfficientEdgeCountInstrumentor::PreImport()
 {
-    if (!preImport)
-    {
-        // If we saw badcode in the preimport prepare, we would expect
-        // compilation to blow up in the importer. So if we end up back
-        // here postimport with badcode set, something is wrong.
-        //
-        assert(!m_badcode);
-        return;
-    }
-
     JITDUMP("\nEfficientEdgeCountInstrumentor: preparing for instrumentation\n");
     m_comp->WalkSpanningTree(this);
     JITDUMP("%u blocks, %u probes (%u on critical edges)\n", m_blockCount, m_probeCount, m_edgeProbeCount);
+}
+
+void EfficientEdgeCountInstrumentor::PostImport()
+{
+    // If we saw badcode in the PreImport prepare, we would expect
+    // compilation to blow up in the importer. So if we end up back
+    // here PostImport with badcode set, something is wrong.
+    assert(!m_badcode);
 }
 
 //------------------------------------------------------------------------
@@ -1396,29 +1380,21 @@ public:
     {
         return ((block->bbFlags & (BBF_INTERNAL | BBF_IMPORTED)) == BBF_IMPORTED);
     }
-    void Prepare(bool isPreImport) override;
+    void PreImport() override;
+    void PostImport() override;
     void BuildSchemaElements(BasicBlock* block, Schema& schema) override;
     void Instrument(BasicBlock* block, Schema& schema, BYTE* profileMemory) override;
     void SuppressProbes() override;
 };
 
-//------------------------------------------------------------------------
-// ClassProbeInstrumentor::Prepare: prepare for class instrumentation
-//
-// Arguments:
-//   preImport - true if this is the prepare call that happens before
-//      importation
-//
-void ClassProbeInstrumentor::Prepare(bool isPreImport)
+void ClassProbeInstrumentor::PreImport()
 {
-    if (isPreImport)
-    {
-        return;
-    }
+}
 
+void ClassProbeInstrumentor::PostImport()
+{
 #ifdef DEBUG
     // Set schema index to invalid value
-    //
     for (BasicBlock* const block : m_comp->Blocks())
     {
         block->bbClassSchemaIndex = -1;
@@ -1514,7 +1490,7 @@ void ClassProbeInstrumentor::SuppressProbes()
 // Prepare for instrumentation.
 // Runs before importation, so instrumentation schemes can get a pure
 // look at the flowgraph before any internal blocks are added.
-PhaseStatus Compiler::fgPrepareToInstrumentMethod()
+PhaseStatus Compiler::phPrepareToInstrumentMethod()
 {
     noway_assert(!compIsForInlining());
 
@@ -1565,11 +1541,8 @@ PhaseStatus Compiler::fgPrepareToInstrumentMethod()
         fgClassInstrumentor = new (this, CMK_Pgo) NonInstrumentor(this);
     }
 
-    // Make pre-import preparations.
-    //
-    const bool isPreImport = true;
-    fgCountInstrumentor->Prepare(isPreImport);
-    fgClassInstrumentor->Prepare(isPreImport);
+    fgCountInstrumentor->PreImport();
+    fgClassInstrumentor->PreImport();
 
     return PhaseStatus::MODIFIED_NOTHING;
 }
@@ -1588,10 +1561,8 @@ PhaseStatus Compiler::phInstrumentMethod()
 {
     noway_assert(!compIsForInlining());
 
-    // Make post-import preparations.
-    const bool isPreImport = false;
-    fgCountInstrumentor->Prepare(isPreImport);
-    fgClassInstrumentor->Prepare(isPreImport);
+    fgCountInstrumentor->PostImport();
+    fgClassInstrumentor->PostImport();
 
     // Walk the flow graph to build up the instrumentation schema.
     Schema schema(getAllocator(CMK_Pgo));
@@ -2132,10 +2103,7 @@ public:
     }
 };
 
-//------------------------------------------------------------------------
-// EfficientEdgeCountReconstructor::Prepare: set up mapping information and
-//    prepare for spanning tree walk and solver
-//
+// Set up mapping information and prepare for spanning tree walk and solver
 void EfficientEdgeCountReconstructor::Prepare()
 {
     // Create per-block info, and set up the key to block map.

@@ -4116,7 +4116,7 @@ protected:
     Instrumentor* fgCountInstrumentor = nullptr;
     Instrumentor* fgClassInstrumentor = nullptr;
 
-    PhaseStatus fgPrepareToInstrumentMethod();
+    PhaseStatus phPrepareToInstrumentMethod();
     PhaseStatus phInstrumentMethod();
     PhaseStatus phIncorporateProfileData();
     void        fgIncorporateBlockCounts();
@@ -4129,7 +4129,7 @@ protected:
                                                CLRRandom*                             random);
 
 public:
-    bool fgHaveProfileData();
+    bool fgHaveProfileData() const;
 
     ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema        = nullptr;
     uint8_t*                               fgPgoData          = nullptr;
@@ -4147,8 +4147,8 @@ public:
     void WalkSpanningTree(SpanningTreeVisitor* visitor);
     void fgSetProfileWeight(BasicBlock* block, BasicBlock::weight_t weight);
     void fgApplyProfileScale();
-    bool fgHaveSufficientProfileData();
-    bool fgHaveTrustedProfileData();
+    bool fgHaveSufficientProfileData() const;
+    bool fgHaveTrustedProfileData() const;
 
     // Returns true if we have real profile data for this method
     // or if we have some fake profile data for the stress mode

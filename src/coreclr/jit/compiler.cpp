@@ -1726,7 +1726,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize)
 
     if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR))
     {
-        DoPhase(this, PHASE_IBCPREP, &Compiler::fgPrepareToInstrumentMethod);
+        DoPhase(this, PHASE_IBCPREP, &Compiler::phPrepareToInstrumentMethod);
     }
 
     DoPhase(this, PHASE_IMPORTATION, &Compiler::phImport);
