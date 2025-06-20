@@ -1298,8 +1298,8 @@ void Compiler::compInitPgo()
 {
     if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT))
     {
-        fgPgoQueryResult = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
-                                                                          &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
+        HRESULT result = info.compCompHnd->getPgoInstrumentationResults(info.compMethodHnd, &fgPgoSchema,
+                                                                        &fgPgoSchemaCount, &fgPgoData, &fgPgoSource);
 
         // a failed result that also has a non-NULL fgPgoSchema
         // indicates that the ILSize for the method no longer matches
@@ -1307,9 +1307,11 @@ void Compiler::compInitPgo()
         //
         // We will discard the IBC data in this case
         //
-        if (FAILED(fgPgoQueryResult))
+        if (FAILED(result))
         {
-            fgPgoFailReason = (fgPgoSchema != nullptr) ? "No matching PGO data" : "No PGO data";
+            JITDUMP("getPgoInstrumentationResults failed: %08x\n", result);
+
+            INDEBUG(fgPgoFailReason = fgPgoSchema != nullptr ? "No matching PGO data" : "No PGO data");
             fgPgoData       = nullptr;
             fgPgoSchema     = nullptr;
         }
@@ -1317,10 +1319,10 @@ void Compiler::compInitPgo()
         //
         else if (JitConfig.JitDisablePgo() > 0)
         {
-            fgPgoFailReason  = "PGO data available, but JitDisablePgo > 0";
-            fgPgoQueryResult = E_FAIL;
-            fgPgoData        = nullptr;
-            fgPgoSchema      = nullptr;
+            INDEBUG(fgPgoFailReason = "PGO data available, but JitDisablePgo > 0");
+            fgPgoData       = nullptr;
+            fgPgoSchema     = nullptr;
+            result          = E_FAIL;
         }
 #ifdef DEBUG
         // Optionally, enable use of profile data for only some methods.
@@ -1336,16 +1338,16 @@ void Compiler::compInitPgo()
             const unsigned hash = impInlineRoot()->info.compMethodHash();
             if (!JitEnablePgoRange.Contains(hash))
             {
-                fgPgoFailReason  = "PGO data available, but method hash NOT within JitEnablePgoRange";
-                fgPgoQueryResult = E_FAIL;
-                fgPgoData        = nullptr;
-                fgPgoSchema      = nullptr;
+                fgPgoFailReason = "PGO data available, but method hash NOT within JitEnablePgoRange";
+                fgPgoData       = nullptr;
+                fgPgoSchema     = nullptr;
+                result          = E_FAIL;
             }
         }
 
         // A successful result implies a non-NULL fgPgoSchema
         //
-        if (SUCCEEDED(fgPgoQueryResult))
+        if (SUCCEEDED(result))
         {
             assert(fgPgoSchema != nullptr);
         }
@@ -1353,7 +1355,7 @@ void Compiler::compInitPgo()
         // A failed result implies a NULL fgPgoSchema
         //   see implementation of Compiler::fgHaveProfileData()
         //
-        if (FAILED(fgPgoQueryResult))
+        if (FAILED(result))
         {
             assert(fgPgoSchema == nullptr);
         }

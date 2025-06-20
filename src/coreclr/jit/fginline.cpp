@@ -2143,6 +2143,7 @@ void Compiler::inlPropagateInlineeCompilerState()
     // Update unmanaged call details
     info.compUnmanagedCallCountWithGCTransition += InlineeCompiler->info.compUnmanagedCallCountWithGCTransition;
 
+#ifdef DEBUG
     // Update stats for inlinee PGO
     if (InlineeCompiler->fgPgoSchema != nullptr)
     {
@@ -2150,9 +2151,8 @@ void Compiler::inlPropagateInlineeCompilerState()
     }
     else if (InlineeCompiler->fgPgoFailReason != nullptr)
     {
-        // Single block inlinees may not have probes
-        // when we've enabled minimal profiling (which
-        // is now the default).
+        // Single block inlinees may not have probes when we've
+        // enabled minimal profiling (which is now the default).
         if (InlineeCompiler->fgBBcount == 1)
         {
             fgPgoInlineeNoPgoSingleBlock++;
@@ -2163,8 +2163,8 @@ void Compiler::inlPropagateInlineeCompilerState()
         }
     }
 
-    // Update optMethodFlags
-    INDEBUG(unsigned optMethodFlagsBefore = optMethodFlags;)
+    unsigned optMethodFlagsBefore = optMethodFlags;
+#endif
 
     optMethodFlags |= InlineeCompiler->optMethodFlags;
 

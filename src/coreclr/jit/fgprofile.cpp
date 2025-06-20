@@ -35,7 +35,7 @@
 //
 bool Compiler::fgHaveProfileData()
 {
-    return (fgPgoSchema != nullptr);
+    return fgPgoSchema != nullptr;
 }
 
 //------------------------------------------------------------------------
@@ -57,7 +57,7 @@ bool Compiler::fgHaveSufficientProfileData()
 
     if ((fgFirstBB != nullptr) && (fgPgoSource == ICorJitInfo::PgoSource::Static))
     {
-        const BasicBlock::weight_t sufficientSamples = 1000;
+        constexpr weight_t sufficientSamples = 1000;
         return fgFirstBB->bbWeight > sufficientSamples;
     }
     return true;
@@ -238,22 +238,25 @@ bool Compiler::fgGetProfileWeightForBasicBlock(IL_OFFSET offset, weight_t* weigh
         return false;
     }
 
-    for (UINT32 i = 0; i < fgPgoSchemaCount; i++)
+    ICorJitInfo::PgoInstrumentationSchema* schema = fgPgoSchema;
+    uint8_t*                               data   = fgPgoData;
+
+    for (uint32_t i = 0; i < fgPgoSchemaCount; i++)
     {
-        if ((IL_OFFSET)fgPgoSchema[i].ILOffset != offset)
+        if (static_cast<IL_OFFSET>(schema[i].ILOffset) != offset)
         {
             continue;
         }
 
-        if (fgPgoSchema[i].InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount)
+        if (schema[i].InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount)
         {
-            *weightWB = (BasicBlock::weight_t) * (uint32_t*)(fgPgoData + fgPgoSchema[i].Offset);
+            *weightWB = static_cast<weight_t>(*reinterpret_cast<uint32_t*>(data + schema[i].Offset));
             return true;
         }
 
-        if (fgPgoSchema[i].InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount)
+        if (schema[i].InstrumentationKind == ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount)
         {
-            *weightWB = (BasicBlock::weight_t) * (uint64_t*)(fgPgoData + fgPgoSchema[i].Offset);
+            *weightWB = static_cast<weight_t>(*reinterpret_cast<uint64_t*>(data + schema[i].Offset));
             return true;
         }
     }
@@ -1685,7 +1688,7 @@ PhaseStatus Compiler::phInstrumentMethod()
         }
     }
 
-    // Verify we instrumented everthing we created schemas for.
+    // Verify we instrumented everything we created schemas for.
     //
     assert(fgCountInstrumentor->InstrCount() == fgCountInstrumentor->SchemaCount());
     assert(fgClassInstrumentor->InstrCount() == fgClassInstrumentor->SchemaCount());
@@ -1714,7 +1717,7 @@ PhaseStatus Compiler::phIncorporateProfileData()
     {
         if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBOPT))
         {
-            JITDUMP("BBOPT set, but no profile data available (hr=%08x)\n", fgPgoQueryResult);
+            JITDUMP("BBOPT set, but no profile data available\n");
         }
         else
         {
@@ -1726,28 +1729,32 @@ PhaseStatus Compiler::phIncorporateProfileData()
         return compIsForInlining() ? PhaseStatus::MODIFIED_EVERYTHING : PhaseStatus::MODIFIED_NOTHING;
     }
 
+    ICorJitInfo::PgoInstrumentationSchema* schema = fgPgoSchema;
+
     JITDUMP("Have %s profile data: %d schema records (schema at %p, data at %p)\n", pgoSourceToString(fgPgoSource),
-            fgPgoSchemaCount, dspPtr(fgPgoSchema), dspPtr(fgPgoData));
+            fgPgoSchemaCount, dspPtr(schema), dspPtr(fgPgoData));
 
     fgNumProfileRuns      = 0;
     unsigned otherRecords = 0;
+    unsigned blockCounts  = 0;
+    unsigned edgeCounts   = 0;
 
-    for (UINT32 iSchema = 0; iSchema < fgPgoSchemaCount; iSchema++)
+    for (uint32_t iSchema = 0; iSchema < fgPgoSchemaCount; iSchema++)
     {
-        switch (fgPgoSchema[iSchema].InstrumentationKind)
+        switch (schema[iSchema].InstrumentationKind)
         {
             case ICorJitInfo::PgoInstrumentationKind::NumRuns:
-                fgNumProfileRuns += fgPgoSchema[iSchema].Other;
+                fgNumProfileRuns += schema[iSchema].Other;
                 break;
 
             case ICorJitInfo::PgoInstrumentationKind::BasicBlockIntCount:
             case ICorJitInfo::PgoInstrumentationKind::BasicBlockLongCount:
-                fgPgoBlockCounts++;
+                blockCounts++;
                 break;
 
             case ICorJitInfo::PgoInstrumentationKind::EdgeIntCount:
             case ICorJitInfo::PgoInstrumentationKind::EdgeLongCount:
-                fgPgoEdgeCounts++;
+                edgeCounts++;
                 break;
 
             case ICorJitInfo::PgoInstrumentationKind::TypeHandleHistogramIntCount:
@@ -1758,8 +1765,8 @@ PhaseStatus Compiler::phIncorporateProfileData()
 
             default:
                 JITDUMP("Unknown PGO record type 0x%x in schema entry %u (offset 0x%x count 0x%x other 0x%x)\n",
-                        fgPgoSchema[iSchema].InstrumentationKind, iSchema, fgPgoSchema[iSchema].ILOffset,
-                        fgPgoSchema[iSchema].Count, fgPgoSchema[iSchema].Other);
+                        schema[iSchema].InstrumentationKind, iSchema, schema[iSchema].ILOffset, schema[iSchema].Count,
+                        schema[iSchema].Other);
                 otherRecords++;
                 break;
         }
@@ -1770,11 +1777,11 @@ PhaseStatus Compiler::phIncorporateProfileData()
         fgNumProfileRuns = 1;
     }
 
-    JITDUMP("Profile summary: %d runs, %d block probes, %d edge probes, %d class profiles, %d other records\n",
-            fgNumProfileRuns, fgPgoBlockCounts, fgPgoEdgeCounts, fgPgoClassProfiles, otherRecords);
+    JITDUMP("Profile summary: %u runs, %u block probes, %u edge probes, %u class profiles, %u other records\n",
+            fgNumProfileRuns, blockCounts, edgeCounts, fgPgoClassProfiles, otherRecords);
 
-    const bool haveBlockCounts = fgPgoBlockCounts > 0;
-    const bool haveEdgeCounts  = fgPgoEdgeCounts > 0;
+    const bool haveBlockCounts = blockCounts > 0;
+    const bool haveEdgeCounts  = edgeCounts > 0;
 
     // We expect one or the other but not both.
     //
@@ -2148,7 +2155,7 @@ void EfficientEdgeCountReconstructor::Prepare()
     // Create edges for schema entries with edge counts, and set them up in
     // the edge key to edge map.
     //
-    for (UINT32 iSchema = 0; iSchema < m_comp->fgPgoSchemaCount; iSchema++)
+    for (uint32_t iSchema = 0; iSchema < m_comp->fgPgoSchemaCount; iSchema++)
     {
         const ICorJitInfo::PgoInstrumentationSchema& schemaEntry = m_comp->fgPgoSchema[iSchema];
         switch (schemaEntry.InstrumentationKind)
@@ -2488,8 +2495,8 @@ void EfficientEdgeCountReconstructor::Propagate()
 
         // Make sure nothing else in the jit looks at the profile data.
         //
-        m_comp->fgPgoSchema     = nullptr;
-        m_comp->fgPgoFailReason = "PGO data available, but there was a reconstruction problem";
+        m_comp->fgPgoSchema = nullptr;
+        INDEBUG(m_comp->fgPgoFailReason = "PGO data available, but there was a reconstruction problem");
 
         return;
     }

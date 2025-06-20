@@ -4131,19 +4131,18 @@ protected:
 public:
     bool fgHaveProfileData();
 
-    const char*                            fgPgoFailReason              = nullptr;
-    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema                  = nullptr;
-    uint8_t*                               fgPgoData                    = nullptr;
-    ICorJitInfo::PgoSource                 fgPgoSource                  = ICorJitInfo::PgoSource::Unknown;
-    uint32_t                               fgPgoSchemaCount             = 0;
-    HRESULT                                fgPgoQueryResult             = E_FAIL;
-    uint32_t                               fgNumProfileRuns             = 0;
-    uint32_t                               fgPgoBlockCounts             = 0;
-    uint32_t                               fgPgoEdgeCounts              = 0;
-    uint32_t                               fgPgoClassProfiles           = 0;
-    unsigned                               fgPgoInlineePgo              = 0;
-    unsigned                               fgPgoInlineeNoPgo            = 0;
-    unsigned                               fgPgoInlineeNoPgoSingleBlock = 0;
+    ICorJitInfo::PgoInstrumentationSchema* fgPgoSchema        = nullptr;
+    uint8_t*                               fgPgoData          = nullptr;
+    ICorJitInfo::PgoSource                 fgPgoSource        = ICorJitInfo::PgoSource::Unknown;
+    uint32_t                               fgPgoSchemaCount   = 0;
+    uint32_t                               fgNumProfileRuns   = 0;
+    uint32_t                               fgPgoClassProfiles = 0;
+#ifdef DEBUG
+    const char* fgPgoFailReason              = nullptr;
+    unsigned    fgPgoInlineePgo              = 0;
+    unsigned    fgPgoInlineeNoPgo            = 0;
+    unsigned    fgPgoInlineeNoPgoSingleBlock = 0;
+#endif
 
     void WalkSpanningTree(SpanningTreeVisitor* visitor);
     void fgSetProfileWeight(BasicBlock* block, BasicBlock::weight_t weight);
