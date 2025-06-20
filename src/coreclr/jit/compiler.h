@@ -5385,6 +5385,8 @@ public:
     static void compStartup();
     static void compShutdown();
     static void compDumpStats(FILE* fout);
+    static void compDumpLoopStats(FILE* fout);
+    static void compDumpFatalStats(FILE* fout);
 
     Compiler(ArenaAllocator*        alloc,
              const CORINFO_EE_INFO* eeInfo,
@@ -5914,71 +5916,13 @@ extern Histogram bbCntTable;
 extern Histogram bbOneBBSizeTable;
 #endif
 
-// Used by optFindNaturalLoops to gather statistical information such as
-//  - total number of natural loops
-//  - number of loops with 1, 2, ... exit conditions
-//  - number of loops that have an iterator (for like)
-//  - number of loops that have a constant iterator
-#if COUNT_LOOPS
-extern unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
-extern unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
-extern unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
-extern unsigned totalLoopCount;          // counts the total number of natural loops
-extern unsigned totalUnnatLoopCount;     // counts the total number of (not-necessarily natural) loops
-extern unsigned totalUnnatLoopOverflows; // # of methods that identified more unnatural loops than we can represent
-extern unsigned iterLoopCount;           // counts the # of loops with an iterator (for like)
-extern unsigned simpleTestLoopCount;     // counts the # of loops with an iterator and a simple loop condition (iter <
-                                         // const)
-extern unsigned  constIterLoopCount;     // counts the # of loops with a constant iterator (for like)
-extern bool      hasMethodLoops;         // flag to keep track if we already counted a method as having loops
-extern unsigned  loopsThisMethod;        // counts the number of loops in the current method
-extern bool      loopOverflowThisMethod; // True if we exceeded the max # of loops in the method.
-extern Histogram loopCountTable;         // Histogram of loop counts
-extern Histogram loopExitCountTable;     // Histogram of loop exit counts
-#endif
-
 #if MEASURE_BLOCK_SIZE
 extern size_t genFlowNodeSize;
 extern size_t genFlowNodeCnt;
 #endif
 
 #if MEASURE_NODE_SIZE
-struct NodeSizeStats
-{
-    void Init()
-    {
-        genTreeNodeCnt        = 0;
-        genTreeNodeSize       = 0;
-        genTreeNodeActualSize = 0;
-    }
-
-    // Count of tree nodes allocated.
-    uint64_t genTreeNodeCnt;
-    // The size we allocate.
-    uint64_t genTreeNodeSize;
-    // The actual size of the node. Note that the actual size will likely be smaller
-    // than the allocated size, but we sometimes use SetOper()/ChangeOper() to change
-    // a smaller node to a larger one. TODO-Cleanup: add stats on
-    // SetOper()/ChangeOper() usage to quantify this.
-    uint64_t genTreeNodeActualSize;
-};
-extern NodeSizeStats genNodeSizeStats;        // Total node size stats
-extern NodeSizeStats genNodeSizeStatsPerFunc; // Per-function node size stats
-extern Histogram     genTreeNcntHist;
-extern Histogram     genTreeNsizHist;
-#endif
-
-// Count fatal errors (including noway_asserts).
-#if MEASURE_FATAL
-extern unsigned fatal_badCode;
-extern unsigned fatal_noWay;
-extern unsigned fatal_implLimitation;
-extern unsigned fatal_NOMEM;
-extern unsigned fatal_noWayAssertBody;
-#ifdef DEBUG
-extern unsigned fatal_noWayAssertBodyArgs;
-#endif
-extern unsigned fatal_NYI;
+void AddNodeSize(size_t size, size_t allocSize);
 #endif
 
 #ifdef DEBUG

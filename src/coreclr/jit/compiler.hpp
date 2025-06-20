@@ -113,14 +113,8 @@ void* GenTree::operator new(size_t sz, Compiler* comp, genTreeOps oper)
     size_t size = s_gtNodeSizes[oper];
 
 #if MEASURE_NODE_SIZE
-    genNodeSizeStats.genTreeNodeCnt += 1;
-    genNodeSizeStats.genTreeNodeSize += size;
-    genNodeSizeStats.genTreeNodeActualSize += sz;
-
-    genNodeSizeStatsPerFunc.genTreeNodeCnt += 1;
-    genNodeSizeStatsPerFunc.genTreeNodeSize += size;
-    genNodeSizeStatsPerFunc.genTreeNodeActualSize += sz;
-#endif // MEASURE_NODE_SIZE
+    AddNodeSize(sz, size);
+#endif
 
     assert(size >= sz);
     return comp->getAllocator(CMK_ASTNode).allocate<char>(size);

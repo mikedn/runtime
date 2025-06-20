@@ -4,14 +4,18 @@
 #include "jitpch.h"
 #include "compiler.h"
 
+#define MEASURE_FATAL 0 // Count the number of calls to fatal(), including NYIs and noway_asserts.
+
 #if MEASURE_FATAL
-unsigned fatal_badCode;
-unsigned fatal_noWay;
-unsigned fatal_implLimitation;
-unsigned fatal_NOMEM;
-unsigned fatal_noWayAssertBody;
-unsigned fatal_NYI;
-INDEBUG(unsigned fatal_noWayAssertBodyArgs;)
+static unsigned fatal_badCode;
+static unsigned fatal_noWay;
+static unsigned fatal_implLimitation;
+static unsigned fatal_NOMEM;
+static unsigned fatal_noWayAssertBody;
+static unsigned fatal_NYI;
+#ifdef DEBUG
+static unsigned fatal_noWayAssertBodyArgs;
+#endif
 #endif
 
 constexpr DWORD FATAL_JIT_EXCEPTION = 0x02345678;
@@ -186,6 +190,24 @@ LONG JitErrorTrapFilter(PEXCEPTION_POINTERS pExceptionPointers, ErrorTrapParam& 
     }
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void Compiler::compDumpFatalStats(FILE* fout)
+{
+#if MEASURE_FATAL
+    fprintf(fout, "\n---------------------------------------------------\n");
+    fprintf(fout, "Fatal errors stats\n");
+    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "   badCode:             %u\n", fatal_badCode);
+    fprintf(fout, "   noWay:               %u\n", fatal_noWay);
+    fprintf(fout, "   implLimitation:      %u\n", fatal_implLimitation);
+    fprintf(fout, "   NOMEM:               %u\n", fatal_NOMEM);
+    fprintf(fout, "   noWayAssertBody:     %u\n", fatal_noWayAssertBody);
+#ifdef DEBUG
+    fprintf(fout, "   noWayAssertBodyArgs: %u\n", fatal_noWayAssertBodyArgs);
+#endif
+    fprintf(fout, "   NYI:                 %u\n", fatal_NYI);
+#endif
 }
 
 #ifdef DEBUG

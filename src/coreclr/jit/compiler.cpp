@@ -26,12 +26,43 @@ static unsigned genSmallMethodsNeedingExtraMemoryCnt = 0;
 #endif
 
 #if MEASURE_NODE_SIZE
-NodeSizeStats         genNodeSizeStats;
-NodeSizeStats         genNodeSizeStatsPerFunc;
+struct NodeSizeStats
+{
+    void Clear()
+    {
+        genTreeNodeCnt        = 0;
+        genTreeNodeSize       = 0;
+        genTreeNodeActualSize = 0;
+    }
+
+    // Count of tree nodes allocated.
+    uint64_t genTreeNodeCnt = 0;
+    // The size we allocate.
+    uint64_t genTreeNodeSize = 0;
+    // The actual size of the node. Note that the actual size will likely be smaller
+    // than the allocated size, but we sometimes use SetOper()/ChangeOper() to change
+    // a smaller node to a larger one. TODO-Cleanup: add stats on
+    // SetOper()/ChangeOper() usage to quantify this.
+    uint64_t genTreeNodeActualSize = 0;
+};
+
+static NodeSizeStats  genNodeSizeStats;
+static NodeSizeStats  genNodeSizeStatsPerFunc;
 static const unsigned genTreeNcntHistBuckets[]{10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 0};
-Histogram             genTreeNcntHist(genTreeNcntHistBuckets);
+static Histogram      genTreeNcntHist(genTreeNcntHistBuckets);
 static const unsigned genTreeNsizHistBuckets[]{1000, 5000, 10000, 50000, 100000, 500000, 1000000, 0};
-Histogram             genTreeNsizHist(genTreeNsizHistBuckets);
+static Histogram      genTreeNsizHist(genTreeNsizHistBuckets);
+
+void AddNodeSize(size_t size, size_t allocSize)
+{
+    genNodeSizeStats.genTreeNodeCnt++;
+    genNodeSizeStats.genTreeNodeSize += allocSize;
+    genNodeSizeStats.genTreeNodeActualSize += size;
+
+    genNodeSizeStatsPerFunc.genTreeNodeCnt++;
+    genNodeSizeStatsPerFunc.genTreeNodeSize += allocSize;
+    genNodeSizeStatsPerFunc.genTreeNodeActualSize += size;
+}
 #endif
 
 #if MEASURE_MEM_ALLOC
@@ -73,32 +104,6 @@ Histogram             bbCntTable(bbCntBuckets);
 // Histogram for the IL opcode size of methods with a single basic block
 static const unsigned bbSizeBuckets[]{1, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 0};
 Histogram             bbOneBBSizeTable(bbSizeBuckets);
-#endif
-
-#if COUNT_LOOPS
-// Used by optFindNaturalLoops to gather statistical information such as
-//  - total number of natural loops
-//  - number of loops with 1, 2, ... exit conditions
-//  - number of loops that have an iterator (for like)
-//  - number of loops that have a constant iterator
-unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
-unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
-unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
-unsigned totalLoopCount;          // counts the total number of natural loops
-unsigned totalUnnatLoopCount;     // counts the total number of (not-necessarily natural) loops
-unsigned totalUnnatLoopOverflows; // # of methods that identified more unnatural loops than we can represent
-unsigned iterLoopCount;           // counts the # of loops with an iterator (for like)
-unsigned simpleTestLoopCount;     // counts the # of loops with an iterator and a simple loop condition (iter < const)
-unsigned constIterLoopCount;      // counts the # of loops with a constant iterator (for like)
-bool     hasMethodLoops;          // flag to keep track if we already counted a method as having loops
-unsigned loopsThisMethod;         // counts the number of loops in the current method
-bool     loopOverflowThisMethod;  // True if we exceeded the max # of loops in the method.
-// Histogram for number of loops in a method
-static const unsigned loopCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0};
-Histogram             loopCountTable(loopCountBuckets);
-// Histogram for number of loop exits
-static const unsigned loopExitCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 0};
-Histogram             loopExitCountTable(loopExitCountBuckets);
 #endif
 
 #if MEASURE_NOWAY
@@ -463,29 +468,7 @@ void Compiler::compDumpStats(FILE* fout)
     fprintf(fout, "--------------------------------------------------\n");
 #endif // COUNT_BASIC_BLOCKS
 
-#if COUNT_LOOPS
-    fprintf(fout, "\n---------------------------------------------------\n");
-    fprintf(fout, "Loop stats\n");
-    fprintf(fout, "---------------------------------------------------\n");
-    fprintf(fout, "Total number of methods with loops is %5u\n", totalLoopMethods);
-    fprintf(fout, "Total number of              loops is %5u\n", totalLoopCount);
-    fprintf(fout, "Maximum number of loops per method is %5u\n", maxLoopsPerMethod);
-    fprintf(fout, "# of methods overflowing nat loop table is %5u\n", totalLoopOverflows);
-    fprintf(fout, "Total number of 'unnatural' loops is %5u\n", totalUnnatLoopCount);
-    fprintf(fout, "# of methods overflowing unnat loop limit is %5u\n", totalUnnatLoopOverflows);
-    fprintf(fout, "Total number of loops with an         iterator is %5u\n", iterLoopCount);
-    fprintf(fout, "Total number of loops with a simple   iterator is %5u\n", simpleTestLoopCount);
-    fprintf(fout, "Total number of loops with a constant iterator is %5u\n", constIterLoopCount);
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Loop count frequency table:\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    loopCountTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-    fprintf(fout, "Loop exit count frequency table:\n");
-    fprintf(fout, "--------------------------------------------------\n");
-    loopExitCountTable.dump(fout);
-    fprintf(fout, "--------------------------------------------------\n");
-#endif // COUNT_LOOPS
+    compDumpLoopStats(fout);
 
 #if MEASURE_NODE_SIZE
     fprintf(fout, "\n---------------------------------------------------\n");
@@ -567,20 +550,7 @@ void Compiler::compDumpStats(FILE* fout)
     }
 #endif // MEASURE_NODE_SIZE || MEASURE_BLOCK_SIZE || MEASURE_PTRTAB_SIZE || DISPLAY_SIZES
 
-#if MEASURE_FATAL
-    fprintf(fout, "\n---------------------------------------------------\n");
-    fprintf(fout, "Fatal errors stats\n");
-    fprintf(fout, "---------------------------------------------------\n");
-    fprintf(fout, "   badCode:             %u\n", fatal_badCode);
-    fprintf(fout, "   noWay:               %u\n", fatal_noWay);
-    fprintf(fout, "   implLimitation:      %u\n", fatal_implLimitation);
-    fprintf(fout, "   NOMEM:               %u\n", fatal_NOMEM);
-    fprintf(fout, "   noWayAssertBody:     %u\n", fatal_noWayAssertBody);
-#ifdef DEBUG
-    fprintf(fout, "   noWayAssertBodyArgs: %u\n", fatal_noWayAssertBodyArgs);
-#endif
-    fprintf(fout, "   NYI:                 %u\n", fatal_NYI);
-#endif // MEASURE_FATAL
+    compDumpFatalStats(fout);
 }
 
 CompiledMethodInfo::CompiledMethodInfo(CORINFO_METHOD_INFO*   methodInfo,
@@ -660,7 +630,7 @@ void Compiler::compInit()
     codeGenInit();
 
 #if MEASURE_NODE_SIZE
-    genNodeSizeStatsPerFunc.Init();
+    genNodeSizeStatsPerFunc.Clear();
 #endif
 #ifdef DEBUG
     switch (JitConfig.JitNoStructPromotion())
@@ -1312,17 +1282,17 @@ void Compiler::compInitPgo()
             JITDUMP("getPgoInstrumentationResults failed: %08x\n", result);
 
             INDEBUG(fgPgoFailReason = fgPgoSchema != nullptr ? "No matching PGO data" : "No PGO data");
-            fgPgoData       = nullptr;
-            fgPgoSchema     = nullptr;
+            fgPgoData   = nullptr;
+            fgPgoSchema = nullptr;
         }
         // Optionally, disable use of profile data.
         //
         else if (JitConfig.JitDisablePgo() > 0)
         {
             INDEBUG(fgPgoFailReason = "PGO data available, but JitDisablePgo > 0");
-            fgPgoData       = nullptr;
-            fgPgoSchema     = nullptr;
-            result          = E_FAIL;
+            fgPgoData   = nullptr;
+            fgPgoSchema = nullptr;
+            result      = E_FAIL;
         }
 #ifdef DEBUG
         // Optionally, enable use of profile data for only some methods.
@@ -3933,11 +3903,11 @@ bool CompiledMethodInfo::SkipMethod() const
     return false;
 }
 
-// dumpConvertedVarSet() dumps the varset bits that are tracked
-// variable indices, and we convert them to variable numbers, sort the variable numbers, and
-// print them as variable numbers. To do this, we use a temporary set indexed by
-// variable number. We can't use the "all varset" type because it is still size-limited, and might
-// not be big enough to handle all possible variable numbers.
+// Dumps the varset bits that are tracked variable indices, and we convert them to
+// variable numbers, sort the variable numbers, and print them as variable numbers.
+// To do this, we use a temporary set indexed by variable number. We can't use the
+// "all varset" type because it is still size-limited, and might not be big enough
+// to handle all possible variable numbers.
 void dumpConvertedVarSet(Compiler* comp, VARSET_TP vars)
 {
     bool* lclSet = static_cast<bool*>(_alloca(comp->lvaCount * sizeof(bool)));

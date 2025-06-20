@@ -898,12 +898,62 @@ GenTreeLclStore* Compiler::optExtractInitTestIncr(
     return incrStmt->GetRootNode()->AsLclStore();
 }
 
-/*****************************************************************************
- *
- *  Record the loop in the loop table.  Return true if successful, false if
- *  out of entries in loop table.
- */
+#if COUNT_LOOPS
+// Used by optFindNaturalLoops to gather statistical information such as
+//  - total number of natural loops
+//  - number of loops with 1, 2, ... exit conditions
+//  - number of loops that have an iterator (for like)
+//  - number of loops that have a constant iterator
+static unsigned totalLoopMethods;        // counts the total number of methods that have natural loops
+static unsigned maxLoopsPerMethod;       // counts the maximum number of loops a method has
+static unsigned totalLoopOverflows;      // # of methods that identified more loops than we can represent
+static unsigned totalLoopCount;          // counts the total number of natural loops
+static unsigned totalUnnatLoopCount;     // counts the total number of (not-necessarily natural) loops
+static unsigned totalUnnatLoopOverflows; // # of methods that identified more unnatural loops than we can represent
+static unsigned iterLoopCount;           // counts the # of loops with an iterator (for like)
+static unsigned simpleTestLoopCount;     // counts the # of loops with an iterator and a simple loop condition (iter <
+                                         // const)
+static unsigned constIterLoopCount;      // counts the # of loops with a constant iterator (for like)
+static bool     hasMethodLoops;          // flag to keep track if we already counted a method as having loops
+static unsigned loopsThisMethod;         // counts the number of loops in the current method
+static bool     loopOverflowThisMethod;  // True if we exceeded the max # of loops in the method.
+// Histogram for number of loops in a method
+static const unsigned loopCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0};
+static Histogram      loopCountTable(loopCountBuckets);
+// Histogram for number of loop exits
+static const unsigned loopExitCountBuckets[]{0, 1, 2, 3, 4, 5, 6, 0};
+static Histogram      loopExitCountTable(loopExitCountBuckets);
+#endif
 
+void Compiler::compDumpLoopStats(FILE* fout)
+{
+#if COUNT_LOOPS
+    fprintf(fout, "\n---------------------------------------------------\n");
+    fprintf(fout, "Loop stats\n");
+    fprintf(fout, "---------------------------------------------------\n");
+    fprintf(fout, "Total number of methods with loops is %5u\n", totalLoopMethods);
+    fprintf(fout, "Total number of              loops is %5u\n", totalLoopCount);
+    fprintf(fout, "Maximum number of loops per method is %5u\n", maxLoopsPerMethod);
+    fprintf(fout, "# of methods overflowing nat loop table is %5u\n", totalLoopOverflows);
+    fprintf(fout, "Total number of 'unnatural' loops is %5u\n", totalUnnatLoopCount);
+    fprintf(fout, "# of methods overflowing unnat loop limit is %5u\n", totalUnnatLoopOverflows);
+    fprintf(fout, "Total number of loops with an         iterator is %5u\n", iterLoopCount);
+    fprintf(fout, "Total number of loops with a simple   iterator is %5u\n", simpleTestLoopCount);
+    fprintf(fout, "Total number of loops with a constant iterator is %5u\n", constIterLoopCount);
+    fprintf(fout, "--------------------------------------------------\n");
+    fprintf(fout, "Loop count frequency table:\n");
+    fprintf(fout, "--------------------------------------------------\n");
+    loopCountTable.dump(fout);
+    fprintf(fout, "--------------------------------------------------\n");
+    fprintf(fout, "Loop exit count frequency table:\n");
+    fprintf(fout, "--------------------------------------------------\n");
+    loopExitCountTable.dump(fout);
+    fprintf(fout, "--------------------------------------------------\n");
+#endif
+}
+
+// Record the loop in the loop table.  Return true if successful,
+// false if out of entries in loop table.
 bool Compiler::optRecordLoop(BasicBlock* head,
                              BasicBlock* first,
                              BasicBlock* top,
@@ -2119,12 +2169,9 @@ private:
 };
 }
 
-/*****************************************************************************
- * Find the natural loops, using dominators. Note that the test for
- * a loop is slightly different from the standard one, because we have
- * not done a depth first reordering of the basic blocks.
- */
-
+// Find the natural loops, using dominators. Note that the test for
+// a loop is slightly different from the standard one, because we have
+// not done a depth first reordering of the basic blocks.
 void Compiler::optFindNaturalLoops()
 {
     JITDUMP("*************** In optFindNaturalLoops()\n");
