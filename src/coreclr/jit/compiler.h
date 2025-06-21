@@ -1911,7 +1911,6 @@ public:
     GenTree* impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1);
     GenTree* impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature& sig);
-    GenTree* impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Sum(const HWIntrinsicSignature& sig);
     GenTree* impVectorT128Sum(GenTree* vec, var_types eltType, var_types retType);
     GenTree* impVectorT256Sum(const HWIntrinsicSignature& sig);

@@ -544,9 +544,6 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
                 return impVectorT256ConvertUInt64ToDouble(sig, ops[0]);
             }
             return impVectorT256ConvertInt64ToDouble(sig, ops[0]);
-        case NI_Vector2_op_Division:
-        case NI_Vector3_op_Division:
-            return impVector23Division(sig, ops[0], ops[1]);
         case NI_VectorT128_Equals:
             return impVectorT128LongEquals(sig, ops[0], ops[1]);
         case NI_VectorT128_GreaterThan:
@@ -1792,47 +1789,6 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
     return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, 32, e[0], e[1],
                                     comp->gtNewIconNode(1));
 #endif
-}
-
-GenTree* Importer::impVector23Division(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
-{
-    assert(sig.paramCount == 2);
-    assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
-    assert((sig.retLayout->GetSize() == 8) || (sig.retLayout->GetSize() == 12));
-    assert(sig.retLayout->GetElementType() == TYP_FLOAT);
-
-    ClassLayout* layout = sig.retLayout;
-    var_types    type   = layout->GetSIMDType();
-    unsigned     size   = layout->GetSize();
-
-    GenTree* d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE_Divide, TYP_FLOAT, 16, op1, op2);
-
-    // Since the top-most elements will be zero, we end up perfoming 0 / 0 which is NaN.
-    // Therefore, post division we need to set the top-most elements to zero. This is
-    // achieved by left logical shift followed by right logical shift of the result.
-
-    // TODO-MIKE-CQ: It would be better to insert zeroes into the appropiate elements instead
-    // of doing this shifty stuff. With SSE41 we can zero 2 elements (for Vector2) with one
-    // INSERTPS instruction. Without SSE41 XORPS+MOVLHPS is likely better than integer shifts
-    // for Vector2. Vector3 is a bit more problematic without SSE41 (might need 3 instructions
-    // rather than the current 2) but it sill may be better to avoid integer shifts due to
-    // integer-float bypass delays.
-    // Also, using "high level" vector operations like "WithElement" makes it slightly simpler
-    // to eliminate this zeroing in cases where it isn't necessary (e.g. when the result is
-    // used by a SIMD8/SIMD12 store or assigned to a promoted local).
-    // The problem is what to do about Vector2 - do we insert 2 FLOAT 0 or 1 DOUBLE 0?
-    // Inserting FLOTA 0 is cleaner but we'd need to coalesce these inserts in lowering and
-    // that's slightly ugly due to the way lowering works, we probably need TryGetUse when
-    // we find the first insert. Otherwise we'll lower it to some more complex sequence and
-    // then we find the second insert it will be difficult to recognize and perform coalescing.
-    // And as a side note - ARM64 doesn't zero the upper Vector3 element for unknown reasons.
-
-    d = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_INT, 16, d,
-                                 comp->gtNewIconNode(16 - size));
-    d = gtNewSimdHWIntrinsicNode(type, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16, d,
-                                 comp->gtNewIconNode(16 - size));
-
-    return d;
 }
 
 GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
