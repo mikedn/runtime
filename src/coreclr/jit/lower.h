@@ -253,6 +253,7 @@ private:
 #endif
     GenTree* LowerArrElem(GenTreeArrElem* node);
     void LowerShift(GenTreeOp* shift);
+    GenTree* LowerKeepAlive(GenTreeUnOp* node);
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);

@@ -501,12 +501,32 @@ GenTree* Lowering::LowerNode(GenTree* node)
 #endif
 
         case GT_KEEPALIVE:
-            node->AsUnOp()->GetOp(0)->SetRegOptional();
-            break;
+            return LowerKeepAlive(node->AsUnOp());
 
         default:
             break;
     }
+
+    return node->gtNext;
+}
+
+GenTree* Lowering::LowerKeepAlive(GenTreeUnOp* node)
+{
+    GenTree* value = node->GetOp(0);
+
+    if (GenTreeLclLoad* load = value->IsLclLoad())
+    {
+        // Address exposed locals are always live so the KEEPALIVE is not necessary.
+        if (load->GetLcl()->IsAddressExposed())
+        {
+            GenTree* next = node->gtNext;
+            BlockRange().Unlink(load);
+            BlockRange().Unlink(node);
+            return next;
+        }
+    }
+
+    value->SetRegOptional();
 
     return node->gtNext;
 }
