@@ -754,38 +754,12 @@ bool LinearScan::IsRegCandidateLclStoreMultiReg(GenTreeLclStore* store)
     return isMultiReg;
 }
 
-// Check whether a LCL_LOAD node is a candidate or contained.
-// We handle candidate variables differently from non-candidate ones.
-// If it is a candidate, we will simply add a use of it at its parent/consumer.
-// Otherwise, for a use we need to actually add the appropriate references for loading
-// or storing the variable.
-//
-// A candidate lclVar won't actually get used until the appropriate ancestor node
-// is processed, unless this is marked "isLocalDefUse" because it is a stack-based argument
-// to a call or an orphaned dead node.
-//
-// Also, because we do containment analysis before we redo dataflow and identify register
-// candidates, the containment analysis only uses !lvDoNotEnregister to estimate register
-// candidates.
-// If there is a lclVar that is estimated during Lowering to be register candidate but turns
-// out not to be, if a use was marked regOptional it should now be marked contained instead.
-bool LinearScan::checkContainedOrCandidateLclVar(GenTreeLclLoad* load)
+bool LinearScan::IsLclLoad(GenTreeLclLoad* load)
 {
     assert(!load->IsMultiReg());
-    // We shouldn't be calling this if this node was already contained.
     assert(!load->isContained());
 
-    bool isCandidate = load->GetLcl()->IsRegCandidate();
-
-    if (!isCandidate && load->IsRegOptional())
-    {
-        load->ClearRegOptional();
-        load->SetContained();
-
-        return true;
-    }
-
-    return isCandidate;
+    return !load->GetLcl()->IsRegCandidate();
 }
 
 RefPosition* LinearScan::defineNewInternalTemp(GenTree* node, RegisterType regType, regMaskTP regMask)
@@ -1061,7 +1035,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
     // after liveness. In either case we don't build any uses or defs. Otherwise, this is a
     // load of a stack-based local into a register and we'll fall through to the general
     // local case below.
-    if (!tree->OperIs(GT_LCL_LOAD) || !checkContainedOrCandidateLclVar(tree->AsLclLoad()))
+    if (!tree->OperIs(GT_LCL_LOAD) || IsLclLoad(tree->AsLclLoad()))
     {
         BuildNode(tree);
     }

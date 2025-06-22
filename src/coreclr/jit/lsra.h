@@ -1305,7 +1305,7 @@ private:
     }
 
     bool IsRegCandidateLclStoreMultiReg(GenTreeLclStore* store);
-    bool checkContainedOrCandidateLclVar(GenTreeLclLoad* load);
+    bool IsLclLoad(GenTreeLclLoad* load);
 
     RefPosition* BuildDef(GenTree* node, regMaskTP regCandidates = RBM_NONE);
     RefPosition* BuildDef(GenTree* node, var_types regType, regMaskTP regCandidates, unsigned regIndex);
