@@ -6574,15 +6574,6 @@ public:
         return GetSlotCount() * REGSIZE_BYTES;
     }
 
-#if defined(FEATURE_SIMD) && defined(TARGET_X86)
-    // Return true if this is a PutArgStk of a SIMD12 struct.
-    // This is needed because such values are re-typed to SIMD16, and the type of PutArgStk is VOID.
-    unsigned IsSIMD12() const
-    {
-        return varTypeIsSIMD(gtOp1->GetType()) && (m_argInfo->GetSlotCount() == 3);
-    }
-#endif
-
 #ifdef TARGET_XARCH
     Kind GetKind() const
     {

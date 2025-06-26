@@ -3184,7 +3184,7 @@ private:
                     if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT) &&
                         user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) && user->TypeIs(TYP_SIMD12))
                     {
-                        GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD12, TYP_FLOAT);
+                        GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
 
                         if (user->OperIs(GT_LCL_STORE_FLD))
                         {

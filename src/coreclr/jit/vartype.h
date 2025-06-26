@@ -142,6 +142,49 @@ inline bool varTypeIsSIMD(var_types vt)
 #endif
 }
 
+inline bool varTypeIsTargetVec(var_types vt)
+{
+#ifdef FEATURE_SIMD
+    return (vt == TYP_SIMD16)
+#ifdef TARGET_XARCH
+           || (vt == TYP_SIMD32)
+#endif
+#ifdef TARGET_ARM64
+           || (vt == TYP_SIMD8)
+#endif
+        ;
+#else
+    return false;
+#endif
+}
+
+inline bool varTypeIsNonTargetVec(var_types vt)
+{
+#ifdef FEATURE_SIMD
+    return (vt == TYP_SIMD12)
+#ifndef TARGET_ARM64
+           || (vt == TYP_SIMD8)
+#endif
+        ;
+#else
+    return false;
+#endif
+}
+
+__declspec(noinline) inline var_types varTypeGetTargetVec(var_types vt)
+{
+#ifdef FEATURE_SIMD
+    if (varTypeIsNonTargetVec(vt))
+    {
+        return TYP_SIMD16;
+    }
+#endif
+
+    assert(varTypeIsTargetVec(vt));
+
+    return vt;
+}
+
 inline bool varTypeIsStruct(var_types vt)
 {
     return (vt == TYP_STRUCT) || varTypeIsSIMD(vt);

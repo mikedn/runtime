@@ -302,7 +302,6 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
 
     var_types eltType = layout->GetElementType();
     unsigned  size    = layout->GetSize();
-    GenTree*  ops[2];
 
     assert(!signature.hasThisParam);
 
@@ -315,10 +314,27 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
 #endif
     {
         size = 16;
+
+        if (varTypeIsNonTargetVec(signature.retType))
+        {
+            signature.retType = varTypeGetTargetVec(signature.retType);
+        }
+
+        if ((signature.paramCount > 0) && varTypeIsNonTargetVec(signature.paramType[0]))
+        {
+            signature.paramType[0] = varTypeGetTargetVec(signature.paramType[0]);
+        }
+
+        if ((signature.paramCount > 1) && varTypeIsNonTargetVec(signature.paramType[1]))
+        {
+            signature.paramType[1] = varTypeGetTargetVec(signature.paramType[1]);
+        }
     }
 
     switch (signature.paramCount)
     {
+        GenTree* ops[2];
+
         case 0:
             assert(varTypeIsSIMD(signature.retType));
             return gtNewSimdHWIntrinsicNode(signature.retType, hwIntrinsic, eltType, size);
@@ -386,7 +402,7 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_Vector3_CreateExtend1:
         case NI_Vector4_CreateExtend1:
         case NI_Vector4_CreateExtend2:
-            return impVector234CreateExtend(sig, layout, isNewObj);
+            return impVector34CreateExtend(sig, layout, isNewObj);
         case NI_Vector2_CopyTo:
         case NI_Vector2_CopyToAt:
         case NI_Vector3_CopyTo:
@@ -580,11 +596,11 @@ GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
     assert(sig.paramCount == 0);
 
     var_types type    = sig.retLayout->GetSIMDType();
+    var_types vecType = varTypeGetTargetVec(type);
     var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
-    unsigned  size    = sig.retLayout->GetSize();
 
     GenTree* one = gtNewOneConNode(eltType);
-    return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), eltType, size, one);
+    return gtNewSimdHWIntrinsicNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), one);
 }
 
 GenTree* Importer::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -604,23 +620,26 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     assert(layout->IsVector());
     assert(sig.paramCount == 1);
 
-    GenTree* arg      = impPopStackCoerceArg(varActualType(sig.paramType[0]));
-    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
-    GenTree* create;
+    var_types type     = layout->GetSIMDType();
+    var_types vecType  = varTypeGetTargetVec(type);
+    var_types eltType  = varTypeNodeType(layout->GetElementType());
+    GenTree*  arg      = impPopStackCoerceArg(varActualType(sig.paramType[0]));
+    GenTree*  destAddr = isNewObj ? nullptr : impPopStack().val;
+    GenTree*  create;
 
     if (arg->IsIntegralConst(0) || arg->IsDblConPositiveZero())
     {
-        create = gtNewZeroSimdHWIntrinsicNode(layout);
+        create = gtNewZeroSimdHWIntrinsicNode(vecType, eltType);
     }
     else
     {
-        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
-                                          varTypeNodeType(layout->GetElementType()), layout->GetSize(), arg);
+        create =
+            gtNewSimdHWIntrinsicNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), arg);
     }
 
     if (destAddr != nullptr)
     {
-        return impVectorStore(destAddr, create);
+        return impVectorStore(type, destAddr, create);
     }
 
     return create;
@@ -657,12 +676,15 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
         }
     }
 
-    GenTree* destAddr = isNewObj ? nullptr : impPopStack().val;
-    GenTree* create;
+    var_types type     = layout->GetSIMDType();
+    var_types vecType  = varTypeGetTargetVec(type);
+    var_types eltType  = varTypeNodeType(layout->GetElementType());
+    GenTree*  destAddr = isNewObj ? nullptr : impPopStack().val;
+    GenTree*  create;
 
     if (areArgsContiguous)
     {
-        SIMDCoalescingBuffer::ChangeToSIMDLoad(comp, args[0], layout->GetSIMDType());
+        SIMDCoalescingBuffer::ChangeToSIMDLoad(comp, args[0], type);
 
         create = args[0];
 
@@ -673,42 +695,40 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
     }
     else if (areArgsZero)
     {
-        create = gtNewZeroSimdHWIntrinsicNode(layout);
+        create = gtNewZeroSimdHWIntrinsicNode(vecType, eltType);
     }
     else
     {
-        unsigned size     = layout->GetSize();
         unsigned argCount = sig.paramCount;
 
-        switch (size)
+        switch (argCount)
         {
 #ifdef TARGET_XARCH
-            case 8:
+            case 2:
                 args[2] = comp->gtNewDconNode(0, TYP_FLOAT);
                 FALLTHROUGH;
 #endif
-            case 12:
+            case 3:
                 args[3]  = comp->gtNewDconNode(0, TYP_FLOAT);
-                size     = 16;
                 argCount = 4;
                 break;
             default:
                 break;
         }
 
-        create = gtNewSimdHWIntrinsicNode(layout->GetSIMDType(), GetCreateSimdHWIntrinsic(layout->GetSIMDType()),
-                                          TYP_FLOAT, size, argCount, args);
+        create = gtNewSimdHWIntrinsicNode(vecType, GetCreateSimdHWIntrinsic(vecType), TYP_FLOAT, varTypeSize(vecType),
+                                          argCount, args);
     }
 
     if (destAddr != nullptr)
     {
-        return impVectorStore(destAddr, create);
+        return impVectorStore(type, destAddr, create);
     }
 
     return create;
 }
 
-GenTree* Importer::impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
+GenTree* Importer::impVector34CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj)
 {
     assert(sig.retType == TYP_VOID);
     assert(sig.hasThisParam);
@@ -773,11 +793,9 @@ GenTree* Importer::impVector234CreateExtend(const HWIntrinsicSignature& sig, Cla
 #error Unsupported platform
 #endif
 
-    create->SetType(layout->GetSIMDType());
-
     if (destAddr != nullptr)
     {
-        return impVectorStore(destAddr, create);
+        return impVectorStore(layout->GetSIMDType(), destAddr, create);
     }
 
     return create;
@@ -806,15 +824,15 @@ GenTree* Importer::impVectorPop(var_types type)
     return comp->gtNewIndLoad(type, addr);
 }
 
-GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
+GenTree* Importer::impVectorStore(var_types type, GenTree* destAddr, GenTree* src)
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
     assert(src->OperIs(GT_IND_LOAD, GT_HWINTRINSIC));
-    assert(varTypeIsSIMD(src->GetType()));
+    assert(varTypeGetTargetVec(type) == varTypeGetTargetVec(src->GetType()));
 
     GenTree* store;
 
-    if (destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLcl()->GetType() == src->GetType()))
+    if (destAddr->OperIs(GT_LCL_ADDR) && (destAddr->AsLclAddr()->GetLcl()->GetType() == type))
     {
         LclVarDsc* lcl = destAddr->AsLclAddr()->GetLcl();
         // Currently the importer doesn't generate local field addresses.
@@ -829,7 +847,7 @@ GenTree* Importer::impVectorStore(GenTree* destAddr, GenTree* src)
     }
     else
     {
-        store = comp->gtNewIndStore(src->GetType(), destAddr, src);
+        store = comp->gtNewIndStore(type, destAddr, src);
         store->gtFlags |= GTF_GLOB_REF | comp->gtGetIndirExceptionFlags(destAddr);
     }
 
@@ -912,7 +930,7 @@ GenTree* Importer::impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLay
     GenTreeIndir* src = comp->gtNewIndLoad(layout->GetSIMDType(), srcAddr);
     src->gtFlags |= GTF_GLOB_REF | GTF_IND_NONFAULTING;
 
-    return destAddr == nullptr ? src : impVectorStore(destAddr, src);
+    return destAddr == nullptr ? src : impVectorStore(src->GetType(), destAddr, src);
 }
 
 GenTree* Importer::impVector234TCopyTo(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -1190,8 +1208,8 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
 
     GenTree* lo = gtNewSimdHWIntrinsicNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
     GenTree* hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
-    impSpillAllAppendTree(impVectorStore(loAddr, lo));
-    return impVectorStore(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(TYP_SIMD16, loAddr, lo));
+    return impVectorStore(TYP_SIMD16, hiAddr, hi);
 }
 
 GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
@@ -1292,7 +1310,7 @@ GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
         }
 
         mask = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, mask);
-        return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, 16, op1, mask);
+        return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, eltType, 16, op1, mask);
     }
 
     if ((eltType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
@@ -2001,6 +2019,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
 
     ClassLayout* layout  = sig.paramLayout[0];
     var_types    type    = layout->GetSIMDType();
+    var_types    vecType = varTypeGetTargetVec(type);
     var_types    eltType = layout->GetElementType();
     unsigned     size    = layout->GetSize();
 
@@ -2056,7 +2075,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
         eltType = TYP_UBYTE;
     }
 
-    op1 = gtNewSimdHWIntrinsicNode(type, cmpeq, eltType, size, op1, op2);
+    op1 = gtNewSimdHWIntrinsicNode(vecType, cmpeq, eltType, size, op1, op2);
     op1 = gtNewSimdHWIntrinsicNode(TYP_INT, movmsk, eltType, size, op1);
 
     if ((type == TYP_SIMD8) || (type == TYP_SIMD12))
@@ -2364,8 +2383,8 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         hi = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
     }
 
-    impSpillAllAppendTree(impVectorStore(loAddr, lo));
-    return impVectorStore(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(TYP_SIMD16, loAddr, lo));
+    return impVectorStore(TYP_SIMD16, hiAddr, hi);
 }
 
 GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
@@ -2417,8 +2436,8 @@ GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], comp->gtNewIconNode(1));
     hi = gtNewSimdHWIntrinsicNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
 
-    impSpillAllAppendTree(impVectorStore(loAddr, lo));
-    return impVectorStore(hiAddr, hi);
+    impSpillAllAppendTree(impVectorStore(TYP_SIMD32, loAddr, lo));
+    return impVectorStore(TYP_SIMD32, hiAddr, hi);
 }
 
 GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)

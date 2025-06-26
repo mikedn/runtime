@@ -1865,9 +1865,9 @@ public:
                                   bool                        isNewObj);
     GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVector234CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector34CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVectorStore(GenTree* destAddr, GenTree* src);
+    GenTree* impVectorStore(var_types type, GenTree* destAddr, GenTree* src);
     GenTree* impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
                                              GenTree*        array,
                                              GenTree*        index,

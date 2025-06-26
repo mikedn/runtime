@@ -1185,7 +1185,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #if defined(FEATURE_SIMD) && defined(TARGET_X86)
-    if (putArgStk->IsSIMD12())
+    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSlotCount() == 3))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);

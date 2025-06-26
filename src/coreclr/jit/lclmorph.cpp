@@ -1051,9 +1051,10 @@ private:
     {
         GenTree* value = store->GetValue();
 
-        if ((value->GetType() != store->GetType()) && !value->IsIntCon(0))
+        if (!varTypeIsSIMD(store->GetType()) && (value->GetType() != store->GetType()) && !value->IsIntCon(0))
         {
-            assert(store->GetLayout()->GetSize() == varTypeSize(value->GetType()));
+            assert((store->GetLayout()->GetSize() == varTypeSize(value->GetType())) ||
+                   (varTypeGetTargetVec(store->GetLayout()->GetSIMDType()) == value->GetType()));
 
             store->SetOper(GT_IND_STORE);
             store->SetType(store->GetValue()->GetType());

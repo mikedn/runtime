@@ -3384,7 +3384,8 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         }
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
-        assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)));
+        assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)) ||
+               (varTypeIsSIMD(lclRegType) && (varTypeGetTargetVec(lclRegType) == srcRegType)));
     }
 #endif
 
@@ -3844,14 +3845,14 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     if (!value->isContained())
     {
         RegNum reg = UseReg(value);
-        GetEmitter()->emitIns_A_R(ins_Store(value->GetType()), attr, addr, reg);
+        GetEmitter()->emitIns_A_R(ins_Store(type), attr, addr, reg);
 
         return;
     }
 
     if (GenTreeIntCon* imm = value->IsIntCon())
     {
-        GetEmitter()->emitIns_A_I(ins_Store(value->GetType()), attr, addr, imm->GetInt32Value());
+        GetEmitter()->emitIns_A_I(ins_Store(type), attr, addr, imm->GetInt32Value());
 
         return;
     }
@@ -5895,14 +5896,14 @@ void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         }
         else
         {
-#if defined(FEATURE_SIMD)
+#ifdef FEATURE_SIMD
             if (fieldType == TYP_SIMD12)
             {
                 assert(genIsValidFloatReg(simdTmpReg));
                 genStoreSIMD12ToStack(argReg, simdTmpReg);
             }
             else
-#endif // defined(FEATURE_SIMD)
+#endif
                 if (pushStkArg)
             {
                 genPushReg(fieldType, argReg);
@@ -6128,35 +6129,43 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif // !WINDOWS_AMD64_ABI
 
-#if defined(TARGET_AMD64) || !defined(FEATURE_SIMD)
-    assert(roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetSlotCount() * REGSIZE_BYTES);
-#else
-    assert((roundUp(varTypeSize(srcType), REGSIZE_BYTES) <= putArgStk->GetArgSize()) || putArgStk->IsSIMD12());
-#endif
-
     if (src->isUsedFromReg())
     {
-        regNumber srcReg = UseReg(src);
+        RegNum srcReg = UseReg(src);
 
 #ifdef TARGET_AMD64
-        emit.emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
-                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+        instruction ins;
+        emitAttr    size;
+
+        if (varTypeIsSIMD(srcType) && (putArgStk->GetSlotCount() == 1))
+        {
+            ins  = INS_movsd;
+            size = EA_8BYTE;
+        }
+        else
+        {
+            ins  = ins_Store(srcType);
+            size = emitTypeSize(srcType);
+        }
+
+        emit.emitIns_S_R(ins, size, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 #else
 #ifdef FEATURE_SIMD
         if (varTypeIsSIMD(srcType))
         {
             assert(genIsValidFloatReg(srcReg));
 
-            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, putArgStk->GetArgSize());
-            AddStackLevel(putArgStk->GetArgSize());
+            unsigned size = putArgStk->GetArgSize();
+            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
+            AddStackLevel(size);
 
-            if (putArgStk->IsSIMD12())
+            if (size == 12)
             {
                 genStoreSIMD12ToStack(srcReg, putArgStk->GetSingleTempReg());
             }
             else
             {
-                emit.emitIns_AR_R(ins_Store(srcType), emitTypeSize(srcType), srcReg, REG_SPBASE, 0);
+                emit.emitIns_AR_R(size == 8 ? INS_movsd : INS_movups, EA_ATTR(size), srcReg, REG_SPBASE, 0);
             }
         }
         else
@@ -6168,17 +6177,16 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     }
     else
     {
+        assert(putArgStk->GetSlotCount() == 1);
+
 #ifdef TARGET_AMD64
-        emit.emitIns_S_I(ins_Store(srcType), emitTypeSize(srcType),
+        emit.emitIns_S_I(INS_mov, emitTypeSize(srcType),
                          GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
                          src->AsIntCon()->GetInt32Value());
 #else
         UseRMRegs(src);
 
-        assert(putArgStk->GetSlotCount() == 1);
-
         emitAttr attr = emitActualTypeSize(src->GetType());
-
         assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
 
         StackAddrMode s;

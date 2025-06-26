@@ -6672,7 +6672,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         // SIMD8 is the only SIMD type passed in a single register on unix-x64.
         // SIMD16 & SIMD32 should also be passed in a single XMM register but the ABI
         // is currently broken.
-        assert(arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_DOUBLE));
+        assert(arg->TypeIs(TYP_SIMD8, TYP_SIMD16) && (argRegType == TYP_DOUBLE));
 #elif defined(TARGET_AMD64)
         // On win-x64 the only SIMD type passed in a register is SIMD8 and we have
         // already handled that case. vectorcall is not currently supported.
@@ -7571,7 +7571,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
         tempLcl    = lvaNewTemp(argLayout, true DEBUGARG("multi-reg SIMD arg temp"));
-        tempAssign = gtNewLclStore(tempLcl, arg->GetType(), arg);
+        tempAssign = gtNewLclStore(tempLcl, tempLcl->GetType(), arg);
     }
 
     GenTreeFieldList* fieldList = new (this, GT_FIELD_LIST) GenTreeFieldList();
@@ -7613,7 +7613,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         }
         else
         {
-            regValue = gtNewLclLoad(tempLcl, arg->GetType());
+            regValue = gtNewLclLoad(tempLcl, tempLcl->GetType());
             regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
         }
 

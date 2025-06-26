@@ -11028,15 +11028,14 @@ bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 
 GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
 {
-    return new (this, GT_HWINTRINSIC)
-        GenTreeHWIntrinsic(layout->GetSIMDType(), GetZeroSimdHWIntrinsic(layout->GetSIMDType()),
-                           varTypeNodeType(layout->GetElementType()), layout->GetSize());
+    return gtNewZeroSimdHWIntrinsicNode(varTypeGetTargetVec(layout->GetSIMDType()),
+                                        varTypeNodeType(layout->GetElementType()));
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType)
+GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types eltType)
 {
     return new (this, GT_HWINTRINSIC)
-        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(baseType), varTypeSize(type));
+        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(eltType), varTypeSize(type));
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,

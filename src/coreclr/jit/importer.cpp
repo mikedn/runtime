@@ -157,7 +157,7 @@ GenTree* Importer::impSIMDPopStack(var_types type)
         tree = comp->gtNewLclLoad(tmpLcl, tmpLcl->GetType());
     }
 
-    assert(tree->GetType() == type);
+    assert(varTypeGetTargetVec(tree->GetType()) == varTypeGetTargetVec(type));
 
     return tree;
 }
@@ -1049,7 +1049,8 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 
 GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
 {
-    assert(arg->GetType() == typGetStructType(argLayout));
+    assert((arg->GetType() == typGetStructType(argLayout)) ||
+           (argLayout->IsVector() && (varTypeGetTargetVec(argLayout->GetSIMDType()) == arg->GetType())));
 
     bool spillToTemp = false;
 
@@ -16852,9 +16853,9 @@ GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
     return comp->gtNewZeroSimdHWIntrinsicNode(layout);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType)
+GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types eltType)
 {
-    return comp->gtNewZeroSimdHWIntrinsicNode(type, baseType);
+    return comp->gtNewZeroSimdHWIntrinsicNode(type, eltType);
 }
 
 GenTreeHWIntrinsic* Importer::gtNewSimdGetElementNode(var_types simdType,
