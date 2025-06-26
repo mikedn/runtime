@@ -1045,10 +1045,19 @@ static constexpr auto GetHelperCallInfo(CorInfoHelpFunc helper)
             break;
 
         case CORINFO_HELP_UNBOX:
-        case CORINFO_HELP_GETREFANY:
         case CORINFO_HELP_LDELEMA_REF:
             info.isPure = true;
             break;
+
+#ifndef WINDOWS_AMD64_ABI
+        // On win-x64 this helper has an implicit by ref arg and VN does not handle that,
+        // the resulting call VN depends on the implicit by ref temp address, instead of
+        // the actual arg value. VN could probably be modified to handle this case but
+        // typed references are not commonly used.
+        case CORINFO_HELP_GETREFANY:
+            info.isPure = true;
+            break;
+#endif
 
         case CORINFO_HELP_GETCLASSFROMMETHODPARAM:
         case CORINFO_HELP_GETSYNCFROMCLASSHANDLE:
