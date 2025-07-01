@@ -5217,7 +5217,7 @@ void ValueNumStore::DumpPhi(const VNFuncApp& phi)
 void ValueNumStore::DumpUnique(const VNFuncApp& unique)
 {
     assert(unique.Is(VNF_Unique));
-    unsigned loopNum = unique[0];
+    unsigned loopNum = unique[0] - 1;
 
     if (loopNum == NoLoopNum)
     {

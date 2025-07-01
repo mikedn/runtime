@@ -575,7 +575,7 @@ private:
 #ifdef FEATURE_SIMD
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
-    void genStoreSIMD12ToStack(regNumber operandReg, regNumber tmpReg);
+    void PushSIMD12(RegNum valueReg, RegNum tmpReg) const;
 #endif
 #endif
 
@@ -749,18 +749,18 @@ private:
 #endif
 
 #ifndef TARGET_X86
-    void genPutArgStkFieldList(GenTreePutArgStk* putArg,
+    void GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                unsigned          outArgLclNum,
                                unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif
 
 #ifdef TARGET_X86
-    void genPreAdjustStackForPutArgStk(unsigned argSize);
-    void genPushReg(var_types type, regNumber srcReg);
-    void genPutArgStkFieldList(GenTreePutArgStk* putArgStk);
-    void genPutStructArgStk(GenTreePutArgStk* putArgStk);
+    void PreAdjustStackForPutArgStk(unsigned argSize);
+    void PushReg(var_types type, RegNum srcReg);
+    void GenPutArgStkFieldList(GenTreePutArgStk* putArgStk);
+    void GenPutArgStkStruct(GenTreePutArgStk* putArgStk);
 #else
-    void genPutStructArgStk(GenTreePutArgStk* putArgStk,
+    void GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                             unsigned          outArgLclNum,
                             unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
 #endif

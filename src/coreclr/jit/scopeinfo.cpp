@@ -237,11 +237,11 @@ void DbgInfoVarLoc::Dump(const char* suffix) const
             }
             break;
 
-#ifndef TARGET_AMD64
         case VLT_REG_REG:
             printf("%s-%s", getRegName(vlRegReg.vlrrReg1), getRegName(vlRegReg.vlrrReg2));
             break;
 
+#ifndef TARGET_AMD64
         case VLT_REG_STK:
             if (IsAmbientSP(vlRegStk.vlrsStk.vlrssBaseReg))
             {

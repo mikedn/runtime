@@ -4886,7 +4886,7 @@ void CodeGen::genIPmappingGen()
 // an outArgLclNum, as it pushes its args onto the stack.
 // For fast tail calls the outgoing argument area is actually the
 // method's own incoming argument area.
-void CodeGen::genPutArgStkFieldList(GenTreePutArgStk* putArg,
+void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {

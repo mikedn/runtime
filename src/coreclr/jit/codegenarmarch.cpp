@@ -154,13 +154,13 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     if (src->OperIs(GT_FIELD_LIST))
     {
-        genPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        GenPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
     if (srcType == TYP_STRUCT)
     {
-        genPutStructArgStk(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
@@ -218,7 +218,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 #endif // TARGET_ARM
 }
 
-void CodeGen::genPutStructArgStk(GenTreePutArgStk* putArgStk,
+void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                                  unsigned          outArgLclNum,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
