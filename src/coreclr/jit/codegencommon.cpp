@@ -2415,14 +2415,6 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 }
                 else
                 {
-                    if (lcl->TypeIs(TYP_SIMD12))
-                    {
-                        // Zero out the upper element of Vector3 since unmanaged callers
-                        // don't do it (the native ABI doesn't require it).
-                        GetEmitter()->emitIns_R_I(INS_pslldq, EA_16BYTE, nextRegNum, 12);
-                        GetEmitter()->emitIns_R_I(INS_psrldq, EA_16BYTE, nextRegNum, 12);
-                    }
-
                     GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
                 }
 
@@ -3890,16 +3882,6 @@ void CodeGen::genFnProlog()
         // arguments.
         GetEmitter()->MarkMainPrologNoGCEnd();
     }
-
-#ifdef UNIX_AMD64_ABI
-    // The unused bits of Vector3 arguments must be cleared
-    // since native compiler doesn't initize the upper bits to zeros.
-    //
-    // TODO-Cleanup: This logic can be implemented in
-    // genPrologMoveParamRegs() for argument registers and
-    // genPrologEnregisterIncomingStackParams() for stack arguments.
-    PrologClearVector3StackParamUpperBits();
-#endif
 
     UpdateParamsWithInitialReg();
 

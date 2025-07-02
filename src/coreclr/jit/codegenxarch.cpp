@@ -2959,31 +2959,6 @@ void CodeGen::GenStructStoreUnrollRegsWB(GenTreeIndStoreObj* store)
 }
 #endif // UNIX_AMD64_ABI
 
-// If any Vector3 args are on stack and they are not pass-by-ref, the upper 32bits
-// must be cleared to zeroes. The native compiler doesn't clear the upper bits
-// and there is no way to know if the caller is native or not. So, the upper
-// 32 bits of Vector argument on stack are always cleared to zero.
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-void CodeGen::PrologClearVector3StackParamUpperBits()
-{
-    JITDUMP("*************** In PrologClearVector3StackParamUpperBits()\n");
-
-    assert(generatingProlog);
-
-    for (LclVarDsc* lcl : compiler->Params())
-    {
-        assert(lcl->IsParam());
-
-        // This is needed only for stack params, zeroing reg params is
-        // done when the 2 param registers are packed together.
-        if (lcl->TypeIs(TYP_SIMD12) && !lcl->IsRegParam())
-        {
-            GetEmitter()->emitIns_S_I(INS_mov, EA_4BYTE, GetStackAddrMode(lcl, 12), 0);
-        }
-    }
-}
-#endif // defined(UNIX_AMD64_ABI) && defined(FEATURE_SIMD)
-
 void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
 {
     assert(node->OperIs(GT_JMPTABLE));

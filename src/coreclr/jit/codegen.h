@@ -231,11 +231,8 @@ public:
     void MarkGCTrackedSlots(int&       minBlockInitOffset,
                             int&       maxBlockInitOffset,
                             regMaskTP& initRegs ARM_ARG(regMaskTP& initDblRegs));
-#ifdef UNIX_AMD64_ABI
-    void PrologClearVector3StackParamUpperBits();
-#endif
 
-#if defined(TARGET_ARM64)
+#ifdef TARGET_ARM64
     bool genInstrWithConstant(instruction ins,
                               emitAttr    attr,
                               regNumber   reg1,
