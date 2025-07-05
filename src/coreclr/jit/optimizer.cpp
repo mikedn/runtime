@@ -5222,7 +5222,7 @@ void Compiler::optAddCopies()
         // We only add copies for non temp local variables
         // that have a single def and that can possibly be enregistered
 
-        if (lcl->lvIsTemp || !lcl->lvSingleDef || (typ == TYP_STRUCT) || varTypeIsSmall(typ))
+        if (lcl->lvIsTemp || !lcl->lvSingleDef || varTypeIsStruct(typ) || varTypeIsSmall(typ))
         {
             continue;
         }
@@ -5425,17 +5425,7 @@ void Compiler::optAddCopies()
             continue;
         }
 
-        LclVarDsc* copyLcl = lvaAllocTemp(false DEBUGARG("optAddCopies"));
-
-        if (varTypeIsSIMD(lcl->GetType()))
-        {
-            lvaSetStruct(copyLcl, lcl->GetLayout(), /* checkUnsafeBuffer */ false);
-            assert(copyLcl->GetType() == typ);
-        }
-        else
-        {
-            copyLcl->SetType(typ);
-        }
+        LclVarDsc* copyLcl = lvaNewTemp(typ, false DEBUGARG("optAddCopies"));
 
         JITDUMP("Finding the best place to insert the store V%02u = V%02u\n", copyLcl->GetLclNum(), lcl->GetLclNum());
 
@@ -5453,9 +5443,9 @@ void Compiler::optAddCopies()
             // numbered block which dominates all the uses of the local variable
 
             // Our default is to use the first block
-            BasicBlock*          bestBlock  = fgFirstBB;
-            BasicBlock::weight_t bestWeight = bestBlock->getBBWeight(this);
-            BasicBlock*          block      = bestBlock;
+            BasicBlock* bestBlock  = fgFirstBB;
+            weight_t    bestWeight = bestBlock->getBBWeight(this);
+            BasicBlock* block      = bestBlock;
 
             JITDUMP("Starting at " FMT_BB ", bbWeight is %s, bestWeight is %s\n", block->bbNum,
                     refCntWtd2str(bestWeight), refCntWtd2str(bestWeight));
@@ -5471,8 +5461,9 @@ void Compiler::optAddCopies()
                 {
                     block = block->bbNext;
                 }
+
                 noway_assert((block != nullptr) && (block->bbNum == bbNum));
-                BasicBlock::weight_t blockWeight = block->getBBWeight(this);
+                weight_t blockWeight = block->getBBWeight(this);
 
                 JITDUMP("Considering " FMT_BB ", bbWeight is %s, bestWeight is %s\n", block->bbNum,
                         refCntWtd2str(blockWeight), refCntWtd2str(bestWeight));

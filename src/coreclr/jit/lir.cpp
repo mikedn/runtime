@@ -160,30 +160,13 @@ LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenT
     {
         assert(varActualType(lcl->GetType()) == type);
     }
-    else if (!varTypeIsStruct(type))
+    else if (varTypeIsSIMD(type))
     {
-        lcl->SetType(type);
+        lcl->lvType = varTypeGetTargetVec(type);
     }
     else
     {
-        ClassLayout* layout = compiler->typGetVectorLayout(def);
-
-        if (layout != nullptr)
-        {
-            compiler->lvaSetStruct(lcl, layout, false);
-        }
-        else
-        {
-            // HWIntrinsic lowering creates temps from HWIntrinsic trees that have SIMD
-            // types not seen during import, we can't recover the handle in this case.
-            // Just set the local type, it should be enough.
-
-            // TODO-MIKE-Cleanup: So if it's enough why bother to begin with?
-
-            assert(def->IsHWIntrinsic() || def->OperIs(GT_IND_LOAD));
-
-            lcl->lvType = type;
-        }
+        lcl->SetType(type);
     }
 
     GenTreeLclStore* store = compiler->gtNewLclStore(lcl, type, def);

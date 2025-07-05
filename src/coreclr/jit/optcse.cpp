@@ -541,20 +541,6 @@ public:
                 return 0;
             }
 
-            if (varTypeIsSIMD(expr->GetType()) && (found->layout == nullptr))
-            {
-                // If we haven't yet obtained the SIMD layout try again, maybe we get lucky.
-                // Mostly for the sake of consistency. Otherwise it doesn't really matter.
-                // If we decide to CSE this expression we'll try to get an approximate layout.
-                // The SIMD base type and the kind of vector that's associated with this SIMD
-                // expression is ultimately irrelevant, we just need a layout that has the
-                // same SIMD type as the expression. It also doesn't matter if 2 equivalent
-                // expression somehow have different layouts, as long as the layout SIMD type
-                // is the same.
-
-                found->layout = compiler->typGetStructLayout(expr);
-            }
-
             Occurrence* occurrence      = new (allocator) Occurrence(expr, stmt, block);
             occurrence->next            = found->firstOccurrence.next;
             found->firstOccurrence.next = occurrence;
@@ -606,10 +592,10 @@ public:
         Value* value         = new (allocator) Value(hashVN, expr, stmt, block);
         value->isSharedConst = isSharedConst;
 
-        if (varTypeIsStruct(expr->GetType()))
+        if (expr->TypeIs(TYP_STRUCT))
         {
             value->layout = compiler->typGetStructLayout(expr);
-            assert((value->layout != nullptr) || varTypeIsSIMD(expr->GetType()));
+            assert(value->layout != nullptr);
         }
 
         value->nextInBucket      = hashBuckets[bucketIndex];
@@ -1688,28 +1674,6 @@ public:
 
     PromotionKind PromotionCheck(const Candidate& candidate)
     {
-        if (varTypeIsSIMD(candidate.expr->GetType()) && (candidate.value->layout == nullptr))
-        {
-            // If we haven't found an exact layout yet then use any layout that happens
-            // to have the same SIMD type as the expression. Even so, it's possible to
-            // not have a layout, usually due to SIMD typed nodes generated internally
-            // by the JIT, in such cases there's no struct handle and the layout table
-            // isn't populated. In such a case we don't have any option but to reject
-            // this CSE.
-
-            // TODO-MIKE-Cleanup: Do we really need this? There are other places that
-            // create SIMD temps without layout so why bother at all here?
-
-            ClassLayout* layout = compiler->typGetVectorLayout(candidate.expr);
-
-            if (layout == nullptr)
-            {
-                return PromotionKind::None;
-            }
-
-            candidate.value->layout = layout;
-        }
-
 #ifdef DEBUG
         if (ConfigBiasedCse() > 0)
         {
@@ -2081,10 +2045,14 @@ public:
         var_types  lclType = varActualType(candidate.expr->GetType());
         LclVarDsc* lcl     = compiler->lvaAllocTemp(false DEBUGARG(lclReason));
 
-        if (varTypeIsStruct(lclType))
+        if (lclType == TYP_STRUCT)
         {
             compiler->lvaSetStruct(lcl, candidate.value->layout, false);
-            assert(lcl->GetType() == lclType);
+        }
+        else if (varTypeIsSIMD(lclType))
+        {
+            lclType     = varTypeGetTargetVec(lclType);
+            lcl->lvType = lclType;
         }
         else
         {
