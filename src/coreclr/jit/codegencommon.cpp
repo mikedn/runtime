@@ -1495,13 +1495,14 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
 #ifdef UNIX_AMD64_ABI
         if (varTypeIsStruct(lcl->GetType()))
         {
-            lcl->GetLayout()->EnsureSysVAmd64AbiInfo(compiler);
+            ClassLayout* layout = lcl->GetLayout();
+            layout->EnsureSysVAmd64AbiInfo(compiler);
 
             unsigned firstRegIndex = 0;
 
-            for (unsigned regIndex = 0; regIndex < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); regIndex++)
+            for (unsigned regIndex = 0; regIndex < layout->GetSysVAmd64AbiRegCount(); regIndex++)
             {
-                regNumber regNum = lcl->GetParamReg(regIndex);
+                RegNum regNum = lcl->GetParamReg(regIndex);
 
                 if (IsFloatReg(regNum) != isFloat)
                 {
@@ -1527,7 +1528,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
                 }
                 else
                 {
-                    regType = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(regIndex));
+                    regType = varActualType(layout->GetSysVAmd64AbiRegType(regIndex));
                 }
 
                 paramRegIndex = genGetParamRegIndex(regNum);
@@ -1602,7 +1603,7 @@ regMaskTP CodeGen::genPrologBuildParamRegsTable(
         for (unsigned i = 0; i < regCount; i++)
         {
             var_types regType = paramRegs[paramRegIndex + i].type;
-            regNumber regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
+            RegNum    regNum  = genMapRegArgNumToRegNum(paramRegIndex + i, regType);
             regMaskTP regMask = genRegMask(regNum);
 
 #ifndef UNIX_AMD64_ABI

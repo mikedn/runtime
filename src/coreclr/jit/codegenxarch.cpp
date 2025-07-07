@@ -4602,21 +4602,25 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
         // assigned registers and param registers and potential circular dependencies.
         noway_assert(lcl->lvDoNotEnregister);
 
-#ifdef UNIX_AMD64_ABI
-        if (varTypeIsStruct(lcl->GetType()))
-        {
-            assert(lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0);
+        var_types type = lcl->GetType();
 
-            var_types type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
-            regNumber reg  = lcl->GetParamReg(0);
+        if (varTypeIsStruct(type))
+        {
+            ClassLayout* layout = lcl->GetLayout();
+
+#ifdef UNIX_AMD64_ABI
+            assert(layout->GetSysVAmd64AbiRegCount() != 0);
+            type = varActualType(layout->GetSysVAmd64AbiRegType(0));
+
+            RegNum reg = lcl->GetParamReg(0);
 
             GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));
             liveness.AddLiveLclRegs(genRegMask(reg));
             liveness.SetGCRegType(reg, type);
 
-            if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() > 1)
+            if (layout->GetSysVAmd64AbiRegCount() > 1)
             {
-                type = varActualType(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
+                type = varActualType(layout->GetSysVAmd64AbiRegType(1));
                 reg  = lcl->GetParamReg(1);
 
                 GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 8));
@@ -4627,23 +4631,18 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
             liveness.RemoveGCSlot(lcl);
 
             continue;
-        }
-#endif // UNIX_AMD64_ABI
-
-        var_types type = lcl->GetType();
-
-        if (varTypeIsStruct(type))
-        {
-            assert(lcl->GetLayout()->GetSize() <= REGSIZE_BYTES);
+#else // !UNIX_AMD64_ABI
+            assert(layout->GetSize() <= REGSIZE_BYTES);
 
 #ifdef TARGET_X86
-            type = TYP_INT;
+            type          = TYP_INT;
 #else
-            type          = lcl->GetLayout()->GetSize() <= 4 ? TYP_INT : lcl->GetLayout()->GetGCPtrType(0);
+            type = layout->GetSize() <= 4 ? TYP_INT : layout->GetGCPtrType(0);
 #endif
+#endif // !UNIX_AMD64_ABI
         }
 
-        regNumber reg = lcl->GetParamReg();
+        RegNum reg = lcl->GetParamReg();
         assert(isValidIntArgReg(reg) || isValidFloatArgReg(reg));
 
         GetEmitter()->emitIns_R_S(ins_Load(type), emitTypeSize(type), reg, GetStackAddrMode(lcl, 0));

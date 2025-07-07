@@ -737,16 +737,17 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     }
     else
     {
-        lcl->GetLayout()->EnsureSysVAmd64AbiInfo(this);
+        ClassLayout* layout = lcl->GetLayout();
+        layout->EnsureSysVAmd64AbiInfo(this);
 
-        if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() != 0)
+        if (layout->GetSysVAmd64AbiRegCount() != 0)
         {
             unsigned intRegCount   = 0;
             unsigned floatRegCount = 0;
 
-            for (unsigned i = 0; i < lcl->GetLayout()->GetSysVAmd64AbiRegCount(); i++)
+            for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
             {
-                if (!varTypeUsesFloatReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(i)))
+                if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                 {
                     intRegCount++;
                 }
@@ -759,11 +760,11 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
             if (((intRegCount == 0) || paramInfo.CanEnregister(TYP_INT, intRegCount)) &&
                 ((floatRegCount == 0) || paramInfo.CanEnregister(TYP_FLOAT, floatRegCount)))
             {
-                reg0 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(0));
+                reg0 = paramInfo.AllocReg(layout->GetSysVAmd64AbiRegType(0));
 
-                if (lcl->GetLayout()->GetSysVAmd64AbiRegCount() >= 2)
+                if (layout->GetSysVAmd64AbiRegCount() >= 2)
                 {
-                    reg1 = paramInfo.AllocReg(lcl->GetLayout()->GetSysVAmd64AbiRegType(1));
+                    reg1 = paramInfo.AllocReg(layout->GetSysVAmd64AbiRegType(1));
                 }
             }
         }
