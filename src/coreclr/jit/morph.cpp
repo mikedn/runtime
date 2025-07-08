@@ -7370,7 +7370,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(argInfo->GetRegCount() != 0);
 
-    if (arg->IsIntCon(0))
+    if (arg->IsIntegralConst(0))
     {
         if (argInfo->GetRegCount() + argInfo->GetSlotCount() > 4)
         {
@@ -7406,7 +7406,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     assert(varTypeIsStruct(arg->GetType()));
 
-    // TODO-MIKE-CQ: It may make more sense to alway use abiMorphMultiRegSimdArg for
+    // TODO-MIKE-CQ: It may make more sense to always use abiMorphMultiRegSimdArg for
     // SIMD args that are memory loads. abiMorphMultiRegObjArg will just generate
     // multiple loads and those loads may have associated optimization issues in VN
     // due to the lack of field sequences. Even if they do get CSEed the result may
