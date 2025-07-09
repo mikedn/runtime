@@ -5573,7 +5573,7 @@ void Compiler::gtDispNode(GenTree* tree)
 
         if (GenTreeBlk* blk = tree->IsBlk())
         {
-            layout = tree->AsBlk()->GetLayout();
+            layout = blk->GetLayout();
         }
         else if (GenTreeLclVar* lclVar = tree->IsLclVar())
         {

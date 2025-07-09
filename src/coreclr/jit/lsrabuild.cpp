@@ -3530,13 +3530,12 @@ void LinearScan::BuildLclStore(GenTreeLclStore* store)
         return;
     }
 
-    LclVarDsc* lcl = store->GetLcl();
-    GenTree*   src = store->GetValue();
+    GenTree* value = store->GetValue();
 
-    if (store->TypeIs(TYP_STRUCT) && !src->IsCall())
+    if (store->TypeIs(TYP_STRUCT) && !value->IsCall())
     {
-        ClassLayout*    layout = lcl->GetLayout();
-        StructStoreKind kind   = GetStructStoreKind(true, layout, src);
+        ClassLayout*    layout = store->GetLcl()->GetLayout();
+        StructStoreKind kind   = GetStructStoreKind(true, layout, value);
         BuildStructStore(store, kind, layout);
 
         return;

@@ -1956,7 +1956,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         return;
     }
 
-    regNumber srcReg;
+    RegNum srcReg;
 
     if (src->isContained())
     {
@@ -1969,7 +1969,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         srcReg = UseReg(src);
     }
 
-    regNumber dstReg = store->GetRegNum();
+    RegNum dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
     {
