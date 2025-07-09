@@ -606,7 +606,7 @@ void GenTreeCall::ResetArgInfo()
         return;
     }
 
-    // We would like to just set `fgArgInfo = nullptr`. But moInitCallnfo not only
+    // We would like to just set `fgArgInfo = nullptr`. But moInitCallInfo not only
     // sets up fgArgInfo, it also adds non-standard args to the IR, and we need
     // to remove that extra IR so it doesn't get added again.
     //

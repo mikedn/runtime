@@ -2338,6 +2338,58 @@ ALLOC_DONE:
     DefReg(tree);
 }
 
+#if FEATURE_ARG_SPLIT
+void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
+{
+    assert(putArg->GetRegCount() == 1);
+    assert(putArg->GetArgSize() <= 2 * REGSIZE_BYTES);
+    assert(putArg->GetSlotOffset() == 0);
+    assert(outgoingArgSpaceSize >= REGSIZE_BYTES);
+
+    GenTreeFieldList* fieldList = putArg->GetOp(0)->AsFieldList();
+
+    assert(fieldList->TypeIs(TYP_STRUCT));
+    assert(fieldList->isContained());
+
+    RegNum    srcRegs[2];
+    var_types srcType[2];
+
+    unsigned regIndex = 0;
+    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    {
+        noway_assert(use.GetOffset() == regIndex * REGSIZE_BYTES);
+        noway_assert(regIndex < _countof(srcRegs));
+
+        srcType[regIndex] = use.GetType();
+
+        GenTree* src = use.GetNode();
+
+        if (src->isUsedFromReg())
+        {
+            srcRegs[regIndex++] = UseReg(src);
+        }
+        else
+        {
+            assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
+
+            if (src->IsDblCon())
+            {
+                srcType[regIndex] = TYP_LONG;
+            }
+
+            srcRegs[regIndex++] = REG_ZR;
+        }
+    }
+
+    GetEmitter()->Ins_R_S(INS_str, emitActualTypeSize(srcType[1]), srcRegs[1],
+                          GetStackAddrMode(compiler->lvaOutgoingArgSpaceVar, 0));
+    GetEmitter()->emitIns_Mov(INS_mov, emitActualTypeSize(srcType[0]), putArg->GetRegNum(0), srcRegs[0],
+                              /* canSkip*/ true);
+
+    DefPutArgSplitRegs(putArg);
+}
+#endif // FEATURE_ARG_SPLIT
+
 void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
 {
     assert(ins != INS_mov);

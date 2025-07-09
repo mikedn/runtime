@@ -728,4 +728,34 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     BuildDef(node);
 }
 
+#if FEATURE_ARG_SPLIT
+void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
+{
+    assert(putArg->GetRegCount() == 1);
+    assert(putArg->GetArgSize() <= 2 * REGSIZE_BYTES);
+
+    CallArgInfo*      argInfo    = putArg->GetArgInfo();
+    regMaskTP         argRegMask = genRegMask(argInfo->GetRegNum(0));
+    GenTreeFieldList* fieldList  = putArg->GetOp(0)->AsFieldList();
+
+    assert(fieldList->TypeIs(TYP_STRUCT));
+    assert(fieldList->isContained());
+
+    unsigned regIndex = 0;
+    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    {
+        GenTree* node = use.GetNode();
+
+        if (!node->isContained())
+        {
+            BuildUse(node, regIndex == 0 ? argRegMask : RBM_NONE);
+        }
+
+        regIndex++;
+    }
+
+    BuildDef(putArg, putArg->GetRegType(0), argRegMask, 0);
+}
+#endif // FEATURE_ARG_SPLIT
+
 #endif // TARGET_ARM64

@@ -1697,7 +1697,8 @@ void LinearScan::buildIntervals()
                     // across a call in the non-EH code, we'll be extra conservative about this.
                     // Note that for writeThru intervals we don't update the preferences to be only callee-save.
                     unsigned calleeSaveCount =
-                        (varTypeUsesFloatReg(interval->registerType)) ? CNT_CALLEE_SAVED_FLOAT : CNT_CALLEE_ENREG;
+                        varTypeUsesFloatReg(interval->registerType) ? CNT_CALLEE_SAVED_FLOAT : CNT_CALLEE_ENREG;
+
                     if ((weight <= (BB_UNITY_WEIGHT * 7)) || (lcl->GetLivenessBitIndex() >= calleeSaveCount))
                     {
                         // If this is relatively low weight, don't prefer callee-save at all.

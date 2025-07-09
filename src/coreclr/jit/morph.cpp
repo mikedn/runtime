@@ -1796,7 +1796,7 @@ GenTree* Compiler::moMorphSmpOp(GenTree* tree, MorphAddrContext* mac)
                 }
 
                 GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1, op2));
-                moInitCallnfo(call);
+                moInitCallInfo(call);
                 moMorphCallArgs(call);
                 moSetupCallArgs(call);
 
@@ -3458,7 +3458,7 @@ REMORPH_POST:
                 helper = tree->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTROUND : CORINFO_HELP_DBLROUND;
 
                 GenTreeCall* call = gtChangeToHelperCall(tree, helper, gtNewCallArgs(op1));
-                moInitCallnfo(call);
+                moInitCallInfo(call);
                 moSetupCallArgs(call);
 
                 return call;
@@ -3493,7 +3493,7 @@ REMORPH_POST:
                 helper = oper == GT_UTOF ? CORINFO_HELP_ULNG2DBL : CORINFO_HELP_LNG2DBL;
 
                 GenTreeCall* call = gtNewHelperCallNode(helper, TYP_DOUBLE, gtNewCallArgs(op1));
-                moInitCallnfo(call);
+                moInitCallInfo(call);
                 moSetupCallArgs(call);
                 tree = call;
                 INDEBUG(tree->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
@@ -3563,7 +3563,7 @@ REMORPH_POST:
 
             GenTreeCall* call;
             call = gtNewHelperCallNode(helper, typ, gtNewCallArgs(op1));
-            moInitCallnfo(call);
+            moInitCallInfo(call);
             moSetupCallArgs(call);
             INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
@@ -3576,7 +3576,7 @@ REMORPH_POST:
             helper = op1->TypeIs(TYP_FLOAT) ? CORINFO_HELP_FLTREM : CORINFO_HELP_DBLREM;
 
             call = gtNewHelperCallNode(helper, typ, gtNewCallArgs(op1, op2));
-            moInitCallnfo(call);
+            moInitCallInfo(call);
             moSetupCallArgs(call);
             INDEBUG(call->gtDebugFlags |= GTF_DEBUG_NODE_MORPHED);
 
@@ -5196,7 +5196,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
 // and makes no modification of the args themselves.
 // The IR for the call args can change for calls with non-standard arguments: some non-standard
 // arguments add new call argument IR nodes.
-void Compiler::moInitCallnfo(GenTreeCall* call)
+void Compiler::moInitCallInfo(GenTreeCall* call)
 {
     assert((call->GetInfo() == nullptr) && !call->HasArgsSetup());
     assert(call->RequiresRetBufArg() == call->HasRetBufArg());
@@ -5932,7 +5932,7 @@ void Compiler::moInitCallnfo(GenTreeCall* call)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Call [%06u] arg table after moInitCallnfo:\n", call->GetID());
+        printf("Call [%06u] arg table after moInitCallInfo:\n", call->GetID());
         callInfo->Dump();
         printf("\n");
     }
@@ -6510,6 +6510,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
             {
                 abiMorphStackLclArgPromoted(argInfo, arg->AsLclLoad());
             }
+
             continue;
         }
 
@@ -8261,7 +8262,7 @@ void Compiler::abiMorphImplicitByRefStructArg(GenTreeCall* call, CallArgInfo* ar
 // This function is target specific and each target will make the fastTailCall
 // decision differently. See the notes below.
 //
-// This function calls moInitCallnfo to initialize the arg info table, which
+// This function calls moInitCallInfo to initialize the arg info table, which
 // is used to analyze the argument. This function can alter the call arguments
 // by adding argument IR nodes for non-standard arguments.
 //
@@ -8456,7 +8457,7 @@ bool Compiler::moCanFastTailCall(GenTreeCall* call, const char** failReason)
         return false;
     }
 
-    moInitCallnfo(call);
+    moInitCallInfo(call);
 
     unsigned calleeArgStackSize = call->GetInfo()->HasStackArgs() ? call->GetInfo()->GetStackArgsSize() : 0;
     unsigned callerArgStackSize = codeGen->paramsStackSize;
@@ -9397,7 +9398,7 @@ GenTree* Compiler::moMorphTailCallViaHelpers(GenTreeCall* call, const CORINFO_TA
         // Remove the VSD hidden arg since we turn this into a direct call.
         // The extra arg will be the first arg so this needs to be done before
         // we handle the return buffer below. This arg is only added when fast
-        // tail calls are supported, because in that case we call moInitCallnfo.
+        // tail calls are supported, because in that case we call moInitCallInfo.
         call->ResetArgInfo();
 #endif
         call->gtFlags &= ~(GTF_CALL_VSTUB_DIRECT | GTF_CALL_VSTUB_INDIRECT);
@@ -10218,7 +10219,7 @@ GenTree* Compiler::moMorphCall(GenTreeCall* call, Statement* stmt)
 
     if (call->GetInfo() == nullptr)
     {
-        moInitCallnfo(call);
+        moInitCallInfo(call);
     }
 
     moMorphCallArgs(call);

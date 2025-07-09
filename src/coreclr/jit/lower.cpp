@@ -1192,6 +1192,10 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     }
 #endif
 
+#ifdef TARGET_ARM64
+    noway_assert(arg->IsFieldList());
+#endif
+
     GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
     BlockRange().InsertAfter(arg, putArgSplit);
     info->SetNode(putArgSplit);
@@ -1201,12 +1205,12 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
         putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
 
         // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
-        // and only integer registers are used. We'll just set everyting to TYP_I_IMPL
-        // here and then update with correct GC types takend from layout or field list.
+        // and only integer registers are used. We'll just set everything to TYP_I_IMPL
+        // here and then update with correct GC types taken from layout or field list.
         //
         // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
         // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
-        // moInitCallnfo would only need to take the GC info from the struct layout,
+        // moInitCallInfo would only need to take the GC info from the struct layout,
         // it doesn't need to deal with FIELD_LIST.
 
         assert(info->GetRegType(regIndex) == TYP_I_IMPL);
@@ -1214,10 +1218,11 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
         putArgSplit->SetRegType(regIndex, TYP_I_IMPL);
     }
 
-    if (arg->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = arg->IsFieldList())
     {
         unsigned regIndex = 0;
-        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
+
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree*  node    = use.GetNode();
             var_types regType = node->GetType();
@@ -1237,9 +1242,8 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
                 use.SetNode(bitcast);
             }
 #endif
-            regIndex++;
 
-            if (regIndex >= info->GetRegCount())
+            if (++regIndex >= info->GetRegCount())
             {
                 break;
             }
@@ -1303,11 +1307,11 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #endif
     }
 
-    if (arg->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = arg->IsFieldList())
     {
 #if FEATURE_MULTIREG_ARGS
         unsigned regIndex = 0;
-        for (GenTreeFieldList::Use& use : arg->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* putArgReg = InsertPutArgReg(use.GetNode(), info, regIndex);
             use.SetNode(putArgReg);

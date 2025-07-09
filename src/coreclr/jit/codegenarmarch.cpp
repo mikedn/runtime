@@ -436,13 +436,12 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
     }
 }
 
-#if FEATURE_ARG_SPLIT
-
+#if TARGET_ARM
 void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 {
+    assert(putArg->GetSlotOffset() == 0);
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
     const unsigned outArgLclSize = outgoingArgSpaceSize;
-    const unsigned outArgLclOffs = putArg->GetSlotOffset();
 
     GenTree* src  = putArg->GetOp(0);
     Emitter& emit = *GetEmitter();
@@ -451,7 +450,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     {
         RegNum srcReg = src->GetRegNum();
 
-        unsigned dstOffset = outArgLclOffs;
+        unsigned dstOffset = 0;
         unsigned stackSize = putArg->GetArgSize() - putArg->GetRegCount() * REGSIZE_BYTES;
 
         for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
@@ -459,12 +458,12 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
             // We can't write beyond the outgoing area area
             assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
 
-            emit.Ins_R_S(INS_str, EA_PTRSIZE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
         }
 
         for (unsigned i = 0; i < putArg->GetRegCount(); i++)
         {
-            emit.emitIns_R_I(INS_mov, EA_PTRSIZE, putArg->GetRegNum(i), 0);
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, putArg->GetRegNum(i), 0);
         }
 
         DefPutArgSplitRegs(putArg);
@@ -489,14 +488,13 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
                 var_types type     = fieldNode->GetType();
                 emitAttr  attr     = emitTypeSize(type);
 
-                unsigned dstOffset = outArgLclOffs + use.GetOffset() - regSize;
+                unsigned dstOffset = use.GetOffset() - regSize;
                 assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
                 emit.Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
 
                 continue;
             }
 
-#ifdef TARGET_ARM
             if (fieldNode->TypeIs(TYP_LONG))
             {
                 assert(fieldNode->OperIs(GT_BITCAST));
@@ -513,7 +511,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
                 continue;
             }
-#endif
 
             RegNum   fieldReg = UseReg(fieldNode);
             RegNum   argReg   = putArg->GetRegNum(regIndex);
@@ -564,7 +561,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     }
 
     unsigned offset    = 0;
-    unsigned dstOffset = outArgLclOffs;
+    unsigned dstOffset = 0;
     unsigned size      = srcLayout->GetSize();
 
     if (srcLcl != nullptr)
@@ -602,13 +599,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
                 storeIns = INS_strh;
                 attr     = EA_4BYTE;
                 break;
-#ifdef TARGET_ARM64
-            case 4:
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = EA_4BYTE;
-                break;
-#endif
             default:
                 assert(regSize == REGSIZE_BYTES);
                 loadIns  = INS_ldr;
@@ -660,7 +650,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     DefPutArgSplitRegs(putArg);
 }
-#endif // FEATURE_ARG_SPLIT
+#endif // TARGET_ARM
 
 void CodeGen::GenBoundsCheck(GenTreeBoundsChk* node)
 {

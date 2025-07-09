@@ -4214,7 +4214,7 @@ private:
         }
     };
 
-    void moInitCallnfo(GenTreeCall* call);
+    void moInitCallInfo(GenTreeCall* call);
     void moMorphCallArgs(GenTreeCall* call);
     void moSetupCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL

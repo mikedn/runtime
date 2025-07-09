@@ -282,7 +282,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     }
 }
 
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
 void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
     CallArgInfo* argInfo    = putArg->GetArgInfo();
@@ -304,10 +304,10 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         assert(src->TypeIs(TYP_STRUCT));
         assert(src->isContained());
 
-        if (src->OperIs(GT_FIELD_LIST))
+        if (GenTreeFieldList* fieldList = src->IsFieldList())
         {
             unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
                 GenTree*  node    = use.GetNode();
                 regMaskTP regMask = RBM_NONE;
@@ -320,7 +320,6 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                 BuildUse(node, regMask);
                 regIndex++;
 
-#ifdef TARGET_ARM
                 if (node->TypeIs(TYP_LONG))
                 {
                     assert(node->OperIs(GT_BITCAST));
@@ -330,7 +329,6 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
                     BuildUse(node, regMask, 1);
                     regIndex++;
                 }
-#endif
             }
         }
         else
@@ -351,7 +349,7 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
     }
 }
-#endif // FEATURE_ARG_SPLIT
+#endif // TARGET_ARM
 
 void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {

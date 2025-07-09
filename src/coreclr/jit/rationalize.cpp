@@ -60,7 +60,7 @@ void Rationalizer::RewriteNodeAsCall(GenTree**             use,
     call->SetR2REntryPoint(entryPoint);
 #endif
     comp->moMorphBlock = m_block;
-    comp->moInitCallnfo(call);
+    comp->moInitCallInfo(call);
     comp->moSetupCallArgs(call);
 
     *use = call;
