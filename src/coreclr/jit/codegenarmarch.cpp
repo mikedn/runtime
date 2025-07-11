@@ -216,6 +216,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 #endif
 }
 
+#ifdef TARGET_ARM
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                                  unsigned          outArgLclNum,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
@@ -247,11 +248,11 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
 
         if (!srcAddr->isContained())
         {
-            srcAddrBaseReg = genConsumeReg(srcAddr);
+            srcAddrBaseReg = UseReg(srcAddr);
         }
         else
         {
-            srcAddrBaseReg = genConsumeReg(srcAddr->AsAddrMode()->GetBase());
+            srcAddrBaseReg = UseReg(srcAddr->AsAddrMode()->GetBase());
             assert(!srcAddr->AsAddrMode()->HasIndex());
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
@@ -259,9 +260,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
         srcLayout = src->AsIndLoadObj()->GetLayout();
     }
 
-    Emitter& emit   = *GetEmitter();
-    unsigned offset = 0;
-    unsigned size   = srcLayout->GetSize();
+    unsigned size = srcLayout->GetSize();
 
     if (srcLcl != nullptr)
     {
@@ -271,32 +270,8 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
     RegNum tempReg = putArgStk->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
 
-#ifdef TARGET_ARM64
-    RegNum tempReg2 = putArgStk->GetSingleTempReg();
-    assert(tempReg2 != srcAddrBaseReg);
-
-    for (unsigned regSize = 2 * REGSIZE_BYTES; size >= regSize; size -= regSize, offset += regSize)
-    {
-        emitAttr attr  = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES + 0));
-        emitAttr attr2 = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES + 1));
-
-        if (srcLcl != nullptr)
-        {
-            emit.emitIns_R_R_S_S(INS_ldp, attr, attr2, tempReg, tempReg2, GetStackAddrMode(srcLcl, srcOffset + offset));
-        }
-        else
-        {
-            emit.emitIns_R_R_R_I(INS_ldp, attr, tempReg, tempReg2, srcAddrBaseReg, srcOffset + offset, INS_OPTS_NONE,
-                                 attr2);
-        }
-
-        // We can't write beyond the outgoing area area
-        assert(outArgLclOffs + offset + 16 <= outArgLclSize);
-
-        emit.emitIns_S_S_R_R(INS_stp, attr, attr2, tempReg, tempReg2,
-                             GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
-    }
-#endif // TARGET_ARM64
+    Emitter& emit   = *GetEmitter();
+    unsigned offset = 0;
 
     for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
     {
@@ -321,13 +296,6 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                 storeIns = INS_strh;
                 attr     = EA_4BYTE;
                 break;
-#ifdef TARGET_ARM64
-            case 4:
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = EA_4BYTE;
-                break;
-#endif
             default:
                 assert(regSize == REGSIZE_BYTES);
                 loadIns  = INS_ldr;
@@ -344,12 +312,10 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
             emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
         }
 
-        // We can't write beyond the outgoing area area
-        assert(outArgLclOffs + offset + regSize <= outArgLclSize);
-
         emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
     }
 }
+#endif
 
 void CodeGen::GenPutArgReg(GenTreeUnOp* arg)
 {
@@ -1172,7 +1138,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 #ifdef TARGET_ARM64
     if (size >= 2 * REGSIZE_BYTES)
     {
-        regNumber tempReg2 = store->ExtractTempReg(RBM_ALLINT);
+        RegNum tempReg2 = store->ExtractTempReg(RBM_ALLINT);
 
         for (unsigned regSize = 2 * REGSIZE_BYTES; size >= regSize;
              size -= regSize, srcOffset += regSize, dstOffset += regSize)

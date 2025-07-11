@@ -1199,9 +1199,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
-    var_types type = abiGetStructIntegerRegisterType(layout);
-
-    if (type != TYP_UNDEF)
+    if (var_types type = abiGetStructIntegerRegisterType(layout))
     {
         return {SPK_PrimitiveType, type};
     }

@@ -2338,6 +2338,132 @@ ALLOC_DONE:
     DefReg(tree);
 }
 
+void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
+                                 unsigned          outArgLclNum,
+                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+{
+    GenTree* src = putArgStk->GetOp(0);
+
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
+
+    ClassLayout* layout;
+    LclVarDsc*   srcLcl         = nullptr;
+    RegNum       srcAddrBaseReg = REG_NA;
+    int          srcOffset      = 0;
+
+    if (src->OperIs(GT_LCL_LOAD))
+    {
+        srcLcl = src->AsLclLoad()->GetLcl();
+        layout = srcLcl->GetLayout();
+    }
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
+    {
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        layout    = src->AsLclLoadFld()->GetLayout(compiler);
+    }
+    else
+    {
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
+
+        if (!srcAddr->isContained())
+        {
+            srcAddrBaseReg = UseReg(srcAddr);
+        }
+        else
+        {
+            srcAddrBaseReg = UseReg(srcAddr->AsAddrMode()->GetBase());
+            assert(!srcAddr->AsAddrMode()->HasIndex());
+            srcOffset = srcAddr->AsAddrMode()->GetOffset();
+        }
+
+        layout = src->AsIndLoadObj()->GetLayout();
+    }
+
+    Emitter& emit = *GetEmitter();
+    unsigned size = layout->GetSize();
+
+    if (srcLcl != nullptr)
+    {
+        size = roundUp(size, REGSIZE_BYTES);
+    }
+
+    assert(size <= 2 * REGSIZE_BYTES);
+
+    RegNum tempReg = putArgStk->ExtractTempReg();
+    assert(tempReg != srcAddrBaseReg);
+
+    RegNum tempReg2 = putArgStk->GetSingleTempReg();
+    assert(tempReg2 != srcAddrBaseReg);
+
+    if (size == 2 * REGSIZE_BYTES)
+    {
+        emitAttr attr  = emitTypeSize(layout->GetGCPtrType(0));
+        emitAttr attr2 = emitTypeSize(layout->GetGCPtrType(1));
+
+        if (srcLcl != nullptr)
+        {
+            emit.emitIns_R_R_S_S(INS_ldp, attr, attr2, tempReg, tempReg2, GetStackAddrMode(srcLcl, srcOffset));
+        }
+        else
+        {
+            emit.emitIns_R_R_R_I(INS_ldp, attr, tempReg, tempReg2, srcAddrBaseReg, srcOffset, INS_OPTS_NONE, attr2);
+        }
+
+        emit.emitIns_S_S_R_R(INS_stp, attr, attr2, tempReg, tempReg2, GetStackAddrMode(outArgLclNum, outArgLclOffs));
+
+        return;
+    }
+
+    for (unsigned offset = 0, regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
+    {
+        while (regSize > size)
+        {
+            regSize /= 2;
+        }
+
+        instruction loadIns;
+        instruction storeIns;
+        emitAttr    attr;
+
+        switch (regSize)
+        {
+            case 1:
+                loadIns  = INS_ldrb;
+                storeIns = INS_strb;
+                attr     = EA_4BYTE;
+                break;
+            case 2:
+                loadIns  = INS_ldrh;
+                storeIns = INS_strh;
+                attr     = EA_4BYTE;
+                break;
+            case 4:
+                loadIns  = INS_ldr;
+                storeIns = INS_str;
+                attr     = EA_4BYTE;
+                break;
+            default:
+                assert(regSize == REGSIZE_BYTES);
+                loadIns  = INS_ldr;
+                storeIns = INS_str;
+                attr     = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
+        }
+
+        if (srcLcl != nullptr)
+        {
+            emit.Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
+        }
+        else
+        {
+            emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
+        }
+
+        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
+    }
+}
+
 #if FEATURE_ARG_SPLIT
 void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 {
@@ -2372,11 +2498,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         {
             assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
 
-            if (src->IsDblCon())
-            {
-                srcType[regIndex] = TYP_LONG;
-            }
-
+            srcType[regIndex] = TYP_LONG;
             srcRegs[regIndex++] = REG_ZR;
         }
     }
