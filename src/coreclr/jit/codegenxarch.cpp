@@ -5948,8 +5948,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (putArgStk->PutInIncomingArgArea())
     {
-        assert(putArgStk->GetCall()->IsFastTailCall());
-
         outArgLclNum = GetFirstStackParamLclNum();
         INDEBUG(outArgLclSize = paramsStackSize);
 

@@ -133,8 +133,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 #if FEATURE_FASTTAILCALL
     if (putArg->PutInIncomingArgArea())
     {
-        assert(putArg->GetCall()->IsFastTailCall());
-
         outArgLclNum = GetFirstStackParamLclNum();
         INDEBUG(outArgLclSize = paramsStackSize);
 

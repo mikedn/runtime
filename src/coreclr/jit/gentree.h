@@ -6500,7 +6500,7 @@ public:
 
 private:
     CallArgInfo* m_argInfo;
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     GenTreeCall* m_call;
 #endif
 #if FEATURE_FASTTAILCALL
@@ -6516,7 +6516,7 @@ public:
     GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
         : GenTreeUnOp(oper, TYP_VOID, arg)
         , m_argInfo(argInfo)
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
         , m_call(call)
 #endif
 #if FEATURE_FASTTAILCALL
@@ -6536,7 +6536,7 @@ public:
         return m_argInfo;
     }
 
-#if defined(DEBUG) || defined(UNIX_X86_ABI)
+#ifdef UNIX_X86_ABI
     GenTreeCall* GetCall() const
     {
         return m_call;
