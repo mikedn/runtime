@@ -5710,23 +5710,11 @@ void CodeGen::PreAdjustStackForPutArgStk(unsigned argSize)
 
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 {
-    GenTreeFieldList* const fieldList = putArgStk->GetOp(0)->AsFieldList();
-    assert(fieldList != nullptr);
-
     assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::Push) ||
            (putArgStk->GetKind() == GenTreePutArgStk::Kind::PushAllSlots));
 
-    bool pushStkArg = true;
-
-    // If we have pre-adjusted the stack and are simply storing the fields in order, set the offset to 0.
-    // (Note that this mode is not currently being used.)
-    // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
-    // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
-    // a multiple of the target pointer size).
-    unsigned currentOffset   = putArgStk->GetArgSize();
-    unsigned prevFieldOffset = currentOffset;
-    RegNum   intTmpReg       = REG_NA;
-    RegNum   simdTmpReg      = REG_NA;
+    RegNum intTmpReg = REG_NA;
+    RegNum xmmTmpReg = REG_NA;
 
     if (putArgStk->HasAnyTempRegs(RBM_ALLINT))
     {
@@ -5736,20 +5724,23 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
 
     if (putArgStk->HasAnyTempRegs(RBM_ALLFLOAT))
     {
-        simdTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
-        assert(genIsValidFloatReg(simdTmpReg));
+        xmmTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+        assert(genIsValidFloatReg(xmmTmpReg));
     }
 
-    Emitter& emit = *GetEmitter();
+    // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
+    // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
+    // a multiple of the target pointer size).
+    unsigned currentOffset   = putArgStk->GetArgSize();
+    unsigned prevFieldOffset = currentOffset;
+    Emitter& emit            = *GetEmitter();
 
-    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    for (GenTreeFieldList::Use& use : putArgStk->GetOp(0)->AsFieldList()->Uses())
     {
         GenTree* const fieldNode   = use.GetNode();
         const unsigned fieldOffset = use.GetOffset();
         var_types      fieldType   = use.GetType();
 
-        // Long-typed nodes should have been handled by the decomposition pass, and lowering should have sorted the
-        // field list in descending order by offset.
         assert(fieldType != TYP_LONG);
         assert(fieldOffset <= prevFieldOffset);
 
@@ -5766,7 +5757,11 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         const bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevFieldOffset - fieldOffset) >= 4);
         int        adjustment  = roundUp(currentOffset - fieldOffset, 4);
 
-        if (fieldIsSlot && !varTypeIsSIMD(fieldType))
+        prevFieldOffset = fieldOffset;
+
+        const bool usePush = fieldIsSlot && !varTypeIsSIMD(fieldType);
+
+        if (usePush)
         {
             fieldType         = varActualType(fieldType);
             unsigned pushSize = varTypeSize(fieldType);
@@ -5780,13 +5775,9 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                 AddStackLevel(pushSize);
                 adjustment -= pushSize;
             }
-
-            pushStkArg = true;
         }
         else
         {
-            pushStkArg = false;
-
             // We always "push" floating point fields (i.e. they are full slot values that don't
             // require special handling).
             assert(varTypeIsIntegralOrI(fieldNode->GetType()) || varTypeIsSIMD(fieldNode->GetType()));
@@ -5819,69 +5810,17 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
             }
         }
 
-        if (argReg == REG_NA)
-        {
-            if (pushStkArg)
-            {
-                assert(varTypeSize(varActualType(fieldType)) <= 4);
-
-                StackAddrMode s;
-
-                if (IsLocalMemoryOperand(fieldNode, &s))
-                {
-                    emit.emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), s);
-                }
-                else if (GenTreeIntCon* handle = fieldNode->IsIntConHandle())
-                {
-                    emit.emitIns_H(INS_push, handle->GetAddr());
-                }
-                else
-                {
-                    emit.emitIns_I(INS_push, EA_4BYTE, fieldNode->AsIntCon()->GetInt32Value());
-                }
-
-                currentOffset -= TARGET_POINTER_SIZE;
-                AddStackLevel(TARGET_POINTER_SIZE);
-            }
-            else
-            {
-                // The stack has been adjusted and we will load the field to intTmpReg and then store it on the stack.
-                assert(varTypeIsIntegralOrI(fieldNode->GetType()));
-
-                // TODO-MIKE-Review: Doesn't this need to handle spill temps?
-
-                if (fieldNode->OperIs(GT_LCL_LOAD))
-                {
-                    emit.emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
-                                     GetStackAddrMode(fieldNode->AsLclLoad()->GetLcl(), 0));
-                }
-                else
-                {
-                    GenIntCon(fieldNode->AsIntCon(), intTmpReg, fieldNode->GetType());
-                }
-
-                if (pushStkArg)
-                {
-                    PushReg(fieldType, intTmpReg);
-                }
-                else
-                {
-                    emit.emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), intTmpReg, REG_SPBASE,
-                                      fieldOffset - currentOffset);
-                }
-            }
-        }
-        else
+        if (argReg != REG_NA)
         {
 #ifdef FEATURE_SIMD
             if (fieldType == TYP_SIMD12)
             {
-                assert(genIsValidFloatReg(simdTmpReg));
-                PushSIMD12(argReg, simdTmpReg);
+                assert(genIsValidFloatReg(xmmTmpReg));
+                PushSIMD12(argReg, xmmTmpReg);
             }
             else
 #endif
-                if (pushStkArg)
+                if (usePush)
             {
                 PushReg(fieldType, argReg);
             }
@@ -5891,14 +5830,64 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
                                   fieldOffset - currentOffset);
             }
 
-            if (pushStkArg)
+            if (usePush)
             {
                 // We always push a slot-rounded size
                 currentOffset -= varTypeSize(fieldType);
             }
+
+            continue;
         }
 
-        prevFieldOffset = fieldOffset;
+        if (!usePush)
+        {
+            // The stack has been adjusted and we will load the field to intTmpReg and then store it on the stack.
+            assert(varTypeIsIntegralOrI(fieldNode->GetType()));
+
+            // TODO-MIKE-Review: Doesn't this need to handle spill temps?
+
+            if (fieldNode->OperIs(GT_LCL_LOAD))
+            {
+                emit.emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
+                                 GetStackAddrMode(fieldNode->AsLclLoad()->GetLcl(), 0));
+            }
+            else
+            {
+                GenIntCon(fieldNode->AsIntCon(), intTmpReg, fieldNode->GetType());
+            }
+
+            if (usePush)
+            {
+                PushReg(fieldType, intTmpReg);
+            }
+            else
+            {
+                emit.emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), intTmpReg, REG_SPBASE,
+                                  fieldOffset - currentOffset);
+            }
+
+            continue;
+        }
+
+        assert(varTypeSize(varActualType(fieldType)) <= 4);
+
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(fieldNode, &s))
+        {
+            emit.emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), s);
+        }
+        else if (GenTreeIntCon* handle = fieldNode->IsIntConHandle())
+        {
+            emit.emitIns_H(INS_push, handle->GetAddr());
+        }
+        else
+        {
+            emit.emitIns_I(INS_push, EA_4BYTE, fieldNode->AsIntCon()->GetInt32Value());
+        }
+
+        currentOffset -= REGSIZE_BYTES;
+        AddStackLevel(REGSIZE_BYTES);
     }
 
     if (currentOffset != 0)
