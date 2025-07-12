@@ -235,23 +235,28 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         assert(src->isContained());
 
+#ifdef TARGET_ARM64
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
+        {
+            if (use.GetType() == TYP_SIMD12)
+            {
+                BuildInternalFloatDef(putArg);
+                break;
+            }
+        }
+#endif
+
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             if (!use.GetNode()->isContained())
             {
                 BuildUse(use.GetNode());
-
-#ifdef OSX_ARM64_ABI
-                if (use.GetType() == TYP_SIMD12)
-                {
-                    // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
-                    // To assemble the vector properly we would need an additional int register.
-                    // The other platforms can write it as 16-byte using 1 write.
-                    BuildInternalIntDef(use.GetNode());
-                }
-#endif
             }
         }
+
+#ifdef TARGET_ARM64
+        BuildInternalUses();
+#endif
 
         return;
     }
