@@ -683,9 +683,9 @@ void LinearScan::BuildCall(GenTreeCall* call)
                 continue;
             }
 
-            if (argNode->OperIs(GT_FIELD_LIST))
+            if (GenTreeFieldList* fieldList = argNode->IsFieldList())
             {
-                for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+                for (GenTreeFieldList::Use& use : fieldList->Uses())
                 {
                     varargsHasFloatRegArgs |= HandleFloatVarArgs(call, use.GetNode());
                 }
@@ -711,12 +711,12 @@ void LinearScan::BuildCall(GenTreeCall* call)
         }
 
 #ifdef UNIX_AMD64_ABI
-        if (argNode->OperIs(GT_FIELD_LIST))
+        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
             assert(argNode->isContained());
 
             unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
                 assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 

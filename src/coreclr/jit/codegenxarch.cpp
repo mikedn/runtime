@@ -5908,7 +5908,35 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         AddStackLevel(currentOffset);
     }
 }
-#endif // TARGET_X86
+#else  // !TARGET_X86
+void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
+                                    unsigned          outArgLclNum,
+                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+{
+    RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
+
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
+    {
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
+
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetType();
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+        if (srcType == TYP_SIMD12)
+        {
+            GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
+            continue;
+        }
+
+        RegNum srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                                  GetStackAddrMode(outArgLclNum, dstOffset));
+    }
+}
+#endif // !TARGET_X86
 
 #if FEATURE_FASTTAILCALL
 unsigned CodeGen::GetFirstStackParamLclNum() const

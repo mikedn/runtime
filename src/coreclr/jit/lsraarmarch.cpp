@@ -137,12 +137,12 @@ void LinearScan::BuildCall(GenTreeCall* call)
             continue;
         }
 
-        if (argNode->OperIs(GT_FIELD_LIST))
+        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
             assert(argNode->isContained());
 
             unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : argNode->AsFieldList()->Uses())
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
                 assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
 
@@ -231,17 +231,17 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 {
     GenTree* src = putArg->GetOp(0);
 
-    if (src->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
         assert(src->isContained());
 
-        for (GenTreeFieldList::Use& use : src->AsFieldList()->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             if (!use.GetNode()->isContained())
             {
                 BuildUse(use.GetNode());
 
-#if defined(FEATURE_SIMD) && defined(OSX_ARM64_ABI)
+#ifdef OSX_ARM64_ABI
                 if (use.GetType() == TYP_SIMD12)
                 {
                     // Vector3 is read/written as two reads/writes: 8 byte and 4 byte.
@@ -249,7 +249,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
                     // The other platforms can write it as 16-byte using 1 write.
                     BuildInternalIntDef(use.GetNode());
                 }
-#endif // FEATURE_SIMD && OSX_ARM64_ABI
+#endif
             }
         }
 
@@ -260,7 +260,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         assert(src->isContained());
 
-        // We can use a ldp/stp sequence so we need two internal registers for ARM64; one for ARM.
         BuildInternalIntDef(putArg);
 #ifdef TARGET_ARM64
         BuildInternalIntDef(putArg);

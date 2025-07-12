@@ -2338,6 +2338,45 @@ ALLOC_DONE:
     DefReg(tree);
 }
 
+void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
+                                    unsigned          outArgLclNum,
+                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+{
+    RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
+
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
+    {
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
+
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetType();
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+
+        if (srcType == TYP_SIMD12)
+        {
+            GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
+            continue;
+        }
+
+        RegNum srcReg;
+
+        if (src->isContained())
+        {
+            assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
+            srcReg  = REG_ZR;
+            srcType = TYP_LONG;
+        }
+        else
+        {
+            srcReg = UseReg(src);
+        }
+
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                                  GetStackAddrMode(outArgLclNum, dstOffset));
+    }
+}
+
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                                  unsigned          outArgLclNum,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
@@ -2498,7 +2537,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         {
             assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
 
-            srcType[regIndex] = TYP_LONG;
+            srcType[regIndex]   = TYP_LONG;
             srcRegs[regIndex++] = REG_ZR;
         }
     }
@@ -3595,7 +3634,7 @@ void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber 
         return;
     }
 
-    regNumber valueReg = genConsumeReg(value);
+    RegNum valueReg = UseReg(value);
 
     inst_AM_R(INS_str, EA_8BYTE, valueReg, dst, 0);
     GetEmitter()->emitIns_R_R_I(INS_mov, EA_4BYTE, tmpReg, valueReg, 2);

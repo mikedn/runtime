@@ -3975,12 +3975,11 @@ void Lowering::VerifyCallArg(GenTree* arg)
 {
     assert(arg->IsValue() || arg->IsPutArgStk());
 
-    if (arg->OperIs(GT_FIELD_LIST))
+    if (GenTreeFieldList* fieldList = arg->IsFieldList())
     {
-        GenTreeFieldList* list = arg->AsFieldList();
-        assert(list->isContained());
+        assert(fieldList->isContained());
 
-        for (GenTreeFieldList::Use& use : list->Uses())
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             assert(use.GetNode()->OperIs(GT_PUTARG_REG));
         }
