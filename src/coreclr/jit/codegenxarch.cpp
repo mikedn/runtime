@@ -5897,12 +5897,14 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         AddStackLevel(currentOffset);
     }
 }
-#else  // !TARGET_X86
+#else // !TARGET_X86
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
+#ifdef UNIX_AMD64_ABI
     RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
+#endif
 
     for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
     {
@@ -5915,8 +5917,12 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
 
         if (srcType == TYP_SIMD12)
         {
+#ifdef UNIX_AMD64_ABI
             GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
             continue;
+#else
+            unreached();
+#endif
         }
 
         RegNum srcReg = UseReg(src);

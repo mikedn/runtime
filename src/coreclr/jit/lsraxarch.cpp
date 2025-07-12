@@ -1120,43 +1120,31 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     {
         assert(src->isContained());
 
-        RefPosition* simdTemp = nullptr;
-        RefPosition* intTemp  = nullptr;
-#ifdef TARGET_X86
-        unsigned prevOffset = putArgStk->GetArgSize();
-#endif
-
-        // We need to iterate over the fields twice; once to determine the need for internal temps,
-        // and once to actually build the uses.
+#ifdef UNIX_AMD64_ABI
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
-            GenTree* const  fieldNode   = use.GetNode();
-            const unsigned  fieldOffset = use.GetOffset();
-            const var_types fieldType   = use.GetType();
-
-#ifdef FEATURE_SIMD
-            // Note that we need to check the GT_FIELD_LIST type, not 'fieldType'. This is because the
-            // GT_FIELD_LIST will be TYP_SIMD12 whereas the fieldType might be TYP_SIMD16 for lclVar, where
-            // we "round up" to 16.
-            if ((fieldType == TYP_SIMD12) && (simdTemp == nullptr))
+            if (use.GetType() == TYP_SIMD12)
             {
-                simdTemp = BuildInternalFloatDef(putArgStk);
+                BuildInternalFloatDef(putArgStk);
+                break;
             }
+        }
 #endif
 
 #ifdef TARGET_X86
-            assert(fieldType != TYP_LONG);
+        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
+        {
+            RefPosition* intTemp    = BuildInternalIntDef(putArgStk);
+            unsigned     prevOffset = putArgStk->GetArgSize();
 
-            if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
+                unsigned fieldOffset = use.GetOffset();
                 // We can treat as a slot any field that is stored at a slot boundary, where the previous
                 // field is not in the same slot. (Note that we store the fields in reverse order.)
-                const bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevOffset - fieldOffset) >= 4);
-                if (intTemp == nullptr)
-                {
-                    intTemp = BuildInternalIntDef(putArgStk);
-                }
-                if (!fieldIsSlot && varTypeIsByte(fieldType))
+                bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevOffset - fieldOffset) >= 4);
+
+                if (!fieldIsSlot && varTypeIsByte(use.GetType()))
                 {
                     // If this field is a slot--i.e. it is an integer field that is 4-byte aligned and takes up 4 bytes
                     // (including padding)--we can store the whole value rather than just the byte. Otherwise, we will
@@ -1164,15 +1152,15 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     // register, which we can use to copy multiple byte values.
                     intTemp->registerAssignment &= allByteRegs();
                 }
-            }
 
-            prevOffset = fieldOffset;
-#endif // TARGET_X86
+                prevOffset = fieldOffset;
+            }
         }
+#endif // TARGET_X86
 
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
-            GenTree* const fieldNode = use.GetNode();
+            GenTree* fieldNode = use.GetNode();
             if (!fieldNode->isContained())
             {
                 BuildUse(fieldNode);
@@ -1184,7 +1172,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#if defined(FEATURE_SIMD) && defined(TARGET_X86)
+#ifdef TARGET_X86
     if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSlotCount() == 3))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
@@ -1193,9 +1181,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         return;
     }
-#endif
 
-#ifdef TARGET_X86
     if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
     {
         for (unsigned i = 0; i < src->AsCall()->GetRegCount(); i++)

@@ -276,14 +276,15 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef TARGET_X86
         GenTreeFieldList* fieldList = src->AsFieldList();
 
-        // The code generator will push these fields in reverse order by offset. Reorder the list here s.t. the order
-        // of uses is visible to LSRA.
+        // The code generator will push these fields in reverse order by offset.
+        // Reorder the list here s.t. the order  of uses is visible to LSRA.
         assert(fieldList->Uses().IsSorted());
         fieldList->Uses().Reverse();
 
         // Now that the fields have been sorted, the kind of code we will generate.
         bool     allFieldsAreSlots = true;
         unsigned prevOffset        = putArgStk->GetArgSize();
+
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* const fieldNode   = use.GetNode();
@@ -294,6 +295,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             // We can treat as a slot any field that is stored at a slot boundary, where the previous
             // field is not in the same slot. (Note that we store the fields in reverse order.)
             const bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevOffset - fieldOffset) >= 4);
+
             if (!fieldIsSlot)
             {
                 allFieldsAreSlots = false;
@@ -324,7 +326,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
                     // For the case where we cannot directly push the value, if we run out of registers,
                     // it would be better to defer computation until we are pushing the arguments rather
                     // than spilling, but this situation is not all that common, as most cases of promoted
-                    // structs do not have a large number of fields, and of those most are lclVars or
+                    // structs do not have a large number of fields, and of those most are locals or
                     // copy-propagated constants.
                     fieldNode->SetRegOptional();
                 }
@@ -333,21 +335,15 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
             prevOffset = fieldOffset;
         }
 
-        // Set the copy kind.
         // TODO-X86-CQ: Even if we are using push, if there are contiguous floating point fields, we should
         // adjust the stack once for those fields. The latter is really best done in code generation, but
         // this tuning should probably be undertaken as a whole.
-        // Also, if there are  floating point fields, it may be better to use the "Unroll" mode
+        // Also, if there are floating point fields, it may be better to use the "Unroll" mode
         // of copying the struct as a whole, if the fields are not register candidates.
-        if (allFieldsAreSlots)
-        {
-            putArgStk->SetKind(GenTreePutArgStk::Kind::PushAllSlots);
-        }
-        else
-        {
-            putArgStk->SetKind(GenTreePutArgStk::Kind::Push);
-        }
+
+        putArgStk->SetKind(allFieldsAreSlots ? GenTreePutArgStk::Kind::PushAllSlots : GenTreePutArgStk::Kind::Push);
 #endif // TARGET_X86
+
         return;
     }
 
