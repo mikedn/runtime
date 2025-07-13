@@ -283,7 +283,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         // Now that the fields have been sorted, the kind of code we will generate.
         bool     allFieldsAreSlots = true;
-        unsigned prevOffset        = putArgStk->GetArgSize();
+        unsigned prevOffset        = putArgStk->GetSize();
 
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
@@ -493,7 +493,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     {
         assert(comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()));
 
-        if (putArgStk->GetArgSize() > INITBLK_UNROLL_LIMIT)
+        if (putArgStk->GetSize() > INITBLK_UNROLL_LIMIT)
         {
             putArgStk->SetKind(GenTreePutArgStk::Kind::RepInstrZero);
         }

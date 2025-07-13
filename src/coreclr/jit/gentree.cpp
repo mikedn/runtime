@@ -6665,7 +6665,7 @@ void Compiler::gtDispTreeRec(
             printf(" %s", IntrinsicName(tree->AsIntrinsic()->GetIntrinsic()));
             break;
         case GT_PUTARG_STK:
-            printf(" (@%u, %d slots", tree->AsPutArgStk()->GetSlotOffset(), tree->AsPutArgStk()->GetSlotCount());
+            printf(" (@%u, %d slots", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSlotCount());
 #ifdef TARGET_XARCH
             if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
             {

@@ -6509,7 +6509,7 @@ private:
     bool m_putInIncomingArgArea;
 #endif
 #ifdef TARGET_XARCH
-    Kind m_kind;
+    Kind m_kind = Kind::Invalid;
 #endif
 
 public:
@@ -6522,11 +6522,8 @@ public:
 #if FEATURE_FASTTAILCALL
         , m_putInIncomingArgArea(call->IsFastTailCall())
 #endif
-#ifdef TARGET_XARCH
-        , m_kind(Kind::Invalid)
-#endif
     {
-#if defined(TARGET_AMD64) && defined(TARGET_WINDOWS)
+#ifdef WINDOWS_AMD64_ABI
         assert(argInfo->GetSlotCount() == 1);
 #endif
     }
@@ -6550,26 +6547,21 @@ public:
     }
 #endif
 
-    unsigned GetSlotNum() const
-    {
-        return m_argInfo->GetSlotCount();
-    }
-
-    unsigned GetSlotOffset() const
+    unsigned GetOffset() const
     {
         return m_argInfo->GetSlotNum() * REGSIZE_BYTES;
     }
 
     unsigned GetSlotCount() const
     {
-#if !(defined(TARGET_AMD64) && defined(TARGET_WINDOWS))
-        return m_argInfo->GetSlotCount();
-#else
+#ifdef WINDOWS_AMD64_ABI
         return 1;
+#else
+        return m_argInfo->GetSlotCount();
 #endif
     }
 
-    unsigned GetArgSize() const
+    unsigned GetSize() const
     {
         return GetSlotCount() * REGSIZE_BYTES;
     }
@@ -6607,50 +6599,50 @@ public:
     {
         assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
 
-#ifdef TARGET_ARM
-        SetType(argInfo->GetRegCount() > 1 ? TYP_STRUCT : varActualType(argInfo->GetRegType(0)));
-        ClearOtherRegs();
-#else
+#ifdef TARGET_ARM64
         assert(argInfo->GetSlotCount() == 1);
         SetType(varActualType(argInfo->GetRegType(0)));
+#else
+        SetType(argInfo->GetRegCount() > 1 ? TYP_STRUCT : varActualType(argInfo->GetRegType(0)));
+        ClearOtherRegs();
 #endif
     }
 
     unsigned GetRegCount() const
     {
-#ifdef TARGET_ARM
-        return GetArgInfo()->GetRegCount();
-#else
+#ifdef TARGET_ARM64
         return 1;
+#else
+        return GetArgInfo()->GetRegCount();
 #endif
     }
 
     var_types GetRegType(unsigned index) const
     {
         assert(index < GetRegCount());
-#ifdef TARGET_ARM
-        return m_regType[index];
-#else
+#ifdef TARGET_ARM64
         return m_regType[0];
+#else
+        return m_regType[index];
 #endif
     }
 
     void SetRegType(unsigned index, var_types type)
     {
         assert(index < GetRegCount());
-#ifdef TARGET_ARM
-        m_regType[index] = type;
-#else
+#ifdef TARGET_ARM64
         m_regType[0] = type;
+#else
+        m_regType[index] = type;
 #endif
     }
 
-    unsigned GetArgSize() const
+    unsigned GetSize() const
     {
-#ifdef TARGET_ARM
-        return (GetSlotCount() + GetRegCount()) * REGSIZE_BYTES;
-#else
+#ifdef TARGET_ARM64
         return 2 * REGSIZE_BYTES;
+#else
+        return (GetSlotCount() + GetRegCount()) * REGSIZE_BYTES;
 #endif
     }
 

@@ -5731,7 +5731,7 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
     // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
     // a multiple of the target pointer size).
-    unsigned currentOffset   = putArgStk->GetArgSize();
+    unsigned currentOffset   = putArgStk->GetSize();
     unsigned prevFieldOffset = currentOffset;
     Emitter& emit            = *GetEmitter();
 
@@ -5982,7 +5982,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         INDEBUG(outArgLclSize = outgoingArgSpaceSize);
     }
 
-    unsigned outArgLclOffs = putArgStk->GetSlotOffset();
+    unsigned outArgLclOffs = putArgStk->GetOffset();
 #else
     // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
     assert(srcType != TYP_LONG);
@@ -6050,7 +6050,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             RegNum srcReg = UseReg(src);
             emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, srcReg, /*canSkip*/ true);
 #ifdef TARGET_X86
-            PreAdjustStackForPutArgStk(putArgStk->GetArgSize());
+            PreAdjustStackForPutArgStk(putArgStk->GetSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RDI, REG_SPBASE, /* canSkip */ false);
 #else
             emit.emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI,
@@ -6060,7 +6060,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             emit.emitIns(INS_rep_stos, EA_PTRSIZE);
         }
 #ifdef TARGET_X86
-        else if (putArgStk->GetArgSize() < XMM_REGSIZE_BYTES)
+        else if (putArgStk->GetSize() < XMM_REGSIZE_BYTES)
         {
             assert(src->isContained());
             assert(!putArgStk->HasAnyTempRegs());
@@ -6154,7 +6154,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         {
             assert(genIsValidFloatReg(srcReg));
 
-            unsigned size = putArgStk->GetArgSize();
+            unsigned size = putArgStk->GetSize();
             emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
             AddStackLevel(size);
 
@@ -6396,7 +6396,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
             return;
         }
 
-        PreAdjustStackForPutArgStk(putArgStk->GetArgSize());
+        PreAdjustStackForPutArgStk(putArgStk->GetSize());
 
 #else  // !TARGET_X86
         // On x64 we use an XMM register only for 16-byte chunks.
@@ -6489,7 +6489,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
     assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
     assert(putArgStk->HasAllTempRegs(RBM_RSI | RBM_RDI | RBM_RCX));
 
-    PreAdjustStackForPutArgStk(putArgStk->GetArgSize());
+    PreAdjustStackForPutArgStk(putArgStk->GetSize());
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE, /* canSkip */ false);
 
     if (srcLcl != nullptr)

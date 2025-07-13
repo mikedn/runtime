@@ -732,7 +732,7 @@ void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
     assert(putArg->GetRegCount() == 1);
-    assert(putArg->GetArgSize() <= 2 * REGSIZE_BYTES);
+    assert(putArg->GetSize() == 2 * REGSIZE_BYTES);
 
     CallArgInfo*      argInfo    = putArg->GetArgInfo();
     regMaskTP         argRegMask = genRegMask(argInfo->GetRegNum(0));

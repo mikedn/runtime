@@ -1685,8 +1685,8 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         {
             GenTreePutArgStk* put = putargs.Get(i);
 
-            unsigned argStartOffset = put->GetSlotOffset();
-            unsigned argEndOffset   = argStartOffset + put->GetArgSize();
+            unsigned argStartOffset = put->GetOffset();
+            unsigned argEndOffset   = argStartOffset + put->GetSize();
 
             for (LclVarDsc* paramLcl : comp->Params())
             {

@@ -1135,7 +1135,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
         {
             RefPosition* intTemp    = BuildInternalIntDef(putArgStk);
-            unsigned     prevOffset = putArgStk->GetArgSize();
+            unsigned     prevOffset = putArgStk->GetSize();
 
             for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
@@ -1310,7 +1310,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             assert(src->isContained());
 
 #ifdef TARGET_X86
-            if (putArgStk->GetArgSize() >= XMM_REGSIZE_BYTES)
+            if (putArgStk->GetSize() >= XMM_REGSIZE_BYTES)
 #endif
             {
                 BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());

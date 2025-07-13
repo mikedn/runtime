@@ -2507,8 +2507,8 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
 void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 {
     assert(putArg->GetRegCount() == 1);
-    assert(putArg->GetArgSize() <= 2 * REGSIZE_BYTES);
-    assert(putArg->GetSlotOffset() == 0);
+    assert(putArg->GetSize() <= 2 * REGSIZE_BYTES);
+    assert(putArg->GetOffset() == 0);
     assert(outgoingArgSpaceSize >= REGSIZE_BYTES);
 
     GenTreeFieldList* fieldList = putArg->GetOp(0)->AsFieldList();

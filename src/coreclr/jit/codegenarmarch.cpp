@@ -145,7 +145,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         INDEBUG(outArgLclSize = outgoingArgSpaceSize);
     }
 
-    unsigned outArgLclOffs = putArg->GetSlotOffset();
+    unsigned outArgLclOffs = putArg->GetOffset();
 
     GenTree* src = putArg->GetOp(0);
 
@@ -166,7 +166,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
     {
 #ifdef TARGET_ARM64
-        assert(putArg->GetArgSize() == 16);
+        assert(putArg->GetSlotCount() == 2);
         assert(src->isContained());
 
         GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR,
@@ -174,7 +174,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 #else
         RegNum srcReg = src->GetRegNum();
 
-        for (unsigned offset = 0; offset < putArg->GetArgSize(); offset += REGSIZE_BYTES)
+        for (unsigned offset = 0; offset < putArg->GetSize(); offset += REGSIZE_BYTES)
         {
             GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, srcReg,
                                   GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
@@ -425,7 +425,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 #if TARGET_ARM
 void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 {
-    assert(putArg->GetSlotOffset() == 0);
+    assert(putArg->GetOffset() == 0);
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
     const unsigned outArgLclSize = outgoingArgSpaceSize;
 
@@ -437,7 +437,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         RegNum srcReg = src->GetRegNum();
 
         unsigned dstOffset = 0;
-        unsigned stackSize = putArg->GetArgSize() - putArg->GetRegCount() * REGSIZE_BYTES;
+        unsigned stackSize = putArg->GetSize() - putArg->GetRegCount() * REGSIZE_BYTES;
 
         for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
         {
