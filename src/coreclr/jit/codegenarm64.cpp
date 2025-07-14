@@ -2068,30 +2068,27 @@ void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
     lcl->SetRegNum(REG_STK);
 }
 
-void CodeGen::GenLclAlloc(GenTree* tree)
+void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 {
-    assert(tree->OperIs(GT_LCLHEAP));
+    assert(node->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsUnOp()->GetOp(0);
+    GenTree* size = node->GetOp(0);
     noway_assert(varActualTypeIsIntOrI(size->GetType()));
 
-    regNumber            targetReg                = tree->GetRegNum();
-    regNumber            regCnt                   = REG_NA;
-    regNumber            pspSymReg                = REG_NA;
-    var_types            type                     = varActualType(size->GetType());
-    insGroup*            endLabel                 = nullptr;
-    BasicBlock*          loop                     = nullptr;
-    unsigned             stackAdjustment          = 0;
-    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = -1;
+    RegNum        targetReg                = node->GetRegNum();
+    RegNum        regCnt                   = REG_NA;
+    RegNum        pspSymReg                = REG_NA;
+    var_types     type                     = varActualType(size->GetType());
+    insGroup*     endLabel                 = nullptr;
+    BasicBlock*   loop                     = nullptr;
+    unsigned      stackAdjustment          = 0;
+    const int64_t ILLEGAL_LAST_TOUCH_DELTA = -1;
     // The number of bytes from SP to the last stack address probed.
-    target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
-    Emitter&       emit           = *GetEmitter();
+    int64_t  lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
+    Emitter& emit           = *GetEmitter();
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
-#if !FEATURE_FIXED_OUT_ARGS
-    noway_assert(genStackLevel == 0); // Can't have anything on the stack
-#endif
 
     // compute the amount of memory to allocate to properly STACK_ALIGN.
     size_t amount = 0;
@@ -2112,6 +2109,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
         // If 0 bail out by returning null in targetReg
         RegNum sizeReg = UseReg(size);
+
         emit.emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
         endLabel = emit.CreateTempLabel();
         emit.emitIns_R_R(INS_tst, attr, targetReg, targetReg);
@@ -2122,19 +2120,20 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // since we don't need any internal registers.
         if (compiler->info.compInitMem)
         {
-            assert(!tree->HasAnyTempRegs());
+            assert(!node->HasAnyTempRegs());
+
             regCnt = targetReg;
         }
         else
         {
-            regCnt = tree->ExtractTempReg();
+            regCnt = node->ExtractTempReg();
             emit.emitIns_Mov(INS_mov, attr, regCnt, targetReg, /* canSkip */ true);
         }
 
         // Align to STACK_ALIGN
         // regCnt will be the total number of bytes to localloc
-        inst_RV_IV(INS_add, regCnt, (STACK_ALIGN - 1), attr);
-        inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), attr);
+        emit.emitIns_R_R_I(INS_add, attr, regCnt, regCnt, (STACK_ALIGN - 1));
+        emit.emitIns_R_R_I(INS_and, attr, regCnt, regCnt, ~(STACK_ALIGN - 1));
     }
 
     // If we have an outgoing arg area then we must adjust the SP by popping off the
@@ -2163,16 +2162,18 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         assert(amount > 0);
 
         // For small allocations we will generate up to four stp instructions, to zero 16 to 64 bytes.
-        static_assert_no_msg(STACK_ALIGN == (REGSIZE_BYTES * 2));
+        static_assert_no_msg(STACK_ALIGN == REGSIZE_BYTES * 2);
         assert(amount % (REGSIZE_BYTES * 2) == 0); // stp stores two registers at a time
+
         size_t stpCount = amount / (REGSIZE_BYTES * 2);
+
         if (stpCount <= 4)
         {
             while (stpCount != 0)
             {
                 // We can use pre-indexed addressing.
                 // stp ZR, ZR, [SP, #-16]!   // STACK_ALIGN is 16
-                GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_ZR, REG_ZR, REG_SPBASE, -16, INS_OPTS_PRE_INDEX);
+                emit.emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_ZR, REG_ZR, REG_SPBASE, -16, INS_OPTS_PRE_INDEX);
                 stpCount -= 1;
             }
 
@@ -2180,14 +2181,15 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
             goto ALLOC_DONE;
         }
-        else if (!compiler->info.compInitMem && (amount < compiler->eeGetPageSize())) // must be < not <=
+
+        if (!compiler->info.compInitMem && (amount < compiler->eeGetPageSize())) // must be < not <=
         {
             // Since the size is less than a page, simply adjust the SP value.
             // The SP might already be in the guard page, so we must touch it BEFORE
             // the alloc, not after.
 
             // ldr wz, [SP, #0]
-            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SP, 0);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_ZR, REG_SP, 0);
 
             genInstrWithConstant(INS_sub, EA_8BYTE, REG_SPBASE, REG_SPBASE, amount, rsGetRsvdReg());
 
@@ -2200,14 +2202,16 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // If compInitMem=true, we can reuse targetReg as regcnt.
         // Since size is a constant, regCnt is not yet initialized.
         assert(regCnt == REG_NA);
+
         if (compiler->info.compInitMem)
         {
-            assert(!tree->HasAnyTempRegs());
+            assert(!node->HasAnyTempRegs());
+
             regCnt = targetReg;
         }
         else
         {
-            regCnt = tree->ExtractTempReg();
+            regCnt = node->ExtractTempReg();
         }
 
         instGen_Set_Reg_To_Imm(amount > UINT32_MAX ? EA_8BYTE : EA_4BYTE, regCnt, amount);
@@ -2227,14 +2231,14 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
         // We can use pre-indexed addressing.
         // stp ZR, ZR, [SP, #-16]!
-        GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_ZR, REG_ZR, REG_SPBASE, -16, INS_OPTS_PRE_INDEX);
+        emit.emitIns_R_R_R_I(INS_stp, EA_8BYTE, REG_ZR, REG_ZR, REG_SPBASE, -16, INS_OPTS_PRE_INDEX);
 
         // If not done, loop
         // Note that regCnt is the number of bytes to stack allocate.
         // Therefore we need to subtract 16 from regcnt here.
         assert(genIsValidIntReg(regCnt));
-        inst_RV_IV(INS_subs, regCnt, 16, emitActualTypeSize(type));
-        GetEmitter()->emitIns_J(INS_bne, loop);
+        emit.emitIns_R_R_I(INS_subs, emitActualTypeSize(type), regCnt, regCnt, 16);
+        emit.emitIns_J(INS_bne, loop);
 
         lastTouchDelta = 0;
     }
@@ -2270,9 +2274,9 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         //
 
         // Setup the regTmp
-        regNumber regTmp = tree->GetSingleTempReg();
+        RegNum regTmp = node->GetSingleTempReg();
 
-        //       subs  regCnt, SP, regCnt      // regCnt now holds ultimate SP
+        // subs regCnt, SP, regCnt // regCnt now holds ultimate SP
         emit.emitIns_R_R_R(INS_subs, EA_8BYTE, regCnt, REG_SP, regCnt);
 
         insGroup* loop = emit.CreateTempLabel();
@@ -2307,13 +2311,13 @@ ALLOC_DONE:
         assert((stackAdjustment % STACK_ALIGN) == 0); // This must be true for the stack to remain aligned
         assert((lastTouchDelta == ILLEGAL_LAST_TOUCH_DELTA) || (lastTouchDelta >= 0));
 
-        const regNumber tmpReg = rsGetRsvdReg();
+        const RegNum tmpReg = rsGetRsvdReg();
 
         if ((lastTouchDelta == ILLEGAL_LAST_TOUCH_DELTA) ||
             (stackAdjustment + (unsigned)lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES >
              compiler->eeGetPageSize()))
         {
-            genStackPointerConstantAdjustmentLoopWithProbe(-(ssize_t)stackAdjustment, tmpReg);
+            genStackPointerConstantAdjustmentLoopWithProbe(-static_cast<ssize_t>(stackAdjustment), tmpReg);
         }
         else
         {
@@ -2322,8 +2326,7 @@ ALLOC_DONE:
 
         // Return the stackalloc'ed address in result register.
         // TargetReg = SP + stackAdjustment.
-        //
-        genInstrWithConstant(INS_add, EA_8BYTE, targetReg, REG_SPBASE, (ssize_t)stackAdjustment, tmpReg);
+        genInstrWithConstant(INS_add, EA_8BYTE, targetReg, REG_SPBASE, static_cast<ssize_t>(stackAdjustment), tmpReg);
     }
     else // stackAdjustment == 0
     {
@@ -2335,7 +2338,7 @@ ALLOC_DONE:
         emit.DefineTempLabel(endLabel);
     }
 
-    DefReg(tree);
+    DefReg(node);
 }
 
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
@@ -2550,17 +2553,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     DefPutArgSplitRegs(putArg);
 }
 #endif // FEATURE_ARG_SPLIT
-
-void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
-{
-    assert(ins != INS_mov);
-    assert(ins != INS_cmp);
-    assert(ins != INS_tst);
-
-    // TODO-Arm64-Bug: handle large constants!
-
-    GetEmitter()->emitIns_R_R_I(ins, size, reg, reg, val);
-}
 
 // Add a specified constant value to the stack pointer. No probing is done.
 //

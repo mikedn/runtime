@@ -524,25 +524,24 @@ void CodeGen::GenOverflowCheck(GenTree* node)
     genJumpToThrowHlpBlk(jumpKind, ThrowHelperKind::Overflow);
 }
 
-void CodeGen::GenLclAlloc(GenTree* tree)
+void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 {
-    assert(tree->OperIs(GT_LCLHEAP));
+    assert(node->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsUnOp()->GetOp(0);
-    noway_assert(varActualTypeIsIntOrI(size->GetType()));
+    GenTree* size = node->GetOp(0);
+    noway_assert(varActualTypeIsInt(size->GetType()));
 
     // Result of localloc will be returned in regCnt.
     // Also it used as temporary register in code generation
     // for storing allocation size
-    regNumber            regCnt                   = tree->GetRegNum();
-    var_types            type                     = varActualType(size->GetType());
-    insGroup*            endLabel                 = nullptr;
-    unsigned             stackAdjustment          = 0;
-    regNumber            regTmp                   = REG_NA;
-    const target_ssize_t ILLEGAL_LAST_TOUCH_DELTA = -1;
+    RegNum        regCnt                   = node->GetRegNum();
+    insGroup*     endLabel                 = nullptr;
+    unsigned      stackAdjustment          = 0;
+    RegNum        regTmp                   = REG_NA;
+    const int32_t ILLEGAL_LAST_TOUCH_DELTA = -1;
     // The number of bytes from SP to the last stack address probed.
-    target_ssize_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
+    int32_t lastTouchDelta = ILLEGAL_LAST_TOUCH_DELTA;
 
     // There are 2 ways depending from build version to generate code for localloc:
     //     1) For debug build where memory should be initialized we generate loop
@@ -560,9 +559,6 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     // Notes: Size N should be aligned to STACK_ALIGN before any allocation
 
     noway_assert(isFramePointerUsed()); // localloc requires Frame Pointer to be established since SP changes
-#if !FEATURE_FIXED_OUT_ARGS
-    noway_assert(genStackLevel == 0); // Can't have anything on the stack
-#endif
 
     Emitter& emit = *GetEmitter();
 
@@ -575,6 +571,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     {
         // If 0 bail out by returning null in regCnt
         RegNum sizeReg = UseReg(size);
+
         emit.emitIns_Mov(INS_mov, EA_4BYTE, regCnt, sizeReg, /*canSkip*/ true);
         emit.emitIns_R_R(INS_tst, EA_4BYTE, regCnt, regCnt);
         endLabel = emit.CreateTempLabel();
@@ -582,9 +579,9 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     }
 
     // Setup the regTmp, if there is one.
-    if (tree->HasAnyTempRegs())
+    if (node->HasAnyTempRegs())
     {
-        regTmp = tree->ExtractTempReg();
+        regTmp = node->ExtractTempReg();
     }
 
     // If we have an outgoing arg area then we must adjust the SP by popping off the
@@ -604,21 +601,22 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     if (size->IsIntCon())
     {
         // 'amount' is the total number of bytes to localloc to properly STACK_ALIGN
-        uint32_t amount = size->AsIntCon()->GetUInt32Value();
-        amount          = AlignUp(amount, STACK_ALIGN);
+        uint32_t amount = AlignUp(size->AsIntCon()->GetUInt32Value(), STACK_ALIGN);
 
         // For small allocations we will generate up to four push instructions (either 2 or 4, exactly,
         // since STACK_ALIGN is 8, and REGSIZE_BYTES is 4).
         static_assert_no_msg(STACK_ALIGN == (REGSIZE_BYTES * 2));
         assert(amount % REGSIZE_BYTES == 0);
-        target_size_t pushCount = amount / REGSIZE_BYTES;
+
+        uint32_t pushCount = amount / REGSIZE_BYTES;
+
         if (pushCount <= 4)
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regCnt, 0);
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, regCnt, 0);
 
             while (pushCount != 0)
             {
-                GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regCnt)));
+                emit.emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regCnt)));
                 pushCount -= 1;
             }
 
@@ -626,13 +624,14 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
             goto ALLOC_DONE;
         }
-        else if (!compiler->info.compInitMem && (amount < compiler->eeGetPageSize())) // must be < not <=
+
+        if (!compiler->info.compInitMem && (amount < compiler->eeGetPageSize())) // must be < not <=
         {
             // Since the size is less than a page, simply adjust the SP value.
             // The SP might already be in the guard page, must touch it BEFORE
             // the alloc, not after.
-            GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, regCnt, REG_SP, 0);
-            inst_RV_IV(INS_sub, REG_SP, amount, EA_4BYTE);
+            emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, regCnt, REG_SP, 0);
+            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SP, amount, INS_FLAGS_DONT_CARE);
 
             lastTouchDelta = amount;
 
@@ -645,8 +644,8 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     else
     {
         // Round up the number of bytes to allocate to a STACK_ALIGN boundary.
-        inst_RV_IV(INS_add, regCnt, (STACK_ALIGN - 1), emitActualTypeSize(type));
-        inst_RV_IV(INS_and, regCnt, ~(STACK_ALIGN - 1), emitActualTypeSize(type));
+        emit.emitIns_R_I(INS_add, EA_4BYTE, regCnt, (STACK_ALIGN - 1), INS_FLAGS_DONT_CARE);
+        emit.emitIns_R_I(INS_and, EA_4BYTE, regCnt, ~(STACK_ALIGN - 1), INS_FLAGS_DONT_CARE);
     }
 
     // Allocation
@@ -656,20 +655,21 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // Since we have to zero out the allocated memory AND ensure that the stack pointer is always valid
         // by tickling the pages, we will just push 0's on the stack.
 
-        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, regTmp, 0);
+        emit.emitIns_R_I(INS_mov, EA_4BYTE, regTmp, 0);
 
         // Loop:
-        insGroup* loop = GetEmitter()->DefineTempLabel();
+        insGroup* loop = emit.DefineTempLabel();
 
-        noway_assert(STACK_ALIGN == 8);
-        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
-        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
+        static_assert_no_msg(STACK_ALIGN == 8);
+
+        emit.emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
+        emit.emitIns_I(INS_push, EA_4BYTE, static_cast<int32_t>(genRegMask(regTmp)));
 
         // If not done, loop
         // Note that regCnt is the number of bytes to stack allocate.
         assert(genIsValidIntReg(regCnt));
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regCnt, STACK_ALIGN, INS_FLAGS_SET);
-        GetEmitter()->emitIns_J(INS_bne, loop);
+        emit.emitIns_R_I(INS_sub, EA_4BYTE, regCnt, STACK_ALIGN, INS_FLAGS_SET);
+        emit.emitIns_J(INS_bne, loop);
 
         lastTouchDelta = 0;
     }
@@ -766,7 +766,7 @@ ALLOC_DONE:
         emit.DefineTempLabel(endLabel);
     }
 
-    DefReg(tree);
+    DefReg(node);
 }
 
 // Add a specified constant value to the stack pointer. No probing is done.
@@ -1885,15 +1885,6 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     emit.DefineTempLabel(labelNext);
 }
 
-void CodeGen::inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size)
-{
-    assert(ins != INS_mov);
-    assert(size != EA_8BYTE);
-    noway_assert(ArmImm::IsImm(ins, val, INS_FLAGS_DONT_CARE));
-
-    GetEmitter()->emitIns_R_I(ins, size, reg, val, INS_FLAGS_DONT_CARE);
-}
-
 // Return the "total" size of the stack frame, including local size and callee-saved
 // register size. There are a few things "missing" depending on the platform.
 // The function genCallerSPtoInitialSPdelta() includes those things.
@@ -2230,15 +2221,6 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
         return;
 
     // Add 'frameSize' to SP.
-    //
-    // Unfortunately, we can't just use:
-    //
-    //      inst_RV_IV(INS_add, REG_SPBASE, frameSize, EA_4BYTE);
-    //
-    // because we need to generate proper unwind codes for each instruction generated,
-    // and large frame sizes might generate a temp register load which might
-    // need an unwind code. We don't want to generate a "NOP" code for this
-    // temp register load; we want the unwind codes to start after that.
 
     if (ArmImm::IsImm(INS_add, frameSize, INS_FLAGS_DONT_CARE))
     {
@@ -2253,7 +2235,7 @@ void CodeGen::genFreeLclFrame(unsigned frameSize, /* IN OUT */ bool* pUnwindStar
     else
     {
         // R12 doesn't hold arguments or return values, so can be used as temp.
-        regNumber tmpReg = REG_R12;
+        RegNum tmpReg = REG_R12;
         instGen_Set_Reg_To_Imm(tmpReg, frameSize);
         if (*pUnwindStarted)
         {
@@ -2789,7 +2771,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         // We better not have used a pop PC to return otherwise this will be unreachable code
         noway_assert(!genUsedPopToReturn);
 
-        inst_RV_IV(INS_add, REG_SPBASE, preSpillRegArgSize, EA_4BYTE);
+        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, preSpillRegArgSize, INS_FLAGS_DONT_CARE);
         unwindAllocStack(preSpillRegArgSize);
     }
 

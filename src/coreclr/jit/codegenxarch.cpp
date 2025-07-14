@@ -1809,16 +1809,16 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regSpDelta, /* canSkip */ false);
 }
 
-void CodeGen::GenLclAlloc(GenTree* tree)
+void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 {
-    assert(tree->OperIs(GT_LCLHEAP));
+    assert(node->OperIs(GT_LCLHEAP));
     assert(compiler->compLocallocUsed);
 
-    GenTree* size = tree->AsUnOp()->GetOp(0);
+    GenTree* size = node->GetOp(0);
     noway_assert(varActualTypeIsIntOrI(size->GetType()));
 
-    regNumber      targetReg      = tree->GetRegNum();
-    regNumber      regCnt         = REG_NA;
+    RegNum         targetReg      = node->GetRegNum();
+    RegNum         regCnt         = REG_NA;
     var_types      type           = varActualType(size->GetType());
     insGroup*      endLabel       = nullptr;
     target_ssize_t lastTouchDelta = -1;
@@ -1852,6 +1852,8 @@ void CodeGen::GenLclAlloc(GenTree* tree)
     // compute the amount of memory to allocate to properly STACK_ALIGN.
     size_t amount = 0;
 
+    Emitter& emit = *GetEmitter();
+
     if (GenTreeIntCon* intCon = size->IsIntCon())
     {
         assert(intCon->isContained());
@@ -1868,25 +1870,26 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
         // Put the size value in targetReg. If it is zero, bail out by returning null in targetReg.
         RegNum sizeReg = UseReg(size);
-        GetEmitter()->emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
-        endLabel = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_R_R(INS_test, attr, targetReg, targetReg);
-        GetEmitter()->emitIns_J(INS_je, endLabel);
+        emit.emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
+        endLabel = emit.CreateTempLabel();
+        emit.emitIns_R_R(INS_test, attr, targetReg, targetReg);
+        emit.emitIns_J(INS_je, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
         // since we don't need any internal registers.
         if (compiler->info.compInitMem)
         {
-            assert(!tree->HasAnyTempRegs());
+            assert(!node->HasAnyTempRegs());
+
             regCnt = targetReg;
         }
         else
         {
-            regCnt = tree->ExtractTempReg();
+            regCnt = node->ExtractTempReg();
 
             // Above, we put the size in targetReg. Now, copy it to our new temp register if necessary.
-            GetEmitter()->emitIns_Mov(INS_mov, attr, regCnt, targetReg, /*canSkip*/ true);
+            emit.emitIns_Mov(INS_mov, attr, regCnt, targetReg, /*canSkip*/ true);
         }
 
         // Round up the number of bytes to allocate to a STACK_ALIGN boundary. This is done
@@ -1899,7 +1902,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         //      add reg, 15
         //      shr reg, 4
 
-        GetEmitter()->emitIns_R_I(INS_add, attr, regCnt, STACK_ALIGN - 1);
+        emit.emitIns_R_I(INS_add, attr, regCnt, STACK_ALIGN - 1);
 
         if (compiler->info.compInitMem)
         {
@@ -1918,7 +1921,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         else
         {
             // Otherwise, mask off the low bits to align the byte count.
-            GetEmitter()->emitIns_R_I(INS_and, attr, regCnt, ~(STACK_ALIGN - 1));
+            emit.emitIns_R_I(INS_and, attr, regCnt, ~(STACK_ALIGN - 1));
         }
     }
 
@@ -1953,7 +1956,7 @@ void CodeGen::GenLclAlloc(GenTree* tree)
             goto ALLOC_DONE;
         }
 
-        GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, outgoingArgSpaceSize);
+        emit.emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, outgoingArgSpaceSize);
         stackAdjustment += static_cast<target_size_t>(outgoingArgSpaceSize);
         locAllocStackOffset = stackAdjustment;
     }
@@ -1968,11 +1971,12 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
         // For small allocations we will generate up to six push 0 inline
         size_t cntRegSizedWords = amount / REGSIZE_BYTES;
+
         if (cntRegSizedWords <= 6)
         {
             for (; cntRegSizedWords != 0; cntRegSizedWords--)
             {
-                GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+                emit.emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
             }
 
             lastTouchDelta = 0;
@@ -1982,23 +1986,24 @@ void CodeGen::GenLclAlloc(GenTree* tree)
 
 #ifdef TARGET_X86
         bool needRegCntRegister = true;
-#else  // !TARGET_X86
+#else
         bool needRegCntRegister = initMemOrLargeAlloc;
-#endif // !TARGET_X86
+#endif
 
         if (needRegCntRegister)
         {
             // If compInitMem=true, we can reuse targetReg as regcnt.
             // Since size is a constant, regCnt is not yet initialized.
             assert(regCnt == REG_NA);
+
             if (compiler->info.compInitMem)
             {
-                assert(!tree->HasAnyTempRegs());
+                assert(!node->HasAnyTempRegs());
                 regCnt = targetReg;
             }
             else
             {
-                regCnt = tree->ExtractTempReg();
+                regCnt = node->ExtractTempReg();
             }
         }
 
@@ -2022,8 +2027,8 @@ void CodeGen::GenLclAlloc(GenTree* tree)
             amount /= STACK_ALIGN;
         }
 
-        GetEmitter()->emitIns_R_I(INS_mov, AMD64_ONLY(amount > UINT32_MAX ? EA_8BYTE :) EA_4BYTE, regCnt,
-                                  static_cast<ssize_t>(amount));
+        emit.emitIns_R_I(INS_mov, AMD64_ONLY(amount > UINT32_MAX ? EA_8BYTE :) EA_4BYTE, regCnt,
+                         static_cast<ssize_t>(amount));
     }
 
     if (compiler->info.compInitMem)
@@ -2036,20 +2041,20 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         assert(genIsValidIntReg(regCnt));
 
         // Loop:
-        insGroup* loop = GetEmitter()->DefineTempLabel();
+        insGroup* loop = emit.DefineTempLabel();
 
         static_assert_no_msg((STACK_ALIGN % REGSIZE_BYTES) == 0);
         unsigned const count = (STACK_ALIGN / REGSIZE_BYTES);
 
         for (unsigned i = 0; i < count; i++)
         {
-            GetEmitter()->emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+            emit.emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
         }
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
         // Decrement the loop counter and loop if not done.
-        GetEmitter()->emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
-        GetEmitter()->emitIns_J(INS_jne, loop);
+        emit.emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
+        emit.emitIns_J(INS_jne, loop);
 
         lastTouchDelta = 0;
     }
@@ -2059,9 +2064,8 @@ void CodeGen::GenLclAlloc(GenTree* tree)
         // Negate this shift before calling the function to adjust the stack (which
         // adds to ESP).
 
-        GetEmitter()->emitIns_R(INS_neg, EA_PTRSIZE, regCnt);
-        regNumber regTmp = tree->GetSingleTempReg();
-        genStackPointerDynamicAdjustmentWithProbe(regCnt, regTmp);
+        emit.emitIns_R(INS_neg, EA_PTRSIZE, regCnt);
+        genStackPointerDynamicAdjustmentWithProbe(regCnt, node->GetSingleTempReg());
 
         // lastTouchDelta is dynamic, and can be up to a page. So if we have outgoing arg space,
         // we're going to assume the worst and probe.
@@ -2091,30 +2095,30 @@ ALLOC_DONE:
 
     // Return the stackalloc'ed address in result register.
     // TargetReg = RSP + locAllocStackOffset
-    GetEmitter()->emitIns_R_AR(INS_lea, EA_PTRSIZE, targetReg, REG_SPBASE, (int)locAllocStackOffset);
+    emit.emitIns_R_AR(INS_lea, EA_PTRSIZE, targetReg, REG_SPBASE, (int)locAllocStackOffset);
 
     if (endLabel != nullptr)
     {
-        GetEmitter()->DefineTempLabel(endLabel);
+        emit.DefineTempLabel(endLabel);
     }
 
 #ifdef JIT32_GCENCODER
     if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
+        emit.emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
-#endif // JIT32_GCENCODER
+#endif
 
 #ifdef DEBUG
     // Update local variable to reflect the new stack pointer.
     if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
+        emit.emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
-    genProduceReg(tree);
+    DefReg(node);
 }
 
 void CodeGen::GenDynBlk(GenTreeDynBlk* store)

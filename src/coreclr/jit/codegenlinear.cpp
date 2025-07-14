@@ -719,7 +719,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenProfHook();
             break;
         case GT_LCLHEAP:
-            GenLclAlloc(node);
+            GenLclAlloc(node->AsUnOp());
             break;
         case GT_CNS_INT:
             GenIntCon(node->AsIntCon());

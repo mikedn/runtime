@@ -828,7 +828,7 @@ private:
     void genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, regNumber regTmp);
 #endif
 
-    void GenLclAlloc(GenTree* tree);
+    void GenLclAlloc(GenTreeUnOp* node);
 
     GenTreeLclLoad* IsRegCandidateLclLoad(GenTree* node) const
     {
@@ -850,33 +850,31 @@ public:
     bool IsLocalMemoryOperand(GenTree* op, StackAddrMode* s);
 
 #ifdef TARGET_XARCH
-    void inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val);
+    void inst_RV_SH(instruction ins, emitAttr size, RegNum reg, unsigned val);
     bool IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data);
     void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
-    void emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* mem);
+    void emitInsRegRM(instruction ins, emitAttr attr, RegNum reg, GenTree* mem);
     void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
-    void inst_RV_TT_IV(instruction ins, emitAttr attr, regNumber reg1, GenTree* rmOp, int ival);
-    void inst_RV_RV_TT(instruction ins, emitAttr size, regNumber targetReg, regNumber op1Reg, GenTree* op2, bool isRMW);
+    void inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree* rmOp, int ival);
+    void inst_RV_RV_TT(instruction ins, emitAttr size, RegNum targetReg, RegNum op1Reg, GenTree* op2, bool isRMW);
 #endif
 
 #ifdef TARGET_ARM
-    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndLoad* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
-    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir, int offset);
+    void emitInsLoad(instruction ins, emitAttr attr, RegNum reg, GenTreeIndLoad* load);
+    void emitInsStore(instruction ins, emitAttr attr, RegNum reg, GenTreeIndStore* store);
+    void emitInsIndir(instruction ins, emitAttr attr, RegNum reg, GenTreeIndir* indir, int offset);
 #endif
 
 #ifdef TARGET_ARM64
-    void inst_RV_IV(instruction ins, regNumber reg, target_ssize_t val, emitAttr size);
-    void emitInsLoad(instruction ins, emitAttr attr, regNumber reg, GenTreeIndir* load);
-    void emitInsStore(instruction ins, emitAttr attr, regNumber reg, GenTreeIndStore* store);
-    void emitInsIndir(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndir* indir);
+    void emitInsLoad(instruction ins, emitAttr attr, RegNum reg, GenTreeIndir* load);
+    void emitInsStore(instruction ins, emitAttr attr, RegNum reg, GenTreeIndStore* store);
+    void emitInsIndir(instruction ins, emitAttr attr, RegNum reg, GenTreeIndir* indir);
 #endif
 
     class GenAddrMode
     {
-        regNumber  m_base  = REG_NA;
-        regNumber  m_index = REG_NA;
+        RegNum     m_base  = REG_NA;
+        RegNum     m_index = REG_NA;
         unsigned   m_scale = 1;
         int        m_disp  = 0;
         LclVarDsc* m_lcl   = nullptr;
@@ -888,12 +886,12 @@ public:
 
         GenAddrMode(GenTree* tree, CodeGen* codeGen);
 
-        regNumber Base() const
+        RegNum Base() const
         {
             return m_base;
         }
 
-        regNumber Index() const
+        RegNum Index() const
         {
             return m_index;
         }
