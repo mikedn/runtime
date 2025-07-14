@@ -6540,12 +6540,14 @@ public:
     }
 #endif
 
-#if FEATURE_FASTTAILCALL
     bool PutInIncomingArgArea() const
     {
+#if FEATURE_FASTTAILCALL
         return m_putInIncomingArgArea;
-    }
+#else
+        return false;
 #endif
+    }
 
     unsigned GetOffset() const
     {

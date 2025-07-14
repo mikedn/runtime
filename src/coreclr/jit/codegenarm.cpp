@@ -1058,6 +1058,183 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
+void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
+{
+    assert(!putArg->PutInIncomingArgArea());
+
+    unsigned outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+    INDEBUG(unsigned outArgLclSize = outgoingArgSpaceSize);
+    unsigned outArgLclOffs = putArg->GetOffset();
+
+    GenTree* src = putArg->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+        GenPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    Emitter& emit = *GetEmitter();
+
+    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
+    {
+        RegNum srcReg = src->GetRegNum();
+
+        for (unsigned offset = 0, size = putArg->GetSize(); offset < size; offset += REGSIZE_BYTES)
+        {
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg,
+                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
+        }
+
+        return;
+    }
+
+    var_types srcType = varActualType(src->GetType());
+
+    assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
+
+    instruction storeIns  = ins_Store(srcType);
+    emitAttr    storeAttr = emitTypeSize(srcType);
+    RegNum      srcReg    = UseReg(src);
+
+    emit.Ins_R_S(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
+
+    if (srcType == TYP_LONG)
+    {
+        // This case currently only occurs for double types that are passed as LONG;
+        // actual long types would have been decomposed by now.
+        RegNum otherReg = src->GetRegNum(1);
+
+        emit.Ins_R_S(storeIns, storeAttr, otherReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + 4));
+    }
+}
+
+void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
+                                    unsigned          outArgLclNum,
+                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+{
+    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
+    {
+        unsigned dstOffset = outArgLclOffs + use.GetOffset();
+
+        GenTree*  src     = use.GetNode();
+        var_types srcType = use.GetType();
+
+        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
+        assert(!varTypeIsSIMD(srcType));
+
+        RegNum srcReg = UseReg(src);
+
+        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
+                                  GetStackAddrMode(outArgLclNum, dstOffset));
+    }
+}
+
+void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
+                                 unsigned          outArgLclNum,
+                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+{
+    GenTree* src = putArgStk->GetOp(0);
+
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
+
+    ClassLayout* srcLayout;
+    LclVarDsc*   srcLcl         = nullptr;
+    RegNum       srcAddrBaseReg = REG_NA;
+    int          srcOffset      = 0;
+
+    if (src->OperIs(GT_LCL_LOAD))
+    {
+        srcLcl    = src->AsLclLoad()->GetLcl();
+        srcLayout = srcLcl->GetLayout();
+    }
+    else if (src->OperIs(GT_LCL_LOAD_FLD))
+    {
+        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcOffset = src->AsLclLoadFld()->GetLclOffs();
+        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
+    }
+    else
+    {
+        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
+
+        if (!srcAddr->isContained())
+        {
+            srcAddrBaseReg = UseReg(srcAddr);
+        }
+        else
+        {
+            srcAddrBaseReg = UseReg(srcAddr->AsAddrMode()->GetBase());
+            assert(!srcAddr->AsAddrMode()->HasIndex());
+            srcOffset = srcAddr->AsAddrMode()->GetOffset();
+        }
+
+        srcLayout = src->AsIndLoadObj()->GetLayout();
+    }
+
+    unsigned size = srcLayout->GetSize();
+
+    if (srcLcl != nullptr)
+    {
+        size = roundUp(size, REGSIZE_BYTES);
+    }
+
+    RegNum tempReg = putArgStk->ExtractTempReg();
+    assert(tempReg != srcAddrBaseReg);
+
+    Emitter& emit   = *GetEmitter();
+    unsigned offset = 0;
+
+    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
+    {
+        while (regSize > size)
+        {
+            regSize /= 2;
+        }
+
+        instruction loadIns;
+        instruction storeIns;
+        emitAttr    attr;
+
+        switch (regSize)
+        {
+            case 1:
+                loadIns  = INS_ldrb;
+                storeIns = INS_strb;
+                attr     = EA_4BYTE;
+                break;
+            case 2:
+                loadIns  = INS_ldrh;
+                storeIns = INS_strh;
+                attr     = EA_4BYTE;
+                break;
+            default:
+                assert(regSize == REGSIZE_BYTES);
+                loadIns  = INS_ldr;
+                storeIns = INS_str;
+                attr     = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES));
+        }
+
+        if (srcLcl != nullptr)
+        {
+            emit.Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
+        }
+        else
+        {
+            emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
+        }
+
+        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
+    }
+}
+
 void CodeGen::GenCkfinite(GenTree* node)
 {
     assert(node->OperIs(GT_CKFINITE));

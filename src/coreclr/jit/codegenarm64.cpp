@@ -2341,6 +2341,98 @@ ALLOC_DONE:
     DefReg(node);
 }
 
+unsigned CodeGen::GetFirstStackParamLclNum() const
+{
+#ifdef TARGET_WINDOWS
+    // This can't deal with split params.
+    assert(!compiler->info.compIsVarArgs);
+#endif
+
+    for (unsigned i = 0, paramCount = compiler->info.GetParamCount(); i < paramCount; i++)
+    {
+        LclVarDsc* lcl = compiler->lvaGetDesc(i);
+
+        assert(lcl->IsParam());
+
+        if (!lcl->IsRegParam())
+        {
+            return i;
+        }
+    }
+
+    return BAD_VAR_NUM;
+}
+
+void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
+{
+    unsigned outArgLclNum;
+    INDEBUG(unsigned outArgLclSize);
+
+    if (putArg->PutInIncomingArgArea())
+    {
+        outArgLclNum = GetFirstStackParamLclNum();
+        noway_assert(outArgLclNum != BAD_VAR_NUM);
+        INDEBUG(outArgLclSize = paramsStackSize);
+    }
+    else
+    {
+        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
+    }
+
+    unsigned outArgLclOffs = putArg->GetOffset();
+
+    GenTree* src = putArg->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+        GenPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    Emitter& emit = *GetEmitter();
+
+    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
+    {
+        assert(putArg->GetSlotCount() == 2);
+        assert(src->isContained());
+
+        emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR,
+                             GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+
+        return;
+    }
+
+    var_types srcType = varActualType(src->GetType());
+
+    // We can't write beyond the outgoing area area
+    assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
+
+    emitAttr storeAttr;
+    RegNum   srcReg;
+
+    if (src->isContained())
+    {
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
+
+        storeAttr = EA_8BYTE;
+        srcReg    = REG_ZR;
+    }
+    else
+    {
+        storeAttr = emitTypeSize(srcType);
+        srcReg    = UseReg(src);
+    }
+
+    emit.Ins_R_S(INS_str, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+}
+
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
