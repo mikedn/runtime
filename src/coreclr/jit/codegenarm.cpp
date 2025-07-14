@@ -1080,12 +1080,11 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
-    Emitter& emit = *GetEmitter();
+    Emitter& emit   = *GetEmitter();
+    RegNum   srcReg = UseReg(src);
 
     if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
     {
-        RegNum srcReg = src->GetRegNum();
-
         for (unsigned offset = 0, size = putArg->GetSize(); offset < size; offset += REGSIZE_BYTES)
         {
             emit.Ins_R_S(INS_str, EA_4BYTE, srcReg,
@@ -1101,18 +1100,8 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     instruction storeIns  = ins_Store(srcType);
     emitAttr    storeAttr = emitTypeSize(srcType);
-    RegNum      srcReg    = UseReg(src);
 
-    emit.Ins_R_S(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
-
-    if (srcType == TYP_LONG)
-    {
-        // This case currently only occurs for double types that are passed as LONG;
-        // actual long types would have been decomposed by now.
-        RegNum otherReg = src->GetRegNum(1);
-
-        emit.Ins_R_S(storeIns, storeAttr, otherReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + 4));
-    }
+    emit.Ins_R_S(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 }
 
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
