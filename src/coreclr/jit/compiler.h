@@ -1379,7 +1379,7 @@ public:
         return !compDbgCode;
     }
 
-    bool UseSoftFP()
+    bool UseSoftFP() const
     {
 #ifdef TARGET_ARM
         return compUseSoftFP;
@@ -1388,7 +1388,7 @@ public:
 #endif
     }
 
-    bool UseHfa()
+    bool UseHfa() const
     {
 #if defined(TARGET_ARM)
         return !compUseSoftFP;

@@ -1690,7 +1690,7 @@ void CodeGen::GenCall(GenTreeCall* call)
             }
             else
 #endif
-                if (varTypeUsesFloatArgReg(returnType) ARM_ONLY(&&!compiler->opts.compUseSoftFP))
+                if (varTypeUsesFloatArgReg(returnType) ARM_ONLY(&&!compiler->opts.UseSoftFP()))
             {
                 returnReg = REG_FLOATRET;
             }
@@ -1700,11 +1700,11 @@ void CodeGen::GenCall(GenTreeCall* call)
             }
 
 #ifdef TARGET_ARM
-            if (compiler->opts.compUseSoftFP && (returnType == TYP_DOUBLE))
+            if (compiler->opts.UseSoftFP() && (returnType == TYP_DOUBLE))
             {
                 emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, call->GetRegNum(), REG_R0, REG_R1);
             }
-            else if (compiler->opts.compUseSoftFP && (returnType == TYP_FLOAT))
+            else if (compiler->opts.UseSoftFP() && (returnType == TYP_FLOAT))
             {
                 emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, call->GetRegNum(), REG_R0, /* canSkip */ false);
             }

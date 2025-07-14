@@ -1543,9 +1543,9 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
 
 void CodeGen::GenFloatReturn(GenTree* src)
 {
-    assert(compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs);
+    assert(compiler->opts.UseSoftFP() || compiler->info.compIsVarArgs);
 
-    regNumber srcReg = genConsumeReg(src);
+    RegNum srcReg = UseReg(src);
 
     if (src->TypeIs(TYP_FLOAT))
     {

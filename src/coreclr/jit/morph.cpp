@@ -23,7 +23,7 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
     if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
         thisMorphNum = moMorphNum++;
-        printf("\nfgMorphTree (before %d):\n", thisMorphNum);
+        printf("\nmoMorphTree (before %d):\n", thisMorphNum);
         gtDispTree(tree);
     }
 
@@ -207,7 +207,7 @@ void Compiler::moMorphTreeDone(GenTree* tree DEBUGARG(GenTree* oldTree) DEBUGARG
 #ifdef DEBUG
     if (verbose && JitConfig.TreesBeforeAfterMorph())
     {
-        JITDUMPTREE(tree, "\nfgMorphTree (after %d):\n", morphNum);
+        JITDUMPTREE(tree, "\nmoMorphTree (after %d):\n", morphNum);
         printf(""); // in our logic this causes a flush
     }
 #endif
@@ -5559,7 +5559,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
 #if defined(TARGET_ARM)
         const bool passUsingFloatRegs =
-            !opts.compUseSoftFP && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
+            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
 
         if (argAlign == 2)
         {
@@ -12208,7 +12208,7 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
         if (verbose)
         {
             oldHash = gtHashValue(stmt->GetRootNode());
-            JITDUMPTREE(stmt->GetRootNode(), "\nfgMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum,
+            JITDUMPTREE(stmt->GetRootNode(), "\nmoMorphTree " FMT_BB ", " FMT_STMT " (before)\n", block->bbNum,
                         stmt->GetID());
         }
 #endif
@@ -12266,17 +12266,17 @@ void Compiler::moMorphBlockStmts(BasicBlock* block)
         {
             // Clone all the trees to stress gtCloneExpr()
 
-            JITDUMPTREE(morphedTree, "\nfgMorphTree (stressClone from):\n");
+            JITDUMPTREE(morphedTree, "\nmoMorphTree (stressClone from):\n");
 
             morphedTree = gtCloneExpr(morphedTree);
             noway_assert(morphedTree != nullptr);
 
-            JITDUMPTREE(morphedTree, "\nfgMorphTree (stressClone to):\n");
+            JITDUMPTREE(morphedTree, "\nmoMorphTree (stressClone to):\n");
         }
 
         if (verbose && (gtHashValue(morphedTree) != oldHash))
         {
-            JITDUMPTREE(morphedTree, "\nfgMorphTree " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
+            JITDUMPTREE(morphedTree, "\nmoMorphTree " FMT_BB ", " FMT_STMT " (after)\n", block->bbNum, stmt->GetID());
         }
 #endif
 

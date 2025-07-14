@@ -4948,7 +4948,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
     }
 #endif
 #ifdef TARGET_ARM
-    else if (varTypeIsFloating(retType) && (compiler->opts.compUseSoftFP || compiler->info.compIsVarArgs))
+    else if (varTypeIsFloating(retType) && (compiler->opts.UseSoftFP() || compiler->info.compIsVarArgs))
     {
         GenFloatReturn(ret->AsUnOp()->GetOp(0));
     }
