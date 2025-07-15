@@ -2398,9 +2398,9 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     Emitter& emit = *GetEmitter();
 
-    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArg->GetSize() > REGSIZE_BYTES))
     {
-        assert(putArg->GetSlotCount() == 2);
+        assert(putArg->GetSize() <= 2 * REGSIZE_BYTES);
         assert(src->isContained());
 
         emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR,
@@ -2414,23 +2414,23 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     // We can't write beyond the outgoing area area
     assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
 
-    emitAttr storeAttr;
+    emitAttr attr;
     RegNum   srcReg;
 
     if (src->isContained())
     {
-        assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() ||  src->IsHWIntrinsicZero());
 
-        storeAttr = EA_8BYTE;
-        srcReg    = REG_ZR;
+        attr   = EA_8BYTE;
+        srcReg = REG_ZR;
     }
     else
     {
-        storeAttr = emitTypeSize(srcType);
-        srcReg    = UseReg(src);
+        attr   = emitTypeSize(srcType);
+        srcReg = UseReg(src);
     }
 
-    emit.Ins_R_S(INS_str, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+    emit.Ins_R_S(INS_str, attr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 }
 
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,

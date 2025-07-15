@@ -3159,43 +3159,36 @@ private:
             if (varTypeIsSIMD(tree->GetType()))
             {
 #ifdef FEATURE_HW_INTRINSICS
-                ValueNum  vn = m_vnStore->ExtractValue(tree->GetConservativeVN());
-                VNFuncApp func;
-
-                if (VNFuncIndex(m_vnStore->GetVNFunc(vn, &func)) == VNF_HWI_Vector128_get_Zero)
+                if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT))
                 {
-                    // Due to poor const register reuse in LSRA, attempting to propagate SIMD zero
-                    // isn't always an improvement - we simply end up with more XORPS instructions.
-                    // Still, there's at least on special case where propagation helps, SIMD12
-                    // memory stores. If codegen sees that the stored value is 0 then it can
-                    // omit the shuffling required to extract the upper SIMD12 element. We can
-                    // still end up with an extra XORPS if we propagate but that's better than
-                    // unnecessary shuffling.
-                    // Note that this pattern tends to arise due to the use of `default` to get a
-                    // zero vector, since `default` is translated to `initobj` which needs a temp.
+                    ValueNum vn   = m_vnStore->ExtractValue(tree->GetConservativeVN());
+                    VNFunc   func = VNFuncIndex(m_vnStore->GetVNFunc(vn));
 
-                    // TODO-MIKE-CQ: Another case where 0 propagation might be useful is integer
-                    // equality, lowering can transform it into PTEST if one operand is 0.
-                    //
-                    // There are others VNs that could be treated as constants (such as Create
-                    // with constant operands or get_AllBitsSet) but it's not clear how useful
-                    // would that be.
-
-                    if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT) &&
-                        user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) && user->TypeIs(TYP_SIMD12))
+                    if (func == VNF_HWI_Vector128_get_Zero ARM64_ONLY(|| func == VNF_HWI_Vector64_get_Zero))
                     {
-                        GenTree* zero = m_compiler->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+                        // Due to poor const register reuse in LSRA, attempting to propagate zero vectors is
+                        // not always an improvement - on XARCH we simply end up with more XORPS instructions.
+                        // Still, there's at least on special case where propagation helps, SIMD12
+                        // memory stores. If codegen sees that the stored value is 0 then it can
+                        // omit the shuffling required to extract the upper SIMD12 element. We can
+                        // still end up with an extra XORPS if we propagate but that's better than
+                        // unnecessary shuffling.
+                        // Note that this pattern tends to arise due to the use of `default` to get a
+                        // zero vector, since `default` is translated to `initobj` which needs a temp.
 
-                        if (user->OperIs(GT_LCL_STORE_FLD))
-                        {
-                            user->AsLclStoreFld()->SetValue(zero);
-                        }
-                        else
-                        {
-                            user->AsIndir()->SetValue(zero);
-                        }
+                        // TODO-MIKE-CQ: Another case where 0 propagation might be useful is integer
+                        // equality, lowering can transform it into PTEST if one operand is 0.
+                        //
+                        // There are others VNs that could be treated as constants (such as Create
+                        // with constant operands or get_AllBitsSet) but it's not clear how useful
+                        // would that be.
 
-                        m_stmtMorphPending = true;
+                        if ((user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) &&
+                             user->TypeIs(TYP_SIMD12))ARM64_ONLY(|| user->IsCall()))
+                        {
+                            *use               = m_compiler->gtNewZeroSimdHWIntrinsicNode(tree->GetType(), TYP_FLOAT);
+                            m_stmtMorphPending = true;
+                        }
                     }
                 }
 #endif // FEATURE_HW_INTRINSICS
