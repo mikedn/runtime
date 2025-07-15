@@ -1083,7 +1083,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     Emitter& emit   = *GetEmitter();
     RegNum   srcReg = UseReg(src);
 
-    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArg->GetSize() > REGSIZE_BYTES))
     {
         for (unsigned offset = 0, size = putArg->GetSize(); offset < size; offset += REGSIZE_BYTES)
         {
@@ -1098,10 +1098,10 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
 
-    instruction storeIns  = ins_Store(srcType);
-    emitAttr    storeAttr = emitTypeSize(srcType);
+    instruction ins  = ins_Store(srcType);
+    emitAttr    attr = emitTypeSize(srcType);
 
-    emit.Ins_R_S(storeIns, storeAttr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+    emit.Ins_R_S(ins, attr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 }
 
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
