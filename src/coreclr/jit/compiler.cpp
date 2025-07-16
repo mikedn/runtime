@@ -842,11 +842,16 @@ bool Compiler::notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool suppor
     return info.compCompHnd->notifyInstructionSetUsage(isa, supported);
 }
 
-#ifdef PROFILING_SUPPORTED
+#if defined(DEBUG) && defined(PROFILING_SUPPORTED)
 // A dummy function to receive Enter/Leave/Tailcall profiler callbacks.
 // These are used when JitEltHookEnabled=1
 static void DummyProfilerELTStub(UINT_PTR ProfilerHandle AMD64_ARG(UINT_PTR callerSP))
 {
+}
+
+bool CompilerOptions::HasDummyProfilerHook() const
+{
+    return compProfilerMethHnd == (void*)DummyProfilerELTStub;
 }
 #endif
 
@@ -1178,27 +1183,21 @@ void Compiler::compInitOptions()
     }
     else
     {
-        opts.compProfilerHookNeeded        = false;
-        opts.compProfilerMethHndIndirected = false;
-        opts.compProfilerMethHnd           = nullptr;
+        assert(!opts.compProfilerHookNeeded);
+        assert(!opts.compProfilerMethHndIndirected);
+        assert(opts.compProfilerMethHnd == nullptr);
     }
 
-    // Honor COMPlus_JitELTHookEnabled or STRESS_PROFILER_CALLBACKS stress mode
-    // only if VM has not asked us to generate profiler hooks in the first place.
-    // That is, override VM only if it hasn't asked for a profiler callback for this method.
-    // Don't run this stress mode when pre-JITing, as we would need to emit a relocation
-    // for the call to the fake ELT hook, which wouldn't make sense, as we can't store that
-    // in the pre-JIT image.
-    if (!opts.compProfilerHookNeeded &&
+#ifdef DEBUG
+    if (!opts.compProfilerHookNeeded && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) &&
         (JitConfig.JitELTHookEnabled() ||
          (!opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && compStressCompile(STRESS_PROFILER_CALLBACKS, 5))))
     {
-        opts.compJitELTHookEnabled = true;
-
-        // TBD: Exclude PInvoke stubs
-        opts.compProfilerMethHnd           = (void*)DummyProfilerELTStub;
+        opts.compProfilerHookNeeded        = true;
         opts.compProfilerMethHndIndirected = false;
+        opts.compProfilerMethHnd           = (void*)DummyProfilerELTStub;
     }
+#endif
 #endif // PROFILING_SUPPORTED
 
     ARM_ONLY(opts.compUseSoftFP = opts.IsJitFlagSet(JitFlags::JIT_FLAG_SOFTFP_ABI) || JitConfig.JitSoftFP();)

@@ -1483,8 +1483,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
     void* pAddr = nullptr;
 
 #if defined(DEBUG) && defined(PROFILING_SUPPORTED)
-    // Don't ask VM if it hasn't requested ELT hooks
-    if (!compiler->opts.compProfilerHookNeeded && compiler->opts.compJitELTHookEnabled &&
+    if (compiler->opts.HasDummyProfilerHook() &&
         (helper == CORINFO_HELP_PROF_FCN_ENTER || helper == CORINFO_HELP_PROF_FCN_LEAVE ||
          helper == CORINFO_HELP_PROF_FCN_TAILCALL))
     {
@@ -1549,26 +1548,20 @@ void CodeGen::GenFloatReturn(GenTree* src)
 
 #ifdef PROFILING_SUPPORTED
 
-// Generate the profiling function enter callback.
-//
-// initReg        - register to use as scratch register
-// pInitRegZeroed - OUT parameter. *pInitRegZeroed set to 'false' if 'initReg' is
-//                  not zero after this call.
-//
-void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog);
 
-    // Give profiler a chance to back out of hooking this method
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }
 
-    // On Arm arguments are prespilled on stack, which frees r0-r3.
-    // For generating Enter callout we would need two registers and one of them has to be r0 to pass profiler handle.
+    // On Arm arguments are pre-spilled on stack, which frees r0-r3.
+    // For generating Enter callout we would need two registers and
+    // one of them has to be r0 to pass profiler handle.
     // The call target register could be any free register.
-    regNumber argReg = REG_PROFILER_ENTER_ARG;
+    RegNum argReg = REG_PROFILER_ENTER_ARG;
 
     assert((preSpillParamRegs & genRegMask(argReg)) != RBM_NONE);
 
@@ -1594,8 +1587,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
-    // Only hook if profiler says it's okay.
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }

@@ -2519,11 +2519,12 @@ void CodeGen::genPrologEnregisterIncomingStackParams()
         }
 
         // If it's a register argument then it's already been taken care of.
-        // But, on ARM when under a profiler, we would have prespilled a register
-        // parameter and hence here we need to load it from its prespilled location.
+        // But, on ARM when under a profiler, we would have pre-spilled a register
+        // parameter and hence here we need to load it from its pre-spilled location.
         bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-        isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
+        isPrespilledForProfiling =
+            compiler->opts.IsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
 #endif
 
         if (lcl->IsRegParam() && !isPrespilledForProfiling)
@@ -3201,10 +3202,10 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
 
     bool isPrespilledForProfiling = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-    isPrespilledForProfiling = compiler->compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
+    isPrespilledForProfiling = compiler->opts.IsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(preSpillParamRegs);
 #endif
 
-    // Load from the argument register only if it is not prespilled.
+    // Load from the argument register only if it is not pre-spilled.
     if (lcl->IsRegParam() && !isPrespilledForProfiling)
     {
         reg = lcl->GetParamReg();
@@ -3472,7 +3473,7 @@ void CodeGen::genFinalizeFrame()
     }
 
 #ifdef UNIX_AMD64_ABI
-    if (compiler->compIsProfilerHookNeeded())
+    if (compiler->opts.IsProfilerHookNeeded())
     {
         // On Unix x64 we also save R14 and R15 for ELT profiler hook generation.
         specialRegs |= RBM_PROFILER_ENTER_ARG_0 | RBM_PROFILER_ENTER_ARG_1;
@@ -4998,7 +4999,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
     //
     // There should be a single return block while generating profiler ELT callbacks,
     // so we just look for that block to trigger insertion of the profile hook.
-    if ((block == compiler->genReturnBB) && compiler->compIsProfilerHookNeeded())
+    if ((block == compiler->genReturnBB) && compiler->opts.IsProfilerHookNeeded())
     {
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
     }

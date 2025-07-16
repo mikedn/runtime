@@ -513,14 +513,14 @@ regMaskTP LinearScan::getKillSetForHWIntrinsic(GenTreeHWIntrinsic* node)
 
 regMaskTP LinearScan::getKillSetForReturn()
 {
-    return compiler->compIsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
-                                                : RBM_NONE;
+    return compiler->opts.IsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_LEAVE)
+                                                 : RBM_NONE;
 }
 
 regMaskTP LinearScan::getKillSetForProfilerHook()
 {
-    return compiler->compIsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
-                                                : RBM_NONE;
+    return compiler->opts.IsProfilerHookNeeded() ? Compiler::compHelperCallKillSet(CORINFO_HELP_PROF_FCN_TAILCALL)
+                                                 : RBM_NONE;
 }
 
 #ifdef DEBUG

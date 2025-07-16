@@ -12,7 +12,7 @@ void Lowering::Run()
 {
 #ifdef PROFILING_SUPPORTED
 #ifdef UNIX_AMD64_ABI
-    if (comp->compIsProfilerHookNeeded())
+    if (comp->opts.IsProfilerHookNeeded())
     {
         comp->codeGen->needToAlignFrame = true;
     }
@@ -64,7 +64,7 @@ void Lowering::Run()
         LowerBlock(block);
     }
 
-    if (comp->fgHasEH() || comp->info.IsPInvokeFrameRequired() || comp->compIsProfilerHookNeeded() ||
+    if (comp->fgHasEH() || comp->info.IsPInvokeFrameRequired() || comp->opts.IsProfilerHookNeeded() ||
         comp->compLocallocUsed
 #ifdef TARGET_X86
         || comp->compTailCallUsed
@@ -89,7 +89,7 @@ void Lowering::Run()
     // the outgoing arg space if the method makes any calls.
     if (outgoingArgAreaSize < MIN_ARG_AREA_FOR_CALL)
     {
-        if (comp->compUsesThrowHelper || comp->compIsProfilerHookNeeded())
+        if (comp->compUsesThrowHelper || comp->opts.IsProfilerHookNeeded())
         {
             outgoingArgAreaSize = MIN_ARG_AREA_FOR_CALL;
             JITDUMP("Increasing outgoingArgAreaSize to %u for throw helper or profile hook", outgoingArgAreaSize);
@@ -1559,7 +1559,7 @@ void Lowering::InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCa
 {
     assert(call->IsTailCall());
     assert(insertionPoint != nullptr);
-    assert(comp->compIsProfilerHookNeeded());
+    assert(comp->opts.IsProfilerHookNeeded());
 #ifdef TARGET_X86
     assert(call == insertionPoint);
 #endif
@@ -1742,7 +1742,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // inserted before the args are setup but after the side effects of args
     // are computed. That is, PROF_HOOK node needs to be inserted before
     // the START_NONGC node if we added one.
-    if (comp->compIsProfilerHookNeeded())
+    if (comp->opts.IsProfilerHookNeeded())
     {
         GenTree* insertionPoint = startNonGCNode;
 

@@ -784,18 +784,6 @@ inline bool Compiler::compStressCompile(StressArea stressArea, unsigned percenta
 }
 #endif
 
-inline bool Compiler::compIsProfilerHookNeeded() const
-{
-#ifdef PROFILING_SUPPORTED
-    return opts.compProfilerHookNeeded
-           // IL stubs are excluded by VM and we need to do the same even running
-           // under a complus env hook to generate profiler hooks
-           || (opts.compJitELTHookEnabled && !opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB));
-#else
-    return false;
-#endif
-}
-
 #if MEASURE_CLRAPI_CALLS
 
 inline void Compiler::CLRApiCallEnter(unsigned apix)

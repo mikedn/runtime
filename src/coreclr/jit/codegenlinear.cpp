@@ -1079,8 +1079,7 @@ void CodeGen::GenStartPreemptGC()
 
 void CodeGen::GenProfHook()
 {
-    // We should be seeing this only if profiler hook is needed
-    noway_assert(compiler->compIsProfilerHookNeeded());
+    noway_assert(compiler->opts.IsProfilerHookNeeded());
 
 #ifdef PROFILING_SUPPORTED
     // Right now this node is used only for tail calls. In future if

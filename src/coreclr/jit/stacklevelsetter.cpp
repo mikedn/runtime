@@ -46,7 +46,7 @@ void StackLevelSetter::Run()
     }
 
     // Profiler hook calls do not appear in the IR and do push an argument.
-    if (comp->compIsProfilerHookNeeded() && (maxStackLevel == 0))
+    if (comp->opts.IsProfilerHookNeeded() && (maxStackLevel == 0))
     {
         maxStackLevel = 1;
     }

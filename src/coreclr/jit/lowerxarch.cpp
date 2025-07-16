@@ -624,7 +624,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     call->SetCallAddr(LowerDirectCall(call));
 
 #ifdef PROFILING_SUPPORTED
-    if (comp->compIsProfilerHookNeeded())
+    if (comp->opts.IsProfilerHookNeeded())
     {
         InsertProfTailCallHook(call DEBUGARG(call));
     }

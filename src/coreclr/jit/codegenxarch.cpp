@@ -6789,8 +6789,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 {
     assert(generatingProlog);
 
-    // Give profiler a chance to back out of hooking this method
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }
@@ -6852,8 +6851,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
-    // Only hook if profiler says it's okay.
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }
@@ -6909,8 +6907,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 {
     assert(generatingProlog);
 
-    // Give profiler a chance to back out of hooking this method
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }
@@ -7067,8 +7064,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
 
-    // Only hook if profiler says it's okay.
-    if (!compiler->compIsProfilerHookNeeded())
+    if (!compiler->opts.IsProfilerHookNeeded())
     {
         return;
     }

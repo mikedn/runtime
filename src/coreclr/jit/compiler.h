@@ -1178,7 +1178,6 @@ public:
 #ifdef PROFILING_SUPPORTED
     bool compProfilerHookNeeded : 1;
     bool compProfilerMethHndIndirected : 1;
-    bool compJitELTHookEnabled : 1;
 #endif
 #ifdef TARGET_ARM
     bool compUseSoftFP : 1;
@@ -1398,6 +1397,21 @@ public:
         return false;
 #endif
     }
+
+    bool IsProfilerHookNeeded() const
+    {
+#ifdef PROFILING_SUPPORTED
+        return compProfilerHookNeeded;
+#else
+        return false;
+#endif
+    }
+
+#ifdef PROFILING_SUPPORTED
+#ifdef DEBUG
+    bool HasDummyProfilerHook() const;
+#endif
+#endif
 };
 
 #ifdef FEATURE_SIMD
@@ -5464,8 +5478,6 @@ public:
     VarScopeDsc* compGetNextExitScope(unsigned offs, unsigned* nextExitScope);
     VarScopeDsc* compGetNextEnterScopeScan(unsigned offs, unsigned* nextEnterScope);
     VarScopeDsc* compGetNextExitScopeScan(unsigned offs, unsigned* nextExitScope);
-
-    bool compIsProfilerHookNeeded() const;
 
 #ifdef DEBUG
     void compFunctionTraceStart();

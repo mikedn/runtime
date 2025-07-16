@@ -50,7 +50,7 @@ bool Compiler::lvaInitRetType()
 
             if (!compIsForInlining()
 #ifndef TARGET_AMD64
-                && (compIsProfilerHookNeeded()
+                && (opts.IsProfilerHookNeeded()
 #if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
                     || callConvIsInstanceMethodCallConv(info.compCallConv)
 #elif defined(TARGET_X86)
@@ -339,8 +339,7 @@ void Compiler::lvaInitLocals()
 void Compiler::lvaInitParams(bool hasRetBufParam)
 {
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-    // Prespill all argument regs on to stack in case of Arm when under profiler.
-    if (compIsProfilerHookNeeded())
+    if (opts.IsProfilerHookNeeded())
     {
         codeGen->preSpillParamRegs |= RBM_ARG_REGS;
     }
@@ -3704,7 +3703,7 @@ void Compiler::lvaFixVirtualFrameOffsets()
 #ifndef TARGET_AMD64
                                 || (lcl->IsRegParam()
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
-                                    && compIsProfilerHookNeeded() &&
+                                    && opts.IsProfilerHookNeeded() &&
                                     // We need assign stack offsets for prespilled arguments
                                     !lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs)
 #endif
@@ -4917,7 +4916,7 @@ int Compiler::lvaLclFrameAddress(LclVarDsc* lcl, bool* fpBased) const
     bool isPrespilledArg = false;
 #if defined(TARGET_ARM) && defined(PROFILING_SUPPORTED)
     isPrespilledArg =
-        lcl->IsParam() && compIsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs);
+        lcl->IsParam() && opts.IsProfilerHookNeeded() && lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs);
 #endif
 
     if (!lcl->lvOnFrame)

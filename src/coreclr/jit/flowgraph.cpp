@@ -1318,21 +1318,19 @@ void Compiler::phAddInternal()
     }
 #endif // FEATURE_EH_FUNCLETS
 
-    //
     //  We will generate just one epilog (return block)
     //   when we are asked to generate enter/leave callbacks
     //   or for methods with PInvoke
     //   or for methods calling into unmanaged code
     //   or for synchronized methods.
-    //
+
     BasicBlock* lastBlockBeforeGenReturns = fgLastBB;
-    if (compIsProfilerHookNeeded() || info.IsPInvokeFrameRequired() || opts.IsReversePInvoke() ||
-        ((info.compFlags & CORINFO_FLG_SYNCH) != 0))
+
+    if (opts.IsProfilerHookNeeded() || info.IsPInvokeFrameRequired() || opts.IsReversePInvoke() ||
+        info.IsSynchronized())
     {
         // We will generate only one return block
-        // We will transform the BBJ_RETURN blocks
-        //  into jumps to the one return block
-        //
+        // We will transform the BBJ_RETURN blocks into jumps to the one return block
         merger.SetMaxReturns(1);
 
         // Eagerly create the genReturnBB since the lowering of these constructs
