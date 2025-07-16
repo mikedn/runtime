@@ -415,7 +415,7 @@ public:
     void genFinalizeFrame();
 
 #ifdef PROFILING_SUPPORTED
-    void PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed);
+    void PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed);
     void genProfilingLeaveCallback(CorInfoHelpFunc helper);
 #endif
 

@@ -2460,7 +2460,7 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
         if (src->isContained())
         {
             assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
-            srcReg  = REG_ZR;
+            srcReg = REG_ZR;
 
             if (srcType == TYP_FLOAT)
             {
@@ -3751,14 +3751,10 @@ void CodeGen::LoadSIMD12(GenTree* load)
 
 #ifdef PROFILING_SUPPORTED
 
-void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog);
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     if (compiler->opts.compProfilerMethHndIndirected)
     {
@@ -3779,18 +3775,14 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 
     if ((genRegMask(initReg) & RBM_PROFILER_ENTER_TRASH) != RBM_NONE)
     {
-        *pInitRegZeroed = false;
+        *initRegZeroed = false;
     }
 }
 
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     compiler->info.compProfilerCallback = true;
 

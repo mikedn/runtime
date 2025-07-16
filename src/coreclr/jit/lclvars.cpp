@@ -3178,392 +3178,391 @@ bool Compiler::lvaIsNeverZeroInitializedInProlog(LclVarDsc* lcl)
 }
 
 // clang-format off
-/*****************************************************************************
- *
- *  Compute stack frame offsets for arguments, locals and optionally temps.
- *
- *  The frame is laid out as follows for x86:
- *
- *              ESP frames
- *
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      |-----------------------| <---- Virtual '0'
- *      |    return address     |
- *      +=======================+
- *      |Callee saved registers |
- *      |-----------------------|
- *      |       Temps           |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------| <---- Ambient ESP
- *      |   Arguments for the   |
- *      ~    next function      ~
- *      |                       |
- *      |       |               |
- *      |       | Stack grows   |
- *              | downward
- *              V
- *
- *
- *              EBP frames
- *
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      |-----------------------| <---- Virtual '0'
- *      |    return address     |
- *      +=======================+
- *      |    incoming EBP       |
- *      |-----------------------| <---- EBP
- *      |Callee saved registers |
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  Last-executed-filter |
- *      |-----------------------|
- *      |                       |
- *      ~      Shadow SPs       ~
- *      |                       |
- *      |-----------------------|
- *      |                       |
- *      ~      Variables        ~
- *      |                       |
- *      ~-----------------------|
- *      |       Temps           |
- *      |-----------------------|
- *      |       localloc        |
- *      |-----------------------| <---- Ambient ESP
- *      |   Arguments for the   |
- *      |    next function      ~
- *      |                       |
- *      |       |               |
- *      |       | Stack grows   |
- *              | downward
- *              V
- *
- *
- *  The frame is laid out as follows for x64:
- *
- *              RSP frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      |-----------------------|
- *      |   4 fixed incoming    |
- *      |    argument slots     |
- *      |-----------------------| <---- Caller's SP & Virtual '0'
- *      |    return address     |
- *      +=======================+
- *      | Callee saved Int regs |
- *      -------------------------
- *      |        Padding        | <---- this padding (0 or 8 bytes) is to ensure flt registers are saved at a mem location aligned at 16-bytes
- *      |                       |       so that we can save 128-bit callee saved xmm regs using performant "movaps" instruction instead of "movups"
- *      -------------------------
- *      | Callee saved Flt regs | <----- entire 128-bits of callee saved xmm registers are stored here
- *      |-----------------------|
- *      |         Temps         |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |   Arguments for the   |
- *      ~    next function      ~
- *      |                       |
- *      |-----------------------|
- *      |   4 fixed outgoing    |
- *      |    argument slots     |
- *      |-----------------------| <---- Ambient RSP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *              RBP frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      |-----------------------|
- *      |   4 fixed incoming    |
- *      |    argument slots     |
- *      |-----------------------| <---- Caller's SP & Virtual '0'
- *      |    return address     |
- *      +=======================+
- *      | Callee saved Int regs |
- *      -------------------------
- *      |        Padding        |
- *      -------------------------
- *      | Callee saved Flt regs |
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |                       |
- *      |                       |
- *      ~       Variables       ~
- *      |                       |
- *      |                       |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |                       |
- *      ~       localloc        ~   // not in frames with EH
- *      |                       |
- *      |-----------------------|
- *      |        PSPSym         |   // only in frames with EH (thus no localloc)
- *      |                       |
- *      |-----------------------| <---- RBP in localloc frames (max 240 bytes from Initial-SP)
- *      |   Arguments for the   |
- *      ~    next function      ~
- *      |                       |
- *      |-----------------------|
- *      |   4 fixed outgoing    |
- *      |    argument slots     |
- *      |-----------------------| <---- Ambient RSP (before localloc, this is Initial-SP)
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *  The frame is laid out as follows for ARM (this is a general picture; details may differ for different conditions):
- *
- *              SP frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |  Pre-spill registers  |
- *      |-----------------------| <---- Virtual '0'
- *      |Callee saved registers |
- *      |-----------------------|
- *      ~ possible double align ~
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |   Stub Argument Var   |
- *      |-----------------------|
- *      |Inlined PInvoke Frame V|
- *      |-----------------------|
- *      ~ possible double align ~
- *      |-----------------------|
- *      |   Arguments for the   |
- *      ~    next function      ~
- *      |                       |
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *              FP / R11 frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |  Pre-spill registers  |
- *      |-----------------------| <---- Virtual '0'
- *      |Callee saved registers |
- *      |-----------------------|
- *      |        PSPSym         |   // Only for frames with EH, which means FP-based frames
- *      |-----------------------|
- *      ~ possible double align ~
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |   Stub Argument Var   |
- *      |-----------------------|
- *      |Inlined PInvoke Frame V|
- *      |-----------------------|
- *      ~ possible double align ~
- *      |-----------------------|
- *      |       localloc        |
- *      |-----------------------|
- *      |   Arguments for the   |
- *      ~    next function      ~
- *      |                       |
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *  The frame is laid out as follows for ARM64 (this is a general picture; details may differ for different conditions):
- *  NOTE: SP must be 16-byte aligned, so there may be alignment slots in the frame.
- *  We will often save and establish a frame pointer to create better ETW stack walks.
- *
- *              SP frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |         homed         | // this is only needed if reg argument need to be homed, e.g., for varargs
- *      |   register arguments  |
- *      |-----------------------| <---- Virtual '0'
- *      |Callee saved registers |
- *      |   except fp/lr        |
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |   Stub Argument Var   |
- *      |-----------------------|
- *      |Inlined PInvoke Frame V|
- *      |-----------------------|
- *      |      Saved LR         |
- *      |-----------------------|
- *      |      Saved FP         | <---- Frame pointer
- *      |-----------------------|
- *      |  Stack arguments for  |
- *      |   the next function   |
- *      |-----------------------| <---- SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *              FP (R29 / x29) frames
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |     optional homed    | // this is only needed if reg argument need to be homed, e.g., for varargs
- *      |   register arguments  |
- *      |-----------------------| <---- Virtual '0'
- *      |Callee saved registers |
- *      |   except fp/lr        |
- *      |-----------------------|
- *      |        PSPSym         | // Only for frames with EH, which requires FP-based frames
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |   Stub Argument Var   |
- *      |-----------------------|
- *      |Inlined PInvoke Frame V|
- *      |-----------------------|
- *      |      Saved LR         |
- *      |-----------------------|
- *      |      Saved FP         | <---- Frame pointer
- *      |-----------------------|
- *      ~       localloc        ~
- *      |-----------------------|
- *      |  Stack arguments for  |
- *      |   the next function   |
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *              FP (R29 / x29) frames where FP/LR are stored at the top of the frame (frames requiring GS that have localloc)
- *      |                       |
- *      |-----------------------|
- *      |       incoming        |
- *      |       arguments       |
- *      +=======================+ <---- Caller's SP
- *      |     optional homed    | // this is only needed if reg argument need to be homed, e.g., for varargs
- *      |   register arguments  |
- *      |-----------------------| <---- Virtual '0'
- *      |      Saved LR         |
- *      |-----------------------|
- *      |      Saved FP         | <---- Frame pointer
- *      |-----------------------|
- *      |Callee saved registers |
- *      |-----------------------|
- *      |        PSPSym         | // Only for frames with EH, which requires FP-based frames
- *      |-----------------------|
- *      |   security object     |
- *      |-----------------------|
- *      |     ParamTypeArg      |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |       Variables       |
- *      |-----------------------|
- *      |  possible GS cookie   |
- *      |-----------------------|
- *      |        Temps          |
- *      |-----------------------|
- *      |   Stub Argument Var   |
- *      |-----------------------|
- *      |Inlined PInvoke Frame V|
- *      |-----------------------|
- *      ~       localloc        ~
- *      |-----------------------|
- *      |  Stack arguments for  |
- *      |   the next function   |
- *      |-----------------------| <---- Ambient SP
- *      |       |               |
- *      ~       | Stack grows   ~
- *      |       | downward      |
- *              V
- *
- *
- *  Doing this all in one pass is 'hard'.  So instead we do it in 2 basic passes:
- *    1. Assign all the offsets relative to the Virtual '0'. Offsets above (the
- *      incoming arguments) are positive. Offsets below (everything else) are
- *      negative.  This pass also calcuates the total frame size (between Caller's
- *      SP/return address and the Ambient SP).
- *    2. Figure out where to place the frame pointer, and then adjust the offsets
- *      as needed for the final stack size and whether the offset is frame pointer
- *      relative or stack pointer relative.
- *
- */
+//
+//  Compute stack frame offsets for arguments, locals and optionally temps.
+//
+//  The frame is laid out as follows for x86:
+//
+//              ESP frames
+//
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      |-----------------------| <---- Virtual '0'
+//      |    return address     |
+//      +=======================+
+//      |Callee saved registers |
+//      |-----------------------|
+//      |       Temps           |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------| <---- Ambient ESP
+//      |   Arguments for the   |
+//      ~    next function      ~
+//      |                       |
+//      |       |               |
+//      |       | Stack grows   |
+//              | downward
+//              V
+//
+//
+//              EBP frames
+//
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      |-----------------------| <---- Virtual '0'
+//      |    return address     |
+//      +=======================+
+//      |    incoming EBP       |
+//      |-----------------------| <---- EBP
+//      |Callee saved registers |
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  Last-executed-filter |
+//      |-----------------------|
+//      |                       |
+//      ~      Shadow SPs       ~
+//      |                       |
+//      |-----------------------|
+//      |                       |
+//      ~      Variables        ~
+//      |                       |
+//      ~-----------------------|
+//      |       Temps           |
+//      |-----------------------|
+//      |       localloc        |
+//      |-----------------------| <---- Ambient ESP
+//      |   Arguments for the   |
+//      |    next function      ~
+//      |                       |
+//      |       |               |
+//      |       | Stack grows   |
+//              | downward
+//              V
+//
+//
+//  The frame is laid out as follows for x64:
+//
+//              RSP frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      |-----------------------|
+//      |   4 fixed incoming    |
+//      |    argument slots     |
+//      |-----------------------| <---- Caller's SP & Virtual '0'
+//      |    return address     |
+//      +=======================+
+//      | Callee saved Int regs |
+//      -------------------------
+//      |        Padding        | <---- this padding (0 or 8 bytes) is to ensure flt registers are saved at a mem location aligned at 16-bytes
+//      |                       |       so that we can save 128-bit callee saved xmm regs using performant "movaps" instruction instead of "movups"
+//      -------------------------
+//      | Callee saved Flt regs | <----- entire 128-bits of callee saved xmm registers are stored here
+//      |-----------------------|
+//      |         Temps         |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |   Arguments for the   |
+//      ~    next function      ~
+//      |                       |
+//      |-----------------------|
+//      |   4 fixed outgoing    |
+//      |    argument slots     |
+//      |-----------------------| <---- Ambient RSP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//              RBP frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      |-----------------------|
+//      |   4 fixed incoming    |
+//      |    argument slots     |
+//      |-----------------------| <---- Caller's SP & Virtual '0'
+//      |    return address     |
+//      +=======================+
+//      | Callee saved Int regs |
+//      -------------------------
+//      |        Padding        |
+//      -------------------------
+//      | Callee saved Flt regs |
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |                       |
+//      |                       |
+//      ~       Variables       ~
+//      |                       |
+//      |                       |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |                       |
+//      ~       localloc        ~   // not in frames with EH
+//      |                       |
+//      |-----------------------|
+//      |        PSPSym         |   // only in frames with EH (thus no localloc)
+//      |                       |
+//      |-----------------------| <---- RBP in localloc frames (max 240 bytes from Initial-SP)
+//      |   Arguments for the   |
+//      ~    next function      ~
+//      |                       |
+//      |-----------------------|
+//      |   4 fixed outgoing    |
+//      |    argument slots     |
+//      |-----------------------| <---- Ambient RSP (before localloc, this is Initial-SP)
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//  The frame is laid out as follows for ARM (this is a general picture; details may differ for different conditions):
+//
+//              SP frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |  Pre-spill registers  |
+//      |-----------------------| <---- Virtual '0'
+//      |Callee saved registers |
+//      |-----------------------|
+//      ~ possible double align ~
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |   Stub Argument Var   |
+//      |-----------------------|
+//      |Inlined PInvoke Frame V|
+//      |-----------------------|
+//      ~ possible double align ~
+//      |-----------------------|
+//      |   Arguments for the   |
+//      ~    next function      ~
+//      |                       |
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//              FP / R11 frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |  Pre-spill registers  |
+//      |-----------------------| <---- Virtual '0'
+//      |Callee saved registers |
+//      |-----------------------|
+//      |        PSPSym         |   // Only for frames with EH, which means FP-based frames
+//      |-----------------------|
+//      ~ possible double align ~
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |   Stub Argument Var   |
+//      |-----------------------|
+//      |Inlined PInvoke Frame V|
+//      |-----------------------|
+//      ~ possible double align ~
+//      |-----------------------|
+//      |       localloc        |
+//      |-----------------------|
+//      |   Arguments for the   |
+//      ~    next function      ~
+//      |                       |
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//  The frame is laid out as follows for ARM64 (this is a general picture; details may differ for different conditions):
+//  NOTE: SP must be 16-byte aligned, so there may be alignment slots in the frame.
+//  We will often save and establish a frame pointer to create better ETW stack walks.
+//
+//              SP frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |         homed         | // this is only needed if reg argument need to be homed, e.g., for varargs
+//      |   register arguments  |
+//      |-----------------------| <---- Virtual '0'
+//      |Callee saved registers |
+//      |   except fp/lr        |
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |   Stub Argument Var   |
+//      |-----------------------|
+//      |Inlined PInvoke Frame V|
+//      |-----------------------|
+//      |      Saved LR         |
+//      |-----------------------|
+//      |      Saved FP         | <---- Frame pointer
+//      |-----------------------|
+//      |  Stack arguments for  |
+//      |   the next function   |
+//      |-----------------------| <---- SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//              FP (R29 / x29) frames
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |     optional homed    | // this is only needed if reg argument need to be homed, e.g., for varargs
+//      |   register arguments  |
+//      |-----------------------| <---- Virtual '0'
+//      |Callee saved registers |
+//      |   except fp/lr        |
+//      |-----------------------|
+//      |        PSPSym         | // Only for frames with EH, which requires FP-based frames
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |   Stub Argument Var   |
+//      |-----------------------|
+//      |Inlined PInvoke Frame V|
+//      |-----------------------|
+//      |      Saved LR         |
+//      |-----------------------|
+//      |      Saved FP         | <---- Frame pointer
+//      |-----------------------|
+//      ~       localloc        ~
+//      |-----------------------|
+//      |  Stack arguments for  |
+//      |   the next function   |
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//              FP (R29 / x29) frames where FP/LR are stored at the top of the frame (frames requiring GS that have localloc)
+//      |                       |
+//      |-----------------------|
+//      |       incoming        |
+//      |       arguments       |
+//      +=======================+ <---- Caller's SP
+//      |     optional homed    | // this is only needed if reg argument need to be homed, e.g., for varargs
+//      |   register arguments  |
+//      |-----------------------| <---- Virtual '0'
+//      |      Saved LR         |
+//      |-----------------------|
+//      |      Saved FP         | <---- Frame pointer
+//      |-----------------------|
+//      |Callee saved registers |
+//      |-----------------------|
+//      |        PSPSym         | // Only for frames with EH, which requires FP-based frames
+//      |-----------------------|
+//      |   security object     |
+//      |-----------------------|
+//      |     ParamTypeArg      |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |       Variables       |
+//      |-----------------------|
+//      |  possible GS cookie   |
+//      |-----------------------|
+//      |        Temps          |
+//      |-----------------------|
+//      |   Stub Argument Var   |
+//      |-----------------------|
+//      |Inlined PInvoke Frame V|
+//      |-----------------------|
+//      ~       localloc        ~
+//      |-----------------------|
+//      |  Stack arguments for  |
+//      |   the next function   |
+//      |-----------------------| <---- Ambient SP
+//      |       |               |
+//      ~       | Stack grows   ~
+//      |       | downward      |
+//              V
+//
+//
+//  Doing this all in one pass is 'hard'.  So instead we do it in 2 basic passes:
+//    1. Assign all the offsets relative to the Virtual '0'. Offsets above (the
+//      incoming arguments) are positive. Offsets below (everything else) are
+//      negative.  This pass also calculates the total frame size (between Caller's
+//      SP/return address and the Ambient SP).
+//    2. Figure out where to place the frame pointer, and then adjust the offsets
+//      as needed for the final stack size and whether the offset is frame pointer
+//      relative or stack pointer relative.
+//
+//
 // clang-format on
 
 void Compiler::lvaAssignFrameOffsets(FrameLayoutState curState)

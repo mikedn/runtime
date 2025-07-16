@@ -1548,16 +1548,12 @@ void CodeGen::GenFloatReturn(GenTree* src)
 
 #ifdef PROFILING_SUPPORTED
 
-void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog);
+    assert(compiler->opts.IsProfilerHookNeeded());
 
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
-
-    // On Arm arguments are pre-spilled on stack, which frees r0-r3.
+    // On ARM arguments are pre-spilled on stack, which frees r0-r3.
     // For generating Enter callout we would need two registers and
     // one of them has to be r0 to pass profiler handle.
     // The call target register could be any free register.
@@ -1579,24 +1575,18 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* pInitRegZeroed)
 
     if (initReg == argReg)
     {
-        *pInitRegZeroed = false;
+        *initRegZeroed = false;
     }
 }
 
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     compiler->info.compProfilerCallback = true;
 
-    //
     // Push the profilerHandle
-    //
 
     // Contract between JIT and Profiler Leave callout on arm:
     // Return size <= 4 bytes: REG_PROFILER_RET_SCRATCH will contain return value

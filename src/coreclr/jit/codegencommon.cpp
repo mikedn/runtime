@@ -3870,7 +3870,7 @@ void CodeGen::genFnProlog()
     }
 
 #ifdef PROFILING_SUPPORTED
-    if (!compiler->opts.IsOSR())
+    if (!compiler->opts.IsOSR() && compiler->opts.IsProfilerHookNeeded())
     {
         PrologProfilingEnterCallback(initReg, &initRegZeroed);
     }
@@ -5003,7 +5003,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
     {
         genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_LEAVE);
     }
-#endif // PROFILING_SUPPORTED
+#endif
 
 #if defined(DEBUG) && defined(TARGET_XARCH)
     if (compiler->lvaReturnSpCheckLcl != nullptr)

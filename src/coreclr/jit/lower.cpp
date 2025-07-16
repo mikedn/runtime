@@ -17,7 +17,7 @@ void Lowering::Run()
         comp->codeGen->needToAlignFrame = true;
     }
 #endif
-#endif // PROFILING_SUPPORTED
+#endif
 
     // TODO-MIKE-Cleanup: See if this can be done during the existing lowering traversal.
     // It looks like we may end up inserting block in front of previously lowered blocks

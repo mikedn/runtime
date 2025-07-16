@@ -1757,7 +1757,10 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
     assert(compiler->compJmpOpUsed);
 
 #ifdef PROFILING_SUPPORTED
-    genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
+    if (compiler->opts.IsProfilerHookNeeded())
+    {
+        genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
+    }
 #endif
 
     // The arguments of the caller needs to be transferred to the callee before exiting caller.

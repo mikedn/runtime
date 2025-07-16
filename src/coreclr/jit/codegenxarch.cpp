@@ -4584,7 +4584,10 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
     assert(compiler->compJmpOpUsed);
 
 #ifdef PROFILING_SUPPORTED
-    genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
+    if (compiler->opts.IsProfilerHookNeeded())
+    {
+        genProfilingLeaveCallback(CORINFO_HELP_PROF_FCN_TAILCALL);
+    }
 #endif
 
     // The arguments of the caller needs to be transferred to the callee before exiting caller.
@@ -6785,14 +6788,10 @@ void CodeGen::genAmd64EmitterUnitTests()
 // 4. All registers are preserved.
 // 5. The helper pops the FunctionIDOrClientID argument from the stack.
 //
-void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog);
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     unsigned saveStackLvl2 = genStackLevel;
 
@@ -6850,11 +6849,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     compiler->info.compProfilerCallback = true;
 
@@ -6903,14 +6898,10 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #ifdef TARGET_AMD64
 
-void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog);
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
 #ifdef WINDOWS_AMD64_ABI
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
@@ -7017,7 +7008,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zeroed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != RBM_NONE)
     {
-        *pInitRegZeroed = false;
+        *initRegZeroed = false;
     }
 
 #else // UNIX_AMD64_ABI
@@ -7054,7 +7045,7 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
     // If initReg is one of RBM_CALLEE_TRASH, then it needs to be zero'ed before using.
     if ((RBM_CALLEE_TRASH & genRegMask(initReg)) != RBM_NONE)
     {
-        *pInitRegZeroed = false;
+        *initRegZeroed = false;
     }
 
 #endif // UNIX_AMD64_ABI
@@ -7063,15 +7054,11 @@ void CodeGen::PrologProfilingEnterCallback(regNumber initReg, bool* pInitRegZero
 void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 {
     assert((helper == CORINFO_HELP_PROF_FCN_LEAVE) || (helper == CORINFO_HELP_PROF_FCN_TAILCALL));
-
-    if (!compiler->opts.IsProfilerHookNeeded())
-    {
-        return;
-    }
+    assert(compiler->opts.IsProfilerHookNeeded());
 
     compiler->info.compProfilerCallback = true;
 
-#if !defined(UNIX_AMD64_ABI)
+#ifdef WINDOWS_AMD64_ABI
 
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
@@ -7134,7 +7121,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // "mov r8, helper addr; call r8"
     GenHelperCall(helper, EA_UNKNOWN, REG_ARG_2);
 
-#else // !defined(UNIX_AMD64_ABI)
+#else // UNIX_AMD64_ABI
 
     // RDI = ProfilerMethHnd
     if (compiler->opts.compProfilerMethHndIndirected)
@@ -7168,7 +7155,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // "mov r11, helper addr; call r11"
     GenHelperCall(helper, EA_UNKNOWN, REG_DEFAULT_PROFILER_CALL_TARGET);
 
-#endif // !defined(UNIX_AMD64_ABI)
+#endif // !UNIX_AMD64_ABI
 }
 
 #endif // TARGET_AMD64
