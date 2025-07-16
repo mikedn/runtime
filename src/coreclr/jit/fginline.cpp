@@ -239,7 +239,7 @@ public:
 
         if (GenTreeCall* call = tree->IsCall())
         {
-            if (call->IsVirtual() && call->IsUserCall() INDEBUG(&&(JitConfig.JitEnableLateDevirtualization() == 1)))
+            if (call->IsVirtual() && call->IsUserCall() INDEBUG(&&JitConfig.JitEnableLateDevirtualization()))
             {
                 m_compiler->impLateDevirtualizeCall(call);
             }

@@ -3108,7 +3108,7 @@ void CodeGen::GenMemoryBarrier(GenTree* barrier)
     assert(barrier->OperIs(GT_MEMORYBARRIER));
 
 #ifdef DEBUG
-    if (JitConfig.JitNoMemoryBarriers() == 1)
+    if (JitConfig.JitNoMemoryBarriers())
     {
         return;
     }

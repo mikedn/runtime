@@ -4001,15 +4001,15 @@ bool Compiler::optInvertWhileLoop(BasicBlock* block)
 PhaseStatus Compiler::phInvertLoops()
 {
     noway_assert(opts.OptimizationEnabled());
-    noway_assert(fgModified == false);
+    noway_assert(!fgModified);
 
-#if defined(OPT_CONFIG)
+#ifdef OPT_CONFIG
     if (!JitConfig.JitDoLoopInversion())
     {
         JITDUMP("Loop inversion disabled\n");
         return PhaseStatus::MODIFIED_NOTHING;
     }
-#endif // OPT_CONFIG
+#endif
 
     if (compCodeOpt() == SMALL_CODE)
     {

@@ -168,7 +168,7 @@ void Compiler::RecordNowayAssert(const char* filename, unsigned line, const char
 
 void RecordNowayAssertGlobal(const char* filename, unsigned line, const char* condStr)
 {
-    if ((JitConfig.JitMeasureNowayAssert() == 1) && (JitTls::GetCompiler() != nullptr))
+    if (JitConfig.JitMeasureNowayAssert() && (JitTls::GetCompiler() != nullptr))
     {
         JitTls::GetCompiler()->RecordNowayAssert(filename, line, condStr);
     }
@@ -519,7 +519,7 @@ void Compiler::compDumpStats(FILE* fout)
 
 #if LOOP_HOIST_STATS
 #ifdef DEBUG // Always display loop stats in retail
-    if (JitConfig.DisplayLoopHoistStats() != 0)
+    if (JitConfig.DisplayLoopHoistStats())
 #endif
     {
         PrintAggregateLoopHoistStats(jitstdout);
@@ -919,10 +919,10 @@ void Compiler::compInitConfigOptions()
     assert(!compIsForInlining());
 
 #ifdef DEBUG
-    opts.compJitAlignLoopAdaptive       = JitConfig.JitAlignLoopAdaptive() == 1;
+    opts.compJitAlignLoopAdaptive       = JitConfig.JitAlignLoopAdaptive();
     opts.compJitAlignLoopBoundary       = static_cast<uint16_t>(JitConfig.JitAlignLoopBoundary());
     opts.compJitAlignLoopMinBlockWeight = static_cast<uint16_t>(JitConfig.JitAlignLoopMinBlockWeight());
-    opts.compJitAlignLoopForJcc         = JitConfig.JitAlignLoopForJcc() == 1;
+    opts.compJitAlignLoopForJcc         = JitConfig.JitAlignLoopForJcc();
     opts.compJitAlignLoopMaxCodeSize    = static_cast<uint16_t>(JitConfig.JitAlignLoopMaxCodeSize());
 #else
     opts.compJitAlignLoopAdaptive       = true;
@@ -1011,20 +1011,20 @@ void Compiler::compInitConfigOptions()
         }
 #endif
 
-        opts.disDiffable  = cfg.DiffableDasm() != 0;
-        opts.dspDiffable  = cfg.DiffableDasm() != 0;
-        opts.disAddr      = cfg.JitDasmWithAddress() != 0;
-        opts.disAlignment = cfg.JitDasmWithAlignmentBoundaries() != 0;
+        opts.disDiffable  = cfg.DiffableDasm();
+        opts.dspDiffable  = cfg.DiffableDasm();
+        opts.disAddr      = cfg.JitDasmWithAddress();
+        opts.disAlignment = cfg.JitDasmWithAlignmentBoundaries();
 
-        const auto& dumpNameSet = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
-        const int   dumpHash    = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
+        const auto&    dumpNameSet = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenDump() : cfg.JitDump();
+        const unsigned dumpHash = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) ? cfg.NgenHashDump() : cfg.JitHashDump();
 
         if (dumpNameSet.contains(methodName, className, methodParams) ||
-            ((dumpHash != -1) && (static_cast<unsigned>(dumpHash) == info.compMethodHash())))
+            ((dumpHash != UINT_MAX) && (dumpHash == info.compMethodHash())))
         {
             verbose      = true;
-            verboseTrees = cfg.JitDumpVerboseTrees() == 1;
-            verboseSsa   = cfg.JitDumpVerboseSsa() == 1;
+            verboseTrees = cfg.JitDumpVerboseTrees();
+            verboseSsa   = cfg.JitDumpVerboseSsa();
 
             opts.dspEHTable = true;
             opts.dspGCtbls  = true;
@@ -1051,7 +1051,7 @@ void Compiler::compInitConfigOptions()
         expensiveDebugCheckLevel = 1;
     }
 
-    opts.compGcChecks = (JitConfig.JitGCChecks() != 0) || compStressCompile(STRESS_GENERIC_VARN, 5);
+    opts.compGcChecks = JitConfig.JitGCChecks() || compStressCompile(STRESS_GENERIC_VARN, 5);
 
 #ifdef TARGET_XARCH
     enum
@@ -1061,14 +1061,14 @@ void Compiler::compInitConfigOptions()
         STACK_CHECK_ALL       = 0x3
     };
 
-    int jitStackChecks = JitConfig.JitStackChecks();
+    unsigned jitStackChecks = JitConfig.JitStackChecks();
     if (compStressCompile(STRESS_GENERIC_VARN, 5))
     {
         jitStackChecks = STACK_CHECK_ALL;
     }
     opts.compStackCheckOnRet = (jitStackChecks & STACK_CHECK_ON_RETURN) != 0;
     X86_ONLY(opts.compStackCheckOnCall = (jitStackChecks & STACK_CHECK_ON_CALL) != 0);
-    AMD64_ONLY(opts.enableRIPRelativeAddressing = JitConfig.EnablePCRelAddr() != 0);
+    AMD64_ONLY(opts.enableRIPRelativeAddressing = JitConfig.EnablePCRelAddr());
 #endif // TARGET_XARCH
 #endif // DEBUG
 }
@@ -1162,8 +1162,9 @@ void Compiler::compInitOptions()
         assert(!"JitBreak reached");
     }
 
-    unsigned jitHashBreakVal = (unsigned)JitConfig.JitHashBreak();
-    if ((jitHashBreakVal != (DWORD)-1) && (jitHashBreakVal == info.compMethodHash()))
+    unsigned jitHashBreakVal = JitConfig.JitHashBreak();
+
+    if ((jitHashBreakVal != UINT_MAX) && (jitHashBreakVal == info.compMethodHash()))
     {
         assert(!"JitHashBreak reached");
     }
@@ -1286,9 +1287,9 @@ void Compiler::compInitPgo()
         }
         // Optionally, disable use of profile data.
         //
-        else if (JitConfig.JitDisablePgo() > 0)
+        else if (JitConfig.JitDisablePgo())
         {
-            INDEBUG(fgPgoFailReason = "PGO data available, but JitDisablePgo > 0");
+            INDEBUG(fgPgoFailReason = "PGO data available, but JitDisablePgo is set");
             fgPgoData   = nullptr;
             fgPgoSchema = nullptr;
             result      = E_FAIL;
@@ -1580,7 +1581,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
                                  "%3d,%3d for method %s\n",
                    info.compILCodeSize, ilStats.instrCount, fgBBcount, lvaCount, ilStats.lclRefCount,
                    info.compFullName);
-            if (JitConfig.JitBreakOnMinOpts() != 0)
+            if (JitConfig.JitBreakOnMinOpts())
             {
                 assert(!"MinOpts enabled");
             }
@@ -1666,7 +1667,7 @@ void Compiler::compSetOptimizationLevel(const ILStats& ilStats)
     }
     else
     {
-        opts.alignLoops = JitConfig.JitAlignLoops() == 1;
+        opts.alignLoops = JitConfig.JitAlignLoops();
     }
 }
 
@@ -1796,7 +1797,7 @@ void Compiler::compCompile(void** nativeCode, uint32_t* nativeCodeSize)
 
     if (opts.OptimizationEnabled()
 #ifdef OPT_CONFIG
-        && (JitConfig.JitDoSsa() != 0)
+        && (JitConfig.JitDoSsa())
 #endif
             )
     {
@@ -2270,7 +2271,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
         compMethodID = static_cast<unsigned>(InterlockedIncrement(&s_compMethodsCount));
     }
 
-    if (JitConfig.DumpJittedMethods() == 1)
+    if (JitConfig.DumpJittedMethods())
     {
         printf("Compiling %4d %s::%s, IL size = %u, hash=0x%08x %s%s%s\n", Compiler::jitTotalMethodCompiled,
                info.compClassName, info.compMethodName, info.compILCodeSize, info.compMethodHash(),
@@ -2292,7 +2293,7 @@ CorJitResult Compiler::compCompileHelper(void** nativeCode, uint32_t* nativeCode
     }
 
 #ifdef DEBUG
-    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT) && (JitConfig.RunAltJitCode() == 0))
+    if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_ALT_JIT) && !JitConfig.RunAltJitCode())
     {
         return CORJIT_SKIPPED;
     }
@@ -2646,7 +2647,7 @@ private:
 public:
     static void WrapJitInfo(Compiler* compiler)
     {
-        if (JitConfig.JitEECallTimingInfo() != 0)
+        if (JitConfig.JitEECallTimingInfo())
         {
             // If you get a build error here due to 'WrapICorJitInfo' being
             // an abstract class, it's very likely that the wrapper bodies
@@ -2846,7 +2847,7 @@ void CompTimeSummaryInfo::Print(FILE* f) const
         const char* extraHdr1 = "";
         const char* extraHdr2 = "";
 #if MEASURE_CLRAPI_CALLS
-        bool extraInfo = (JitConfig.JitEECallTimingInfo() != 0);
+        bool extraInfo = JitConfig.JitEECallTimingInfo();
         if (extraInfo)
         {
             extraHdr1 = "    CLRs/meth   % in CLR";
@@ -3150,7 +3151,7 @@ void JitTimer::EndPhase(Compiler* compiler, Phases phase)
             }
         }
 
-        if ((JitConfig.JitMeasureIR() != 0) && PhaseReportsIRSize[phase])
+        if (JitConfig.JitMeasureIR() && PhaseReportsIRSize[phase])
         {
             m_info.m_nodeCountAfterPhase[phase] = compiler->fgMeasureIR();
         }
@@ -3207,7 +3208,7 @@ void JitTimer::CLRApiCallLeave(unsigned apix)
     // Ignore this one if we don't have a valid starting counter.
     if (m_CLRcallStart != 0)
     {
-        if (JitConfig.JitEECallTimingInfo() != 0)
+        if (JitConfig.JitEECallTimingInfo())
         {
             uint64_t threadCurCycles;
             if (_our_GetThreadCycles(&threadCurCycles))
@@ -3295,7 +3296,7 @@ void JitTimer::PrintCsvHeader()
     for (int i = 0; i < PHASE_NUMBER_OF; i++)
     {
         fprintf(s_csvFile, "\"%s\",", PhaseNames[i]);
-        if ((JitConfig.JitMeasureIR() != 0) && PhaseReportsIRSize[i])
+        if (JitConfig.JitMeasureIR() && PhaseReportsIRSize[i])
         {
             fprintf(s_csvFile, "\"Node Count After %s\",", PhaseNames[i]);
         }
@@ -3379,7 +3380,7 @@ void JitTimer::PrintCsvMethodStats(Compiler* comp) const
         }
         fprintf(s_csvFile, "%I64u,", m_info.m_cyclesByPhase[i]);
 
-        if ((JitConfig.JitMeasureIR() != 0) && PhaseReportsIRSize[i])
+        if (JitConfig.JitMeasureIR() && PhaseReportsIRSize[i])
         {
             fprintf(s_csvFile, "%u,", m_info.m_nodeCountAfterPhase[i]);
         }
@@ -3562,23 +3563,17 @@ void Compiler::compDoComponentUnitTestsOnce()
 
 bool Compiler::compJitHaltMethod()
 {
-    /* This method returns true when we use an INS_BREAKPOINT to allow us to step into the generated native code */
-    /* Note that this these two "Jit" environment variables also work for ngen images */
+    // This method returns true when we use an INS_BREAKPOINT to allow us to step into the generated native code
+    // Note that this these two "Jit" environment variables also work for ngen images
 
     if (JitConfig.JitHalt().contains(info.compMethodName, info.compClassName, &info.compMethodInfo->args))
     {
         return true;
     }
 
-    /* Use this Hash variant when there are a lot of method with the same name and different signatures */
-
-    unsigned fJitHashHaltVal = (unsigned)JitConfig.JitHashHalt();
-    if ((fJitHashHaltVal != (unsigned)-1) && (fJitHashHaltVal == info.compMethodHash()))
-    {
-        return true;
-    }
-
-    return false;
+    // Use this Hash variant when there are a lot of method with the same name and different signatures
+    unsigned jitHashHaltVal = JitConfig.JitHashHalt();
+    return (jitHashHaltVal != UINT_MAX) && (jitHashHaltVal == info.compMethodHash());
 }
 
 // Should we use a "stress-mode" for the given stressArea. We have different
@@ -3663,7 +3658,7 @@ bool Compiler::compStressCompileHelper(StressArea stressArea, unsigned percentag
         // This stress mode name did not match anything in the stress
         // mode allowlist. If user has requested only enable mode,
         // don't allow this stress mode to turn on.
-        const bool onlyEnableMode = JitConfig.JitStressModeNamesOnly() != 0;
+        const bool onlyEnableMode = JitConfig.JitStressModeNamesOnly();
 
         if (onlyEnableMode)
         {
@@ -3827,7 +3822,7 @@ void Compiler::compFunctionTraceStart()
 {
     assert(!compIsForInlining());
 
-    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
+    if (JitConfig.JitFunctionTrace() && !opts.disDiffable)
     {
         LONG newJitNestingLevel = InterlockedIncrement(&s_jitNestingLevel);
         if (newJitNestingLevel <= 0)
@@ -3849,7 +3844,7 @@ void Compiler::compFunctionTraceEnd(void* methodCodePtr, ULONG methodCodeSize, b
 {
     assert(!compIsForInlining());
 
-    if ((JitConfig.JitFunctionTrace() != 0) && !opts.disDiffable)
+    if (JitConfig.JitFunctionTrace() && !opts.disDiffable)
     {
         LONG newJitNestingLevel = InterlockedDecrement(&s_jitNestingLevel);
         if (newJitNestingLevel < 0)

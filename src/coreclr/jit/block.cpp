@@ -36,10 +36,12 @@ unsigned SsaStressHashHelper()
     {
         return hash;
     }
+
     if (hash == 1)
     {
         return JitTls::GetCompiler()->info.compMethodHash();
     }
+
     return ((hash >> 16) == 0) ? ((hash << 16) | hash) : hash;
 }
 #endif

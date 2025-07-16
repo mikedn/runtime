@@ -12287,7 +12287,7 @@ void Importer::ImportCall(const uint8_t*          codeAddr,
 #endif // DEBUG
 
 #if FEATURE_TAILCALL_OPT
-    if (allowImplicitTailcall && (JitConfig.TailCallOpt() != 0) && opts.OptimizationEnabled()
+    if (allowImplicitTailcall && JitConfig.TailCallOpt() && opts.OptimizationEnabled()
         // Note that we don't care if the RET is in a different block, if we do tail
         // call then the call's block will eventually be converted to a RETURN block.
         && (nextOpcodeAddr < info.compCode + info.compILCodeSize) && (static_cast<OPCODE>(*nextOpcodeAddr) == CEE_RET)
@@ -12725,7 +12725,7 @@ void Importer::impImportBlock(BasicBlock* block)
     // Are there any places in the method where we might add a patchpoint?
     if (comp->compHasBackwardJump)
     {
-        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0))
+        if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && JitConfig.TC_OnStackReplacement())
         {
             // We don't inline at Tier0, if we do, we may need rethink our approach.
             // Could probably support inlines that don't introduce flow.
@@ -14564,8 +14564,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
         // we'd just keep track of the calls themselves, so we don't
         // have to search for them later.
         if ((call->IsVirtualVtable() || call->IsVirtualStubDirect()) && opts.IsJitFlagSet(JitFlags::JIT_FLAG_BBINSTR) &&
-            !opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && (JitConfig.JitClassProfiling() > 0) &&
-            !isLateDevirtualization)
+            !opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT) && JitConfig.JitClassProfiling() && !isLateDevirtualization)
         {
             JITDUMP("\n ... marking [%06u] in " FMT_BB " for class profile instrumentation\n", call->GetID(),
                     importer->currentBlock->bbNum);
@@ -14581,7 +14580,7 @@ void Compiler::impDevirtualizeCall(GenTreeCall*            call,
     }
 
 #ifdef DEBUG
-    if (JitConfig.JitEnableDevirtualization() == 0)
+    if (!JitConfig.JitEnableDevirtualization())
     {
         return;
     }
@@ -15425,7 +15424,7 @@ void Importer::addGuardedDevirtualizationCandidate(GenTreeCall*          call,
     assert(call->IsVirtual());
 
     // Only mark calls if the feature is enabled.
-    const bool isEnabled = JitConfig.JitEnableGuardedDevirtualization() > 0;
+    const bool isEnabled = JitConfig.JitEnableGuardedDevirtualization();
 
     if (!isEnabled)
     {

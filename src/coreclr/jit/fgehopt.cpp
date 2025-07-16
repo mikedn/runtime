@@ -259,12 +259,7 @@ PhaseStatus Compiler::phRemoveEmptyTry()
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
 
-    bool enableRemoveEmptyTry = true;
-
-#ifdef DEBUG
-    // Allow override to enable/disable.
-    enableRemoveEmptyTry = (JitConfig.JitEnableRemoveEmptyTry() == 1);
-#endif // DEBUG
+    const bool enableRemoveEmptyTry = true INDEBUG(&&JitConfig.JitEnableRemoveEmptyTry());
 
     if (!enableRemoveEmptyTry)
     {
@@ -570,10 +565,7 @@ PhaseStatus Compiler::phCloneFinally()
     // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
 
-    bool enableCloning = true;
-#ifdef DEBUG
-    enableCloning = JitConfig.JitEnableFinallyCloning() == 1;
-#endif
+    const bool enableCloning = true INDEBUG(&&JitConfig.JitEnableFinallyCloning());
 
     if (!enableCloning)
     {

@@ -18,7 +18,7 @@ bool ArenaAllocator::bypassHostAllocator()
     // When JitDirectAlloc is set, all JIT allocations requests are forwarded
     // directly to the OS. This allows taking advantage of pageheap and other gflag
     // knobs for ensuring that we do not have buffer overruns in the JIT.
-    return JitConfig.JitDirectAlloc() != 0;
+    return JitConfig.JitDirectAlloc();
 #else
     return false;
 #endif

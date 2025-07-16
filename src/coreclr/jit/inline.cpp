@@ -531,28 +531,29 @@ void InlineContext::DumpXml(InlineStrategy* strategy, FILE* file, unsigned inden
         fprintf(file, "%*s<Unboxed>%s</Unboxed>\n", indent + 2, "", m_Unboxed ? "True" : "False");
 
         // Ask InlinePolicy if it has anything to dump as well:
-        if ((m_Policy != nullptr) && (JitConfig.JitInlinePolicyDumpXml() != 0))
+        if ((m_Policy != nullptr) && JitConfig.JitInlinePolicyDumpXml())
         {
             m_Policy->DumpXml(file, indent + 2);
         }
 
         // Optionally, dump data about the inline
-        const int dumpDataSetting = JitConfig.JitInlineDumpData();
-
-        // JitInlineDumpData=1 -- dump data plus deltas for last inline only
-        if ((dumpDataSetting == 1) && (this == strategy->GetLastContext()))
+        if (const unsigned dumpDataSetting = JitConfig.JitInlineDumpData())
         {
-            fprintf(file, "%*s<Data>", indent + 2, "");
-            strategy->DumpDataContents(file);
-            fprintf(file, "</Data>\n");
-        }
+            // Dump data plus deltas for last inline only
+            if ((dumpDataSetting == 1) && (this == strategy->GetLastContext()))
+            {
+                fprintf(file, "%*s<Data>", indent + 2, "");
+                strategy->DumpDataContents(file);
+                fprintf(file, "</Data>\n");
+            }
 
-        // JitInlineDumpData=2 -- dump data for all inlines, no deltas
-        if ((dumpDataSetting == 2) && (m_Policy != nullptr))
-        {
-            fprintf(file, "%*s<Data>", indent + 2, "");
-            m_Policy->DumpData(file);
-            fprintf(file, "</Data>\n");
+            // Dump data for all inlines, no deltas
+            if ((dumpDataSetting == 2) && (m_Policy != nullptr))
+            {
+                fprintf(file, "%*s<Data>", indent + 2, "");
+                m_Policy->DumpData(file);
+                fprintf(file, "</Data>\n");
+            }
         }
 
         newIndent = indent + 2;
@@ -1476,8 +1477,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
         fprintf(file, "<InlineForest>\n");
         fprintf(file, "<Policy>%s</Policy>\n", m_LastSuccessfulPolicy->GetName());
 
-        const int dumpDataSetting = JitConfig.JitInlineDumpData();
-        if (dumpDataSetting != 0)
+        if (const unsigned dumpDataSetting = JitConfig.JitInlineDumpData())
         {
             fprintf(file, "<DataSchema>");
 

@@ -1867,15 +1867,13 @@ void Compiler::fgCompactBlocks(BasicBlock* block, BasicBlock* bNext)
         printf("\nAfter compacting:\n");
         fgDispBasicBlocks(false);
     }
-#endif
 
-#if DEBUG
-    if (JitConfig.JitSlowDebugChecksEnabled() != 0)
+    if (JitConfig.JitSlowDebugChecksEnabled())
     {
         // Make sure that the predecessor lists are accurate
         fgDebugCheckBBlist();
     }
-#endif // DEBUG
+#endif
 }
 
 //-------------------------------------------------------------

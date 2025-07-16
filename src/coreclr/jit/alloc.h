@@ -173,7 +173,7 @@ inline void* ArenaAllocator::allocateMemory(size_t size)
     size = roundUp(size, sizeof(size_t));
 
 #ifdef DEBUG
-    if (JitConfig.ShouldInjectFault() != 0)
+    if (JitConfig.ShouldInjectFault())
     {
         // Force the underlying memory allocator (either the OS or the CLR hoster)
         // to allocate the memory. Any fault injection will kick in.

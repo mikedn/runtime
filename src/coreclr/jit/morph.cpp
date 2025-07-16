@@ -10,12 +10,9 @@ GenTree* Compiler::moMorphTree(GenTree* tree, MorphAddrContext* mac)
     assert(!csePhase);
 
 #ifdef DEBUG
-    if (verbose)
+    if (verbose && (JitConfig.JitBreakMorphTree() == tree->GetID()))
     {
-        if (static_cast<unsigned>(JitConfig.JitBreakMorphTree()) == tree->GetID())
-        {
-            noway_assert(!"JitBreakMorphTree hit");
-        }
+        noway_assert(!"JitBreakMorphTree hit");
     }
 
     int thisMorphNum = 0;
@@ -8362,7 +8359,7 @@ bool Compiler::moCanFastTailCall(GenTreeCall* call, const char** failReason)
         *failReason = reason;
 
 #ifdef DEBUG
-        if (JitConfig.JitReportFastTailCallDecisions() == 1)
+        if (JitConfig.JitReportFastTailCallDecisions())
         {
             if (CORINFO_METHOD_HANDLE handle = call->GetMethodHandle())
             {
@@ -8406,7 +8403,7 @@ bool Compiler::moCanFastTailCall(GenTreeCall* call, const char** failReason)
 #endif // DEBUG
     };
 
-    if (JitConfig.FastTailCalls() == 0)
+    if (!JitConfig.FastTailCalls())
     {
         reportFastTailCallDecision("Configuration doesn't allow fast tail calls");
         return false;

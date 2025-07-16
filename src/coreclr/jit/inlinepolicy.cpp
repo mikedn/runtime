@@ -39,7 +39,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
     }
 
     // Optionally install the ReplayPolicy.
-    bool useReplayPolicy = JitConfig.JitInlinePolicyReplay() != 0;
+    bool useReplayPolicy = JitConfig.JitInlinePolicyReplay();
 
     if (useReplayPolicy)
     {
@@ -47,7 +47,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
     }
 
     // Optionally install the SizePolicy.
-    bool useSizePolicy = JitConfig.JitInlinePolicySize() != 0;
+    bool useSizePolicy = JitConfig.JitInlinePolicySize();
 
     if (useSizePolicy)
     {
@@ -55,7 +55,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
     }
 
     // Optionally install the FullPolicy.
-    bool useFullPolicy = JitConfig.JitInlinePolicyFull() != 0;
+    bool useFullPolicy = JitConfig.JitInlinePolicyFull();
 
     if (useFullPolicy)
     {
@@ -63,7 +63,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
     }
 
     // Optionally install the DiscretionaryPolicy.
-    bool useDiscretionaryPolicy = JitConfig.JitInlinePolicyDiscretionary() != 0;
+    bool useDiscretionaryPolicy = JitConfig.JitInlinePolicyDiscretionary();
 
     if (useDiscretionaryPolicy)
     {
@@ -73,7 +73,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
     // Optionally install the ModelPolicy.
-    bool useModelPolicy = JitConfig.JitInlinePolicyModel() != 0;
+    bool useModelPolicy = JitConfig.JitInlinePolicyModel();
 
     if (useModelPolicy)
     {
@@ -82,7 +82,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
 
     // Optionally install the ProfilePolicy, if the method has profile data.
     //
-    bool enableProfilePolicy = JitConfig.JitInlinePolicyProfile() != 0;
+    bool enableProfilePolicy = JitConfig.JitInlinePolicyProfile();
     bool hasProfileData      = compiler->fgIsUsingProfileWeights();
 
     if (enableProfilePolicy && hasProfileData)
@@ -93,7 +93,7 @@ InlinePolicy* InlinePolicy::GetPolicy(Compiler* compiler, bool isPrejitRoot)
     const bool isPrejit   = compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
     const bool isSpeedOpt = compiler->opts.IsJitFlagSet(JitFlags::JIT_FLAG_SPEED_OPT);
 
-    if ((JitConfig.JitExtDefaultPolicy() != 0))
+    if (JitConfig.JitExtDefaultPolicy())
     {
         if (isPrejitRoot || !isPrejit || (isPrejit && isSpeedOpt))
         {
@@ -1319,12 +1319,12 @@ void ExtendedDefaultPolicy::NoteInt(InlineObservation obs, int value)
             assert(m_IsForceInlineKnown);
             assert(value != 0);
             m_CodeSize           = static_cast<unsigned>(value);
-            unsigned maxCodeSize = static_cast<unsigned>(JitConfig.JitExtDefaultPolicyMaxIL());
+            unsigned maxCodeSize = JitConfig.JitExtDefaultPolicyMaxIL();
 
             // TODO: Enable for PgoSource::Static as well if it's not the generic profile we bundle.
             if (m_HasProfile && (m_RootCompiler->fgHaveTrustedProfileData()))
             {
-                maxCodeSize = static_cast<unsigned>(JitConfig.JitExtDefaultPolicyMaxILProf());
+                maxCodeSize = JitConfig.JitExtDefaultPolicyMaxILProf();
             }
 
             if (m_IsForceInline)
@@ -1357,7 +1357,7 @@ void ExtendedDefaultPolicy::NoteInt(InlineObservation obs, int value)
             }
             else if (!m_IsForceInline && !m_HasProfile)
             {
-                unsigned bbLimit = (unsigned)JitConfig.JitExtDefaultPolicyMaxBB();
+                unsigned bbLimit = JitConfig.JitExtDefaultPolicyMaxBB();
                 if (m_IsPrejitRoot)
                 {
                     // We're not able to recognize arg-specific foldable branches
@@ -1665,8 +1665,8 @@ double ExtendedDefaultPolicy::DetermineMultiplier()
         //  4) Sometimes, it still makes sense to inline methods in cold blocks to improve type/esacape analysis
         //     for the whole caller.
         //
-        const double profileTrustCoef = (double)JitConfig.JitExtDefaultPolicyProfTrust() / 10.0;
-        const double profileScale     = (double)JitConfig.JitExtDefaultPolicyProfScale() / 10.0;
+        const double profileTrustCoef = JitConfig.JitExtDefaultPolicyProfTrust() / 10.0;
+        const double profileScale     = JitConfig.JitExtDefaultPolicyProfScale() / 10.0;
 
         if (m_RootCompiler->fgHaveTrustedProfileData())
         {
@@ -1676,6 +1676,7 @@ double ExtendedDefaultPolicy::DetermineMultiplier()
         {
             multiplier *= min(m_ProfileFrequency, 1.0) * profileScale;
         }
+
         JITDUMP("\nCallsite has profile data: %g.  Multiplier limited to %g.", m_ProfileFrequency, multiplier);
     }
 

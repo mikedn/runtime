@@ -29,15 +29,11 @@ public:
         char*       m_list;
         MethodName* m_names;
 
-        MethodSet(const MethodSet& other) = delete;
-        MethodSet& operator=(const MethodSet& other) = delete;
-
     public:
-        MethodSet()
-        {
-        }
+        MethodSet()                  = default;
+        MethodSet(MethodSet&& other) = delete;
 
-        inline const char* list() const
+        const char* list() const
         {
             return const_cast<const char*>(m_list);
         }
@@ -45,28 +41,41 @@ public:
         void initialize(const WCHAR* list, ICorJitHost* host);
         void destroy(ICorJitHost* host);
 
-        inline bool isEmpty() const
+        bool isEmpty() const
         {
             return m_names == nullptr;
         }
+
         bool contains(const char* methodName, const char* className, CORINFO_SIG_INFO* sigInfo) const;
     };
 
 private:
-#define CONFIG_INTEGER(name, ...) int         m_##name;
+#define CONFIG_BOOL(name, ...) bool           m_##name;
+#define CONFIG_INT(name, ...) int             m_##name;
 #define CONFIG_UNSIGNED(name, ...) unsigned   m_##name;
+#define CONFIG_DOUBLE(name, ...) double       m_##name;
 #define CONFIG_STRING(name, ...) const WCHAR* m_##name;
 #define CONFIG_METHODSET(name, ...) MethodSet m_##name;
 #include "jitconfigvalues.h"
 
 public:
-#define CONFIG_INTEGER(name, ...)                                                                                      \
+#define CONFIG_BOOL(name, ...)                                                                                         \
+    bool name() const                                                                                                  \
+    {                                                                                                                  \
+        return m_##name;                                                                                               \
+    }
+#define CONFIG_INT(name, ...)                                                                                          \
     int name() const                                                                                                   \
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }
 #define CONFIG_UNSIGNED(name, ...)                                                                                     \
     unsigned name() const                                                                                              \
+    {                                                                                                                  \
+        return m_##name;                                                                                               \
+    }
+#define CONFIG_DOUBLE(name, ...)                                                                                       \
+    double name() const                                                                                                \
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }
@@ -85,18 +94,15 @@ public:
 private:
     bool m_isInitialized;
 
-    JitConfigValues(const JitConfigValues& other) = delete;
-    JitConfigValues& operator=(const JitConfigValues& other) = delete;
-
 public:
-    JitConfigValues()
-    {
-    }
+    JitConfigValues()                        = default;
+    JitConfigValues(JitConfigValues&& other) = delete;
 
-    inline bool isInitialized() const
+    bool isInitialized() const
     {
         return m_isInitialized != 0;
     }
+
     void initialize(ICorJitHost* host);
     void destroy(ICorJitHost* host);
 };

@@ -563,7 +563,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 void CodeGen::instGen_MemoryBarrier(BarrierKind barrierKind)
 {
 #ifdef DEBUG
-    if (JitConfig.JitNoMemoryBarriers() == 1)
+    if (JitConfig.JitNoMemoryBarriers())
     {
         return;
     }

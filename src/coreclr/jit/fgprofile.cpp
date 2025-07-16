@@ -1510,8 +1510,8 @@ PhaseStatus Compiler::phPrepareToInstrumentMethod()
     CLANG_FORMAT_COMMENT_ANCHOR;
 
     const bool prejit          = opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT);
-    const bool osr             = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && (JitConfig.TC_OnStackReplacement() > 0);
-    const bool useEdgeProfiles = (JitConfig.JitEdgeProfiling() > 0) && !prejit && !osr;
+    const bool osr             = opts.IsJitFlagSet(JitFlags::JIT_FLAG_TIER0) && JitConfig.TC_OnStackReplacement();
+    const bool useEdgeProfiles = JitConfig.JitEdgeProfiling() && !prejit && !osr;
 
     if (useEdgeProfiles)
     {
@@ -1520,7 +1520,7 @@ PhaseStatus Compiler::phPrepareToInstrumentMethod()
     else
     {
         JITDUMP("Using block profiling, because %s\n",
-                (JitConfig.JitEdgeProfiling() > 0) ? "edge profiles disabled" : prejit ? "prejitting" : "OSR");
+                JitConfig.JitEdgeProfiling() ? "edge profiles disabled" : prejit ? "prejitting" : "OSR");
 
         fgCountInstrumentor = new (this, CMK_Pgo) BlockCountInstrumentor(this);
     }
@@ -1528,7 +1528,7 @@ PhaseStatus Compiler::phPrepareToInstrumentMethod()
     // Enable class profiling by default, when jitting.
     // Todo: we may also want this on by default for prejitting.
     //
-    const bool useClassProfiles = (JitConfig.JitClassProfiling() > 0) && !prejit;
+    const bool useClassProfiles = JitConfig.JitClassProfiling() && !prejit;
     if (useClassProfiles)
     {
         fgClassInstrumentor = new (this, CMK_Pgo) ClassProbeInstrumentor(this);
@@ -1536,7 +1536,7 @@ PhaseStatus Compiler::phPrepareToInstrumentMethod()
     else
     {
         JITDUMP("Not doing class profiling, because %s\n",
-                (JitConfig.JitClassProfiling() > 0) ? "class profiles disabled" : "prejit");
+                JitConfig.JitClassProfiling() ? "class profiles disabled" : "prejit");
 
         fgClassInstrumentor = new (this, CMK_Pgo) NonInstrumentor(this);
     }
@@ -1595,11 +1595,11 @@ PhaseStatus Compiler::phInstrumentMethod()
 
     if (opts.IsJitFlagSet(JitFlags::JIT_FLAG_PREJIT))
     {
-        minimalProbeMode = (JitConfig.JitMinimalPrejitProfiling() > 0);
+        minimalProbeMode = JitConfig.JitMinimalPrejitProfiling();
     }
     else
     {
-        minimalProbeMode = (JitConfig.JitMinimalJitProfiling() > 0);
+        minimalProbeMode = JitConfig.JitMinimalJitProfiling();
     }
 
     if (minimalProbeMode && (fgCountInstrumentor->SchemaCount() == 1) && (fgClassInstrumentor->SchemaCount() == 0))

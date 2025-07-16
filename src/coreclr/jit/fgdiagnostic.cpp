@@ -1921,12 +1921,10 @@ static FILE* OpenFlowGraphFile(Compiler* compiler, bool* wbDontClose, Phases pha
             // If pre-phase pattern is not specified, then don't dump for any pre-phase.
             return nullptr;
         }
-        else if (*prePhasePattern != W('*'))
+
+        if ((*prePhasePattern != W('*')) && (wcsstr(prePhasePattern, phaseName) == nullptr))
         {
-            if (wcsstr(prePhasePattern, phaseName) == nullptr)
-            {
-                return nullptr;
-            }
+            return nullptr;
         }
     }
     else
@@ -2165,14 +2163,14 @@ bool Compiler::fgDumpFlowGraph(Phases phase, PhasePosition pos)
     bool dontClose = false;
 
 #ifdef DEBUG
-    const bool createDotFile = JitConfig.JitDumpFgDot() != 0;
-    const bool includeEH     = (JitConfig.JitDumpFgEH() != 0) && !compIsForInlining();
+    const bool createDotFile = JitConfig.JitDumpFgDot();
+    const bool includeEH     = JitConfig.JitDumpFgEH() && !compIsForInlining();
     // The loop table is not well maintained after the optimization phases, but there is no single point at which
     // it is declared invalid. For now, refuse to add loop information starting at the rationalize phase, to
     // avoid asserts.
-    const bool includeLoops = (JitConfig.JitDumpFgLoops() != 0) && !compIsForInlining() && (phase < PHASE_RATIONALIZE);
-    const bool constrained  = JitConfig.JitDumpFgConstrained() != 0;
-    const bool useBlockId   = JitConfig.JitDumpFgBlockID() != 0;
+    const bool includeLoops = JitConfig.JitDumpFgLoops() && !compIsForInlining() && (phase < PHASE_RATIONALIZE);
+    const bool constrained  = JitConfig.JitDumpFgConstrained();
+    const bool useBlockId   = JitConfig.JitDumpFgBlockID();
 #else
     const bool createDotFile = true;
     const bool includeEH     = false;

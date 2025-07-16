@@ -148,7 +148,7 @@ void notYetImplemented(const char* msg, const char* filename, unsigned line)
     compiler->compFunctionTraceEnd(nullptr, 0, true);
 #endif
 
-    int value = JitConfig.AltJitAssertOnNYI();
+    unsigned value = JitConfig.AltJitAssertOnNYI();
 
     // 0 means just silently skip
     // If we are in retail builds, assume ignore
@@ -302,7 +302,7 @@ void debugError(const char* msg, const char* file, unsigned line)
 
     // We now only assert when user explicitly set ComPlus_JitRequired=1
     // If ComPlus_JitRequired is 0 or is not set, we will not assert.
-    if ((JitConfig.JitRequired() == 1) || JitConfig.JitBreakOnBadCode())
+    if (JitConfig.JitRequired() || JitConfig.JitBreakOnBadCode())
     {
         assertAbort(msg, file, line);
     }
@@ -354,7 +354,7 @@ void assertAbort(const char* why, const char* file, unsigned line)
         // to the fallback JIT behavior. This is useful when doing ASM diffs, where we only want to see
         // the first assert for any function, but we don't want to kill the whole ngen process on the
         // first assert (which would happen if you used COMPlus_NoGuiOnAssert=1 for example).
-        if (JitConfig.AltJitSkipOnAssert() != 0)
+        if (JitConfig.AltJitSkipOnAssert())
         {
             fatal(CORJIT_SKIPPED);
         }

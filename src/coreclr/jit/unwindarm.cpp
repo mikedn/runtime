@@ -1191,7 +1191,7 @@ void UnwindInfo::SplitLargeFragment(CodeGen* codeGen)
     uint32_t maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
 
 #ifdef DEBUG
-    if (unsigned splitFunctionSize = static_cast<unsigned>(JitConfig.JitSplitFunctionSize()))
+    if (unsigned splitFunctionSize = JitConfig.JitSplitFunctionSize())
     {
         maxFragmentSize = Min(maxFragmentSize, splitFunctionSize);
     }

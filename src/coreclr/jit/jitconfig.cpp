@@ -17,19 +17,15 @@ void JitConfigValues::MethodSet::initialize(const WCHAR* list, ICorJitHost* host
     {
         return;
     }
-    else
+
+    m_list = static_cast<char*>(host->allocateMemory(utf8ListLen));
+
+    if (WszWideCharToMultiByte(CP_UTF8, 0, list, -1, static_cast<LPSTR>(m_list), utf8ListLen, nullptr, nullptr) == 0)
     {
-        // char* m_list;
-        //
-        m_list = static_cast<char*>(host->allocateMemory(utf8ListLen));
-        if (WszWideCharToMultiByte(CP_UTF8, 0, list, -1, static_cast<LPSTR>(m_list), utf8ListLen, nullptr, nullptr) ==
-            0)
-        {
-            // Failed to convert the list. Free the memory and ignore the list.
-            host->freeMemory(static_cast<void*>(m_list));
-            m_list = nullptr;
-            return;
-        }
+        // Failed to convert the list. Free the memory and ignore the list.
+        host->freeMemory(m_list);
+        m_list = nullptr;
+        return;
     }
 
     const char   SEP_CHAR  = ' ';      // character used to separate each entry
@@ -295,13 +291,15 @@ void JitConfigValues::MethodSet::destroy(ICorJitHost* host)
     for (MethodName *name = m_names, *next = nullptr; name != nullptr; name = next)
     {
         next = name->m_next;
-        host->freeMemory(static_cast<void*>(name));
+        host->freeMemory(name);
     }
+
     if (m_list != nullptr)
     {
-        host->freeMemory(static_cast<void*>(m_list));
+        host->freeMemory(m_list);
         m_list = nullptr;
     }
+
     m_names = nullptr;
 }
 
@@ -369,7 +367,7 @@ bool JitConfigValues::MethodSet::contains(const char*       methodName,
             return true;
         }
 
-#ifdef _DEBUG
+#ifdef DEBUG
         // Maybe className doesn't include the namespace. Try to match that
         const char* nsSep = strrchr(className, '.');
         if (nsSep != nullptr && nsSep != className)
@@ -391,12 +389,15 @@ void JitConfigValues::initialize(ICorJitHost* host)
 {
     assert(!m_isInitialized);
 
-#define CONFIG_INTEGER(name, key, defaultValue) m_##name = host->getIntConfigValue(key, defaultValue);
+#define CONFIG_BOOL(name, key, defaultValue) m_##name = host->getIntConfigValue(W(key), defaultValue) != 0;
+#define CONFIG_INT(name, key, defaultValue) m_##name  = host->getIntConfigValue(W(key), defaultValue);
 #define CONFIG_UNSIGNED(name, key, defaultValue)                                                                       \
-    m_##name = static_cast<unsigned>(host->getIntConfigValue(key, defaultValue));
-#define CONFIG_STRING(name, key) m_##name = host->getStringConfigValue(key);
+    m_##name = static_cast<unsigned>(host->getIntConfigValue(W(key), defaultValue));
+#define CONFIG_DOUBLE(name, key, defaultValue)                                                                         \
+    m_##name = static_cast<double>(host->getIntConfigValue(W(key), defaultValue));
+#define CONFIG_STRING(name, key) m_##name = host->getStringConfigValue(W(key));
 #define CONFIG_METHODSET(name, key)                                                                                    \
-    const WCHAR* name##value = host->getStringConfigValue(key);                                                        \
+    const WCHAR* name##value = host->getStringConfigValue(W(key));                                                     \
     m_##name.initialize(name##value, host);                                                                            \
     host->freeStringConfigValue(name##value);
 
@@ -412,8 +413,10 @@ void JitConfigValues::destroy(ICorJitHost* host)
         return;
     }
 
-#define CONFIG_INTEGER(...)
+#define CONFIG_BOOL(...)
+#define CONFIG_INT(...)
 #define CONFIG_UNSIGNED(...)
+#define CONFIG_DOUBLE(...)
 #define CONFIG_STRING(name, ...) host->freeStringConfigValue(m_##name);
 #define CONFIG_METHODSET(name, ...) m_##name.destroy(host);
 
@@ -423,9 +426,9 @@ void JitConfigValues::destroy(ICorJitHost* host)
 }
 
 #ifdef DEBUG
-// ConfigInteger does not offer an option for decimal flags. Any numbers are interpreted as hex.
-// I could add the decimal option to ConfigInteger or I could write a function to reinterpret this
-// value as the user intended.
+// getIntConfigValue does not offer an option for decimal flags. Any numbers are interpreted as hex.
+// I could add the decimal option to getIntConfigValue or I could write a function to reinterpret
+// this value as the user intended.
 unsigned ReinterpretHexAsDecimal(unsigned in)
 {
     // ex: in: 0x100 returns: 100

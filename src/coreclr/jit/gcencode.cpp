@@ -3645,7 +3645,7 @@ public:
         , stackSlotMap(compiler->getAllocator(CMK_GC))
         , isFullyInterruptible(isFullyInterruptible)
 #ifdef GC_ENCODER_LOGGING
-        , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || (JitConfig.JitGCInfoLogging() != 0))
+        , log(INDEBUG(compiler->verbose || compiler->opts.dspGCtbls) || JitConfig.JitGCInfoLogging())
         , stackSlotLog(compiler->getAllocator(CMK_DebugOnly))
         , regSlotLog(compiler->getAllocator(CMK_DebugOnly))
         , interruptibleRanges(compiler->getAllocator(CMK_DebugOnly))

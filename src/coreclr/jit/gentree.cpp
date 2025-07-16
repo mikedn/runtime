@@ -10507,7 +10507,7 @@ CORINFO_CLASS_HANDLE Compiler::gtGetFieldClassHandle(CORINFO_FIELD_HANDLE fieldH
     // Optionally, look at the actual type of a static field's value.
     bool queryForCurrentClass = true;
 #ifdef DEBUG
-    queryForCurrentClass = JitConfig.JitQueryCurrentStaticFieldClass() > 0;
+    queryForCurrentClass = JitConfig.JitQueryCurrentStaticFieldClass();
 #endif
 
     if (!queryForCurrentClass)

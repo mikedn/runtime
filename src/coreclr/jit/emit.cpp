@@ -1651,7 +1651,7 @@ size_t Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
     assert(id->idInsFmt() != IF_GC_REG);
 
 #ifdef DEBUG
-    if (JitConfig.JitEmitPrintRefRegs() != 0)
+    if (JitConfig.JitEmitPrintRefRegs())
     {
         printf("Before ArchEncodeInstr for IN%04X\n", id->idDebugOnlyInfo()->idNum);
         printf("  REF regs");
@@ -1661,8 +1661,7 @@ size_t Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
         printf("\n");
     }
 
-    if (compiler->compDebugBreak &&
-        static_cast<unsigned>(JitConfig.JitBreakEmitOutputInstr()) == id->idDebugOnlyInfo()->idNum)
+    if (compiler->compDebugBreak && (JitConfig.JitBreakEmitOutputInstr() == id->idDebugOnlyInfo()->idNum))
     {
         assert(!"JitBreakEmitOutputInstr reached");
     }

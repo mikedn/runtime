@@ -1848,16 +1848,15 @@ PhaseStatus SsaOptimizer::DoSsaDestroy()
 void SsaOptimizer::Run()
 {
 #ifdef OPT_CONFIG
-    const bool     doEarlyProp     = JitConfig.JitDoEarlyProp() != 0;
-    const bool     doValueNum      = JitConfig.JitDoValueNumber() != 0;
-    const bool     doLoopHoisting  = doValueNum && (JitConfig.JitDoLoopHoisting() != 0);
-    const bool     doCopyProp      = doValueNum && (JitConfig.JitDoCopyProp() != 0);
-    const bool     doBranchOpt     = doValueNum && (JitConfig.JitDoRedundantBranchOpts() != 0);
-    const bool     doCse           = doValueNum && (JitConfig.JitNoCSE() == 0);
-    const bool     doAssertionProp = doValueNum && (JitConfig.JitDoAssertionProp() != 0);
+    const bool     doEarlyProp     = JitConfig.JitDoEarlyProp();
+    const bool     doValueNum      = JitConfig.JitDoValueNumber();
+    const bool     doLoopHoisting  = doValueNum && JitConfig.JitDoLoopHoisting();
+    const bool     doCopyProp      = doValueNum && JitConfig.JitDoCopyProp();
+    const bool     doBranchOpt     = doValueNum && JitConfig.JitDoRedundantBranchOpts();
+    const bool     doCse           = doValueNum && !JitConfig.JitNoCSE();
+    const bool     doAssertionProp = doValueNum && JitConfig.JitDoAssertionProp();
     const bool     doRangeAnalysis = doAssertionProp && (JitConfig.JitDoRangeAnalysis() != 0);
-    const unsigned iterationCount =
-        !compiler->opts.optRepeat ? 1 : static_cast<unsigned>(JitConfig.JitOptRepeatCount());
+    const unsigned iterationCount  = !compiler->opts.optRepeat ? 1 : JitConfig.JitOptRepeatCount();
 
     for (unsigned iteration = 0; iteration < iterationCount; iteration++)
 #else

@@ -1770,7 +1770,7 @@ PhaseStatus Compiler::phCloneLoops()
     }
 
 #ifdef DEBUG
-    if (JitConfig.JitCloneLoops() == 0)
+    if (!JitConfig.JitCloneLoops())
     {
         JITDUMP("Loop cloning disabled\n");
         return PhaseStatus::MODIFIED_NOTHING;

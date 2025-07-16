@@ -1230,15 +1230,15 @@ public:
     bool enableRIPRelativeAddressing : 1;
 #endif
 #ifdef TARGET_ARM64
-    int compJitSaveFpLrWithCalleeSavedRegisters;
+    unsigned compJitSaveFpLrWithCalleeSavedRegisters;
 #endif
 #else // !DEBUG
 #ifdef TARGET_ARM64
-    static constexpr int  compJitSaveFpLrWithCalleeSavedRegisters = 0;
+    static constexpr unsigned compJitSaveFpLrWithCalleeSavedRegisters = 0;
 #endif
 #if DUMP_GC_TABLES
 #pragma message("NOTE: this non-debug build has GC ptr table dumping always enabled!")
-    static constexpr bool dspGCtbls = true;
+    static constexpr bool     dspGCtbls = true;
 #endif
 #endif // !DEBUG
 
@@ -4114,10 +4114,12 @@ protected:
     {
 #ifdef DEBUG
         unsigned result = JitConfig.JitStressBBProf();
+
         if ((result == 0) && compStressCompile(STRESS_BB_PROFILE, 15))
         {
             result = 1;
         }
+
         return result;
 #else
         return 0;
@@ -5299,7 +5301,7 @@ public:
         // stubs to implement the tailcall mechanism, which would then
         // recursively create more IL stubs.
         return !opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB) &&
-               (JitConfig.TailcallStress() != 0 || compStressCompile(STRESS_TAILCALL, 5));
+               (JitConfig.TailcallStress() || compStressCompile(STRESS_TAILCALL, 5));
     }
 
     const char* compGetTieringName(bool wantShortName = false) const;
