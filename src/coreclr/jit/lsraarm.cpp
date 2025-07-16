@@ -480,4 +480,71 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
     BuildDef(node);
 }
 
+void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
+{
+    CallArgInfo* argInfo    = putArg->GetArgInfo();
+    regMaskTP    argRegMask = RBM_NONE;
+
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+    {
+        argRegMask |= genRegMask(argInfo->GetRegNum(i));
+    }
+
+    GenTree* src = putArg->GetOp(0);
+
+    if (src->IsIntCon(0))
+    {
+        BuildUse(src);
+    }
+    else
+    {
+        assert(src->TypeIs(TYP_STRUCT));
+        assert(src->isContained());
+
+        if (GenTreeFieldList* fieldList = src->IsFieldList())
+        {
+            unsigned regIndex = 0;
+            for (GenTreeFieldList::Use& use : fieldList->Uses())
+            {
+                GenTree*  node    = use.GetNode();
+                regMaskTP regMask = RBM_NONE;
+
+                if (regIndex < argInfo->GetRegCount())
+                {
+                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
+                }
+
+                BuildUse(node, regMask);
+                regIndex++;
+
+                if (node->TypeIs(TYP_LONG))
+                {
+                    assert(node->OperIs(GT_BITCAST));
+
+                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
+
+                    BuildUse(node, regMask, 1);
+                    regIndex++;
+                }
+            }
+        }
+        else
+        {
+            BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
+
+            if (src->OperIs(GT_IND_LOAD_OBJ))
+            {
+                BuildAddrUses(src->AsIndLoadObj()->GetAddr());
+            }
+
+            BuildInternalUses();
+        }
+    }
+
+    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+    {
+        BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
+    }
+}
+
 #endif // TARGET_ARM
