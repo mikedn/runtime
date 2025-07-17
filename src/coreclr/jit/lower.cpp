@@ -3107,7 +3107,7 @@ void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
     JITDUMP("======= Inserting PInvoke method epilog\n");
 
     // Method doing PInvoke calls has exactly one return block unless it has "jmp" or tail calls.
-    assert(((m_block == comp->genReturnBB) && (m_block->bbJumpKind == BBJ_RETURN)) || m_block->EndsWithJmp(comp) ||
+    assert(((m_block == comp->genReturnBB) && m_block->KindIs(BBJ_RETURN)) || m_block->EndsWithJmp(comp) ||
            m_block->EndsWithTailCall(comp));
 
     GenTree* insertionPoint = BlockRange().LastNode();

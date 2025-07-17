@@ -363,11 +363,8 @@ BasicBlock* Compiler::fgCreateGCPoll(GCPollType pollType, BasicBlock* block)
     return bottom;
 }
 
-/*****************************************************************************
- * This function returns true for blocks that are in different hot-cold regions.
- * It returns false when the blocks are both in the same regions
- */
-
+// This function returns true for blocks that are in different hot-cold regions.
+// It returns false when the blocks are both in the same regions
 bool Compiler::fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2)
 {
     noway_assert(blk1 != nullptr);
@@ -384,74 +381,66 @@ bool Compiler::fgInDifferentRegions(BasicBlock* blk1, BasicBlock* blk2)
 
 #ifdef FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- *
- *  Add monitor enter/exit calls for synchronized methods, and a try/fault
- *  to ensure the 'exit' is called if the 'enter' was successful. On x86, we
- *  generate monitor enter/exit calls and tell the VM the code location of
- *  these calls. When an exception occurs between those locations, the VM
- *  automatically releases the lock. For non-x86 platforms, the JIT is
- *  responsible for creating a try/finally to protect the monitor enter/exit,
- *  and the VM doesn't need to know anything special about the method during
- *  exception processing -- it's just a normal try/finally.
- *
- *  We generate the following code:
- *
- *      void Foo()
- *      {
- *          unsigned byte acquired = 0;
- *          try {
- *              JIT_MonEnterWorker(<lock object>, &acquired);
- *
- *              *** all the preexisting user code goes here ***
- *
- *              JIT_MonExitWorker(<lock object>, &acquired);
- *          } fault {
- *              JIT_MonExitWorker(<lock object>, &acquired);
- *         }
- *      L_return:
- *         ret
- *      }
- *
- *  If the lock is actually acquired, then the 'acquired' variable is set to 1
- *  by the helper call. During normal exit, the finally is called, 'acquired'
- *  is 1, and the lock is released. If an exception occurs before the lock is
- *  acquired, but within the 'try' (extremely unlikely, but possible), 'acquired'
- *  will be 0, and the monitor exit call will quickly return without attempting
- *  to release the lock. Otherwise, 'acquired' will be 1, and the lock will be
- *  released during exception processing.
- *
- *  For synchronized methods, we generate a single return block.
- *  We can do this without creating additional "step" blocks because "ret" blocks
- *  must occur at the top-level (of the original code), not nested within any EH
- *  constructs. From the CLI spec, 12.4.2.8.2.3 "ret": "Shall not be enclosed in any
- *  protected block, filter, or handler." Also, 3.57: "The ret instruction cannot be
- *  used to transfer control out of a try, filter, catch, or finally block. From within
- *  a try or catch, use the leave instruction with a destination of a ret instruction
- *  that is outside all enclosing exception blocks."
- *
- *  In addition, we can add a "fault" at the end of a method and be guaranteed that no
- *  control falls through. From the CLI spec, section 12.4 "Control flow": "Control is not
- *  permitted to simply fall through the end of a method. All paths shall terminate with one
- *  of these instructions: ret, throw, jmp, or (tail. followed by call, calli, or callvirt)."
- *
- *  We only need to worry about "ret" and "throw", as the CLI spec prevents any other
- *  alternatives. Section 15.4.3.3 "Implementation information" states about exiting
- *  synchronized methods: "Exiting a synchronized method using a tail. call shall be
- *  implemented as though the tail. had not been specified." Section 3.37 "jmp" states:
- *  "The jmp instruction cannot be used to transferred control out of a try, filter,
- *  catch, fault or finally block; or out of a synchronized region." And, "throw" will
- *  be handled naturally; no additional work is required.
- */
-
+// Add monitor enter/exit calls for synchronized methods, and a try/fault
+// to ensure the 'exit' is called if the 'enter' was successful. On x86, we
+// generate monitor enter/exit calls and tell the VM the code location of
+// these calls. When an exception occurs between those locations, the VM
+// automatically releases the lock. For non-x86 platforms, the JIT is
+// responsible for creating a try/finally to protect the monitor enter/exit,
+// and the VM doesn't need to know anything special about the method during
+// exception processing -- it's just a normal try/finally.
+//
+// We generate the following code:
+//
+//     void Foo()
+//     {
+//         unsigned byte acquired = 0;
+//         try {
+//             JIT_MonEnterWorker(<lock object>, &acquired);
+//
+//             *** all the preexisting user code goes here ***
+//
+//             JIT_MonExitWorker(<lock object>, &acquired);
+//         } fault {
+//             JIT_MonExitWorker(<lock object>, &acquired);
+//        }
+//     L_return:
+//        ret
+//     }
+//
+// If the lock is actually acquired, then the 'acquired' variable is set to 1
+// by the helper call. During normal exit, the finally is called, 'acquired'
+// is 1, and the lock is released. If an exception occurs before the lock is
+// acquired, but within the 'try' (extremely unlikely, but possible), 'acquired'
+// will be 0, and the monitor exit call will quickly return without attempting
+// to release the lock. Otherwise, 'acquired' will be 1, and the lock will be
+// released during exception processing.
+//
+// For synchronized methods, we generate a single return block.
+// We can do this without creating additional "step" blocks because "ret" blocks
+// must occur at the top-level (of the original code), not nested within any EH
+// constructs. From the CLI spec, 12.4.2.8.2.3 "ret": "Shall not be enclosed in any
+// protected block, filter, or handler." Also, 3.57: "The ret instruction cannot be
+// used to transfer control out of a try, filter, catch, or finally block. From within
+// a try or catch, use the leave instruction with a destination of a ret instruction
+// that is outside all enclosing exception blocks."
+//
+// In addition, we can add a "fault" at the end of a method and be guaranteed that no
+// control falls through. From the CLI spec, section 12.4 "Control flow": "Control is not
+// permitted to simply fall through the end of a method. All paths shall terminate with one
+// of these instructions: ret, throw, jmp, or (tail. followed by call, calli, or callvirt)."
+//
+// We only need to worry about "ret" and "throw", as the CLI spec prevents any other
+// alternatives. Section 15.4.3.3 "Implementation information" states about exiting
+// synchronized methods: "Exiting a synchronized method using a tail. call shall be
+// implemented as though the tail. had not been specified." Section 3.37 "jmp" states:
+// "The jmp instruction cannot be used to transferred control out of a try, filter,
+// catch, fault or finally block; or out of a synchronized region." And, "throw" will
+// be handled naturally; no additional work is required.
 void Compiler::fgAddSyncMethodEnterExit()
 {
-    assert((info.compFlags & CORINFO_FLG_SYNCH) != 0);
-
-    // We need to do this transformation before funclets are created.
+    assert(info.IsSynchronized());
     assert(!fgFuncletsCreated);
-
-    // Assume we don't need to update the bbPreds lists.
     assert(!fgComputePredsDone);
 
 #if !FEATURE_EH
@@ -461,13 +450,13 @@ void Compiler::fgAddSyncMethodEnterExit()
     // the monitor enter/exit, and that doesn't seem worth it for this minor case.
     // By the time EH is working, we can just enable the whole thing.
     NYI("No support for synchronized methods");
-#endif // !FEATURE_EH
+#endif
 
     // Create a scratch first BB where we can put the new variable initialization.
     // Don't put the scratch BB in the protected region.
 
     fgEnsureFirstBBisScratch();
-    assert(fgFirstBB->bbJumpKind == BBJ_NONE);
+    assert(fgFirstBB->KindIs(BBJ_NONE));
 
     // Create a block for the start of the try region, where the monitor enter call
     // will go.
@@ -575,7 +564,7 @@ void Compiler::fgAddSyncMethodEnterExit()
         }
 
         fgVerifyHandlerTab();
-#endif // DEBUG
+#endif
     }
 
     // Add monitor enter/exit calls.
@@ -744,26 +733,20 @@ void Compiler::fgAddReversePInvokeEnterExit()
                 genReturnBB->dspToString());
 }
 
-namespace
-{
-// Define a helper class for merging return blocks (which we do when the input has
-// more than the limit for this configuration).
-//
-// Notes: sets fgReturnCount, genReturnBB, and genReturnLocal.
+// Define a helper class for merging return blocks (which we do
+// when the input has more than the limit for this configuration).
 class MergedReturns
 {
 public:
 #ifdef JIT32_GCENCODER
-
     // X86 GC encoding has a hard limit of SET_EPILOGCNT_MAX epilogs.
-    const static unsigned ReturnCountHardLimit = SET_EPILOGCNT_MAX;
-#else  // JIT32_GCENCODER
-
+    static constexpr unsigned ReturnCountHardLimit = SET_EPILOGCNT_MAX;
+#else
     // We currently apply a hard limit of '4' to all other targets (see
     // the other uses of SET_EPILOGCNT_MAX), though it would be good
     // to revisit that decision based on CQ analysis.
-    const static unsigned ReturnCountHardLimit  = 4;
-#endif // JIT32_GCENCODER
+    static constexpr unsigned ReturnCountHardLimit  = 4;
+#endif
 
 private:
     Compiler* comp;
@@ -793,7 +776,7 @@ private:
 public:
     MergedReturns(Compiler* comp) : comp(comp)
     {
-        comp->fgReturnCount = 0;
+        assert(comp->fgReturnCount == 0);
     }
 
     void SetMaxReturns(unsigned value)
@@ -802,23 +785,18 @@ public:
         maxReturns.MarkAsReadOnly();
     }
 
-    //------------------------------------------------------------------------
-    // Record: Make note of a return block in the input program.
+    // Make note of a return block in the input program.
     //
-    // Arguments:
-    //    returnBlock - Block in the input that has jump kind BBJ_RETURN
-    //
-    // Notes:
-    //    Updates fgReturnCount appropriately, and generates a merged return
-    //    block if necessary.  If a constant merged return block is used,
-    //    `returnBlock` is rewritten to jump to it.  If a non-constant return
-    //    block is used, `genReturnBB` is set to that block, and `genReturnLocal`
-    //    is set to the lclvar that it returns; morph will need to rewrite
-    //    `returnBlock` to set the local and jump to the return block in such
-    //    cases, which it will do after some key transformations like rewriting
-    //    tail calls and calls that return to hidden buffers.  In either of these
-    //    cases, `fgReturnCount` and the merged return block's profile information
-    //    will be updated to reflect or anticipate the rewrite of `returnBlock`.
+    // Updates fgReturnCount appropriately, and generates a merged return
+    // block if necessary.  If a constant merged return block is used,
+    // `returnBlock` is rewritten to jump to it.  If a non-constant return
+    // block is used, `genReturnBB` is set to that block, and `genReturnLocal`
+    // is set to the local that it returns; morph will need to rewrite
+    // `returnBlock` to set the local and jump to the return block in such
+    // cases, which it will do after some key transformations like rewriting
+    // tail calls and calls that return to hidden buffers.  In either of these
+    // cases, `fgReturnCount` and the merged return block's profile information
+    // will be updated to reflect or anticipate the rewrite of `returnBlock`.
     //
     void Record(BasicBlock* returnBlock)
     {
@@ -855,30 +833,23 @@ public:
         Merge(returnBlock, searchLimit);
     }
 
-    //------------------------------------------------------------------------
-    // EagerCreate: Force creation of a non-constant merged return block `genReturnBB`.
-    //
-    // Return Value:
-    //    The newly-created block which returns `genReturnLocal`.
-    //
+    // Force creation of a non-constant merged return block `genReturnBB`.
     BasicBlock* EagerCreate()
     {
         mergingReturns = true;
         return Merge(nullptr, 0);
     }
 
-    //------------------------------------------------------------------------
-    // PlaceReturns: Move any generated const return blocks to an appropriate
-    //     spot in the lexical block list.
+    // Move any generated const return blocks to an appropriate
+    // spot in the lexical block list.
     //
-    // Notes:
-    //    The goal is to set things up favorably for a reasonable layout without
-    //    putting too much burden on fgReorderBlocks; in particular, since that
-    //    method doesn't (currently) shuffle non-profile, non-rare code to create
-    //    fall-through and reduce gotos, this method places each const return
-    //    block immediately after its last predecessor, so that the flow from
-    //    there to it can become fallthrough without requiring any motion to be
-    //    performed by fgReorderBlocks.
+    // The goal is to set things up favorably for a reasonable layout without
+    // putting too much burden on fgReorderBlocks; in particular, since that
+    // method doesn't (currently) shuffle non-profile, non-rare code to create
+    // fall-through and reduce gotos, this method places each const return
+    // block immediately after its last predecessor, so that the flow from
+    // there to it can become fallthrough without requiring any motion to be
+    // performed by fgReorderBlocks.
     //
     void PlaceReturns()
     {
@@ -911,20 +882,15 @@ public:
     }
 
 private:
-    //------------------------------------------------------------------------
-    // CreateReturnBB: Create a basic block to serve as a merged return point, stored to
-    //    `returnBlocks` at the given index, and optionally returning the given constant.
+    // Create a basic block to serve as a merged return point, stored to
+    // returnBlocks at the given index, and optionally returning the given constant.
     //
-    // Arguments:
-    //    index - Index into `returnBlocks` to store the new block into.
-    //    returnConst - Constant that the new block should return; may be nullptr to
+    // index - Index into `returnBlocks` to store the new block into.
+    // returnConst - Constant that the new block should return; may be nullptr to
     //      indicate that the new merged return is for the non-constant case, in which
     //      case, if the method's return type is non-void, `comp->genReturnLocal` will
     //      be initialized to a new local of the appropriate type, and the new block will
     //      return it.
-    //
-    // Return Value:
-    //    The new merged return block.
     //
     BasicBlock* CreateReturnBB(unsigned index, GenTreeIntConCommon* returnConst = nullptr)
     {
@@ -1002,30 +968,23 @@ private:
         return newReturnBB;
     }
 
-    //------------------------------------------------------------------------
-    // Merge: Find or create an appropriate merged return block for the given input block.
+    // Find or create an appropriate merged return block for the given input block.
     //
-    // Arguments:
-    //    returnBlock - Return block from the input program to find a merged return for.
-    //                  May be nullptr to indicate that new block suitable for non-constant
-    //                  returns should be generated but no existing block modified.
-    //    searchLimit - Blocks in `returnBlocks` up to but not including index `searchLimit`
-    //                  will be checked to see if we already have an appropriate merged return
-    //                  block for this case.  If a new block must be created, it will be stored
-    //                  to `returnBlocks` at index `searchLimit`.
+    // returnBlock - Return block from the input program to find a merged return for.
+    //               May be nullptr to indicate that new block suitable for non-constant
+    //               returns should be generated but no existing block modified.
+    // searchLimit - Blocks in `returnBlocks` up to but not including index `searchLimit`
+    //               will be checked to see if we already have an appropriate merged return
+    //               block for this case.  If a new block must be created, it will be stored
+    //               to `returnBlocks` at index `searchLimit`.
     //
-    // Return Value:
-    //    Merged return block suitable for handling this return value.  May be newly-created
-    //    or pre-existing.
-    //
-    // Notes:
-    //    If a constant-valued merged return block is used, `returnBlock` will be rewritten to
-    //    jump to the merged return block and its `GT_RETURN` statement will be removed.  If
-    //    a non-constant-valued merged return block is used, `genReturnBB` and `genReturnLocal`
-    //    will be set so that Morph can perform that rewrite, which it will do after some key
-    //    transformations like rewriting tail calls and calls that return to hidden buffers.
-    //    In either of these cases, `fgReturnCount` and the merged return block's profile
-    //    information will be updated to reflect or anticipate the rewrite of `returnBlock`.
+    // If a constant-valued merged return block is used, `returnBlock` will be rewritten to
+    // jump to the merged return block and its `GT_RETURN` statement will be removed.  If
+    // a non-constant-valued merged return block is used, `genReturnBB` and `genReturnLocal`
+    // will be set so that Morph can perform that rewrite, which it will do after some key
+    // transformations like rewriting tail calls and calls that return to hidden buffers.
+    // In either of these cases, `fgReturnCount` and the merged return block's profile
+    // information will be updated to reflect or anticipate the rewrite of `returnBlock`.
     //
     BasicBlock* Merge(BasicBlock* returnBlock, unsigned searchLimit)
     {
@@ -1033,7 +992,7 @@ private:
 
         BasicBlock* mergedReturnBlock = nullptr;
 
-        // Do not look for mergable constant returns in debug codegen as
+        // Do not look for mergeable constant returns in debug codegen as
         // we may lose track of sequence points.
         if ((returnBlock != nullptr) && (maxReturns > 1) && !comp->opts.compDbgCode)
         {
@@ -1139,17 +1098,8 @@ private:
         return mergedReturnBlock;
     }
 
-    //------------------------------------------------------------------------
-    // GetReturnConst: If the given block returns an integral constant, return the
-    //     GenTreeIntConCommon that represents the constant.
-    //
-    // Arguments:
-    //    returnBlock - Block whose return value is to be inspected.
-    //
-    // Return Value:
-    //    GenTreeIntCommon that is the argument of `returnBlock`'s `GT_RETURN` if
-    //    such exists; nullptr otherwise.
-    //
+    // If the given block returns an integral constant, return the
+    // GenTreeIntConCommon that represents the constant.
     static GenTreeIntConCommon* GetReturnConst(BasicBlock* returnBlock)
     {
         Statement* lastStmt = returnBlock->lastStmt();
@@ -1173,20 +1123,15 @@ private:
         return retExpr->AsIntConCommon();
     }
 
-    //------------------------------------------------------------------------
-    // FindConstReturnBlock: Scan the already-created merged return blocks, up to `searchLimit`,
-    //     and return the one corresponding to the given const expression if it exists.
+    // Scan the already-created merged return blocks, up to `searchLimit`, and
+    // return the one corresponding to the given const expression if it exists.
     //
-    // Arguments:
-    //    constExpr - GenTreeIntCommon representing the constant return value we're
-    //        searching for.
-    //    searchLimit - Check `returnBlocks`/`returnConstants` up to but not including
-    //        this index.
-    //    index - [out] Index of return block in the `returnBlocks` array, if found;
-    //        searchLimit otherwise.
-    //
-    // Return Value:
-    //    A block that returns the same constant, if one is found; otherwise nullptr.
+    // constExpr - GenTreeIntCommon representing the constant return value we're
+    //     searching for.
+    // searchLimit - Check `returnBlocks`/`returnConstants` up to but not including
+    //     this index.
+    // index - [out] Index of return block in the `returnBlocks` array, if found;
+    //     searchLimit otherwise.
     //
     BasicBlock* FindConstReturnBlock(GenTreeIntConCommon* constExpr, unsigned searchLimit, unsigned* index)
     {
@@ -1219,7 +1164,6 @@ private:
         return nullptr;
     }
 };
-}
 
 // Add any internal blocks/trees we may need
 void Compiler::phAddInternal()
@@ -1280,7 +1224,7 @@ void Compiler::phAddInternal()
         // context vars).
         const bool genericsContextIsThis = info.ThisParamIsGenericsContext();
 #else
-        const bool        genericsContextIsThis = false;
+        constexpr bool        genericsContextIsThis = false;
 #endif
         LclVarDsc* thisParam = lvaGetDesc(info.GetThisParamLclNum());
         LclVarDsc* thisLcl   = lvaGetDesc(lvaThisLclNum);
@@ -1303,20 +1247,17 @@ void Compiler::phAddInternal()
         JITDUMPTREE(tree, "\nCopy \"this\" to lvaThisLclNum in first basic block %s\n", fgFirstBB->dspToString());
     }
 
-    // Merge return points if required or beneficial
-    MergedReturns merger(this);
-
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // Add the synchronized method enter/exit calls and try/finally protection. Note
     // that this must happen before the one BBJ_RETURN block is created below, so the
     // BBJ_RETURN block gets placed at the top-level, not within an EH region. (Otherwise,
     // we'd have to be really careful when creating the synchronized method try/finally
     // not to include the BBJ_RETURN block.)
-    if ((info.compFlags & CORINFO_FLG_SYNCH) != 0)
+    if (info.IsSynchronized())
     {
         fgAddSyncMethodEnterExit();
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     //  We will generate just one epilog (return block)
     //   when we are asked to generate enter/leave callbacks
@@ -1326,12 +1267,19 @@ void Compiler::phAddInternal()
 
     BasicBlock* lastBlockBeforeGenReturns = fgLastBB;
 
+    // Merge return points if required or beneficial
+    MergedReturns merger(this);
+
     if (opts.IsProfilerHookNeeded() || info.IsPInvokeFrameRequired() || opts.IsReversePInvoke() ||
         info.IsSynchronized())
     {
         // We will generate only one return block
         // We will transform the BBJ_RETURN blocks into jumps to the one return block
         merger.SetMaxReturns(1);
+
+        // TODO-MIKE-Review: This is dubious. In some cases it results in the addition
+        // of an unreachable return block - e.g. method with a single return block that
+        // is a tail call and PInvoke or profiler options.
 
         // Eagerly create the genReturnBB since the lowering of these constructs
         // will expect to find it.
@@ -1342,16 +1290,13 @@ void Compiler::phAddInternal()
     {
         bool stressMerging = compStressCompile(STRESS_MERGED_RETURNS, 50);
 
-        //
         // We are allowed to have multiple individual exits
         // However we can still decide to have a single return
-        //
+
         if ((compCodeOpt() == SMALL_CODE) || stressMerging)
         {
-            // Under stress or for Small_Code case we always
-            // generate a single return block when we have multiple
-            // return points
-            //
+            // Under stress or for small code case we always generate a
+            // single return block when we have multiple return points.
             merger.SetMaxReturns(1);
         }
         else
@@ -1364,7 +1309,7 @@ void Compiler::phAddInternal()
 
     for (BasicBlock* block = fgFirstBB; block != lastBlockBeforeGenReturns->bbNext; block = block->bbNext)
     {
-        if ((block->bbJumpKind == BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0))
+        if (block->KindIs(BBJ_RETURN) && ((block->bbFlags & BBF_HAS_JMP) == 0))
         {
             merger.Record(block);
         }
@@ -1403,15 +1348,13 @@ void Compiler::phAddInternal()
         }
     }
 
-#if !defined(FEATURE_EH_FUNCLETS)
+#ifndef FEATURE_EH_FUNCLETS
 
-    /* Is this a 'synchronized' method? */
-
-    if (info.compFlags & CORINFO_FLG_SYNCH)
+    if (info.IsSynchronized())
     {
-        GenTree* tree = NULL;
+        GenTree* tree = nullptr;
 
-        /* Insert the expression "enterCrit(this)" or "enterCrit(handle)" */
+        // Insert the expression "enterCrit(this)" or "enterCrit(handle)"
 
         if (info.compIsStatic)
         {
@@ -1480,69 +1423,52 @@ void Compiler::phAddInternal()
 #endif
 }
 
-/*****************************************************************************************************
- *
- *  Function to return the last basic block in the main part of the function. With funclets, it is
- *  the block immediately before the first funclet.
- *  An inclusive end of the main method.
- */
-
+// Function to return the last basic block in the main part of the function.
+// With funclets, it is the block immediately before the first funclet.
+// An inclusive end of the main method.
 BasicBlock* Compiler::fgLastBBInMainFunction()
 {
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     if (fgFirstFuncletBB != nullptr)
     {
         return fgFirstFuncletBB->bbPrev;
     }
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     assert(fgLastBB->bbNext == nullptr);
 
     return fgLastBB;
 }
 
-/*****************************************************************************************************
- *
- *  Function to return the first basic block after the main part of the function. With funclets, it is
- *  the block of the first funclet.  Otherwise it is NULL if there are no funclets (fgLastBB->bbNext).
- *  This is equivalent to fgLastBBInMainFunction()->bbNext
- *  An exclusive end of the main method.
- */
-
+// Function to return the first basic block after the main part of the function. With funclets, it is
+// the block of the first funclet.  Otherwise it is NULL if there are no funclets (fgLastBB->bbNext).
+// This is equivalent to fgLastBBInMainFunction()->bbNext
+// An exclusive end of the main method.
 BasicBlock* Compiler::fgEndBBAfterMainFunction()
 {
-#if defined(FEATURE_EH_FUNCLETS)
-
+#ifdef FEATURE_EH_FUNCLETS
     if (fgFirstFuncletBB != nullptr)
     {
         return fgFirstFuncletBB;
     }
-
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     assert(fgLastBB->bbNext == nullptr);
 
     return nullptr;
 }
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
 
-/*****************************************************************************
- * Introduce a new head block of the handler for the prolog to be put in, ahead
- * of the current handler head 'block'.
- * Note that this code has some similarities to fgCreateLoopPreHeader().
- */
-
+// Introduce a new head block of the handler for the prolog to be put in,
+// ahead of the current handler head 'block'.
+// Note that this code has some similarities to fgCreateLoopPreHeader().
 void Compiler::fgInsertFuncletPrologBlock(BasicBlock* block)
 {
     JITDUMP("\nCreating funclet prolog header for " FMT_BB "\n", block->bbNum);
 
     assert(block->hasHndIndex());
     assert(fgFirstBlockOfHandler(block) == block); // this block is the first block of a handler
-
-    /* Allocate a new basic block */
 
     BasicBlock* newHead = bbNewBasicBlock(BBJ_NONE);
     newHead->bbFlags |= BBF_INTERNAL;
@@ -1588,16 +1514,12 @@ void Compiler::fgInsertFuncletPrologBlock(BasicBlock* block)
     assert((newHead->bbFlags & BBF_INTERNAL) == BBF_INTERNAL);
 }
 
-/*****************************************************************************
- *
- * Every funclet will have a prolog. That prolog will be inserted as the first instructions
- * in the first block of the funclet. If the prolog is also the head block of a loop, we
- * would end up with the prolog instructions being executed more than once.
- * Check for this by searching the predecessor list for loops, and create a new prolog header
- * block when needed. We detect a loop by looking for any predecessor that isn't in the
- * handler's try region, since the only way to get into a handler is via that try region.
- */
-
+// Every funclet will have a prolog. That prolog will be inserted as the first instructions
+// in the first block of the funclet. If the prolog is also the head block of a loop, we
+// would end up with the prolog instructions being executed more than once.
+// Check for this by searching the predecessor list for loops, and create a new prolog header
+// block when needed. We detect a loop by looking for any predecessor that isn't in the
+// handler's try region, since the only way to get into a handler is via that try region.
 void Compiler::fgCreateFuncletPrologBlocks()
 {
     noway_assert(fgComputePredsDone);
@@ -1654,12 +1576,8 @@ void Compiler::fgCreateFuncletPrologBlocks()
     }
 }
 
-/*****************************************************************************
- *
- *  Function to relocate funclets.
- *  We only move filter and handler blocks, not try blocks.
- */
-
+// Function to relocate funclets.
+// We only move filter and handler blocks, not try blocks.
 void Compiler::phRelocateFunclets()
 {
     assert(!fgFuncletsCreated);
@@ -1765,7 +1683,7 @@ void Compiler::phDetermineFirstColdBlock()
     }
 #endif // DEBUG
 
-#if defined(FEATURE_EH_FUNCLETS)
+#ifdef FEATURE_EH_FUNCLETS
     // TODO-CQ: handle hot/cold splitting in functions with EH (including synchronized methods
     // that create EH in methods without explicit EH clauses).
 
@@ -1774,7 +1692,7 @@ void Compiler::phDetermineFirstColdBlock()
         JITDUMP("No procedure splitting will be done for this method with EH (implementation limitation)\n");
         return;
     }
-#endif // FEATURE_EH_FUNCLETS
+#endif
 
     BasicBlock* firstColdBlock       = nullptr;
     BasicBlock* prevToFirstColdBlock = nullptr;
@@ -1790,7 +1708,7 @@ void Compiler::phDetermineFirstColdBlock()
         {
             blockMustBeInHotSection = true;
         }
-#endif // HANDLER_ENTRY_MUST_BE_IN_HOT_SECTION
+#endif
 
         // Do we have a candidate for the first cold block?
         if (firstColdBlock != nullptr)
