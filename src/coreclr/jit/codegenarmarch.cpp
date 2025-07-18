@@ -1422,37 +1422,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode));
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode));
         argNode = argNode->gtSkipReloadOrCopy();
-
-        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
-        {
-            INDEBUG(unsigned regIndex = 0;)
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                GenTree* node = use.GetNode();
-
-                assert(node->gtSkipReloadOrCopy()->OperIs(GT_PUTARG_REG));
-
-#ifdef TARGET_ARM
-                if (node->TypeIs(TYP_LONG))
-                {
-                    UseRegs(node);
-
-                    assert(node->GetRegNum(0) == argInfo->GetRegNum(regIndex++));
-                    assert(node->GetRegNum(1) == argInfo->GetRegNum(regIndex++));
-
-                    continue;
-                }
-#endif
-
-                UseReg(node);
-
-                assert(node->GetRegNum() == argInfo->GetRegNum(regIndex++));
-            }
-
-            continue;
-        }
 
 #if FEATURE_ARG_SPLIT
         if (GenTreePutArgSplit* argSplit = argNode->IsPutArgSplit())
@@ -1485,8 +1456,8 @@ void CodeGen::GenCall(GenTreeCall* call)
         {
             UseRegs(argNode);
 
-            assert(argNode->GetRegNum(0) == argInfo->GetRegNum(0));
-            assert(argNode->GetRegNum(1) == argInfo->GetRegNum(1));
+            assert((argInfo == nullptr) || (argNode->GetRegNum(0) == argInfo->GetRegNum(0)));
+            assert((argInfo == nullptr) || (argNode->GetRegNum(1) == argInfo->GetRegNum(1)));
 
             continue;
         }
@@ -1494,8 +1465,8 @@ void CodeGen::GenCall(GenTreeCall* call)
 
         UseReg(argNode);
 
-        assert(argInfo->GetRegCount() == 1);
-        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+        assert((argInfo == nullptr) || (argInfo->GetRegCount() == 1));
+        assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
     }
 
     if (call->HasNullCheck())

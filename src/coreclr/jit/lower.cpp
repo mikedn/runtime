@@ -1529,7 +1529,7 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 #endif
 
-    call->RemoveStackUses();
+    RemoveNonRegCallArgs(call);
 
     if (varTypeIsStruct(call->GetType()))
     {
@@ -1542,6 +1542,41 @@ void Lowering::LowerCall(GenTreeCall* call)
 
     JITDUMPLIRRANGE(BlockRange(), call, "Lowering CALL (after):\n");
     JITDUMP("\n");
+}
+
+void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
+{
+    GenTreeCall::Use** prevUseLink = &call->m_uses;
+
+    for (GenTreeCall::Use& use : call->Uses())
+    {
+        GenTree* node = use.GetNode();
+
+        if (node->OperIs(GT_PUTARG_STK))
+        {
+            continue;
+        }
+
+        if (GenTreeFieldList* list = node->IsFieldList())
+        {
+            BlockRange().Unlink(list);
+
+            for (GenTreeFieldList::Use *nextField, *field = list->Uses().GetHead(); field != nullptr; field = nextField)
+            {
+                nextField                = field->GetNext();
+                GenTreeCall::Use* newUse = new (field) GenTreeCall::Use(field->GetNode(), use.GetNext());
+                *prevUseLink             = newUse;
+                prevUseLink              = &newUse->NextRef();
+            }
+
+            continue;
+        }
+
+        *prevUseLink = &use;
+        prevUseLink  = &use.NextRef();
+    }
+
+    *prevUseLink = nullptr;
 }
 
 #if FEATURE_FASTTAILCALL

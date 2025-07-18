@@ -697,35 +697,9 @@ void LinearScan::BuildCall(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
-
-        {
-            assert(argInfo->GetRegCount() == 0);
-            assert(!argNode->isContained());
-
-            continue;
-        }
-
-#ifdef UNIX_AMD64_ABI
-        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
-        {
-            assert(argNode->isContained());
-
-            unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
-
-                BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-                regIndex++;
-            }
-
-            continue;
-        }
-#endif
-
         assert(argNode->OperIs(GT_PUTARG_REG));
-        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
+        assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
 
         BuildUse(argNode, genRegMask(argNode->GetRegNum()));
     }

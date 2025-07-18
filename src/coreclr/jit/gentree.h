@@ -4088,12 +4088,12 @@ public:
     }
 
     void RemoveSetupUses();
-    void RemoveStackUses();
 
     GenTree* GetFirstArg() const;
     GenTree* GetSecondArg() const;
     GenTree* GetArgNodeByArgNum(unsigned argNum) const;
     CallArgInfo* GetArgInfoByArgNum(unsigned argNum) const;
+    CallArgInfo* TryGetArgInfoByArgNode(GenTree* node) const;
     CallArgInfo* GetArgInfoByArgNode(GenTree* node) const;
 
     void SetCallConv(CorInfoCallConvExtension callConv)

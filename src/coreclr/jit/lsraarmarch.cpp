@@ -127,31 +127,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
-
-        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
-        {
-            assert(argNode->isContained());
-
-            unsigned regIndex = 0;
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                assert(use.GetNode()->GetRegNum() == argInfo->GetRegNum(regIndex));
-
-                BuildUse(use.GetNode(), genRegMask(use.GetNode()->GetRegNum()));
-                regIndex++;
-
-#ifdef TARGET_ARM
-                if (use.GetNode()->TypeIs(TYP_LONG))
-                {
-                    BuildUse(use.GetNode(), genRegMask(REG_NEXT(use.GetNode()->GetRegNum())), 1);
-                    regIndex++;
-                }
-#endif
-            }
-
-            continue;
-        }
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
 
 #if FEATURE_ARG_SPLIT
         if (argNode->OperIs(GT_PUTARG_SPLIT))
@@ -170,7 +146,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
 #endif
 
         assert(argNode->OperIs(GT_PUTARG_REG));
-        assert(argNode->GetRegNum() == argInfo->GetRegNum());
+        assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
 
 #ifdef TARGET_ARM
         if (argNode->TypeIs(TYP_LONG))

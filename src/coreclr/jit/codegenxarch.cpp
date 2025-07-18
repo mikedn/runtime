@@ -4167,28 +4167,10 @@ void CodeGen::GenCall(GenTreeCall* call)
     for (GenTreeUse& use : call->Uses())
     {
         GenTree* argNode = use.GetNode();
+        RegNum   argReg  = UseReg(argNode);
 
-        INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy()));
-
-#ifdef UNIX_AMD64_ABI
-        if (GenTreeFieldList* fieldList = argNode->IsFieldList())
-        {
-            INDEBUG(unsigned regIndex = 0;)
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                GenTree* node = use.GetNode();
-                assert(node->gtSkipReloadOrCopy()->OperIs(GT_PUTARG_REG));
-                UseReg(node);
-                assert(node->GetRegNum() == argInfo->GetRegNum(regIndex++));
-            }
-
-            continue;
-        }
-#endif // UNIX_AMD64_ABI
-
-        RegNum argReg = UseReg(argNode);
-
-        assert(argReg == argInfo->GetRegNum());
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode->gtSkipReloadOrCopy()));
+        assert((argInfo == nullptr) || (argReg == argInfo->GetRegNum()));
 
 #ifdef WINDOWS_AMD64_ABI
         if (call->IsVarargs() && varTypeIsFloating(argNode->GetType()))

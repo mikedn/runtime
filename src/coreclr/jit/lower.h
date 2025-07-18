@@ -111,6 +111,7 @@ private:
 #ifdef TARGET_X86
     void LowerTailCallViaJitHelper(GenTreeCall* call);
 #endif
+    void RemoveNonRegCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL
     void LowerFastTailCall(GenTreeCall* call);
     void InsertProfTailCallHook(GenTreeCall* call, GenTree* startNonGCNode);

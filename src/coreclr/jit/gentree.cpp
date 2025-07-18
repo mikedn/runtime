@@ -3927,7 +3927,7 @@ GenTree* GenTreeCall::GetArgNodeByArgNum(unsigned argNum) const
     return GetArgInfoByArgNum(argNum)->GetNode();
 }
 
-CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
+CallArgInfo* GenTreeCall::TryGetArgInfoByArgNode(GenTree* node) const
 {
     noway_assert(fgArgInfo != nullptr);
 
@@ -3949,7 +3949,14 @@ CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
         }
     }
 
-    unreached();
+    return nullptr;
+}
+
+CallArgInfo* GenTreeCall::GetArgInfoByArgNode(GenTree* node) const
+{
+    CallArgInfo* argInfo = TryGetArgInfoByArgNode(node);
+    noway_assert(argInfo != nullptr);
+    return argInfo;
 }
 
 void GenTreeCall::RemoveSetupUses()
@@ -3965,22 +3972,6 @@ void GenTreeCall::RemoveSetupUses()
         assert(!use.GetNode()->OperIs(GT_COMMA));
 
         if (!use.GetNode()->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD))
-        {
-            *prevUseLink = &use;
-            prevUseLink  = &use.NextRef();
-        }
-    }
-
-    *prevUseLink = nullptr;
-}
-
-void GenTreeCall::RemoveStackUses()
-{
-    GenTreeCall::Use** prevUseLink = &m_uses;
-
-    for (GenTreeCall::Use& use : Uses())
-    {
-        if (!use.GetNode()->IsPutArgStk())
         {
             *prevUseLink = &use;
             prevUseLink  = &use.NextRef();
@@ -7003,7 +6994,18 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, unsigned argNum,
 
 void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, char* buf, unsigned bufLength)
 {
-    CallArgInfo* argInfo = call->GetArgInfoByArgNode(arg);
+    CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(arg);
+
+    if (argInfo == nullptr)
+    {
+        assert(arg->OperIs(GT_PUTARG_REG));
+
+        int len = sprintf_s(buf, bufLength, "field %s", getRegName(arg->GetRegNum()));
+        buf += len;
+        bufLength -= len;
+
+        return;
+    }
 
     if (argInfo->GetUse() == call->HasThisArg())
     {
