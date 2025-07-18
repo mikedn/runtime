@@ -1525,8 +1525,6 @@ void Lowering::LowerCall(GenTreeCall* call)
         // This involves patching LCL_* nodes holding caller stack args and replacing them
         // with a new temp. Control expr also can contain nodes that need to be patched.
         // Therefore lower fast tail call must be done after controlExpr is inserted into LIR.
-        // There is one side effect which is flipping the order of PME and control expression
-        // since LowerFastTailCall calls InsertPInvokeMethodEpilog.
         LowerFastTailCall(call);
     }
 #endif
@@ -1544,53 +1542,21 @@ void Lowering::LowerCall(GenTreeCall* call)
     JITDUMP("\n");
 }
 
-// Inserts profiler hook, GT_PROF_HOOK for a tail call node.
-//
-// AMD64:
-// We need to insert this after all nested calls, but before all the arguments to this call have been set up.
-// To do this, we look for the first GT_PUTARG_STK or GT_PUTARG_REG, and insert the hook immediately before
-// that. If there are no args, then it should be inserted before the call node.
-//
-// X86:
-// Insert the profiler hook immediately before the call. The profiler hook will preserve
-// all argument registers (ECX, EDX), but nothing else.
-//
-void Lowering::InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCall* call))
-{
-    assert(call->IsTailCall());
-    assert(insertionPoint != nullptr);
-    assert(comp->opts.IsProfilerHookNeeded());
-#ifdef TARGET_X86
-    assert(call == insertionPoint);
-#endif
-
-    GenTree* profHookNode = new (comp, GT_PROF_HOOK) GenTree(GT_PROF_HOOK, TYP_VOID);
-    BlockRange().InsertBefore(insertionPoint, profHookNode);
-}
-
 #if FEATURE_FASTTAILCALL
-//------------------------------------------------------------------------
-// LowerFastTailCall: Lower a call node dispatched as a fast tailcall (epilog +
-// jmp).
+
+// Lower a call node dispatched as a fast tail call (epilog + jmp).
 //
-// Arguments:
-//    call - the call node that is being dispatched as a fast tailcall.
+// For fast tail calls it is necessary to set up stack args in the incoming
+// arg stack space area. When args passed also come from this area we may
+// run into problems because we may end up overwriting the stack slot before
+// using it. For example, for foo(a, b) { return bar(b, a); }, if a and b
+// are on incoming arg stack space in foo they need to be swapped in this
+// area for the call to bar. This function detects this situation and
+// introduces a temp when an outgoing argument would overwrite a later-used
+// incoming argument.
 //
-// Assumptions:
-//    call must be non-null.
-//
-// Notes:
-//     For fast tail calls it is necessary to set up stack args in the incoming
-//     arg stack space area. When args passed also come from this area we may
-//     run into problems because we may end up overwriting the stack slot before
-//     using it. For example, for foo(a, b) { return bar(b, a); }, if a and b
-//     are on incoming arg stack space in foo they need to be swapped in this
-//     area for the call to bar. This function detects this situation and
-//     introduces a temp when an outgoing argument would overwrite a later-used
-//     incoming argument.
-//
-//     This function also handles inserting necessary profiler hooks and pinvoke
-//     method epilogs in case there are inlined pinvokes.
+// This function also handles inserting necessary profiler hooks and PInvoke
+// method epilogs in case there are inlined PInvokes.
 void Lowering::LowerFastTailCall(GenTreeCall* call)
 {
     assert(call->IsFastTailCall());
@@ -1599,8 +1565,8 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // Most of these checks are already done by importer or fgMorphTailCall().
     // This serves as a double sanity check.
     assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0); // tail calls from synchronized methods
-    assert(!comp->opts.IsReversePInvoke());                  // tail calls reverse pinvoke
-    assert(!call->IsUnmanaged());                            // tail calls to unamanaged methods
+    assert(!comp->opts.IsReversePInvoke());                  // tail calls reverse PInvoke
+    assert(!call->IsUnmanaged());                            // tail calls to unmanaged methods
     assert(!comp->compLocallocUsed);                         // tail call from methods that also do localloc
 
 #ifdef TARGET_AMD64
@@ -1622,18 +1588,18 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // assert(m_block->HasGCSafePoint() ||
     //        !comp->fgReachWithoutCall(comp->fgFirstBB, m_block) || comp->GetInterruptible());
 
-    // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere that
-    // a method returns.  This is a case of caller method has both PInvokes and tail calls.
+    // If PInvokes are in-lined, we have to remember to execute PInvoke method epilog anywhere
+    // that a method returns. This is a case of caller method has both PInvokes and tail calls.
     if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodEpilog(INDEBUG(call));
     }
 
-    // Args for tail call are setup in incoming arg area.  The gc-ness of args of
-    // caller and callee (which being tail called) may not match.  Therefore, everything
+    // Args for tail call are setup in incoming arg area. The GC-ness of args of
+    // caller and callee (which being tail called) may not match. Therefore, everything
     // from arg setup until the epilog need to be non-interruptible by GC. This is
     // achieved by inserting GT_START_NONGC before the very first GT_PUTARG_STK node
-    // of call is setup.  Note that once a stack arg is setup, it cannot have nested
+    // of call is setup. Note that once a stack arg is setup, it cannot have nested
     // calls subsequently in execution order to setup other args, because the nested
     // call could over-write the stack arg that is setup earlier.
     ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
@@ -1659,16 +1625,16 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         startNonGCNode = new (comp, GT_START_NONGC) GenTree(GT_START_NONGC, TYP_VOID);
         BlockRange().InsertBefore(insertionPoint, startNonGCNode);
 
-        // Gc-interruptability in the following case:
+        // GC-interruptability in the following case:
         //     foo(a, b, c, d, e) { bar(a, b, c, d, e); }
         //     bar(a, b, c, d, e) { foo(a, b, d, d, e); }
         //
         // Since the instruction group starting from the instruction that sets up first
-        // stack arg to the end of the tail call is marked as non-gc interruptible,
-        // this will form a non-interruptible tight loop causing gc-starvation. To fix
-        // this we insert GT_NO_OP as embedded stmt before GT_START_NONGC, if the method
-        // has a single basic block and is not a GC-safe point.  The presence of a single
-        // nop outside non-gc interruptible region will prevent gc starvation.
+        // stack arg to the end of the tail call is marked as GC non-interruptible, this
+        // will form a non-interruptible tight loop causing GC-starvation. To fix this
+        // we insert GT_NO_OP as embedded stmt before GT_START_NONGC, if the method has
+        // a single basic block and is not a GC-safe point. The presence of a single NOP
+        // outside GC non-interruptible region will prevent GC starvation.
         if ((comp->fgBBcount == 1) && !m_block->HasGCSafePoint())
         {
             assert(comp->fgFirstBB == m_block);
@@ -1676,17 +1642,17 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
             BlockRange().InsertBefore(startNonGCNode, noOp);
         }
 
-        // Since this is a fast tailcall each PUTARG_STK will place the argument in the
+        // Since this is a fast tail call each PUTARG_STK will place the argument in the
         // _incoming_ arg space area. This will effectively overwrite our already existing
         // incoming args that live in that area. If we have later uses of those args, this
         // is a problem. We introduce a defensive copy into a temp here of those args that
         // potentially may cause problems.
         for (unsigned i = 0; i < putargs.Size(); i++)
         {
-            GenTreePutArgStk* put = putargs.Get(i);
+            GenTreePutArgStk* arg = putargs.Get(i);
 
-            unsigned argStartOffset = put->GetOffset();
-            unsigned argEndOffset   = argStartOffset + put->GetSize();
+            unsigned argStartOffset = arg->GetOffset();
+            unsigned argEndOffset   = argStartOffset + arg->GetSize();
 
             for (LclVarDsc* paramLcl : comp->Params())
             {
@@ -1710,16 +1676,15 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
                     continue;
                 }
 
-                // Codegen cannot handle a partially overlapping copy. For
-                // example, if we have
+                // Codegen cannot handle a partially overlapping copy. For example, if we have
                 // bar(S16 stack, S32 stack2)
                 // foo(S32 stack, S32 stack2) { bar(..., stack) }
-                // then we may end up having to move 'stack' in foo 16 bytes
-                // ahead. It is possible that this PUTARG_STK is the only use,
-                // in which case we will need to introduce a temp, so look for
-                // uses starting from it. Note that we assume that in-place
+                // then we may end up having to move 'stack' in foo 16 bytes ahead. It is possible
+                // that this PUTARG_STK is the only use, in which case we will need to introduce
+                // a temp, so look for uses starting from it. Note that we assume that in-place
                 // copies are OK.
-                GenTree* lookForUsesFrom = put->gtNext;
+                GenTree* lookForUsesFrom = arg->gtNext;
+
                 if (argStartOffset != paramStartOffset)
                 {
                     lookForUsesFrom = insertionPoint;
@@ -1738,40 +1703,41 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         }
     }
 
-    // Insert PROF_HOOK node to emit profiler tail call hook. This should be
-    // inserted before the args are setup but after the side effects of args
-    // are computed. That is, PROF_HOOK node needs to be inserted before
-    // the START_NONGC node if we added one.
     if (comp->opts.IsProfilerHookNeeded())
     {
-        GenTree* insertionPoint = startNonGCNode;
+        InsertProfTailCallHook(call, startNonGCNode);
+    }
+}
 
-        if (insertionPoint == nullptr)
+void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* startNonGCNode)
+{
+    assert(comp->opts.IsProfilerHookNeeded());
+    assert(call->IsFastTailCall());
+
+    GenTree* insertionPoint = startNonGCNode;
+
+    if (insertionPoint == nullptr)
+    {
+        for (GenTreeUse& use : call->Uses())
         {
-            for (GenTreeUse& use : call->Uses())
-            {
-                // TODO-MIKE-Review: What about PUTARG_SPLIT? Likely doesn't happen
-                // because ARM32 doesn't support fast tail calls and ARM64 only uses
-                // PUTARG_SPLIT for varargs on Windows, which probably also does not
-                // support fast tail calls.
+            // win-arm64 doesn't support varargs fast tail calls and arm doesn't support fast tail calls at all.
+            assert(!use.GetNode()->OperIsPutArgSplit());
 
-                if (use.GetNode()->OperIs(GT_PUTARG_REG))
-                {
-                    insertionPoint = use.GetNode();
-                    break;
-                }
-            }
-
-            if (insertionPoint == nullptr)
+            if (use.GetNode()->OperIs(GT_PUTARG_REG))
             {
-                insertionPoint = call;
+                insertionPoint = use.GetNode();
+                break;
             }
         }
 
-        InsertProfTailCallHook(insertionPoint DEBUGARG(call));
+        if (insertionPoint == nullptr)
+        {
+            insertionPoint = call;
+        }
     }
+
+    BlockRange().InsertBefore(insertionPoint, new (comp, GT_PROF_HOOK) GenTree(GT_PROF_HOOK, TYP_VOID));
 }
-#endif // FEATURE_FASTTAILCALL
 
 // Scan the range of nodes [rangeStart, rangeEnd) and update all references
 // to the specified local to use a new temp instead. The temp is initialized
@@ -1859,6 +1825,8 @@ void Lowering::RehomeParamForFastTailCall(LclVarDsc* paramLcl,
         node->AsLclRef()->SetLcl(tmpLcl);
     }
 }
+
+#endif // FEATURE_FASTTAILCALL
 
 #ifndef TARGET_64BIT
 // Decomposes a LONG compare node.
@@ -2449,45 +2417,41 @@ void Lowering::LowerStructCall(GenTreeCall* call)
         return;
     }
 
+    LIR::Use callUse;
+    if (!BlockRange().TryGetUse(call, &callUse))
+    {
+        return;
+    }
+
+    GenTree*  user    = callUse.User();
     var_types regType = call->GetRegType(0);
 
-    LIR::Use callUse;
-    if (BlockRange().TryGetUse(call, &callUse))
+    switch (user->GetOper())
     {
-        GenTree* user = callUse.User();
+        case GT_RETURN:
+            call->SetType(varActualType(regType));
+            break;
 
-        switch (user->GetOper())
-        {
-            case GT_RETURN:
-                call->SetType(varActualType(regType));
-                break;
+        case GT_LCL_STORE:
+        case GT_LCL_STORE_FLD:
+        case GT_IND_STORE_OBJ:
+            // Leave as is, the user will handle it.
+            assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
+            break;
 
-            case GT_LCL_STORE:
-            case GT_LCL_STORE_FLD:
-            case GT_IND_STORE_OBJ:
-                // Leave as is, the user will handle it.
-                assert(user->TypeIs(call->GetType()) || varTypeIsSIMD(user->GetType()));
-                break;
+        case GT_IND_STORE:
+            call->SetType(varActualType(regType));
 
-            case GT_IND_STORE:
-                call->SetType(varActualType(regType));
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(user->GetType()))
-                {
-                    user->SetType(regType);
-                    break;
-                }
-#endif // FEATURE_SIMD
-                // importer has a separate mechanism to retype calls to helpers,
-                // keep it for now.
+            if (!varTypeIsSIMD(user->GetType()))
+            {
                 assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
                 assert(call->IsHelperCall());
                 assert(regType == user->GetType());
-                break;
+            }
+            break;
 
-            default:
-                unreached();
-        }
+        default:
+            unreached();
     }
 }
 
@@ -3072,30 +3036,18 @@ void Lowering::InsertPInvokeMethodProlog()
 #endif
 
 #ifdef TARGET_64BIT
-    // On 32-bit targets, CORINFO_HELP_INIT_PINVOKE_FRAME initializes the PInvoke frame and then pushes it onto
-    // the current thread's Frame stack. On 64-bit targets, it only initializes the PInvoke frame.
+    // On 32-bit targets, CORINFO_HELP_INIT_PINVOKE_FRAME initializes the PInvoke frame and then pushes it
+    // onto the current thread's Frame stack. On 64-bit targets, it only initializes the PInvoke frame.
     if (comp->opts.IsJitFlagSet(JitFlags::JIT_FLAG_IL_STUB))
     {
         // Push a frame - if we are NOT in an IL stub, this is done right before the call
-        // The init routine sets InlinedCallFrame's m_pNext, so we just set the thead's top-of-stack
+        // The init routine sets InlinedCallFrame's m_pNext, so we just set the thread's top-of-stack
         InsertFrameLinkUpdate(firstBlockRange, insertionPoint, PushFrame);
     }
 #endif
 }
 
-//------------------------------------------------------------------------
-// InsertPInvokeMethodEpilog: Code that needs to be run when exiting any method
-// that has PInvoke inlines. This needs to be inserted any place you can exit the
-// function: returns, tailcalls and jmps.
-//
-// Arguments:
-//    returnBB   -  basic block from which a method can return
-//    lastExpr   -  GenTree of the last top level stmnt of returnBB (debug only arg)
-//
-// Return Value:
-//    Code tree to perform the action.
-//
-void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
+void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastNode))
 {
     assert(comp->info.compUnmanagedCallCountWithGCTransition);
 
@@ -3111,24 +3063,10 @@ void Lowering::InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr))
            m_block->EndsWithTailCall(comp));
 
     GenTree* insertionPoint = BlockRange().LastNode();
-    assert(insertionPoint == lastExpr);
+    assert(insertionPoint == lastNode);
 
-    // Note: PInvoke Method Epilog (PME) needs to be inserted just before GT_RETURN, GT_JMP or GT_CALL node in execution
-    // order so that it is guaranteed that there will be no further PInvokes after that point in the method.
-    //
-    // Example1: GT_RETURN(op1) - say execution order is: Op1, GT_RETURN.  After inserting PME, execution order would be
-    //           Op1, PME, GT_RETURN
-    //
-    // Example2: GT_CALL(arg side effect computing nodes, Stk Args Setup, Reg Args setup). The execution order would be
-    //           arg side effect computing nodes, Stk Args setup, Reg Args setup, GT_CALL
-    //           After inserting PME execution order would be:
-    //           arg side effect computing nodes, Stk Args setup, Reg Args setup, PME, GT_CALL
-    //
-    // Example3: GT_JMP.  After inserting PME execution order would be: PME, GT_JMP
-    //           That is after PME, args for GT_JMP call will be setup.
-
-    // Pop the frame if necessary. This always happens in the epilog on 32-bit targets. For 64-bit targets, we only do
-    // this in the epilog for IL stubs; for non-IL stubs the frame is popped after every PInvoke call.
+    // Pop the frame if necessary. This always happens in the epilog on 32-bit targets. For 64-bit targets, we
+    // only do this in the epilog for IL stubs; for non-IL stubs the frame is popped after every PInvoke call.
     CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifdef TARGET_64BIT

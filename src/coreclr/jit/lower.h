@@ -112,13 +112,13 @@ private:
     void LowerTailCallViaJitHelper(GenTreeCall* call);
 #endif
 #if FEATURE_FASTTAILCALL
-    void LowerFastTailCall(GenTreeCall* callNode);
-#endif
+    void LowerFastTailCall(GenTreeCall* call);
+    void InsertProfTailCallHook(GenTreeCall* call, GenTree* startNonGCNode);
     void RehomeParamForFastTailCall(LclVarDsc* paramLcl,
                                     GenTree*   insertTempBefore,
                                     GenTree*   rangeStart,
                                     GenTree*   rangeEnd);
-    void InsertProfTailCallHook(GenTree* insertionPoint DEBUGARG(GenTreeCall* call));
+#endif
     GenTree* LowerVirtualVtableCall(GenTreeCall* call);
     GenTree* LowerIndirectVirtualStubCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
@@ -134,7 +134,7 @@ private:
     void InsertUnmanagedCallProlog(GenTreeCall* call);
     void InsertUnmanagedCallEpilog(GenTreeCall* call);
     void InsertPInvokeMethodProlog();
-    void InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastExpr));
+    void InsertPInvokeMethodEpilog(INDEBUG(GenTree* lastNode));
     void InsertSetGCState(GenTree* before, int cns);
     void InsertReturnTrap(GenTree* before);
     enum FrameLinkAction

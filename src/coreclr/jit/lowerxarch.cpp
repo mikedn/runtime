@@ -623,12 +623,10 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 
     call->SetCallAddr(LowerDirectCall(call));
 
-#ifdef PROFILING_SUPPORTED
     if (comp->opts.IsProfilerHookNeeded())
     {
-        InsertProfTailCallHook(call DEBUGARG(call));
+        BlockRange().InsertBefore(call, new (comp, GT_PROF_HOOK) GenTree(GT_PROF_HOOK, TYP_VOID));
     }
-#endif
 }
 #endif // TARGET_X86
 
