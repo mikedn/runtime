@@ -676,13 +676,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
         {
             GenTree* argNode = use.GetNode();
 
-            if (argNode->OperIs(GT_PUTARG_REG))
-            {
-                varargsHasFloatRegArgs |= HandleFloatVarArgs(call, argNode);
-
-                continue;
-            }
-
             if (GenTreeFieldList* fieldList = argNode->IsFieldList())
             {
                 for (GenTreeFieldList::Use& use : fieldList->Uses())
@@ -692,6 +685,10 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
                 continue;
             }
+
+            assert(argNode->OperIs(GT_PUTARG_REG));
+
+            varargsHasFloatRegArgs |= HandleFloatVarArgs(call, argNode);
         }
     }
 #endif // WINDOWS_AMD64_ABI
@@ -702,7 +699,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
         INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 
-        if (argNode->OperIs(GT_PUTARG_STK))
         {
             assert(argInfo->GetRegCount() == 0);
             assert(!argNode->isContained());

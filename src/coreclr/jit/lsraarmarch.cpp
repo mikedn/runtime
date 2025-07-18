@@ -129,14 +129,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
         INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode);)
 
-        if (argNode->OperIs(GT_PUTARG_STK))
-        {
-            assert(argInfo->GetRegCount() == 0);
-            assert(!argNode->isContained());
-
-            continue;
-        }
-
         if (GenTreeFieldList* fieldList = argNode->IsFieldList())
         {
             assert(argNode->isContained());

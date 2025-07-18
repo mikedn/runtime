@@ -4168,11 +4168,6 @@ void CodeGen::GenCall(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        if (argNode->OperIs(GT_PUTARG_STK))
-        {
-            continue;
-        }
-
         INDEBUG(CallArgInfo* argInfo = call->GetArgInfoByArgNode(argNode->gtSkipReloadOrCopy()));
 
 #ifdef UNIX_AMD64_ABI

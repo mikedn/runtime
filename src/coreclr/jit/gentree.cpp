@@ -3974,6 +3974,22 @@ void GenTreeCall::RemoveSetupUses()
     *prevUseLink = nullptr;
 }
 
+void GenTreeCall::RemoveStackUses()
+{
+    GenTreeCall::Use** prevUseLink = &m_uses;
+
+    for (GenTreeCall::Use& use : Uses())
+    {
+        if (!use.GetNode()->IsPutArgStk())
+        {
+            *prevUseLink = &use;
+            prevUseLink  = &use.NextRef();
+        }
+    }
+
+    *prevUseLink = nullptr;
+}
+
 GenTreeIndir* Compiler::gtNewIndexLoad(var_types type, GenTreeIndexAddr* indexAddr)
 {
     GenTreeIndir* indir;

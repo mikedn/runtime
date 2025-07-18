@@ -4088,6 +4088,7 @@ public:
     }
 
     void RemoveSetupUses();
+    void RemoveStackUses();
 
     GenTree* GetFirstArg() const;
     GenTree* GetSecondArg() const;

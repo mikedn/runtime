@@ -1529,6 +1529,8 @@ void Lowering::LowerCall(GenTreeCall* call)
     }
 #endif
 
+    call->RemoveStackUses();
+
     if (varTypeIsStruct(call->GetType()))
     {
         LowerStructCall(call);
