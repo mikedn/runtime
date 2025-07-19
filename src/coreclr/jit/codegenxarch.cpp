@@ -2322,18 +2322,18 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             if (addrMode->HasBase())
             {
-                dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+                dstAddrBaseReg = UseReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                dstAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                dstAddrIndexReg   = UseReg(addrMode->GetIndex());
                 dstAddrIndexScale = addrMode->GetScale();
             }
 
@@ -2552,18 +2552,18 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
         if (!srcAddr->isContained())
         {
-            srcAddrBaseReg = genConsumeReg(srcAddr);
+            srcAddrBaseReg = UseReg(srcAddr);
         }
         else if (GenTreeAddrMode* addrMode = srcAddr->IsAddrMode())
         {
             if (addrMode->HasBase())
             {
-                srcAddrBaseReg = genConsumeReg(addrMode->GetBase());
+                srcAddrBaseReg = UseReg(addrMode->GetBase());
             }
 
             if (addrMode->HasIndex())
             {
-                srcAddrIndexReg   = genConsumeReg(addrMode->GetIndex());
+                srcAddrIndexReg   = UseReg(addrMode->GetIndex());
                 srcAddrIndexScale = addrMode->GetScale();
             }
 
@@ -2720,7 +2720,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
     for (unsigned i = 0; i < regCount; i++)
     {
-        regs[i] = regCount == 1 ? genConsumeReg(call) : UseReg(call, i);
+        regs[i] = regCount == 1 ? UseReg(call) : UseReg(call, i);
 
         var_types regType = call->GetRegType(i);
         unsigned  regSize = varTypeSize(regType);
@@ -3399,7 +3399,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
             {
                 GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
                 var_types bitCastSrcType = bitCastSrc->GetType();
-                regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
+                regNumber bitCastSrcReg  = UseReg(bitCastSrc);
 
                 ins = ins_Store(bitCastSrcType, isAligned);
 
@@ -3449,7 +3449,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         {
             GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
             var_types bitCastSrcType = bitCastSrc->GetType();
-            regNumber bitCastSrcReg  = genConsumeReg(bitCastSrc);
+            regNumber bitCastSrcReg  = UseReg(bitCastSrc);
 
             inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
         }
@@ -3654,7 +3654,7 @@ void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
         return;
     }
 
-    regNumber srcReg = genConsumeReg(src);
+    RegNum srcReg = UseReg(src);
 
     if (isShift)
     {
@@ -4417,7 +4417,7 @@ void CodeGen::GenCall(GenTreeCall* call)
             // TODO-MIKE-Review: It looks like LSRA is out of sync with codegen here,
             // it doesn't know about this spill and thinks that whatever register it
             // allocated to the call is in use, when in fact it will only be in use
-            // when the user calls genConsumeReg.
+            // when the user calls UseReg.
             SpillST0(call);
         }
         else
@@ -4837,7 +4837,7 @@ void CodeGen::GenFloatCompare(GenTreeOp* cmp)
     }
 
     inst_SETCC(condition, cmp->GetType(), cmp->GetRegNum());
-    genProduceReg(cmp);
+    DefReg(cmp);
 }
 
 void CodeGen::GenIntCompare(GenTreeOp* cmp)
@@ -5604,7 +5604,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
         inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
 
-    genProduceReg(bitcast);
+    DefReg(bitcast);
 }
 
 #ifdef TARGET_X86
@@ -6201,7 +6201,7 @@ void CodeGen::GenPutArgReg(GenTreeUnOp* putArg)
     assert(putArg->OperIs(GT_PUTARG_REG));
 
     GenTree*  src    = putArg->GetOp(0);
-    RegNum    srcReg = genConsumeReg(src);
+    RegNum    srcReg = UseReg(src);
     var_types type   = putArg->GetType();
     RegNum    argReg = putArg->GetRegNum();
 
@@ -7153,18 +7153,18 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
 
         if (addr->isUsedFromReg())
         {
-            m_base = codeGen->genConsumeReg(addr);
+            m_base = codeGen->UseReg(addr);
         }
         else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
             if (addrMode->GetBase() != nullptr)
             {
-                m_base = codeGen->genConsumeReg(addrMode->GetBase());
+                m_base = codeGen->UseReg(addrMode->GetBase());
             }
 
             if (addrMode->GetIndex() != nullptr)
             {
-                m_index = codeGen->genConsumeReg(addrMode->GetIndex());
+                m_index = codeGen->UseReg(addrMode->GetIndex());
                 m_scale = static_cast<uint8_t>(addrMode->GetScale());
             }
 
@@ -7228,7 +7228,7 @@ void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber 
         return;
     }
 
-    RegNum valueReg = genConsumeReg(value);
+    RegNum valueReg = UseReg(value);
 
     inst_AM_R(INS_movsd, EA_8BYTE, valueReg, dst, 0);
 

@@ -617,7 +617,6 @@ private:
     X86_ONLY(void SpillST0(GenTree* node);)
     void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
     X86_ONLY(void UnspillST0(GenTree* node);)
-    void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
     void DefLclVarReg(GenTreeLclVar* lclVar);
 #if TARGET_ARM
@@ -636,7 +635,6 @@ private:
     RegNum UseReg(GenTree* node);
     RegNum UseRegCandidateLclLoad(GenTreeLclLoad* node);
     void UseRegs(GenTree* node);
-    RegNum genConsumeReg(GenTree* node);
     RegNum UseReg(GenTree* node, unsigned regIndex);
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);

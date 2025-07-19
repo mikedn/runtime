@@ -3614,7 +3614,7 @@ void CodeGen::GenVectorUpperSpill(GenTreeUnOp* node)
     GenTree* op1 = node->GetOp(0);
     assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
-    RegNum srcReg = genConsumeReg(op1);
+    RegNum srcReg = UseReg(op1);
     assert(srcReg != REG_NA);
     RegNum dstReg = node->GetRegNum();
     assert(dstReg != REG_NA);
@@ -3647,7 +3647,7 @@ void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
 
     regNumber srcReg = node->GetRegNum();
     assert(srcReg != REG_NA);
-    regNumber dstReg = genConsumeReg(op1);
+    regNumber dstReg = UseReg(op1);
     assert(dstReg != REG_NA);
 
     if (node->IsRegSpilled(0))
@@ -8718,13 +8718,13 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
 
         if (addr->isUsedFromReg())
         {
-            m_base = codeGen->genConsumeReg(addr);
+            m_base = codeGen->UseReg(addr);
         }
         else if (GenTreeAddrMode* addrMode = addr->IsAddrMode())
         {
             if (GenTree* base = addrMode->GetBase())
             {
-                m_base = codeGen->genConsumeReg(base);
+                m_base = codeGen->UseReg(base);
             }
 
             // ARM does have indexed address modes but this code is used currently

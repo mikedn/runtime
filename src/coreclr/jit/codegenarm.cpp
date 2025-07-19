@@ -1238,7 +1238,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         RegNum srcReg = src->GetRegNum();
 
         unsigned dstOffset = 0;
-        unsigned stackSize = putArg->GetSize() - putArg->GetRegCount() * REGSIZE_BYTES;
+        unsigned stackSize = putArg->GetSlotCount() * REGSIZE_BYTES;
 
         for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
         {
@@ -1471,9 +1471,9 @@ void CodeGen::GenCkfinite(GenTree* node)
 
     Emitter&  emit   = *GetEmitter();
     var_types type   = node->GetType();
-    regNumber intReg = node->GetSingleTempReg();
-    regNumber fpReg  = UseReg(node->AsUnOp()->GetOp(0));
-    regNumber dstReg = node->GetRegNum();
+    RegNum    intReg = node->GetSingleTempReg();
+    RegNum    fpReg  = UseReg(node->AsUnOp()->GetOp(0));
+    RegNum    dstReg = node->GetRegNum();
 
     // Extract and sign-extend the exponent into an integer register
     if (type == TYP_FLOAT)
@@ -1494,7 +1494,7 @@ void CodeGen::GenCkfinite(GenTree* node)
 
     emit.emitIns_Mov(INS_vmov, emitTypeSize(type), dstReg, fpReg, /* canSkip */ true);
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::GenCompare(GenTreeOp* cmp)
@@ -1507,30 +1507,30 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
     GenTree*  op2   = cmp->GetOp(1);
     var_types type1 = op1->GetType();
     var_types type2 = op2->GetType();
-    regNumber reg1  = UseReg(op1);
-    regNumber reg2  = op2->isContained() ? REG_NA : UseReg(op2);
+    RegNum    reg1  = UseReg(op1);
+    RegNum    reg2  = op2->isContained() ? REG_NA : UseReg(op2);
 
     assert(type1 != TYP_LONG);
     assert(type2 != TYP_LONG);
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     if (varTypeIsFloating(type1))
     {
         assert(type1 == type2);
         assert(!cmp->OperIs(GT_CMP));
 
-        emit->emitIns_R_R(INS_vcmp, emitTypeSize(type1), op1->GetRegNum(), op2->GetRegNum());
+        emit.emitIns_R_R(INS_vcmp, emitTypeSize(type1), op1->GetRegNum(), op2->GetRegNum());
         // vmrs with register 0xf has special meaning of transferring flags
-        emit->emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
+        emit.emitIns_R(INS_vmrs, EA_4BYTE, REG_R15);
     }
     else if (GenTreeIntCon* imm = op2->IsContainedIntCon())
     {
-        emit->emitIns_R_I(INS_cmp, EA_4BYTE, op1->GetRegNum(), imm->GetInt32Value());
+        emit.emitIns_R_I(INS_cmp, EA_4BYTE, op1->GetRegNum(), imm->GetInt32Value());
     }
     else
     {
-        emit->emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
+        emit.emitIns_R_R(INS_cmp, EA_4BYTE, op1->GetRegNum(), op2->GetRegNum());
     }
 
     if (cmp->GetRegNum() == REG_NA)

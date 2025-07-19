@@ -495,13 +495,13 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (!dstAddr->isContained())
         {
-            dstAddrBaseReg = genConsumeReg(dstAddr);
+            dstAddrBaseReg = UseReg(dstAddr);
         }
         else if (GenTreeAddrMode* addrMode = dstAddr->IsAddrMode())
         {
             assert(!addrMode->HasIndex());
 
-            dstAddrBaseReg = genConsumeReg(addrMode->GetBase());
+            dstAddrBaseReg = UseReg(addrMode->GetBase());
             dstOffset      = dstAddr->AsAddrMode()->GetOffset();
         }
         else
@@ -513,7 +513,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         src = store->AsIndir()->GetValue();
     }
 
-    regNumber srcReg;
+    RegNum srcReg;
 
     if (src->OperIs(GT_INIT_VAL))
     {
@@ -523,7 +523,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
     if (!src->isContained())
     {
-        srcReg = genConsumeReg(src);
+        srcReg = UseReg(src);
     }
     else
     {
@@ -540,7 +540,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         instGen_MemoryBarrier();
     }
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
     unsigned size = layout->GetSize();
 
     assert(size <= INT32_MAX);
@@ -551,11 +551,11 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     {
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, GetStackAddrMode(dstLcl, dstOffset));
+            emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
-            emit->emitIns_R_R_R_I(INS_stp, EA_8BYTE, srcReg, srcReg, dstAddrBaseReg, dstOffset);
+            emit.emitIns_R_R_R_I(INS_stp, EA_8BYTE, srcReg, srcReg, dstAddrBaseReg, dstOffset);
         }
     }
 #endif
@@ -593,11 +593,11 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->Ins_R_S(storeIns, attr, srcReg, GetStackAddrMode(dstLcl, dstOffset));
+            emit.Ins_R_S(storeIns, attr, srcReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
-            emit->emitIns_R_R_I(storeIns, attr, srcReg, dstAddrBaseReg, dstOffset);
+            emit.emitIns_R_R_I(storeIns, attr, srcReg, dstAddrBaseReg, dstOffset);
         }
     }
 }
@@ -657,7 +657,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
     }
 
     LclVarDsc* srcLcl         = nullptr;
-    regNumber  srcAddrBaseReg = REG_NA;
+    RegNum     srcAddrBaseReg = REG_NA;
     int        srcOffset      = 0;
 
     assert(src->isContained());

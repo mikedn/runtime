@@ -981,7 +981,7 @@ void CodeGen::genBaseIntrinsic(GenTreeHWIntrinsic* node)
             unreached();
     }
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
@@ -1322,7 +1322,7 @@ void CodeGen::genSSE41Intrinsic(GenTreeHWIntrinsic* node)
             break;
     }
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
@@ -1373,7 +1373,7 @@ void CodeGen::genSSE42Intrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node)
@@ -1600,7 +1600,7 @@ void CodeGen::genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
@@ -1670,7 +1670,7 @@ void CodeGen::genFMAIntrinsic(GenTreeHWIntrinsic* node)
     }
 
     genHWIntrinsic_R_R_R_RM(ins, attr, targetReg, op1Reg, op2Reg, op3);
-    genProduceReg(node);
+    DefReg(node);
 }
 
 void CodeGen::genLZCNTIntrinsic(GenTreeHWIntrinsic* node)

@@ -966,7 +966,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             break;
         case GT_RELOAD:
         case GT_COPY:
-            // These are handled by genConsumeReg
+            // These are handled by UseReg
             break;
 #ifdef TARGET_XARCH
         case GT_SWAP:
@@ -1709,8 +1709,8 @@ void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
 
     for (unsigned i = 0; i < regCount; ++i)
     {
-        INDEBUG(regNumber srcReg =) src->GetRegNum(i);
-        INDEBUG(regNumber dstReg =) CopyReg(copy, i);
+        INDEBUG(RegNum srcReg =) src->GetRegNum(i);
+        INDEBUG(RegNum dstReg =) CopyReg(copy, i);
 
 #ifdef DEBUG
         if (dstReg != srcReg)
@@ -1722,11 +1722,6 @@ void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
         busyRegs |= genRegMask(dstReg);
 #endif
     }
-}
-
-regNumber CodeGen::genConsumeReg(GenTree* node)
-{
-    return UseReg(node);
 }
 
 void CodeGen::genConsumeAddress(GenTree* addr)
@@ -1786,7 +1781,7 @@ void CodeGen::ConsumeStructStore(
         dstAddr = store->AsIndir()->GetAddr();
         src     = store->AsIndir()->GetValue();
 
-        genConsumeReg(dstAddr);
+        UseReg(dstAddr);
     }
 
     if (src->OperIs(GT_INIT_VAL))
@@ -1812,7 +1807,7 @@ void CodeGen::ConsumeStructStore(
 
     if (!src->isContained())
     {
-        genConsumeReg(src);
+        UseReg(src);
     }
 
     // Copy registers as needed
@@ -1944,11 +1939,6 @@ void CodeGen::UnspillST0(GenTree* node)
     GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), GetStackAddrMode(temp));
 }
 #endif // TARGET_X86
-
-void CodeGen::genProduceReg(GenTree* node)
-{
-    DefReg(node);
-}
 
 void CodeGen::DefReg(GenTree* node)
 {

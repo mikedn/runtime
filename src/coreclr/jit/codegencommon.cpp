@@ -5264,7 +5264,7 @@ void CodeGen::GenSetCC(GenTreeCC* setcc)
     assert(setcc->OperIs(GT_SETCC));
 
     inst_SETCC(setcc->GetCondition(), setcc->GetType(), setcc->GetRegNum());
-    genProduceReg(setcc);
+    DefReg(setcc);
 }
 
 void CodeGen::GenLclAddr(GenTreeLclAddr* addr)
