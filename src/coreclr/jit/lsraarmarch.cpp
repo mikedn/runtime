@@ -129,7 +129,7 @@ void LinearScan::BuildCall(GenTreeCall* call)
 
         INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
 
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         if (argNode->OperIs(GT_PUTARG_SPLIT))
         {
             unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();

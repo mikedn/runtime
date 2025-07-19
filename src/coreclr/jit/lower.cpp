@@ -1563,14 +1563,48 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
             for (GenTreeFieldList::Use *nextField, *field = list->Uses().GetHead(); field != nullptr; field = nextField)
             {
-                nextField                = field->GetNext();
+                nextField = field->GetNext();
+
+                static_assert_no_msg(sizeof(GenTreeCall::Use) <= sizeof(GenTreeFieldList::Use));
                 GenTreeCall::Use* newUse = new (field) GenTreeCall::Use(field->GetNode(), use.GetNext());
-                *prevUseLink             = newUse;
-                prevUseLink              = &newUse->NextRef();
+
+                *prevUseLink = newUse;
+                prevUseLink  = &newUse->NextRef();
             }
 
             continue;
         }
+
+#if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
+        if (GenTreePutArgSplit* split = node->IsPutArgSplit())
+        {
+            noway_assert(split->GetOp(0)->IsFieldList());
+
+            GenTreeFieldList* list = split->GetOp(0)->AsFieldList();
+
+            BlockRange().Unlink(list);
+
+            GenTreeFieldList::Use* regUse = list->Uses().GetHead();
+            assert(regUse->GetOffset() == 0);
+
+            GenTreeFieldList::Use* stackUse = regUse->GetNext();
+            assert(stackUse->GetOffset() == 8);
+            assert(stackUse->GetNext() == nullptr);
+
+            GenTree* regVal = regUse->GetNode();
+            GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+            regDef->SetRegNum(REG_R7);
+            BlockRange().InsertAfter(regVal, regDef);
+            use.SetNode(regDef);
+
+            GenTree* stackVal = stackUse->GetNode();
+            node->SetOper(GT_PUTARG_STK);
+            node->SetType(TYP_VOID);
+            node->AsPutArgStk()->SetOp(0, stackUse->GetNode());
+            assert(node->AsPutArgStk()->GetOffset() == 0);
+            assert(node->AsPutArgStk()->GetSize() == REGSIZE_BYTES);
+        }
+#endif
 
         *prevUseLink = &use;
         prevUseLink  = &use.NextRef();

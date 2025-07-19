@@ -1425,7 +1425,7 @@ void CodeGen::GenCall(GenTreeCall* call)
         INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode));
         argNode = argNode->gtSkipReloadOrCopy();
 
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         if (GenTreePutArgSplit* argSplit = argNode->IsPutArgSplit())
         {
             assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));

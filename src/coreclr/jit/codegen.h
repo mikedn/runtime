@@ -560,7 +560,7 @@ private:
 #if FEATURE_FASTTAILCALL
     unsigned GetFirstStackParamLclNum() const;
 #endif
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
     void GenPutArgSplit(GenTreePutArgSplit* node);
 #endif
 
@@ -620,7 +620,7 @@ private:
     void genProduceReg(GenTree* node);
     void DefReg(GenTree* node);
     void DefLclVarReg(GenTreeLclVar* lclVar);
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
     void DefPutArgSplitRegs(GenTreePutArgSplit* arg);
 #endif
     void DefCallRegs(GenTreeCall* call);

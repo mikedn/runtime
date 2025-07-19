@@ -979,7 +979,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_PUTARG_REG:
             GenPutArgReg(node->AsUnOp());
             break;
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         case GT_PUTARG_SPLIT:
             GenPutArgSplit(node->AsPutArgSplit());
             break;
@@ -2033,7 +2033,7 @@ void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
                               GetStackAddrMode(lcl, 0));
 }
 
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
 void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
 {
     assert((arg->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
@@ -2060,7 +2060,7 @@ void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
         liveness.SetGCRegType(arg->GetRegNum(), arg->GetType());
     }
 }
-#endif // FEATURE_ARG_SPLIT
+#endif // TARGET_ARM
 
 void CodeGen::DefCallRegs(GenTreeCall* call)
 {
