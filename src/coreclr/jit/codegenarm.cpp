@@ -1235,7 +1235,9 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (src->IsIntCon(0))
     {
-        RegNum srcReg = src->GetRegNum();
+        assert(putArg->TypeIs(TYP_VOID));
+
+        RegNum srcReg = UseReg(src);
 
         unsigned dstOffset = 0;
         unsigned stackSize = putArg->GetSlotCount() * REGSIZE_BYTES;
@@ -1247,13 +1249,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
             emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
         }
-
-        for (unsigned i = 0; i < putArg->GetRegCount(); i++)
-        {
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, putArg->GetRegNum(i), 0);
-        }
-
-        DefPutArgSplitRegs(putArg);
 
         return;
     }

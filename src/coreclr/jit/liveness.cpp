@@ -1214,6 +1214,9 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
             case GT_PINVOKE_EPILOG:
             case GT_RETURNTRAP:
             case GT_PUTARG_STK:
+#ifdef TARGET_ARM
+            case GT_PUTARG_SPLIT:
+#endif
             case GT_IL_OFFSET:
             case GT_KEEPALIVE:
             case GT_BOUNDS_CHECK:

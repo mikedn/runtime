@@ -1606,6 +1606,32 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
         }
 #endif
 
+#ifdef TARGET_ARM
+        if (GenTreePutArgSplit* split = node->IsPutArgSplit())
+        {
+            if (split->GetOp(0)->IsIntCon(0))
+            {
+                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                {
+                    GenTree* regVal = comp->gtNewIconNode(0);
+                    GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, TYP_INT, regVal);
+                    regDef->SetRegNum(split->GetRegNum(i));
+                    split->ClearRegNum(i);
+                    BlockRange().InsertBefore(split->GetOp(0), regVal, regDef);
+
+                    GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
+
+                    *prevUseLink = regArg;
+                    prevUseLink  = &regArg->NextRef();
+                }
+
+                split->SetType(TYP_VOID);
+
+                continue;
+            }
+        }
+#endif
+
         *prevUseLink = &use;
         prevUseLink  = &use.NextRef();
     }

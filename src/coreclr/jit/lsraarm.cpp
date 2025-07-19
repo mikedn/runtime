@@ -541,6 +541,11 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         }
     }
 
+    if (putArg->TypeIs(TYP_VOID))
+    {
+        return;
+    }
+
     for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
     {
         BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);

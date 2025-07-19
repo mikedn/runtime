@@ -1143,7 +1143,8 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || IsHWIntrinsic());
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || IsHWIntrinsic() ||
+                   OperIsPutArgSplit());
             return false;
         }
 
@@ -7686,7 +7687,7 @@ inline bool GenTree::IsMultiRegNode() const
     {
         // Treat as "multi-reg" even if it has a single reg, node's type is always
         // STRUCT and we need to make sure we get the correct register type.
-        return true;
+        return !TypeIs(TYP_VOID);
     }
 #endif
 
@@ -7722,7 +7723,7 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 #if FEATURE_ARG_SPLIT
     if (const GenTreePutArgSplit* arg = IsPutArgSplit())
     {
-        return arg->GetRegCount();
+        return arg->TypeIs(TYP_VOID) ? 0 : arg->GetRegCount();
     }
 #endif
 
@@ -7754,6 +7755,7 @@ inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 #if FEATURE_ARG_SPLIT
     if (GenTreePutArgSplit* arg = IsPutArgSplit())
     {
+        assert(!arg->TypeIs(TYP_VOID));
         return arg->GetRegType(regIndex);
     }
 #endif
