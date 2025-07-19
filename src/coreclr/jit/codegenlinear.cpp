@@ -2033,35 +2033,6 @@ void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
                               GetStackAddrMode(lcl, 0));
 }
 
-#if TARGET_ARM
-void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
-{
-    assert((arg->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
-    INDEBUG(arg->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
-
-    if (arg->IsAnyRegSpill())
-    {
-        for (unsigned i = 0; i < arg->GetRegCount(); ++i)
-        {
-            if (arg->IsRegSpill(i))
-            {
-                SpillNodeReg(arg, arg->GetRegType(i), i);
-            }
-        }
-    }
-    else
-    {
-        // TODO-MIKE-Review: It looks like they forgot about "other regs" and also
-        // passed the wrong type. It probably doesn't matter as arg registers get
-        // killed anyway but still...
-        // The spill check is also dubious, it should probably done for each reg,
-        // it's not an all or nothing case. But then it's unlikely that these regs
-        // ever need spilling.
-        liveness.SetGCRegType(arg->GetRegNum(), arg->GetType());
-    }
-}
-#endif // TARGET_ARM
-
 void CodeGen::DefCallRegs(GenTreeCall* call)
 {
     assert((call->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
