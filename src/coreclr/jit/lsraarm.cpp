@@ -482,62 +482,59 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
 
 void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
-    CallArgInfo* argInfo = putArg->GetArgInfo();
-    GenTree*     src     = putArg->GetOp(0);
+    GenTree* src = putArg->GetOp(0);
 
     if (src->IsIntCon(0))
     {
+        assert(putArg->TypeIs(TYP_VOID));
         BuildUse(src);
-    }
-    else
-    {
-        assert(src->TypeIs(TYP_STRUCT));
-        assert(src->isContained());
 
-        if (GenTreeFieldList* fieldList = src->IsFieldList())
-        {
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                GenTree* node = use.GetNode();
-
-                BuildUse(node);
-
-                if (node->TypeIs(TYP_LONG))
-                {
-                    assert(node->OperIs(GT_BITCAST));
-
-                    BuildUse(node, RBM_NONE, 1);
-                }
-            }
-        }
-        else
-        {
-            regMaskTP argRegMask = RBM_NONE;
-
-            for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
-            {
-                argRegMask |= genRegMask(argInfo->GetRegNum(i));
-            }
-
-            BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
-
-            if (src->OperIs(GT_IND_LOAD_OBJ))
-            {
-                BuildAddrUses(src->AsIndLoadObj()->GetAddr());
-            }
-
-            BuildInternalUses();
-        }
-    }
-
-    if (putArg->TypeIs(TYP_VOID))
-    {
         return;
     }
 
-    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+    assert(src->TypeIs(TYP_STRUCT));
+    assert(src->isContained());
+
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
-        BuildDef(putArg, putArg->GetRegType(i), genRegMask(argInfo->GetRegNum(i)), i);
+        assert(putArg->TypeIs(TYP_VOID));
+
+        for (GenTreeFieldList::Use& use : fieldList->Uses())
+        {
+            GenTree* node = use.GetNode();
+
+            BuildUse(node);
+
+            if (node->TypeIs(TYP_LONG))
+            {
+                assert(node->OperIs(GT_BITCAST));
+
+                BuildUse(node, RBM_NONE, 1);
+            }
+        }
+
+        return;
+    }
+
+    regMaskTP argRegMask = RBM_NONE;
+
+    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+    {
+        argRegMask |= genRegMask(putArg->GetRegNum(i));
+    }
+
+    BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
+
+    if (src->OperIs(GT_IND_LOAD_OBJ))
+    {
+        BuildAddrUses(src->AsIndLoadObj()->GetAddr());
+    }
+
+    BuildInternalUses();
+
+    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
+    {
+        BuildDef(putArg, putArg->GetRegType(i), genRegMask(putArg->GetRegNum(i)), i);
     }
 }
 
