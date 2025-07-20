@@ -1227,6 +1227,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
 void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 {
     assert(putArg->GetOffset() == 0);
+    assert(putArg->TypeIs(TYP_VOID));
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
     const unsigned outArgLclSize = outgoingArgSpaceSize;
 
@@ -1235,8 +1236,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (src->IsIntCon(0))
     {
-        assert(putArg->TypeIs(TYP_VOID));
-
         RegNum srcReg = UseReg(src);
 
         unsigned dstOffset = 0;
@@ -1284,8 +1283,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (src->OperIs(GT_LCL_LOAD))
     {
-        assert(putArg->TypeIs(TYP_VOID));
-
         srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
@@ -1375,62 +1372,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         assert(dstOffset + regSize <= outArgLclSize);
 
         emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, dstOffset));
-    }
-
-    if (putArg->TypeIs(TYP_VOID))
-    {
-        return;
-    }
-
-    assert(srcLcl == nullptr);
-
-    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
-    {
-        unsigned offset   = srcOffset + i * REGSIZE_BYTES;
-        RegNum   dstReg   = putArg->GetRegNum(i);
-        emitAttr slotAttr = emitTypeSize(putArg->GetRegType(i));
-
-        // If the source address register is the same as one of the destination registers then
-        // copy the address to the temp register (which is always allocated and different from
-        // all destination registers) and continue using the temp register as source address.
-
-        if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
-        {
-            assert(dstReg != tempReg);
-            emit.emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
-            srcAddrBaseReg = tempReg;
-        }
-
-        emit.emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, offset);
-    }
-
-    DefPutArgSplitRegs(putArg);
-}
-
-void CodeGen::DefPutArgSplitRegs(GenTreePutArgSplit* arg)
-{
-    assert((arg->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
-    INDEBUG(arg->gtDebugFlags |= GTF_DEBUG_NODE_CG_PRODUCED;)
-
-    if (arg->IsAnyRegSpill())
-    {
-        for (unsigned i = 0; i < arg->GetRegCount(); ++i)
-        {
-            if (arg->IsRegSpill(i))
-            {
-                SpillNodeReg(arg, arg->GetRegType(i), i);
-            }
-        }
-    }
-    else
-    {
-        // TODO-MIKE-Review: It looks like they forgot about "other regs" and also
-        // passed the wrong type. It probably doesn't matter as arg registers get
-        // killed anyway but still...
-        // The spill check is also dubious, it should probably done for each reg,
-        // it's not an all or nothing case. But then it's unlikely that these regs
-        // ever need spilling.
-        liveness.SetGCRegType(arg->GetRegNum(), arg->GetType());
     }
 }
 

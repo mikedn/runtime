@@ -482,6 +482,8 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
 
 void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
+    assert(putArg->TypeIs(TYP_VOID));
+
     GenTree* src = putArg->GetOp(0);
 
     if (src->IsIntCon(0))
@@ -531,16 +533,6 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     }
 
     BuildInternalUses();
-
-    if (putArg->TypeIs(TYP_VOID))
-    {
-        return;
-    }
-
-    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
-    {
-        BuildDef(putArg, putArg->GetRegType(i), genRegMask(putArg->GetRegNum(i)), i);
-    }
 }
 
 #endif // TARGET_ARM

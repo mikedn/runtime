@@ -1706,6 +1706,67 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 continue;
             }
+
+            {
+                GenTreeIndLoadObj* load     = src->AsIndLoadObj();
+                GenTree*           baseAddr = load->GetAddr();
+                int                offset   = 0;
+                GenTree**          baseAddrUse;
+                GenTree*           user;
+
+                if (baseAddr->isContained())
+                {
+                    GenTreeAddrMode* am = baseAddr->AsAddrMode();
+                    assert(!am->HasIndex());
+                    baseAddr    = am->GetBase();
+                    offset      = am->GetOffset();
+                    baseAddrUse = &am->gtOp1;
+                    user        = am;
+                }
+                else
+                {
+                    baseAddrUse = &load->gtOp1;
+                    user        = load;
+                }
+
+                if (!baseAddr->OperIs(GT_LCL_LOAD) || baseAddr->AsLclLoad()->GetLcl()->lvDoNotEnregister)
+                {
+                    LIR::Use use(BlockRange(), baseAddrUse, user);
+                    baseAddr = ReplaceWithLclLoad(use);
+                }
+
+                GenTree* after = split;
+
+                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                {
+                    baseAddr = comp->gtNewLclLoad(baseAddr->AsLclLoad()->GetLcl(), baseAddr->GetType());
+
+                    GenTree* regAddr = comp->gtNewAddrMode(baseAddr, offset);
+                    GenTree* regVal  = comp->gtNewIndLoad(split->GetRegType(i), regAddr);
+                    GenTree* regDef  = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+                    regDef->SetRegNum(split->GetRegNum(i));
+
+                    if (regVal->TypeIs(TYP_LONG))
+                    {
+                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                        offset += REGSIZE_BYTES;
+                    }
+
+                    BlockRange().InsertAfter(after, baseAddr, regAddr, regVal, regDef);
+                    regAddr->SetContained();
+
+                    GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
+
+                    *prevUseLink = regArg;
+                    prevUseLink  = &regArg->NextRef();
+                    offset += REGSIZE_BYTES;
+                    after = regDef;
+                }
+
+                split->SetType(TYP_VOID);
+
+                continue;
+            }
         }
 #endif
 

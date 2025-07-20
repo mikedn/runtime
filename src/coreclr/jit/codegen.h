@@ -619,9 +619,6 @@ private:
     X86_ONLY(void UnspillST0(GenTree* node);)
     void DefReg(GenTree* node);
     void DefLclVarReg(GenTreeLclVar* lclVar);
-#if TARGET_ARM
-    void DefPutArgSplitRegs(GenTreePutArgSplit* arg);
-#endif
     void DefCallRegs(GenTreeCall* call);
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTree* node);

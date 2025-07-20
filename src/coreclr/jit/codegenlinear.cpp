@@ -1512,20 +1512,6 @@ regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
 
 IntRegMask CodeGen::GetNodeRegMask(GenTree* node)
 {
-#if FEATURE_ARG_SPLIT
-    if (GenTreePutArgSplit* splitArg = node->IsPutArgSplit())
-    {
-        IntRegMask mask = RBM_NONE;
-
-        for (unsigned i = 0, regCount = splitArg->GetRegCount(); i < regCount; ++i)
-        {
-            mask |= genRegMask(splitArg->GetRegNum(i));
-        }
-
-        return mask;
-    }
-#endif
-
 #if FEATURE_MULTIREG_RET
     if (node->IsMultiRegCall())
     {

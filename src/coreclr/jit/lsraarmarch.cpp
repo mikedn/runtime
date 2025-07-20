@@ -120,7 +120,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
     {
         BuildInternalIntDef(call);
     }
-
 #endif // TARGET_ARM
 
     for (GenTreeUse& use : call->Uses())
@@ -128,22 +127,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
         GenTree* argNode = use.GetNode();
 
         INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
-
-#if TARGET_ARM
-        if (argNode->OperIs(GT_PUTARG_SPLIT))
-        {
-            unsigned regCount = argNode->AsPutArgSplit()->GetRegCount();
-
-            for (unsigned int i = 0; i < regCount; i++)
-            {
-                assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
-
-                BuildUse(argNode, genRegMask(argNode->GetRegNum(i)), i);
-            }
-
-            continue;
-        }
-#endif
 
         assert(argNode->OperIs(GT_PUTARG_REG));
         assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));

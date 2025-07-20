@@ -1209,30 +1209,6 @@ void CodeGen::GenCall(GenTreeCall* call)
         INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode));
         argNode = argNode->gtSkipReloadOrCopy();
 
-#if TARGET_ARM
-        if (GenTreePutArgSplit* argSplit = argNode->IsPutArgSplit())
-        {
-            assert((argInfo->GetRegCount() >= 1) && (argInfo->GetSlotCount() >= 1));
-
-            // TODO-MIKE-Review: Why is UnspillRegsIfNeeded called instead of UseRegs?
-            // Also, we're skipping a RELOAD/COPY above. Probably we can't actually
-            // get a COPY/RELOAD here because these nodes have specific, single reg
-            // requirements so there's little point in LSRA adding reloads/copies...
-            UnspillRegsIfNeeded(argSplit);
-
-#ifdef DEBUG
-            VerifyUseOrder(argSplit);
-
-            for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
-            {
-                assert(argNode->GetRegNum(i) == argInfo->GetRegNum(i));
-            }
-#endif
-
-            continue;
-        }
-#endif
-
         assert(argNode->OperIs(GT_PUTARG_REG));
 
 #ifdef TARGET_ARM

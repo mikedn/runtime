@@ -7687,15 +7687,6 @@ inline bool GenTree::IsMultiRegNode() const
         return copy->GetOp(0)->IsMultiRegNode();
     }
 
-#if FEATURE_ARG_SPLIT
-    if (IsPutArgSplit())
-    {
-        // Treat as "multi-reg" even if it has a single reg, node's type is always
-        // STRUCT and we need to make sure we get the correct register type.
-        return !TypeIs(TYP_VOID);
-    }
-#endif
-
 #ifndef TARGET_64BIT
     if (IsMultiRegOpLong())
     {
@@ -7725,13 +7716,6 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
         return copy->GetOp(0)->GetMultiRegCount(compiler);
     }
 
-#if FEATURE_ARG_SPLIT
-    if (const GenTreePutArgSplit* arg = IsPutArgSplit())
-    {
-        return arg->TypeIs(TYP_VOID) ? 0 : arg->GetRegCount();
-    }
-#endif
-
 #ifndef TARGET_64BIT
     if (IsMultiRegOpLong())
     {
@@ -7757,14 +7741,6 @@ inline unsigned GenTree::GetMultiRegCount(Compiler* compiler) const
 
 inline var_types GenTree::GetMultiRegType(Compiler* compiler, unsigned regIndex)
 {
-#if FEATURE_ARG_SPLIT
-    if (GenTreePutArgSplit* arg = IsPutArgSplit())
-    {
-        assert(!arg->TypeIs(TYP_VOID));
-        return arg->GetRegType(regIndex);
-    }
-#endif
-
 #ifndef TARGET_64BIT
     if (IsMultiRegOpLong())
     {
