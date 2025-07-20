@@ -1284,11 +1284,15 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (src->OperIs(GT_LCL_LOAD))
     {
+        assert(putArg->TypeIs(TYP_VOID));
+
         srcLcl    = src->AsLclLoad()->GetLcl();
         srcLayout = srcLcl->GetLayout();
     }
     else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
+        assert(putArg->TypeIs(TYP_VOID));
+
         srcLcl    = src->AsLclLoadFld()->GetLcl();
         srcOffset = src->AsLclLoadFld()->GetLclOffs();
         srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
@@ -1373,31 +1377,31 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, dstOffset));
     }
 
+    if (putArg->TypeIs(TYP_VOID))
+    {
+        return;
+    }
+
+    assert(srcLcl == nullptr);
+
     for (unsigned i = 0; i < putArg->GetRegCount(); i++)
     {
         unsigned offset   = srcOffset + i * REGSIZE_BYTES;
         RegNum   dstReg   = putArg->GetRegNum(i);
         emitAttr slotAttr = emitTypeSize(putArg->GetRegType(i));
 
-        if (srcLcl != nullptr)
-        {
-            emit.Ins_R_S(INS_ldr, slotAttr, dstReg, GetStackAddrMode(srcLcl, offset));
-        }
-        else
-        {
-            // If the source address register is the same as one of the destination registers then
-            // copy the address to the temp register (which is always allocated and different from
-            // all destination registers) and continue using the temp register as source address.
+        // If the source address register is the same as one of the destination registers then
+        // copy the address to the temp register (which is always allocated and different from
+        // all destination registers) and continue using the temp register as source address.
 
-            if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
-            {
-                assert(dstReg != tempReg);
-                emit.emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
-                srcAddrBaseReg = tempReg;
-            }
-
-            emit.emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, offset);
+        if ((dstReg == srcAddrBaseReg) && (i != putArg->GetRegCount() - 1))
+        {
+            assert(dstReg != tempReg);
+            emit.emitIns_Mov(INS_mov, srcAddrAttr, tempReg, srcAddrBaseReg, /* canSkip */ false);
+            srcAddrBaseReg = tempReg;
         }
+
+        emit.emitIns_R_R_I(INS_ldr, slotAttr, dstReg, srcAddrBaseReg, offset);
     }
 
     DefPutArgSplitRegs(putArg);

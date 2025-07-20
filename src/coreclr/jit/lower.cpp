@@ -1609,7 +1609,9 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 #ifdef TARGET_ARM
         if (GenTreePutArgSplit* split = node->IsPutArgSplit())
         {
-            if (split->GetOp(0)->IsIntCon(0))
+            GenTree* src = split->GetOp(0);
+
+            if (src->IsIntCon(0))
             {
                 for (unsigned i = 0; i < split->GetRegCount(); i++)
                 {
@@ -1630,7 +1632,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                 continue;
             }
 
-            if (GenTreeFieldList* list = split->GetOp(0)->IsFieldList())
+            if (GenTreeFieldList* list = src->IsFieldList())
             {
                 GenTreeFieldList::Use* regUse = list->Uses().GetHead();
 
@@ -1654,6 +1656,50 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                     regUse = regUse->GetNext();
                     list->Uses().SetHead(regUse);
+                }
+
+                split->SetType(TYP_VOID);
+
+                continue;
+            }
+
+            if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+            {
+                LclVarDsc* srcLcl    = nullptr;
+                int        srcOffset = 0;
+
+                if (src->OperIs(GT_LCL_LOAD))
+                {
+                    srcLcl = src->AsLclLoad()->GetLcl();
+                }
+                else if (src->OperIs(GT_LCL_LOAD_FLD))
+                {
+                    srcLcl    = src->AsLclLoadFld()->GetLcl();
+                    srcOffset = src->AsLclLoadFld()->GetLclOffs();
+                }
+
+                GenTree* after = split;
+
+                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                {
+                    GenTree* regVal = comp->gtNewLclLoadFld(split->GetRegType(i), srcLcl, srcOffset);
+                    GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+                    regDef->SetRegNum(split->GetRegNum(i));
+
+                    if (regVal->TypeIs(TYP_LONG))
+                    {
+                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                        srcOffset += REGSIZE_BYTES;
+                    }
+
+                    BlockRange().InsertAfter(after, regVal, regDef);
+
+                    GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
+
+                    *prevUseLink = regArg;
+                    prevUseLink  = &regArg->NextRef();
+                    srcOffset += REGSIZE_BYTES;
+                    after = regDef;
                 }
 
                 split->SetType(TYP_VOID);
