@@ -1629,6 +1629,37 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 continue;
             }
+
+            if (GenTreeFieldList* list = split->GetOp(0)->IsFieldList())
+            {
+                GenTreeFieldList::Use* regUse = list->Uses().GetHead();
+
+                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                {
+                    GenTree* regVal = regUse->GetNode();
+                    GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+                    regDef->SetRegNum(split->GetRegNum(i));
+
+                    if (regVal->TypeIs(TYP_LONG))
+                    {
+                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                    }
+
+                    BlockRange().InsertBefore(split, regDef);
+
+                    GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
+
+                    *prevUseLink = regArg;
+                    prevUseLink  = &regArg->NextRef();
+
+                    regUse = regUse->GetNext();
+                    list->Uses().SetHead(regUse);
+                }
+
+                split->SetType(TYP_VOID);
+
+                continue;
+            }
         }
 #endif
 

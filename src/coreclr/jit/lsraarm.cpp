@@ -482,15 +482,8 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
 
 void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 {
-    CallArgInfo* argInfo    = putArg->GetArgInfo();
-    regMaskTP    argRegMask = RBM_NONE;
-
-    for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
-    {
-        argRegMask |= genRegMask(argInfo->GetRegNum(i));
-    }
-
-    GenTree* src = putArg->GetOp(0);
+    CallArgInfo* argInfo = putArg->GetArgInfo();
+    GenTree*     src     = putArg->GetOp(0);
 
     if (src->IsIntCon(0))
     {
@@ -503,33 +496,29 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
         if (GenTreeFieldList* fieldList = src->IsFieldList())
         {
-            unsigned regIndex = 0;
             for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
-                GenTree*  node    = use.GetNode();
-                regMaskTP regMask = RBM_NONE;
+                GenTree* node = use.GetNode();
 
-                if (regIndex < argInfo->GetRegCount())
-                {
-                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
-                }
-
-                BuildUse(node, regMask);
-                regIndex++;
+                BuildUse(node);
 
                 if (node->TypeIs(TYP_LONG))
                 {
                     assert(node->OperIs(GT_BITCAST));
 
-                    regMask = genRegMask(argInfo->GetRegNum(regIndex));
-
-                    BuildUse(node, regMask, 1);
-                    regIndex++;
+                    BuildUse(node, RBM_NONE, 1);
                 }
             }
         }
         else
         {
+            regMaskTP argRegMask = RBM_NONE;
+
+            for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
+            {
+                argRegMask |= genRegMask(argInfo->GetRegNum(i));
+            }
+
             BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
 
             if (src->OperIs(GT_IND_LOAD_OBJ))

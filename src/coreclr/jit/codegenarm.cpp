@@ -1258,50 +1258,20 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
-        unsigned regSize  = putArg->GetRegCount() * REGSIZE_BYTES;
-        unsigned regIndex = 0;
+        unsigned regSize = putArg->GetRegCount() * REGSIZE_BYTES;
+
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* fieldNode = use.GetNode();
 
-            if (regIndex >= putArg->GetRegCount())
-            {
-                RegNum    fieldReg = UseReg(fieldNode);
-                var_types type     = fieldNode->GetType();
-                emitAttr  attr     = emitTypeSize(type);
+            RegNum    fieldReg = UseReg(fieldNode);
+            var_types type     = fieldNode->GetType();
+            emitAttr  attr     = emitTypeSize(type);
 
-                unsigned dstOffset = use.GetOffset() - regSize;
-                assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
-                emit.Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
-
-                continue;
-            }
-
-            if (fieldNode->TypeIs(TYP_LONG))
-            {
-                assert(fieldNode->OperIs(GT_BITCAST));
-
-                UseRegs(fieldNode);
-
-                RegNum fieldReg0 = fieldNode->GetRegNum(0);
-                RegNum fieldReg1 = fieldNode->GetRegNum(1);
-                RegNum argReg0   = putArg->GetRegNum(regIndex++);
-                RegNum argReg1   = putArg->GetRegNum(regIndex++);
-
-                emit.emitIns_Mov(INS_mov, EA_4BYTE, argReg0, fieldReg0, /* canSkip */ true);
-                emit.emitIns_Mov(INS_mov, EA_4BYTE, argReg1, fieldReg1, /* canSkip */ true);
-
-                continue;
-            }
-
-            RegNum   fieldReg = UseReg(fieldNode);
-            RegNum   argReg   = putArg->GetRegNum(regIndex);
-            emitAttr attr     = emitTypeSize(putArg->GetRegType(regIndex++));
-            assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
-            emit.emitIns_Mov(INS_mov, attr, argReg, fieldReg, /* canSkip*/ true);
+            unsigned dstOffset = use.GetOffset() - regSize;
+            assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
+            emit.Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
         }
-
-        DefPutArgSplitRegs(putArg);
 
         return;
     }

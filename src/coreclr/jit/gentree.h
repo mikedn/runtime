@@ -1877,6 +1877,11 @@ public:
         return m_head;
     }
 
+    void SetHead(U* head)
+    {
+        m_head = head;
+    }
+
     GenTreeUseLinkIterator<U> begin() const
     {
         return m_head;
