@@ -1200,11 +1200,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     BlockRange().InsertAfter(arg, putArgSplit);
     info->SetNode(putArgSplit);
 
-    for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
-    {
-        putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
-    }
-
     if (GenTreeFieldList* fieldList = arg->IsFieldList())
     {
         unsigned regIndex = 0;
@@ -1554,7 +1549,6 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
             GenTree* stackVal = stackUse->GetNode();
             node->SetOper(GT_PUTARG_STK);
-            node->SetType(TYP_VOID);
             node->AsPutArgStk()->SetOp(0, stackUse->GetNode());
             assert(node->AsPutArgStk()->GetOffset() == 0);
             assert(node->AsPutArgStk()->GetSize() == REGSIZE_BYTES);
@@ -1564,25 +1558,23 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 #ifdef TARGET_ARM
         if (GenTreePutArgSplit* split = node->IsPutArgSplit())
         {
-            GenTree* src = split->GetOp(0);
+            GenTree*     src     = split->GetOp(0);
+            CallArgInfo* argInfo = split->GetArgInfo();
 
             if (src->IsIntCon(0))
             {
-                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
                 {
                     GenTree* regVal = comp->gtNewIconNode(0);
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, TYP_INT, regVal);
-                    regDef->SetRegNum(split->GetRegNum(i));
-                    split->ClearRegNum(i);
-                    BlockRange().InsertBefore(split->GetOp(0), regVal, regDef);
+                    regDef->SetRegNum(argInfo->GetRegNum(i));
+                    BlockRange().InsertBefore(src, regVal, regDef);
 
                     GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
 
                     *prevUseLink = regArg;
                     prevUseLink  = &regArg->NextRef();
                 }
-
-                split->SetType(TYP_VOID);
 
                 continue;
             }
@@ -1591,15 +1583,15 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
             {
                 GenTreeFieldList::Use* regUse = list->Uses().GetHead();
 
-                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
                 {
                     GenTree* regVal = regUse->GetNode();
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-                    regDef->SetRegNum(split->GetRegNum(i));
+                    regDef->SetRegNum(argInfo->GetRegNum(i));
 
                     if (regVal->TypeIs(TYP_LONG))
                     {
-                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                        regDef->SetRegNum(1, argInfo->GetRegNum(++i));
                     }
 
                     BlockRange().InsertBefore(split, regDef);
@@ -1615,16 +1607,14 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 for (GenTreeFieldList::Use& stackUse : list->Uses())
                 {
-                    stackUse.SetOffset(stackUse.GetOffset() - split->GetRegCount() * REGSIZE_BYTES);
+                    stackUse.SetOffset(stackUse.GetOffset() - argInfo->GetRegCount() * REGSIZE_BYTES);
                 }
-
-                split->SetType(TYP_VOID);
 
                 continue;
             }
 
             ClassLayout* argLayout = comp->typGetLayoutByNum(use.GetSigTypeNum());
-            assert(split->GetRegCount() <= argLayout->GetSlotCount());
+            assert(argInfo->GetRegCount() <= argLayout->GetSlotCount());
 
             if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
@@ -1643,15 +1633,15 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 GenTree* after = split;
 
-                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
                 {
                     GenTree* regVal = comp->gtNewLclLoadFld(argLayout->GetGCPtrType(i), srcLcl, srcOffset);
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-                    regDef->SetRegNum(split->GetRegNum(i));
+                    regDef->SetRegNum(argInfo->GetRegNum(i));
 
                     if (regVal->TypeIs(TYP_LONG))
                     {
-                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                        regDef->SetRegNum(1, argInfo->GetRegNum(++i));
                         srcOffset += REGSIZE_BYTES;
                     }
 
@@ -1700,18 +1690,18 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 GenTree* after = split;
 
-                for (unsigned i = 0; i < split->GetRegCount(); i++)
+                for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
                 {
                     baseAddr = comp->gtNewLclLoad(baseAddr->AsLclLoad()->GetLcl(), baseAddr->GetType());
 
                     GenTree* regAddr = comp->gtNewAddrMode(baseAddr, offset);
                     GenTree* regVal  = comp->gtNewIndLoad(argLayout->GetGCPtrType(i), regAddr);
                     GenTree* regDef  = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-                    regDef->SetRegNum(split->GetRegNum(i));
+                    regDef->SetRegNum(argInfo->GetRegNum(i));
 
                     if (regVal->TypeIs(TYP_LONG))
                     {
-                        regDef->SetRegNum(1, split->GetRegNum(++i));
+                        regDef->SetRegNum(1, argInfo->GetRegNum(++i));
                         offset += REGSIZE_BYTES;
                     }
 
@@ -1725,8 +1715,6 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     offset += REGSIZE_BYTES;
                     after = regDef;
                 }
-
-                split->SetType(TYP_VOID);
 
                 continue;
             }

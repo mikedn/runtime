@@ -1318,8 +1318,8 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     }
 
     // Skip the part that will be loaded in registers.
-    offset += putArg->GetRegCount() * REGSIZE_BYTES;
-    size -= putArg->GetRegCount() * REGSIZE_BYTES;
+    offset += putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
+    size -= putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
 
     RegNum tempReg = putArg->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);

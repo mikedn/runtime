@@ -6612,23 +6612,6 @@ public:
         : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
     {
         assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
-
-#ifdef TARGET_ARM64
-        assert(argInfo->GetSlotCount() == 1);
-        SetType(varActualType(argInfo->GetRegType(0)));
-#else
-        SetType(argInfo->GetRegCount() > 1 ? TYP_STRUCT : varActualType(argInfo->GetRegType(0)));
-        ClearOtherRegs();
-#endif
-    }
-
-    unsigned GetRegCount() const
-    {
-#ifdef TARGET_ARM64
-        return 1;
-#else
-        return GetArgInfo()->GetRegCount();
-#endif
     }
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgSplit, GenTreePutArgStk)
