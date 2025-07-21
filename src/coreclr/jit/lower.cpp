@@ -1200,34 +1200,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     BlockRange().InsertAfter(arg, putArgSplit);
     info->SetNode(putArgSplit);
 
-    if (GenTreeFieldList* fieldList = arg->IsFieldList())
-    {
-        unsigned regIndex = 0;
-
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            GenTree*  node    = use.GetNode();
-            var_types regType = node->GetType();
-
-#ifdef TARGET_ARM
-            if (regType == TYP_DOUBLE)
-            {
-                GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
-                bitcast->SetRegNum(info->GetRegNum(regIndex));
-                regIndex++;
-                bitcast->SetRegNum(1, info->GetRegNum(regIndex));
-                BlockRange().InsertAfter(node, bitcast);
-                use.SetNode(bitcast);
-            }
-#endif
-
-            if (++regIndex >= info->GetRegCount())
-            {
-                break;
-            }
-        }
-    }
-
     LowerPutArgStk(putArgSplit);
 
     return putArgSplit;
@@ -1588,6 +1560,16 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                 for (unsigned i = 0; i < argInfo->GetRegCount(); i++)
                 {
                     GenTree* regVal = regUse->GetNode();
+
+                    if (regVal->TypeIs(TYP_DOUBLE))
+                    {
+                        GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, regVal);
+                        bitcast->SetRegNum(0, argInfo->GetRegNum(i));
+                        bitcast->SetRegNum(1, argInfo->GetRegNum(i + 1));
+                        BlockRange().InsertAfter(regVal, bitcast);
+                        regVal = bitcast;
+                    }
+
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
                     regDef->SetRegNum(argInfo->GetRegNum(i));
 
