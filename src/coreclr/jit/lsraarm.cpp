@@ -312,10 +312,6 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
-        case GT_PUTARG_SPLIT:
-            BuildPutArgSplit(tree->AsPutArgSplit());
-            break;
-
         case GT_PUTARG_STK:
             BuildPutArgStk(tree->AsPutArgStk());
             break;
@@ -478,25 +474,6 @@ void LinearScan::BuildShiftLong(GenTreeOp* node)
     RefPosition* sourceHiUse = BuildUse(sourceHi);
     setDelayFree(node->OperIs(GT_LSH_HI) ? sourceLoUse : sourceHiUse);
     BuildDef(node);
-}
-
-void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
-{
-    assert(putArg->TypeIs(TYP_VOID));
-
-    GenTree* src = putArg->GetOp(0);
-
-    assert(src->TypeIs(TYP_STRUCT));
-    assert(src->isContained());
-
-    BuildInternalIntDef(putArg);
-
-    if (src->OperIs(GT_IND_LOAD_OBJ))
-    {
-        BuildAddrUses(src->AsIndLoadObj()->GetAddr());
-    }
-
-    BuildInternalUses();
 }
 
 #endif // TARGET_ARM

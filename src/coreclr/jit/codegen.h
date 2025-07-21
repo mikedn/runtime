@@ -560,9 +560,6 @@ private:
 #if FEATURE_FASTTAILCALL
     unsigned GetFirstStackParamLclNum() const;
 #endif
-#if TARGET_ARM
-    void GenPutArgSplit(GenTreePutArgSplit* node);
-#endif
 
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
     void GenVectorUpperSpill(GenTreeUnOp* node);

@@ -1659,7 +1659,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     after = regDef;
                 }
 
-                split->SetType(TYP_VOID);
+                node->SetOper(GT_PUTARG_STK);
 
                 continue;
             }
@@ -1719,6 +1719,8 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     offset += REGSIZE_BYTES;
                     after = regDef;
                 }
+
+                node->SetOper(GT_PUTARG_STK);
 
                 continue;
             }

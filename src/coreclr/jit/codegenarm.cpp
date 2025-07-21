@@ -1124,11 +1124,11 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
     }
 }
 
-void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
+void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
                                  unsigned          outArgLclNum,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    GenTree* src = putArgStk->GetOp(0);
+    GenTree* src = putArg->GetOp(0);
 
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
@@ -1174,122 +1174,15 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
         size = roundUp(size, REGSIZE_BYTES);
     }
 
-    RegNum tempReg = putArgStk->ExtractTempReg();
-    assert(tempReg != srcAddrBaseReg);
-
-    Emitter& emit   = *GetEmitter();
-    unsigned offset = 0;
-
-    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
-    {
-        while (regSize > size)
-        {
-            regSize /= 2;
-        }
-
-        instruction loadIns;
-        instruction storeIns;
-        emitAttr    attr;
-
-        switch (regSize)
-        {
-            case 1:
-                loadIns  = INS_ldrb;
-                storeIns = INS_strb;
-                attr     = EA_4BYTE;
-                break;
-            case 2:
-                loadIns  = INS_ldrh;
-                storeIns = INS_strh;
-                attr     = EA_4BYTE;
-                break;
-            default:
-                assert(regSize == REGSIZE_BYTES);
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES));
-        }
-
-        if (srcLcl != nullptr)
-        {
-            emit.Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
-        }
-        else
-        {
-            emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
-        }
-
-        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs + offset));
-    }
-}
-
-void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
-{
-    assert(putArg->GetOffset() == 0);
-    assert(putArg->TypeIs(TYP_VOID));
-    const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
-    const unsigned outArgLclSize = outgoingArgSpaceSize;
-
-    GenTree* src = putArg->GetOp(0);
-
-    assert(src->TypeIs(TYP_STRUCT));
-    assert(src->isContained());
-
-    ClassLayout* srcLayout;
-    LclVarDsc*   srcLcl         = nullptr;
-    RegNum       srcAddrBaseReg = REG_NA;
-    emitAttr     srcAddrAttr    = EA_PTRSIZE;
-    int          srcOffset      = 0;
-
-    if (src->OperIs(GT_LCL_LOAD))
-    {
-        srcLcl    = src->AsLclLoad()->GetLcl();
-        srcLayout = srcLcl->GetLayout();
-    }
-    else if (src->OperIs(GT_LCL_LOAD_FLD))
-    {
-        srcLcl    = src->AsLclLoadFld()->GetLcl();
-        srcOffset = src->AsLclLoadFld()->GetLclOffs();
-        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
-    }
-    else
-    {
-        GenTree* srcAddr = src->AsIndLoadObj()->GetAddr();
-
-        if (!srcAddr->isContained())
-        {
-            srcAddrBaseReg = UseReg(srcAddr);
-        }
-        else
-        {
-            srcAddrBaseReg = UseReg(srcAddr->AsAddrMode()->GetBase());
-            assert(!srcAddr->AsAddrMode()->HasIndex());
-            srcOffset = srcAddr->AsAddrMode()->GetOffset();
-        }
-
-        srcLayout   = src->AsIndLoadObj()->GetLayout();
-        srcAddrAttr = emitTypeSize(srcAddr->GetType());
-    }
-
-    unsigned offset    = 0;
-    unsigned dstOffset = 0;
-    unsigned size      = srcLayout->GetSize();
-
-    if (srcLcl != nullptr)
-    {
-        size = roundUp(size, REGSIZE_BYTES);
-    }
-
-    // Skip the part that will be loaded in registers.
-    offset += putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
-    size -= putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
-
     RegNum tempReg = putArg->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
 
     Emitter& emit = *GetEmitter();
 
-    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, dstOffset += regSize)
+    unsigned offset = putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
+    size -= offset;
+
+    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, outArgLclOffs += regSize)
     {
         while (regSize > size)
         {
@@ -1329,9 +1222,9 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
         }
 
         // We can't write beyond the outgoing area area
-        assert(dstOffset + regSize <= outArgLclSize);
+        assert(outArgLclOffs + regSize <= outArgLclSize);
 
-        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, dstOffset));
+        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
     }
 }
 

@@ -979,11 +979,6 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
         case GT_PUTARG_REG:
             GenPutArgReg(node->AsUnOp());
             break;
-#if TARGET_ARM
-        case GT_PUTARG_SPLIT:
-            GenPutArgSplit(node->AsPutArgSplit());
-            break;
-#endif
         case GT_CALL:
             GenCall(node->AsCall());
             break;
