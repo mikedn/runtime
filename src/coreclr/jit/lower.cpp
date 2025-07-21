@@ -1203,19 +1203,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     for (unsigned regIndex = 0; regIndex < info->GetRegCount(); regIndex++)
     {
         putArgSplit->SetRegNum(regIndex, info->GetRegNum(regIndex));
-
-        // We don't have GC info in CallArgInfo on ARMARCH (the only user of split args)
-        // and only integer registers are used. We'll just set everything to TYP_I_IMPL
-        // here and then update with correct GC types taken from layout or field list.
-        //
-        // TODO-MIKE-Cleanup: Might be better to just put the correct GC types in
-        // CallArgInfo to simplify this and be consistent with UNIX_AMD64_ABI.
-        // moInitCallInfo would only need to take the GC info from the struct layout,
-        // it doesn't need to deal with FIELD_LIST.
-
-        assert(info->GetRegType(regIndex) == TYP_I_IMPL);
-
-        putArgSplit->SetRegType(regIndex, TYP_I_IMPL);
     }
 
     if (GenTreeFieldList* fieldList = arg->IsFieldList())
@@ -1227,12 +1214,8 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
             GenTree*  node    = use.GetNode();
             var_types regType = node->GetType();
 
-            if (varTypeIsGC(regType))
-            {
-                putArgSplit->SetRegType(regIndex, regType);
-            }
 #ifdef TARGET_ARM
-            else if (regType == TYP_DOUBLE)
+            if (regType == TYP_DOUBLE)
             {
                 GenTree* bitcast = comp->gtNewBitCastNode(TYP_LONG, node);
                 bitcast->SetRegNum(info->GetRegNum(regIndex));
@@ -1246,34 +1229,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
             if (++regIndex >= info->GetRegCount())
             {
                 break;
-            }
-        }
-    }
-    else if (!arg->IsIntCon(0))
-    {
-        ClassLayout* layout;
-
-        if (arg->OperIs(GT_LCL_LOAD))
-        {
-            layout = arg->AsLclLoad()->GetLcl()->GetLayout();
-        }
-        else if (arg->OperIs(GT_LCL_LOAD_FLD))
-        {
-            layout = arg->AsLclLoadFld()->GetLayout(comp);
-        }
-        else
-        {
-            layout = arg->AsIndLoadObj()->GetLayout();
-        }
-
-        if (layout->HasGCPtr())
-        {
-            for (unsigned index = 0; index < info->GetRegCount(); index++)
-            {
-                if (layout->IsGCPtr(index))
-                {
-                    putArgSplit->SetRegType(index, layout->GetGCPtrType(index));
-                }
             }
         }
     }
@@ -1658,10 +1613,18 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     list->Uses().SetHead(regUse);
                 }
 
+                for (GenTreeFieldList::Use& stackUse : list->Uses())
+                {
+                    stackUse.SetOffset(stackUse.GetOffset() - split->GetRegCount() * REGSIZE_BYTES);
+                }
+
                 split->SetType(TYP_VOID);
 
                 continue;
             }
+
+            ClassLayout* argLayout = comp->typGetLayoutByNum(use.GetSigTypeNum());
+            assert(split->GetRegCount() <= argLayout->GetSlotCount());
 
             if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
             {
@@ -1682,7 +1645,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
 
                 for (unsigned i = 0; i < split->GetRegCount(); i++)
                 {
-                    GenTree* regVal = comp->gtNewLclLoadFld(split->GetRegType(i), srcLcl, srcOffset);
+                    GenTree* regVal = comp->gtNewLclLoadFld(argLayout->GetGCPtrType(i), srcLcl, srcOffset);
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
                     regDef->SetRegNum(split->GetRegNum(i));
 
@@ -1742,7 +1705,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     baseAddr = comp->gtNewLclLoad(baseAddr->AsLclLoad()->GetLcl(), baseAddr->GetType());
 
                     GenTree* regAddr = comp->gtNewAddrMode(baseAddr, offset);
-                    GenTree* regVal  = comp->gtNewIndLoad(split->GetRegType(i), regAddr);
+                    GenTree* regVal  = comp->gtNewIndLoad(argLayout->GetGCPtrType(i), regAddr);
                     GenTree* regDef  = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
                     regDef->SetRegNum(split->GetRegNum(i));
 

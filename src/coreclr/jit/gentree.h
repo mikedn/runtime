@@ -1916,6 +1916,12 @@ public:
             return m_offset;
         }
 
+        void SetOffset(unsigned offset)
+        {
+            assert(offset <= UINT16_MAX);
+            m_offset = static_cast<uint16_t>(offset);
+        }
+
         var_types GetType() const
         {
             return m_type;
@@ -6600,7 +6606,6 @@ class GenTreePutArgSplit : public GenTreePutArgStk
 #else
 #error Unknown FEATURE_ARG_SPLIT target.
 #endif
-    var_types m_regType[MAX_SPLIT_ARG_REGS];
 
 public:
     GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
@@ -6623,35 +6628,6 @@ public:
         return 1;
 #else
         return GetArgInfo()->GetRegCount();
-#endif
-    }
-
-    var_types GetRegType(unsigned index) const
-    {
-        assert(index < GetRegCount());
-#ifdef TARGET_ARM64
-        return m_regType[0];
-#else
-        return m_regType[index];
-#endif
-    }
-
-    void SetRegType(unsigned index, var_types type)
-    {
-        assert(index < GetRegCount());
-#ifdef TARGET_ARM64
-        m_regType[0] = type;
-#else
-        m_regType[index] = type;
-#endif
-    }
-
-    unsigned GetSize() const
-    {
-#ifdef TARGET_ARM64
-        return 2 * REGSIZE_BYTES;
-#else
-        return (GetSlotCount() + GetRegCount()) * REGSIZE_BYTES;
 #endif
     }
 

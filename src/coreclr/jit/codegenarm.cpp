@@ -1083,12 +1083,11 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     Emitter& emit   = *GetEmitter();
     RegNum   srcReg = UseReg(src);
 
-    if (src->IsIntCon(0) && (putArg->GetSize() > REGSIZE_BYTES))
+    if (src->IsIntCon(0) && (putArg->GetSlotCount() > 1))
     {
-        for (unsigned offset = 0, size = putArg->GetSize(); offset < size; offset += REGSIZE_BYTES)
+        for (unsigned i = 0, count = putArg->GetSlotCount(); i < count; i++, outArgLclOffs += REGSIZE_BYTES)
         {
-            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg,
-                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
         }
 
         return;
@@ -1257,8 +1256,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
-        unsigned regSize = putArg->GetRegCount() * REGSIZE_BYTES;
-
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             GenTree* fieldNode = use.GetNode();
@@ -1267,7 +1264,7 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
             var_types type     = fieldNode->GetType();
             emitAttr  attr     = emitTypeSize(type);
 
-            unsigned dstOffset = use.GetOffset() - regSize;
+            unsigned dstOffset = use.GetOffset();
             assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
             emit.Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
         }
@@ -1288,8 +1285,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     }
     else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        assert(putArg->TypeIs(TYP_VOID));
-
         srcLcl    = src->AsLclLoadFld()->GetLcl();
         srcOffset = src->AsLclLoadFld()->GetLclOffs();
         srcLayout = src->AsLclLoadFld()->GetLayout(compiler);

@@ -518,14 +518,7 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
         return;
     }
 
-    regMaskTP argRegMask = RBM_NONE;
-
-    for (unsigned i = 0; i < putArg->GetRegCount(); i++)
-    {
-        argRegMask |= genRegMask(putArg->GetRegNum(i));
-    }
-
-    BuildInternalIntDef(putArg, allIntRegs() & ~argRegMask);
+    BuildInternalIntDef(putArg);
 
     if (src->OperIs(GT_IND_LOAD_OBJ))
     {
