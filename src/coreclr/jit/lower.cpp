@@ -1612,6 +1612,8 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     stackUse.SetOffset(stackUse.GetOffset() - argInfo->GetRegCount() * REGSIZE_BYTES);
                 }
 
+                node->SetOper(GT_PUTARG_STK);
+
                 continue;
             }
 

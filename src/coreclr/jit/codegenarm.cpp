@@ -1230,29 +1230,10 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     const unsigned outArgLclNum  = compiler->lvaOutgoingArgSpaceVar;
     const unsigned outArgLclSize = outgoingArgSpaceSize;
 
-    GenTree* src  = putArg->GetOp(0);
-    Emitter& emit = *GetEmitter();
+    GenTree* src = putArg->GetOp(0);
 
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
-
-    if (GenTreeFieldList* fieldList = src->IsFieldList())
-    {
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            GenTree* fieldNode = use.GetNode();
-
-            RegNum    fieldReg = UseReg(fieldNode);
-            var_types type     = fieldNode->GetType();
-            emitAttr  attr     = emitTypeSize(type);
-
-            unsigned dstOffset = use.GetOffset();
-            assert(dstOffset + EA_SIZE_IN_BYTES(attr) <= outArgLclSize);
-            emit.Ins_R_S(ins_Store(type), attr, fieldReg, GetStackAddrMode(outArgLclNum, dstOffset));
-        }
-
-        return;
-    }
 
     ClassLayout* srcLayout;
     LclVarDsc*   srcLcl         = nullptr;
@@ -1305,6 +1286,8 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
 
     RegNum tempReg = putArg->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
+
+    Emitter& emit = *GetEmitter();
 
     for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, dstOffset += regSize)
     {

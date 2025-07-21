@@ -489,27 +489,6 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    if (GenTreeFieldList* fieldList = src->IsFieldList())
-    {
-        assert(putArg->TypeIs(TYP_VOID));
-
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            GenTree* node = use.GetNode();
-
-            BuildUse(node);
-
-            if (node->TypeIs(TYP_LONG))
-            {
-                assert(node->OperIs(GT_BITCAST));
-
-                BuildUse(node, RBM_NONE, 1);
-            }
-        }
-
-        return;
-    }
-
     BuildInternalIntDef(putArg);
 
     if (src->OperIs(GT_IND_LOAD_OBJ))
