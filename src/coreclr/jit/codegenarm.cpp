@@ -1233,24 +1233,6 @@ void CodeGen::GenPutArgSplit(GenTreePutArgSplit* putArg)
     GenTree* src  = putArg->GetOp(0);
     Emitter& emit = *GetEmitter();
 
-    if (src->IsIntCon(0))
-    {
-        RegNum srcReg = UseReg(src);
-
-        unsigned dstOffset = 0;
-        unsigned stackSize = putArg->GetSlotCount() * REGSIZE_BYTES;
-
-        for (; stackSize != 0; stackSize -= REGSIZE_BYTES, dstOffset += REGSIZE_BYTES)
-        {
-            // We can't write beyond the outgoing area area
-            assert(dstOffset + REGSIZE_BYTES <= outArgLclSize);
-
-            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, dstOffset));
-        }
-
-        return;
-    }
-
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 

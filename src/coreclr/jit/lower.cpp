@@ -1568,13 +1568,15 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
                     GenTree* regVal = comp->gtNewIconNode(0);
                     GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, TYP_INT, regVal);
                     regDef->SetRegNum(argInfo->GetRegNum(i));
-                    BlockRange().InsertBefore(src, regVal, regDef);
+                    BlockRange().InsertAfter(split, regVal, regDef);
 
                     GenTreeCall::Use* regArg = comp->gtNewCallArgs(regDef);
 
                     *prevUseLink = regArg;
                     prevUseLink  = &regArg->NextRef();
                 }
+
+                node->SetOper(GT_PUTARG_STK);
 
                 continue;
             }

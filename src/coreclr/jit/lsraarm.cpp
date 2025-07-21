@@ -486,14 +486,6 @@ void LinearScan::BuildPutArgSplit(GenTreePutArgSplit* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
-    if (src->IsIntCon(0))
-    {
-        assert(putArg->TypeIs(TYP_VOID));
-        BuildUse(src);
-
-        return;
-    }
-
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
