@@ -1396,7 +1396,6 @@ void Lowering::LowerCall(GenTreeCall* call)
 #endif
 
     call->ClearOtherRegs();
-    LowerCallArgs(call);
 
 #ifdef TARGET_X86
     if (call->IsTailCallViaJitHelper())
@@ -1439,6 +1438,8 @@ void Lowering::LowerCall(GenTreeCall* call)
 
         call->SetCallAddr(LowerDirectCall(call));
     }
+
+    LowerCallArgs(call);
 
 #if FEATURE_FASTTAILCALL
     if (call->IsFastTailCall())
@@ -1738,10 +1739,10 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // Tail call restrictions i.e. conditions under which tail prefix is ignored.
     // Most of these checks are already done by importer or fgMorphTailCall().
     // This serves as a double sanity check.
-    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0); // tail calls from synchronized methods
-    assert(!comp->opts.IsReversePInvoke());                  // tail calls reverse PInvoke
-    assert(!call->IsUnmanaged());                            // tail calls to unmanaged methods
-    assert(!comp->compLocallocUsed);                         // tail call from methods that also do localloc
+    assert(!comp->info.IsSynchronized());
+    assert(!comp->opts.IsReversePInvoke());
+    assert(!call->IsUnmanaged());
+    assert(!comp->compLocallocUsed);
 
 #ifdef TARGET_AMD64
     assert(!comp->getNeedsGSSecurityCookie()); // jit64 compat: tail calls from methods that need GS check
@@ -2807,15 +2808,14 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 
     call->gtFlags &= ~GTF_CALL_DELEGATE_INV;
 
-    GenTree* thisArgNode = call->GetArgNodeByArgNum(0);
-    assert(thisArgNode->OperIs(GT_PUTARG_REG));
+    CallArgInfo* thisArg = call->GetArgInfoByArgNum(0);
 
-    GenTree* delegateThis = thisArgNode->AsUnOp()->GetOp(0);
+    GenTree* delegateThis = thisArg->GetNode();
     assert(delegateThis->TypeIs(TYP_REF));
 
     LclVarDsc* lcl = comp->lvaNewTemp(TYP_REF, true DEBUGARG("delegate invoke this"));
 
-    LIR::Use use(BlockRange(), &thisArgNode->AsUnOp()->gtOp1, thisArgNode);
+    LIR::Use use(BlockRange(), &thisArg->GetUse()->NodeRef(), call);
     delegateThis = ReplaceWithLclLoad(use, lcl);
 
     const CORINFO_EE_INFO* eeInfo = comp->eeGetEEInfo();
@@ -2823,7 +2823,7 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
     GenTree*        targetThisAddr = comp->gtNewAddrMode(delegateThis, eeInfo->offsetOfDelegateInstance);
     GenTreeIndLoad* targetThis     = comp->gtNewIndLoad(TYP_REF, targetThisAddr);
     BlockRange().InsertAfter(delegateThis, targetThisAddr, targetThis);
-    thisArgNode->AsUnOp()->SetOp(0, targetThis);
+    thisArg->SetNode(targetThis);
     ContainCheckIndir(targetThis);
 
     delegateThis                = comp->gtNewLclLoad(lcl, TYP_REF);
@@ -2849,8 +2849,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
 
     CallArgInfo* thisArgInfo = call->GetArgInfoByArgNum(0);
     assert(thisArgInfo->GetRegNum() == REG_ARG_0);
-    assert(thisArgInfo->GetNode()->OperIs(GT_PUTARG_REG));
-    GenTree* thisPtr = thisArgInfo->GetNode()->AsUnOp()->GetOp(0);
+    GenTree* thisPtr = thisArgInfo->GetNode();
 
     GenTree* thisUse;
 
@@ -2870,7 +2869,7 @@ GenTree* Lowering::LowerVirtualVtableCall(GenTreeCall* call)
             vtableCallTempLcl = comp->lvaAllocTemp(true DEBUGARG("virtual vtable call"));
         }
 
-        LIR::Use thisPtrUse(BlockRange(), &thisArgInfo->GetNode()->AsUnOp()->gtOp1, thisArgInfo->GetNode());
+        LIR::Use thisPtrUse(BlockRange(), &thisArgInfo->GetUse()->NodeRef(), call);
         ReplaceWithLclLoad(thisPtrUse, vtableCallTempLcl);
         thisUse = comp->gtNewLclLoad(vtableCallTempLcl, thisPtr->GetType());
     }
