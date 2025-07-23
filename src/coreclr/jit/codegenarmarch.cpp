@@ -1204,29 +1204,22 @@ void CodeGen::GenCall(GenTreeCall* call)
 
     for (GenTreeUse& use : call->Uses())
     {
-        GenTree* argNode = use.GetNode();
-
-        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode));
-        argNode = argNode->gtSkipReloadOrCopy();
+        GenTree* argNode = use.GetNode()->gtSkipReloadOrCopy();
 
         assert(argNode->OperIs(GT_PUTARG_REG));
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
+        assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
 
 #ifdef TARGET_ARM
         if (argNode->TypeIs(TYP_LONG))
         {
             UseRegs(argNode);
 
-            assert((argInfo == nullptr) || (argNode->GetRegNum(0) == argInfo->GetRegNum(0)));
-            assert((argInfo == nullptr) || (argNode->GetRegNum(1) == argInfo->GetRegNum(1)));
-
             continue;
         }
 #endif
 
         UseReg(argNode);
-
-        assert((argInfo == nullptr) || (argInfo->GetRegCount() == 1));
-        assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
     }
 
     if (call->HasNullCheck())

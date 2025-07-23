@@ -126,9 +126,8 @@ void LinearScan::BuildCall(GenTreeCall* call)
     {
         GenTree* argNode = use.GetNode();
 
-        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
-
         assert(argNode->OperIs(GT_PUTARG_REG));
+        INDEBUG(CallArgInfo* argInfo = call->TryGetArgInfoByArgNode(argNode);)
         assert((argInfo == nullptr) || (argNode->GetRegNum() == argInfo->GetRegNum()));
 
 #ifdef TARGET_ARM
@@ -136,8 +135,8 @@ void LinearScan::BuildCall(GenTreeCall* call)
         {
             assert(argNode->IsMultiRegNode());
 
-            BuildUse(argNode, genRegMask(argNode->GetRegNum()), 0);
-            BuildUse(argNode, genRegMask(REG_NEXT(argNode->GetRegNum())), 1);
+            BuildUse(argNode, genRegMask(argNode->GetRegNum(0)), 0);
+            BuildUse(argNode, genRegMask(argNode->GetRegNum(1)), 1);
 
             continue;
         }

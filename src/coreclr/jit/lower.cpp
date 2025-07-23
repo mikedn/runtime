@@ -1229,14 +1229,29 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #endif
     }
 
-    if (GenTreeFieldList* fieldList = arg->IsFieldList())
+    if (GenTreeFieldList* fields = arg->IsFieldList())
     {
 #if FEATURE_MULTIREG_ARGS
-        unsigned regIndex = 0;
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
+        unsigned          regIndex = 0;
+        GenTreeCall::Use* after    = info->GetUse();
+
+        for (GenTreeFieldList::Use *nextField, *field = fields->Uses().GetHead(); field != nullptr; field = nextField)
         {
-            GenTree* putArgReg = InsertPutArgReg(use.GetNode(), info, regIndex);
-            use.SetNode(putArgReg);
+            nextField = field->GetNext();
+
+            GenTree* putArgReg = InsertPutArgReg(field->GetNode(), info, regIndex);
+
+            if (regIndex == 0)
+            {
+                info->SetNode(putArgReg);
+            }
+            else
+            {
+                static_assert_no_msg(sizeof(GenTreeCall::Use) <= sizeof(GenTreeFieldList::Use));
+                GenTreeCall::Use* newUse = new (field) GenTreeCall::Use(putArgReg, after->GetNext());
+                after->SetNext(newUse);
+                after = newUse;
+            }
 
 #ifdef TARGET_ARM
             regIndex += putArgReg->TypeIs(TYP_LONG) ? 2 : 1;
@@ -1244,6 +1259,8 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             regIndex++;
 #endif
         }
+
+        BlockRange().Unlink(fields);
 
         return arg;
 #else
@@ -1480,23 +1497,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
             continue;
         }
 
-        if (GenTreeFieldList* list = node->IsFieldList())
-        {
-            BlockRange().Unlink(list);
-
-            for (GenTreeFieldList::Use *nextField, *field = list->Uses().GetHead(); field != nullptr; field = nextField)
-            {
-                nextField = field->GetNext();
-
-                static_assert_no_msg(sizeof(GenTreeCall::Use) <= sizeof(GenTreeFieldList::Use));
-                GenTreeCall::Use* newUse = new (field) GenTreeCall::Use(field->GetNode(), use.GetNext());
-
-                *prevUseLink = newUse;
-                prevUseLink  = &newUse->NextRef();
-            }
-
-            continue;
-        }
+        assert(!node->IsFieldList());
 
 #if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
         if (GenTreePutArgSplit* split = node->IsPutArgSplit())
@@ -1746,7 +1747,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
 
 #ifdef TARGET_AMD64
     assert(!comp->getNeedsGSSecurityCookie()); // jit64 compat: tail calls from methods that need GS check
-#endif                                         // TARGET_AMD64
+#endif
 
     // VM cannot use return address hijacking when A() and B() tail call each
     // other in mutual recursion.  Therefore, this block is reachable through
