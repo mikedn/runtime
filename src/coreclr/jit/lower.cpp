@@ -1182,8 +1182,6 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
 #if FEATURE_ARG_SPLIT
 GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
 {
-    GenTree* arg = info->GetNode();
-
 #if FEATURE_FASTTAILCALL
     // TODO: Need to check correctness for FastTailCall
     if (call->IsFastTailCall())
@@ -1192,10 +1190,37 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     }
 #endif
 
+    GenTree* arg = info->GetNode();
+
 #ifdef TARGET_ARM64
     noway_assert(arg->IsFieldList());
-#endif
+    GenTreeFieldList* list = arg->AsFieldList();
 
+    GenTreeFieldList::Use* regUse = list->Uses().GetHead();
+    assert(regUse->GetOffset() == 0);
+
+    GenTreeFieldList::Use* stackUse = regUse->GetNext();
+    assert(stackUse->GetOffset() == 8);
+    assert(stackUse->GetNext() == nullptr);
+
+    GenTree* regVal = regUse->GetNode();
+    GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+    regDef->SetRegNum(REG_R7);
+    BlockRange().InsertAfter(regVal, regDef);
+    info->SetNode(regDef);
+
+    GenTree*          stackVal  = stackUse->GetNode();
+    GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(stackVal, info, call);
+    assert(putArgStk->GetOffset() == 0);
+    assert(putArgStk->GetSize() == REGSIZE_BYTES);
+    BlockRange().InsertAfter(list, putArgStk);
+
+    BlockRange().Unlink(list);
+
+    LowerPutArgStk(putArgStk);
+
+    return putArgStk;
+#else
     GenTreePutArgSplit* putArgSplit = new (comp, GT_PUTARG_SPLIT) GenTreePutArgSplit(arg, info, call);
     BlockRange().InsertAfter(arg, putArgSplit);
     info->SetNode(putArgSplit);
@@ -1203,6 +1228,7 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     LowerPutArgStk(putArgSplit);
 
     return putArgSplit;
+#endif
 }
 #endif // FEATURE_ARG_SPLIT
 
@@ -1498,36 +1524,6 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
         }
 
         assert(!node->IsFieldList());
-
-#if defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-        if (GenTreePutArgSplit* split = node->IsPutArgSplit())
-        {
-            noway_assert(split->GetOp(0)->IsFieldList());
-
-            GenTreeFieldList* list = split->GetOp(0)->AsFieldList();
-
-            BlockRange().Unlink(list);
-
-            GenTreeFieldList::Use* regUse = list->Uses().GetHead();
-            assert(regUse->GetOffset() == 0);
-
-            GenTreeFieldList::Use* stackUse = regUse->GetNext();
-            assert(stackUse->GetOffset() == 8);
-            assert(stackUse->GetNext() == nullptr);
-
-            GenTree* regVal = regUse->GetNode();
-            GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-            regDef->SetRegNum(REG_R7);
-            BlockRange().InsertAfter(regVal, regDef);
-            use.SetNode(regDef);
-
-            GenTree* stackVal = stackUse->GetNode();
-            node->SetOper(GT_PUTARG_STK);
-            node->AsPutArgStk()->SetOp(0, stackUse->GetNode());
-            assert(node->AsPutArgStk()->GetOffset() == 0);
-            assert(node->AsPutArgStk()->GetSize() == REGSIZE_BYTES);
-        }
-#endif
 
 #ifdef TARGET_ARM
         if (GenTreePutArgSplit* split = node->IsPutArgSplit())
@@ -4098,7 +4094,7 @@ void Lowering::VerifyCallArg(GenTree* arg)
     }
     else
     {
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK, GT_PUTARG_SPLIT));
 #else
         assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK));

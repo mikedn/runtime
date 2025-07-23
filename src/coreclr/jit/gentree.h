@@ -1291,7 +1291,7 @@ public:
 
     bool OperIsPutArgSplit() const
     {
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         return gtOper == GT_PUTARG_SPLIT;
 #else
         return false;
@@ -6596,16 +6596,10 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgStk, GenTreeUnOp)
 };
 
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
 class GenTreePutArgSplit : public GenTreePutArgStk
 {
-#if defined(TARGET_ARM)
     constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_ARG_REG_COUNT;
-#elif defined(TARGET_ARM64)
-    constexpr static unsigned MAX_SPLIT_ARG_REGS = 1;
-#else
-#error Unknown FEATURE_ARG_SPLIT target.
-#endif
 
 public:
     GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
@@ -6616,7 +6610,7 @@ public:
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgSplit, GenTreePutArgStk)
 };
-#endif // FEATURE_ARG_SPLIT
+#endif // TARGET_ARM
 
 class GenTreeCopyOrReload : public GenTreeUnOp
 {
@@ -8020,7 +8014,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_RETURNTRAP:
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         case GT_PUTARG_SPLIT:
 #endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE

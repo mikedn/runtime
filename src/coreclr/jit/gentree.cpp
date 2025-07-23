@@ -221,7 +221,7 @@ static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
 static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_SMALL);
 #endif
 #ifdef FEATURE_HW_INTRINSICS
@@ -5000,7 +5000,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
         case GT_RETURNTRAP:
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
         case GT_PUTARG_SPLIT:
 #endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE

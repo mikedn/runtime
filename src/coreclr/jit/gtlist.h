@@ -280,7 +280,7 @@ GTNODE(PINVOKE_EPILOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)           
 GTNODE(PUTARG_REG       , GenTreeOp           , GTK_UNOP)                        // operator that places outgoing arg in register
 GTNODE(PUTARG_STK       , GenTreePutArgStk    , GTK_UNOP|GTK_NOVALUE)            // operator that places outgoing arg in stack
 
-#if FEATURE_ARG_SPLIT                          
+#if TARGET_ARM
 GTNODE(PUTARG_SPLIT     , GenTreePutArgSplit  , GTK_UNOP)                        // operator that places outgoing arg in registers with stack (split struct in ARM32)
 #endif
 

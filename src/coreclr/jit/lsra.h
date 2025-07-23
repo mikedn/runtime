@@ -1328,7 +1328,7 @@ private:
     void BuildReturn(GenTreeUnOp* ret);
     void BuildPutArgReg(GenTreeUnOp* node);
     void BuildPutArgStk(GenTreePutArgStk* node);
-#if FEATURE_ARG_SPLIT
+#if TARGET_ARM
     void BuildPutArgSplit(GenTreePutArgSplit* node);
 #endif
     void BuildCall(GenTreeCall* call);
