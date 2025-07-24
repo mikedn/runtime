@@ -1924,9 +1924,6 @@ void CodeGen::UnspillST0(GenTree* node)
 void CodeGen::DefReg(GenTree* node)
 {
     assert(!node->OperIs(GT_LCL_STORE_FLD, GT_LCL_STORE, GT_LCL_LOAD, GT_CALL));
-#if TARGET_ARM
-    assert(!node->IsPutArgSplit());
-#endif
 #ifndef TARGET_64BIT
     assert(!node->IsMultiRegOpLong());
 #endif

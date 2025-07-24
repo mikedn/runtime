@@ -279,11 +279,6 @@ GTNODE(PINVOKE_PROLOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)           
 GTNODE(PINVOKE_EPILOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke epilog seq
 GTNODE(PUTARG_REG       , GenTreeOp           , GTK_UNOP)                        // operator that places outgoing arg in register
 GTNODE(PUTARG_STK       , GenTreePutArgStk    , GTK_UNOP|GTK_NOVALUE)            // operator that places outgoing arg in stack
-
-#if TARGET_ARM
-GTNODE(PUTARG_SPLIT     , GenTreePutArgSplit  , GTK_UNOP)                        // operator that places outgoing arg in registers with stack (split struct in ARM32)
-#endif
-
 GTNODE(RETURNTRAP       , GenTreeOp           , GTK_UNOP|GTK_NOVALUE)            // a conditional call to wait on gc
 
 #ifdef TARGET_XARCH                            

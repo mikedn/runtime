@@ -1328,9 +1328,6 @@ private:
     void BuildReturn(GenTreeUnOp* ret);
     void BuildPutArgReg(GenTreeUnOp* node);
     void BuildPutArgStk(GenTreePutArgStk* node);
-#if TARGET_ARM
-    void BuildPutArgSplit(GenTreePutArgSplit* node);
-#endif
     void BuildCall(GenTreeCall* call);
     void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildOvfTruncate(GenTreeUnOp* node);

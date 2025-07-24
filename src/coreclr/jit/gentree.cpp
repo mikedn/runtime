@@ -221,9 +221,6 @@ static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
-#if TARGET_ARM
-static_assert_no_msg(sizeof(GenTreePutArgSplit)  <= TREE_NODE_SZ_SMALL);
-#endif
 #ifdef FEATURE_HW_INTRINSICS
 static_assert_no_msg(sizeof(GenTreeHWIntrinsic)  <= TREE_NODE_SZ_SMALL);
 #endif
@@ -5000,9 +4997,6 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
         case GT_RETURNTRAP:
-#if TARGET_ARM
-        case GT_PUTARG_SPLIT:
-#endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
         case GT_SIMD_UPPER_UNSPILL:
@@ -6672,7 +6666,11 @@ void Compiler::gtDispTreeRec(
             printf(" %s", IntrinsicName(tree->AsIntrinsic()->GetIntrinsic()));
             break;
         case GT_PUTARG_STK:
-            printf(" (@%u, %d slots", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSlotCount());
+#if FEATURE_FIXED_OUT_ARGS
+            printf(" (@%u, %u slots", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSlotCount());
+#else
+            printf(" (%u slots", tree->AsPutArgStk()->GetSlotCount());
+#endif
 #ifdef TARGET_XARCH
             if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
             {

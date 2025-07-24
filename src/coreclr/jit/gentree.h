@@ -1143,8 +1143,7 @@ public:
         if (gtType == TYP_VOID)
         {
             // These are the only operators which can produce either VOID or non-VOID results.
-            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || IsHWIntrinsic() ||
-                   OperIsPutArgSplit());
+            assert(OperIs(GT_NOP, GT_CALL, GT_COMMA, GT_INSTR) || OperIsCompare() || IsHWIntrinsic());
             return false;
         }
 
@@ -1289,18 +1288,9 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    bool OperIsPutArgSplit() const
-    {
-#if TARGET_ARM
-        return gtOper == GT_PUTARG_SPLIT;
-#else
-        return false;
-#endif
-    }
-
     bool OperIsPutArg() const
     {
-        return (gtOper == GT_PUTARG_STK) || (gtOper == GT_PUTARG_REG) || OperIsPutArgSplit();
+        return (gtOper == GT_PUTARG_STK) || (gtOper == GT_PUTARG_REG);
     }
 
     bool IsMultiRegOpLong() const
@@ -6526,8 +6516,8 @@ private:
 #endif
 
 public:
-    GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call, genTreeOps oper = GT_PUTARG_STK)
-        : GenTreeUnOp(oper, TYP_VOID, arg)
+    GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
+        : GenTreeUnOp(GT_PUTARG_STK, TYP_VOID, arg)
         , m_argInfo(argInfo)
 #ifdef UNIX_X86_ABI
         , m_call(call)
@@ -6538,6 +6528,13 @@ public:
     {
 #ifdef WINDOWS_AMD64_ABI
         assert(argInfo->GetSlotCount() == 1);
+#endif
+#ifdef TARGET_ARM
+        assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
+#elif defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
+        assert(argInfo->GetRegCount() <= 1);
+#else
+        assert(argInfo->GetRegCount() == 0);
 #endif
     }
 
@@ -6562,10 +6559,12 @@ public:
 #endif
     }
 
+#if FEATURE_FIXED_OUT_ARGS
     unsigned GetOffset() const
     {
         return m_argInfo->GetSlotNum() * REGSIZE_BYTES;
     }
+#endif
 
     unsigned GetSlotCount() const
     {
@@ -6595,22 +6594,6 @@ public:
 
     DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgStk, GenTreeUnOp)
 };
-
-#if TARGET_ARM
-class GenTreePutArgSplit : public GenTreePutArgStk
-{
-    constexpr static unsigned MAX_SPLIT_ARG_REGS = MAX_ARG_REG_COUNT;
-
-public:
-    GenTreePutArgSplit(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
-        : GenTreePutArgStk(arg, argInfo, call, GT_PUTARG_SPLIT)
-    {
-        assert((0 < argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_SPLIT_ARG_REGS));
-    }
-
-    DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgSplit, GenTreePutArgStk)
-};
-#endif // TARGET_ARM
 
 class GenTreeCopyOrReload : public GenTreeUnOp
 {
@@ -8014,9 +7997,6 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_RETURNTRAP:
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
-#if TARGET_ARM
-        case GT_PUTARG_SPLIT:
-#endif
 #if FEATURE_PARTIAL_SIMD_CALLEE_SAVE
         case GT_SIMD_UPPER_SPILL:
         case GT_SIMD_UPPER_UNSPILL:

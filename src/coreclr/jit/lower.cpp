@@ -1883,9 +1883,6 @@ void Lowering::InsertProfTailCallHook(GenTreeCall* call, GenTree* startNonGCNode
     {
         for (GenTreeUse& use : call->Uses())
         {
-            // win-arm64 doesn't support varargs fast tail calls and arm doesn't support fast tail calls at all.
-            assert(!use.GetNode()->OperIsPutArgSplit());
-
             if (use.GetNode()->OperIs(GT_PUTARG_REG))
             {
                 insertionPoint = use.GetNode();
@@ -4085,11 +4082,7 @@ void Lowering::VerifyCallArg(GenTree* arg)
     }
     else
     {
-#if TARGET_ARM
-        assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK, GT_PUTARG_SPLIT));
-#else
         assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK));
-#endif
     }
 }
 
