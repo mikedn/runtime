@@ -491,8 +491,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #else
     if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
     {
-        assert(comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()));
-
         if (putArgStk->GetSize() > INITBLK_UNROLL_LIMIT)
         {
             putArgStk->SetKind(GenTreePutArgStk::Kind::RepInstrZero);
@@ -505,21 +503,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         return;
     }
-
-#ifdef TARGET_64BIT
-    if (src->IsIntCon(0) && comp->typIsLayoutNum(putArgStk->GetArgInfo()->GetSigTypeNum()))
-    {
-        ClassLayout* layout = comp->typGetLayoutByNum(putArgStk->GetArgInfo()->GetSigTypeNum());
-        assert(layout->GetSize() <= REGSIZE_BYTES);
-
-        if (layout->GetSize() > 4)
-        {
-            src->SetType(TYP_LONG);
-        }
-
-        return;
-    }
-#endif
 #endif // !WINDOWS_AMD64_ABI
 
     // If the child of GT_PUTARG_STK is a constant, we don't need a register to

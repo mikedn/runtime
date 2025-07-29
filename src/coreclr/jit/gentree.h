@@ -6538,10 +6538,12 @@ public:
 #endif
     }
 
-    CallArgInfo* GetArgInfo() const
+#ifdef TARGET_ARM
+    unsigned GetSplitRegCount() const
     {
-        return m_argInfo;
+        return m_argInfo->GetRegCount();
     }
+#endif
 
 #ifdef UNIX_X86_ABI
     GenTreeCall* GetCall() const

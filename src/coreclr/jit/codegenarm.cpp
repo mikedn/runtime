@@ -1179,7 +1179,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
 
     Emitter& emit = *GetEmitter();
 
-    unsigned offset = putArg->GetArgInfo()->GetRegCount() * REGSIZE_BYTES;
+    unsigned offset = putArg->GetSplitRegCount() * REGSIZE_BYTES;
     size -= offset;
 
     for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, outArgLclOffs += regSize)
