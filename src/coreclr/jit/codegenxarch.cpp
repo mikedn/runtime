@@ -5608,6 +5608,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 }
 
 #ifdef TARGET_X86
+
 void CodeGen::AlignStackBeforeCall(GenTreePutArgStk* putArgStk)
 {
 #ifdef UNIX_X86_ABI
@@ -5881,7 +5882,174 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
         AddStackLevel(currentOffset);
     }
 }
+
+void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
+{
+    GenTree* src = putArgStk->GetOp(0);
+    assert(!src->TypeIs(TYP_LONG));
+
+    AlignStackBeforeCall(putArgStk);
+
+    if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
+    {
+        assert(src->AsCall()->GetRegCount() == 2);
+        assert(putArgStk->GetSlotCount() == 2);
+
+        // TODO-MIKE-Cleanup: Using the register types isn't quite right, we need
+        // the slot types from the argument layout. But in general they should be
+        // the same, unless there's some weird reinterpretation going on, likely
+        // due to invalid IL. Anyway, this is currently used only by unmanaged
+        // calls so GC pointers should not be involved. It obviously would not
+        // work for __vectorcall or if the managed calling convention is changed
+        // to be like the native one.
+        assert(src->AsCall()->GetRegType(0) == TYP_INT);
+        assert(src->AsCall()->GetRegType(1) == TYP_INT);
+
+        RegNum srcReg0 = UseReg(src, 0);
+        RegNum srcReg1 = UseReg(src, 1);
+
+        PushReg(TYP_INT, srcReg1);
+        PushReg(TYP_INT, srcReg0);
+
+        return;
+    }
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+        GenPutArgStkFieldList(putArgStk);
+        return;
+    }
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        GenPutArgStkStruct(putArgStk);
+        return;
+    }
+
+    Emitter& emit = *GetEmitter();
+
+    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
+    {
+        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+        {
+            assert(putArgStk->HasAllTempRegs(RBM_ECX | RBM_EDI));
+
+            RegNum srcReg = UseReg(src);
+            emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, srcReg, /*canSkip*/ true);
+            PreAdjustStackForPutArgStk(putArgStk->GetSize());
+            emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDI, REG_SPBASE, /* canSkip */ false);
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, putArgStk->GetSlotCount());
+            emit.emitIns(INS_rep_stos, EA_4BYTE);
+        }
+        else if (putArgStk->GetSize() < XMM_REGSIZE_BYTES)
+        {
+            assert(src->isContained());
+            assert(!putArgStk->HasAnyTempRegs());
+
+            for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
+            {
+                emit.emitIns_I(INS_push, EA_4BYTE, 0);
+                AddStackLevel(4);
+            }
+        }
+        else
+        {
+            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+            assert(src->isContained());
+
+            unsigned size = putArgStk->GetSize();
+
+            PreAdjustStackForPutArgStk(size);
+
+            RegNum zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+            emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
+
+            unsigned offset = 0;
+
+            while (offset + XMM_REGSIZE_BYTES <= size)
+            {
+                emit.emitIns_AR_R(INS_movups, EA_16BYTE, zeroXmmReg, REG_SPBASE, offset);
+                offset += XMM_REGSIZE_BYTES;
+            }
+
+            if (size - offset >= 8)
+            {
+                emit.emitIns_AR_R(INS_movq, EA_8BYTE, zeroXmmReg, REG_SPBASE, offset);
+                offset += 8;
+            }
+
+            if (size - offset != 0)
+            {
+                assert(size - offset == 4);
+                emit.emitIns_AR_R(INS_movd, EA_4BYTE, zeroXmmReg, REG_SPBASE, offset);
+            }
+        }
+
+        return;
+    }
+
+    if (!src->isUsedFromReg())
+    {
+        assert(putArgStk->GetSlotCount() == 1);
+
+        UseRMRegs(src);
+
+        emitAttr attr = emitActualTypeSize(src->GetType());
+        assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
+
+        StackAddrMode s;
+
+        if (IsLocalMemoryOperand(src, &s))
+        {
+            emit.emitIns_S(INS_push, attr, s);
+        }
+        else if (src->OperIs(GT_IND_LOAD))
+        {
+            emit.emitIns_A(INS_push, attr, src->AsIndLoad()->GetAddr());
+        }
+        else if (GenTreeIntCon* handle = src->IsIntConHandle())
+        {
+            emit.emitIns_H(INS_push, handle->GetAddr());
+        }
+        else
+        {
+            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetInt32Value());
+        }
+
+        AddStackLevel(REGSIZE_BYTES);
+
+        return;
+    }
+
+    RegNum srcReg = UseReg(src);
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(src->GetType()))
+    {
+        assert(genIsValidFloatReg(srcReg));
+
+        unsigned size = putArgStk->GetSize();
+        emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
+        AddStackLevel(size);
+
+        if (size == 12)
+        {
+            PushSIMD12(srcReg, putArgStk->GetSingleTempReg());
+        }
+        else
+        {
+            emit.emitIns_AR_R(size == 8 ? INS_movsd : INS_movups, EA_ATTR(size), srcReg, REG_SPBASE, 0);
+        }
+
+        return;
+    }
+#endif
+
+    PushReg(varActualType(src->GetType()), srcReg);
+}
+
 #else // !TARGET_X86
+
 void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                     unsigned          outArgLclNum,
                                     unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
@@ -5915,6 +6083,124 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
                                   GetStackAddrMode(outArgLclNum, dstOffset));
     }
 }
+
+void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
+{
+    unsigned outArgLclNum;
+    INDEBUG(unsigned outArgLclSize);
+
+    if (putArgStk->PutInIncomingArgArea())
+    {
+        outArgLclNum = GetFirstStackParamLclNum();
+        noway_assert(outArgLclNum != BAD_VAR_NUM);
+        INDEBUG(outArgLclSize = paramsStackSize);
+    }
+    else
+    {
+        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
+        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
+    }
+
+    unsigned outArgLclOffs = putArgStk->GetOffset();
+
+    GenTree* src = putArgStk->GetOp(0);
+
+    if (src->OperIs(GT_FIELD_LIST))
+    {
+        GenPutArgStkFieldList(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        GenPutArgStkStruct(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        return;
+    }
+
+    Emitter& emit = *GetEmitter();
+
+#ifdef UNIX_AMD64_ABI
+    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
+    {
+        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+        {
+            assert(putArgStk->HasAllTempRegs(RBM_RCX | RBM_RDI));
+
+            RegNum srcReg = UseReg(src);
+            emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_RAX, srcReg, /*canSkip*/ true);
+            emit.emitIns_R_S(INS_lea, EA_8BYTE, REG_RDI,
+                             GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
+            emit.emitIns(INS_rep_stos, EA_8BYTE);
+        }
+        else
+        {
+            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+            assert(src->isContained());
+
+            unsigned size = putArgStk->GetSize();
+
+            RegNum zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
+            emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
+
+            unsigned offset = 0;
+
+            while (offset + XMM_REGSIZE_BYTES <= size)
+            {
+                emit.emitIns_S_R(INS_movups, EA_16BYTE, zeroXmmReg,
+                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
+                offset += XMM_REGSIZE_BYTES;
+            }
+
+            if (size - offset >= 8)
+            {
+                assert(size - offset == 8);
+                emit.emitIns_S_R(INS_movq, EA_8BYTE, zeroXmmReg,
+                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
+            }
+        }
+
+        return;
+    }
+#endif // UNIX_AMD64_ABI
+
+#ifdef WINDOWS_AMD64_ABI
+    assert(putArgStk->GetSlotCount() == 1);
+#endif
+
+    var_types srcType = varActualType(src->GetType());
+
+    if (!src->isUsedFromReg())
+    {
+        assert(putArgStk->GetSlotCount() == 1);
+        assert(src->IsContainedIntCon());
+
+        emit.emitIns_S_I(INS_mov, emitTypeSize(srcType),
+                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
+                         src->AsIntCon()->GetInt32Value());
+
+        return;
+    }
+
+    instruction ins;
+    emitAttr    size;
+
+    if (varTypeIsSIMD(srcType) && (putArgStk->GetSlotCount() == 1))
+    {
+        ins  = INS_movsd;
+        size = EA_8BYTE;
+    }
+    else
+    {
+        ins  = ins_Store(srcType);
+        size = emitTypeSize(srcType);
+    }
+
+    RegNum srcReg = UseReg(src);
+
+    emit.emitIns_S_R(ins, size, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+}
+
 #endif // !TARGET_X86
 
 #if FEATURE_FASTTAILCALL
@@ -5943,258 +6229,6 @@ unsigned CodeGen::GetFirstStackParamLclNum() const
 #endif
 }
 #endif // FEATURE_FASTTAILCALL
-
-void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
-{
-    GenTree*  src     = putArgStk->GetOp(0);
-    var_types srcType = varActualType(src->GetType());
-
-#ifdef TARGET_AMD64
-    unsigned outArgLclNum;
-    INDEBUG(unsigned outArgLclSize);
-
-    if (putArgStk->PutInIncomingArgArea())
-    {
-        outArgLclNum = GetFirstStackParamLclNum();
-        INDEBUG(outArgLclSize = paramsStackSize);
-
-        noway_assert(outArgLclNum != BAD_VAR_NUM);
-    }
-    else
-    {
-        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
-        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
-    }
-
-    unsigned outArgLclOffs = putArgStk->GetOffset();
-#else
-    // On a 32-bit target, all of the long arguments are handled with FIELD_LISTs of TYP_INT.
-    assert(srcType != TYP_LONG);
-
-    AlignStackBeforeCall(putArgStk);
-#endif
-
-    if (src->OperIs(GT_FIELD_LIST))
-    {
-#ifdef TARGET_AMD64
-        GenPutArgStkFieldList(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-#else
-        GenPutArgStkFieldList(putArgStk);
-#endif
-        return;
-    }
-
-#ifdef TARGET_X86
-    if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
-    {
-        assert(src->AsCall()->GetRegCount() == 2);
-        assert(putArgStk->GetSlotCount() == 2);
-
-        // TODO-MIKE-Cleanup: Using the register types isn't quite right, we need
-        // the slot types from the argument layout. But in general they should be
-        // the same, unless there's some weird reinterpretation going on, likely
-        // due to invalid IL. Anyway, this is currently used only by unmanaged
-        // calls so GC pointers should not be involved. It obviously would not
-        // work for __vectorcall or if the managed calling convention is changed
-        // to be like the native one.
-        assert(src->AsCall()->GetRegType(0) == TYP_INT);
-        assert(src->AsCall()->GetRegType(1) == TYP_INT);
-
-        RegNum srcReg0 = UseReg(src, 0);
-        RegNum srcReg1 = UseReg(src, 1);
-
-        PushReg(TYP_INT, srcReg1);
-        PushReg(TYP_INT, srcReg0);
-
-        return;
-    }
-#endif
-
-    if (srcType == TYP_STRUCT)
-    {
-#ifdef TARGET_AMD64
-        GenPutArgStkStruct(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-#else
-        GenPutArgStkStruct(putArgStk);
-#endif
-        return;
-    }
-
-    Emitter& emit = *GetEmitter();
-
-#ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSlotCount() == 1);
-#else
-    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
-    {
-        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
-        {
-            assert(putArgStk->HasAllTempRegs(RBM_RCX | RBM_RDI));
-
-            RegNum srcReg = UseReg(src);
-            emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RAX, srcReg, /*canSkip*/ true);
-#ifdef TARGET_X86
-            PreAdjustStackForPutArgStk(putArgStk->GetSize());
-            emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RDI, REG_SPBASE, /* canSkip */ false);
-#else
-            emit.emitIns_R_S(INS_lea, EA_PTRSIZE, REG_RDI,
-                             GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-#endif
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
-            emit.emitIns(INS_rep_stos, EA_PTRSIZE);
-        }
-#ifdef TARGET_X86
-        else if (putArgStk->GetSize() < XMM_REGSIZE_BYTES)
-        {
-            assert(src->isContained());
-            assert(!putArgStk->HasAnyTempRegs());
-
-            for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
-            {
-                emit.emitIns_I(INS_push, EA_4BYTE, 0);
-                AddStackLevel(4);
-            }
-        }
-#endif // TARGET_X86
-        else
-        {
-            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
-            assert(src->isContained());
-
-            unsigned size = putArgStk->GetSlotCount() * REGSIZE_BYTES;
-
-#ifdef TARGET_X86
-            PreAdjustStackForPutArgStk(size);
-#endif
-            regNumber zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
-            emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
-
-            unsigned offset = 0;
-
-            while (offset + XMM_REGSIZE_BYTES <= size)
-            {
-#ifdef TARGET_X86
-                emit.emitIns_AR_R(INS_movups, EA_16BYTE, zeroXmmReg, REG_SPBASE, offset);
-#else
-                emit.emitIns_S_R(INS_movups, EA_16BYTE, zeroXmmReg,
-                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
-#endif
-                offset += XMM_REGSIZE_BYTES;
-            }
-
-#ifdef TARGET_X86
-            assert(((size - offset) & ~12) == 0);
-#else
-            assert(((size - offset) & ~8) == 0);
-#endif
-
-            if (size - offset >= 8)
-            {
-#ifdef TARGET_X86
-                emit.emitIns_AR_R(INS_movq, EA_8BYTE, zeroXmmReg, REG_SPBASE, offset);
-#else
-                emit.emitIns_S_R(INS_movq, EA_8BYTE, zeroXmmReg,
-                                 GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs + offset)));
-#endif
-                offset += 8;
-            }
-
-#ifdef TARGET_X86
-            if (size - offset != 0)
-            {
-                assert(size - offset == 4);
-                emit.emitIns_AR_R(INS_movd, EA_4BYTE, zeroXmmReg, REG_SPBASE, offset);
-            }
-#endif
-        }
-
-        return;
-    }
-#endif // !WINDOWS_AMD64_ABI
-
-    if (src->isUsedFromReg())
-    {
-        RegNum srcReg = UseReg(src);
-
-#ifdef TARGET_AMD64
-        instruction ins;
-        emitAttr    size;
-
-        if (varTypeIsSIMD(srcType) && (putArgStk->GetSlotCount() == 1))
-        {
-            ins  = INS_movsd;
-            size = EA_8BYTE;
-        }
-        else
-        {
-            ins  = ins_Store(srcType);
-            size = emitTypeSize(srcType);
-        }
-
-        emit.emitIns_S_R(ins, size, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-#else
-#ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(srcType))
-        {
-            assert(genIsValidFloatReg(srcReg));
-
-            unsigned size = putArgStk->GetSize();
-            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
-            AddStackLevel(size);
-
-            if (size == 12)
-            {
-                PushSIMD12(srcReg, putArgStk->GetSingleTempReg());
-            }
-            else
-            {
-                emit.emitIns_AR_R(size == 8 ? INS_movsd : INS_movups, EA_ATTR(size), srcReg, REG_SPBASE, 0);
-            }
-        }
-        else
-#endif
-        {
-            PushReg(srcType, srcReg);
-        }
-#endif
-    }
-    else
-    {
-        assert(putArgStk->GetSlotCount() == 1);
-
-#ifdef TARGET_AMD64
-        emit.emitIns_S_I(INS_mov, emitTypeSize(srcType),
-                         GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
-                         src->AsIntCon()->GetInt32Value());
-#else
-        UseRMRegs(src);
-
-        emitAttr attr = emitActualTypeSize(src->GetType());
-        assert(EA_SIZE_IN_BYTES(attr) == REGSIZE_BYTES);
-
-        StackAddrMode s;
-
-        if (IsLocalMemoryOperand(src, &s))
-        {
-            emit.emitIns_S(INS_push, attr, s);
-        }
-        else if (src->OperIs(GT_IND_LOAD))
-        {
-            emit.emitIns_A(INS_push, attr, src->AsIndLoad()->GetAddr());
-        }
-        else if (GenTreeIntCon* handle = src->IsIntConHandle())
-        {
-            emit.emitIns_H(INS_push, handle->GetAddr());
-        }
-        else
-        {
-            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetInt32Value());
-        }
-
-        AddStackLevel(REGSIZE_BYTES);
-#endif
-    }
-}
 
 void CodeGen::GenPutArgReg(GenTreeUnOp* putArg)
 {
