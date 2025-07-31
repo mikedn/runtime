@@ -487,9 +487,9 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSlotCount() == 1);
+    assert(putArgStk->GetSize() == REGSIZE_BYTES);
 #else
-    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
     {
         if (putArgStk->GetSize() > INITBLK_UNROLL_LIMIT)
         {

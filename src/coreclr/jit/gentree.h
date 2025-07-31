@@ -6502,7 +6502,12 @@ public:
 #endif
 
 private:
-    CallArgInfo* m_argInfo;
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned m_offset;
+#endif
+#ifndef WINDOWS_AMD64_ABI
+    unsigned m_size;
+#endif
 #ifdef UNIX_X86_ABI
     GenTreeCall* m_call;
 #endif
@@ -6514,16 +6519,27 @@ private:
 #ifdef TARGET_XARCH
     Kind m_kind = Kind::Invalid;
 #endif
+#ifdef TARGET_ARM
+    uint8_t m_splitRegCount;
+#endif
 
 public:
     GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
         : GenTreeUnOp(GT_PUTARG_STK, TYP_VOID, arg)
-        , m_argInfo(argInfo)
+#if FEATURE_FIXED_OUT_ARGS
+        , m_offset(argInfo->GetSlotNum() * REGSIZE_BYTES)
+#endif
+#ifndef WINDOWS_AMD64_ABI
+        , m_size(argInfo->GetSlotCount() * REGSIZE_BYTES)
+#endif
 #ifdef UNIX_X86_ABI
         , m_call(call)
 #endif
 #if FEATURE_FASTTAILCALL
         , m_putInIncomingArgArea(call->IsFastTailCall())
+#endif
+#ifdef TARGET_ARM
+        , m_splitRegCount(static_cast<uint8_t>(argInfo->GetRegCount()))
 #endif
     {
 #ifdef WINDOWS_AMD64_ABI
@@ -6541,7 +6557,7 @@ public:
 #ifdef TARGET_ARM
     unsigned GetSplitRegCount() const
     {
-        return m_argInfo->GetRegCount();
+        return m_splitRegCount;
     }
 #endif
 
@@ -6564,22 +6580,17 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
     unsigned GetOffset() const
     {
-        return m_argInfo->GetSlotNum() * REGSIZE_BYTES;
+        return m_offset;
     }
 #endif
-
-    unsigned GetSlotCount() const
-    {
-#ifdef WINDOWS_AMD64_ABI
-        return 1;
-#else
-        return m_argInfo->GetSlotCount();
-#endif
-    }
 
     unsigned GetSize() const
     {
-        return GetSlotCount() * REGSIZE_BYTES;
+#ifdef WINDOWS_AMD64_ABI
+        return REGSIZE_BYTES;
+#else
+        return m_size;
+#endif
     }
 
 #ifdef TARGET_XARCH

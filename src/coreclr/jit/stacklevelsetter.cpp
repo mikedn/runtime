@@ -195,7 +195,9 @@ void StackLevelSetter::PopCallArgs(GenTreeCall* call)
 
 void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
 {
-    currentStackLevel += putArgStk->GetSlotCount();
+    assert(putArgStk->GetSize() % REGSIZE_BYTES == 0);
+
+    currentStackLevel += putArgStk->GetSize() / REGSIZE_BYTES;
 
     if (currentStackLevel > maxStackLevel)
     {

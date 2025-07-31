@@ -5893,7 +5893,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
     {
         assert(src->AsCall()->GetRegCount() == 2);
-        assert(putArgStk->GetSlotCount() == 2);
+        assert(putArgStk->GetSize() == 8);
 
         // TODO-MIKE-Cleanup: Using the register types isn't quite right, we need
         // the slot types from the argument layout. But in general they should be
@@ -5928,8 +5928,10 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
     Emitter& emit = *GetEmitter();
 
-    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
     {
+        assert(putArgStk->GetSize() % REGSIZE_BYTES == 0);
+
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
             assert(putArgStk->HasAllTempRegs(RBM_ECX | RBM_EDI));
@@ -5938,7 +5940,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, srcReg, /*canSkip*/ true);
             PreAdjustStackForPutArgStk(putArgStk->GetSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDI, REG_SPBASE, /* canSkip */ false);
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, putArgStk->GetSlotCount());
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, putArgStk->GetSize() / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_4BYTE);
         }
         else if (putArgStk->GetSize() < XMM_REGSIZE_BYTES)
@@ -5946,7 +5948,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             assert(src->isContained());
             assert(!putArgStk->HasAnyTempRegs());
 
-            for (unsigned i = 0; i < putArgStk->GetSlotCount(); i++)
+            for (unsigned i = 0; i < putArgStk->GetSize() / REGSIZE_BYTES; i++)
             {
                 emit.emitIns_I(INS_push, EA_4BYTE, 0);
                 AddStackLevel(4);
@@ -5990,7 +5992,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (!src->isUsedFromReg())
     {
-        assert(putArgStk->GetSlotCount() == 1);
+        assert(putArgStk->GetSize() == REGSIZE_BYTES);
 
         UseRMRegs(src);
 
@@ -6120,8 +6122,10 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     Emitter& emit = *GetEmitter();
 
 #ifdef UNIX_AMD64_ABI
-    if (src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1))
+    if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
     {
+        assert(putArgStk->GetSize() % REGSIZE_BYTES == 0);
+
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
             assert(putArgStk->HasAllTempRegs(RBM_RCX | RBM_RDI));
@@ -6130,7 +6134,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_RAX, srcReg, /*canSkip*/ true);
             emit.emitIns_R_S(INS_lea, EA_8BYTE, REG_RDI,
                              GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSlotCount());
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSize() / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_8BYTE);
         }
         else
@@ -6165,14 +6169,14 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 #endif // UNIX_AMD64_ABI
 
 #ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSlotCount() == 1);
+    assert(putArgStk->GetSize() == REGSIZE_BYTES);
 #endif
 
     var_types srcType = varActualType(src->GetType());
 
     if (!src->isUsedFromReg())
     {
-        assert(putArgStk->GetSlotCount() == 1);
+        assert(putArgStk->GetSize() == REGSIZE_BYTES);
         assert(src->IsContainedIntCon());
 
         emit.emitIns_S_I(INS_mov, emitTypeSize(srcType),
@@ -6185,7 +6189,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     instruction ins;
     emitAttr    size;
 
-    if (varTypeIsSIMD(srcType) && (putArgStk->GetSlotCount() == 1))
+    if (varTypeIsSIMD(srcType) && (putArgStk->GetSize() == 8))
     {
         ins  = INS_movsd;
         size = EA_8BYTE;
@@ -6484,7 +6488,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
 
         assert((srcLcl != nullptr) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
 
-        for (int i = putArgStk->GetSlotCount() - 1; i >= 0; --i)
+        for (int i = putArgStk->GetSize() / REGSIZE_BYTES - 1; i >= 0; --i)
         {
             emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
@@ -6586,7 +6590,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
     // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
     assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-    unsigned numSlots = putArgStk->GetSlotCount();
+    unsigned numSlots = putArgStk->GetSize() / REGSIZE_BYTES;
 
     for (unsigned i = 0; i < numSlots; i++)
     {

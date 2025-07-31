@@ -6667,9 +6667,9 @@ void Compiler::gtDispTreeRec(
             break;
         case GT_PUTARG_STK:
 #if FEATURE_FIXED_OUT_ARGS
-            printf(" (@%u, %u slots", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSlotCount());
+            printf(" (@%u, %u", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSize());
 #else
-            printf(" (%u slots", tree->AsPutArgStk()->GetSlotCount());
+            printf(" (%u", tree->AsPutArgStk()->GetSize());
 #endif
 #ifdef TARGET_XARCH
             if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)

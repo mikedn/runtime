@@ -1143,7 +1143,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef TARGET_X86
-    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSlotCount() == 3))
+    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSize() == 12))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
@@ -1191,7 +1191,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 else if (src->IsIntCon(0))
                 {
                     layout = nullptr;
-                    size   = putArgStk->GetSlotCount() * REGSIZE_BYTES;
+                    size   = putArgStk->GetSize();
                 }
                 else
                 {
@@ -1264,9 +1264,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
 #ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSlotCount() == 1);
+    assert(putArgStk->GetSize() == REGSIZE_BYTES);
 #else
-    if ((src->IsIntCon(0) && (putArgStk->GetSlotCount() > 1)))
+    if ((src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES)))
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
