@@ -1566,25 +1566,40 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
     {
         noway_assert(arg->OperIs(GT_LONG));
 
-        GenTreeFieldList* fieldList = new (comp, GT_FIELD_LIST) GenTreeFieldList();
-        fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(0), 0, TYP_INT);
-        fieldList->AddFieldLIR(comp, arg->AsOp()->GetOp(1), 4, TYP_INT);
-        argInfo->SetNode(fieldList);
-        BlockRange().InsertAfter(arg, fieldList);
-        BlockRange().Unlink(arg);
+        GenTree* argLo = arg->AsOp()->GetOp(0);
+        GenTree* argHi = arg->AsOp()->GetOp(1);
 
-        GenTree* newArg = InsertPutArg(call, argInfo);
-
-        if (argInfo->GetRegCount() != 0)
+#if FEATURE_MULTIREG_ARGS
+        if (argInfo->GetRegCount() == 2)
         {
-            assert(argInfo->GetRegCount() == 2);
-            assert(newArg == fieldList);
+            GenTree* putArgRegLo = InsertPutArgReg(argLo, argInfo, 0);
+            GenTree* putArgRegHi = InsertPutArgReg(argHi, argInfo, 1);
+
+            GenTreeCall::Use* useHi = comp->gtNewCallArgs(putArgRegHi);
+            GenTreeCall::Use* useLo = argInfo->GetUse();
+            useHi->SetNext(useLo->GetNext());
+            useLo->SetNext(useHi);
+
+            argInfo->SetNode(putArgRegLo);
         }
         else
+#endif
         {
-            assert(argInfo->GetSlotCount() == 2);
-            assert(newArg->OperIs(GT_PUTARG_STK));
+            noway_assert(argInfo->GetRegCount() == 0);
+
+            GenTreePutArgStk* putArgStkLo = new (comp, GT_PUTARG_STK) GenTreePutArgStk(argLo, argInfo, call);
+            putArgStkLo->SetSize(4);
+            GenTreePutArgStk* putArgStkHi = new (comp, GT_PUTARG_STK) GenTreePutArgStk(argHi, argInfo, call);
+            putArgStkHi->SetSize(4);
+#if FEATURE_FIXED_OUT_ARGS
+            putArgStkHi->SetOffset(putArgStkHi->GetOffset() + 4);
+#endif
+            BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
+
+            argInfo->SetNode(putArgStkLo);
         }
+
+        BlockRange().Unlink(arg);
 
         return;
     }

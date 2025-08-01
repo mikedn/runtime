@@ -6671,6 +6671,12 @@ void Compiler::gtDispTreeRec(
 #else
             printf(" (%u", tree->AsPutArgStk()->GetSize());
 #endif
+#ifdef TARGET_ARM
+            if (tree->AsPutArgStk()->GetSplitRegCount() != 0)
+            {
+                printf(" + %u", tree->AsPutArgStk()->GetSplitRegCount() * REGSIZE_BYTES);
+            }
+#endif
 #ifdef TARGET_XARCH
             if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
             {

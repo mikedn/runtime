@@ -6582,6 +6582,11 @@ public:
     {
         return m_offset;
     }
+
+    void SetOffset(unsigned offset)
+    {
+        m_offset = offset;
+    }
 #endif
 
     unsigned GetSize() const
@@ -6592,6 +6597,13 @@ public:
         return m_size;
 #endif
     }
+
+#ifndef WINDOWS_AMD64_ABI
+    void SetSize(unsigned size)
+    {
+        m_size = size;
+    }
+#endif
 
 #ifdef TARGET_XARCH
     Kind GetKind() const
