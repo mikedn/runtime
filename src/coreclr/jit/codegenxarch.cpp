@@ -5930,7 +5930,9 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
     {
-        assert(putArgStk->GetSize() % REGSIZE_BYTES == 0);
+        const unsigned size = putArgStk->GetSize();
+
+        assert(size % REGSIZE_BYTES == 0);
 
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -5938,17 +5940,17 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
             RegNum srcReg = UseReg(src);
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, srcReg, /*canSkip*/ true);
-            PreAdjustStackForPutArgStk(putArgStk->GetSize());
+            PreAdjustStackForPutArgStk(size);
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDI, REG_SPBASE, /* canSkip */ false);
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, putArgStk->GetSize() / REGSIZE_BYTES);
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_4BYTE);
         }
-        else if (putArgStk->GetSize() < XMM_REGSIZE_BYTES)
+        else if (size < XMM_REGSIZE_BYTES)
         {
             assert(src->isContained());
             assert(!putArgStk->HasAnyTempRegs());
 
-            for (unsigned i = 0; i < putArgStk->GetSize() / REGSIZE_BYTES; i++)
+            for (unsigned i = 0; i < size / REGSIZE_BYTES; i++)
             {
                 emit.emitIns_I(INS_push, EA_4BYTE, 0);
                 AddStackLevel(4);
@@ -5958,8 +5960,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         {
             assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
             assert(src->isContained());
-
-            unsigned size = putArgStk->GetSize();
 
             PreAdjustStackForPutArgStk(size);
 
@@ -6124,7 +6124,9 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef UNIX_AMD64_ABI
     if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
     {
-        assert(putArgStk->GetSize() % REGSIZE_BYTES == 0);
+        const unsigned size = putArgStk->GetSize();
+
+        assert(size % REGSIZE_BYTES == 0);
 
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -6134,15 +6136,13 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_RAX, srcReg, /*canSkip*/ true);
             emit.emitIns_R_S(INS_lea, EA_8BYTE, REG_RDI,
                              GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, putArgStk->GetSize() / REGSIZE_BYTES);
+            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_8BYTE);
         }
         else
         {
             assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
             assert(src->isContained());
-
-            unsigned size = putArgStk->GetSize();
 
             RegNum zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
             emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
