@@ -1188,11 +1188,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     layout = src->AsLclLoadFld()->GetLayout(compiler);
                     size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
                 }
-                else if (src->IsIntCon(0))
-                {
-                    layout = nullptr;
-                    size   = putArgStk->GetSize();
-                }
                 else
                 {
                     layout = src->AsIndLoadObj()->GetLayout();
@@ -1263,10 +1258,29 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSize() == REGSIZE_BYTES);
+#ifdef TARGET_X86
+    unsigned argSize = putArgStk->GetSize();
 #else
-    if ((src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES)))
+    unsigned argSize;
+    unsigned argTypeNum = putArgStk->GetArgTypeNum();
+
+    if (Compiler::typIsLayoutNum(argTypeNum))
+    {
+        ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
+        argSize                = argLayout->GetSize();
+    }
+    else
+    {
+        argSize = varTypeSize(static_cast<var_types>(argTypeNum));
+    }
+
+    argSize = roundUp(argSize, REGSIZE_BYTES);
+#endif
+
+#ifdef WINDOWS_AMD64_ABI
+    assert(argSize <= REGSIZE_BYTES);
+#else
+    if (src->IsIntCon(0) && (argSize > REGSIZE_BYTES))
     {
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -1280,7 +1294,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
             assert(src->isContained());
 
 #ifdef TARGET_X86
-            if (putArgStk->GetSize() >= XMM_REGSIZE_BYTES)
+            if (argSize >= XMM_REGSIZE_BYTES)
 #endif
             {
                 BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());

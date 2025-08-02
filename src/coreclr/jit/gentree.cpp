@@ -6667,7 +6667,17 @@ void Compiler::gtDispTreeRec(
             break;
         case GT_PUTARG_STK:
 #if FEATURE_FIXED_OUT_ARGS
-            printf(" (@%u, %u", tree->AsPutArgStk()->GetOffset(), tree->AsPutArgStk()->GetSize());
+            if (typIsLayoutNum(tree->AsPutArgStk()->GetArgTypeNum()))
+            {
+                ClassLayout* argLayout = typGetLayoutByNum(tree->AsPutArgStk()->GetArgTypeNum());
+                printf(" (@%u, %s<%u>", tree->AsPutArgStk()->GetOffset(), argLayout->GetClassName(),
+                       argLayout->GetSize());
+            }
+            else
+            {
+                var_types argType = static_cast<var_types>(tree->AsPutArgStk()->GetArgTypeNum());
+                printf(" (@%u, %s", tree->AsPutArgStk()->GetOffset(), varTypeName(argType));
+            }
 #else
             printf(" (%u", tree->AsPutArgStk()->GetSize());
 #endif

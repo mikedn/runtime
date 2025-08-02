@@ -2402,7 +2402,19 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     {
         assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
-        unsigned size   = putArg->GetSize();
+        unsigned argTypeNum = putArg->GetArgTypeNum();
+        unsigned size;
+
+        if (Compiler::typIsLayoutNum(argTypeNum))
+        {
+            ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
+            size                   = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
+        }
+        else
+        {
+            size = REGSIZE_BYTES;
+        }
+
         unsigned offset = 0;
 
         while ((size >= 2 * REGSIZE_BYTES) && (outArgLclOffs <= 504))

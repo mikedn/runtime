@@ -1083,11 +1083,22 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     Emitter& emit   = *GetEmitter();
     RegNum   srcReg = UseReg(src);
 
-    if (src->IsIntCon(0) && (putArg->GetSize() > 4))
-    {
-        assert((putArg->GetSize() % 4) == 0);
+    unsigned argTypeNum = putArg->GetArgTypeNum();
+    unsigned size;
 
-        for (unsigned offs = outArgLclOffs, endOffs = offs + putArg->GetSize(); offs < endOffs; offs += 4)
+    if (Compiler::typIsLayoutNum(argTypeNum))
+    {
+        ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
+        size = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
+    }
+    else
+    {
+        size = REGSIZE_BYTES;
+    }
+
+    if (src->IsIntCon(0) && (size > 4))
+    {
+        for (unsigned offs = outArgLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
         {
             emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(offs)));
         }

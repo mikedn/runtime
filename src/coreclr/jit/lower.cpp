@@ -1193,6 +1193,11 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     GenTree* arg = info->GetNode();
 
 #ifdef TARGET_ARM64
+    assert(info->GetRegCount() == 1);
+    assert(info->GetRegNum(0) == REG_R7);
+    assert(info->GetSlotNum() == 0);
+    assert(info->GetSlotCount() == 1);
+
     noway_assert(arg->IsFieldList());
     GenTreeFieldList* list = arg->AsFieldList();
 
@@ -1211,8 +1216,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
 
     GenTree*          stackVal  = stackUse->GetNode();
     GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(stackVal, info, call);
-    assert(putArgStk->GetOffset() == 0);
-    assert(putArgStk->GetSize() == REGSIZE_BYTES);
     BlockRange().InsertAfter(list, putArgStk);
 
     BlockRange().Unlink(list);
@@ -1588,11 +1591,14 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
             noway_assert(argInfo->GetRegCount() == 0);
 
             GenTreePutArgStk* putArgStkLo = new (comp, GT_PUTARG_STK) GenTreePutArgStk(argLo, argInfo, call);
-            putArgStkLo->SetSize(4);
             GenTreePutArgStk* putArgStkHi = new (comp, GT_PUTARG_STK) GenTreePutArgStk(argHi, argInfo, call);
-            putArgStkHi->SetSize(4);
 #if FEATURE_FIXED_OUT_ARGS
+            putArgStkLo->SetArgType(TYP_INT);
+            putArgStkHi->SetArgType(TYP_INT);
             putArgStkHi->SetOffset(putArgStkHi->GetOffset() + 4);
+#else
+            putArgStkLo->SetSize(4);
+            putArgStkHi->SetSize(4);
 #endif
             BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
 
@@ -1829,8 +1835,25 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         {
             GenTreePutArgStk* arg = putargs.Get(i);
 
+#ifdef WINDOWS_AMD64_ABI
+            unsigned argSize = REGSIZE_BYTES;
+#else
+            unsigned argTypeNum = arg->GetArgTypeNum();
+            unsigned argSize;
+
+            if (Compiler::typIsLayoutNum(argTypeNum))
+            {
+                ClassLayout* argLayout = comp->typGetLayoutByNum(argTypeNum);
+                argSize                = argLayout->GetSize();
+            }
+            else
+            {
+                argSize = varTypeSize(static_cast<var_types>(argTypeNum));
+            }
+#endif
+
             unsigned argStartOffset = arg->GetOffset();
-            unsigned argEndOffset   = argStartOffset + arg->GetSize();
+            unsigned argEndOffset   = argStartOffset + roundUp(argSize, REGSIZE_BYTES);
 
             for (LclVarDsc* paramLcl : comp->Params())
             {

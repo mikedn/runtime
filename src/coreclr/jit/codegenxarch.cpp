@@ -6119,12 +6119,26 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+    unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+    ClassLayout* argLayout  = nullptr;
+    var_types    argType    = TYP_UNDEF;
+
+    if (Compiler::typIsLayoutNum(argTypeNum))
+    {
+        argLayout = compiler->typGetLayoutByNum(argTypeNum);
+        argType   = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
+    }
+    else
+    {
+        argType = static_cast<var_types>(argTypeNum);
+    }
+
     Emitter& emit = *GetEmitter();
 
 #ifdef UNIX_AMD64_ABI
-    if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
+    if (src->IsIntCon(0) && (argLayout != nullptr) && (argLayout->GetSize() > REGSIZE_BYTES))
     {
-        const unsigned size = putArgStk->GetSize();
+        const unsigned size = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
         assert(size % REGSIZE_BYTES == 0);
 
@@ -6168,18 +6182,14 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif // UNIX_AMD64_ABI
 
-#ifdef WINDOWS_AMD64_ABI
-    assert(putArgStk->GetSize() == REGSIZE_BYTES);
-#endif
-
     var_types srcType = varActualType(src->GetType());
 
     if (!src->isUsedFromReg())
     {
-        assert(putArgStk->GetSize() == REGSIZE_BYTES);
+        assert(argType != TYP_STRUCT);
         assert(src->IsContainedIntCon());
 
-        emit.emitIns_S_I(INS_mov, emitTypeSize(srcType),
+        emit.emitIns_S_I(INS_mov, emitTypeSize(argType),
                          GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)),
                          src->AsIntCon()->GetInt32Value());
 
@@ -6189,15 +6199,15 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     instruction ins;
     emitAttr    size;
 
-    if (varTypeIsSIMD(srcType) && (putArgStk->GetSize() == 8))
+    if (varTypeIsSIMD(srcType) && (argLayout->GetSize() == 8))
     {
         ins  = INS_movsd;
         size = EA_8BYTE;
     }
     else
     {
-        ins  = ins_Store(srcType);
-        size = emitTypeSize(srcType);
+        ins  = ins_Store(argType);
+        size = emitTypeSize(argType);
     }
 
     RegNum srcReg = UseReg(src);
@@ -6590,7 +6600,10 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
     // We assume that the size of a struct which contains GC pointers is a multiple of the slot size.
     assert(srcLayout->GetSize() % REGSIZE_BYTES == 0);
 
-    unsigned numSlots = putArgStk->GetSize() / REGSIZE_BYTES;
+    ClassLayout* argLayout = compiler->typGetLayoutByNum(putArgStk->GetArgTypeNum());
+    assert(argLayout->GetSize() % REGSIZE_BYTES == 0);
+
+    unsigned numSlots = argLayout->GetSize() / REGSIZE_BYTES;
 
     for (unsigned i = 0; i < numSlots; i++)
     {

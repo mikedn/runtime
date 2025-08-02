@@ -6504,8 +6504,8 @@ public:
 private:
 #if FEATURE_FIXED_OUT_ARGS
     unsigned m_offset;
-#endif
-#ifndef WINDOWS_AMD64_ABI
+    unsigned m_argTypeNum;
+#else
     unsigned m_size;
 #endif
 #ifdef UNIX_X86_ABI
@@ -6529,7 +6529,9 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
         , m_offset(argInfo->GetSlotNum() * REGSIZE_BYTES)
 #endif
-#ifndef WINDOWS_AMD64_ABI
+#if FEATURE_FIXED_OUT_ARGS
+        , m_argTypeNum(argInfo->GetSigTypeNum())
+#else
         , m_size(argInfo->GetSlotCount() * REGSIZE_BYTES)
 #endif
 #ifdef UNIX_X86_ABI
@@ -6542,6 +6544,7 @@ public:
         , m_splitRegCount(static_cast<uint8_t>(argInfo->GetRegCount()))
 #endif
     {
+        assert(argInfo->GetSigTypeNum() != 0);
 #ifdef WINDOWS_AMD64_ABI
         assert(argInfo->GetSlotCount() == 1);
 #endif
@@ -6551,6 +6554,13 @@ public:
         assert(argInfo->GetRegCount() <= 1);
 #else
         assert(argInfo->GetRegCount() == 0);
+#endif
+
+#if FEATURE_FIXED_OUT_ARGS
+        if (!varTypeIsStruct(arg->GetType()) && (argInfo->GetSlotCount() == 1))
+        {
+            m_argTypeNum = static_cast<unsigned>(varActualType(arg->GetType()));
+        }
 #endif
     }
 
@@ -6587,18 +6597,23 @@ public:
     {
         m_offset = offset;
     }
-#endif
 
-    unsigned GetSize() const
+    unsigned GetArgTypeNum() const
     {
-#ifdef WINDOWS_AMD64_ABI
-        return REGSIZE_BYTES;
-#else
-        return m_size;
-#endif
+        return m_argTypeNum;
     }
 
-#ifndef WINDOWS_AMD64_ABI
+    void SetArgType(var_types type)
+    {
+        assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type));
+        m_argTypeNum = static_cast<unsigned>(type);
+    }
+#else
+    unsigned GetSize() const
+    {
+        return m_size;
+    }
+
     void SetSize(unsigned size)
     {
         m_size = size;
