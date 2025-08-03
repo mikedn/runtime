@@ -1068,12 +1068,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
-    if (src->OperIs(GT_FIELD_LIST))
-    {
-        GenPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-        return;
-    }
-
     if (src->TypeIs(TYP_STRUCT))
     {
         GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
@@ -1114,27 +1108,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     emitAttr    attr = emitTypeSize(srcType);
 
     emit.Ins_R_S(ins, attr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-}
-
-void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
-                                    unsigned          outArgLclNum,
-                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
-{
-    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
-    {
-        unsigned dstOffset = outArgLclOffs + use.GetOffset();
-
-        GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetType();
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
-        assert(!varTypeIsSIMD(srcType));
-
-        RegNum srcReg = UseReg(src);
-
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
-                                  GetStackAddrMode(outArgLclNum, dstOffset));
-    }
 }
 
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,

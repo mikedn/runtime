@@ -2384,12 +2384,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
     GenTree* src = putArg->GetOp(0);
 
-    if (src->OperIs(GT_FIELD_LIST))
-    {
-        GenPutArgStkFieldList(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-        return;
-    }
-
     if (src->TypeIs(TYP_STRUCT))
     {
         GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
@@ -2436,6 +2430,13 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
+    if (putArg->GetArgType() == TYP_SIMD12)
+    {
+        RegNum tmpReg = putArg->ExtractTempReg();
+        GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), outArgLclOffs), src, tmpReg);
+        return;
+    }
+
     var_types srcType = varActualType(src->GetType());
 
     assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
@@ -2444,53 +2445,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     RegNum   srcReg = UseReg(src);
 
     emit.Ins_R_S(INS_str, attr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
-}
-
-void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
-                                    unsigned          outArgLclNum,
-                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
-{
-    RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
-
-    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
-    {
-        unsigned dstOffset = outArgLclOffs + use.GetOffset();
-
-        GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetType();
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
-
-        if (srcType == TYP_SIMD12)
-        {
-            GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
-            continue;
-        }
-
-        RegNum srcReg;
-
-        if (src->isContained())
-        {
-            assert(src->IsIntCon(0) || src->IsDblConPositiveZero());
-            srcReg = REG_ZR;
-
-            if (srcType == TYP_FLOAT)
-            {
-                srcType = TYP_INT;
-            }
-            else if (srcType == TYP_DOUBLE)
-            {
-                srcType = TYP_LONG;
-            }
-        }
-        else
-        {
-            srcReg = UseReg(src);
-        }
-
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
-                                  GetStackAddrMode(outArgLclNum, dstOffset));
-    }
 }
 
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,

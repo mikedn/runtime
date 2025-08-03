@@ -181,36 +181,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
 {
     GenTree* src = putArg->GetOp(0);
 
-    if (GenTreeFieldList* fieldList = src->IsFieldList())
-    {
-        assert(src->isContained());
-
-#ifdef TARGET_ARM64
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            if (use.GetType() == TYP_SIMD12)
-            {
-                BuildInternalFloatDef(putArg);
-                break;
-            }
-        }
-#endif
-
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            if (!use.GetNode()->isContained())
-            {
-                BuildUse(use.GetNode());
-            }
-        }
-
-#ifdef TARGET_ARM64
-        BuildInternalUses();
-#endif
-
-        return;
-    }
-
     if (src->TypeIs(TYP_STRUCT))
     {
         assert(src->isContained());
@@ -234,6 +204,15 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         BuildUse(src);
     }
+
+#ifdef FEATURE_SIMD
+    if (putArg->GetArgTypeNum() == TYP_SIMD12)
+    {
+        BuildInternalFloatDef(putArg);
+    }
+
+    BuildInternalUses();
+#endif
 }
 
 void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)

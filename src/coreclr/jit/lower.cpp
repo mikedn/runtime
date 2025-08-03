@@ -1408,27 +1408,61 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
 }
 #endif // FEATURE_ARG_SPLIT
 
-GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
+void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
 
     if (info->GetRegCount() == 0)
     {
+#ifndef TARGET_X86
+        if (GenTreeFieldList* fields = arg->IsFieldList())
+        {
+            unsigned index = 0;
+
+            for (GenTreeFieldList::Use *nextField, *field = fields->Uses().GetHead(); field != nullptr;
+                 field = nextField)
+            {
+                nextField = field->GetNext();
+
+                GenTree* value = field->GetNode();
+#ifndef TARGET_64BIT
+                assert(!value->TypeIs(TYP_LONG));
+#endif
+                GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, info, call);
+                putArgStk->SetOffset(putArgStk->GetOffset() + field->GetOffset());
+                putArgStk->SetArgType(field->GetType());
+                BlockRange().InsertAfter(value, putArgStk);
+                LowerPutArgStk(putArgStk);
+
+                if (index++ == 0)
+                {
+                    info->SetNode(putArgStk);
+                }
+            }
+
+            BlockRange().Unlink(fields);
+
+            return;
+        }
+#endif // !TARGET_X86
+
         GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(arg, info, call);
         BlockRange().InsertAfter(arg, putArgStk);
         info->SetNode(putArgStk);
         LowerPutArgStk(putArgStk);
 
-        return putArgStk;
+        return;
     }
 
     if (info->GetSlotCount() != 0)
     {
 #if FEATURE_ARG_SPLIT
-        return InsertPutArgSplit(call, info);
+        InsertPutArgSplit(call, info);
 #else
         unreached();
 #endif
+
+        return;
     }
 
     if (GenTreeFieldList* fields = arg->IsFieldList())
@@ -1463,11 +1497,11 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
         }
 
         BlockRange().Unlink(fields);
-
-        return arg;
 #else
         unreached();
 #endif
+
+        return;
     }
 
     GenTree* putArgReg = InsertPutArgReg(arg, info, 0);
@@ -1478,8 +1512,6 @@ GenTree* Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #else
     assert(info->GetRegCount() == 1);
 #endif
-
-    return putArgReg;
 }
 
 GenTree* Lowering::InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex)

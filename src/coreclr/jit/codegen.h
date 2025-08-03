@@ -737,12 +737,6 @@ private:
     }
 #endif
 
-#ifndef TARGET_X86
-    void GenPutArgStkFieldList(GenTreePutArgStk* putArg,
-                               unsigned          outArgLclNum,
-                               unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
-#endif
-
 #ifdef TARGET_X86
     void PreAdjustStackForPutArgStk(unsigned argSize);
     void PushReg(var_types type, RegNum srcReg);

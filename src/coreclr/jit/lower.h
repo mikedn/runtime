@@ -124,7 +124,7 @@ private:
     GenTree* LowerIndirectVirtualStubCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
     void LowerCallArgs(GenTreeCall* call);
-    GenTree* InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_ARG_SPLIT
     GenTree* InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
 #endif

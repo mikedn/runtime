@@ -6603,9 +6603,11 @@ public:
         return m_argTypeNum;
     }
 
+    var_types GetArgType() const;
+
     void SetArgType(var_types type)
     {
-        assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type));
+        assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type) || varTypeIsSIMD(type));
         m_argTypeNum = static_cast<unsigned>(type);
     }
 #else

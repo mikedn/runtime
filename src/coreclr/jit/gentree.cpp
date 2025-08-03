@@ -10151,6 +10151,13 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
+#if FEATURE_FIXED_OUT_ARGS
+var_types GenTreePutArgStk::GetArgType() const
+{
+    return Compiler::typIsLayoutNum(m_argTypeNum) ? TYP_STRUCT : static_cast<var_types>(m_argTypeNum);
+}
+#endif
+
 CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull)
 {
     *isNonNull = false;

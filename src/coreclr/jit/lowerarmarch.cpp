@@ -126,23 +126,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
-    if (GenTreeFieldList* fieldList = src->IsFieldList())
-    {
-#ifdef TARGET_ARM64
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            GenTree* node = use.GetNode();
-
-            if (node->IsIntCon(0) || node->IsDblConPositiveZero())
-            {
-                node->SetContained();
-            }
-        }
-#endif
-
-        return;
-    }
-
     if (src->TypeIs(TYP_STRUCT))
     {
         if (src->OperIs(GT_IND_LOAD_OBJ))

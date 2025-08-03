@@ -1086,11 +1086,11 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
+#ifdef TARGET_X86
     if (GenTreeFieldList* fieldList = src->IsFieldList())
     {
         assert(src->isContained());
 
-#ifdef UNIX_AMD64_ABI
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
             if (use.GetType() == TYP_SIMD12)
@@ -1099,9 +1099,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 break;
             }
         }
-#endif
 
-#ifdef TARGET_X86
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
         {
             RefPosition* intTemp    = BuildInternalIntDef(putArgStk);
@@ -1126,7 +1124,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                 prevOffset = fieldOffset;
             }
         }
-#endif // TARGET_X86
 
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
@@ -1142,7 +1139,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#ifdef TARGET_X86
     if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSize() == 12))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
@@ -1261,17 +1257,21 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 #ifdef TARGET_X86
     unsigned argSize = putArgStk->GetSize();
 #else
-    unsigned argSize;
-    unsigned argTypeNum = putArgStk->GetArgTypeNum();
+    unsigned  argSize;
+    unsigned  argTypeNum = putArgStk->GetArgTypeNum();
+    var_types argType;
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
         ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
-        argSize                = argLayout->GetSize();
+
+        argSize = argLayout->GetSize();
+        argType = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
     }
     else
     {
-        argSize = varTypeSize(static_cast<var_types>(argTypeNum));
+        argType = static_cast<var_types>(argTypeNum);
+        argSize = varTypeSize(argType);
     }
 
     argSize = roundUp(argSize, REGSIZE_BYTES);
@@ -1307,6 +1307,13 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif // !WINDOWS_AMD64_ABI
 
+#ifdef UNIX_AMD64_ABI
+    if (argType == TYP_SIMD12)
+    {
+        BuildInternalFloatDef(putArgStk);
+    }
+#endif
+
     if (!src->isContained())
     {
         BuildUse(src);
@@ -1317,6 +1324,8 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #endif
+
+    BuildInternalUses();
 }
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)

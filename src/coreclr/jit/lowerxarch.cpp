@@ -271,11 +271,9 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
-    if (src->OperIs(GT_FIELD_LIST))
-    {
 #ifdef TARGET_X86
-        GenTreeFieldList* fieldList = src->AsFieldList();
-
+    if (GenTreeFieldList* fieldList = src->IsFieldList())
+    {
         // The code generator will push these fields in reverse order by offset.
         // Reorder the list here s.t. the order  of uses is visible to LSRA.
         assert(fieldList->Uses().IsSorted());
@@ -342,12 +340,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         // of copying the struct as a whole, if the fields are not register candidates.
 
         putArgStk->SetKind(allFieldsAreSlots ? GenTreePutArgStk::Kind::PushAllSlots : GenTreePutArgStk::Kind::Push);
-#endif // TARGET_X86
 
         return;
     }
 
-#ifdef TARGET_X86
     if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
     {
         return;

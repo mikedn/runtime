@@ -6052,40 +6052,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
 #else // !TARGET_X86
 
-void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArg,
-                                    unsigned          outArgLclNum,
-                                    unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
-{
-#ifdef UNIX_AMD64_ABI
-    RegNum tmpReg = putArg->HasAnyTempRegs() ? putArg->GetSingleTempReg() : REG_NA;
-#endif
-
-    for (GenTreeFieldList::Use& use : putArg->GetOp(0)->AsFieldList()->Uses())
-    {
-        unsigned dstOffset = outArgLclOffs + use.GetOffset();
-
-        GenTree*  src     = use.GetNode();
-        var_types srcType = use.GetType();
-
-        assert((dstOffset + varTypeSize(srcType)) <= outArgLclSize);
-
-        if (srcType == TYP_SIMD12)
-        {
-#ifdef UNIX_AMD64_ABI
-            GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), dstOffset), src, tmpReg);
-            continue;
-#else
-            unreached();
-#endif
-        }
-
-        RegNum srcReg = UseReg(src);
-
-        GetEmitter()->emitIns_S_R(ins_Store(srcType), emitTypeSize(srcType), srcReg,
-                                  GetStackAddrMode(outArgLclNum, dstOffset));
-    }
-}
-
 void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 {
     unsigned outArgLclNum;
@@ -6106,12 +6072,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     unsigned outArgLclOffs = putArgStk->GetOffset();
 
     GenTree* src = putArgStk->GetOp(0);
-
-    if (src->OperIs(GT_FIELD_LIST))
-    {
-        GenPutArgStkFieldList(putArgStk, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
-        return;
-    }
 
     if (src->TypeIs(TYP_STRUCT))
     {
@@ -6196,21 +6156,18 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    instruction ins;
-    emitAttr    size;
-
-    if (varTypeIsSIMD(srcType) && (argLayout->GetSize() == 8))
+#ifdef UNIX_AMD64_ABI
+    if (argType == TYP_SIMD12)
     {
-        ins  = INS_movsd;
-        size = EA_8BYTE;
+        RegNum tmpReg = putArgStk->ExtractTempReg();
+        GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), outArgLclOffs), src, tmpReg);
+        return;
     }
-    else
-    {
-        ins  = ins_Store(argType);
-        size = emitTypeSize(argType);
-    }
+#endif
 
-    RegNum srcReg = UseReg(src);
+    instruction ins    = ins_Store(argType);
+    emitAttr    size   = emitTypeSize(argType);
+    RegNum      srcReg = UseReg(src);
 
     emit.emitIns_S_R(ins, size, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
 }
