@@ -6679,7 +6679,7 @@ void Compiler::gtDispTreeRec(
                 printf(" (@%u, %s", tree->AsPutArgStk()->GetOffset(), varTypeName(argType));
             }
 #else
-            printf(" (%u", tree->AsPutArgStk()->GetSize());
+            printf(" (%u", tree->AsPutArgStk()->GetPushSize());
 #endif
 #ifdef TARGET_ARM
             if (tree->AsPutArgStk()->GetSplitRegCount() != 0)

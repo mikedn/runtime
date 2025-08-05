@@ -1103,7 +1103,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
         {
             RefPosition* intTemp    = BuildInternalIntDef(putArgStk);
-            unsigned     prevOffset = putArgStk->GetSize();
+            unsigned     prevOffset = putArgStk->GetPushSize();
 
             for (GenTreeFieldList::Use& use : fieldList->Uses())
             {
@@ -1139,7 +1139,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetSize() == 12))
+    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetPushSize() == 12))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
@@ -1254,9 +1254,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#ifdef TARGET_X86
-    unsigned argSize = putArgStk->GetSize();
-#else
     unsigned  argSize;
     unsigned  argTypeNum = putArgStk->GetArgTypeNum();
     var_types argType;
@@ -1275,7 +1272,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
     argSize = roundUp(argSize, REGSIZE_BYTES);
-#endif
 
 #ifdef WINDOWS_AMD64_ABI
     assert(argSize <= REGSIZE_BYTES);

@@ -6504,10 +6504,10 @@ public:
 private:
 #if FEATURE_FIXED_OUT_ARGS
     unsigned m_offset;
-    unsigned m_argTypeNum;
 #else
-    unsigned m_size;
+    unsigned m_pushSize;
 #endif
+    unsigned m_argTypeNum;
 #ifdef UNIX_X86_ABI
     GenTreeCall* m_call;
 #endif
@@ -6528,12 +6528,10 @@ public:
         : GenTreeUnOp(GT_PUTARG_STK, TYP_VOID, arg)
 #if FEATURE_FIXED_OUT_ARGS
         , m_offset(argInfo->GetSlotNum() * REGSIZE_BYTES)
-#endif
-#if FEATURE_FIXED_OUT_ARGS
-        , m_argTypeNum(argInfo->GetSigTypeNum())
 #else
-        , m_size(argInfo->GetSlotCount() * REGSIZE_BYTES)
+        , m_pushSize(argInfo->GetSlotCount() * REGSIZE_BYTES)
 #endif
+        , m_argTypeNum(argInfo->GetSigTypeNum())
 #ifdef UNIX_X86_ABI
         , m_call(call)
 #endif
@@ -6556,12 +6554,10 @@ public:
         assert(argInfo->GetRegCount() == 0);
 #endif
 
-#if FEATURE_FIXED_OUT_ARGS
         if (!varTypeIsStruct(arg->GetType()) && (argInfo->GetSlotCount() == 1))
         {
             m_argTypeNum = static_cast<unsigned>(varActualType(arg->GetType()));
         }
-#endif
     }
 
 #ifdef TARGET_ARM
@@ -6587,17 +6583,6 @@ public:
 #endif
     }
 
-#if FEATURE_FIXED_OUT_ARGS
-    unsigned GetOffset() const
-    {
-        return m_offset;
-    }
-
-    void SetOffset(unsigned offset)
-    {
-        m_offset = offset;
-    }
-
     unsigned GetArgTypeNum() const
     {
         return m_argTypeNum;
@@ -6610,15 +6595,26 @@ public:
         assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type) || varTypeIsSIMD(type));
         m_argTypeNum = static_cast<unsigned>(type);
     }
-#else
-    unsigned GetSize() const
+
+#if FEATURE_FIXED_OUT_ARGS
+    unsigned GetOffset() const
     {
-        return m_size;
+        return m_offset;
     }
 
-    void SetSize(unsigned size)
+    void SetOffset(unsigned offset)
     {
-        m_size = size;
+        m_offset = offset;
+    }
+#else
+    unsigned GetPushSize() const
+    {
+        return m_pushSize;
+    }
+
+    void SetPushSize(unsigned size)
+    {
+        m_pushSize = size;
     }
 #endif
 

@@ -5716,7 +5716,7 @@ void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
     // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
     // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
     // a multiple of the target pointer size).
-    unsigned currentOffset   = putArgStk->GetSize();
+    unsigned currentOffset   = putArgStk->GetPushSize();
     unsigned prevFieldOffset = currentOffset;
     Emitter& emit            = *GetEmitter();
 
@@ -5893,7 +5893,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
     {
         assert(src->AsCall()->GetRegCount() == 2);
-        assert(putArgStk->GetSize() == 8);
+        assert(putArgStk->GetPushSize() == 8);
 
         // TODO-MIKE-Cleanup: Using the register types isn't quite right, we need
         // the slot types from the argument layout. But in general they should be
@@ -5926,13 +5926,25 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
+    unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+    ClassLayout* argLayout = nullptr;
+    var_types    argType = TYP_UNDEF;
+
+    if (Compiler::typIsLayoutNum(argTypeNum))
+    {
+        argLayout = compiler->typGetLayoutByNum(argTypeNum);
+        argType = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
+    }
+    else
+    {
+        argType = static_cast<var_types>(argTypeNum);
+    }
+
     Emitter& emit = *GetEmitter();
 
-    if (src->IsIntCon(0) && (putArgStk->GetSize() > REGSIZE_BYTES))
+    if (src->IsIntCon(0) && (argLayout != nullptr) && (argLayout->GetSize() > REGSIZE_BYTES))
     {
-        const unsigned size = putArgStk->GetSize();
-
-        assert(size % REGSIZE_BYTES == 0);
+        const unsigned size = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -5940,7 +5952,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
             RegNum srcReg = UseReg(src);
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, srcReg, /*canSkip*/ true);
-            PreAdjustStackForPutArgStk(size);
+            PreAdjustStackForPutArgStk(putArgStk->GetPushSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDI, REG_SPBASE, /* canSkip */ false);
             emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_4BYTE);
@@ -5961,7 +5973,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
             assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
             assert(src->isContained());
 
-            PreAdjustStackForPutArgStk(size);
+            PreAdjustStackForPutArgStk(putArgStk->GetPushSize());
 
             RegNum zeroXmmReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
             emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroXmmReg, zeroXmmReg);
@@ -5992,7 +6004,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (!src->isUsedFromReg())
     {
-        assert(putArgStk->GetSize() == REGSIZE_BYTES);
+        assert(putArgStk->GetPushSize() == REGSIZE_BYTES);
 
         UseRMRegs(src);
 
@@ -6030,7 +6042,7 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     {
         assert(genIsValidFloatReg(srcReg));
 
-        unsigned size = putArgStk->GetSize();
+        unsigned size = putArgStk->GetPushSize();
         emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
         AddStackLevel(size);
 
@@ -6099,8 +6111,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     if (src->IsIntCon(0) && (argLayout != nullptr) && (argLayout->GetSize() > REGSIZE_BYTES))
     {
         const unsigned size = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
-
-        assert(size % REGSIZE_BYTES == 0);
 
         if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
         {
@@ -6385,7 +6395,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
             return;
         }
 
-        PreAdjustStackForPutArgStk(putArgStk->GetSize());
+        PreAdjustStackForPutArgStk(putArgStk->GetPushSize());
 
 #else  // !TARGET_X86
         // On x64 we use an XMM register only for 16-byte chunks.
@@ -6455,7 +6465,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
 
         assert((srcLcl != nullptr) || (srcLayout->GetSize() % REGSIZE_BYTES == 0));
 
-        for (int i = putArgStk->GetSize() / REGSIZE_BYTES - 1; i >= 0; --i)
+        for (int i = putArgStk->GetPushSize() / REGSIZE_BYTES - 1; i >= 0; --i)
         {
             emitAttr slotAttr      = emitTypeSize(srcLayout->GetGCPtrType(i));
             int      slotSrcOffset = srcOffset + i * REGSIZE_BYTES;
@@ -6478,7 +6488,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk
     assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstr);
     assert(putArgStk->HasAllTempRegs(RBM_RSI | RBM_RDI | RBM_RCX));
 
-    PreAdjustStackForPutArgStk(putArgStk->GetSize());
+    PreAdjustStackForPutArgStk(putArgStk->GetPushSize());
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, REG_SPBASE, /* canSkip */ false);
 
     if (srcLcl != nullptr)

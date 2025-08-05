@@ -281,7 +281,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         // Now that the fields have been sorted, the kind of code we will generate.
         bool     allFieldsAreSlots = true;
-        unsigned prevOffset        = putArgStk->GetSize();
+        unsigned prevOffset        = putArgStk->GetPushSize();
 
         for (GenTreeFieldList::Use& use : fieldList->Uses())
         {
@@ -482,9 +482,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-#ifdef TARGET_X86
-    unsigned argSize = putArgStk->GetSize();
-#else
     unsigned argSize;
     unsigned argTypeNum = putArgStk->GetArgTypeNum();
 
@@ -499,7 +496,6 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
     argSize = roundUp(argSize, REGSIZE_BYTES);
-#endif
 
 #ifdef WINDOWS_AMD64_ABI
     assert(argSize <= REGSIZE_BYTES);
