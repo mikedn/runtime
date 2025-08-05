@@ -5392,7 +5392,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
         maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
     }
-    else if (callIsVararg)
+    else if (callIsVararg || call->CallerPop())
     {
         // Varargs passes all args on stack, with the exception of "this" and ret buf args.
         maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);

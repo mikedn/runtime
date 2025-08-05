@@ -1628,11 +1628,14 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
             putArgStkHi->SetArgType(TYP_INT);
 #if FEATURE_FIXED_OUT_ARGS
             putArgStkHi->SetOffset(putArgStkHi->GetOffset() + 4);
+            BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
 #else
             putArgStkLo->SetPushSize(4);
             putArgStkHi->SetPushSize(4);
+            BlockRange().InsertAfter(arg, putArgStkHi, putArgStkLo);
+            LowerPutArgStk(putArgStkHi);
+            LowerPutArgStk(putArgStkLo);
 #endif
-            BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
 
             argInfo->SetNode(putArgStkLo);
         }
