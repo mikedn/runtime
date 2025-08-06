@@ -6493,10 +6493,9 @@ class GenTreePutArgStk : public GenTreeUnOp
 {
 public:
 #ifdef TARGET_XARCH
-    enum class Kind : uint8_t{Invalid,    RepInstr,     RepInstrZero, Unroll,
-                              UnrollZero, RepInstrXMM,  GCUnroll,     GCUnrollXMM,
+    enum class Kind : uint8_t{Invalid, RepInstr, RepInstrZero, Unroll, UnrollZero, RepInstrXMM, GCUnroll, GCUnrollXMM,
 #ifdef TARGET_X86
-                              Push,       PushAllSlots, PushZero
+                              Push,    PushZero
 #endif
     };
 #endif
@@ -6506,6 +6505,7 @@ private:
     unsigned m_offset;
 #else
     unsigned m_pushSize;
+    unsigned m_offset = 0;
 #endif
     unsigned m_argTypeNum;
 #ifdef UNIX_X86_ABI
@@ -6592,11 +6592,15 @@ public:
 
     void SetArgType(var_types type)
     {
+#if FEATURE_FIXED_OUT_ARGS
         assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type) || varTypeIsSIMD(type));
+#else
+        assert(varTypeIsIntegralOrI(type) || varTypeIsFloating(type) || varTypeIsSIMD(type) || varTypeIsSmall(type) ||
+               (type == TYP_VOID));
+#endif
         m_argTypeNum = static_cast<unsigned>(type);
     }
 
-#if FEATURE_FIXED_OUT_ARGS
     unsigned GetOffset() const
     {
         return m_offset;
@@ -6606,7 +6610,8 @@ public:
     {
         m_offset = offset;
     }
-#else
+
+#if !FEATURE_FIXED_OUT_ARGS
     unsigned GetPushSize() const
     {
         return m_pushSize;

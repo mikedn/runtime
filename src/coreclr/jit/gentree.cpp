@@ -6505,8 +6505,6 @@ static const char* PutArgStkKindName(GenTreePutArgStk::Kind kind)
 #ifdef TARGET_X86
         case GenTreePutArgStk::Kind::Push:
             return "Push";
-        case GenTreePutArgStk::Kind::PushAllSlots:
-            return "PushAllSlots";
 #endif
         case GenTreePutArgStk::Kind::RepInstrXMM:
             return "RepInstrXMM";
@@ -6679,7 +6677,18 @@ void Compiler::gtDispTreeRec(
                 printf(" (@%u, %s", tree->AsPutArgStk()->GetOffset(), varTypeName(argType));
             }
 #else
-            printf(" (%u", tree->AsPutArgStk()->GetPushSize());
+            printf(" (-%u, @%u, ", tree->AsPutArgStk()->GetPushSize(), tree->AsPutArgStk()->GetOffset());
+
+            if (typIsLayoutNum(tree->AsPutArgStk()->GetArgTypeNum()))
+            {
+                ClassLayout* argLayout = typGetLayoutByNum(tree->AsPutArgStk()->GetArgTypeNum());
+                printf("%s<%u>", argLayout->GetClassName(), argLayout->GetSize());
+            }
+            else
+            {
+                var_types argType = static_cast<var_types>(tree->AsPutArgStk()->GetArgTypeNum());
+                printf("%s", varTypeName(argType));
+            }
 #endif
 #ifdef TARGET_ARM
             if (tree->AsPutArgStk()->GetSplitRegCount() != 0)
@@ -10151,12 +10160,10 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
-#if FEATURE_FIXED_OUT_ARGS
 var_types GenTreePutArgStk::GetArgType() const
 {
     return Compiler::typIsLayoutNum(m_argTypeNum) ? TYP_STRUCT : static_cast<var_types>(m_argTypeNum);
 }
-#endif
 
 CORINFO_CLASS_HANDLE Compiler::gtGetClassHandle(GenTree* tree, bool* isExact, bool* isNonNull)
 {

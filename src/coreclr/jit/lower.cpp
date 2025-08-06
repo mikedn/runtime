@@ -1408,15 +1408,72 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
 }
 #endif // FEATURE_ARG_SPLIT
 
+#ifdef TARGET_X86
+void Lowering::LowerFieldListPush(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo)
+{
+    // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
+    // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
+    // a multiple of the target pointer size).
+    unsigned currentOffset   = argInfo->GetSlotCount() * REGSIZE_BYTES;
+    unsigned prevFieldOffset = currentOffset;
+
+    assert(fieldList->Uses().IsSorted());
+    fieldList->Uses().Reverse();
+
+    unsigned fieldIndex = 0;
+
+    for (GenTreeFieldList::Use& use : fieldList->Uses())
+    {
+        GenTree* const fieldNode   = use.GetNode();
+        const unsigned fieldOffset = use.GetOffset();
+        var_types      fieldType   = use.GetType();
+
+        assert(fieldType != TYP_LONG);
+        assert(fieldOffset < prevFieldOffset);
+        prevFieldOffset = fieldOffset;
+
+        unsigned alignedOffset = fieldOffset & ~(REGSIZE_BYTES - 1);
+        unsigned pushSize      = roundUp(currentOffset - alignedOffset, REGSIZE_BYTES);
+        currentOffset -= pushSize;
+
+        GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(fieldNode, argInfo, call);
+        putArgStk->SetArgType(fieldType);
+        putArgStk->SetPushSize(pushSize);
+        putArgStk->SetOffset(fieldOffset - currentOffset);
+        BlockRange().InsertBefore(fieldList, putArgStk);
+        LowerPutArgStk(putArgStk);
+
+        if (fieldIndex++ == 0)
+        {
+            argInfo->SetNode(putArgStk);
+        }
+    }
+
+    if (currentOffset != 0)
+    {
+        GenTreeIntCon*    zero      = comp->gtNewIconNode(0);
+        GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(zero, argInfo, call);
+        putArgStk->SetPushSize(currentOffset);
+        putArgStk->SetArgType(TYP_VOID);
+        BlockRange().InsertBefore(fieldList, putArgStk);
+        LowerPutArgStk(putArgStk);
+    }
+
+    BlockRange().Unlink(fieldList);
+}
+#endif // TARGET_X86
+
 void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 {
     GenTree* arg = info->GetNode();
 
     if (info->GetRegCount() == 0)
     {
-#ifndef TARGET_X86
         if (GenTreeFieldList* fields = arg->IsFieldList())
         {
+#ifdef TARGET_X86
+            LowerFieldListPush(fields, call, info);
+#else
             unsigned index = 0;
 
             for (GenTreeFieldList::Use *nextField, *field = fields->Uses().GetHead(); field != nullptr;
@@ -1441,10 +1498,10 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
             }
 
             BlockRange().Unlink(fields);
+#endif
 
             return;
         }
-#endif // !TARGET_X86
 
         GenTreePutArgStk* putArgStk = new (comp, GT_PUTARG_STK) GenTreePutArgStk(arg, info, call);
         BlockRange().InsertAfter(arg, putArgStk);

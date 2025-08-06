@@ -740,7 +740,6 @@ private:
 #ifdef TARGET_X86
     void PreAdjustStackForPutArgStk(unsigned argSize);
     void PushReg(var_types type, RegNum srcReg);
-    void GenPutArgStkFieldList(GenTreePutArgStk* putArgStk);
     void GenPutArgStkStruct(GenTreePutArgStk* putArgStk);
 #else
     void GenPutArgStkStruct(GenTreePutArgStk* putArgStk,

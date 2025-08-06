@@ -5693,196 +5693,6 @@ void CodeGen::PreAdjustStackForPutArgStk(unsigned argSize)
     AddStackLevel(argSize);
 }
 
-void CodeGen::GenPutArgStkFieldList(GenTreePutArgStk* putArgStk)
-{
-    assert((putArgStk->GetKind() == GenTreePutArgStk::Kind::Push) ||
-           (putArgStk->GetKind() == GenTreePutArgStk::Kind::PushAllSlots));
-
-    RegNum intTmpReg = REG_NA;
-    RegNum xmmTmpReg = REG_NA;
-
-    if (putArgStk->HasAnyTempRegs(RBM_ALLINT))
-    {
-        intTmpReg = putArgStk->GetSingleTempReg(RBM_ALLINT);
-        assert(genIsValidIntReg(intTmpReg));
-    }
-
-    if (putArgStk->HasAnyTempRegs(RBM_ALLFLOAT))
-    {
-        xmmTmpReg = putArgStk->GetSingleTempReg(RBM_ALLFLOAT);
-        assert(genIsValidFloatReg(xmmTmpReg));
-    }
-
-    // If we are pushing the arguments (i.e. we have not pre-adjusted the stack), then we are pushing them
-    // in reverse order, so we start with the current field offset at the size of the struct arg (which must be
-    // a multiple of the target pointer size).
-    unsigned currentOffset   = putArgStk->GetPushSize();
-    unsigned prevFieldOffset = currentOffset;
-    Emitter& emit            = *GetEmitter();
-
-    for (GenTreeFieldList::Use& use : putArgStk->GetOp(0)->AsFieldList()->Uses())
-    {
-        GenTree* const fieldNode   = use.GetNode();
-        const unsigned fieldOffset = use.GetOffset();
-        var_types      fieldType   = use.GetType();
-
-        assert(fieldType != TYP_LONG);
-        assert(fieldOffset <= prevFieldOffset);
-
-        UseRMRegs(fieldNode);
-        RegNum argReg = fieldNode->isUsedFromSpillTemp() ? REG_NA : fieldNode->GetRegNum();
-
-        // If the field is slot-like, we can use a push instruction to store the entire register no matter the type.
-        //
-        // The GC encoder requires that the stack remain 4-byte aligned at all times. Round the adjustment up
-        // to the next multiple of 4. If we are going to generate a `push` instruction, the adjustment must
-        // not require rounding.
-        // NOTE: if the field is of GC type, we must use a push instruction, since the emitter is not otherwise
-        // able to detect stores into the outgoing argument area of the stack on x86.
-        const bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevFieldOffset - fieldOffset) >= 4);
-        int        adjustment  = roundUp(currentOffset - fieldOffset, 4);
-
-        prevFieldOffset = fieldOffset;
-
-        const bool usePush = fieldIsSlot && !varTypeIsSIMD(fieldType);
-
-        if (usePush)
-        {
-            fieldType         = varActualType(fieldType);
-            unsigned pushSize = varTypeSize(fieldType);
-            assert((pushSize % 4) == 0);
-            adjustment -= pushSize;
-
-            while (adjustment != 0)
-            {
-                emit.emitIns_I(INS_push, EA_4BYTE, 0);
-                currentOffset -= pushSize;
-                AddStackLevel(pushSize);
-                adjustment -= pushSize;
-            }
-        }
-        else
-        {
-            // We always "push" floating point fields (i.e. they are full slot values that don't
-            // require special handling).
-            assert(varTypeIsIntegralOrI(fieldNode->GetType()) || varTypeIsSIMD(fieldNode->GetType()));
-
-            // If we can't push this field, it needs to be in a register so that we can store
-            // it to the stack location.
-            if (adjustment != 0)
-            {
-                // This moves the stack pointer to fieldOffset.
-                // For this case, we must adjust the stack and generate stack-relative stores rather than pushes.
-                // Adjust the stack pointer to the next slot boundary.
-                emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, adjustment);
-                currentOffset -= adjustment;
-                AddStackLevel(adjustment);
-            }
-
-            // Does it need to be in a byte register?
-            // If so, we'll use intTmpReg, which must have been allocated as a byte register.
-            // If it's already in a register, but not a byteable one, then move it.
-            if (varTypeIsByte(fieldType) && ((argReg == REG_NA) || ((genRegMask(argReg) & RBM_BYTE_REGS) == RBM_NONE)))
-            {
-                assert(intTmpReg != REG_NA);
-                noway_assert((genRegMask(intTmpReg) & RBM_BYTE_REGS) != RBM_NONE);
-
-                if (argReg != REG_NA)
-                {
-                    emit.emitIns_Mov(INS_mov, EA_4BYTE, intTmpReg, argReg, /* canSkip */ false);
-                    argReg = intTmpReg;
-                }
-            }
-        }
-
-        if (argReg != REG_NA)
-        {
-#ifdef FEATURE_SIMD
-            if (fieldType == TYP_SIMD12)
-            {
-                assert(genIsValidFloatReg(xmmTmpReg));
-                PushSIMD12(argReg, xmmTmpReg);
-            }
-            else
-#endif
-                if (usePush)
-            {
-                PushReg(fieldType, argReg);
-            }
-            else
-            {
-                emit.emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), argReg, REG_SPBASE,
-                                  fieldOffset - currentOffset);
-            }
-
-            if (usePush)
-            {
-                // We always push a slot-rounded size
-                currentOffset -= varTypeSize(fieldType);
-            }
-
-            continue;
-        }
-
-        if (!usePush)
-        {
-            // The stack has been adjusted and we will load the field to intTmpReg and then store it on the stack.
-            assert(varTypeIsIntegralOrI(fieldNode->GetType()));
-
-            // TODO-MIKE-Review: Doesn't this need to handle spill temps?
-
-            if (fieldNode->OperIs(GT_LCL_LOAD))
-            {
-                emit.emitIns_R_S(INS_mov, emitTypeSize(fieldNode->GetType()), intTmpReg,
-                                 GetStackAddrMode(fieldNode->AsLclLoad()->GetLcl(), 0));
-            }
-            else
-            {
-                GenIntCon(fieldNode->AsIntCon(), intTmpReg, fieldNode->GetType());
-            }
-
-            if (usePush)
-            {
-                PushReg(fieldType, intTmpReg);
-            }
-            else
-            {
-                emit.emitIns_AR_R(ins_Store(fieldType), emitTypeSize(fieldType), intTmpReg, REG_SPBASE,
-                                  fieldOffset - currentOffset);
-            }
-
-            continue;
-        }
-
-        assert(varTypeSize(varActualType(fieldType)) <= 4);
-
-        StackAddrMode s;
-
-        if (IsLocalMemoryOperand(fieldNode, &s))
-        {
-            emit.emitIns_S(INS_push, emitActualTypeSize(fieldNode->GetType()), s);
-        }
-        else if (GenTreeIntCon* handle = fieldNode->IsIntConHandle())
-        {
-            emit.emitIns_H(INS_push, handle->GetAddr());
-        }
-        else
-        {
-            emit.emitIns_I(INS_push, EA_4BYTE, fieldNode->AsIntCon()->GetInt32Value());
-        }
-
-        currentOffset -= REGSIZE_BYTES;
-        AddStackLevel(REGSIZE_BYTES);
-    }
-
-    if (currentOffset != 0)
-    {
-        // We don't expect padding at the beginning of a struct, but it could happen with explicit layout.
-        emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(currentOffset));
-        AddStackLevel(currentOffset);
-    }
-}
-
 void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
@@ -5914,12 +5724,6 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    if (src->OperIs(GT_FIELD_LIST))
-    {
-        GenPutArgStkFieldList(putArgStk);
-        return;
-    }
-
     if (src->TypeIs(TYP_STRUCT))
     {
         GenPutArgStkStruct(putArgStk);
@@ -5927,13 +5731,13 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
     }
 
     unsigned     argTypeNum = putArgStk->GetArgTypeNum();
-    ClassLayout* argLayout = nullptr;
-    var_types    argType = TYP_UNDEF;
+    ClassLayout* argLayout  = nullptr;
+    var_types    argType    = TYP_UNDEF;
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
         argLayout = compiler->typGetLayoutByNum(argTypeNum);
-        argType = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
+        argType   = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
     }
     else
     {
@@ -5997,6 +5801,29 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArgStk)
                 assert(size - offset == 4);
                 emit.emitIns_AR_R(INS_movd, EA_4BYTE, zeroXmmReg, REG_SPBASE, offset);
             }
+        }
+
+        return;
+    }
+
+    if (varTypeIsSmall(argType))
+    {
+        if (unsigned pushSize = putArgStk->GetPushSize())
+        {
+            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, pushSize);
+            AddStackLevel(pushSize);
+        }
+
+        if (src->isUsedFromReg())
+        {
+            RegNum srcReg = UseReg(src);
+
+            emit.emitIns_AR_R(ins_Store(argType), emitTypeSize(argType), srcReg, REG_SPBASE, putArgStk->GetOffset());
+        }
+        else
+        {
+            emit.emitIns_ARX_I(ins_Store(argType), emitTypeSize(argType), REG_SPBASE, REG_NA, 1, putArgStk->GetOffset(),
+                               src->AsIntCon()->GetInt32Value());
         }
 
         return;

@@ -1087,63 +1087,21 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     GenTree* src = putArgStk->GetOp(0);
 
 #ifdef TARGET_X86
-    if (GenTreeFieldList* fieldList = src->IsFieldList())
-    {
-        assert(src->isContained());
-
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            if (use.GetType() == TYP_SIMD12)
-            {
-                BuildInternalFloatDef(putArgStk);
-                break;
-            }
-        }
-
-        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::Push)
-        {
-            RefPosition* intTemp    = BuildInternalIntDef(putArgStk);
-            unsigned     prevOffset = putArgStk->GetPushSize();
-
-            for (GenTreeFieldList::Use& use : fieldList->Uses())
-            {
-                unsigned fieldOffset = use.GetOffset();
-                // We can treat as a slot any field that is stored at a slot boundary, where the previous
-                // field is not in the same slot. (Note that we store the fields in reverse order.)
-                bool fieldIsSlot = ((fieldOffset % 4) == 0) && ((prevOffset - fieldOffset) >= 4);
-
-                if (!fieldIsSlot && varTypeIsByte(use.GetType()))
-                {
-                    // If this field is a slot--i.e. it is an integer field that is 4-byte aligned and takes up 4 bytes
-                    // (including padding)--we can store the whole value rather than just the byte. Otherwise, we will
-                    // need a byte-addressable register for the store. We will enforce this requirement on an internal
-                    // register, which we can use to copy multiple byte values.
-                    intTemp->registerAssignment &= allByteRegs();
-                }
-
-                prevOffset = fieldOffset;
-            }
-        }
-
-        for (GenTreeFieldList::Use& use : fieldList->Uses())
-        {
-            GenTree* fieldNode = use.GetNode();
-            if (!fieldNode->isContained())
-            {
-                BuildUse(fieldNode);
-            }
-        }
-
-        BuildInternalUses();
-
-        return;
-    }
-
     if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetPushSize() == 12))
     {
         BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
         BuildInternalUses();
+
+        return;
+    }
+
+    if (varTypeIsByte(putArgStk->GetArgType()))
+    {
+        if (!src->isContained())
+        {
+            BuildUse(src, allByteRegs());
+        }
 
         return;
     }
