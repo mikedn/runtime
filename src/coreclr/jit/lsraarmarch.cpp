@@ -206,7 +206,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     }
 
 #ifdef FEATURE_SIMD
-    if (putArg->GetArgTypeNum() == TYP_SIMD12)
+    if (putArg->GetArgType() == TYP_SIMD12)
     {
         BuildInternalFloatDef(putArg);
     }

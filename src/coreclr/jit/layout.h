@@ -235,13 +235,19 @@ public:
 #endif
     }
 
-    var_types GetSIMDType() const
+    var_types GetVectorType() const
     {
 #ifdef FEATURE_SIMD
         return (m_gcPtrCount > 0) ? TYP_UNDEF : m_layoutInfo.simdType;
 #else
         return TYP_UNDEF;
 #endif
+    }
+
+    // [[deprecated]]
+    var_types GetSIMDType() const
+    {
+        return GetVectorType();
     }
 
     var_types GetElementType() const

@@ -1084,19 +1084,22 @@ void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLa
 
 void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 {
-    GenTree* src = putArgStk->GetOp(0);
+    GenTree*  src  = putArgStk->GetOp(0);
+    var_types type = putArgStk->GetArgType();
 
-#ifdef TARGET_X86
-    if (varTypeIsSIMD(src->GetType()) && (putArgStk->GetPushSize() == 12))
+#ifndef WINDOWS_AMD64_ABI
+    if (type == TYP_SIMD12)
     {
-        BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
         BuildUse(src);
+        BuildInternalFloatDef(putArgStk);
         BuildInternalUses();
 
         return;
     }
+#endif
 
-    if (varTypeIsByte(putArgStk->GetArgType()))
+#ifdef TARGET_X86
+    if (varTypeIsByte(type))
     {
         if (!src->isContained())
         {
@@ -1117,9 +1120,43 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif
 
-    if (src->TypeIs(TYP_STRUCT))
+    if (type == TYP_STRUCT)
     {
-        assert(src->isContained());
+        assert(Compiler::typIsLayoutNum(putArgStk->GetArgTypeNum()));
+
+#ifndef WINDOWS_AMD64_ABI
+        if (src->IsIntCon(0))
+        {
+            if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+            {
+                BuildInternalIntDef(putArgStk, RBM_RDI);
+                BuildInternalIntDef(putArgStk, RBM_RCX);
+                BuildUse(src, RBM_RAX);
+            }
+            else
+            {
+                assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+                assert(src->isContained());
+
+#ifdef TARGET_X86
+                unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+                ClassLayout* argLayout  = compiler->typGetLayoutByNum(argTypeNum);
+                unsigned     argSize    = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
+
+                if (argSize >= XMM_REGSIZE_BYTES)
+#endif
+                {
+                    BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+                }
+            }
+
+            BuildInternalUses();
+
+            return;
+        }
+#endif // !WINDOWS_AMD64_ABI
+
+        assert(src->TypeIs(TYP_STRUCT));
 
         switch (putArgStk->GetKind())
         {
@@ -1148,22 +1185,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     size   = layout->GetSize();
                 }
 
-                // If we have a remainder smaller than XMM_REGSIZE_BYTES, we need an integer temp reg.
-                //
-                // x86 specific note: if the size is odd, the last copy operation would be of size 1 byte.
-                // But on x86 only RBM_BYTE_REGS could be used as byte registers.  Therefore, exclude
-                // RBM_NON_BYTE_REGS from internal candidates.
                 if ((size % XMM_REGSIZE_BYTES) != 0)
                 {
-                    regMaskTP regMask = allIntRegs();
-
-#ifdef TARGET_X86
-                    if ((size % 2) != 0)
-                    {
-                        regMask &= ~RBM_NON_BYTE_REGS;
-                    }
-#endif
-                    BuildInternalIntDef(putArgStk, regMask);
+                    BuildInternalIntDef(putArgStk, X86_ONLY((size % 2) != 0 ? allByteRegs() :) allIntRegs());
                 }
 
 #ifdef TARGET_X86
@@ -1212,62 +1236,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         return;
     }
 
-    unsigned  argSize;
-    unsigned  argTypeNum = putArgStk->GetArgTypeNum();
-    var_types argType;
-
-    if (Compiler::typIsLayoutNum(argTypeNum))
-    {
-        ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
-
-        argSize = argLayout->GetSize();
-        argType = argLayout->IsVector() ? argLayout->GetSIMDType() : TYP_STRUCT;
-    }
-    else
-    {
-        argType = static_cast<var_types>(argTypeNum);
-        argSize = varTypeSize(argType);
-    }
-
-    argSize = roundUp(argSize, REGSIZE_BYTES);
-
-#ifdef WINDOWS_AMD64_ABI
-    assert(argSize <= REGSIZE_BYTES);
-#else
-    if (src->IsIntCon(0) && (argSize > REGSIZE_BYTES))
-    {
-        if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
-        {
-            BuildInternalIntDef(putArgStk, RBM_RDI);
-            BuildInternalIntDef(putArgStk, RBM_RCX);
-            BuildUse(src, RBM_RAX);
-        }
-        else
-        {
-            assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
-            assert(src->isContained());
-
-#ifdef TARGET_X86
-            if (argSize >= XMM_REGSIZE_BYTES)
-#endif
-            {
-                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
-            }
-        }
-
-        BuildInternalUses();
-
-        return;
-    }
-#endif // !WINDOWS_AMD64_ABI
-
-#ifdef UNIX_AMD64_ABI
-    if (argType == TYP_SIMD12)
-    {
-        BuildInternalFloatDef(putArgStk);
-    }
-#endif
-
     if (!src->isContained())
     {
         BuildUse(src);
@@ -1278,8 +1246,6 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
         BuildAddrUses(src->AsIndLoad()->GetAddr());
     }
 #endif
-
-    BuildInternalUses();
 }
 
 void LinearScan::BuildLclHeap(GenTreeUnOp* tree)

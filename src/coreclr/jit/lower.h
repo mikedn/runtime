@@ -125,8 +125,11 @@ private:
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
     void LowerCallArgs(GenTreeCall* call);
 #ifdef TARGET_X86
-    void LowerFieldListPush(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertFieldListPushArg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+#else
+    void InsertFieldListPutArgStk(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #endif
+    GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
     void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_ARG_SPLIT
     GenTree* InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);

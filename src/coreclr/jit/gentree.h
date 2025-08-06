@@ -6553,11 +6553,6 @@ public:
 #else
         assert(argInfo->GetRegCount() == 0);
 #endif
-
-        if (!varTypeIsStruct(arg->GetType()) && (argInfo->GetSlotCount() == 1))
-        {
-            m_argTypeNum = static_cast<unsigned>(varActualType(arg->GetType()));
-        }
     }
 
 #ifdef TARGET_ARM

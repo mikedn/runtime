@@ -6499,19 +6499,23 @@ static const char* PutArgStkKindName(GenTreePutArgStk::Kind kind)
     switch (kind)
     {
         case GenTreePutArgStk::Kind::RepInstr:
-            return "RepInst";
+            return "RepInstr";
+        case GenTreePutArgStk::Kind::RepInstrZero:
+            return "RepInstrZero";
         case GenTreePutArgStk::Kind::Unroll:
             return "Unroll";
-#ifdef TARGET_X86
-        case GenTreePutArgStk::Kind::Push:
-            return "Push";
-#endif
+        case GenTreePutArgStk::Kind::UnrollZero:
+            return "UnrollZero";
         case GenTreePutArgStk::Kind::RepInstrXMM:
             return "RepInstrXMM";
         case GenTreePutArgStk::Kind::GCUnroll:
             return "GCUnroll";
         case GenTreePutArgStk::Kind::GCUnrollXMM:
             return "GCUnrollXMM";
+#ifdef TARGET_X86
+        case GenTreePutArgStk::Kind::Push:
+            return "Push";
+#endif
         default:
             return "???";
     }
@@ -6664,36 +6668,24 @@ void Compiler::gtDispTreeRec(
             printf(" %s", IntrinsicName(tree->AsIntrinsic()->GetIntrinsic()));
             break;
         case GT_PUTARG_STK:
-#if FEATURE_FIXED_OUT_ARGS
             if (typIsLayoutNum(tree->AsPutArgStk()->GetArgTypeNum()))
             {
                 ClassLayout* argLayout = typGetLayoutByNum(tree->AsPutArgStk()->GetArgTypeNum());
-                printf(" (@%u, %s<%u>", tree->AsPutArgStk()->GetOffset(), argLayout->GetClassName(),
-                       argLayout->GetSize());
+                printf("(%s<%u>", argLayout->GetClassName(), argLayout->GetSize());
             }
             else
             {
                 var_types argType = static_cast<var_types>(tree->AsPutArgStk()->GetArgTypeNum());
-                printf(" (@%u, %s", tree->AsPutArgStk()->GetOffset(), varTypeName(argType));
+                printf("(%s", varTypeName(argType));
             }
-#else
-            printf(" (-%u, @%u, ", tree->AsPutArgStk()->GetPushSize(), tree->AsPutArgStk()->GetOffset());
-
-            if (typIsLayoutNum(tree->AsPutArgStk()->GetArgTypeNum()))
-            {
-                ClassLayout* argLayout = typGetLayoutByNum(tree->AsPutArgStk()->GetArgTypeNum());
-                printf("%s<%u>", argLayout->GetClassName(), argLayout->GetSize());
-            }
-            else
-            {
-                var_types argType = static_cast<var_types>(tree->AsPutArgStk()->GetArgTypeNum());
-                printf("%s", varTypeName(argType));
-            }
+#if !FEATURE_FIXED_OUT_ARGS
+            printf(", -%u", tree->AsPutArgStk()->GetPushSize());
 #endif
+            printf(", @%u", tree->AsPutArgStk()->GetOffset());
 #ifdef TARGET_ARM
             if (tree->AsPutArgStk()->GetSplitRegCount() != 0)
             {
-                printf(" + %u", tree->AsPutArgStk()->GetSplitRegCount() * REGSIZE_BYTES);
+                printf(", %u regs", tree->AsPutArgStk()->GetSplitRegCount() * REGSIZE_BYTES);
             }
 #endif
 #ifdef TARGET_XARCH
