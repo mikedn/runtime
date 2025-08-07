@@ -77,6 +77,7 @@ class Liveness
     bool ComputeLifeBlock(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
     bool ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* stmt, BasicBlock* block);
     bool ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
+    void RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block);
     void InterBlockLivenessUntracked();
     bool InterBlockLiveness();
 
@@ -1142,23 +1143,19 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
                     JITDUMPLIRNODE(call, "Removing dead call:\n");
 
                     node->VisitOperands([](GenTree* operand) {
+                        assert(!operand->IsPutArgStk());
+
                         if (operand->IsValue())
                         {
                             operand->SetUnusedValue();
                         }
 
-                        // Special-case PUTARG_STK: since this operator is not considered a value,
-                        // DCE will not remove these nodes.
-                        if (operand->OperIs(GT_PUTARG_STK))
-                        {
-                            operand->AsPutArgStk()->GetOp(0)->SetUnusedValue();
-                            operand->ChangeToNothingNode();
-                        }
-
                         return GenTree::VisitResult::Continue;
                     });
 
-                    blockRange.Unlink(node);
+                    RemoveDeadCallStackArgs(call, block);
+
+                    blockRange.Unlink(call);
                 }
                 break;
             }
@@ -1252,6 +1249,54 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
     }
 
     return useDefRemoved;
+}
+
+void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
+{
+    assert(block->IsLIR());
+
+    LIR::Range& range = LIR::AsRange(block);
+
+#ifdef TARGET_X86
+    unsigned callArgsSize   = static_cast<int>(call->GetInfo()->GetStackArgsSize());
+    unsigned nestedArgsSize = 0;
+
+    for (GenTree *node = call->gtPrev; (node != nullptr) && (callArgsSize != 0); node = node->gtPrev)
+    {
+        if (GenTreePutArgStk* arg = node->IsPutArgStk())
+        {
+            if (nestedArgsSize != 0)
+            {
+                nestedArgsSize -= arg->GetPushSize();
+            }
+            else
+            {
+                JITDUMPLIRNODE(arg, "Removing dead call arg:\n");
+                callArgsSize -= arg->GetPushSize();
+                arg->GetOp(0)->SetUnusedValue();
+                arg->ChangeToNothingNode();
+            }
+        }
+        else if (GenTreeCall* nestedCall = node->IsCall())
+        {
+            nestedArgsSize += nestedCall->GetInfo()->GetStackArgsSize();
+        }
+    }
+
+    assert(callArgsSize == 0);
+#else
+    for (GenTree *node = call->gtPrev; (node != nullptr) && !node->IsCall(); node = node->gtPrev)
+    {
+        if (GenTreePutArgStk* arg = node->IsPutArgStk())
+        {
+            assert(arg->GetOffset() < call->GetInfo()->GetStackArgsSize());
+
+            JITDUMPLIRNODE(arg, "Removing dead call arg:\n");
+            arg->GetOp(0)->SetUnusedValue();
+            arg->ChangeToNothingNode();
+        }
+    }
+#endif
 }
 
 GenTree* Liveness::RemoveDeadStore(GenTreeLclRef* store, Statement* stmt, BasicBlock* block)
