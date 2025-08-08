@@ -408,8 +408,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
-        ClassLayout* argLayout = comp->typGetLayoutByNum(argTypeNum);
-        argSize                = argLayout->GetSize();
+        argSize = comp->typGetLayoutByNum(argTypeNum)->GetSize();
     }
     else
     {
@@ -471,14 +470,14 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         // because it's a memory operation and the type doesn't really matter, only the size does.
         //
         // For reg optional things are a bit more complicated:
-        //    - anything other than LCL_VAR can be reg-optional even if it's a small int type because the
+        //    - anything other than LCL_LOAD can be reg-optional even if it's a small int type because the
         //      spilled value is really INT (e.g. ushort IND automatically zero extends to INT and the
         //      resulting value is spilled to an INT spill temp).
-        //    - LCL_VAR must be slot sized because we don't know yet if the local will be a reg candidate.
+        //    - LCL_LOAD must be slot sized because we don't know yet if the local will be a reg candidate.
         //      If it's not a reg candidate then it is treated as contained thus the size restriction.
-        //      Note that the local itself may have small int type but if we get a LCL_VAR here then it
+        //      Note that the local itself may have small int type but if we get a LCL_LOAD here then it
         //      means that it is "normalize on store" or that the frontend elided the normalization cast.
-        //      Most LCL_VARs that reference small int local end up having type INT, with the notable
+        //      Most LCL_LOADs that reference small int local end up having type INT, with the notable
         //      exception of promoted struct field which may have small int type.
 
         if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveMemOperandForward(putArgStk, src))
@@ -523,18 +522,17 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     assert(numNewStackSlots >= 4);
     numNewStackSlots -= 4;
 
-    unsigned          numArgs             = callInfo->GetArgCount();
-    GenTreePutArgStk* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsPutArgStk();
-    GenTreePutArgStk* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsPutArgStk();
+    unsigned       numArgs             = callInfo->GetArgCount();
+    GenTreeIntCon* numNewStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 3)->AsIntCon();
+    GenTreeIntCon* numOldStackSlotsArg = call->GetArgNodeByArgNum(numArgs - 4)->AsIntCon();
 
     if (comp->info.IsPInvokeFrameRequired())
     {
         InsertPInvokeMethodEpilog(INDEBUG(call));
     }
 
-    numNewStackSlotsArg->GetOp(0)->AsIntCon()->SetValue(numNewStackSlots);
-    assert(numOldStackSlotsArg->GetOp(0)->AsIntCon()->GetValue() ==
-           static_cast<int>(comp->codeGen->paramsStackSize / REGSIZE_BYTES));
+    numNewStackSlotsArg->SetValue(numNewStackSlots);
+    assert(numOldStackSlotsArg->GetValue() == static_cast<int>(comp->codeGen->paramsStackSize / REGSIZE_BYTES));
 
     call->SetCallAddr(LowerDirectCall(call));
 

@@ -322,6 +322,19 @@ struct StackAddrMode
 {
     int varNum;
     int varOffs;
+
+    StackAddrMode()
+    {
+    }
+
+    StackAddrMode(int varNum, int varOffs) : varNum(varNum), varOffs(varOffs)
+    {
+    }
+
+    StackAddrMode(unsigned lclNum, unsigned lclOffs)
+        : varNum(static_cast<int>(lclNum)), varOffs(static_cast<unsigned>(lclOffs))
+    {
+    }
 };
 
 enum opSize : unsigned

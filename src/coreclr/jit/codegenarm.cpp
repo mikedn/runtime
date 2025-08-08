@@ -1074,40 +1074,42 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
-    Emitter& emit   = *GetEmitter();
-    RegNum   srcReg = UseReg(src);
-
-    unsigned argTypeNum = putArg->GetArgTypeNum();
-    unsigned size;
+    unsigned  argTypeNum = putArg->GetArgTypeNum();
+    var_types type;
+    unsigned  size;
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
         ClassLayout* argLayout = compiler->typGetLayoutByNum(argTypeNum);
+        assert(!argLayout->IsVector());
+        type = TYP_STRUCT;
         size = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
     }
     else
     {
-        size = REGSIZE_BYTES;
+        type = static_cast<var_types>(argTypeNum);
+        size = varTypeSize(type);
     }
+
+    Emitter& emit   = *GetEmitter();
+    RegNum   srcReg = UseReg(src);
 
     if (src->IsIntCon(0) && (size > 4))
     {
         for (unsigned offs = outArgLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
         {
-            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(offs)));
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, {outArgLclNum, offs});
         }
 
         return;
     }
 
-    var_types srcType = varActualType(src->GetType());
+    assert(outArgLclOffs + varTypeSize(type) <= outArgLclSize);
 
-    assert(outArgLclOffs + varTypeSize(srcType) <= outArgLclSize);
+    instruction ins  = ins_Store(type);
+    emitAttr    attr = emitTypeSize(type);
 
-    instruction ins  = ins_Store(srcType);
-    emitAttr    attr = emitTypeSize(srcType);
-
-    emit.Ins_R_S(ins, attr, srcReg, GetStackAddrMode(outArgLclNum, static_cast<int>(outArgLclOffs)));
+    emit.Ins_R_S(ins, attr, srcReg, {outArgLclNum, outArgLclOffs});
 }
 
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,

@@ -6560,6 +6560,12 @@ public:
     {
         return m_splitRegCount;
     }
+
+    void SetSplitRegCount(unsigned regCount)
+    {
+        assert(regCount <= UINT8_MAX);
+        m_splitRegCount = static_cast<uint8_t>(regCount);
+    }
 #endif
 
 #ifdef UNIX_X86_ABI

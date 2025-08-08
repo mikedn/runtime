@@ -6685,7 +6685,7 @@ void Compiler::gtDispTreeRec(
 #ifdef TARGET_ARM
             if (tree->AsPutArgStk()->GetSplitRegCount() != 0)
             {
-                printf(", %u regs", tree->AsPutArgStk()->GetSplitRegCount() * REGSIZE_BYTES);
+                printf(", %u regs", tree->AsPutArgStk()->GetSplitRegCount());
             }
 #endif
 #ifdef TARGET_XARCH

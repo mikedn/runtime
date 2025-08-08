@@ -132,7 +132,7 @@ private:
     GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
     void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_ARG_SPLIT
-    GenTree* InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
     void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);

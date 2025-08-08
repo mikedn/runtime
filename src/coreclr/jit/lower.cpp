@@ -1180,7 +1180,7 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
 }
 
 #if FEATURE_ARG_SPLIT
-GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
+void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
 {
 #if FEATURE_FASTTAILCALL
     // TODO: Need to check correctness for FastTailCall
@@ -1221,15 +1221,13 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     BlockRange().Unlink(list);
 
     LowerPutArgStk(putArgStk);
-
-    return putArgStk;
 #else  // TARGET_ARM
-    GenTreePutArgStk* putArgStk = NewPutArgStk(arg, info, call);
-    BlockRange().InsertAfter(arg, putArgStk);
-    LowerPutArgStk(putArgStk);
-
     if (arg->IsIntCon(0))
     {
+        GenTreePutArgStk* putArgStk = NewPutArgStk(arg, info, call);
+        BlockRange().InsertAfter(arg, putArgStk);
+        LowerPutArgStk(putArgStk);
+
         GenTree* after = putArgStk;
 
         for (unsigned i = 0; i < info->GetRegCount(); i++)
@@ -1254,6 +1252,7 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
     else if (GenTreeFieldList* list = arg->IsFieldList())
     {
         GenTreeFieldList::Use* regUse = list->Uses().GetHead();
+        GenTree*               before = list->gtNext;
 
         for (unsigned i = 0; i < info->GetRegCount(); i++)
         {
@@ -1276,7 +1275,7 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
                 regDef->SetRegNum(1, info->GetRegNum(++i));
             }
 
-            BlockRange().InsertBefore(putArgStk, regDef);
+            BlockRange().InsertBefore(before, regDef);
 
             if (i == 0)
             {
@@ -1297,9 +1296,18 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
         {
             stackUse.SetOffset(stackUse.GetOffset() - info->GetRegCount() * REGSIZE_BYTES);
         }
+
+        BlockRange().MoveBefore(before, list);
+        InsertFieldListPutArgStk(list, call, info);
+
+        BlockRange().Unlink(list);
     }
     else
     {
+        GenTreePutArgStk* putArgStk = NewPutArgStk(arg, info, call);
+        BlockRange().InsertAfter(arg, putArgStk);
+        LowerPutArgStk(putArgStk);
+
         ClassLayout* argLayout = comp->typGetLayoutByNum(info->GetSigTypeNum());
         assert(info->GetRegCount() <= argLayout->GetSlotCount());
 
@@ -1402,8 +1410,6 @@ GenTree* Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
             }
         }
     }
-
-    return putArgStk;
 #endif // TARGET_ARM
 }
 #endif // FEATURE_ARG_SPLIT
@@ -1424,9 +1430,9 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
 
     for (GenTreeFieldList::Use& use : fields->Uses())
     {
-        GenTree* const  value       = use.GetNode();
-        unsigned const  fieldOffset = use.GetOffset();
-        var_types const fieldType   = use.GetType();
+        GenTree* const value       = use.GetNode();
+        unsigned const fieldOffset = use.GetOffset();
+        var_types      fieldType   = use.GetType();
 
         assert(fieldType != TYP_LONG);
         assert(fieldOffset < prevFieldOffset);
@@ -1435,6 +1441,11 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
         unsigned alignedOffset = fieldOffset & ~(REGSIZE_BYTES - 1);
         unsigned pushSize      = roundUp(currentOffset - alignedOffset, REGSIZE_BYTES);
         currentOffset -= pushSize;
+
+        if (varTypeIsSmall(fieldType) && (pushSize == 4) && (fieldOffset == currentOffset))
+        {
+            fieldType = TYP_INT;
+        }
 
         GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
         putArgStk->SetArgType(fieldType);
@@ -1464,7 +1475,9 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
 
 void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
+#ifndef TARGET_ARM
     assert(argInfo->GetRegCount() == 0);
+#endif
 
     unsigned fieldIndex = 0;
 
@@ -1481,10 +1494,15 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
         GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
         putArgStk->SetOffset(putArgStk->GetOffset() + fieldOffset);
         putArgStk->SetArgType(fieldType);
+#ifdef TARGET_ARM
+        putArgStk->SetSplitRegCount(0);
+        BlockRange().InsertBefore(fields, putArgStk);
+#else
         BlockRange().InsertAfter(value, putArgStk);
+#endif
         LowerPutArgStk(putArgStk);
 
-        if (fieldIndex++ == 0)
+        if (fieldIndex++ == 0 ARM_ONLY(&&(argInfo->GetRegCount() == 0)))
         {
             argInfo->SetNode(putArgStk);
         }
@@ -1497,21 +1515,43 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
 {
     GenTreePutArgStk* put = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, argInfo, call);
 
-    if (!varTypeIsStruct(value->GetType()))
+    if (Compiler::typIsLayoutNum(put->GetArgTypeNum()))
     {
-        if (argInfo->GetSlotCount() == 1)
+        ClassLayout* layout = comp->typGetLayoutByNum(put->GetArgTypeNum());
+
+        if (!varTypeIsStruct(value->GetType()))
         {
-            put->SetArgType(varActualType(value->GetType()));
+            if (!value->IsIntCon(0) || (layout->GetSize() <= REGSIZE_BYTES))
+            {
+                put->SetArgType(varActualType(value->GetType()));
+            }
         }
-    }
 #ifdef FEATURE_SIMD
-    else if (varTypeIsSIMD(value->GetType()))
-    {
-        if (Compiler::typIsLayoutNum(put->GetArgTypeNum()))
+        else if (varTypeIsSIMD(value->GetType()))
         {
-            ClassLayout* layout = comp->typGetLayoutByNum(put->GetArgTypeNum());
-            assert(layout->IsVector());
-            var_types argType = layout->GetVectorType();
+            var_types argType;
+
+            if (layout->IsVector())
+            {
+                argType = layout->GetVectorType();
+            }
+            else
+            {
+                argType = value->GetType();
+
+                if (varTypeSize(argType) > layout->GetSize())
+                {
+                    if (layout->GetSize() == 8)
+                    {
+                        argType = TYP_SIMD8;
+                    }
+                    else
+                    {
+                        assert(layout->GetSize() == 12);
+                        argType = TYP_SIMD12;
+                    }
+                }
+            }
 
             if ((argType == TYP_SIMD12) && (argInfo->GetSlotCount() * REGSIZE_BYTES >= 16))
             {
@@ -1520,12 +1560,17 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
 
             put->SetArgType(argType);
         }
-        else
+#endif
+    }
+    else
+    {
+        assert(!varTypeIsStruct(value->GetType()));
+
+        if (argInfo->GetSlotCount() == 1)
         {
-            assert(varTypeSize(value->GetType()) >= varTypeSize(put->GetArgType()));
+            put->SetArgType(varActualType(value->GetType()));
         }
     }
-#endif
 
     return put;
 }
