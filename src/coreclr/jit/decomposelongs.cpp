@@ -169,13 +169,6 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
     }
 
-    // If we replaced the argument to a FIELD_LIST element with a LONG node, split
-    // that field list element into two elements: one for each half of the LONG.
-    if (use.Def()->OperIs(GT_LONG) && !use.IsDummyUse() && use.User()->OperIs(GT_FIELD_LIST))
-    {
-        DecomposeFieldList(use.User()->AsFieldList(), use.Def()->AsOp());
-    }
-
     JITDUMPLIRRANGE(Range(), use.Def(), "Decomposing LONG tree. AFTER:\n");
 
     if (!use.IsDummyUse() && use.User()->OperIs(GT_TRUNC))
@@ -433,33 +426,6 @@ GenTree* DecomposeLongs::DecomposeCnsLng(LIR::Use& use)
     Range().InsertAfter(node, hiResult);
 
     return FinalizeDecomposition(use, node, hiResult, hiResult);
-}
-
-GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTreeOp* longNode)
-{
-    assert(longNode->OperIs(GT_LONG));
-
-    GenTreeFieldList::Use* loUse = nullptr;
-
-    for (GenTreeFieldList::Use& use : fieldList->Uses())
-    {
-        if (use.GetNode() == longNode)
-        {
-            loUse = &use;
-            break;
-        }
-    }
-
-    assert(loUse != nullptr);
-
-    Range().Unlink(longNode);
-
-    loUse->SetNode(longNode->GetOp(0));
-    loUse->SetType(TYP_INT);
-
-    fieldList->InsertFieldLIR(m_compiler, loUse, longNode->GetOp(1), loUse->GetOffset() + 4, TYP_INT);
-
-    return fieldList->gtNext;
 }
 
 GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)

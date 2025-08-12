@@ -1376,13 +1376,34 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
 
     for (GenTreeFieldList::Use& use : fields->Uses())
     {
-        GenTree* const value       = use.GetNode();
-        unsigned const fieldOffset = use.GetOffset();
-        var_types      fieldType   = use.GetType();
+        GenTree*  value       = use.GetNode();
+        unsigned  fieldOffset = use.GetOffset();
+        var_types fieldType   = use.GetType();
 
-        assert(fieldType != TYP_LONG);
         assert(fieldOffset < prevFieldOffset);
         INDEBUG(prevFieldOffset = fieldOffset);
+
+        if (fieldType == TYP_LONG)
+        {
+            assert(value->OperIs(GT_LONG));
+            assert(fieldOffset % REGSIZE_BYTES == 0);
+
+            GenTree* valueLo = value->AsOp()->GetOp(0);
+            GenTree* valueHi = value->AsOp()->GetOp(1);
+
+            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
+            putArgStkHi->SetArgType(TYP_INT);
+            putArgStkHi->SetPushSize(currentOffset - fieldOffset - REGSIZE_BYTES);
+            putArgStkHi->SetOffset(0);
+            BlockRange().InsertBefore(fields, putArgStkHi);
+            LowerPutArgStk(putArgStkHi);
+
+            BlockRange().Unlink(value);
+
+            currentOffset = fieldOffset + REGSIZE_BYTES;
+            value         = valueLo;
+            fieldType     = TYP_INT;
+        }
 
         unsigned alignedOffset = fieldOffset & ~(REGSIZE_BYTES - 1);
         unsigned pushSize      = roundUp(currentOffset - alignedOffset, REGSIZE_BYTES);
@@ -1429,12 +1450,30 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
 
     for (GenTreeFieldList::Use& use : fields->Uses())
     {
-        GenTree* const  value       = use.GetNode();
-        unsigned const  fieldOffset = use.GetOffset();
-        var_types const fieldType   = use.GetType();
+        GenTree*  value       = use.GetNode();
+        unsigned  fieldOffset = use.GetOffset();
+        var_types fieldType   = use.GetType();
 
 #ifndef TARGET_64BIT
-        assert(fieldType != TYP_LONG);
+        if (fieldType == TYP_LONG)
+        {
+            assert(value->OperIs(GT_LONG));
+            assert(fieldOffset % REGSIZE_BYTES == 0);
+
+            GenTree* valueLo = value->AsOp()->GetOp(0);
+            GenTree* valueHi = value->AsOp()->GetOp(1);
+
+            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
+            putArgStkHi->SetArgType(TYP_INT);
+            putArgStkHi->SetOffset(putArgStkHi->GetOffset() + fieldOffset + 4);
+            BlockRange().InsertBefore(fields, putArgStkHi);
+            LowerPutArgStk(putArgStkHi);
+
+            BlockRange().Unlink(value);
+
+            value     = valueLo;
+            fieldType = TYP_INT;
+        }
 #endif
 
         GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
