@@ -1408,8 +1408,9 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
         unsigned alignedOffset = fieldOffset & ~(REGSIZE_BYTES - 1);
         unsigned pushSize      = roundUp(currentOffset - alignedOffset, REGSIZE_BYTES);
         currentOffset -= pushSize;
+        unsigned offset = fieldOffset - currentOffset;
 
-        if (varTypeIsSmall(fieldType) && (pushSize == 4) && (fieldOffset == currentOffset))
+        if (varTypeIsSmall(fieldType) && (pushSize >= 4) && (offset == 0))
         {
             fieldType = TYP_INT;
         }
@@ -1417,7 +1418,7 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
         GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
         putArgStk->SetArgType(fieldType);
         putArgStk->SetPushSize(pushSize);
-        putArgStk->SetOffset(fieldOffset - currentOffset);
+        putArgStk->SetOffset(offset);
         BlockRange().InsertBefore(fields, putArgStk);
         LowerPutArgStk(putArgStk);
 
@@ -1446,15 +1447,18 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
     assert(argInfo->GetRegCount() == 0);
 #endif
 
+    unsigned argOffset  = argInfo->GetSlotNum() * REGSIZE_BYTES;
     unsigned fieldIndex = 0;
 
     for (GenTreeFieldList::Use& use : fields->Uses())
     {
-        GenTree*  value       = use.GetNode();
-        unsigned  fieldOffset = use.GetOffset();
-        var_types fieldType   = use.GetType();
+        GenTree*          value       = use.GetNode();
+        unsigned          fieldOffset = use.GetOffset();
+        var_types         fieldType   = use.GetType();
 
 #ifndef TARGET_64BIT
+        GenTreePutArgStk* putArgStkHi = nullptr;
+
         if (fieldType == TYP_LONG)
         {
             assert(value->OperIs(GT_LONG));
@@ -1463,11 +1467,10 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
             GenTree* valueLo = value->AsOp()->GetOp(0);
             GenTree* valueHi = value->AsOp()->GetOp(1);
 
-            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
+            putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
             putArgStkHi->SetArgType(TYP_INT);
-            putArgStkHi->SetOffset(putArgStkHi->GetOffset() + fieldOffset + 4);
-            BlockRange().InsertBefore(fields, putArgStkHi);
-            LowerPutArgStk(putArgStkHi);
+            putArgStkHi->SetOffset(argOffset + fieldOffset + 4);
+            putArgStkHi->SetSplitRegCount(0);
 
             BlockRange().Unlink(value);
 
@@ -1477,15 +1480,19 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
 #endif
 
         GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
-        putArgStk->SetOffset(putArgStk->GetOffset() + fieldOffset);
         putArgStk->SetArgType(fieldType);
-#ifdef TARGET_ARM
+        putArgStk->SetOffset(argOffset + fieldOffset);
         putArgStk->SetSplitRegCount(0);
         BlockRange().InsertBefore(fields, putArgStk);
-#else
-        BlockRange().InsertAfter(value, putArgStk);
-#endif
         LowerPutArgStk(putArgStk);
+
+#ifndef TARGET_64BIT
+        if (putArgStkHi != nullptr)
+        {
+            BlockRange().InsertBefore(fields, putArgStkHi);
+            LowerPutArgStk(putArgStkHi);
+        }
+#endif
 
         if (fieldIndex++ == 0 ARM_ONLY(&&(argInfo->GetRegCount() == 0)))
         {
@@ -1679,11 +1686,11 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
     {
 #if FEATURE_ARG_SPLIT
         InsertPutArgSplit(call, info);
+
+        return;
 #else
         unreached();
 #endif
-
-        return;
     }
 
     if (GenTreeFieldList* fields = arg->IsFieldList())
@@ -1691,11 +1698,11 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* info)
 #if FEATURE_MULTIREG_ARGS
         InsertFieldListPutArgReg(fields, call, info);
         BlockRange().Unlink(fields);
+
+        return;
 #else
         unreached();
 #endif
-
-        return;
     }
 
     GenTree* putArgReg = InsertPutArgReg(arg, info, 0);

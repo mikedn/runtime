@@ -6555,18 +6555,24 @@ public:
 #endif
     }
 
-#ifdef TARGET_ARM
     unsigned GetSplitRegCount() const
     {
+#ifdef TARGET_ARM
         return m_splitRegCount;
+#else
+        return 0;
+#endif
     }
 
     void SetSplitRegCount(unsigned regCount)
     {
+#ifdef TARGET_ARM
         assert(regCount <= UINT8_MAX);
         m_splitRegCount = static_cast<uint8_t>(regCount);
-    }
+#else
+        assert(regCount == 0);
 #endif
+    }
 
 #ifdef UNIX_X86_ABI
     GenTreeCall* GetCall() const
