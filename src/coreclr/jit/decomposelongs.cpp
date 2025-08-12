@@ -464,7 +464,41 @@ GenTree* DecomposeLongs::DecomposeFieldList(GenTreeFieldList* fieldList, GenTree
 
 GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
 {
-    assert(use.Def()->OperIs(GT_CALL));
+    GenTreeCall* call = use.Def()->AsCall();
+
+    if (use.IsDummyUse())
+    {
+        call->SetType(TYP_VOID);
+        call->SetRetSigType(TYP_VOID);
+        call->GetRetDesc()->Reset();
+
+        return call->gtNext;
+    }
+
+    if (use.User()->OperIs(GT_TRUNC))
+    {
+        GenTree* trunc = use.User();
+
+        if (LIR::Use truncUse; Range().TryGetUse(trunc, &truncUse))
+        {
+            call->SetType(TYP_INT);
+            call->SetRetSigType(TYP_INT);
+            call->GetRetDesc()->InitializePrimitive(TYP_INT);
+
+            truncUse.SetDef(call);
+            use = truncUse;
+        }
+        else
+        {
+            call->SetType(TYP_VOID);
+            call->SetRetSigType(TYP_VOID);
+            call->GetRetDesc()->Reset();
+        }
+
+        Range().Unlink(trunc);
+
+        return call->gtNext;
+    }
 
     return StoreMultiRegNodeToLcl(use);
 }
