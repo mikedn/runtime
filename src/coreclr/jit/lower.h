@@ -129,9 +129,13 @@ private:
 #else
     void InsertFieldListPutArgStk(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #endif
+#if FEATURE_MULTIREG_ARGS
+    void InsertFieldListPutArgReg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+#endif
     GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
     void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_ARG_SPLIT
+    void InsertFieldListPutArgSplit(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
     void InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
