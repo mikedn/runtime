@@ -124,23 +124,25 @@ private:
     GenTree* LowerIndirectVirtualStubCall(GenTreeCall* call);
     GenTree* LowerVirtualStubCall(GenTreeCall* call);
     void LowerCallArgs(GenTreeCall* call);
-#ifdef TARGET_X86
-    void InsertFieldListPushArg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
-#else
-    void InsertFieldListPutArgStk(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+    void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
+#ifndef TARGET_64BIT
+    void InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
+    void InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertFieldListPutArgStk(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_MULTIREG_ARGS
     void InsertFieldListPutArgReg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #endif
-    GenTreePutArgStk* NewPutArgStk(GenTree* value, GenTreeCall* call);
-    GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
-    void InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo);
-#if FEATURE_ARG_SPLIT
+#ifdef TARGET_ARMARCH
     void InsertFieldListPutArgSplit(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+#endif
+#ifdef TARGET_ARM
     void InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
-    void LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo);
+    GenTreePutArgStk* NewPutArgStk(GenTree* value, GenTreeCall* call);
+    GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
 
     void InsertUnmanagedCallPrologAndEpilog(GenTreeCall* call);
     void InsertUnmanagedCallProlog(GenTreeCall* call);

@@ -1288,11 +1288,6 @@ public:
         return OperIsCompare(gtOper);
     }
 
-    bool OperIsPutArg() const
-    {
-        return (gtOper == GT_PUTARG_STK) || (gtOper == GT_PUTARG_REG);
-    }
-
     bool IsMultiRegOpLong() const
     {
 #ifdef TARGET_64BIT
