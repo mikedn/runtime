@@ -1594,7 +1594,28 @@ void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall*
 
 GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call)
 {
-    GenTreePutArgStk* put = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, argInfo, call);
+    assert(argInfo->GetSigTypeNum() != 0);
+#ifdef WINDOWS_AMD64_ABI
+    assert(argInfo->GetSlotCount() == 1);
+#endif
+#ifdef TARGET_ARM
+    assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
+#elif defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
+    assert(argInfo->GetRegCount() <= 1);
+#else
+    assert(argInfo->GetRegCount() == 0);
+#endif
+
+    GenTreePutArgStk* put = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, call);
+    put->SetArgTypeNum(argInfo->GetSigTypeNum());
+#if FEATURE_FIXED_OUT_ARGS
+    put->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES);
+#else
+    put->SetPushSize(argInfo->GetSlotCount() * REGSIZE_BYTES);
+#endif
+#ifdef TARGET_ARM
+    put->SetSplitRegCount(argInfo->GetRegCount());
+#endif
 
     if (Compiler::typIsLayoutNum(put->GetArgTypeNum()))
     {

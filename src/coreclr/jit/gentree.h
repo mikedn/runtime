@@ -6502,12 +6502,12 @@ public:
 
 private:
 #if FEATURE_FIXED_OUT_ARGS
-    unsigned m_offset;
-#else
-    unsigned m_pushSize;
     unsigned m_offset = 0;
+#else
+    unsigned m_pushSize = 0;
+    unsigned m_offset   = 0;
 #endif
-    unsigned m_argTypeNum;
+    unsigned m_argTypeNum = 0;
 #ifdef UNIX_X86_ABI
     GenTreeCall* m_call;
 #endif
@@ -6520,39 +6520,19 @@ private:
     Kind m_kind = Kind::Invalid;
 #endif
 #ifdef TARGET_ARM
-    uint8_t m_splitRegCount;
+    uint8_t m_splitRegCount = 0;
 #endif
 
 public:
-    GenTreePutArgStk(GenTree* arg, CallArgInfo* argInfo, GenTreeCall* call)
+    GenTreePutArgStk(GenTree* arg, GenTreeCall* call)
         : GenTreeUnOp(GT_PUTARG_STK, TYP_VOID, arg)
-#if FEATURE_FIXED_OUT_ARGS
-        , m_offset(argInfo->GetSlotNum() * REGSIZE_BYTES)
-#else
-        , m_pushSize(argInfo->GetSlotCount() * REGSIZE_BYTES)
-#endif
-        , m_argTypeNum(argInfo->GetSigTypeNum())
 #ifdef UNIX_X86_ABI
         , m_call(call)
 #endif
 #if FEATURE_FASTTAILCALL
         , m_putInIncomingArgArea(call->IsFastTailCall())
 #endif
-#ifdef TARGET_ARM
-        , m_splitRegCount(static_cast<uint8_t>(argInfo->GetRegCount()))
-#endif
     {
-        assert(argInfo->GetSigTypeNum() != 0);
-#ifdef WINDOWS_AMD64_ABI
-        assert(argInfo->GetSlotCount() == 1);
-#endif
-#ifdef TARGET_ARM
-        assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
-#elif defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-        assert(argInfo->GetRegCount() <= 1);
-#else
-        assert(argInfo->GetRegCount() == 0);
-#endif
     }
 
     unsigned GetSplitRegCount() const
@@ -6593,6 +6573,11 @@ public:
     unsigned GetArgTypeNum() const
     {
         return m_argTypeNum;
+    }
+
+    void SetArgTypeNum(unsigned typeNum)
+    {
+        m_argTypeNum = typeNum;
     }
 
     var_types GetArgType() const;
