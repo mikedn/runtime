@@ -1391,10 +1391,9 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
             GenTree* valueLo = value->AsOp()->GetOp(0);
             GenTree* valueHi = value->AsOp()->GetOp(1);
 
-            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
+            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, call);
             putArgStkHi->SetArgType(TYP_INT);
             putArgStkHi->SetPushSize(currentOffset - fieldOffset - REGSIZE_BYTES);
-            putArgStkHi->SetOffset(0);
             BlockRange().InsertBefore(fields, putArgStkHi);
             LowerPutArgStk(putArgStkHi);
 
@@ -1415,7 +1414,7 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
             fieldType = TYP_INT;
         }
 
-        GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
+        GenTreePutArgStk* putArgStk = NewPutArgStk(value, call);
         putArgStk->SetArgType(fieldType);
         putArgStk->SetPushSize(pushSize);
         putArgStk->SetOffset(offset);
@@ -1431,7 +1430,7 @@ void Lowering::InsertFieldListPushArg(GenTreeFieldList* fields, GenTreeCall* cal
     if (currentOffset != 0)
     {
         GenTreeIntCon*    zero      = comp->gtNewIconNode(0);
-        GenTreePutArgStk* putArgStk = NewPutArgStk(zero, argInfo, call);
+        GenTreePutArgStk* putArgStk = NewPutArgStk(zero, call);
         putArgStk->SetArgType(TYP_VOID);
         putArgStk->SetPushSize(currentOffset);
         BlockRange().InsertBefore(fields, zero, putArgStk);
@@ -1467,7 +1466,7 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
             GenTree* valueLo = value->AsOp()->GetOp(0);
             GenTree* valueHi = value->AsOp()->GetOp(1);
 
-            putArgStkHi = NewPutArgStk(valueHi, argInfo, call);
+            putArgStkHi = NewPutArgStk(valueHi, call);
             putArgStkHi->SetArgType(TYP_INT);
             putArgStkHi->SetOffset(argOffset + fieldOffset + 4);
             putArgStkHi->SetSplitRegCount(0);
@@ -1479,7 +1478,7 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
         }
 #endif
 
-        GenTreePutArgStk* putArgStk = NewPutArgStk(value, argInfo, call);
+        GenTreePutArgStk* putArgStk = NewPutArgStk(value, call);
         putArgStk->SetArgType(fieldType);
         putArgStk->SetOffset(argOffset + fieldOffset);
         putArgStk->SetSplitRegCount(0);
@@ -1591,6 +1590,11 @@ void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall*
 }
 
 #endif // FEATURE_ARG_SPLIT
+
+GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, GenTreeCall* call)
+{
+    return new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, call);
+}
 
 GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call)
 {
@@ -1844,12 +1848,13 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
         {
             noway_assert(argInfo->GetRegCount() == 0);
 
-            GenTreePutArgStk* putArgStkLo = NewPutArgStk(argLo, argInfo, call);
-            GenTreePutArgStk* putArgStkHi = NewPutArgStk(argHi, argInfo, call);
+            GenTreePutArgStk* putArgStkLo = NewPutArgStk(argLo, call);
+            GenTreePutArgStk* putArgStkHi = NewPutArgStk(argHi, call);
             putArgStkLo->SetArgType(TYP_INT);
             putArgStkHi->SetArgType(TYP_INT);
 #if FEATURE_FIXED_OUT_ARGS
-            putArgStkHi->SetOffset(putArgStkHi->GetOffset() + 4);
+            putArgStkHi->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 0);
+            putArgStkHi->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 4);
             BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
 #else
             putArgStkLo->SetPushSize(4);
