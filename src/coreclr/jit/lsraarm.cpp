@@ -356,6 +356,29 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
+void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+{
+    GenTree* src = putArg->GetOp(0);
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        assert(src->isContained());
+
+        BuildInternalIntDef(putArg);
+
+        if (src->OperIs(GT_IND_LOAD_OBJ))
+        {
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
+        }
+
+        BuildInternalUses();
+
+        return;
+    }
+
+    BuildUse(src);
+}
+
 void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)
 {
     if (GenTree* base = lea->GetBase())

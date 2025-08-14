@@ -1065,68 +1065,62 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
     unsigned outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
     INDEBUG(unsigned outArgLclSize = outgoingArgSpaceSize);
     unsigned outArgLclOffs = putArg->GetOffset();
+    unsigned argTypeNum    = putArg->GetArgTypeNum();
 
-    GenTree* src = putArg->GetOp(0);
-
-    if (src->TypeIs(TYP_STRUCT))
+    if (Compiler::typIsLayoutNum(argTypeNum))
     {
         GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
         return;
     }
 
-    Emitter& emit       = *GetEmitter();
-    RegNum   srcReg     = UseReg(src);
-    unsigned argTypeNum = putArg->GetArgTypeNum();
-
-    if (Compiler::typIsLayoutNum(argTypeNum))
-    {
-        assert(src->IsIntCon(0));
-
-        unsigned size = roundUp(compiler->typGetLayoutByNum(argTypeNum)->GetSize(), REGSIZE_BYTES) -
-                        (putArg->GetSplitRegCount() * REGSIZE_BYTES);
-
-        for (unsigned offs = outArgLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
-        {
-            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, {outArgLclNum, offs});
-        }
-
-        return;
-    }
-
-    var_types type = static_cast<var_types>(argTypeNum);
+    RegNum    srcReg = UseReg(putArg->GetOp(0));
+    var_types type   = static_cast<var_types>(argTypeNum);
 
     assert(outArgLclOffs + varTypeSize(type) <= outArgLclSize);
 
-    instruction ins  = ins_Store(type);
-    emitAttr    attr = emitTypeSize(type);
-
-    emit.Ins_R_S(ins, attr, srcReg, {outArgLclNum, outArgLclOffs});
+    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {outArgLclNum, outArgLclOffs});
 }
 
 void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
                                  unsigned          outArgLclNum,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
-    GenTree* src = putArg->GetOp(0);
+    GenTree*     src    = putArg->GetOp(0);
+    Emitter&     emit   = *GetEmitter();
+    ClassLayout* layout = compiler->typGetLayoutByNum(putArg->GetArgTypeNum());
+
+    if (src->IsIntCon(0))
+    {
+        RegNum   srcReg = UseReg(src);
+        unsigned size   = roundUp(layout->GetSize(), REGSIZE_BYTES) - (putArg->GetSplitRegCount() * REGSIZE_BYTES);
+
+        for (unsigned offs = outArgLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
+        {
+            assert(offs + 4 <= outArgLclSize);
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, {outArgLclNum, offs});
+        }
+
+        return;
+    }
 
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    ClassLayout* srcLayout;
-    LclVarDsc*   srcLcl         = nullptr;
-    RegNum       srcAddrBaseReg = REG_NA;
-    int          srcOffset      = 0;
+    unsigned   size           = layout->GetSize();
+    LclVarDsc* srcLcl         = nullptr;
+    RegNum     srcAddrBaseReg = REG_NA;
+    int        srcOffset      = 0;
 
     if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl    = src->AsLclLoad()->GetLcl();
-        srcLayout = srcLcl->GetLayout();
+        srcLcl = src->AsLclLoad()->GetLcl();
+        size   = roundUp(size, REGSIZE_BYTES);
     }
     else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
         srcLcl    = src->AsLclLoadFld()->GetLcl();
         srcOffset = src->AsLclLoadFld()->GetLclOffs();
-        srcLayout = src->AsLclLoadFld()->GetLayout(compiler);
+        size      = roundUp(size, REGSIZE_BYTES);
     }
     else
     {
@@ -1142,21 +1136,10 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
             assert(!srcAddr->AsAddrMode()->HasIndex());
             srcOffset = srcAddr->AsAddrMode()->GetOffset();
         }
-
-        srcLayout = src->AsIndLoadObj()->GetLayout();
-    }
-
-    unsigned size = srcLayout->GetSize();
-
-    if (srcLcl != nullptr)
-    {
-        size = roundUp(size, REGSIZE_BYTES);
     }
 
     RegNum tempReg = putArg->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
-
-    Emitter& emit = *GetEmitter();
 
     unsigned offset = putArg->GetSplitRegCount() * REGSIZE_BYTES;
     size -= offset;
@@ -1168,27 +1151,24 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
             regSize /= 2;
         }
 
-        instruction loadIns;
-        instruction storeIns;
-        emitAttr    attr;
+        instruction loadIns  = INS_ldr;
+        instruction storeIns = INS_str;
+        emitAttr    attr     = EA_4BYTE;
 
         switch (regSize)
         {
             case 1:
                 loadIns  = INS_ldrb;
                 storeIns = INS_strb;
-                attr     = EA_4BYTE;
                 break;
             case 2:
                 loadIns  = INS_ldrh;
                 storeIns = INS_strh;
-                attr     = EA_4BYTE;
                 break;
             default:
                 assert(regSize == REGSIZE_BYTES);
-                loadIns  = INS_ldr;
-                storeIns = INS_str;
-                attr     = emitTypeSize(srcLayout->GetGCPtrType(offset / REGSIZE_BYTES));
+                attr = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
+                break;
         }
 
         if (srcLcl != nullptr)
@@ -1200,10 +1180,9 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
             emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
         }
 
-        // We can't write beyond the outgoing area area
         assert(outArgLclOffs + regSize <= outArgLclSize);
 
-        emit.Ins_R_S(storeIns, attr, tempReg, GetStackAddrMode(outArgLclNum, outArgLclOffs));
+        emit.Ins_R_S(storeIns, attr, tempReg, {outArgLclNum, outArgLclOffs});
     }
 }
 

@@ -177,44 +177,6 @@ void LinearScan::BuildCall(GenTreeCall* call)
     }
 }
 
-void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
-{
-    GenTree* src = putArg->GetOp(0);
-
-    if (src->TypeIs(TYP_STRUCT))
-    {
-        assert(src->isContained());
-
-        BuildInternalIntDef(putArg);
-#ifdef TARGET_ARM64
-        BuildInternalIntDef(putArg);
-#endif
-
-        if (src->OperIs(GT_IND_LOAD_OBJ))
-        {
-            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
-        }
-
-        BuildInternalUses();
-
-        return;
-    }
-
-    if (!src->isContained())
-    {
-        BuildUse(src);
-    }
-
-#ifdef FEATURE_SIMD
-    if (putArg->GetArgType() == TYP_SIMD12)
-    {
-        BuildInternalFloatDef(putArg);
-    }
-
-    BuildInternalUses();
-#endif
-}
-
 void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout)
 {
 #ifdef TARGET_ARM64

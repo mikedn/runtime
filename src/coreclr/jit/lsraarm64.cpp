@@ -311,6 +311,40 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
+void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+{
+    GenTree* src = putArg->GetOp(0);
+
+    if (src->TypeIs(TYP_STRUCT))
+    {
+        assert(src->isContained());
+
+        BuildInternalIntDef(putArg);
+        BuildInternalIntDef(putArg);
+
+        if (src->OperIs(GT_IND_LOAD_OBJ))
+        {
+            BuildAddrUses(src->AsIndLoadObj()->GetAddr());
+        }
+
+        BuildInternalUses();
+
+        return;
+    }
+
+    if (!src->isContained())
+    {
+        BuildUse(src);
+    }
+
+    if (putArg->GetArgType() == TYP_SIMD12)
+    {
+        BuildInternalFloatDef(putArg);
+    }
+
+    BuildInternalUses();
+}
+
 void LinearScan::BuildIntExtend(GenTreeUnOp* node)
 {
     GenTree* src = node->GetOp(0);

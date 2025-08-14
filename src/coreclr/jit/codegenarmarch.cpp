@@ -2070,6 +2070,8 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
 
 instruction CodeGen::ins_Store(var_types dstType, bool aligned)
 {
+    assert(dstType != TYP_STRUCT);
+
 #ifdef TARGET_ARM
     if (varTypeUsesFloatReg(dstType))
     {
