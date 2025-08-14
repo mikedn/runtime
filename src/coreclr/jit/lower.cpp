@@ -1358,152 +1358,127 @@ void Lowering::InsertFieldListPutArgReg(GenTreeFieldList* fields, GenTreeCall* c
 
 #ifdef TARGET_ARM
 
-void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* info)
+void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo)
 {
-#if FEATURE_FASTTAILCALL
     if (call->IsFastTailCall())
     {
         NYI_ARM("fast tail call with split argument");
     }
-#endif
 
-    GenTree* arg = info->GetNode();
+    assert(Compiler::typIsLayoutNum(argInfo->GetSigTypeNum()));
+    assert(argInfo->GetSlotCount() != 0);
+    assert(argInfo->GetSlotNum() == 0);
+    assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
 
-    if (arg->IsIntCon(0))
-    {
-        GenTreePutArgStk* putArgStk = NewPutArgStk(arg, info, call);
-        BlockRange().InsertAfter(arg, putArgStk);
-        LowerPutArgStk(putArgStk);
+    GenTree* arg = argInfo->GetNode();
 
-        GenTree* after = putArgStk;
-
-        for (unsigned i = 0; i < info->GetRegCount(); i++)
-        {
-            GenTree* regVal = comp->gtNewIconNode(0);
-            GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, TYP_INT, regVal);
-            regDef->SetRegNum(info->GetRegNum(i));
-            BlockRange().InsertAfter(after, regVal, regDef);
-
-            if (i == 0)
-            {
-                info->SetNode(regDef);
-            }
-            else
-            {
-                comp->gtInsertNewCallArgAfter(regDef, info->GetUse());
-            }
-        }
-
-        return;
-    }
-
-    GenTreePutArgStk* putArgStk = NewPutArgStk(arg, info, call);
+    GenTreePutArgStk* putArgStk = NewPutArgStk(arg, call);
+    putArgStk->SetArgTypeNum(argInfo->GetSigTypeNum());
+    putArgStk->SetSplitRegCount(argInfo->GetRegCount());
     BlockRange().InsertAfter(arg, putArgStk);
     LowerPutArgStk(putArgStk);
 
-    ClassLayout* argLayout = comp->typGetLayoutByNum(info->GetSigTypeNum());
-    assert(info->GetRegCount() <= argLayout->GetSlotCount());
+    const unsigned regCount = argInfo->GetRegCount();
+    GenTree*       regDefs[MAX_ARG_REG_COUNT];
+    GenTree*       after     = putArgStk;
+    ClassLayout*   argLayout = comp->typGetLayoutByNum(argInfo->GetSigTypeNum());
+    assert(argInfo->GetRegCount() <= argLayout->GetSlotCount());
 
-    if (arg->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+    if (arg->IsIntCon(0))
     {
-        LclVarDsc* srcLcl    = nullptr;
-        unsigned   srcOffset = 0;
+        for (unsigned i = 0; i < regCount; i++)
+        {
+            GenTree* regVal = comp->gtNewIconNode(0);
+            regDefs[i]      = comp->gtNewOperNode(GT_PUTARG_REG, TYP_INT, regVal);
+            BlockRange().InsertAfter(after, regVal, regDefs[i]);
+        }
+    }
+    else if (GenTreeIndLoadObj* load = arg->IsIndLoadObj())
+    {
+        GenTree*  baseAddr = load->GetAddr();
+        int32_t   offset   = 0;
+        GenTree** baseAddrUse;
+        GenTree*  user;
+
+        if (baseAddr->isContained())
+        {
+            GenTreeAddrMode* am = baseAddr->AsAddrMode();
+            assert(!am->HasIndex());
+            baseAddr    = am->GetBase();
+            offset      = am->GetOffset();
+            baseAddrUse = &am->gtOp1;
+            user        = am;
+        }
+        else
+        {
+            baseAddrUse = &load->gtOp1;
+            user        = load;
+        }
+
+        if (!baseAddr->OperIs(GT_LCL_LOAD) || baseAddr->AsLclLoad()->GetLcl()->lvDoNotEnregister)
+        {
+            LIR::Use use(BlockRange(), baseAddrUse, user);
+            baseAddr = ReplaceWithLclLoad(use);
+        }
+
+        for (unsigned i = 0; i < regCount; i++, offset += REGSIZE_BYTES)
+        {
+            baseAddr = comp->gtNewLclLoad(baseAddr->AsLclLoad()->GetLcl(), baseAddr->GetType());
+
+            GenTree* regAddr = comp->gtNewAddrMode(baseAddr, offset);
+            GenTree* regVal  = comp->gtNewIndLoad(argLayout->GetGCPtrType(i), regAddr);
+            regDefs[i]       = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+            BlockRange().InsertAfter(after, baseAddr, regAddr, regVal, regDefs[i]);
+            regAddr->SetContained();
+            after = regDefs[i];
+        }
+    }
+    else
+    {
+        LclVarDsc* srcLcl;
+        unsigned   srcOffset;
 
         if (arg->OperIs(GT_LCL_LOAD))
         {
-            srcLcl = arg->AsLclLoad()->GetLcl();
+            srcLcl    = arg->AsLclLoad()->GetLcl();
+            srcOffset = 0;
         }
-        else if (arg->OperIs(GT_LCL_LOAD_FLD))
+        else
         {
             srcLcl    = arg->AsLclLoadFld()->GetLcl();
             srcOffset = arg->AsLclLoadFld()->GetLclOffs();
         }
 
-        GenTree* after = putArgStk;
-
-        for (unsigned i = 0; i < info->GetRegCount(); i++, srcOffset += REGSIZE_BYTES)
+        for (unsigned i = 0; i < regCount; i++, srcOffset += REGSIZE_BYTES)
         {
             GenTree* regVal = comp->gtNewLclLoadFld(argLayout->GetGCPtrType(i), srcLcl, srcOffset);
-            GenTree* regDef = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-            regDef->SetRegNum(info->GetRegNum(i));
-
-            BlockRange().InsertAfter(after, regVal, regDef);
-            after = regDef;
-
-            if (i == 0)
-            {
-                info->SetNode(regDef);
-            }
-            else
-            {
-                comp->gtInsertNewCallArgAfter(regDef, info->GetUse());
-            }
+            regDefs[i]      = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
+            BlockRange().InsertAfter(after, regVal, regDefs[i]);
+            after = regDefs[i];
         }
-
-        return;
     }
 
-    GenTreeIndLoadObj* load     = arg->AsIndLoadObj();
-    GenTree*           baseAddr = load->GetAddr();
-    int32_t            offset   = 0;
-    GenTree**          baseAddrUse;
-    GenTree*           user;
-
-    if (baseAddr->isContained())
+    for (unsigned i = 0; i < regCount; i++)
     {
-        GenTreeAddrMode* am = baseAddr->AsAddrMode();
-        assert(!am->HasIndex());
-        baseAddr    = am->GetBase();
-        offset      = am->GetOffset();
-        baseAddrUse = &am->gtOp1;
-        user        = am;
-    }
-    else
-    {
-        baseAddrUse = &load->gtOp1;
-        user        = load;
-    }
-
-    if (!baseAddr->OperIs(GT_LCL_LOAD) || baseAddr->AsLclLoad()->GetLcl()->lvDoNotEnregister)
-    {
-        LIR::Use use(BlockRange(), baseAddrUse, user);
-        baseAddr = ReplaceWithLclLoad(use);
-    }
-
-    GenTree* after = putArgStk;
-
-    for (unsigned i = 0; i < info->GetRegCount(); i++, offset += REGSIZE_BYTES)
-    {
-        baseAddr = comp->gtNewLclLoad(baseAddr->AsLclLoad()->GetLcl(), baseAddr->GetType());
-
-        GenTree* regAddr = comp->gtNewAddrMode(baseAddr, offset);
-        GenTree* regVal  = comp->gtNewIndLoad(argLayout->GetGCPtrType(i), regAddr);
-        GenTree* regDef  = comp->gtNewOperNode(GT_PUTARG_REG, varActualType(regVal->GetType()), regVal);
-        regDef->SetRegNum(info->GetRegNum(i));
-
-        BlockRange().InsertAfter(after, baseAddr, regAddr, regVal, regDef);
-        after = regDef;
-        regAddr->SetContained();
+        regDefs[i]->SetRegNum(argInfo->GetRegNum(i));
 
         if (i == 0)
         {
-            info->SetNode(regDef);
+            argInfo->SetNode(regDefs[i]);
         }
         else
         {
-            comp->gtInsertNewCallArgAfter(regDef, info->GetUse());
+            comp->gtInsertNewCallArgAfter(regDefs[i], argInfo->GetUse());
         }
     }
 }
 
 void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
-#if FEATURE_FASTTAILCALL
     if (call->IsFastTailCall())
     {
         NYI_ARM("fast tail call with split argument");
     }
-#endif
 
     GenTreeFieldList::Use* regUse = fields->Uses().GetHead();
     GenTree*               before = fields->gtNext;
@@ -1595,15 +1570,9 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, GenTreeCall* call)
 GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call)
 {
     assert(argInfo->GetSigTypeNum() != 0);
+    assert(argInfo->GetRegCount() == 0);
 #ifdef WINDOWS_AMD64_ABI
     assert(argInfo->GetSlotCount() == 1);
-#endif
-#ifdef TARGET_ARM
-    assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
-#elif defined(TARGET_ARM64) && defined(TARGET_WINDOWS)
-    assert(argInfo->GetRegCount() <= 1);
-#else
-    assert(argInfo->GetRegCount() == 0);
 #endif
 
     GenTreePutArgStk* put = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, call);
@@ -1612,9 +1581,6 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
     put->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES);
 #else
     put->SetPushSize(argInfo->GetSlotCount() * REGSIZE_BYTES);
-#endif
-#ifdef TARGET_ARM
-    put->SetSplitRegCount(argInfo->GetRegCount());
 #endif
 
     if (Compiler::typIsLayoutNum(put->GetArgTypeNum()))
