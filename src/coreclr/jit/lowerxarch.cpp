@@ -271,50 +271,47 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 {
     GenTree* src = putArgStk->GetOp(0);
 
+    unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+    unsigned     argSize;
+    ClassLayout* layout = nullptr;
+
+    if (Compiler::typIsLayoutNum(argTypeNum))
+    {
+        layout  = comp->typGetLayoutByNum(argTypeNum);
+        argSize = layout->GetSize();
+    }
+    else
+    {
+        argSize = varTypeSize(static_cast<var_types>(argTypeNum));
+    }
+
     if (src->TypeIs(TYP_STRUCT))
     {
-        ClassLayout* layout;
-        unsigned     size;
-
-        if (src->OperIs(GT_LCL_LOAD))
+        if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            layout = src->AsLclLoad()->GetLcl()->GetLayout();
-            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-        }
-        else if (src->OperIs(GT_LCL_LOAD_FLD))
-        {
-            layout = src->AsLclLoadFld()->GetLayout(comp);
-            size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-        }
-        else
-        {
-            layout = src->AsIndLoadObj()->GetLayout();
-            size   = layout->GetSize();
+            argSize = roundUp(argSize, REGSIZE_BYTES);
         }
 
-        // In case of a CpBlk we could use a helper call. In case of putarg_stk we
-        // can't do that since the helper call could kill some already set up outgoing args.
-        // TODO-Amd64-Unix: converge the code for putarg_stk with cpyblk/cpyobj.
-        // The cpyXXXX code is rather complex and this could cause it to be more complex, but
-        // it might be the right thing to do.
+        // For normal stores we could use a helper call but for PUTARG_STK we can't do
+        // that since the helper call could kill some already set up outgoing args.
 
         // TODO-X86-CQ: The helper call either is not supported on x86 or required more work
         // (I don't know which).
 
         if (!layout->HasGCPtr()
 #ifdef TARGET_X86
-            && (size != 8)
+            && (argSize != 8)
 #endif
                 )
         {
-            putArgStk->SetKind(size <= CPBLK_UNROLL_LIMIT ? GenTreePutArgStk::Kind::Unroll
-                                                          : GenTreePutArgStk::Kind::RepInstr);
+            putArgStk->SetKind(argSize <= CPBLK_UNROLL_LIMIT ? GenTreePutArgStk::Kind::Unroll
+                                                             : GenTreePutArgStk::Kind::RepInstr);
         }
         else
         {
 #ifdef TARGET_X86
             // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly
-            // update the function's GC info. These `putargstk` nodes will generate a sequence of `push` instructions.
+            // update the function's GC info. These PUTARG_STK nodes will generate a sequence of `push` instructions.
             putArgStk->SetKind(GenTreePutArgStk::Kind::Push);
 #else
             // On Linux-x64, any GC pointers the struct contains must be stored to the argument outgoing area using
@@ -397,22 +394,10 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
         if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            ContainStructStoreAddress(putArgStk, size, src->AsIndLoadObj()->GetAddr());
+            ContainStructStoreAddress(putArgStk, argSize, src->AsIndLoadObj()->GetAddr());
         }
 
         return;
-    }
-
-    unsigned argSize;
-    unsigned argTypeNum = putArgStk->GetArgTypeNum();
-
-    if (Compiler::typIsLayoutNum(argTypeNum))
-    {
-        argSize = comp->typGetLayoutByNum(argTypeNum)->GetSize();
-    }
-    else
-    {
-        argSize = varTypeSize(static_cast<var_types>(argTypeNum));
     }
 
     argSize = roundUp(argSize, REGSIZE_BYTES);
