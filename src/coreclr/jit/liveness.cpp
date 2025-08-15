@@ -1215,9 +1215,6 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
             case GT_KEEPALIVE:
             case GT_BOUNDS_CHECK:
             case GT_NO_OP:
-#ifdef FEATURE_HW_INTRINSICS
-            case GT_HWINTRINSIC:
-#endif
                 // These nodes cannot be removed, some always have side effects, some are flow
                 // control related and can only be removed by flowgraph updates, some just have
                 // special meaning, like IL_OFFSET.
@@ -1229,6 +1226,18 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
                 // we don't accidentally remove needed stuff.
                 break;
 
+#ifdef FEATURE_HW_INTRINSICS
+            case GT_HWINTRINSIC:
+                // TODO-MIKE-Cleanup: Most intrinsics are side effect free, we just need to make
+                // sure they are correctly marked so we don't accidentally remove side effects.
+                // For now just remove the obviously safe one - 0 - it tends to die due to const
+                // propagation.
+                if (!node->IsHWIntrinsicZero())
+                {
+                    break;
+                }
+                FALLTHROUGH;
+#endif
             default:
                 assert(!node->OperIs(GT_PHI));
 
@@ -1261,7 +1270,7 @@ void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
     unsigned callArgsSize   = static_cast<int>(call->GetInfo()->GetStackArgsSize());
     unsigned nestedArgsSize = 0;
 
-    for (GenTree *node = call->gtPrev; (node != nullptr) && (callArgsSize != 0); node = node->gtPrev)
+    for (GenTree* node = call->gtPrev; (node != nullptr) && (callArgsSize != 0); node = node->gtPrev)
     {
         if (GenTreePutArgStk* arg = node->IsPutArgStk())
         {
@@ -1285,7 +1294,7 @@ void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
 
     assert(callArgsSize == 0);
 #else
-    for (GenTree *node = call->gtPrev; (node != nullptr) && !node->IsCall(); node = node->gtPrev)
+    for (GenTree* node = call->gtPrev; (node != nullptr) && !node->IsCall(); node = node->gtPrev)
     {
         if (GenTreePutArgStk* arg = node->IsPutArgStk())
         {
