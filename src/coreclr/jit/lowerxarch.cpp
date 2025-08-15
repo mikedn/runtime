@@ -154,13 +154,13 @@ void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
 #if FEATURE_MULTIREG_RET
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+    assert(store->IsArgStore() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
            (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
             ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollRegs))));
 #else
-    assert(store->OperIs(GT_PUTARG_STK) || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
+    assert(store->IsArgStore() || store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD) ||
            (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
             ((store->AsBlk()->GetKind() == StructStoreKind::UnrollInit) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy))));
@@ -192,10 +192,10 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
     }
 
 #if defined(TARGET_X86) || defined(UNIX_AMD64_ABI)
-    if (GenTreePutArgStk* putArg = store->IsPutArgStk())
+    if (GenTreeArgStore* argStore = store->IsArgStore())
     {
-#if defined(TARGET_X86)
-        if (putArg->GetKind() == GenTreePutArgStk::Kind::Push)
+#ifdef TARGET_X86
+        if (argStore->GetKind() == GenTreeArgStore::Kind::Push)
         {
             // Containing the address mode avoids generating an extra LEA instruction but may increase the size
             // of the load/store instructions due to extra SIB bytes and/or 32 bit displacements. Unlike Unroll,
@@ -209,8 +209,8 @@ void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree*
             }
         }
 #else
-        if ((putArg->GetKind() == GenTreePutArgStk::Kind::GCUnroll) ||
-            (putArg->GetKind() == GenTreePutArgStk::Kind::GCUnrollXMM))
+        if ((argStore->GetKind() == GenTreeArgStore::Kind::GCUnroll) ||
+            (argStore->GetKind() == GenTreeArgStore::Kind::GCUnrollXMM))
         {
             // Like in the x86 PUSH case, do not contain in cases where unrolling isn't limited. Use a higher
             // size threshold as on x64 we copy 8 and even 16 bytes at a time. Not that RepInstr/RepInstr also
@@ -267,11 +267,11 @@ void Lowering::ContainStructStoreAddressUnrollRegsWB(GenTree* addr)
     addr->SetContained();
 }
 
-void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
+void Lowering::LowerArgStore(GenTreeArgStore* store)
 {
-    GenTree* src = putArgStk->GetOp(0);
+    GenTree* src = store->GetOp(0);
 
-    unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+    unsigned     argTypeNum = store->GetArgTypeNum();
     unsigned     argSize;
     ClassLayout* layout = nullptr;
 
@@ -304,15 +304,15 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 #endif
                 )
         {
-            putArgStk->SetKind(argSize <= CPBLK_UNROLL_LIMIT ? GenTreePutArgStk::Kind::Unroll
-                                                             : GenTreePutArgStk::Kind::RepInstr);
+            store->SetKind(argSize <= CPBLK_UNROLL_LIMIT ? GenTreeArgStore::Kind::Unroll
+                                                         : GenTreeArgStore::Kind::RepInstr);
         }
         else
         {
 #ifdef TARGET_X86
             // On x86, we must use `push` to store GC references to the stack in order for the emitter to properly
-            // update the function's GC info. These PUTARG_STK nodes will generate a sequence of `push` instructions.
-            putArgStk->SetKind(GenTreePutArgStk::Kind::Push);
+            // update the function's GC info. These nodes will generate a sequence of `push` instructions.
+            store->SetKind(GenTreeArgStore::Kind::Push);
 #else
             // On Linux-x64, any GC pointers the struct contains must be stored to the argument outgoing area using
             // MOV instructions that the emitter can recognize, e.g. "mov qword ptr [esp+8], rax". XMM stores or
@@ -381,20 +381,18 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
 
             if (hasRepMovsSequence)
             {
-                putArgStk->SetKind(hasXmmSequence ? GenTreePutArgStk::Kind::RepInstrXMM
-                                                  : GenTreePutArgStk::Kind::RepInstr);
+                store->SetKind(hasXmmSequence ? GenTreeArgStore::Kind::RepInstrXMM : GenTreeArgStore::Kind::RepInstr);
             }
             else
             {
-                putArgStk->SetKind(hasXmmSequence ? GenTreePutArgStk::Kind::GCUnrollXMM
-                                                  : GenTreePutArgStk::Kind::GCUnroll);
+                store->SetKind(hasXmmSequence ? GenTreeArgStore::Kind::GCUnrollXMM : GenTreeArgStore::Kind::GCUnroll);
             }
 #endif
         }
 
         if (src->OperIs(GT_IND_LOAD_OBJ))
         {
-            ContainStructStoreAddress(putArgStk, argSize, src->AsIndLoadObj()->GetAddr());
+            ContainStructStoreAddress(store, argSize, src->AsIndLoadObj()->GetAddr());
         }
 
         return;
@@ -409,11 +407,11 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     {
         if (argSize > INITBLK_UNROLL_LIMIT)
         {
-            putArgStk->SetKind(GenTreePutArgStk::Kind::RepInstrZero);
+            store->SetKind(GenTreeArgStore::Kind::RepInstrZero);
         }
         else
         {
-            putArgStk->SetKind(GenTreePutArgStk::Kind::UnrollZero);
+            store->SetKind(GenTreeArgStore::Kind::UnrollZero);
             src->SetContained();
         }
 
@@ -421,23 +419,9 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
     }
 #endif // !WINDOWS_AMD64_ABI
 
-    // If the child of GT_PUTARG_STK is a constant, we don't need a register to
-    // move it to memory (stack location).
-    //
-    // On AMD64, we don't want to make 0 contained, because we can generate smaller code
-    // by zeroing a register and then storing it. E.g.:
-    //      xor rdx, rdx
-    //      mov gword ptr [rsp+28H], rdx
-    // is 2 bytes smaller than:
-    //      mov gword ptr [rsp+28H], 0
-    //
-    // On x86, we push stack arguments; we don't use 'mov'. So:
-    //      push 0
-    // is 1 byte smaller than:
-    //      xor rdx, rdx
-    //      push rdx
+    // On AMD64, storing a zero register instead of an immediate generates smaller code.
 
-    if (IsImmOperand(src, putArgStk) AMD64_ONLY(&&!src->IsIntCon(0)))
+    if (IsImmOperand(src, store) AMD64_ONLY(&&!src->IsIntCon(0)))
     {
         src->SetContained();
     }
@@ -465,7 +449,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         //      Most LCL_LOADs that reference small int local end up having type INT, with the notable
         //      exception of promoted struct field which may have small int type.
 
-        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveMemOperandForward(putArgStk, src))
+        if ((srcSize == REGSIZE_BYTES) && IsMemOperand(src) && IsSafeToMoveMemOperandForward(store, src))
         {
             src->SetContained();
         }

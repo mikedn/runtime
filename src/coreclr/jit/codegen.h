@@ -556,7 +556,7 @@ private:
     void GenIntrinsic(GenTreeIntrinsic* node);
 #endif
     void GenPutArgReg(GenTreeUnOp* putArg);
-    void GenPutArgStk(GenTreePutArgStk* node);
+    void GenArgStore(GenTreeArgStore* store);
 #if FEATURE_FASTTAILCALL
     unsigned GetFirstStackParamLclNum() const;
 #endif
@@ -700,7 +700,7 @@ private:
     void GenInstr(GenTreeInstr* instr);
 
 #ifdef TARGET_X86
-    void AlignStackBeforeCall(GenTreePutArgStk* putArgStk);
+    void AlignStackBeforeCall(GenTreeArgStore* store);
     void AlignStackBeforeCall(GenTreeCall* call);
     void RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias);
 #endif
@@ -738,13 +738,13 @@ private:
 #endif
 
 #ifdef TARGET_X86
-    void PreAdjustStackForPutArgStk(unsigned argSize);
+    void PreAdjustStackForArgStore(unsigned argSize);
     void PushReg(var_types type, RegNum srcReg);
-    void GenPutArgStkStruct(GenTreePutArgStk* putArgStk);
+    void GenStructArgStore(GenTreeArgStore* store);
 #else
-    void GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
-                            unsigned          outArgLclNum,
-                            unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize));
+    void GenStructArgStore(GenTreeArgStore* store,
+                           unsigned         argLclNum,
+                           unsigned argLclOffs DEBUGARG(unsigned argLclSize));
 #endif
 
     void GenDynBlk(GenTreeDynBlk* store);

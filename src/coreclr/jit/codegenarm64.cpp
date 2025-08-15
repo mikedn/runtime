@@ -2363,40 +2363,40 @@ unsigned CodeGen::GetFirstStackParamLclNum() const
     return BAD_VAR_NUM;
 }
 
-void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
+void CodeGen::GenArgStore(GenTreeArgStore* store)
 {
-    unsigned outArgLclNum;
-    INDEBUG(unsigned outArgLclSize);
+    unsigned argLclNum;
+    INDEBUG(unsigned argLclSize);
 
-    if (putArg->PutInIncomingArgArea())
+    if (store->IsFastTailCallArg())
     {
-        outArgLclNum = GetFirstStackParamLclNum();
-        noway_assert(outArgLclNum != BAD_VAR_NUM);
-        INDEBUG(outArgLclSize = paramsStackSize);
+        argLclNum = GetFirstStackParamLclNum();
+        noway_assert(argLclNum != BAD_VAR_NUM);
+        INDEBUG(argLclSize = paramsStackSize);
     }
     else
     {
-        outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
-        INDEBUG(outArgLclSize = outgoingArgSpaceSize);
+        argLclNum = compiler->lvaOutgoingArgSpaceVar;
+        INDEBUG(argLclSize = outgoingArgSpaceSize);
     }
 
-    unsigned outArgLclOffs = putArg->GetOffset();
-    unsigned argTypeNum    = putArg->GetArgTypeNum();
+    unsigned argLclOffs = store->GetOffset();
+    unsigned argTypeNum = store->GetArgTypeNum();
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
-        GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        GenStructArgStore(store, argLclNum, argLclOffs DEBUGARG(argLclSize));
         return;
     }
 
-    GenTree*  src  = putArg->GetOp(0);
+    GenTree*  src  = store->GetOp(0);
     var_types type = static_cast<var_types>(argTypeNum);
-    assert(outArgLclOffs + varTypeSize(type) <= outArgLclSize);
+    assert(argLclOffs + varTypeSize(type) <= argLclSize);
 
     if (type == TYP_SIMD12)
     {
-        RegNum tempReg = putArg->HasAnyTempRegs() ? putArg->ExtractTempReg() : REG_NA;
-        GenVector3Store(GenAddrMode(compiler->lvaGetDesc(outArgLclNum), outArgLclOffs), src, tempReg);
+        RegNum tempReg = store->HasAnyTempRegs() ? store->ExtractTempReg() : REG_NA;
+        GenVector3Store(GenAddrMode(compiler->lvaGetDesc(argLclNum), argLclOffs), src, tempReg);
         return;
     }
 
@@ -2414,28 +2414,27 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
 
         if (type == TYP_SIMD16)
         {
-            if (outArgLclOffs <= 504)
+            if (argLclOffs <= 504)
             {
-                GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg,
-                                              {outArgLclNum, outArgLclOffs});
+                GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, {argLclNum, argLclOffs});
                 return;
             }
 
-            GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, srcReg, {outArgLclNum, outArgLclOffs});
-            outArgLclOffs += 8;
+            GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, srcReg, {argLclNum, argLclOffs});
+            argLclOffs += 8;
             type = TYP_LONG;
         }
     }
 
-    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {outArgLclNum, outArgLclOffs});
+    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
 }
 
-void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
-                                 unsigned          outArgLclNum,
-                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+void CodeGen::GenStructArgStore(GenTreeArgStore* store,
+                                unsigned         argLclNum,
+                                unsigned argLclOffs DEBUGARG(unsigned argLclSize))
 {
-    GenTree*     src    = putArgStk->GetOp(0);
-    ClassLayout* layout = compiler->typGetLayoutByNum(putArgStk->GetArgTypeNum());
+    GenTree*     src    = store->GetOp(0);
+    ClassLayout* layout = compiler->typGetLayoutByNum(store->GetArgTypeNum());
     unsigned     size   = layout->GetSize();
     Emitter&     emit   = *GetEmitter();
 
@@ -2443,18 +2442,18 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
     {
         size = roundUp(size, REGSIZE_BYTES);
 
-        while ((size >= 2 * REGSIZE_BYTES) && (outArgLclOffs <= 504))
+        while ((size >= 2 * REGSIZE_BYTES) && (argLclOffs <= 504))
         {
-            emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, {outArgLclNum, outArgLclOffs});
+            emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, {argLclNum, argLclOffs});
             size -= 2 * REGSIZE_BYTES;
-            outArgLclOffs += 2 * REGSIZE_BYTES;
+            argLclOffs += 2 * REGSIZE_BYTES;
         }
 
         while (size != 0)
         {
-            emit.Ins_R_S(INS_str, EA_8BYTE, REG_ZR, {outArgLclNum, outArgLclOffs});
+            emit.Ins_R_S(INS_str, EA_8BYTE, REG_ZR, {argLclNum, argLclOffs});
             size -= REGSIZE_BYTES;
-            outArgLclOffs += REGSIZE_BYTES;
+            argLclOffs += REGSIZE_BYTES;
         }
 
         return;
@@ -2494,15 +2493,15 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
         }
     }
 
-    RegNum tempReg = putArgStk->ExtractTempReg();
+    RegNum tempReg = store->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
 
-    RegNum tempReg2 = putArgStk->ExtractTempReg();
+    RegNum tempReg2 = store->ExtractTempReg();
     assert(tempReg2 != srcAddrBaseReg);
 
     unsigned offset = 0;
 
-    for (; (size >= 2 * REGSIZE_BYTES) && (srcOffset + offset <= 504) && (outArgLclOffs + offset <= 504);
+    for (; (size >= 2 * REGSIZE_BYTES) && (srcOffset + offset <= 504) && (argLclOffs + offset <= 504);
          size -= 2 * REGSIZE_BYTES, offset += 2 * REGSIZE_BYTES)
     {
         emitAttr attr  = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));
@@ -2518,7 +2517,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
                                  attr2);
         }
 
-        emit.emitIns_S_S_R_R(INS_stp, attr, attr2, tempReg, tempReg2, {outArgLclNum, outArgLclOffs + offset});
+        emit.emitIns_S_S_R_R(INS_stp, attr, attr2, tempReg, tempReg2, {argLclNum, argLclOffs + offset});
     }
 
     for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize)
@@ -2566,7 +2565,7 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArgStk,
             emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
         }
 
-        emit.Ins_R_S(storeIns, attr, tempReg, {outArgLclNum, outArgLclOffs + offset});
+        emit.Ins_R_S(storeIns, attr, tempReg, {argLclNum, argLclOffs + offset});
     }
 }
 

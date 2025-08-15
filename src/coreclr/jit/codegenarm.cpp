@@ -1058,46 +1058,46 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     DefLclVarReg(store);
 }
 
-void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
+void CodeGen::GenArgStore(GenTreeArgStore* store)
 {
-    assert(!putArg->PutInIncomingArgArea());
+    assert(!store->IsFastTailCallArg());
 
-    unsigned outArgLclNum = compiler->lvaOutgoingArgSpaceVar;
-    INDEBUG(unsigned outArgLclSize = outgoingArgSpaceSize);
-    unsigned outArgLclOffs = putArg->GetOffset();
-    unsigned argTypeNum    = putArg->GetArgTypeNum();
+    unsigned argLclNum = compiler->lvaOutgoingArgSpaceVar;
+    INDEBUG(unsigned argLclSize = outgoingArgSpaceSize);
+    unsigned argLclOffs = store->GetOffset();
+    unsigned argTypeNum = store->GetArgTypeNum();
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
-        GenPutArgStkStruct(putArg, outArgLclNum, outArgLclOffs DEBUGARG(outArgLclSize));
+        GenStructArgStore(store, argLclNum, argLclOffs DEBUGARG(argLclSize));
         return;
     }
 
     var_types type = static_cast<var_types>(argTypeNum);
-    assert(outArgLclOffs + varTypeSize(type) <= outArgLclSize);
+    assert(argLclOffs + varTypeSize(type) <= argLclSize);
 
-    RegNum srcReg = UseReg(putArg->GetOp(0));
+    RegNum srcReg = UseReg(store->GetOp(0));
 
-    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {outArgLclNum, outArgLclOffs});
+    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
 }
 
-void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
-                                 unsigned          outArgLclNum,
-                                 unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
+void CodeGen::GenStructArgStore(GenTreeArgStore* store,
+                                unsigned         argLclNum,
+                                unsigned argLclOffs DEBUGARG(unsigned argLclSize))
 {
-    GenTree*     src    = putArg->GetOp(0);
-    ClassLayout* layout = compiler->typGetLayoutByNum(putArg->GetArgTypeNum());
+    GenTree*     src    = store->GetOp(0);
+    ClassLayout* layout = compiler->typGetLayoutByNum(store->GetArgTypeNum());
     Emitter&     emit   = *GetEmitter();
 
     if (src->IsIntCon(0))
     {
         RegNum   srcReg = UseReg(src);
-        unsigned size   = roundUp(layout->GetSize(), REGSIZE_BYTES) - (putArg->GetSplitRegCount() * REGSIZE_BYTES);
+        unsigned size   = roundUp(layout->GetSize(), REGSIZE_BYTES) - (store->GetSplitRegCount() * REGSIZE_BYTES);
 
-        for (unsigned offs = outArgLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
+        for (unsigned offs = argLclOffs, endOffs = offs + size; offs < endOffs; offs += 4)
         {
-            assert(offs + 4 <= outArgLclSize);
-            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, {outArgLclNum, offs});
+            assert(offs + 4 <= argLclSize);
+            emit.Ins_R_S(INS_str, EA_4BYTE, srcReg, {argLclNum, offs});
         }
 
         return;
@@ -1138,13 +1138,13 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
         }
     }
 
-    RegNum tempReg = putArg->ExtractTempReg();
+    RegNum tempReg = store->ExtractTempReg();
     assert(tempReg != srcAddrBaseReg);
 
-    unsigned offset = putArg->GetSplitRegCount() * REGSIZE_BYTES;
+    unsigned offset = store->GetSplitRegCount() * REGSIZE_BYTES;
     size -= offset;
 
-    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, outArgLclOffs += regSize)
+    for (unsigned regSize = REGSIZE_BYTES; size != 0; size -= regSize, offset += regSize, argLclOffs += regSize)
     {
         while (regSize > size)
         {
@@ -1180,9 +1180,9 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
             emit.emitIns_R_R_I(loadIns, attr, tempReg, srcAddrBaseReg, srcOffset + offset);
         }
 
-        assert(outArgLclOffs + regSize <= outArgLclSize);
+        assert(argLclOffs + regSize <= argLclSize);
 
-        emit.Ins_R_S(storeIns, attr, tempReg, {outArgLclNum, outArgLclOffs});
+        emit.Ins_R_S(storeIns, attr, tempReg, {argLclNum, argLclOffs});
     }
 }
 

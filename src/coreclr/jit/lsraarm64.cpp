@@ -233,8 +233,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildInterlocked(tree->AsOp());
             break;
 
-        case GT_PUTARG_STK:
-            BuildPutArgStk(tree->AsPutArgStk());
+        case GT_ARG_STORE:
+            BuildArgStore(tree->AsArgStore());
             break;
 
         case GT_PUTARG_REG:
@@ -311,16 +311,16 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
-void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+void LinearScan::BuildArgStore(GenTreeArgStore* store)
 {
-    GenTree* src = putArg->GetOp(0);
+    GenTree* src = store->GetOp(0);
 
     if (src->TypeIs(TYP_STRUCT))
     {
         assert(src->isContained());
 
-        BuildInternalIntDef(putArg);
-        BuildInternalIntDef(putArg);
+        BuildInternalIntDef(store);
+        BuildInternalIntDef(store);
 
         if (src->OperIs(GT_IND_LOAD_OBJ))
         {
@@ -336,9 +336,9 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     {
         BuildUse(src);
 
-        if (putArg->GetArgType() == TYP_SIMD12)
+        if (store->GetArgType() == TYP_SIMD12)
         {
-            BuildInternalFloatDef(putArg);
+            BuildInternalFloatDef(store);
             BuildInternalUses();
         }
     }

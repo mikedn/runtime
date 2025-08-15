@@ -1340,7 +1340,7 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
                 // The GT_NOP case is because sometimes we eliminate stack argument stores as dead, but
                 // instead of removing them we replace with a NOP.
                 // The argument of a JTRUE doesn't produce a value (just sets a flag).
-                assert((node->OperIs(GT_CALL) && (def->OperIs(GT_PUTARG_STK))) ||
+                assert((node->OperIs(GT_CALL) && (def->OperIs(GT_ARG_STORE))) ||
                        (node->OperIs(GT_JTRUE) && def->TypeIs(TYP_VOID) && def->HasImplicitFlagsDef()));
                 continue;
             }

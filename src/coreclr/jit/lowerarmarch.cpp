@@ -122,9 +122,9 @@ void Lowering::LowerIndStoreArch(GenTreeIndStore* store)
     ContainCheckIndStore(store);
 }
 
-void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
+void Lowering::LowerArgStore(GenTreeArgStore* store)
 {
-    GenTree* src = putArgStk->GetOp(0);
+    GenTree* src = store->GetOp(0);
 
     if (src->TypeIs(TYP_STRUCT))
     {
@@ -132,7 +132,7 @@ void Lowering::LowerPutArgStk(GenTreePutArgStk* putArgStk)
         {
             unsigned size = src->AsIndLoadObj()->GetLayout()->GetSize();
 
-            ContainStructStoreAddress(putArgStk, size, src->AsIndLoadObj()->GetAddr());
+            ContainStructStoreAddress(store, size, src->AsIndLoadObj()->GetAddr());
         }
 
         return;
@@ -173,7 +173,7 @@ static bool IsValidGenericLoadStoreOffset(ssize_t offset, unsigned size ARM64_AR
 
 void Lowering::ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr)
 {
-    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_PUTARG_STK) ||
+    assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_ARG_STORE) ||
            (store->OperIs(GT_IND_STORE_BLK, GT_IND_STORE_OBJ) &&
             ((store->AsBlk()->GetKind() == StructStoreKind::UnrollCopy) ||
              (store->AsBlk()->GetKind() == StructStoreKind::UnrollInit ||

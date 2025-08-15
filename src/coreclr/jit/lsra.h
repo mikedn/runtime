@@ -1327,7 +1327,7 @@ private:
     void BuildNode(GenTree* node);
     void BuildReturn(GenTreeUnOp* ret);
     void BuildPutArgReg(GenTreeUnOp* node);
-    void BuildPutArgStk(GenTreePutArgStk* node);
+    void BuildArgStore(GenTreeArgStore* store);
     void BuildCall(GenTreeCall* call);
     void BuildBoundsChk(GenTreeBoundsChk* node);
     void BuildOvfTruncate(GenTreeUnOp* node);

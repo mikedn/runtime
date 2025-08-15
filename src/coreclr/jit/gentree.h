@@ -6484,7 +6484,7 @@ public:
     DECLARE_DEBUGGABLE_GENTREE(GenTreeConstAddr, GenTree)
 };
 
-class GenTreePutArgStk : public GenTreeUnOp
+class GenTreeArgStore : public GenTreeUnOp
 {
 public:
 #ifdef TARGET_XARCH
@@ -6507,9 +6507,7 @@ private:
     GenTreeCall* m_call;
 #endif
 #if FEATURE_FASTTAILCALL
-    // By default this is false and will be placed in out-going arg area.
-    // Fast tail calls set this to true.
-    bool m_putInIncomingArgArea;
+    bool m_isFastTailCallArg;
 #endif
 #ifdef TARGET_XARCH
     Kind m_kind = Kind::Invalid;
@@ -6519,13 +6517,13 @@ private:
 #endif
 
 public:
-    GenTreePutArgStk(GenTree* arg, GenTreeCall* call)
-        : GenTreeUnOp(GT_PUTARG_STK, TYP_VOID, arg)
+    GenTreeArgStore(GenTree* arg, GenTreeCall* call)
+        : GenTreeUnOp(GT_ARG_STORE, TYP_VOID, arg)
 #ifdef UNIX_X86_ABI
         , m_call(call)
 #endif
 #if FEATURE_FASTTAILCALL
-        , m_putInIncomingArgArea(call->IsFastTailCall())
+        , m_isFastTailCallArg(call->IsFastTailCall())
 #endif
     {
     }
@@ -6556,10 +6554,10 @@ public:
     }
 #endif
 
-    bool PutInIncomingArgArea() const
+    bool IsFastTailCallArg() const
     {
 #if FEATURE_FASTTAILCALL
-        return m_putInIncomingArgArea;
+        return m_isFastTailCallArg;
 #else
         return false;
 #endif
@@ -6622,7 +6620,7 @@ public:
     }
 #endif
 
-    DECLARE_DEBUGGABLE_GENTREE(GenTreePutArgStk, GenTreeUnOp)
+    DECLARE_DEBUGGABLE_GENTREE(GenTreeArgStore, GenTreeUnOp)
 };
 
 class GenTreeCopyOrReload : public GenTreeUnOp
@@ -8023,7 +8021,7 @@ void GenTree::VisitOperands(TVisitor visitor)
         case GT_SWITCH:
         case GT_NULLCHECK:
         case GT_PUTARG_REG:
-        case GT_PUTARG_STK:
+        case GT_ARG_STORE:
         case GT_RETURNTRAP:
         case GT_KEEPALIVE:
         case GT_INC_SATURATE:
@@ -8354,7 +8352,7 @@ public:
             case GT_SWITCH:
             case GT_NULLCHECK:
             case GT_PUTARG_REG:
-            case GT_PUTARG_STK:
+            case GT_ARG_STORE:
             case GT_RETURNTRAP:
             case GT_RUNTIMELOOKUP:
             case GT_KEEPALIVE:

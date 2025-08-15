@@ -1181,7 +1181,7 @@ bool Lowering::TryLowerSwitchToBitTest(BasicBlock*     jumpTable[],
 
 #ifdef TARGET_X86
 
-void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
+void Lowering::InsertFieldListArgStore(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
     assert(argInfo->GetRegCount() == 0);
 
@@ -1210,11 +1210,11 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
             GenTree* valueLo = value->AsOp()->GetOp(0);
             GenTree* valueHi = value->AsOp()->GetOp(1);
 
-            GenTreePutArgStk* putArgStkHi = NewPutArgStk(valueHi, call);
-            putArgStkHi->SetArgType(TYP_INT);
-            putArgStkHi->SetPushSize(currentOffset - fieldOffset - REGSIZE_BYTES);
-            BlockRange().InsertBefore(fields, putArgStkHi);
-            LowerPutArgStk(putArgStkHi);
+            GenTreeArgStore* argStoreHi = NewArgStore(valueHi, call);
+            argStoreHi->SetArgType(TYP_INT);
+            argStoreHi->SetPushSize(currentOffset - fieldOffset - REGSIZE_BYTES);
+            BlockRange().InsertBefore(fields, argStoreHi);
+            LowerArgStore(argStoreHi);
 
             BlockRange().Unlink(value);
 
@@ -1233,33 +1233,33 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
             fieldType = TYP_INT;
         }
 
-        GenTreePutArgStk* putArgStk = NewPutArgStk(value, call);
-        putArgStk->SetArgType(fieldType);
-        putArgStk->SetPushSize(pushSize);
-        putArgStk->SetOffset(offset);
-        BlockRange().InsertBefore(fields, putArgStk);
-        LowerPutArgStk(putArgStk);
+        GenTreeArgStore* argStore = NewArgStore(value, call);
+        argStore->SetArgType(fieldType);
+        argStore->SetPushSize(pushSize);
+        argStore->SetOffset(offset);
+        BlockRange().InsertBefore(fields, argStore);
+        LowerArgStore(argStore);
 
         if (fieldIndex++ == 0)
         {
-            argInfo->SetNode(putArgStk);
+            argInfo->SetNode(argStore);
         }
     }
 
     if (currentOffset != 0)
     {
-        GenTreeIntCon*    zero      = comp->gtNewIconNode(0);
-        GenTreePutArgStk* putArgStk = NewPutArgStk(zero, call);
-        putArgStk->SetArgType(TYP_VOID);
-        putArgStk->SetPushSize(currentOffset);
-        BlockRange().InsertBefore(fields, zero, putArgStk);
+        GenTreeIntCon*   zero     = comp->gtNewIconNode(0);
+        GenTreeArgStore* argStore = NewArgStore(zero, call);
+        argStore->SetArgType(TYP_VOID);
+        argStore->SetPushSize(currentOffset);
+        BlockRange().InsertBefore(fields, zero, argStore);
         zero->SetContained();
     }
 }
 
 #else // !TARGET_X86
 
-void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
+void Lowering::InsertFieldListArgStore(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
 #ifndef TARGET_ARM
     assert(argInfo->GetRegCount() == 0);
@@ -1270,12 +1270,12 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
 
     for (GenTreeFieldList::Use& use : fields->Uses())
     {
-        GenTree*          value       = use.GetNode();
-        unsigned          fieldOffset = use.GetOffset();
-        var_types         fieldType   = use.GetType();
+        GenTree*         value       = use.GetNode();
+        unsigned         fieldOffset = use.GetOffset();
+        var_types        fieldType   = use.GetType();
 
 #ifndef TARGET_64BIT
-        GenTreePutArgStk* putArgStkHi = nullptr;
+        GenTreeArgStore* argStoreHi  = nullptr;
 
         if (fieldType == TYP_LONG)
         {
@@ -1285,10 +1285,10 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
             GenTree* valueLo = value->AsOp()->GetOp(0);
             GenTree* valueHi = value->AsOp()->GetOp(1);
 
-            putArgStkHi = NewPutArgStk(valueHi, call);
-            putArgStkHi->SetArgType(TYP_INT);
-            putArgStkHi->SetOffset(argOffset + fieldOffset + 4);
-            putArgStkHi->SetSplitRegCount(0);
+            argStoreHi = NewArgStore(valueHi, call);
+            argStoreHi->SetArgType(TYP_INT);
+            argStoreHi->SetOffset(argOffset + fieldOffset + 4);
+            argStoreHi->SetSplitRegCount(0);
 
             BlockRange().Unlink(value);
 
@@ -1297,24 +1297,24 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
         }
 #endif
 
-        GenTreePutArgStk* putArgStk = NewPutArgStk(value, call);
-        putArgStk->SetArgType(fieldType);
-        putArgStk->SetOffset(argOffset + fieldOffset);
-        putArgStk->SetSplitRegCount(0);
-        BlockRange().InsertBefore(fields, putArgStk);
-        LowerPutArgStk(putArgStk);
+        GenTreeArgStore* argStore = NewArgStore(value, call);
+        argStore->SetArgType(fieldType);
+        argStore->SetOffset(argOffset + fieldOffset);
+        argStore->SetSplitRegCount(0);
+        BlockRange().InsertBefore(fields, argStore);
+        LowerArgStore(argStore);
 
 #ifndef TARGET_64BIT
-        if (putArgStkHi != nullptr)
+        if (argStoreHi != nullptr)
         {
-            BlockRange().InsertBefore(fields, putArgStkHi);
-            LowerPutArgStk(putArgStkHi);
+            BlockRange().InsertBefore(fields, argStoreHi);
+            LowerArgStore(argStoreHi);
         }
 #endif
 
         if (fieldIndex++ == 0 ARM_ONLY(&&(argInfo->GetRegCount() == 0)))
         {
-            argInfo->SetNode(putArgStk);
+            argInfo->SetNode(argStore);
         }
     }
 }
@@ -1323,7 +1323,7 @@ void Lowering::InsertFieldListPutArgStk(GenTreeFieldList* fields, GenTreeCall* c
 
 #if FEATURE_MULTIREG_ARGS
 
-void Lowering::InsertFieldListPutArgReg(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
+void Lowering::InsertFieldListArgReg(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
     unsigned          regIndex = 0;
     GenTreeCall::Use* after    = argInfo->GetUse();
@@ -1372,15 +1372,15 @@ void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo)
 
     GenTree* arg = argInfo->GetNode();
 
-    GenTreePutArgStk* putArgStk = NewPutArgStk(arg, call);
-    putArgStk->SetArgTypeNum(argInfo->GetSigTypeNum());
-    putArgStk->SetSplitRegCount(argInfo->GetRegCount());
-    BlockRange().InsertAfter(arg, putArgStk);
-    LowerPutArgStk(putArgStk);
+    GenTreeArgStore* argStore = NewArgStore(arg, call);
+    argStore->SetArgTypeNum(argInfo->GetSigTypeNum());
+    argStore->SetSplitRegCount(argInfo->GetRegCount());
+    BlockRange().InsertAfter(arg, argStore);
+    LowerArgStore(argStore);
 
     const unsigned regCount = argInfo->GetRegCount();
     GenTree*       regDefs[MAX_ARG_REG_COUNT];
-    GenTree*       after     = putArgStk;
+    GenTree*       after     = argStore;
     ClassLayout*   argLayout = comp->typGetLayoutByNum(argInfo->GetSigTypeNum());
     assert(argInfo->GetRegCount() <= argLayout->GetSlotCount());
 
@@ -1473,7 +1473,7 @@ void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo)
     }
 }
 
-void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
+void Lowering::InsertFieldListArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
     if (call->IsFastTailCall())
     {
@@ -1525,14 +1525,14 @@ void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall*
     }
 
     BlockRange().MoveBefore(before, fields);
-    InsertFieldListPutArgStk(fields, call, argInfo);
+    InsertFieldListArgStore(fields, call, argInfo);
 }
 
 #endif // TARGET_ARM
 
 #ifdef TARGET_ARM64
 
-void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
+void Lowering::InsertFieldListArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
     assert(argInfo->GetRegCount() == 1);
     assert(argInfo->GetRegNum(0) == REG_R7);
@@ -1552,22 +1552,22 @@ void Lowering::InsertFieldListPutArgSplit(GenTreeFieldList* fields, GenTreeCall*
     BlockRange().InsertAfter(regVal, regDef);
     argInfo->SetNode(regDef);
 
-    GenTree*          stackVal  = stackUse->GetNode();
-    GenTreePutArgStk* putArgStk = NewPutArgStk(stackVal, call);
-    putArgStk->SetArgType(varActualType(stackUse->GetType()));
-    BlockRange().InsertAfter(fields, putArgStk);
+    GenTree*         stackVal = stackUse->GetNode();
+    GenTreeArgStore* argStore = NewArgStore(stackVal, call);
+    argStore->SetArgType(varActualType(stackUse->GetType()));
+    BlockRange().InsertAfter(fields, argStore);
 
-    LowerPutArgStk(putArgStk);
+    LowerArgStore(argStore);
 }
 
 #endif // TARGET_ARM64
 
-GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, GenTreeCall* call)
+GenTreeArgStore* Lowering::NewArgStore(GenTree* value, GenTreeCall* call)
 {
-    return new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, call);
+    return new (comp, GT_ARG_STORE) GenTreeArgStore(value, call);
 }
 
-GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call)
+GenTreeArgStore* Lowering::NewArgStore(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call)
 {
     assert(argInfo->GetSigTypeNum() != 0);
     assert(argInfo->GetRegCount() == 0);
@@ -1575,23 +1575,23 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
     assert(argInfo->GetSlotCount() == 1);
 #endif
 
-    GenTreePutArgStk* put = new (comp, GT_PUTARG_STK) GenTreePutArgStk(value, call);
-    put->SetArgTypeNum(argInfo->GetSigTypeNum());
+    GenTreeArgStore* store = new (comp, GT_ARG_STORE) GenTreeArgStore(value, call);
+    store->SetArgTypeNum(argInfo->GetSigTypeNum());
 #if FEATURE_FIXED_OUT_ARGS
-    put->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES);
+    store->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES);
 #else
-    put->SetPushSize(argInfo->GetSlotCount() * REGSIZE_BYTES);
+    store->SetPushSize(argInfo->GetSlotCount() * REGSIZE_BYTES);
 #endif
 
-    if (Compiler::typIsLayoutNum(put->GetArgTypeNum()))
+    if (Compiler::typIsLayoutNum(store->GetArgTypeNum()))
     {
-        ClassLayout* layout = comp->typGetLayoutByNum(put->GetArgTypeNum());
+        ClassLayout* layout = comp->typGetLayoutByNum(store->GetArgTypeNum());
 
         if (!varTypeIsStruct(value->GetType()))
         {
             if (!value->IsIntCon(0) || (layout->GetSize() <= REGSIZE_BYTES))
             {
-                put->SetArgType(varActualType(value->GetType()));
+                store->SetArgType(varActualType(value->GetType()));
             }
         }
 #ifdef FEATURE_SIMD
@@ -1626,7 +1626,7 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
                 argType = TYP_SIMD16;
             }
 
-            put->SetArgType(argType);
+            store->SetArgType(argType);
         }
 #endif
     }
@@ -1639,17 +1639,17 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
 #ifdef TARGET_ARM64
             if (value->IsIntCon(0))
             {
-                put->SetArgType(TYP_LONG);
+                store->SetArgType(TYP_LONG);
             }
             else
 #endif
             {
-                put->SetArgType(varActualType(value->GetType()));
+                store->SetArgType(varActualType(value->GetType()));
             }
         }
     }
 
-    return put;
+    return store;
 }
 
 void Lowering::InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo)
@@ -1658,12 +1658,12 @@ void Lowering::InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo)
 
     if (argInfo->GetRegCount() == 0)
     {
-        InsertFieldListPutArgStk(fields, call, argInfo);
+        InsertFieldListArgStore(fields, call, argInfo);
     }
     else if (argInfo->GetSlotCount() != 0)
     {
 #if FEATURE_ARG_SPLIT
-        InsertFieldListPutArgSplit(fields, call, argInfo);
+        InsertFieldListArgSplit(fields, call, argInfo);
 #else
         unreached();
 #endif
@@ -1671,7 +1671,7 @@ void Lowering::InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo)
     else
     {
 #if FEATURE_MULTIREG_ARGS
-        InsertFieldListPutArgReg(fields, call, argInfo);
+        InsertFieldListArgReg(fields, call, argInfo);
 #else
         unreached();
 #endif
@@ -1694,10 +1694,10 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo)
 
     if (argInfo->GetRegCount() == 0)
     {
-        GenTreePutArgStk* putArgStk = NewPutArgStk(arg, argInfo, call);
-        BlockRange().InsertAfter(arg, putArgStk);
-        argInfo->SetNode(putArgStk);
-        LowerPutArgStk(putArgStk);
+        GenTreeArgStore* argStore = NewArgStore(arg, argInfo, call);
+        BlockRange().InsertAfter(arg, argStore);
+        argInfo->SetNode(argStore);
+        LowerArgStore(argStore);
     }
     else if (argInfo->GetSlotCount() != 0)
     {
@@ -1783,23 +1783,23 @@ void Lowering::InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo)
     {
         noway_assert(argInfo->GetRegCount() == 0);
 
-        GenTreePutArgStk* putArgStkLo = NewPutArgStk(argLo, call);
-        GenTreePutArgStk* putArgStkHi = NewPutArgStk(argHi, call);
-        putArgStkLo->SetArgType(TYP_INT);
-        putArgStkHi->SetArgType(TYP_INT);
+        GenTreeArgStore* argStoreLo = NewArgStore(argLo, call);
+        GenTreeArgStore* argStoreHi = NewArgStore(argHi, call);
+        argStoreLo->SetArgType(TYP_INT);
+        argStoreHi->SetArgType(TYP_INT);
 #if FEATURE_FIXED_OUT_ARGS
-        putArgStkLo->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 0);
-        putArgStkHi->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 4);
-        BlockRange().InsertAfter(arg, putArgStkLo, putArgStkHi);
+        argStoreLo->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 0);
+        argStoreHi->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 4);
+        BlockRange().InsertAfter(arg, argStoreLo, argStoreHi);
 #else
-        putArgStkLo->SetPushSize(4);
-        putArgStkHi->SetPushSize(4);
-        BlockRange().InsertAfter(arg, putArgStkHi, putArgStkLo);
-        LowerPutArgStk(putArgStkHi);
-        LowerPutArgStk(putArgStkLo);
+        argStoreLo->SetPushSize(4);
+        argStoreHi->SetPushSize(4);
+        BlockRange().InsertAfter(arg, argStoreHi, argStoreLo);
+        LowerArgStore(argStoreHi);
+        LowerArgStore(argStoreLo);
 #endif
 
-        argInfo->SetNode(putArgStkLo);
+        argInfo->SetNode(argStoreLo);
     }
 
     BlockRange().Unlink(arg);
@@ -1849,7 +1849,7 @@ void Lowering::LowerCallArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
 
-    assert(!arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK));
+    assert(!arg->OperIs(GT_PUTARG_REG, GT_ARG_STORE));
     assert(arg->IsValue());
 
     if (arg->IsFieldList())
@@ -1959,7 +1959,7 @@ void Lowering::RemoveNonRegCallArgs(GenTreeCall* call)
     {
         GenTree* node = use.GetNode();
 
-        if (node->OperIs(GT_PUTARG_STK))
+        if (node->IsArgStore())
         {
             continue;
         }
@@ -2029,17 +2029,17 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
     // Args for tail call are setup in incoming arg area. The GC-ness of args of
     // caller and callee (which being tail called) may not match. Therefore, everything
     // from arg setup until the epilog need to be non-interruptible by GC. This is
-    // achieved by inserting GT_START_NONGC before the very first GT_PUTARG_STK node
+    // achieved by inserting GT_START_NONGC before the very first GT_ARG_STORE node
     // of call is setup. Note that once a stack arg is setup, it cannot have nested
     // calls subsequently in execution order to setup other args, because the nested
     // call could over-write the stack arg that is setup earlier.
-    ArrayStack<GenTreePutArgStk*> putargs(comp->getAllocator(CMK_ArrayStack));
+    ArrayStack<GenTreeArgStore*> putargs(comp->getAllocator(CMK_ArrayStack));
 
     for (GenTreeUse& use : call->Uses())
     {
-        if (use.GetNode()->OperIs(GT_PUTARG_STK))
+        if (GenTreeArgStore* argStore = use.GetNode()->IsArgStore())
         {
-            putargs.Push(use.GetNode()->AsPutArgStk());
+            putargs.Push(argStore);
         }
     }
 
@@ -2080,7 +2080,7 @@ void Lowering::LowerFastTailCall(GenTreeCall* call)
         // potentially may cause problems.
         for (unsigned i = 0; i < putargs.Size(); i++)
         {
-            GenTreePutArgStk* arg = putargs.Get(i);
+            GenTreeArgStore* arg = putargs.Get(i);
 
 #ifdef WINDOWS_AMD64_ABI
             unsigned argSize = REGSIZE_BYTES;
@@ -4354,7 +4354,7 @@ void Lowering::VerifyAllLocalsImplicitlyReferenced()
 
 void Lowering::VerifyCallArg(GenTree* arg)
 {
-    assert(arg->IsValue() || arg->IsPutArgStk());
+    assert(arg->IsValue() || arg->IsArgStore());
 
     if (GenTreeFieldList* fieldList = arg->IsFieldList())
     {
@@ -4367,7 +4367,7 @@ void Lowering::VerifyCallArg(GenTree* arg)
     }
     else
     {
-        assert(arg->OperIs(GT_PUTARG_REG, GT_PUTARG_STK));
+        assert(arg->OperIs(GT_PUTARG_REG, GT_ARG_STORE));
     }
 }
 

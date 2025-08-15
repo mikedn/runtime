@@ -130,19 +130,20 @@ private:
     void InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     void InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo);
-    void InsertFieldListPutArgStk(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertFieldListArgStore(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #if FEATURE_MULTIREG_ARGS
-    void InsertFieldListPutArgReg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertFieldListArgReg(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #ifdef TARGET_ARMARCH
-    void InsertFieldListPutArgSplit(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
+    void InsertFieldListArgSplit(GenTreeFieldList* fieldList, GenTreeCall* call, CallArgInfo* argInfo);
 #endif
 #ifdef TARGET_ARM
     void InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo);
 #endif
     GenTree* InsertPutArgReg(GenTree* arg, CallArgInfo* argInfo, unsigned regIndex);
-    GenTreePutArgStk* NewPutArgStk(GenTree* value, GenTreeCall* call);
-    GenTreePutArgStk* NewPutArgStk(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
+    GenTreeArgStore* NewArgStore(GenTree* value, GenTreeCall* call);
+    GenTreeArgStore* NewArgStore(GenTree* value, CallArgInfo* argInfo, GenTreeCall* call);
+    void LowerArgStore(GenTreeArgStore* store);
 
     void InsertUnmanagedCallPrologAndEpilog(GenTreeCall* call);
     void InsertUnmanagedCallProlog(GenTreeCall* call);
@@ -185,7 +186,6 @@ private:
     void LowerIndStoreBlk(GenTreeIndStoreBlk* store);
     void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
-    void LowerPutArgStk(GenTreePutArgStk* tree);
 
 #ifdef TARGET_64BIT
     void LowerSignedExtend(GenTreeUnOp* node);

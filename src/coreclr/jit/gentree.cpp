@@ -220,7 +220,7 @@ static_assert_no_msg(sizeof(GenTreeRetExpr)      <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeILOffset)     <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeClsVar)       <= TREE_NODE_SZ_SMALL);
 static_assert_no_msg(sizeof(GenTreeInstr)        <= TREE_NODE_SZ_SMALL);
-static_assert_no_msg(sizeof(GenTreePutArgStk)    <= TREE_NODE_SZ_SMALL);
+static_assert_no_msg(sizeof(GenTreeArgStore)     <= TREE_NODE_SZ_SMALL);
 #ifdef FEATURE_HW_INTRINSICS
 static_assert_no_msg(sizeof(GenTreeHWIntrinsic)  <= TREE_NODE_SZ_SMALL);
 #endif
@@ -4991,7 +4991,7 @@ GenTreeUseEdgeIterator::GenTreeUseEdgeIterator(GenTree* node) : m_node(node)
         case GT_SWITCH:
         case GT_NULLCHECK:
         case GT_PUTARG_REG:
-        case GT_PUTARG_STK:
+        case GT_ARG_STORE:
         case GT_BSWAP:
         case GT_BSWAP16:
         case GT_KEEPALIVE:
@@ -6494,26 +6494,26 @@ static const char* CallConvName(CorInfoCallConvExtension callConv)
 }
 
 #ifdef TARGET_XARCH
-static const char* PutArgStkKindName(GenTreePutArgStk::Kind kind)
+static const char* ArgStoreKindName(GenTreeArgStore::Kind kind)
 {
     switch (kind)
     {
-        case GenTreePutArgStk::Kind::RepInstr:
+        case GenTreeArgStore::Kind::RepInstr:
             return "RepInstr";
-        case GenTreePutArgStk::Kind::RepInstrZero:
+        case GenTreeArgStore::Kind::RepInstrZero:
             return "RepInstrZero";
-        case GenTreePutArgStk::Kind::Unroll:
+        case GenTreeArgStore::Kind::Unroll:
             return "Unroll";
-        case GenTreePutArgStk::Kind::UnrollZero:
+        case GenTreeArgStore::Kind::UnrollZero:
             return "UnrollZero";
-        case GenTreePutArgStk::Kind::RepInstrXMM:
+        case GenTreeArgStore::Kind::RepInstrXMM:
             return "RepInstrXMM";
-        case GenTreePutArgStk::Kind::GCUnroll:
+        case GenTreeArgStore::Kind::GCUnroll:
             return "GCUnroll";
-        case GenTreePutArgStk::Kind::GCUnrollXMM:
+        case GenTreeArgStore::Kind::GCUnrollXMM:
             return "GCUnrollXMM";
 #ifdef TARGET_X86
-        case GenTreePutArgStk::Kind::Push:
+        case GenTreeArgStore::Kind::Push:
             return "Push";
 #endif
         default:
@@ -6667,31 +6667,31 @@ void Compiler::gtDispTreeRec(
         case GT_INTRINSIC:
             printf(" %s", IntrinsicName(tree->AsIntrinsic()->GetIntrinsic()));
             break;
-        case GT_PUTARG_STK:
-            if (typIsLayoutNum(tree->AsPutArgStk()->GetArgTypeNum()))
+        case GT_ARG_STORE:
+            if (typIsLayoutNum(tree->AsArgStore()->GetArgTypeNum()))
             {
-                ClassLayout* argLayout = typGetLayoutByNum(tree->AsPutArgStk()->GetArgTypeNum());
+                ClassLayout* argLayout = typGetLayoutByNum(tree->AsArgStore()->GetArgTypeNum());
                 printf("(%s<%u>", argLayout->GetClassName(), argLayout->GetSize());
             }
             else
             {
-                var_types argType = static_cast<var_types>(tree->AsPutArgStk()->GetArgTypeNum());
+                var_types argType = static_cast<var_types>(tree->AsArgStore()->GetArgTypeNum());
                 printf("(%s", varTypeName(argType));
             }
 #if !FEATURE_FIXED_OUT_ARGS
-            printf(", -%u", tree->AsPutArgStk()->GetPushSize());
+            printf(", -%u", tree->AsArgStore()->GetPushSize());
 #endif
-            printf(", @%u", tree->AsPutArgStk()->GetOffset());
+            printf(", @%u", tree->AsArgStore()->GetOffset());
 #ifdef TARGET_ARM
-            if (tree->AsPutArgStk()->GetSplitRegCount() != 0)
+            if (tree->AsArgStore()->GetSplitRegCount() != 0)
             {
-                printf(", %u regs", tree->AsPutArgStk()->GetSplitRegCount());
+                printf(", %u regs", tree->AsArgStore()->GetSplitRegCount());
             }
 #endif
 #ifdef TARGET_XARCH
-            if (auto kind = tree->AsPutArgStk()->GetKind(); kind != GenTreePutArgStk::Kind::Invalid)
+            if (auto kind = tree->AsArgStore()->GetKind(); kind != GenTreeArgStore::Kind::Invalid)
             {
-                printf(", %s", PutArgStkKindName(kind));
+                printf(", %s", ArgStoreKindName(kind));
             }
 #endif
             printf(")");
@@ -10152,7 +10152,7 @@ ClassLayout* GenTreeIndexAddr::GetLayout(Compiler* compiler) const
     return !compiler->typIsLayoutNum(m_elemTypeNum) ? nullptr : compiler->typGetLayoutByNum(m_elemTypeNum);
 }
 
-var_types GenTreePutArgStk::GetArgType() const
+var_types GenTreeArgStore::GetArgType() const
 {
     return Compiler::typIsLayoutNum(m_argTypeNum) ? TYP_STRUCT : static_cast<var_types>(m_argTypeNum);
 }

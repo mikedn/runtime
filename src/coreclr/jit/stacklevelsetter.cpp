@@ -27,7 +27,7 @@ private:
     void SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock);
     void SetThrowHelperBlockStackLevel(ThrowHelperKind kind, BasicBlock* throwBlock);
     void PopCallArgs(GenTreeCall* call);
-    void PushArg(GenTreePutArgStk* putArgStk);
+    void PushArg(GenTreeArgStore* store);
     void PopArgs(unsigned slotCount);
 };
 
@@ -74,9 +74,9 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
 
     for (GenTree* node : LIR::AsRange(block))
     {
-        if (GenTreePutArgStk* putArgStk = node->IsPutArgStk())
+        if (GenTreeArgStore* store = node->IsArgStore())
         {
-            PushArg(putArgStk);
+            PushArg(store);
             continue;
         }
 
@@ -193,11 +193,11 @@ void StackLevelSetter::PopCallArgs(GenTreeCall* call)
     PopArgs(call->GetInfo()->GetStackArgsSlotCount());
 }
 
-void StackLevelSetter::PushArg(GenTreePutArgStk* putArgStk)
+void StackLevelSetter::PushArg(GenTreeArgStore* store)
 {
-    assert(putArgStk->GetPushSize() % REGSIZE_BYTES == 0);
+    assert(store->GetPushSize() % REGSIZE_BYTES == 0);
 
-    currentStackLevel += putArgStk->GetPushSize() / REGSIZE_BYTES;
+    currentStackLevel += store->GetPushSize() / REGSIZE_BYTES;
 
     if (currentStackLevel > maxStackLevel)
     {

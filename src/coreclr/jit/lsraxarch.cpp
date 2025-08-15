@@ -303,8 +303,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildCall(tree->AsCall());
             break;
 
-        case GT_PUTARG_STK:
-            BuildPutArgStk(tree->AsPutArgStk());
+        case GT_ARG_STORE:
+            BuildArgStore(tree->AsArgStore());
             break;
 
         case GT_IND_STORE_BLK:
@@ -1082,16 +1082,16 @@ void LinearScan::BuildStructStoreUnrollRegsWB(GenTreeIndStoreObj* store, ClassLa
 #endif
 }
 
-void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
+void LinearScan::BuildArgStore(GenTreeArgStore* store)
 {
-    GenTree*  src  = putArgStk->GetOp(0);
-    var_types type = putArgStk->GetArgType();
+    GenTree*  src  = store->GetOp(0);
+    var_types type = store->GetArgType();
 
 #ifndef WINDOWS_AMD64_ABI
     if (type == TYP_SIMD12)
     {
         BuildUse(src);
-        BuildInternalFloatDef(putArgStk);
+        BuildInternalFloatDef(store);
         BuildInternalUses();
 
         return;
@@ -1122,31 +1122,31 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
     if (type == TYP_STRUCT)
     {
-        assert(Compiler::typIsLayoutNum(putArgStk->GetArgTypeNum()));
+        assert(Compiler::typIsLayoutNum(store->GetArgTypeNum()));
 
 #ifndef WINDOWS_AMD64_ABI
         if (src->IsIntCon(0))
         {
-            if (putArgStk->GetKind() == GenTreePutArgStk::Kind::RepInstrZero)
+            if (store->GetKind() == GenTreeArgStore::Kind::RepInstrZero)
             {
-                BuildInternalIntDef(putArgStk, RBM_RDI);
-                BuildInternalIntDef(putArgStk, RBM_RCX);
+                BuildInternalIntDef(store, RBM_RDI);
+                BuildInternalIntDef(store, RBM_RCX);
                 BuildUse(src, RBM_RAX);
             }
             else
             {
-                assert(putArgStk->GetKind() == GenTreePutArgStk::Kind::UnrollZero);
+                assert(store->GetKind() == GenTreeArgStore::Kind::UnrollZero);
                 assert(src->isContained());
 
 #ifdef TARGET_X86
-                unsigned     argTypeNum = putArgStk->GetArgTypeNum();
+                unsigned     argTypeNum = store->GetArgTypeNum();
                 ClassLayout* argLayout  = compiler->typGetLayoutByNum(argTypeNum);
                 unsigned     argSize    = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
 
                 if (argSize >= XMM_REGSIZE_BYTES)
 #endif
                 {
-                    BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+                    BuildInternalFloatDef(store, internalFloatRegCandidates());
                 }
             }
 
@@ -1158,14 +1158,14 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
         assert(src->TypeIs(TYP_STRUCT));
 
-        switch (putArgStk->GetKind())
+        switch (store->GetKind())
         {
 #ifdef TARGET_X86
-            case GenTreePutArgStk::Kind::Push:
+            case GenTreeArgStore::Kind::Push:
                 break;
 #endif
 
-            case GenTreePutArgStk::Kind::Unroll:
+            case GenTreeArgStore::Kind::Unroll:
                 ClassLayout* layout;
                 unsigned     size;
 
@@ -1187,7 +1187,7 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
 
                 if ((size % XMM_REGSIZE_BYTES) != 0)
                 {
-                    BuildInternalIntDef(putArgStk, X86_ONLY((size % 2) != 0 ? allByteRegs() :) allIntRegs());
+                    BuildInternalIntDef(store, X86_ONLY((size % 2) != 0 ? allByteRegs() :) allIntRegs());
                 }
 
 #ifdef TARGET_X86
@@ -1199,27 +1199,27 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArgStk)
                     // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
                     // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a
                     // series of 16-byte loads and stores.
-                    BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+                    BuildInternalFloatDef(store, internalFloatRegCandidates());
                     SetContainsAVXFlags();
                 }
                 break;
 
-            case GenTreePutArgStk::Kind::RepInstrXMM:
-                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+            case GenTreeArgStore::Kind::RepInstrXMM:
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
                 SetContainsAVXFlags();
                 FALLTHROUGH;
-            case GenTreePutArgStk::Kind::RepInstr:
-                BuildInternalIntDef(putArgStk, RBM_RDI);
-                BuildInternalIntDef(putArgStk, RBM_RCX);
-                BuildInternalIntDef(putArgStk, RBM_RSI);
+            case GenTreeArgStore::Kind::RepInstr:
+                BuildInternalIntDef(store, RBM_RDI);
+                BuildInternalIntDef(store, RBM_RCX);
+                BuildInternalIntDef(store, RBM_RSI);
                 break;
 
-            case GenTreePutArgStk::Kind::GCUnrollXMM:
-                BuildInternalFloatDef(putArgStk, internalFloatRegCandidates());
+            case GenTreeArgStore::Kind::GCUnrollXMM:
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
                 SetContainsAVXFlags();
                 FALLTHROUGH;
-            case GenTreePutArgStk::Kind::GCUnroll:
-                BuildInternalIntDef(putArgStk);
+            case GenTreeArgStore::Kind::GCUnroll:
+                BuildInternalIntDef(store);
                 break;
 
             default:

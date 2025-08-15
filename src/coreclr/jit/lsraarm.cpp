@@ -312,8 +312,8 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree, RBM_EXCEPTION_OBJECT);
             break;
 
-        case GT_PUTARG_STK:
-            BuildPutArgStk(tree->AsPutArgStk());
+        case GT_ARG_STORE:
+            BuildArgStore(tree->AsArgStore());
             break;
 
         case GT_PUTARG_REG:
@@ -356,15 +356,15 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
-void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
+void LinearScan::BuildArgStore(GenTreeArgStore* store)
 {
-    GenTree* src = putArg->GetOp(0);
+    GenTree* src = store->GetOp(0);
 
     if (src->TypeIs(TYP_STRUCT))
     {
         assert(src->isContained());
 
-        BuildInternalIntDef(putArg);
+        BuildInternalIntDef(store);
 
         if (src->OperIs(GT_IND_LOAD_OBJ))
         {

@@ -973,8 +973,8 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             GenRegSwap(node->AsOp());
             break;
 #endif
-        case GT_PUTARG_STK:
-            GenPutArgStk(node->AsPutArgStk());
+        case GT_ARG_STORE:
+            GenArgStore(node->AsArgStore());
             break;
         case GT_PUTARG_REG:
             GenPutArgReg(node->AsUnOp());

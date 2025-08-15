@@ -278,7 +278,7 @@ GTNODE(REG_USE          , GenTreeRegUse       , GTK_LEAF)                       
 GTNODE(PINVOKE_PROLOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke prolog seq
 GTNODE(PINVOKE_EPILOG   , GenTree             , GTK_LEAF|GTK_NOVALUE)            // pinvoke epilog seq
 GTNODE(PUTARG_REG       , GenTreeOp           , GTK_UNOP)                        // operator that places outgoing arg in register
-GTNODE(PUTARG_STK       , GenTreePutArgStk    , GTK_UNOP|GTK_NOVALUE)            // operator that places outgoing arg in stack
+GTNODE(ARG_STORE        , GenTreeArgStore     , GTK_UNOP|GTK_NOVALUE)            // operator that places outgoing arg in stack
 GTNODE(RETURNTRAP       , GenTreeOp           , GTK_UNOP|GTK_NOVALUE)            // a conditional call to wait on gc
 
 #ifdef TARGET_XARCH                            

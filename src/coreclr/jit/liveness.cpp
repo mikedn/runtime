@@ -77,7 +77,7 @@ class Liveness
     bool ComputeLifeBlock(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
     bool ComputeLifeStmt(LiveSet& liveOut, LiveSet keepAlive, Statement* stmt, BasicBlock* block);
     bool ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* block);
-    void RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block);
+    void RemoveDeadCallArgStores(GenTreeCall* call, BasicBlock* block);
     void InterBlockLivenessUntracked();
     bool InterBlockLiveness();
 
@@ -1143,7 +1143,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
                     JITDUMPLIRNODE(call, "Removing dead call:\n");
 
                     node->VisitOperands([](GenTree* operand) {
-                        assert(!operand->IsPutArgStk());
+                        assert(!operand->IsArgStore());
 
                         if (operand->IsValue())
                         {
@@ -1153,7 +1153,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
                         return GenTree::VisitResult::Continue;
                     });
 
-                    RemoveDeadCallStackArgs(call, block);
+                    RemoveDeadCallArgStores(call, block);
 
                     blockRange.Unlink(call);
                 }
@@ -1210,7 +1210,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
             case GT_PINVOKE_PROLOG:
             case GT_PINVOKE_EPILOG:
             case GT_RETURNTRAP:
-            case GT_PUTARG_STK:
+            case GT_ARG_STORE:
             case GT_IL_OFFSET:
             case GT_KEEPALIVE:
             case GT_BOUNDS_CHECK:
@@ -1260,7 +1260,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
     return useDefRemoved;
 }
 
-void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
+void Liveness::RemoveDeadCallArgStores(GenTreeCall* call, BasicBlock* block)
 {
     assert(block->IsLIR());
 
@@ -1272,18 +1272,18 @@ void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
 
     for (GenTree* node = call->gtPrev; (node != nullptr) && (callArgsSize != 0); node = node->gtPrev)
     {
-        if (GenTreePutArgStk* arg = node->IsPutArgStk())
+        if (GenTreeArgStore* store = node->IsArgStore())
         {
             if (nestedArgsSize != 0)
             {
-                nestedArgsSize -= arg->GetPushSize();
+                nestedArgsSize -= store->GetPushSize();
             }
             else
             {
-                JITDUMPLIRNODE(arg, "Removing dead call arg:\n");
-                callArgsSize -= arg->GetPushSize();
-                arg->GetOp(0)->SetUnusedValue();
-                arg->ChangeToNothingNode();
+                JITDUMPLIRNODE(store, "Removing dead call arg store:\n");
+                callArgsSize -= store->GetPushSize();
+                store->GetOp(0)->SetUnusedValue();
+                store->ChangeToNothingNode();
             }
         }
         else if (GenTreeCall* nestedCall = node->IsCall())
@@ -1296,13 +1296,13 @@ void Liveness::RemoveDeadCallStackArgs(GenTreeCall* call, BasicBlock* block)
 #else
     for (GenTree* node = call->gtPrev; (node != nullptr) && !node->IsCall(); node = node->gtPrev)
     {
-        if (GenTreePutArgStk* arg = node->IsPutArgStk())
+        if (GenTreeArgStore* store = node->IsArgStore())
         {
-            assert(arg->GetOffset() < call->GetInfo()->GetStackArgsSize());
+            assert(store->GetOffset() < call->GetInfo()->GetStackArgsSize());
 
-            JITDUMPLIRNODE(arg, "Removing dead call arg:\n");
-            arg->GetOp(0)->SetUnusedValue();
-            arg->ChangeToNothingNode();
+            JITDUMPLIRNODE(store, "Removing dead call arg store:\n");
+            store->GetOp(0)->SetUnusedValue();
+            store->ChangeToNothingNode();
         }
     }
 #endif
