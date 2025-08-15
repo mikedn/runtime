@@ -335,14 +335,13 @@ void LinearScan::BuildPutArgStk(GenTreePutArgStk* putArg)
     if (!src->isContained())
     {
         BuildUse(src);
-    }
 
-    if (putArg->GetArgType() == TYP_SIMD12)
-    {
-        BuildInternalFloatDef(putArg);
+        if (putArg->GetArgType() == TYP_SIMD12)
+        {
+            BuildInternalFloatDef(putArg);
+            BuildInternalUses();
+        }
     }
-
-    BuildInternalUses();
 }
 
 void LinearScan::BuildIntExtend(GenTreeUnOp* node)

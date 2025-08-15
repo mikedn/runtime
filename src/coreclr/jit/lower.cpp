@@ -1636,7 +1636,16 @@ GenTreePutArgStk* Lowering::NewPutArgStk(GenTree* value, CallArgInfo* argInfo, G
 
         if (argInfo->GetSlotCount() == 1)
         {
-            put->SetArgType(varActualType(value->GetType()));
+#ifdef TARGET_ARM64
+            if (value->IsIntCon(0))
+            {
+                put->SetArgType(TYP_LONG);
+            }
+            else
+#endif
+            {
+                put->SetArgType(varActualType(value->GetType()));
+            }
         }
     }
 

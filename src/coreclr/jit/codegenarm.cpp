@@ -1073,10 +1073,10 @@ void CodeGen::GenPutArgStk(GenTreePutArgStk* putArg)
         return;
     }
 
-    RegNum    srcReg = UseReg(putArg->GetOp(0));
-    var_types type   = static_cast<var_types>(argTypeNum);
-
+    var_types type = static_cast<var_types>(argTypeNum);
     assert(outArgLclOffs + varTypeSize(type) <= outArgLclSize);
+
+    RegNum srcReg = UseReg(putArg->GetOp(0));
 
     GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {outArgLclNum, outArgLclOffs});
 }
@@ -1086,8 +1086,8 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
                                  unsigned outArgLclOffs DEBUGARG(unsigned outArgLclSize))
 {
     GenTree*     src    = putArg->GetOp(0);
-    Emitter&     emit   = *GetEmitter();
     ClassLayout* layout = compiler->typGetLayoutByNum(putArg->GetArgTypeNum());
+    Emitter&     emit   = *GetEmitter();
 
     if (src->IsIntCon(0))
     {
@@ -1106,19 +1106,19 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
     assert(src->TypeIs(TYP_STRUCT));
     assert(src->isContained());
 
-    unsigned   size           = layout->GetSize();
-    LclVarDsc* srcLcl         = nullptr;
-    RegNum     srcAddrBaseReg = REG_NA;
-    int        srcOffset      = 0;
+    unsigned size           = layout->GetSize();
+    unsigned srcLclNum      = BAD_VAR_NUM;
+    RegNum   srcAddrBaseReg = REG_NA;
+    int      srcOffset      = 0;
 
     if (src->OperIs(GT_LCL_LOAD))
     {
-        srcLcl = src->AsLclLoad()->GetLcl();
-        size   = roundUp(size, REGSIZE_BYTES);
+        srcLclNum = src->AsLclLoad()->GetLcl()->GetLclNum();
+        size      = roundUp(size, REGSIZE_BYTES);
     }
     else if (src->OperIs(GT_LCL_LOAD_FLD))
     {
-        srcLcl    = src->AsLclLoadFld()->GetLcl();
+        srcLclNum = src->AsLclLoadFld()->GetLcl()->GetLclNum();
         srcOffset = src->AsLclLoadFld()->GetLclOffs();
         size      = roundUp(size, REGSIZE_BYTES);
     }
@@ -1171,9 +1171,9 @@ void CodeGen::GenPutArgStkStruct(GenTreePutArgStk* putArg,
                 break;
         }
 
-        if (srcLcl != nullptr)
+        if (srcLclNum != BAD_VAR_NUM)
         {
-            emit.Ins_R_S(loadIns, attr, tempReg, GetStackAddrMode(srcLcl, srcOffset + offset));
+            emit.Ins_R_S(loadIns, attr, tempReg, {srcLclNum, srcOffset + offset});
         }
         else
         {
