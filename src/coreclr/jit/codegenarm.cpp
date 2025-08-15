@@ -1064,14 +1064,15 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
     unsigned argLclNum = compiler->lvaOutgoingArgSpaceVar;
     INDEBUG(unsigned argLclSize = outgoingArgSpaceSize);
-    unsigned argLclOffs = store->GetOffset();
     unsigned argTypeNum = store->GetArgTypeNum();
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
-        GenStructArgStore(store, argLclNum, argLclOffs DEBUGARG(argLclSize));
+        GenStructArgStore(store, argLclNum DEBUGARG(argLclSize));
         return;
     }
+
+    unsigned argLclOffs = store->GetOffset();
 
     var_types type = static_cast<var_types>(argTypeNum);
     assert(argLclOffs + varTypeSize(type) <= argLclSize);
@@ -1081,13 +1082,12 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
 }
 
-void CodeGen::GenStructArgStore(GenTreeArgStore* store,
-                                unsigned         argLclNum,
-                                unsigned argLclOffs DEBUGARG(unsigned argLclSize))
+void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUGARG(unsigned argLclSize))
 {
-    GenTree*     src    = store->GetOp(0);
-    ClassLayout* layout = compiler->typGetLayoutByNum(store->GetArgTypeNum());
-    Emitter&     emit   = *GetEmitter();
+    GenTree*     src        = store->GetOp(0);
+    unsigned     argLclOffs = store->GetOffset();
+    ClassLayout* layout     = compiler->typGetLayoutByNum(store->GetArgTypeNum());
+    Emitter&     emit       = *GetEmitter();
 
     if (src->IsIntCon(0))
     {

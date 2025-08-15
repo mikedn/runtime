@@ -742,9 +742,7 @@ private:
     void PushReg(var_types type, RegNum srcReg);
     void GenStructArgStore(GenTreeArgStore* store);
 #else
-    void GenStructArgStore(GenTreeArgStore* store,
-                           unsigned         argLclNum,
-                           unsigned argLclOffs DEBUGARG(unsigned argLclSize));
+    void GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUGARG(unsigned argLclSize));
 #endif
 
     void GenDynBlk(GenTreeDynBlk* store);

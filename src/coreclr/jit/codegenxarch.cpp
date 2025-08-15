@@ -6132,19 +6132,19 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
         INDEBUG(argLclSize = outgoingArgSpaceSize);
     }
 
-    unsigned argLclOffs = store->GetOffset();
     unsigned argTypeNum = store->GetArgTypeNum();
 
     if (Compiler::typIsLayoutNum(argTypeNum))
     {
-        GenStructArgStore(store, argLclNum, argLclOffs DEBUGARG(argLclSize));
+        GenStructArgStore(store, argLclNum DEBUGARG(argLclSize));
         return;
     }
 
-    GenTree*  src  = store->GetOp(0);
-    var_types type = static_cast<var_types>(argTypeNum);
-    unsigned  size = varTypeSize(type);
-    Emitter&  emit = *GetEmitter();
+    GenTree*  src        = store->GetOp(0);
+    unsigned  argLclOffs = store->GetOffset();
+    var_types type       = static_cast<var_types>(argTypeNum);
+    unsigned  size       = varTypeSize(type);
+    Emitter&  emit       = *GetEmitter();
 
     if (!src->isUsedFromReg())
     {
@@ -6169,14 +6169,13 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
 }
 
-void CodeGen::GenStructArgStore(GenTreeArgStore* store,
-                                unsigned         argLclNum,
-                                unsigned argLclOffs DEBUGARG(unsigned argLclSize))
+void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUGARG(unsigned argLclSize))
 {
-    GenTree*     src    = store->GetOp(0);
-    ClassLayout* layout = compiler->typGetLayoutByNum(store->GetArgTypeNum());
-    unsigned     size   = layout->GetSize();
-    Emitter&     emit   = *GetEmitter();
+    GenTree*     src        = store->GetOp(0);
+    unsigned     argLclOffs = store->GetOffset();
+    ClassLayout* layout     = compiler->typGetLayoutByNum(store->GetArgTypeNum());
+    unsigned     size       = layout->GetSize();
+    Emitter&     emit       = *GetEmitter();
 
     if (src->IsIntCon(0))
     {
