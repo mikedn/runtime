@@ -856,14 +856,14 @@ public:
 
     class GenAddrMode
     {
-        RegNum     m_base  = REG_NA;
-        RegNum     m_index = REG_NA;
-        unsigned   m_scale = 1;
-        int        m_disp  = 0;
-        LclVarDsc* m_lcl   = nullptr;
+        RegNum   m_base   = REG_NA;
+        RegNum   m_index  = REG_NA;
+        unsigned m_scale  = 1;
+        int      m_disp   = 0;
+        unsigned m_lclNum = BAD_VAR_NUM;
 
     public:
-        GenAddrMode(LclVarDsc* lcl, unsigned lclOffs) : m_disp(lclOffs), m_lcl(lcl)
+        GenAddrMode(unsigned lclNum, unsigned lclOffs) : m_disp(lclOffs), m_lclNum(lclNum)
         {
         }
 
@@ -899,12 +899,12 @@ public:
 
         bool IsLcl() const
         {
-            return m_lcl != nullptr;
+            return m_lclNum != BAD_VAR_NUM;
         }
 
-        LclVarDsc* Lcl() const
+        unsigned LclNum() const
         {
-            return m_lcl;
+            return m_lclNum;
         }
     };
 

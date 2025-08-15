@@ -1064,17 +1064,15 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
     unsigned argLclNum = compiler->lvaOutgoingArgSpaceVar;
     INDEBUG(unsigned argLclSize = outgoingArgSpaceSize);
-    unsigned argTypeNum = store->GetArgTypeNum();
+    var_types type = store->GetArgType();
 
-    if (Compiler::typIsLayoutNum(argTypeNum))
+    if (type == TYP_STRUCT)
     {
         GenStructArgStore(store, argLclNum DEBUGARG(argLclSize));
         return;
     }
 
     unsigned argLclOffs = store->GetOffset();
-
-    var_types type = static_cast<var_types>(argTypeNum);
     assert(argLclOffs + varTypeSize(type) <= argLclSize);
 
     RegNum srcReg = UseReg(store->GetOp(0));

@@ -2380,23 +2380,23 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
         INDEBUG(argLclSize = outgoingArgSpaceSize);
     }
 
-    unsigned argTypeNum = store->GetArgTypeNum();
+    var_types type = store->GetArgType();
 
-    if (Compiler::typIsLayoutNum(argTypeNum))
+    if (type == TYP_STRUCT)
     {
         GenStructArgStore(store, argLclNum DEBUGARG(argLclSize));
         return;
     }
 
-    unsigned  argLclOffs = store->GetOffset();
-    GenTree*  src        = store->GetOp(0);
-    var_types type       = static_cast<var_types>(argTypeNum);
+    unsigned argLclOffs = store->GetOffset();
     assert(argLclOffs + varTypeSize(type) <= argLclSize);
+
+    GenTree* src = store->GetOp(0);
 
     if (type == TYP_SIMD12)
     {
         RegNum tempReg = store->HasAnyTempRegs() ? store->ExtractTempReg() : REG_NA;
-        GenVector3Store(GenAddrMode(compiler->lvaGetDesc(argLclNum), argLclOffs), src, tempReg);
+        GenVector3Store(GenAddrMode(argLclNum, argLclOffs), src, tempReg);
         return;
     }
 
@@ -8699,7 +8699,7 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     }
     else
     {
-        m_lcl = tree->AsLclRef()->GetLcl();
+        m_lclNum = tree->AsLclRef()->GetLcl()->GetLclNum();
 
         if (tree->OperIs(GT_LCL_LOAD_FLD, GT_LCL_STORE_FLD))
         {
@@ -8708,11 +8708,11 @@ CodeGen::GenAddrMode::GenAddrMode(GenTree* tree, CodeGen* codeGen)
     }
 }
 
-void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+void CodeGen::inst_R_AM(instruction ins, emitAttr attr, RegNum reg, const GenAddrMode& addrMode, unsigned offset)
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
+        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.LclNum(), addrMode.Disp(offset)));
     }
     else
     {
@@ -8720,11 +8720,11 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, regNumber reg, const Gen
     }
 }
 
-void CodeGen::inst_AM_R(instruction ins, emitAttr attr, regNumber reg, const GenAddrMode& addrMode, unsigned offset)
+void CodeGen::inst_AM_R(instruction ins, emitAttr attr, RegNum reg, const GenAddrMode& addrMode, unsigned offset)
 {
     if (addrMode.IsLcl())
     {
-        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.Lcl(), addrMode.Disp(offset)));
+        GetEmitter()->Ins_R_S(ins, attr, reg, GetStackAddrMode(addrMode.LclNum(), addrMode.Disp(offset)));
     }
     else
     {
