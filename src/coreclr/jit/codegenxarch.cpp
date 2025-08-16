@@ -6141,30 +6141,31 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     unsigned argLclOffs = store->GetOffset();
     assert(argLclOffs + varTypeSize(type) <= argLclSize);
 
-    GenTree* src  = store->GetOp(0);
-    Emitter& emit = *GetEmitter();
-
-    if (!src->isUsedFromReg())
-    {
-        assert(src->IsContainedIntCon());
-
-        emit.emitIns_S_I(INS_mov, emitTypeSize(type), {argLclNum, argLclOffs}, src->AsIntCon()->GetInt32Value());
-
-        return;
-    }
+    GenTree* src = store->GetOp(0);
 
 #ifdef UNIX_AMD64_ABI
     if (type == TYP_SIMD12)
     {
-        RegNum tmpReg = store->ExtractTempReg();
-        GenVector3Store(GenAddrMode(argLclNum, argLclOffs), src, tmpReg);
+        // TODO-MIKE-CQ: Arg store lowering doesn't contain a SIMD12 load like other stores do,
+        // memory copying SIMD12 generates smaller code if GPRs are used instead of XMM regs.
+        RegNum tempReg = store->HasAnyTempRegs() ? store->ExtractTempReg() : REG_NA;
+        GenVector3Store(GenAddrMode(argLclNum, argLclOffs), src, tempReg);
         return;
     }
 #endif
 
-    RegNum srcReg = UseReg(src);
+    Emitter& emit = *GetEmitter();
 
-    emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
+    if (src->isUsedFromReg())
+    {
+        RegNum srcReg = UseReg(src);
+        emit.emitIns_S_R(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
+    }
+    else
+    {
+        assert(src->IsContainedIntCon());
+        emit.emitIns_S_I(INS_mov, emitTypeSize(type), {argLclNum, argLclOffs}, src->AsIntCon()->GetInt32Value());
+    }
 }
 
 void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUGARG(unsigned argLclSize))

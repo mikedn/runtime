@@ -1076,7 +1076,6 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     assert(argLclOffs + varTypeSize(type) <= argLclSize);
 
     RegNum srcReg = UseReg(store->GetOp(0));
-
     GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
 }
 

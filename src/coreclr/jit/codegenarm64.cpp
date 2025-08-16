@@ -2400,33 +2400,32 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
         return;
     }
 
-    RegNum srcReg;
+    Emitter& emit = *GetEmitter();
 
     if (src->isUsedFromReg())
     {
-        srcReg = UseReg(src);
+        RegNum srcReg = UseReg(src);
+        emit.Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
     }
     else
     {
         assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
 
-        srcReg = REG_ZR;
-
         if (type == TYP_SIMD16)
         {
             if (argLclOffs <= 504)
             {
-                GetEmitter()->emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, srcReg, srcReg, {argLclNum, argLclOffs});
+                emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, {argLclNum, argLclOffs});
                 return;
             }
 
-            GetEmitter()->emitIns_S_R(INS_str, EA_8BYTE, srcReg, {argLclNum, argLclOffs});
+            emit.emitIns_S_R(INS_str, EA_8BYTE, REG_ZR, {argLclNum, argLclOffs});
             argLclOffs += 8;
             type = TYP_LONG;
         }
-    }
 
-    GetEmitter()->Ins_R_S(ins_Store(type), emitTypeSize(type), srcReg, {argLclNum, argLclOffs});
+        emit.Ins_R_S(ins_Store(type), emitTypeSize(type), REG_ZR, {argLclNum, argLclOffs});
+    }
 }
 
 void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUGARG(unsigned argLclSize))
