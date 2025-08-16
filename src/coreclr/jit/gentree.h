@@ -4937,9 +4937,9 @@ public:
 #endif
     }
 
-    unsigned GetSlotNum() const
+    unsigned GetStackOffset() const
     {
-        return m_slotNum;
+        return m_slotNum * REGSIZE_BYTES;
     }
 
     void SetSlots(unsigned firstSlot, unsigned slotCount)
@@ -4979,6 +4979,11 @@ public:
     unsigned GetSlotCount() const
     {
         return m_slotCount;
+    }
+
+    unsigned GetStackSize() const
+    {
+        return m_slotCount * REGSIZE_BYTES;
     }
 
     bool IsImplicitByRef() const

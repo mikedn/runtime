@@ -4416,13 +4416,9 @@ void CallArgInfo::Dump() const
         printf(")");
     }
 
-    if (m_slotCount == 1)
+    if (unsigned stackSize = GetStackSize())
     {
-        printf(", 1 slot (%u)", m_slotNum);
-    }
-    else if (m_slotCount > 1)
-    {
-        printf(", %u slots (%u..%u)", m_slotCount, m_slotNum, m_slotNum + m_slotCount - 1);
+        printf(", @%u +%u", GetStackOffset(), stackSize);
     }
 
     if (HasTemp())
@@ -4751,7 +4747,7 @@ void CallInfo::SetupArgs(Compiler* compiler, GenTreeCall* call)
 #if FEATURE_FIXED_OUT_ARGS
                 // Stack argument have to be moved after the call, since
                 // both calls use the same outgoing args stack are.
-                else if (prevArgInfo.GetSlotCount() != 0)
+                else if (prevArgInfo.GetStackSize() != 0)
                 {
                     prevArgInfo.SetIsLateUseNeeded();
                 }
@@ -6104,7 +6100,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 #ifdef TARGET_64BIT
         // Args that require more than one slot are handled in codegen but in the single slot
         // case we need to ensure that the entire slot is zeroed, not just the low 4 bytes.
-        if ((argInfo->GetSlotCount() == 1) &&
+        if ((argInfo->GetStackSize() == REGSIZE_BYTES) &&
             (typGetLayoutByNum(argInfo->GetSigTypeNum())->GetSize() > varTypeSize(arg->GetType())))
         {
             arg->SetType(TYP_LONG);
@@ -6151,7 +6147,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         LclVarDsc* fieldLcl  = lvaGetDesc(lcl->GetPromotedFieldLclNum(0));
         var_types  fieldType = fieldLcl->GetType();
 
-        assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
+        assert(roundUp(varTypeSize(fieldType), REGSIZE_BYTES) <= argInfo->GetStackSize());
 
         arg->AsLclLoad()->SetLcl(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)));
         arg->SetType(fieldType);
@@ -6188,7 +6184,7 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         // VN be able to convert from a "zero map" to any primitive type in order to
         // const propagate default struct initialization?
 
-        assert(argInfo->GetSlotCount() * REGSIZE_BYTES == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
+        assert(argInfo->GetStackSize() == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
 
         var_types argType   = argInfo->GetArgType();
         bool      canRetype = false;
@@ -6256,7 +6252,7 @@ void Compiler::abiMorphStackLclArgPromoted(CallArgInfo* argInfo, GenTreeLclLoad*
         unsigned        fieldOffset = fieldLcl->GetPromotedFieldOffset();
         GenTreeLclLoad* fieldLoad   = gtNewLclLoad(fieldLcl, fieldType);
 
-        assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetSlotCount() * REGSIZE_BYTES);
+        assert(fieldOffset + varTypeSize(fieldType) <= argInfo->GetStackSize());
 
         fieldList->AddField(this, fieldLoad, fieldOffset, fieldType);
     }
@@ -6535,7 +6531,7 @@ void Compiler::abiMorphArgs2ndPass(GenTreeCall* call)
 
 void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 {
-    assert((argInfo->GetRegCount() == 1) && (argInfo->GetSlotCount() == 0));
+    assert((argInfo->GetRegCount() == 1) && (argInfo->GetStackSize() == 0));
 
     var_types argRegType = argInfo->GetArgType();
     unsigned  argSize    = 0;
@@ -6959,7 +6955,7 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
 {
     assert(argInfo->IsHfaArg());
     assert(varTypeUsesFloatReg(argInfo->GetRegType(0)));
-    assert(argInfo->GetSlotCount() == 0);
+    assert(argInfo->GetStackSize() == 0);
 
     LclVarDsc* lcl       = arg->GetLcl();
     var_types  regType   = argInfo->GetRegType(0);
@@ -7105,9 +7101,9 @@ struct AbiRegFieldMap
 
         firstStackField = count;
 
-        if (argInfo->GetSlotCount() > 0)
+        if (argInfo->GetStackSize() != 0)
         {
-            unsigned argSize = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+            unsigned argSize = argInfo->GetRegCount() * REGSIZE_BYTES + argInfo->GetStackSize();
 
             while (field < lcl->GetPromotedFieldCount())
             {
@@ -7159,7 +7155,7 @@ struct AbiRegFieldMap
         // user code. In some cases we could narrow down the field but it's not worth it.
 
         unsigned fieldSize = fields[count - 1].offset + varTypeSize(fields[count - 1].type);
-        unsigned argSize   = (argInfo->GetRegCount() + argInfo->GetSlotCount()) * REGSIZE_BYTES;
+        unsigned argSize   = argInfo->GetRegCount() * REGSIZE_BYTES + argInfo->GetStackSize();
 
         if (fieldSize > argSize)
         {

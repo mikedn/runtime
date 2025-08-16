@@ -7061,10 +7061,10 @@ void Compiler::gtGetCallArgMsg(GenTreeCall* call, GenTree* arg, char* buf, unsig
         bufLength -= len;
     }
 
-    if (argInfo->GetSlotCount() != 0)
+    if (argInfo->GetStackSize() != 0)
     {
 #if FEATURE_FIXED_OUT_ARGS
-        sprintf_s(buf, bufLength, " out+%02x", argInfo->GetSlotNum() * REGSIZE_BYTES);
+        sprintf_s(buf, bufLength, " @%02x", argInfo->GetStackOffset());
 #else
         sprintf_s(buf, bufLength, " PUSH");
 #endif

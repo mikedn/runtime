@@ -1185,7 +1185,7 @@ void Lowering::InsertFieldListArgStore(GenTreeFieldList* fields, GenTreeCall* ca
 {
     assert(argInfo->GetRegCount() == 0);
 
-    unsigned currentOffset = argInfo->GetSlotCount() * REGSIZE_BYTES;
+    unsigned currentOffset = argInfo->GetStackSize();
     INDEBUG(unsigned prevFieldOffset = currentOffset);
 
     assert(fields->Uses().IsSorted());
@@ -1265,7 +1265,7 @@ void Lowering::InsertFieldListArgStore(GenTreeFieldList* fields, GenTreeCall* ca
     assert(argInfo->GetRegCount() == 0);
 #endif
 
-    unsigned argOffset  = argInfo->GetSlotNum() * REGSIZE_BYTES;
+    unsigned argOffset  = argInfo->GetStackOffset();
     unsigned fieldIndex = 0;
 
     for (GenTreeFieldList::Use& use : fields->Uses())
@@ -1366,8 +1366,8 @@ void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo)
     }
 
     assert(Compiler::typIsLayoutNum(argInfo->GetSigTypeNum()));
-    assert(argInfo->GetSlotCount() != 0);
-    assert(argInfo->GetSlotNum() == 0);
+    assert(argInfo->GetStackSize() != 0);
+    assert(argInfo->GetStackOffset() == 0);
     assert((0 <= argInfo->GetRegCount()) && (argInfo->GetRegCount() <= MAX_ARG_REG_COUNT));
 
     GenTree* arg = argInfo->GetNode();
@@ -1536,8 +1536,8 @@ void Lowering::InsertFieldListArgSplit(GenTreeFieldList* fields, GenTreeCall* ca
 {
     assert(argInfo->GetRegCount() == 1);
     assert(argInfo->GetRegNum(0) == REG_R7);
-    assert(argInfo->GetSlotNum() == 0);
-    assert(argInfo->GetSlotCount() == 1);
+    assert(argInfo->GetStackOffset() == 0);
+    assert(argInfo->GetStackSize() == REGSIZE_BYTES);
 
     GenTreeFieldList::Use* regUse = fields->Uses().GetHead();
     assert(regUse->GetOffset() == 0);
@@ -1572,15 +1572,15 @@ GenTreeArgStore* Lowering::NewArgStore(GenTree* value, CallArgInfo* argInfo, Gen
     assert(argInfo->GetSigTypeNum() != 0);
     assert(argInfo->GetRegCount() == 0);
 #ifdef WINDOWS_AMD64_ABI
-    assert(argInfo->GetSlotCount() == 1);
+    assert(argInfo->GetStackSize() == REGSIZE_BYTES);
 #endif
 
     GenTreeArgStore* store = new (comp, GT_ARG_STORE) GenTreeArgStore(value, call);
     store->SetArgTypeNum(argInfo->GetSigTypeNum());
 #if FEATURE_FIXED_OUT_ARGS
-    store->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES);
+    store->SetOffset(argInfo->GetStackOffset());
 #else
-    store->SetPushSize(argInfo->GetSlotCount() * REGSIZE_BYTES);
+    store->SetPushSize(argInfo->GetStackSize());
 #endif
 
     if (Compiler::typIsLayoutNum(store->GetArgTypeNum()))
@@ -1621,7 +1621,7 @@ GenTreeArgStore* Lowering::NewArgStore(GenTree* value, CallArgInfo* argInfo, Gen
                 }
             }
 
-            if ((argType == TYP_SIMD12) && (argInfo->GetSlotCount() * REGSIZE_BYTES >= 16))
+            if ((argType == TYP_SIMD12) && (argInfo->GetStackSize() >= 16))
             {
                 argType = TYP_SIMD16;
             }
@@ -1634,7 +1634,7 @@ GenTreeArgStore* Lowering::NewArgStore(GenTree* value, CallArgInfo* argInfo, Gen
     {
         assert(!varTypeIsStruct(value->GetType()));
 
-        if (argInfo->GetSlotCount() == 1)
+        if (argInfo->GetStackSize() == REGSIZE_BYTES)
         {
 #ifdef TARGET_ARM64
             if (value->IsIntCon(0))
@@ -1660,7 +1660,7 @@ void Lowering::InsertFieldListPutArg(GenTreeCall* call, CallArgInfo* argInfo)
     {
         InsertFieldListArgStore(fields, call, argInfo);
     }
-    else if (argInfo->GetSlotCount() != 0)
+    else if (argInfo->GetStackSize() != 0)
     {
 #if FEATURE_ARG_SPLIT
         InsertFieldListArgSplit(fields, call, argInfo);
@@ -1699,7 +1699,7 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo)
         argInfo->SetNode(argStore);
         LowerArgStore(argStore);
     }
-    else if (argInfo->GetSlotCount() != 0)
+    else if (argInfo->GetStackSize() != 0)
     {
 #if TARGET_ARM
         InsertPutArgSplit(call, argInfo);
@@ -1788,8 +1788,8 @@ void Lowering::InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo)
         argStoreLo->SetArgType(TYP_INT);
         argStoreHi->SetArgType(TYP_INT);
 #if FEATURE_FIXED_OUT_ARGS
-        argStoreLo->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 0);
-        argStoreHi->SetOffset(argInfo->GetSlotNum() * REGSIZE_BYTES + 4);
+        argStoreLo->SetOffset(argInfo->GetStackOffset() + 0);
+        argStoreHi->SetOffset(argInfo->GetStackOffset() + 4);
         BlockRange().InsertAfter(arg, argStoreLo, argStoreHi);
 #else
         argStoreLo->SetPushSize(4);
