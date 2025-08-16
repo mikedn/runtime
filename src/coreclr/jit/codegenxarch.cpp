@@ -2367,7 +2367,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         assert(src->IsIntCon(0));
     }
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     assert(size <= INT32_MAX);
     assert(dstOffset < (INT32_MAX - static_cast<int>(size)));
@@ -2376,11 +2376,11 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     {
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_I(INS_mov, EA_1BYTE, GetStackAddrMode(dstLcl, dstOffset), 0);
+            emit.emitIns_S_I(INS_mov, EA_1BYTE, GetStackAddrMode(dstLcl, dstOffset), 0);
         }
         else
         {
-            emit->emitIns_ARX_I(INS_mov, EA_1BYTE, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset, 0);
+            emit.emitIns_ARX_I(INS_mov, EA_1BYTE, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset, 0);
         }
 
         return;
@@ -2404,15 +2404,15 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
         {
             // If the source is constant 0 then always use xorps, it's faster
             // than copying the constant from a GPR to a XMM register.
-            emit->emitIns_R_R(INS_xorps, EA_16BYTE, srcXmmReg, srcXmmReg);
+            emit.emitIns_R_R(INS_xorps, EA_16BYTE, srcXmmReg, srcXmmReg);
         }
         else
         {
-            emit->emitIns_Mov(INS_movd, EA_PTRSIZE, srcXmmReg, srcIntReg, /* canSkip */ false);
-            emit->emitIns_R_R(INS_punpckldq, EA_16BYTE, srcXmmReg, srcXmmReg);
+            emit.emitIns_Mov(INS_movd, EA_PTRSIZE, srcXmmReg, srcIntReg, /* canSkip */ false);
+            emit.emitIns_R_R(INS_punpckldq, EA_16BYTE, srcXmmReg, srcXmmReg);
 #ifdef TARGET_X86
             // For x86, we need one more to convert it from 8 bytes to 16 bytes.
-            emit->emitIns_R_R(INS_punpckldq, EA_16BYTE, srcXmmReg, srcXmmReg);
+            emit.emitIns_R_R(INS_punpckldq, EA_16BYTE, srcXmmReg, srcXmmReg);
 #endif
         }
 
@@ -2442,12 +2442,12 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
             if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(xmmMov, EA_ATTR(regSize), srcXmmReg, GetStackAddrMode(dstLcl, dstOffset));
+                emit.emitIns_S_R(xmmMov, EA_ATTR(regSize), srcXmmReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
-                emit->emitIns_ARX_R(xmmMov, EA_ATTR(regSize), srcXmmReg, dstAddrBaseReg, dstAddrIndexReg,
-                                    dstAddrIndexScale, dstOffset);
+                emit.emitIns_ARX_R(xmmMov, EA_ATTR(regSize), srcXmmReg, dstAddrBaseReg, dstAddrIndexReg,
+                                   dstAddrIndexScale, dstOffset);
             }
         }
     }
@@ -2462,12 +2462,12 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), srcIntReg, GetStackAddrMode(dstLcl, dstOffset));
+            emit.emitIns_S_R(INS_mov, EA_ATTR(regSize), srcIntReg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
-            emit->emitIns_ARX_R(INS_mov, EA_ATTR(regSize), srcIntReg, dstAddrBaseReg, dstAddrIndexReg,
-                                dstAddrIndexScale, dstOffset);
+            emit.emitIns_ARX_R(INS_mov, EA_ATTR(regSize), srcIntReg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale,
+                               dstOffset);
         }
     }
 }
@@ -2576,7 +2576,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
         }
     }
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
     unsigned size = layout->GetSize();
 
     assert(size <= INT32_MAX);
@@ -2585,29 +2585,29 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (size >= XMM_REGSIZE_BYTES)
     {
-        regNumber tempReg = store->GetSingleTempReg(RBM_ALLFLOAT);
+        RegNum tempReg = store->GetSingleTempReg(RBM_ALLFLOAT);
 
         for (unsigned regSize = XMM_REGSIZE_BYTES; size >= regSize;
              size -= regSize, srcOffset += regSize, dstOffset += regSize)
         {
             if (srcLcl != nullptr)
             {
-                emit->emitIns_R_S(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
+                emit.emitIns_R_S(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
-                emit->emitIns_R_ARX(INS_movups, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
-                                    srcAddrIndexScale, srcOffset);
+                emit.emitIns_R_ARX(INS_movups, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
+                                   srcAddrIndexScale, srcOffset);
             }
 
             if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
+                emit.emitIns_S_R(INS_movups, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
-                emit->emitIns_ARX_R(INS_movups, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
-                                    dstAddrIndexScale, dstOffset);
+                emit.emitIns_ARX_R(INS_movups, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
+                                   dstAddrIndexScale, dstOffset);
             }
         }
 
@@ -2618,7 +2618,7 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
     if (size > 0)
     {
-        regNumber tempReg = store->GetSingleTempReg(RBM_ALLINT);
+        RegNum tempReg = store->GetSingleTempReg(RBM_ALLINT);
 
         for (unsigned regSize = REGSIZE_BYTES; size > 0; size -= regSize, srcOffset += regSize, dstOffset += regSize)
         {
@@ -2629,22 +2629,22 @@ void CodeGen::GenStructStoreUnrollCopy(GenTree* store, ClassLayout* layout)
 
             if (srcLcl != nullptr)
             {
-                emit->emitIns_R_S(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
+                emit.emitIns_R_S(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(srcLcl, srcOffset));
             }
             else
             {
-                emit->emitIns_R_ARX(INS_mov, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
-                                    srcAddrIndexScale, srcOffset);
+                emit.emitIns_R_ARX(INS_mov, EA_ATTR(regSize), tempReg, srcAddrBaseReg, srcAddrIndexReg,
+                                   srcAddrIndexScale, srcOffset);
             }
 
             if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
+                emit.emitIns_S_R(INS_mov, EA_ATTR(regSize), tempReg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
-                emit->emitIns_ARX_R(INS_mov, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
-                                    dstAddrIndexScale, dstOffset);
+                emit.emitIns_ARX_R(INS_mov, EA_ATTR(regSize), tempReg, dstAddrBaseReg, dstAddrIndexReg,
+                                   dstAddrIndexScale, dstOffset);
             }
         }
     }
@@ -2715,7 +2715,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
-    regNumber    regs[MAX_RET_REG_COUNT];
+    RegNum       regs[MAX_RET_REG_COUNT];
     var_types    regTypes[MAX_RET_REG_COUNT];
 
     for (unsigned i = 0; i < regCount; i++)
@@ -2735,9 +2735,9 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
         regTypes[i] = regType;
     }
 
-    emitter*  emit     = GetEmitter();
+    Emitter&  emit     = *GetEmitter();
     unsigned  regIndex = 0;
-    regNumber reg      = REG_NA;
+    RegNum    reg      = REG_NA;
     var_types regType  = TYP_UNDEF;
     unsigned  regSize  = 0;
 
@@ -2759,11 +2759,11 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
         if (dstLcl != nullptr)
         {
-            emit->emitIns_S_R(ins, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
+            emit.emitIns_S_R(ins, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
         }
         else
         {
-            emit->emitIns_ARX_R(ins, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+            emit.emitIns_ARX_R(ins, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
         }
     }
 
@@ -2780,18 +2780,18 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
             if (regShift != 0)
             {
-                emit->emitIns_R_I(INS_shr_N, regShift >= 4 ? EA_8BYTE : EA_4BYTE, reg, regShift * 8);
+                emit.emitIns_R_I(INS_shr_N, regShift >= 4 ? EA_8BYTE : EA_4BYTE, reg, regShift * 8);
             }
 
             emitAttr attr = EA_ATTR(regSize);
 
             if (dstLcl != nullptr)
             {
-                emit->emitIns_S_R(INS_mov, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
+                emit.emitIns_S_R(INS_mov, attr, reg, GetStackAddrMode(dstLcl, dstOffset));
             }
             else
             {
-                emit->emitIns_ARX_R(INS_mov, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
+                emit.emitIns_ARX_R(INS_mov, attr, reg, dstAddrBaseReg, dstAddrIndexReg, dstAddrIndexScale, dstOffset);
             }
         }
     }
@@ -3862,13 +3862,13 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
         assert(src->IsContainedIntCon());
     }
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
     {
         assert(src->isContained());
 
-        emit->emitInsRMW_A(src->IsIntCon(1) ? INS_inc : INS_dec, attr, addr);
+        emit.emitInsRMW_A(src->IsIntCon(1) ? INS_inc : INS_dec, attr, addr);
     }
     else if (value->OperIsShiftOrRotate())
     {
@@ -3878,11 +3878,11 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     }
     else if (GenTreeIntCon* imm = src->IsContainedIntCon())
     {
-        emit->emitInsRMW_A_I(GetOperIns(value->GetOper()), attr, addr, imm->GetInt32Value());
+        emit.emitInsRMW_A_I(GetOperIns(value->GetOper()), attr, addr, imm->GetInt32Value());
     }
     else
     {
-        emit->emitInsRMW_A_R(GetOperIns(value->GetOper()), attr, addr, src->GetRegNum());
+        emit.emitInsRMW_A_R(GetOperIns(value->GetOper()), attr, addr, src->GetRegNum());
     }
 }
 
@@ -7402,15 +7402,15 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
     genVzeroupperIfNeeded();
 }
 
-// Generate Vzeroupper instruction as needed to zero out upper 128b-bit of all YMM registers so that the
+// Generate VZEROUPPER instruction as needed to zero out upper 128b-bit of all YMM registers so that the
 // AVX/Legacy SSE transition penalties can be avoided. This function is been used in PrologPreserveCalleeSavedFloatRegs
 // (prolog) and genRestoreCalleeSavedFltRegs (epilog). Issue VZEROUPPER in Prolog if the method contains
 // 128-bit or 256-bit AVX code, to avoid legacy SSE to AVX transition penalty, which could happen when native
-// code contains legacy SSE code calling into JIT AVX code (e.g. reverse pinvoke). Issue VZEROUPPER in Epilog
+// code contains legacy SSE code calling into JIT AVX code (e.g. reverse PInvoke). Issue VZEROUPPER in Epilog
 // if the method contains 256-bit AVX code, to avoid AVX to legacy SSE transition penalty.
 //
-// check256bitOnly - true to check if the function contains 256-bit AVX instruction and generate vzeroupper
-//                   instruction, false to check if the function contains AVX instruciton (either 128-bit
+// check256bitOnly - true to check if the function contains 256-bit AVX instruction and generate VZEROUPPER
+//                   instruction, false to check if the function contains AVX instruction (either 128-bit
 //                   or 256-bit).
 //
 void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
@@ -7432,22 +7432,23 @@ void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
     }
 }
 
-void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber initReg, bool* pInitRegZeroed)
+void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, RegNum initReg, bool* pInitRegZeroed)
 {
     assert(generatingProlog && genUseBlockInit);
     assert(untrLclHi > untrLclLo);
 
-    emitter*  emit        = GetEmitter();
-    regNumber frameReg    = genFramePointerReg();
-    regNumber zeroReg     = REG_NA;
-    int       blkSize     = untrLclHi - untrLclLo;
-    int       minSimdSize = XMM_REGSIZE_BYTES;
+    Emitter& emit        = *GetEmitter();
+    RegNum   frameReg    = genFramePointerReg();
+    RegNum   zeroReg     = REG_NA;
+    int      blkSize     = untrLclHi - untrLclLo;
+    int      minSimdSize = XMM_REGSIZE_BYTES;
 
     assert(blkSize >= 0);
     noway_assert((blkSize % sizeof(int)) == 0);
     // initReg is not a live incoming param reg
     assert((genRegMask(initReg) & paramRegState.intRegLiveIn) == RBM_NONE);
-#if defined(TARGET_AMD64)
+
+#ifdef TARGET_AMD64
     // We will align on x64 so can use the aligned mov
     instruction simdMov = INS_movaps;
     // Aligning low we want to move up to next boundary
@@ -7459,7 +7460,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         assert((alignedLclLo - untrLclLo) < XMM_REGSIZE_BYTES);
         simdMov = INS_movups;
     }
-#else // !defined(TARGET_AMD64)
+#else
     // We aren't going to try and align on x86
     instruction simdMov      = INS_movups;
     int         alignedLclLo = untrLclLo;
@@ -7482,13 +7483,13 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         int i = 0;
         for (; i + REGSIZE_BYTES <= blkSize; i += REGSIZE_BYTES)
         {
-            emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
+            emit.emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
         }
 #ifdef TARGET_AMD64
         assert((i == blkSize) || (i + 4 == blkSize));
         if (i != blkSize)
         {
-            emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
+            emit.emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
             i += 4;
         }
 #endif
@@ -7499,14 +7500,12 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
         // Grab a non-argument, non-callee saved XMM reg
         CLANG_FORMAT_COMMENT_ANCHOR;
 #ifdef UNIX_AMD64_ABI
-        // System V x64 first temp reg is xmm8
-        regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM8);
+        RegNum zeroSIMDReg = genRegNumFromMask(RBM_XMM8);
 #else
-        // Windows first temp reg is xmm4
-        regNumber zeroSIMDReg = genRegNumFromMask(RBM_XMM4);
-#endif // UNIX_AMD64_ABI
+        RegNum  zeroSIMDReg  = genRegNumFromMask(RBM_XMM4);
+#endif
 
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
         int alignedLclHi;
         int alignmentHiBlkSize;
 
@@ -7544,18 +7543,18 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentLoBlkSize; i += REGSIZE_BYTES)
             {
-                emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
+                emit.emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, untrLclLo + i);
             }
             assert((i == alignmentLoBlkSize) || (i + 4 == alignmentLoBlkSize));
             if (i != alignmentLoBlkSize)
             {
-                emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
+                emit.emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, untrLclLo + i);
                 i += 4;
             }
 
             assert(i == alignmentLoBlkSize);
         }
-#else // !defined(TARGET_AMD64)
+#else // TARGET_X86
         // While we aren't aligning the start, we still want to
         // zero anything that is not in a 16 byte chunk at end
         int alignmentBlkSize   = blkSize & -XMM_REGSIZE_BYTES;
@@ -7577,12 +7576,12 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             //   movups  xmmword ptr [ebp/esp-OFFS], xmm4
             //   mov      qword ptr [ebp/esp-OFFS], rax
 
-            emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
+            emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroSIMDReg, zeroSIMDReg);
 
             int i = 0;
             for (; i < blkSize; i += XMM_REGSIZE_BYTES)
             {
-                emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo + i);
+                emit.emitIns_AR_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, alignedLclLo + i);
             }
 
             assert(i == blkSize);
@@ -7601,7 +7600,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             //    add rax, 48                                        ;    |
             //    jne SHORT  -5 instr                                ; ---+
 
-            emit->emitIns_R_R(INS_xorps, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, zeroSIMDReg);
+            emit.emitIns_R_R(INS_xorps, EA_16BYTE, zeroSIMDReg, zeroSIMDReg);
 
             // How many extra don't fit into the 3x unroll
             int extraSimd = (blkSize % (XMM_REGSIZE_BYTES * 3)) / XMM_REGSIZE_BYTES;
@@ -7609,13 +7608,12 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             {
                 blkSize -= XMM_REGSIZE_BYTES;
                 // Not a multiple of 3 so add stores at low end of block
-                emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, alignedLclLo);
+                emit.emitIns_AR_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, alignedLclLo);
                 if (extraSimd == 2)
                 {
                     blkSize -= XMM_REGSIZE_BYTES;
                     // one more store needed
-                    emit->emitIns_AR_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg,
-                                       alignedLclLo + XMM_REGSIZE_BYTES);
+                    emit.emitIns_AR_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, alignedLclLo + XMM_REGSIZE_BYTES);
                 }
             }
 
@@ -7633,17 +7631,16 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             assert((alignedLclHi - (blkSize + extraSimd * XMM_REGSIZE_BYTES)) == alignedLclLo);
 
             // Set loop counter
-            emit->emitIns_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
+            emit.emitIns_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
             // Loop start
-            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1, alignedLclHi);
-            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
-                                alignedLclHi + XMM_REGSIZE_BYTES);
-            emit->emitIns_ARX_R(simdMov, EA_ATTR(XMM_REGSIZE_BYTES), zeroSIMDReg, frameReg, initReg, 1,
-                                alignedLclHi + 2 * XMM_REGSIZE_BYTES);
+            emit.emitIns_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1, alignedLclHi);
+            emit.emitIns_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1, alignedLclHi + XMM_REGSIZE_BYTES);
+            emit.emitIns_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1,
+                               alignedLclHi + 2 * XMM_REGSIZE_BYTES);
 
-            emit->emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
+            emit.emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
             // Loop until counter is 0
-            emit->emitIns_J(INS_jne, -5);
+            emit.emitIns_J(INS_jne, -5);
 
             // initReg will be zero at end of the loop
             *pInitRegZeroed = true;
@@ -7660,16 +7657,16 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
             int i = 0;
             for (; i + REGSIZE_BYTES <= alignmentHiBlkSize; i += REGSIZE_BYTES)
             {
-                emit->emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
+                emit.emitIns_AR_R(INS_mov, EA_PTRSIZE, zeroReg, frameReg, alignedLclHi + i);
             }
-#if defined(TARGET_AMD64)
+#ifdef TARGET_AMD64
             assert((i == alignmentHiBlkSize) || (i + 4 == alignmentHiBlkSize));
             if (i != alignmentHiBlkSize)
             {
-                emit->emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
+                emit.emitIns_AR_R(INS_mov, EA_4BYTE, zeroReg, frameReg, alignedLclHi + i);
                 i += 4;
             }
-#endif // defined(TARGET_AMD64)
+#endif
             assert(i == alignmentHiBlkSize);
         }
     }

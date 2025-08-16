@@ -3240,7 +3240,7 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
 
     assert(varTypeSize(type1) == varTypeSize(type2));
 
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
 
     if (varTypeIsFloating(type1))
     {
@@ -3250,12 +3250,12 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
         if (op2->IsIntCon(0))
         {
             assert(op2->isContained());
-            emit->emitIns_R_F(INS_fcmp, attr, reg1, 0.0);
+            emit.emitIns_R_F(INS_fcmp, attr, reg1, 0.0);
         }
         else
         {
             assert(!op2->isContained());
-            emit->emitIns_R_R(INS_fcmp, attr, reg1, reg2);
+            emit.emitIns_R_R(INS_fcmp, attr, reg1, reg2);
         }
     }
     else
@@ -3268,11 +3268,11 @@ void CodeGen::GenCompare(GenTreeOp* cmp)
 
         if (op2->IsContainedIntCon())
         {
-            emit->emitIns_R_I(ins, attr, reg1, op2->AsIntCon()->GetValue());
+            emit.emitIns_R_I(ins, attr, reg1, op2->AsIntCon()->GetValue());
         }
         else
         {
-            emit->emitIns_R_R(ins, attr, reg1, reg2);
+            emit.emitIns_R_R(ins, attr, reg1, reg2);
         }
     }
 
@@ -8745,27 +8745,27 @@ void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, Ge
 
 void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, GenTreeIndir* indir)
 {
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
     GenTree* addr = indir->GetAddr();
 
     if (!addr->isContained())
     {
-        emit->emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
+        emit.emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
 
         return;
     }
 
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        regNumber tmpReg = indir->GetSingleTempReg();
-        emit->emitIns_R_C(ins, attr, valueReg, tmpReg, constAddr->GetData());
+        RegNum tmpReg = indir->GetSingleTempReg();
+        emit.emitIns_R_C(ins, attr, valueReg, tmpReg, constAddr->GetData());
 
         return;
     }
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        emit->Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
+        emit.Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -8779,13 +8779,13 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     {
         if (Arm64Imm::IsLdStImm(offset, emitTypeSize(indir->GetType())))
         {
-            emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
+            emit.emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
         }
         else
         {
-            regNumber offsetReg = indir->GetSingleTempReg();
+            RegNum offsetReg = indir->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(EA_8BYTE, offsetReg, offset);
-            emit->emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
+            emit.emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
         }
 
         return;
@@ -8793,19 +8793,19 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     assert(isPow2(addrMode->GetScale()));
 
-    regNumber baseReg  = base->GetRegNum();
-    regNumber indexReg = index->GetRegNum();
-    unsigned  lsl      = genLog2(addrMode->GetScale());
+    RegNum   baseReg  = base->GetRegNum();
+    RegNum   indexReg = index->GetRegNum();
+    unsigned lsl      = genLog2(addrMode->GetScale());
 
     if (offset == 0)
     {
         if (lsl > 0)
         {
-            emit->emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
+            emit.emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
         }
         else
         {
-            emit->emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
+            emit.emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
         }
 
         return;
@@ -8813,8 +8813,8 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     // TODO-MIKE-Cleanup: Remove all this idiocy.
 
-    regNumber tmpReg  = indir->GetSingleTempReg();
-    emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_8BYTE;
+    RegNum   tmpReg  = indir->GetSingleTempReg();
+    emitAttr tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_8BYTE;
 
     noway_assert(IsLoadIns(ins) || (tmpReg != valueReg));
 
@@ -8823,22 +8823,22 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         noway_assert(tmpReg != indexReg);
 
         instGen_Set_Reg_To_Imm(EA_8BYTE, tmpReg, offset);
-        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
-        emit->emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_OPTS_LSL);
+        emit.emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
+        emit.emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_OPTS_LSL);
 
         return;
     }
 
     if (lsl > 0)
     {
-        emit->emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
+        emit.emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_OPTS_LSL);
     }
     else
     {
-        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
+        emit.emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
     }
 
-    emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
+    emit.emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
 }
 
 void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZeroed)

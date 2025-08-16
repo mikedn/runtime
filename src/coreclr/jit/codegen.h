@@ -35,7 +35,7 @@ class CodeGen final : public CodeGenInterface
 #endif
 
     class LinearScan* m_lsra = nullptr;
-    emitter*          m_cgEmitter;
+    Emitter*          m_cgEmitter;
 
     ILMapping*  firstILMapping = nullptr;
     ILMapping*  lastILMapping  = nullptr;
@@ -55,7 +55,7 @@ public:
 
     void genGenerateCode(void** nativeCode, uint32_t* nativeCodeSize);
 
-    emitter* GetEmitter() const
+    Emitter* GetEmitter() const
     {
         return m_cgEmitter;
     }

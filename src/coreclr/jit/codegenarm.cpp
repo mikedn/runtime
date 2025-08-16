@@ -1731,27 +1731,27 @@ void CodeGen::GenInstr(GenTreeInstr* instr)
     unreached();
 }
 
-void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndLoad* load)
+void CodeGen::emitInsLoad(instruction ins, emitAttr attr, RegNum dataReg, GenTreeIndLoad* load)
 {
     if (load->IsUnaligned() && varTypeIsFloating(load->GetType()))
     {
-        emitter* emit = GetEmitter();
+        Emitter& emit = *GetEmitter();
 
         if (load->TypeIs(TYP_FLOAT))
         {
-            regNumber tmpReg = load->GetSingleTempReg();
+            RegNum tmpReg = load->GetSingleTempReg();
             emitInsIndir(INS_ldr, EA_4BYTE, tmpReg, load, 0);
-            emit->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
+            emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, dataReg, tmpReg, /* canSkip */ false);
         }
         else
         {
             assert(load->TypeIs(TYP_DOUBLE));
 
-            regNumber tmpReg1 = load->ExtractTempReg();
-            regNumber tmpReg2 = load->GetSingleTempReg();
+            RegNum tmpReg1 = load->ExtractTempReg();
+            RegNum tmpReg2 = load->GetSingleTempReg();
             emitInsIndir(INS_ldr, EA_4BYTE, tmpReg1, load, 0);
             emitInsIndir(INS_ldr, EA_4BYTE, tmpReg2, load, 4);
-            emit->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
+            emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dataReg, tmpReg1, tmpReg2);
         }
 
         return;
@@ -1760,25 +1760,25 @@ void CodeGen::emitInsLoad(instruction ins, emitAttr attr, regNumber dataReg, Gen
     emitInsIndir(ins, attr, dataReg, load, 0);
 }
 
-void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, GenTreeIndStore* store)
+void CodeGen::emitInsStore(instruction ins, emitAttr attr, RegNum dataReg, GenTreeIndStore* store)
 {
     if (store->IsUnaligned() && varTypeIsFloating(store->GetType()))
     {
-        emitter* emit = GetEmitter();
+        Emitter& emit = *GetEmitter();
 
         if (store->TypeIs(TYP_FLOAT))
         {
-            regNumber tmpReg = store->GetSingleTempReg();
-            emit->emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
+            RegNum tmpReg = store->GetSingleTempReg();
+            emit.emitIns_Mov(INS_vmov_f2i, EA_4BYTE, tmpReg, dataReg, /* canSkip */ false);
             emitInsIndir(INS_str, EA_4BYTE, tmpReg, store, 0);
         }
         else
         {
             assert(store->TypeIs(TYP_DOUBLE));
 
-            regNumber tmpReg1 = store->ExtractTempReg();
-            regNumber tmpReg2 = store->GetSingleTempReg();
-            emit->emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
+            RegNum tmpReg1 = store->ExtractTempReg();
+            RegNum tmpReg2 = store->GetSingleTempReg();
+            emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, tmpReg1, tmpReg2, dataReg);
             emitInsIndir(INS_str, EA_4BYTE, tmpReg1, store, 0);
             emitInsIndir(INS_str, EA_4BYTE, tmpReg2, store, 4);
         }
@@ -1789,9 +1789,9 @@ void CodeGen::emitInsStore(instruction ins, emitAttr attr, regNumber dataReg, Ge
     emitInsIndir(ins, attr, dataReg, store, 0);
 }
 
-void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, GenTreeIndir* indir, int offset)
+void CodeGen::emitInsIndir(instruction ins, emitAttr attr, RegNum valueReg, GenTreeIndir* indir, int offset)
 {
-    emitter* emit = GetEmitter();
+    Emitter& emit = *GetEmitter();
     GenTree* addr = indir->GetAddr();
 
     if (!addr->isContained())
@@ -1800,11 +1800,11 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         {
             assert(ArmImm::IsAddImm(offset, INS_FLAGS_DONT_CARE));
 
-            emit->emitIns_R_R_I(ins, attr, valueReg, addr->GetRegNum(), offset);
+            emit.emitIns_R_R_I(ins, attr, valueReg, addr->GetRegNum(), offset);
         }
         else
         {
-            emit->emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
+            emit.emitIns_R_R(ins, attr, valueReg, addr->GetRegNum());
         }
 
         return;
@@ -1812,7 +1812,7 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
-        emit->Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
+        emit.Ins_R_S(ins, attr, valueReg, GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -1827,13 +1827,13 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
     {
         if (ArmImm::IsLdStImm(offset, attr))
         {
-            emit->emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
+            emit.emitIns_R_R_I(ins, attr, valueReg, base->GetRegNum(), offset);
         }
         else
         {
-            regNumber offsetReg = indir->GetSingleTempReg();
+            RegNum offsetReg = indir->GetSingleTempReg();
             instGen_Set_Reg_To_Imm(offsetReg, offset);
-            emit->emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
+            emit.emitIns_R_R_R(ins, attr, valueReg, base->GetRegNum(), offsetReg);
         }
 
         return;
@@ -1841,19 +1841,19 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     assert(isPow2(addrMode->GetScale()));
 
-    regNumber baseReg  = base->GetRegNum();
-    regNumber indexReg = index->GetRegNum();
-    unsigned  lsl      = genLog2(addrMode->GetScale());
+    RegNum   baseReg  = base->GetRegNum();
+    RegNum   indexReg = index->GetRegNum();
+    unsigned lsl      = genLog2(addrMode->GetScale());
 
     if (offset == 0)
     {
         if (lsl > 0)
         {
-            emit->emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+            emit.emitIns_R_R_R_I(ins, attr, valueReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
         }
         else
         {
-            emit->emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
+            emit.emitIns_R_R_R(ins, attr, valueReg, baseReg, indexReg);
         }
 
         return;
@@ -1861,8 +1861,8 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
 
     // TODO-MIKE-Cleanup: Remove all this idiocy.
 
-    regNumber tmpReg  = indir->GetSingleTempReg();
-    emitAttr  tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_4BYTE;
+    RegNum   tmpReg  = indir->GetSingleTempReg();
+    emitAttr tmpAttr = varTypeIsGC(base->GetType()) ? EA_BYREF : EA_4BYTE;
 
     noway_assert(IsLoadIns(ins) || (tmpReg != valueReg));
 
@@ -1871,22 +1871,22 @@ void CodeGen::emitInsIndir(instruction ins, emitAttr attr, regNumber valueReg, G
         noway_assert(tmpReg != indexReg);
 
         instGen_Set_Reg_To_Imm(tmpReg, offset);
-        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
-        emit->emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+        emit.emitIns_R_R_R(INS_add, tmpAttr, tmpReg, tmpReg, baseReg);
+        emit.emitIns_R_R_R_I(ins, attr, valueReg, tmpReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
 
         return;
     }
 
     if (lsl > 0)
     {
-        emit->emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
+        emit.emitIns_R_R_R_I(INS_add, tmpAttr, tmpReg, baseReg, indexReg, lsl, INS_FLAGS_DONT_CARE, INS_OPTS_LSL);
     }
     else
     {
-        emit->emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
+        emit.emitIns_R_R_R(INS_add, tmpAttr, tmpReg, baseReg, indexReg);
     }
 
-    emit->emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
+    emit.emitIns_R_R_I(ins, attr, valueReg, tmpReg, offset);
 }
 
 // clang-format off
