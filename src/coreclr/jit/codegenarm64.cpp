@@ -2413,7 +2413,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
         if (type == TYP_SIMD16)
         {
-            if (argLclOffs <= 504)
+            if (Arm64Imm::IsLdpStpImm(argLclOffs, EA_8BYTE))
             {
                 emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, {argLclNum, argLclOffs});
                 return;
@@ -2440,7 +2440,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
     {
         size = roundUp(size, REGSIZE_BYTES);
 
-        while ((size >= 2 * REGSIZE_BYTES) && (argLclOffs <= 504))
+        while ((size >= 2 * REGSIZE_BYTES) && Arm64Imm::IsLdpStpImm(argLclOffs, EA_8BYTE))
         {
             emit.emitIns_S_S_R_R(INS_stp, EA_8BYTE, EA_8BYTE, REG_ZR, REG_ZR, {argLclNum, argLclOffs});
             size -= 2 * REGSIZE_BYTES;
@@ -2499,7 +2499,8 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
 
     unsigned offset = 0;
 
-    for (; (size >= 2 * REGSIZE_BYTES) && (srcOffset + offset <= 504) && (argLclOffs + offset <= 504);
+    for (; (size >= 2 * REGSIZE_BYTES) && Arm64Imm::IsLdpStpImm(srcOffset + offset, EA_8BYTE) &&
+           Arm64Imm::IsLdpStpImm(argLclOffs + offset, EA_8BYTE);
          size -= 2 * REGSIZE_BYTES, offset += 2 * REGSIZE_BYTES)
     {
         emitAttr attr  = emitTypeSize(layout->GetGCPtrType(offset / REGSIZE_BYTES));

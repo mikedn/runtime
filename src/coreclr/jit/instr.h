@@ -351,6 +351,7 @@ struct Arm64Imm
     static bool IsAddImm(int64_t value, emitAttr size);
     static bool IsAluImm(int64_t value, emitAttr size);
     static bool IsLdStImm(int64_t value, emitAttr size);
+    static bool IsLdpStpImm(int64_t value, emitAttr size);
     static bool IsBlImm(int64_t value, Compiler* compiler);
     static bool IsBitMaskImm(int64_t value, emitAttr size, unsigned* imm);
     static int64_t DecodeBitMaskImm(unsigned imm, emitAttr size);

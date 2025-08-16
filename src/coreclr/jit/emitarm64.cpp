@@ -1070,6 +1070,23 @@ bool Arm64Imm::IsLdStImm(int64_t imm, emitAttr attr)
     return false; // not encodable
 }
 
+bool Arm64Imm::IsLdpStpImm(int64_t imm, emitAttr attr)
+{
+    unsigned size = EA_SIZE_IN_BYTES(attr);
+
+    if ((size != 4) && (size != 8) && (size != 16))
+    {
+        return false;
+    }
+
+    unsigned scale = genLog2(size);
+    int64_t  min   = -(0x40LL << scale);
+    int64_t  max   = (0x3fLL << scale);
+    int64_t  mask  = (1LL << scale) - 1;
+
+    return (min <= imm) && (imm <= max) && ((imm & mask) == 0);
+}
+
 #ifdef DEBUG
 static double DecodeFMovImm(int64_t imm8)
 {
