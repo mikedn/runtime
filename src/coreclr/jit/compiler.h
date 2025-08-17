@@ -2351,8 +2351,8 @@ struct ThrowHelperBlock
     ThrowHelperKind const kind;
 
 #if !FEATURE_FIXED_OUT_ARGS
-    bool     stackLevelSet = false;
-    unsigned stackLevel    = 0;
+    bool     stackOffsetSet = false;
+    unsigned stackOffset    = 0;
 #endif
 
     ThrowHelperBlock(ThrowHelperBlock* next, ThrowHelperKind kind, unsigned throwIndex, BasicBlock* block)
@@ -3804,7 +3804,7 @@ public:
 public:
     bool isTrivialPointerSizedStruct(ClassLayout* layout) const;
     bool isNativePrimitiveStructType(ClassLayout* layout);
-    var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
+    static var_types abiGetStructIntegerRegisterType(ClassLayout* layout);
     StructPassing abiGetStructParamType(ClassLayout* layout, bool isVarArg);
     StructPassing abiGetStructReturnType(ClassLayout* layout, CorInfoCallConvExtension callConv, bool isVarArgs);
 
@@ -3814,7 +3814,7 @@ public:
     // Not exposed outside Compiler
     bool fgReachable(BasicBlock* b1, BasicBlock* b2); // Returns true if block b1 can reach block b2
 
-    // Compute immediate dominators, the dominator tree and and its pre/post-order travsersal numbers.
+    // Compute immediate dominators, the dominator tree and and its pre/post-order traversal numbers.
     void phComputeDoms();
 
     void fgCompDominatedByEHEntryBlocks(BasicBlock** postOrder, BlockSet entryBlocks);

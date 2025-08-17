@@ -4474,8 +4474,8 @@ CallInfo::CallInfo(Compiler* compiler, GenTreeCall* newCall, GenTreeCall* oldCal
 #ifdef DEBUG
     argTableSize = oldArgInfo->argTableSize;
 #endif
-    argCount           = oldArgInfo->argCount;
-    stackArgsSlotCount = oldArgInfo->stackArgsSlotCount;
+    argCount      = oldArgInfo->argCount;
+    stackArgsSize = oldArgInfo->stackArgsSize;
 #ifdef UNIX_X86_ABI
     stackAlignmentDone = oldArgInfo->stackAlignmentDone;
     stackAlignPadding  = oldArgInfo->stackAlignPadding;
@@ -5439,15 +5439,15 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     regMaskTP fltArgSkippedRegMask = RBM_NONE;
 #endif //  TARGET_ARM
 
-    unsigned intArgRegNum = 0;
-    unsigned fltArgRegNum = 0;
-    unsigned argIndex     = 0;
-    unsigned nextSlotNum  = INIT_ARG_STACK_SLOT;
+    unsigned intArgRegNum  = 0;
+    unsigned fltArgRegNum  = 0;
+    unsigned argIndex      = 0;
+    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
 
-    auto AllocateStackSlots = [&nextSlotNum](unsigned slotCount, unsigned alignment) {
-        unsigned firstSlot = roundUp(nextSlotNum, alignment);
-        nextSlotNum        = firstSlot + slotCount;
-        return firstSlot;
+    auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
+        unsigned offset = roundUp(stackArgsSize, alignment);
+        stackArgsSize   = offset + size;
+        return offset;
     };
 
     for (GenTreeCall::Use& args : call->Uses())
@@ -5459,8 +5459,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
 
         unsigned     size            = 0;
-        var_types    sigType         = TYP_UNDEF;
-        unsigned     argAlign        = 1;
+        unsigned     argAlign        = REGSIZE_BYTES;
         const bool   isStructArg     = typIsLayoutNum(args.GetSigTypeNum());
         ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
         unsigned     structSize      = 0;
@@ -5472,8 +5471,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         if (isStructArg)
         {
             structSize = layout->GetSize();
-            sigType    = TYP_STRUCT;
-
             layout->EnsureHfaInfo(this);
 
             if (layout->IsHfa()
@@ -5489,8 +5486,10 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             }
 
 #ifdef TARGET_ARM
-            argAlign = info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle());
-            argAlign = roundUp(argAlign, REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
+#endif
+#ifdef OSX_ARM64_ABI
+            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
 #endif
 
             StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
@@ -5525,7 +5524,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         }
         else
         {
-            sigType = static_cast<var_types>(args.GetSigTypeNum());
+            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
 
             // The signature type should type should never be STRUCT, for struct params we should have
             // a layout instead. If it is then it's likely that we have a helper call with struct params.
@@ -5540,7 +5539,10 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                    ((sigType == TYP_BYREF) && (argType == TYP_REF)));
 
 #ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES) / REGSIZE_BYTES;
+            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
+#endif
+#ifdef OSX_ARM64_ABI
+            argAlign = lvaGetParamAlignment(sigType, false);
 #endif
 
 #ifdef TARGET_64BIT
@@ -5554,7 +5556,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         const bool passUsingFloatRegs =
             !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
 
-        if (argAlign == 2)
+        if (argAlign == 2 * REGSIZE_BYTES)
         {
             if (passUsingFloatRegs)
             {
@@ -5587,9 +5589,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 #ifdef TARGET_ARM
         bool     isBackFilled     = false;
         unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-#ifdef OSX_ARM64_ABI
-        unsigned argAlignBytes = lvaGetParamAlignment(sigType, hfaType == TYP_FLOAT);
 #endif
         RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
 
@@ -5767,7 +5766,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
         if (!isRegArg)
         {
-            argInfo->SetSlots(AllocateStackSlots(size, argAlign), size);
+            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
         }
         else
         {
@@ -5803,8 +5802,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
             unsigned regCount = size;
 #if FEATURE_ARG_SPLIT
-            unsigned firstSlot = 0;
-            unsigned slotCount = 0;
+            unsigned stackSize = 0;
 #endif
 
             if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
@@ -5829,9 +5827,10 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                         // This indicates a partial enregistration of a struct arg
                         assert(isStructArg);
 
-                        regCount  = MAX_REG_ARG - intArgRegNum;
-                        slotCount = size - regCount;
-                        firstSlot = AllocateStackSlots(slotCount, 1);
+                        regCount             = MAX_REG_ARG - intArgRegNum;
+                        stackSize            = (size - regCount) * REGSIZE_BYTES;
+                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
+                        assert(stackOffset == 0);
                     }
 #endif
 
@@ -5899,9 +5898,9 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 #endif
 
 #if FEATURE_ARG_SPLIT
-            if (slotCount != 0)
+            if (stackSize != 0)
             {
-                argInfo->SetSlots(firstSlot, slotCount);
+                argInfo->SetStack(0, stackSize);
             }
 #endif
         }
@@ -5919,7 +5918,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         callInfo->AddArg(argInfo);
     }
 
-    callInfo->SetStackArgsSlotCount(nextSlotNum);
+    callInfo->SetStackArgsSize(stackArgsSize);
     call->SetInfo(callInfo);
 
 #ifdef DEBUG

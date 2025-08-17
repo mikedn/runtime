@@ -493,7 +493,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
     // We need to figure out the size of the outgoing stack arguments, not including the special args.
     // The number of 4-byte words is passed to the helper for the incoming and outgoing argument sizes.
     // This number is exactly the next slot number in the call's argument info struct.
-    unsigned numNewStackSlots = callInfo->GetStackArgsSlotCount();
+    unsigned numNewStackSlots = callInfo->GetStackArgsSize() / REGSIZE_BYTES;
     assert(numNewStackSlots >= 4);
     numNewStackSlots -= 4;
 

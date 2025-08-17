@@ -209,7 +209,7 @@ void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
     {
         noway_assert(block->emitLabel != nullptr);
 
-        SetStackLevel(compiler->fgFindThrowHelperBlock(block)->stackLevel * REGSIZE_BYTES);
+        SetStackLevel(compiler->fgFindThrowHelperBlock(block)->stackOffset);
 
         if (genStackLevel != 0)
         {
@@ -8467,7 +8467,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
             assert(throwBlock == helper->block);
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(helper->stackLevelSet || isFramePointerUsed());
+            assert(helper->stackOffsetSet || isFramePointerUsed());
 #endif
 #endif
         }
@@ -8476,7 +8476,7 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
             helper = compiler->fgFindThrowHelperBlock(throwKind, m_currentBlock);
             assert(helper != nullptr);
 #if !FEATURE_FIXED_OUT_ARGS
-            assert(helper->stackLevelSet || isFramePointerUsed());
+            assert(helper->stackOffsetSet || isFramePointerUsed());
 #endif
             throwBlock = helper->block;
             assert(throwBlock != nullptr);
@@ -8487,9 +8487,9 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         {
 #ifdef UNIX_X86_ABI
             // helper's stackLevel is a (pure) argument count (stack alignment padding should be excluded).
-            assert(helper->stackLevel * 4 == genStackLevel - curNestedAlignment);
+            assert(helper->stackOffset == genStackLevel - curNestedAlignment);
 #else
-            assert(helper->stackLevel * 4 == genStackLevel);
+            assert(helper->stackOffset == genStackLevel);
 #endif
         }
 #endif

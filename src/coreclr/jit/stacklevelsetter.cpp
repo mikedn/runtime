@@ -12,10 +12,10 @@
 class StackLevelSetter
 {
     Compiler* comp;
-    unsigned  currentStackLevel = 0; // current number of stack slots used by arguments.
-    unsigned  maxStackLevel     = 0; // max number of stack slots for arguments.
-    bool      framePointerRequired;  // Is frame pointer required based on the analysis made by this phase.
-    bool      throwHelperBlocksUsed; // Were any throw helper blocks created for this method.
+    unsigned  stackOffset           = 0;
+    unsigned  maxStackOffset        = 0;
+    bool      framePointerRequired  = false;
+    bool      throwHelperBlocksUsed = false;
 
 public:
     StackLevelSetter(Compiler* compiler);
@@ -28,7 +28,7 @@ private:
     void SetThrowHelperBlockStackLevel(ThrowHelperKind kind, BasicBlock* throwBlock);
     void PopCallArgs(GenTreeCall* call);
     void PushArg(GenTreeArgStore* store);
-    void PopArgs(unsigned slotCount);
+    void PopArgs(unsigned stackSize);
 };
 
 StackLevelSetter::StackLevelSetter(Compiler* compiler)
@@ -46,12 +46,12 @@ void StackLevelSetter::Run()
     }
 
     // Profiler hook calls do not appear in the IR and do push an argument.
-    if (comp->opts.IsProfilerHookNeeded() && (maxStackLevel == 0))
+    if (comp->opts.IsProfilerHookNeeded() && (maxStackOffset == 0))
     {
-        maxStackLevel = 1;
+        maxStackOffset = REGSIZE_BYTES;
     }
 
-    if ((maxStackLevel >= 4) || framePointerRequired)
+    if ((maxStackOffset >= 4 * REGSIZE_BYTES) || framePointerRequired)
     {
         comp->opts.SetFramePointerRequired();
     }
@@ -59,7 +59,7 @@ void StackLevelSetter::Run()
     // The GC encoding for fully interruptible methods does not
     // support more than 1023 pushed arguments, so we have to
     // use a partially interruptible GC info/encoding.
-    if (maxStackLevel >= MAX_PTRARG_OFS)
+    if (maxStackOffset >= MAX_PTRARG_OFS * REGSIZE_BYTES)
     {
         JITDUMP("Too many pushed arguments for fully interruptible encoding, marking method as partially "
                 "interruptible\n");
@@ -70,7 +70,7 @@ void StackLevelSetter::Run()
 
 void StackLevelSetter::ProcessBlock(BasicBlock* block)
 {
-    assert(currentStackLevel == 0);
+    assert(stackOffset == 0);
 
     for (GenTree* node : LIR::AsRange(block))
     {
@@ -94,7 +94,7 @@ void StackLevelSetter::ProcessBlock(BasicBlock* block)
         }
     }
 
-    assert(currentStackLevel == 0);
+    assert(stackOffset == 0);
 }
 
 void StackLevelSetter::SetThrowHelperBlockStackLevel(GenTree* node, BasicBlock* throwBlock)
@@ -148,7 +148,7 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
 {
     ThrowHelperBlock* helper = comp->fgFindThrowHelperBlock(kind, throwBlock);
 
-    if (helper->stackLevelSet)
+    if (helper->stackOffsetSet)
     {
         // If different range checks happen at different stack levels,
         // they can't all jump to the same "call @rngChkFailed" AND have
@@ -175,7 +175,7 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
         CLANG_FORMAT_COMMENT_ANCHOR;
 
 #ifndef UNIX_X86_ABI
-        if (helper->stackLevel != currentStackLevel)
+        if (helper->stackOffset != stackOffset)
 #endif
         {
             framePointerRequired = true;
@@ -183,32 +183,32 @@ void StackLevelSetter::SetThrowHelperBlockStackLevel(ThrowHelperKind kind, Basic
     }
     else
     {
-        helper->stackLevelSet = true;
-        helper->stackLevel    = currentStackLevel;
+        helper->stackOffsetSet = true;
+        helper->stackOffset    = stackOffset;
     }
 }
 
 void StackLevelSetter::PopCallArgs(GenTreeCall* call)
 {
-    PopArgs(call->GetInfo()->GetStackArgsSlotCount());
+    PopArgs(call->GetInfo()->GetStackArgsSize());
 }
 
 void StackLevelSetter::PushArg(GenTreeArgStore* store)
 {
     assert(store->GetPushSize() % REGSIZE_BYTES == 0);
 
-    currentStackLevel += store->GetPushSize() / REGSIZE_BYTES;
+    stackOffset += store->GetPushSize();
 
-    if (currentStackLevel > maxStackLevel)
+    if (stackOffset > maxStackOffset)
     {
-        maxStackLevel = currentStackLevel;
+        maxStackOffset = stackOffset;
     }
 }
 
-void StackLevelSetter::PopArgs(unsigned slotCount)
+void StackLevelSetter::PopArgs(unsigned stackSize)
 {
-    assert(currentStackLevel >= slotCount);
-    currentStackLevel -= slotCount;
+    assert(stackOffset >= stackSize);
+    stackOffset -= stackSize;
 }
 
 PhaseStatus Compiler::phSetThrowHelperBlockStackLevel()

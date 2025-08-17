@@ -1134,9 +1134,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
     // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
     // to behave like a primitive double then it should be passed in a XMM register.
 
-    var_types type = abiGetStructIntegerRegisterType(layout);
-
-    if (type != TYP_UNDEF)
+    if (var_types type = abiGetStructIntegerRegisterType(layout))
     {
         return {SPK_PrimitiveType, type};
     }
@@ -1157,9 +1155,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
         // more sense. And then it's not like the old code specifically checked for empty structs,
         // it just happened to work like this.
 
-        var_types type = abiGetStructIntegerRegisterType(layout);
-
-        if (type != TYP_UNDEF)
+        if (var_types type = abiGetStructIntegerRegisterType(layout))
         {
             return {SPK_PrimitiveType, type};
         }
@@ -1180,9 +1176,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
-    var_types type = abiGetStructIntegerRegisterType(layout);
-
-    if (type != TYP_UNDEF)
+    if (var_types type = abiGetStructIntegerRegisterType(layout))
     {
         return {SPK_PrimitiveType, type};
     }
@@ -1223,9 +1217,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
         // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
         // to behave like a primitive double then it should be returned in XMM0, not in RAX.
 
-        var_types type = abiGetStructIntegerRegisterType(layout);
-
-        if (type != TYP_UNDEF)
+        if (var_types type = abiGetStructIntegerRegisterType(layout))
         {
             return {SPK_PrimitiveType, type};
         }
@@ -1253,9 +1245,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
         // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
         // to behave like a primitive float then it should be returned in ST(0), not in EAX.
 
-        var_types type = abiGetStructIntegerRegisterType(layout);
-
-        if (type != TYP_UNDEF)
+        if (var_types type = abiGetStructIntegerRegisterType(layout))
         {
             return {SPK_PrimitiveType, type};
         }
@@ -1266,9 +1256,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
         // TODO-MIKE-Review: This doesn't seem to handle NFloat correctly. If NFloat is supposed
         // to behave like a primitive float then it should be returned in ST(0), not in EAX.
 
-        var_types type = abiGetStructIntegerRegisterType(layout);
-
-        if (type != TYP_UNDEF)
+        if (var_types type = abiGetStructIntegerRegisterType(layout))
         {
             return {SPK_PrimitiveType, type};
         }
@@ -1282,9 +1270,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());
     }
 
-    var_types type = abiGetStructIntegerRegisterType(layout);
-
-    if (type != TYP_UNDEF)
+    if (var_types type = abiGetStructIntegerRegisterType(layout))
     {
         return {SPK_PrimitiveType, type};
     }
@@ -1301,9 +1287,7 @@ StructPassing Compiler::abiGetStructReturnType(ClassLayout* layout, CorInfoCallC
     if (!callConvIsInstanceMethodCallConv(callConv) || isNativePrimitiveStructType(layout))
     {
 #endif
-        var_types type = abiGetStructIntegerRegisterType(layout);
-
-        if (type != TYP_UNDEF)
+        if (var_types type = abiGetStructIntegerRegisterType(layout))
         {
             return {SPK_PrimitiveType, type};
         }

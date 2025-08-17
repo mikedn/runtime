@@ -4671,8 +4671,7 @@ class CallArgInfo
 
     // The original argument number, also specifies the IL argument evaluation order
     unsigned m_argNum;
-    // When an argument is passed in the OutArg area this is the slot number in the OutArg area
-    unsigned m_slotNum = 0;
+    unsigned m_stackOffset = 0;
     // Count of number of slots that this argument uses
     unsigned m_slotCount = 0;
     // The temp local number if we had to force evaluation of this arg
@@ -4939,13 +4938,13 @@ public:
 
     unsigned GetStackOffset() const
     {
-        return m_slotNum * REGSIZE_BYTES;
+        return m_stackOffset;
     }
 
-    void SetSlots(unsigned firstSlot, unsigned slotCount)
+    void SetStack(unsigned stackOffset, unsigned stackSize)
     {
-        m_slotNum   = firstSlot;
-        m_slotCount = slotCount;
+        m_stackOffset = stackOffset;
+        m_slotCount   = stackSize / REGSIZE_BYTES;
     }
 
     bool IsHfaArg() const
@@ -5017,8 +5016,8 @@ class CallInfo
 #ifdef DEBUG
     unsigned argTableSize = 0;
 #endif
-    unsigned argCount           = 0;
-    unsigned stackArgsSlotCount = INIT_ARG_STACK_SLOT;
+    unsigned argCount      = 0;
+    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
 #ifdef UNIX_X86_ABI
     unsigned stackAlignPadding  = 0;
     bool     stackAlignmentDone = false;
@@ -5046,24 +5045,19 @@ public:
         return argTable[i];
     }
 
-    unsigned GetStackArgsSlotCount() const
+    void SetStackArgsSize(unsigned size)
     {
-        return stackArgsSlotCount;
-    }
-
-    void SetStackArgsSlotCount(unsigned count)
-    {
-        stackArgsSlotCount = count;
+        stackArgsSize = size;
     }
 
     bool HasStackArgs() const
     {
-        return stackArgsSlotCount != INIT_ARG_STACK_SLOT;
+        return stackArgsSize != INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
     }
 
     unsigned GetStackArgsSize() const
     {
-        return stackArgsSlotCount * REGSIZE_BYTES;
+        return stackArgsSize;
     }
 
 #ifdef UNIX_X86_ABI
