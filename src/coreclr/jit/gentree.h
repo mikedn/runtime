@@ -6495,7 +6495,7 @@ public:
 #ifdef TARGET_XARCH
     enum class Kind : uint8_t{Invalid, RepInstr, RepInstrZero, Unroll, UnrollZero, RepInstrXMM, GCUnroll, GCUnrollXMM,
 #ifdef TARGET_X86
-                              Push,    PushZero
+                              Push
 #endif
     };
 #endif

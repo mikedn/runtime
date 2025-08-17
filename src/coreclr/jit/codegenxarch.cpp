@@ -5843,7 +5843,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
             emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_4BYTE);
         }
-        else if (size < XMM_REGSIZE_BYTES)
+        else if (store->GetKind() == GenTreeArgStore::Kind::Push)
         {
             assert(src->isContained());
             assert(!store->HasAnyTempRegs());
@@ -6050,6 +6050,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
 
             emit.emitIns_AR_R(ins, EA_ATTR(regSize), tmpReg, REG_SPBASE, offset);
         }
+
         return;
     }
 

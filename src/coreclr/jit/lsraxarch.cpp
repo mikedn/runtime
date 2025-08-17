@@ -1087,34 +1087,13 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
     GenTree*  src  = store->GetOp(0);
     var_types type = store->GetArgType();
 
-#ifndef WINDOWS_AMD64_ABI
-    if (type == TYP_SIMD12)
-    {
-        BuildUse(src);
-        BuildInternalFloatDef(store);
-        BuildInternalUses();
-
-        return;
-    }
-#endif
-
 #ifdef TARGET_X86
-    if (varTypeIsByte(type))
-    {
-        if (!src->isContained())
-        {
-            BuildUse(src, allByteRegs());
-        }
-
-        return;
-    }
-
     if (src->IsMultiRegCall() && varTypeIsStruct(src->GetType()))
     {
-        for (unsigned i = 0; i < src->AsCall()->GetRegCount(); i++)
-        {
-            BuildUse(src, RBM_NONE, i);
-        }
+        assert(src->AsCall()->GetRegCount() == 2);
+
+        BuildUse(src, RBM_NONE, 0);
+        BuildUse(src, RBM_NONE, 1);
 
         return;
     }
@@ -1122,32 +1101,27 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
 
     if (type == TYP_STRUCT)
     {
-        assert(Compiler::typIsLayoutNum(store->GetArgTypeNum()));
-
 #ifndef WINDOWS_AMD64_ABI
         if (src->IsIntCon(0))
         {
             if (store->GetKind() == GenTreeArgStore::Kind::RepInstrZero)
             {
+                BuildUse(src, RBM_RAX);
                 BuildInternalIntDef(store, RBM_RDI);
                 BuildInternalIntDef(store, RBM_RCX);
-                BuildUse(src, RBM_RAX);
             }
+#ifdef TARGET_X86
+            else if (store->GetKind() == GenTreeArgStore::Kind::Push)
+            {
+                assert(src->isContained());
+            }
+#endif
             else
             {
                 assert(store->GetKind() == GenTreeArgStore::Kind::UnrollZero);
                 assert(src->isContained());
 
-#ifdef TARGET_X86
-                unsigned     argTypeNum = store->GetArgTypeNum();
-                ClassLayout* argLayout  = compiler->typGetLayoutByNum(argTypeNum);
-                unsigned     argSize    = roundUp(argLayout->GetSize(), REGSIZE_BYTES);
-
-                if (argSize >= XMM_REGSIZE_BYTES)
-#endif
-                {
-                    BuildInternalFloatDef(store, internalFloatRegCandidates());
-                }
+                BuildInternalFloatDef(store, internalFloatRegCandidates());
             }
 
             BuildInternalUses();
@@ -1157,6 +1131,9 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
 #endif // !WINDOWS_AMD64_ABI
 
         assert(src->TypeIs(TYP_STRUCT));
+        assert(src->isContained());
+
+        ClassLayout* layout = compiler->typGetLayoutByNum(store->GetArgTypeNum());
 
         switch (store->GetKind())
         {
@@ -1166,23 +1143,12 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
 #endif
 
             case GenTreeArgStore::Kind::Unroll:
-                ClassLayout* layout;
-                unsigned     size;
+                unsigned size;
+                size = layout->GetSize();
 
-                if (src->OperIs(GT_LCL_LOAD))
+                if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
                 {
-                    layout = src->AsLclLoad()->GetLcl()->GetLayout();
-                    size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-                }
-                else if (src->OperIs(GT_LCL_LOAD_FLD))
-                {
-                    layout = src->AsLclLoadFld()->GetLayout(compiler);
-                    size   = roundUp(layout->GetSize(), REGSIZE_BYTES);
-                }
-                else
-                {
-                    layout = src->AsIndLoadObj()->GetLayout();
-                    size   = layout->GetSize();
+                    size = roundUp(size, REGSIZE_BYTES);
                 }
 
                 if ((size % XMM_REGSIZE_BYTES) != 0)
@@ -1196,9 +1162,6 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
                 if (size >= XMM_REGSIZE_BYTES)
 #endif
                 {
-                    // If we have a buffer larger than or equal to XMM_REGSIZE_BYTES on x64/ux,
-                    // or larger than or equal to 8 bytes on x86, reserve an XMM register to use it for a
-                    // series of 16-byte loads and stores.
                     BuildInternalFloatDef(store, internalFloatRegCandidates());
                     SetContainsAVXFlags();
                 }
@@ -1236,9 +1199,20 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
         return;
     }
 
-    if (!src->isContained())
+#ifndef WINDOWS_AMD64_ABI
+    if (type == TYP_SIMD12)
     {
         BuildUse(src);
+        BuildInternalFloatDef(store);
+        BuildInternalUses();
+
+        return;
+    }
+#endif
+
+    if (!src->isContained())
+    {
+        BuildUse(src X86_ARG(varTypeIsByte(type) ? allByteRegs() : RBM_NONE));
     }
 #ifdef TARGET_X86
     else if (src->OperIs(GT_IND_LOAD))

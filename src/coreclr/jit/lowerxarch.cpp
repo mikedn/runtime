@@ -409,6 +409,12 @@ void Lowering::LowerArgStore(GenTreeArgStore* store)
         {
             store->SetKind(GenTreeArgStore::Kind::RepInstrZero);
         }
+#ifdef TARGET_X86
+        else if (argSize < XMM_REGSIZE_BYTES)
+        {
+            store->SetKind(GenTreeArgStore::Kind::Push);
+        }
+#endif
         else
         {
             store->SetKind(GenTreeArgStore::Kind::UnrollZero);
