@@ -1104,9 +1104,9 @@ var_types Compiler::abiGetStructIntegerRegisterType(ClassLayout* layout)
     switch (layout->GetSize())
     {
         case 1:
-            return TYP_BYTE;
+            return TYP_UBYTE;
         case 2:
-            return TYP_SHORT;
+            return TYP_USHORT;
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_ARMARCH)
         case 3:
             return TYP_INT;

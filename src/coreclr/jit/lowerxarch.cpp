@@ -413,6 +413,7 @@ void Lowering::LowerArgStore(GenTreeArgStore* store)
         else if (argSize < XMM_REGSIZE_BYTES)
         {
             store->SetKind(GenTreeArgStore::Kind::Push);
+            src->SetContained();
         }
 #endif
         else

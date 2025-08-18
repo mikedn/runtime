@@ -1475,6 +1475,8 @@ void Lowering::InsertPutArgSplit(GenTreeCall* call, CallArgInfo* argInfo)
 
 void Lowering::InsertFieldListArgSplit(GenTreeFieldList* fields, GenTreeCall* call, CallArgInfo* argInfo)
 {
+    assert(argInfo->GetNode() == fields);
+
     if (call->IsFastTailCall())
     {
         NYI_ARM("fast tail call with split argument");
@@ -1506,7 +1508,7 @@ void Lowering::InsertFieldListArgSplit(GenTreeFieldList* fields, GenTreeCall* ca
 
         BlockRange().InsertBefore(before, regDef);
 
-        if (i == 0)
+        if (argInfo->GetNode() == fields)
         {
             argInfo->SetNode(regDef);
         }
@@ -1701,7 +1703,7 @@ void Lowering::InsertPutArg(GenTreeCall* call, CallArgInfo* argInfo)
     }
     else if (argInfo->GetStackSize() != 0)
     {
-#if TARGET_ARM
+#ifdef TARGET_ARM
         InsertPutArgSplit(call, argInfo);
 #else
         unreached();

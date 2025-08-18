@@ -5983,8 +5983,9 @@ void Compiler::moSetupCallArgs(GenTreeCall* const call)
         assert(argInfo->GetSetupUse() == nullptr);
 
         bool paramIsStruct = typIsLayoutNum(argUse.GetSigTypeNum());
+        bool isStructInit  = arg->IsIntegralConst(0) && paramIsStruct;
 
-        if (!varTypeIsStruct(arg->GetType()) && (!arg->IsIntegralConst(0) || !paramIsStruct))
+        if (!varTypeIsStruct(arg->GetType()) && !isStructInit)
         {
             if (paramIsStruct && arg->OperIs(GT_CONV) &&
                 (varTypeSize(arg->GetType()) == typGetLayoutByNum(argUse.GetSigTypeNum())->GetSize()))
@@ -6172,7 +6173,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 #endif
 
-    if (arg->TypeIs(TYP_STRUCT) && (argInfo->GetArgType() != TYP_STRUCT))
+    var_types argType = argInfo->GetArgType();
+
+    if (arg->TypeIs(TYP_STRUCT) && (argType != TYP_STRUCT))
     {
         // While not required for correctness, we can change the type of a struct arg to
         // be a primitive type of suitable size (e.g. a 2 byte struct can be treated as
@@ -6183,10 +6186,9 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
         // VN be able to convert from a "zero map" to any primitive type in order to
         // const propagate default struct initialization?
 
-        assert(argInfo->GetStackSize() == roundUp(varTypeSize(argInfo->GetArgType()), REGSIZE_BYTES));
+        assert(argInfo->GetStackSize() == roundUp(varTypeSize(argType), REGSIZE_BYTES));
 
-        var_types argType   = argInfo->GetArgType();
-        bool      canRetype = false;
+        bool canRetype = false;
 
         if (arg->OperIs(GT_IND_LOAD_OBJ))
         {
@@ -6216,13 +6218,6 @@ bool Compiler::abiMorphStackStructArg(CallArgInfo* argInfo, GenTree* arg)
 
         if (canRetype)
         {
-            if (varTypeIsSmall(argType))
-            {
-                // argType is a signed type but this is a struct so sign extension isn't necessary.
-                // On XARCH it causes MOVSX to be generated, which has larger encoding than MOVZX.
-                argType = varTypeToSmallUnsigned(argType);
-            }
-
             arg->SetType(argType);
         }
     }
@@ -6534,13 +6529,6 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 
     var_types argRegType = argInfo->GetArgType();
     unsigned  argSize    = 0;
-
-    if (varTypeIsSmall(argRegType))
-    {
-        // This being a struct, sign extension isn't needed so use unsigned small int types.
-        // On XARCH we get MOVZX which may end up being shorter than MOVSX.
-        argRegType = varTypeToSmallUnsigned(argRegType);
-    }
 
     if (arg->IsIntegralConst(0))
     {
