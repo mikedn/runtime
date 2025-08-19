@@ -4387,7 +4387,7 @@ void CallArgInfo::Dump() const
     else
 #endif
     {
-        printf("arg %u:", m_argNum);
+        printf("arg %2u:", m_argNum);
     }
 
     printf(" [%06u] %s %s", GetNode()->GetID(), GenTree::OpName(GetNode()->GetOper()), varTypeName(m_argType));
@@ -5458,15 +5458,15 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         // We should not have setup the arguments yet
         assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
 
-        unsigned     size            = 0;
-        unsigned     argAlign        = REGSIZE_BYTES;
-        const bool   isStructArg     = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout          = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize      = 0;
-        var_types    structBaseType  = TYP_STRUCT;
-        bool         passStructByRef = false;
-        var_types    hfaType         = TYP_UNDEF;
-        unsigned     hfaSlots        = 0;
+        unsigned     size          = 0;
+        unsigned     argAlign      = REGSIZE_BYTES;
+        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
+        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
+        unsigned     structSize    = 0;
+        var_types    structArgType = TYP_STRUCT;
+        bool         implicitByRef = false;
+        var_types    hfaType       = TYP_UNDEF;
+        unsigned     hfaSlots      = 0;
 
         if (isStructArg)
         {
@@ -5492,10 +5492,10 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
 #endif
 
-            StructPassing howToPassStruct = abiGetStructParamType(layout, callIsVararg);
+            StructPassing pass = abiGetStructParamType(layout, callIsVararg);
 
-            structBaseType  = howToPassStruct.type;
-            passStructByRef = howToPassStruct.kind == SPK_ByReference;
+            structArgType = pass.type;
+            implicitByRef = pass.kind == SPK_ByReference;
 
 #if defined(WINDOWS_AMD64_ABI)
             size = 1;
@@ -5509,17 +5509,23 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             else
             {
                 size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!passStructByRef || (size == 1));
+                assert(!implicitByRef || (size == 1));
             }
 #else
 #error Unsupported or unset target architecture
 #endif
 
-            if (howToPassStruct.kind == SPK_PrimitiveType)
+            if (pass.kind == SPK_PrimitiveType)
             {
                 // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
                 // or for a struct of two floats. This causes the struct to be address-taken.
-                size = 1 ARM_ONLY(+(structBaseType == TYP_DOUBLE));
+                size = 1 ARM_ONLY(+(structArgType == TYP_DOUBLE));
+            }
+
+            if (structArgType == TYP_UNDEF)
+            {
+                assert(implicitByRef);
+                structArgType = argType;
             }
         }
         else
@@ -5528,7 +5534,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
             // The signature type should type should never be STRUCT, for struct params we should have
             // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(sigType != TYP_STRUCT);
+            assert(!varTypeIsStruct(sigType));
 
             // We may get primitive args for struct params but never the other way around.
             assert(!varTypeIsStruct(argType));
@@ -5907,8 +5913,8 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
         if (isStructArg)
         {
-            argInfo->SetIsImplicitByRef(passStructByRef);
-            argInfo->SetArgType(structBaseType == TYP_UNDEF ? argType : structBaseType);
+            argInfo->SetIsImplicitByRef(implicitByRef);
+            argInfo->SetArgType(structArgType);
         }
         else
         {
@@ -5924,7 +5930,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 #ifdef DEBUG
     if (verbose)
     {
-        printf("Call [%06u] arg table after moInitCallInfo:\n", call->GetID());
         callInfo->Dump();
         printf("\n");
     }
@@ -5970,7 +5975,7 @@ void Compiler::moSetupCallArgs(GenTreeCall* const call)
 
     // Sometimes we need a second pass to morph args, most commonly for arguments
     // that need to be changed FIELD_LISTs. FIELD_LIST doesn't have a class handle
-    // so if the args needs a temp SpillArgs won't be able to allocate one.
+    // so if the args needs a temp, SpillArgs won't be able to allocate one.
     // Then the first pass does minimal or no morphing of the arg and the second
     // pass replaces the arg with a FIELD_LIST node.
     bool requires2ndPass = false;
@@ -8562,9 +8567,9 @@ bool Compiler::moCallHasMustCopyByrefParameter(CallInfo* callInfo)
             {
                 GenTreeLclLoad* const lclNode2 = argNode2->IsImplicitByrefIndir(this);
 
-                if ((lclNode2 != nullptr) && (lclNode->GetLcl() == lclNode2->GetLcl()))
+                if ((lclNode2 != nullptr) && (lcl == lclNode2->GetLcl()))
                 {
-                    JITDUMP("Implicit byref param V%02u value is passed in multiple args\n");
+                    JITDUMP("Implicit byref param V%02u value is passed in multiple args\n", lcl->GetLclNum());
                     return true;
                 }
 
@@ -8581,9 +8586,9 @@ bool Compiler::moCallHasMustCopyByrefParameter(CallInfo* callInfo)
                 continue;
             }
 
-            if (argNode2->OperIs(GT_LCL_LOAD) && (argNode2->AsLclLoad()->GetLcl() == lclNode->GetLcl()))
+            if (argNode2->OperIs(GT_LCL_LOAD) && (argNode2->AsLclLoad()->GetLcl() == lcl))
             {
-                JITDUMP("Implicit byref param V%02u address is also passed in an arg\n");
+                JITDUMP("Implicit byref param V%02u address is also passed in an arg\n", lcl->GetLclNum());
                 return true;
             }
 
@@ -10444,7 +10449,7 @@ GenTree* Compiler::moExpandVirtualVtableCallTarget(CORINFO_METHOD_HANDLE methodH
 
 GenTree* Compiler::moMorphStructInit(GenTree* store, GenTree* value)
 {
-    JITDUMPTREE(store, "\nfgMorphInitStruct (before):\n");
+    JITDUMPTREE(store, "\nmoMorphStructInit (before):\n");
 
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
     assert(varTypeIsStruct(store->GetType()));
@@ -11103,7 +11108,7 @@ GenTree* Compiler::moMorphDynBlk(GenTreeDynBlk* dynBlk)
 
 GenTree* Compiler::moMorphStructCopy(GenTree* store, GenTree* src)
 {
-    JITDUMPTREE(store, "\nfgMorphCopyStruct: (before)\n");
+    JITDUMPTREE(store, "\nmoMorphStructCopy: (before)\n");
 
     assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD, GT_IND_STORE_OBJ, GT_IND_STORE));
     assert(store->TypeIs(TYP_STRUCT) ? src->TypeIs(TYP_STRUCT) : varTypeIsSIMD(src->GetType()));
