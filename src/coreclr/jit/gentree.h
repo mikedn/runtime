@@ -4671,11 +4671,10 @@ class CallArgInfo
 
     // The original argument number, also specifies the IL argument evaluation order
     unsigned m_argNum;
-    unsigned m_stackOffset = 0;
-    // Count of number of slots that this argument uses
-    unsigned m_slotCount = 0;
     // The temp local number if we had to force evaluation of this arg
-    unsigned m_tempLclNum = BAD_VAR_NUM;
+    unsigned m_tempLclNum  = BAD_VAR_NUM;
+    unsigned m_stackOffset = 0;
+    unsigned m_stackSize   = 0;
     // The type used to pass this argument. This is generally the original argument type, but when
     // a struct is passed as a scalar type, this is that type.
     // Note that if a struct is passed by reference, this will still be the struct type.
@@ -4841,7 +4840,7 @@ public:
 #if FEATURE_FIXED_OUT_ARGS
     void SetIsLateUseNeeded()
     {
-        assert(m_slotCount != 0);
+        assert(m_stackSize != 0);
         m_isLateUseNeeded = true;
     }
 #endif
@@ -4944,7 +4943,7 @@ public:
     void SetStack(unsigned stackOffset, unsigned stackSize)
     {
         m_stackOffset = stackOffset;
-        m_slotCount   = stackSize / REGSIZE_BYTES;
+        m_stackSize   = stackSize;
     }
 
     bool IsHfaArg() const
@@ -4959,16 +4958,18 @@ public:
     bool IsSplit() const
     {
 #ifdef FEATURE_ARG_SPLIT
-        return (m_regCount != 0) && (m_slotCount != 0);
+        return (m_regCount != 0) && (m_stackSize != 0);
 #else
         return false;
 #endif
     }
 
+#ifdef DEBUG
     bool IsSingleRegOrSlot() const
     {
-        return m_regCount + m_slotCount == 1;
+        return m_regCount + m_stackSize / REGSIZE_BYTES == 1;
     }
+#endif
 
     unsigned GetRegCount() const
     {
@@ -4977,12 +4978,12 @@ public:
 
     unsigned GetSlotCount() const
     {
-        return m_slotCount;
+        return m_stackSize / REGSIZE_BYTES;
     }
 
     unsigned GetStackSize() const
     {
-        return m_slotCount * REGSIZE_BYTES;
+        return m_stackSize;
     }
 
     bool IsImplicitByRef() const

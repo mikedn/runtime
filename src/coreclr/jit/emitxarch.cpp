@@ -1610,7 +1610,7 @@ void X86Emitter::PrologSpillParamRegsToShadowSlots()
 {
     assert(codeGen->generatingProlog);
 
-    for (unsigned argNum = 0; argNum < MAX_REG_ARG; ++argNum)
+    for (unsigned argNum = 0; argNum < MAX_INT_REG_ARG; ++argNum)
     {
         RegNum argReg = intArgRegs[argNum];
 

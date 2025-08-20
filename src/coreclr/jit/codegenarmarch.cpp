@@ -1613,9 +1613,9 @@ void CodeGen::GenJmp(GenTreeJmp* jmp)
     // We have no way of knowing if args contain GC references.
     GetEmitter()->DisableGC();
 
-    for (int i = 0; i < MAX_REG_ARG; ++i)
+    for (unsigned i = 0; i < MAX_INT_REG_ARG; ++i)
     {
-        regNumber reg = static_cast<regNumber>(REG_R0 + i);
+        RegNum reg = static_cast<RegNum>(REG_R0 + i);
 
         if ((varargsIntRegMask & genRegMask(reg)) != 0)
         {

@@ -1369,12 +1369,12 @@ void CodeGen::genPrologMoveParamRegs(
     }
     else // we are doing the integer registers
     {
-        noway_assert(regCount <= MAX_REG_ARG);
+        noway_assert(regCount <= MAX_INT_REG_ARG);
 
 #ifdef TARGET_ARM64
         regCount = RET_BUFF_ARGNUM + 1;
 
-        assert(regCount == MAX_REG_ARG + 1);
+        assert(regCount == MAX_INT_REG_ARG + 1);
 #endif
     }
 
@@ -1388,7 +1388,7 @@ void CodeGen::genPrologMoveParamRegs(
     // Note that due to an extra argument register for ARM64 (REG_ARG_RET_BUFF)
     // we have increased the allocated size of the paramRegs by one.
 
-    ParamRegInfo paramRegs[max(MAX_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
+    ParamRegInfo paramRegs[max(MAX_INT_REG_ARG + 1, MAX_FLOAT_REG_ARG)]{};
 
     regMaskTP liveParamRegs = genPrologBuildParamRegsTable(paramRegs, regCount, regLiveIn, isFloat, tempReg);
 

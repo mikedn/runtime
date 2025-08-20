@@ -1139,7 +1139,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
         return {SPK_PrimitiveType, type};
     }
 
-    return {SPK_ByReference, TYP_UNDEF};
+    return {SPK_ByReference, TYP_I_IMPL};
 #elif defined(UNIX_AMD64_ABI)
     layout->EnsureSysVAmd64AbiInfo(this);
 
@@ -1203,7 +1203,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
         return {SPK_ByValue, TYP_STRUCT};
     }
 
-    return {SPK_ByReference, TYP_UNDEF};
+    return {SPK_ByReference, TYP_I_IMPL};
 #else
 #error Unknown ABI
 #endif

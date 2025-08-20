@@ -5395,7 +5395,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     }
     else
     {
-        maxIntArgRegNum = MAX_REG_ARG;
+        maxIntArgRegNum = MAX_INT_REG_ARG;
     }
 #endif // TARGET_X86
 
@@ -5499,12 +5499,28 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
 #if defined(WINDOWS_AMD64_ABI)
             size = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_ARM) || defined(TARGET_X86)
-            size                      = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
+            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+
+            if (pass.kind == SPK_PrimitiveType)
+            {
+                assert(size == 1);
+            }
+#elif defined(TARGET_ARM)
+            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
+
+            if (pass.kind == SPK_PrimitiveType)
+            {
+                size = 1 + (pass.type == TYP_DOUBLE);
+            }
 #elif defined(TARGET_ARM64)
             if (hfaType != TYP_UNDEF)
             {
                 size = hfaSlots;
+            }
+            else if (implicitByRef)
+            {
+                size = 1;
             }
             else
             {
@@ -5514,19 +5530,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 #else
 #error Unsupported or unset target architecture
 #endif
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                // TODO-CQ: abiGetStructParamType should *not* return TYP_DOUBLE for a double struct,
-                // or for a struct of two floats. This causes the struct to be address-taken.
-                size = 1 ARM_ONLY(+(structArgType == TYP_DOUBLE));
-            }
-
-            if (structArgType == TYP_UNDEF)
-            {
-                assert(implicitByRef);
-                structArgType = argType;
-            }
         }
         else
         {
@@ -5572,7 +5575,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                     fltArgRegNum++;
                 }
             }
-            else if (intArgRegNum < MAX_REG_ARG)
+            else if (intArgRegNum < MAX_INT_REG_ARG)
             {
                 if (intArgRegNum % 2 == 1)
                 {
@@ -5582,7 +5585,11 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             }
         }
 #elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType));
+        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
+#ifdef TARGET_WINDOWS
+                                                                   && !callIsVararg
+#endif
+                                                                   );
 #elif defined(TARGET_AMD64)
         const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
 #elif defined(TARGET_X86)
@@ -5633,7 +5640,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             }
             else
             {
-                isRegArg = intArgRegNum < MAX_REG_ARG;
+                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
             }
 #elif defined(TARGET_ARM64)
             if (passUsingFloatRegs)
@@ -5657,7 +5664,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             else
             {
                 // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_REG_ARG;
+                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
 
                 // Did we run out of registers when we had a 16-byte struct (size===2) ?
                 // (i.e we only have one register remaining but we needed two registers to pass this arg)
@@ -5669,14 +5676,14 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                     // between x7 and a the first stack slot
                     if (callIsVararg)
                     {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_REG_ARG;
+                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
                     }
                     else
 #endif
                     {
                         // We also must update intArgRegNum so that we no longer try to
                         // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_REG_ARG;
+                        intArgRegNum = MAX_INT_REG_ARG;
                     }
                 }
             }
@@ -5701,7 +5708,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                     }
 
                     isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_REG_ARG);
+                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
                 }
             }
             else if (passUsingFloatRegs)
@@ -5710,11 +5717,11 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             }
             else
             {
-                isRegArg = intArgRegNum < MAX_REG_ARG;
+                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
             }
 #elif defined(WINDOWS_AMD64_ABI)
             assert(size == 1);
-            isRegArg = intArgRegNum < MAX_REG_ARG;
+            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
 #elif defined(TARGET_X86)
             if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
             {
@@ -5755,12 +5762,12 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
         {
             // If we're going to split a struct between integer registers and the stack, check to
             // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_REG_ARG) && anyFloatStackArgs)
+            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
             {
                 isRegArg = false;
 
                 // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_REG_ARG; intArgRegNum++)
+                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
                 {
                     intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
                 }
@@ -5828,12 +5835,12 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
                 else
                 {
 #if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_REG_ARG)
+                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
                     {
                         // This indicates a partial enregistration of a struct arg
                         assert(isStructArg);
 
-                        regCount             = MAX_REG_ARG - intArgRegNum;
+                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
                         stackSize            = (size - regCount) * REGSIZE_BYTES;
                         unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
                         assert(stackOffset == 0);

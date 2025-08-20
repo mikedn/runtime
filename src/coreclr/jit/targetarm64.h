@@ -227,12 +227,12 @@
   #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved FP and return address
 
   // On ARM64 the calling convention defines REG_R8 (x8) as an additional argument register.
-  // It isn't allocated for the normal user arguments, so it isn't counted by MAX_REG_ARG.
+  // It isn't allocated for the normal user arguments, so it isn't counted by MAX_INT_REG_ARG.
   #define REG_ARG_RET_BUFF         REG_R8
   #define RBM_ARG_RET_BUFF         RBM_R8
   #define RET_BUFF_ARGNUM          8
 
-  #define MAX_REG_ARG              8
+  #define MAX_INT_REG_ARG          8
   #define MAX_FLOAT_REG_ARG        8
 
   #define REG_ARG_FIRST            REG_R0
@@ -250,8 +250,8 @@
   #define REG_ARG_6                REG_R6
   #define REG_ARG_7                REG_R7
 
-  extern const RegNum intArgRegs [MAX_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const RegNum intArgRegs[MAX_INT_REG_ARG];
+  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
 
   #define RBM_ARG_0                RBM_R0
   #define RBM_ARG_1                RBM_R1

@@ -573,7 +573,7 @@ void CodeGen::genSaveCalleeSavedRegistersHelp(regMaskTP regsToSaveMask, int lowe
         if (spDelta != 0)
         {
             // Currently this is the case for varargs only
-            // whose size is MAX_REG_ARG * REGSIZE_BYTES = 64 bytes.
+            // whose size is MAX_INT_REG_ARG * REGSIZE_BYTES = 64 bytes.
             genStackPointerAdjustment(spDelta, REG_NA, nullptr, /* reportUnwindData */ true);
         }
         return;
@@ -679,7 +679,7 @@ void CodeGen::genRestoreCalleeSavedRegistersHelp(regMaskTP regsToRestoreMask, in
         if (spDelta != 0)
         {
             // Currently this is the case for varargs only
-            // whose size is MAX_REG_ARG * REGSIZE_BYTES = 64 bytes.
+            // whose size is MAX_INT_REG_ARG * REGSIZE_BYTES = 64 bytes.
             genStackPointerAdjustment(spDelta, REG_NA, nullptr, /* reportUnwindData */ true);
         }
         return;
@@ -1234,7 +1234,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
     {
         // For varargs we always save all of the integer register arguments
         // so that they are contiguous with the incoming stack arguments.
-        saveRegsPlusPSPSize += MAX_REG_ARG * REGSIZE_BYTES;
+        saveRegsPlusPSPSize += MAX_INT_REG_ARG * REGSIZE_BYTES;
     }
     unsigned saveRegsPlusPSPSizeAligned = roundUp(saveRegsPlusPSPSize, STACK_ALIGN);
     unsigned outgoingArgSpaceAligned    = roundUp(outgoingArgSpaceSize, STACK_ALIGN);
@@ -1260,7 +1260,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
             SP_to_FPLR_save_delta = funcletFrameSizeAligned - (2 /* FP, LR */ * REGSIZE_BYTES);
             if (compiler->info.compIsVarArgs)
             {
-                SP_to_FPLR_save_delta -= MAX_REG_ARG * REGSIZE_BYTES;
+                SP_to_FPLR_save_delta -= MAX_INT_REG_ARG * REGSIZE_BYTES;
             }
 
             SP_to_PSP_slot_delta       = outgoingArgSpaceSize + funcletFrameAlignmentPad;
@@ -1299,7 +1299,7 @@ void CodeGen::genCaptureFuncletPrologEpilogInfo()
             SP_to_FPLR_save_delta = funcletFrameSizeAligned - (2 /* FP, LR */ * REGSIZE_BYTES);
             if (compiler->info.compIsVarArgs)
             {
-                SP_to_FPLR_save_delta -= MAX_REG_ARG * REGSIZE_BYTES;
+                SP_to_FPLR_save_delta -= MAX_INT_REG_ARG * REGSIZE_BYTES;
             }
 
             SP_to_PSP_slot_delta       = outgoingArgSpaceSize + funcletFrameAlignmentPad + saveRegsPlusPSPAlignmentPad;
@@ -3446,7 +3446,7 @@ int CodeGenInterface::genSPtoFPdelta() const
     {
         // The saved frame pointer is at the top of the frame, just beneath the saved varargs register space and the
         // saved LR.
-        delta = genTotalFrameSize() - (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
+        delta = genTotalFrameSize() - (compiler->info.compIsVarArgs ? MAX_INT_REG_ARG * REGSIZE_BYTES : 0) -
                 2 /* FP, LR */ * REGSIZE_BYTES;
     }
     else
@@ -3470,7 +3470,7 @@ int CodeGenInterface::genTotalFrameSize() const
     // since we don't use "push" instructions to save them, we don't have to do the
     // save of these varargs register arguments as the first thing in the prolog.
 
-    int totalFrameSize = (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) +
+    int totalFrameSize = (compiler->info.compIsVarArgs ? MAX_INT_REG_ARG * REGSIZE_BYTES : 0) +
                          calleeRegsPushed * REGSIZE_BYTES + lclFrameSize;
 
     assert(totalFrameSize >= 0);
@@ -9338,14 +9338,14 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
     else if (frameType == 4)
     {
         assert(genSaveFpLrWithAllCalleeSavedRegisters);
-        offsetSpToSavedFp = calleeSaveSPDelta - (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
+        offsetSpToSavedFp = calleeSaveSPDelta - (compiler->info.compIsVarArgs ? MAX_INT_REG_ARG * REGSIZE_BYTES : 0) -
                             2 * REGSIZE_BYTES; // -2 for FP, LR
     }
     else if (frameType == 5)
     {
         assert(genSaveFpLrWithAllCalleeSavedRegisters);
 
-        offsetSpToSavedFp = calleeSaveSPDelta - (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
+        offsetSpToSavedFp = calleeSaveSPDelta - (compiler->info.compIsVarArgs ? MAX_INT_REG_ARG * REGSIZE_BYTES : 0) -
                             2 * REGSIZE_BYTES; // -2 for FP, LR
         JITDUMP("    offsetSpToSavedFp=%d\n", offsetSpToSavedFp);
         PrologEstablishFramePointer(offsetSpToSavedFp, /* reportUnwindData */ true);
@@ -9772,7 +9772,7 @@ void CodeGen::genPopCalleeSavedRegistersAndFreeLclFrame(bool jmpEpilog)
             // "remainingFrameSz" to reverse the SUB of that amount in the prolog.
 
             int offsetSpToSavedFp = calleeSaveSPDelta -
-                                    (compiler->info.compIsVarArgs ? MAX_REG_ARG * REGSIZE_BYTES : 0) -
+                                    (compiler->info.compIsVarArgs ? MAX_INT_REG_ARG * REGSIZE_BYTES : 0) -
                                     2 * REGSIZE_BYTES; // -2 for FP, LR
             GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, REG_SPBASE, REG_FPBASE, offsetSpToSavedFp);
             unwindSetFrameReg(REG_FPBASE, offsetSpToSavedFp);

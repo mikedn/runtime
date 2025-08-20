@@ -196,7 +196,7 @@
 
   #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved EBP and return address
 
-  #define MAX_REG_ARG              2
+  #define MAX_INT_REG_ARG          2
 
   #define MAX_FLOAT_REG_ARG        0
   #define REG_ARG_FIRST            REG_ECX
@@ -206,8 +206,8 @@
   #define REG_ARG_0                REG_ECX
   #define REG_ARG_1                REG_EDX
 
-  extern const RegNum intArgRegs [MAX_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
+  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
   extern const RegNum longShiftHelperArgRegs[3];
   extern const RegNum initPInvokeFrameArgRegs[1];
 

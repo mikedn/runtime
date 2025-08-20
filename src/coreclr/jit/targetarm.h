@@ -219,7 +219,7 @@
 
   #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved FP and return address
 
-  #define MAX_REG_ARG              4
+  #define MAX_INT_REG_ARG          4
   #define MAX_FLOAT_REG_ARG        16
   #define MAX_HFA_RET_SLOTS        8
 
@@ -234,8 +234,8 @@
   #define REG_ARG_2                REG_R2
   #define REG_ARG_3                REG_R3
 
-  extern const RegNum intArgRegs [MAX_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
+  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
   extern const RegNum initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_R0

@@ -273,7 +273,7 @@ inline RegNum MapVarargsParamIntRegToFloatReg(RegNum intReg)
 
 // Map a register argument number ("RegArgNum") to a register number ("RegNum").
 // A RegArgNum is in this range:
-//      [0, MAX_REG_ARG)        -- for integer registers
+//      [0, MAX_INT_REG_ARG)    -- for integer registers
 //      [0, MAX_FLOAT_REG_ARG)  -- for floating point registers
 // Note that RegArgNum's are overlapping for integer and floating-point registers,
 // while RegNum's are not (for ARM anyway, though for x86, it might be different).

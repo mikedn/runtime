@@ -345,7 +345,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
     }
 #endif
 
-    unsigned intRegCount   = MAX_REG_ARG;
+    unsigned intRegCount   = MAX_INT_REG_ARG;
     unsigned floatRegCount = MAX_FLOAT_REG_ARG;
 
 #ifdef TARGET_X86
@@ -440,7 +440,7 @@ void Compiler::lvaInitParams(bool hasRetBufParam)
 #endif
 
     noway_assert(paramInfo.lclNum == info.GetParamCount());
-    assert(paramInfo.intRegIndex <= MAX_REG_ARG);
+    assert(paramInfo.intRegIndex <= MAX_INT_REG_ARG);
 
     codeGen->paramsStackSize             = paramInfo.stackOffset;
     codeGen->paramRegState.intRegCount   = paramInfo.intRegIndex;
@@ -3849,7 +3849,7 @@ void Compiler::lvaAssignParamsVirtualFrameOffsets()
             {
                 assert(genIsValidIntReg(lcl->GetParamReg()));
 
-                lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_REG_ARG) * REGSIZE_BYTES);
+                lcl->SetStackOffset(((lcl->GetParamReg() - REG_R0) - MAX_INT_REG_ARG) * REGSIZE_BYTES);
             }
         }
     }
@@ -3985,7 +3985,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
     // so that they are contiguous with the incoming stack arguments.
     if (info.compIsVarArgs)
     {
-        stkOffs -= MAX_REG_ARG * REGSIZE_BYTES;
+        stkOffs -= MAX_INT_REG_ARG * REGSIZE_BYTES;
     }
 
     // If the frame pointer is used, then we'll save FP/LR at the bottom of the stack.
@@ -4577,7 +4577,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
 #ifdef TARGET_ARM64
     if (info.compIsVarArgs)
     {
-        pushedCount += MAX_REG_ARG;
+        pushedCount += MAX_INT_REG_ARG;
     }
 #endif
 

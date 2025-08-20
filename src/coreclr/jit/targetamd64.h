@@ -246,7 +246,7 @@
   #define FIRST_ARG_STACK_OFFS     (REGSIZE_BYTES)   // return address
 
 #ifdef UNIX_AMD64_ABI
-  #define MAX_REG_ARG              6
+  #define MAX_INT_REG_ARG          6
   #define MAX_FLOAT_REG_ARG        8
   #define REG_ARG_FIRST            REG_EDI
   #define REG_ARG_LAST             REG_R9
@@ -259,8 +259,8 @@
   #define REG_ARG_4                REG_R8
   #define REG_ARG_5                REG_R9
 
-  extern const RegNum intArgRegs [MAX_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
+  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
   extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
@@ -271,7 +271,7 @@
   #define RBM_ARG_4                RBM_R8
   #define RBM_ARG_5                RBM_R9
 #else // !UNIX_AMD64_ABI
-  #define MAX_REG_ARG              4
+  #define MAX_INT_REG_ARG          4
   #define MAX_FLOAT_REG_ARG        4
   #define REG_ARG_FIRST            REG_ECX
   #define REG_ARG_LAST             REG_R9
@@ -282,8 +282,8 @@
   #define REG_ARG_2                REG_R8
   #define REG_ARG_3                REG_R9
 
-  extern const RegNum intArgRegs [MAX_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_REG_ARG];
+  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
+  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
   extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
   extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
