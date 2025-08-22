@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 #pragma once
 
-#if !defined(TARGET_ARM)
+#ifndef TARGET_ARM
 #error The file should not be included for this platform.
 #endif
 
@@ -10,7 +10,6 @@
   // TODO-ARM-CQ: Use shift for division by power of 2
   // TODO-ARM-CQ: Check for sdiv/udiv at runtime and generate it if available
   #define USE_HELPERS_FOR_INT_DIV  1       // BeagleBoard (ARMv7A) doesn't support SDIV/UDIV
-  #define ROUND_FLOAT              0       // Do not round intermed float expression results
 
   #define CPBLK_UNROLL_LIMIT       32      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     16      // Upper bound to let the code generator to loop unroll InitBlk.
@@ -18,18 +17,14 @@
   #define FEATURE_FIXED_OUT_ARGS   1       // Preallocate the outgoing arg area in the prolog
   #define FEATURE_FASTTAILCALL     0       // Tail calls made as epilog+jmp
   #define FEATURE_TAILCALL_OPT     0       // opportunistic Tail calls (i.e. without ".tail" prefix) made as fast tail calls.
-  #define FEATURE_MULTIREG_ARGS_OR_RET  1  // Support for passing and/or returning single values in more than one register (including HFA support)
   #define FEATURE_MULTIREG_ARGS         1  // Support for passing a single argument in more than one register (including passing HFAs)
   #define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register (including HFA returns)
   #define FEATURE_STRUCT_CLASSIFIER     0  // Uses a classifier function to determine is structs are passed/returned in more than one register
-  #define MAX_PASS_SINGLEREG_BYTES      8  // Maximum size of a struct passed in a single register (double).
-  #define MAX_PASS_MULTIREG_BYTES      32  // Maximum size of a struct that could be passed in more than one register (Max is an HFA of 4 doubles)
-  #define MAX_RET_MULTIREG_BYTES       32  // Maximum size of a struct that could be returned in more than one register (Max is an HFA of 4 doubles)
+  #define MAX_PASS_ARGREG_BYTES        32  // Maximum size of a struct that could be passed in more than one register (Max is an HFA of 4 doubles)
   #define MAX_ARG_REG_COUNT             4  // Maximum registers used to pass a single argument in multiple registers. (max is 4 floats or doubles using an HFA)
   #define MAX_RET_REG_COUNT             4  // Maximum registers used to return a value.
 
-  #define MAX_MULTIREG_COUNT            4  // Maxiumum number of registers defined by a single instruction (including calls).
-                                           // This is also the maximum number of registers for a MultiReg node.
+  #define MAX_MULTIREG_COUNT            4  // Maximum number of registers defined by a single instruction node.
 
   #define NOGC_WRITE_BARRIERS      0       // We DO-NOT have specialized WriteBarrier JIT Helpers that DO-NOT trash the RBM_CALLEE_TRASH registers
   #define TARGET_POINTER_SIZE      4       // equal to sizeof(void*) and the managed pointer size in bytes for this target
@@ -192,17 +187,6 @@
   #define RBM_PROFILER_LEAVE_TRASH     RBM_PROFILER_RET_SCRATCH
   #define RBM_PROFILER_TAILCALL_TRASH  RBM_NONE
 
-  // Which register are int and long values returned in ?
-  #define REG_INTRET               REG_R0
-  #define RBM_INTRET               RBM_R0
-  #define REG_LNGRET_LO            REG_R0
-  #define REG_LNGRET_HI            REG_R1
-  #define RBM_LNGRET_LO            RBM_R0
-  #define RBM_LNGRET_HI            RBM_R1
-
-  #define REG_FLOATRET             REG_F0
-  #define RBM_FLOATRET             RBM_F0
-
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper (JIT_RareDisableHelper).
   // See vm\arm\amshelpers.asm for more details.
   #define RBM_STOP_FOR_GC_TRASH     (RBM_CALLEE_TRASH & ~(RBM_R1|RBM_R0|RBM_R7|RBM_R8|RBM_R11|RBM_F0|RBM_F1|RBM_F2|RBM_F3|RBM_F4|RBM_F5|RBM_F6|RBM_F7))
@@ -217,26 +201,21 @@
   #define RBM_SPBASE               RBM_SP
   #define STR_SPBASE               "sp"
 
-  #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved FP and return address
+  #define REG_INTRET               REG_R0
+  #define RBM_INTRET               RBM_R0
+  #define REG_LNGRET_LO            REG_R0
+  #define REG_LNGRET_HI            REG_R1
+  #define REG_FLOATRET             REG_F0
+  #define RBM_FLOATRET             RBM_F0
 
+  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
   #define MAX_INT_REG_ARG          4
   #define MAX_FLOAT_REG_ARG        16
-  #define MAX_HFA_RET_SLOTS        8
-
-  #define REG_ARG_FIRST            REG_R0
-  #define REG_ARG_LAST             REG_R3
-  #define REG_ARG_FP_FIRST         REG_F0
-  #define REG_ARG_FP_LAST          REG_F7
-  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
 
   #define REG_ARG_0                REG_R0
   #define REG_ARG_1                REG_R1
   #define REG_ARG_2                REG_R2
   #define REG_ARG_3                REG_R3
-
-  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
-  extern const RegNum initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_R0
   #define RBM_ARG_1                RBM_R1
@@ -246,9 +225,6 @@
   #define RBM_ARG_REGS            (RBM_ARG_0|RBM_ARG_1|RBM_ARG_2|RBM_ARG_3)
   #define RBM_FLTARG_REGS         (RBM_F0|RBM_F1|RBM_F2|RBM_F3|RBM_F4|RBM_F5|RBM_F6|RBM_F7|RBM_F8|RBM_F9|RBM_F10|RBM_F11|RBM_F12|RBM_F13|RBM_F14|RBM_F15)
   #define RBM_DBL_REGS            RBM_ALLDOUBLE
-
-  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
-  extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   // The first thing in an ARM32 prolog pushes LR to the stack, so this can be 0.
   #define STACK_PROBE_BOUNDARY_THRESHOLD_BYTES 0
@@ -274,3 +250,9 @@ constexpr bool IsFloatReg(RegNum reg)
 {
     return (REG_F0 <= reg) && (reg <= REG_F31);
 }
+
+extern const RegNum    intArgRegs[MAX_INT_REG_ARG];
+extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
+extern const RegNum    fltArgRegs[MAX_FLOAT_REG_ARG];
+extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
+extern const RegNum    initPInvokeFrameArgRegs[1];

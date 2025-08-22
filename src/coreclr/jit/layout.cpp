@@ -527,6 +527,11 @@ ClassLayout* Compiler::typGetLayoutByNum(unsigned layoutNum)
     return typGetClassLayoutTable()->GetLayoutByNum(layoutNum);
 }
 
+ClassLayout* Compiler::typTryGetLayoutByNum(unsigned layoutNum)
+{
+    return typIsLayoutNum(layoutNum) ? typGetClassLayoutTable()->GetLayoutByNum(layoutNum) : nullptr;
+}
+
 unsigned Compiler::typGetLayoutNum(ClassLayout* layout)
 {
     return typGetClassLayoutTable()->GetLayoutNum(layout);
@@ -809,7 +814,7 @@ void ClassLayout::EnsureHfaInfo(Compiler* compiler)
 #ifndef FEATURE_HFA
     m_layoutInfo.hfaElementType = TYP_VOID;
 #else
-    if (!compiler->opts.UseHfa() || (m_size > MAX_PASS_MULTIREG_BYTES))
+    if (!compiler->opts.UseHfa() || (m_size > MAX_PASS_ARGREG_BYTES))
     {
         m_layoutInfo.hfaElementType = TYP_VOID;
 
@@ -1170,7 +1175,7 @@ StructPassing Compiler::abiGetStructParamType(ClassLayout* layout, bool isVarArg
 
     return {SPK_ByValue, TYP_STRUCT};
 #elif defined(TARGET_ARM)
-    if (layout->IsHfa())
+    if (layout->IsHfa() && !isVarArg)
     {
         return layout->GetHfaElementCount() > 1 ? StructPassing(SPK_ByValueAsHfa, TYP_STRUCT)
                                                 : StructPassing(SPK_PrimitiveType, layout->GetHfaElementType());

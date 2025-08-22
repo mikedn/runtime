@@ -4233,7 +4233,7 @@ private:
     class NonStandardArgs;
 
     void moInitCallInfo(GenTreeCall* call);
-    void moAllocCallArgs(GenTreeCall* call, const NonStandardArgs& nonStandardArgs);
+    void moAllocCallArgs(GenTreeCall* call, const NonStandardArgs& nonStandardArgs X86_ARG(unsigned argCount));
     void moMorphCallArgs(GenTreeCall* call);
     void moSetupCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL
@@ -5359,6 +5359,7 @@ public:
     INDEBUG(const char* typGetName(unsigned typeNum);)
     // Get the layout having the specified layout number.
     ClassLayout* typGetLayoutByNum(unsigned layoutNum);
+    ClassLayout* typTryGetLayoutByNum(unsigned layoutNum);
     // Get the layout number of the specified layout.
     unsigned typGetLayoutNum(ClassLayout* layout);
     // Get the layout having the specified size but no class handle.

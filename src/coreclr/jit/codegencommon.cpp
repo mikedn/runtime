@@ -1406,14 +1406,18 @@ void CodeGen::genPrologMoveParamRegs(
 }
 
 // Map a parameter register to a parameter register index.
-static unsigned genGetParamRegIndex(regNumber regNum)
+static unsigned genGetParamRegIndex(RegNum regNum)
 {
+#ifdef TARGET_X86
+    assert(!IsFloatReg(regNum));
+#else
     if (IsFloatReg(regNum))
     {
         assert(isValidFloatArgReg(regNum));
 
         return regNum - FIRST_FP_ARGREG;
     }
+#endif
 
 #ifdef TARGET_ARMARCH
     assert(isValidIntArgReg(regNum));
@@ -1827,11 +1831,13 @@ void CodeGen::genPrologMarkParamRegsCircularDependencies(ParamRegInfo* paramRegs
         JITDUMP("Circular dependencies found while home-ing the incoming arguments.\n");
     }
 
+#ifndef TARGET_X86
     // LSRA allocates registers to incoming parameters in order and will not overwrite
     // a register still holding a live parameter.
 
     noway_assert(((liveParamRegs & RBM_FLTARG_REGS) == RBM_NONE) &&
                  "Homing of float argument registers with circular dependencies not implemented.");
+#endif
 }
 
 regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned paramRegCount, regMaskTP liveParamRegs)
@@ -1891,10 +1897,7 @@ regMaskTP CodeGen::genPrologSpillParamRegs(ParamRegInfo* paramRegs, unsigned par
         {
             storeType = TYP_I_IMPL; // Default store type for a struct type is a pointer sized integer
 
-#if FEATURE_MULTIREG_ARGS
-            // Must be <= MAX_PASS_MULTIREG_BYTES or else it wouldn't be passed in registers
-            noway_assert(lcl->GetLayout()->GetSize() <= MAX_PASS_MULTIREG_BYTES);
-#endif
+            noway_assert(lcl->GetLayout()->GetSize() <= MAX_PASS_ARGREG_BYTES);
 
 #ifdef UNIX_AMD64_ABI
             storeType = paramRegs[paramRegIndex].type;

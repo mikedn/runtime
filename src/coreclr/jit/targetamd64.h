@@ -2,15 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 #pragma once
 
-#if !defined(TARGET_AMD64)
+#ifndef TARGET_AMD64
 #error The file should not be included for this platform.
 #endif
 
 // clang-format off
   // TODO-AMD64-CQ: Fine tune the following xxBlk threshold values:
-
-  #define ROUND_FLOAT              0       // Do not round intermed float expression results
-
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     128     // Upper bound to let the code generator to loop unroll InitBlk.
   #define CPOBJ_NONGC_SLOTS_LIMIT  4       // For CpObj code generation, this is the the threshold of the number
@@ -20,55 +17,45 @@
   #define FEATURE_FIXED_OUT_ARGS   1       // Preallocate the outgoing arg area in the prolog
   #define FEATURE_FASTTAILCALL     1       // Tail calls made as epilog+jmp
   #define FEATURE_TAILCALL_OPT     1       // opportunistic Tail calls (i.e. without ".tail" prefix) made as fast tail calls.
-  #define MAX_PASS_SINGLEREG_BYTES      8  // Maximum size of a struct passed in a single register (double).
-#ifdef    UNIX_AMD64_ABI
+
+#ifdef UNIX_AMD64_ABI
   #define FEATURE_PARTIAL_SIMD_CALLEE_SAVE 0 // Whether SIMD registers are partially saved at calls
-  #define FEATURE_MULTIREG_ARGS_OR_RET  1  // Support for passing and/or returning single values in more than one register
   #define FEATURE_MULTIREG_ARGS         1  // Support for passing a single argument in more than one register
   #define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register
   #define FEATURE_STRUCT_CLASSIFIER     1  // Uses a classifier function to determine if structs are passed/returned in more than one register
-  #define MAX_PASS_MULTIREG_BYTES      32  // Maximum size of a struct that could be passed in more than one register (Max is two SIMD16s)
-  #define MAX_RET_MULTIREG_BYTES       32  // Maximum size of a struct that could be returned in more than one register  (Max is two SIMD16s)
+  #define MAX_PASS_ARGREG_BYTES        32  // Maximum size of a struct that could be passed in more than one register (Max is two SIMD16s)
   #define MAX_ARG_REG_COUNT             2  // Maximum registers used to pass a single argument in multiple registers.
   #define MAX_RET_REG_COUNT             2  // Maximum registers used to return a value.
-
-  #define MAX_MULTIREG_COUNT            2  // Maxiumum number of registers defined by a single instruction (including calls).
-                                           // This is also the maximum number of registers for a MultiReg node.
 #else // !UNIX_AMD64_ABI
   #define WINDOWS_AMD64_ABI                // Uses the Windows ABI for AMD64
   #define FEATURE_PARTIAL_SIMD_CALLEE_SAVE 1 // Whether SIMD registers are partially saved at calls
-  #define FEATURE_MULTIREG_ARGS_OR_RET  0  // Support for passing and/or returning single values in more than one register
   #define FEATURE_MULTIREG_ARGS         0  // Support for passing a single argument in more than one register
   #define FEATURE_MULTIREG_RET          0  // Support for returning a single value in more than one register
-  #define MAX_PASS_MULTIREG_BYTES       0  // No multireg arguments
-  #define MAX_RET_MULTIREG_BYTES        0  // No multireg return values
+  #define MAX_PASS_ARGREG_BYTES         8  // No multireg arguments
   #define MAX_ARG_REG_COUNT             1  // Maximum registers used to pass a single argument (no arguments are passed using multiple registers)
   #define MAX_RET_REG_COUNT             1  // Maximum registers used to return a value.
-
-  #define MAX_MULTIREG_COUNT            2  // Maximum number of registers defined by a single instruction (including calls).
-                                           // This is also the maximum number of registers for a MultiReg node.
-                                           // Note that this must be greater than 1 so that GenTreeLclStore can have an array
-                                           // of MAX_MULTIREG_COUNT - 1.
 #endif // !UNIX_AMD64_ABI
 
+  #define MAX_MULTIREG_COUNT       2       // Maximum number of registers defined by a single instruction node.
   #define NOGC_WRITE_BARRIERS      0       // We DO-NOT have specialized WriteBarrier JIT Helpers that DO-NOT trash the RBM_CALLEE_TRASH registers
   #define TARGET_POINTER_SIZE      8       // equal to sizeof(void*) and the managed pointer size in bytes for this target
   #define FEATURE_EH               1       // To aid platform bring-up, eliminate exceptional EH clauses (catch, filter, filter-handler, fault) and directly execute 'finally' clauses.
   #define FEATURE_EH_CALLFINALLY_THUNKS 1  // Generate call-to-finally code in "thunks" in the enclosing EH region, protected by "cloned finally" clauses.
-#ifdef    UNIX_AMD64_ABI
+
+#ifdef UNIX_AMD64_ABI
   #define ETW_EBP_FRAMED           1       // if 1 we cannot use EBP as a scratch register and must create EBP based frames for most methods
-#else // !UNIX_AMD64_ABI
+#else 
   #define ETW_EBP_FRAMED           0       // if 1 we cannot use EBP as a scratch register and must create EBP based frames for most methods
-#endif // !UNIX_AMD64_ABI
+#endif
 
   #define RBM_ALLFLOAT            (RBM_XMM0 | RBM_XMM1 | RBM_XMM2 | RBM_XMM3 | RBM_XMM4 | RBM_XMM5 | RBM_XMM6 | RBM_XMM7 | RBM_XMM8 | RBM_XMM9 | RBM_XMM10 | RBM_XMM11 | RBM_XMM12 | RBM_XMM13 | RBM_XMM14 | RBM_XMM15)
   #define FIRST_FP_ARGREG          REG_XMM0
 
-#ifdef    UNIX_AMD64_ABI
+#ifdef UNIX_AMD64_ABI
   #define LAST_FP_ARGREG        REG_XMM7
-#else // !UNIX_AMD64_ABI
+#else
   #define LAST_FP_ARGREG        REG_XMM3
-#endif // !UNIX_AMD64_ABI
+#endif
 
   #define REGSIZE_BYTES            8       // number of bytes in one register
   #define XMM_REGSIZE_BYTES        16      // XMM register size in bytes
@@ -83,20 +70,20 @@
   #define RBM_ETW_FRAMED_EBP_LIST
   #define REG_ETW_FRAMED_EBP_LIST
   #define REG_ETW_FRAMED_EBP_COUNT  0
-#else // !ETW_EBP_FRAMED
+#else
   #define RBM_ETW_FRAMED_EBP        RBM_EBP
   #define RBM_ETW_FRAMED_EBP_LIST   RBM_EBP,
   #define REG_ETW_FRAMED_EBP_LIST   REG_EBP,
   #define REG_ETW_FRAMED_EBP_COUNT  1
-#endif // !ETW_EBP_FRAMED
+#endif
 
 #ifdef UNIX_AMD64_ABI
-  #define MIN_ARG_AREA_FOR_CALL   0       // Minimum required outgoing argument space for a call.
+  #define MIN_ARG_AREA_FOR_CALL    0       // Minimum required outgoing argument space for a call.
 
-  #define RBM_INT_CALLEE_SAVED    (RBM_EBX|RBM_ETW_FRAMED_EBP|RBM_R12|RBM_R13|RBM_R14|RBM_R15)
-  #define RBM_INT_CALLEE_TRASH    (RBM_EAX|RBM_RDI|RBM_RSI|RBM_EDX|RBM_ECX|RBM_R8|RBM_R9|RBM_R10|RBM_R11)
-  #define RBM_FLT_CALLEE_SAVED    (0)
-  #define RBM_FLT_CALLEE_TRASH    (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3|RBM_XMM4|RBM_XMM5|RBM_XMM6|RBM_XMM7| \
+  #define RBM_INT_CALLEE_SAVED     (RBM_EBX|RBM_ETW_FRAMED_EBP|RBM_R12|RBM_R13|RBM_R14|RBM_R15)
+  #define RBM_INT_CALLEE_TRASH     (RBM_EAX|RBM_RDI|RBM_RSI|RBM_EDX|RBM_ECX|RBM_R8|RBM_R9|RBM_R10|RBM_R11)
+  #define RBM_FLT_CALLEE_SAVED     (0)
+  #define RBM_FLT_CALLEE_TRASH     (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3|RBM_XMM4|RBM_XMM5|RBM_XMM6|RBM_XMM7| \
                                    RBM_XMM8|RBM_XMM9|RBM_XMM10|RBM_XMM11|RBM_XMM12|RBM_XMM13|RBM_XMM14|RBM_XMM15)
   #define REG_PROFILER_ENTER_ARG_0 REG_R14
   #define RBM_PROFILER_ENTER_ARG_0 RBM_R14
@@ -106,8 +93,7 @@
   #define REG_DEFAULT_PROFILER_CALL_TARGET REG_R11
 
 #else // !UNIX_AMD64_ABI
-#define MIN_ARG_AREA_FOR_CALL     (4 * REGSIZE_BYTES)       // Minimum required outgoing argument space for a call.
-
+  #define MIN_ARG_AREA_FOR_CALL   (4 * REGSIZE_BYTES)       // Minimum required outgoing argument space for a call.
   #define RBM_INT_CALLEE_SAVED    (RBM_EBX|RBM_ESI|RBM_EDI|RBM_ETW_FRAMED_EBP|RBM_R12|RBM_R13|RBM_R14|RBM_R15)
   #define RBM_INT_CALLEE_TRASH    (RBM_EAX|RBM_ECX|RBM_EDX|RBM_R8|RBM_R9|RBM_R10|RBM_R11)
   #define RBM_FLT_CALLEE_SAVED    (RBM_XMM6|RBM_XMM7|RBM_XMM8|RBM_XMM9|RBM_XMM10|RBM_XMM11|RBM_XMM12|RBM_XMM13|RBM_XMM14|RBM_XMM15)
@@ -124,10 +110,6 @@
 
   #define RBM_ALLINT              (RBM_INT_CALLEE_SAVED | RBM_INT_CALLEE_TRASH)
 
-#if 0
-#define REG_VAR_ORDER            REG_EAX,REG_EDX,REG_ECX,REG_ESI,REG_EDI,REG_EBX,REG_ETW_FRAMED_EBP_LIST \
-                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R14,REG_R15,REG_R12,REG_R13
-#else
   // TEMPORARY ORDER TO AVOID CALLEE-SAVES
   // TODO-CQ: Review this and set appropriately
 #ifdef UNIX_AMD64_ABI
@@ -135,12 +117,11 @@
                                  REG_EDX,REG_ECX,REG_R8,REG_R9, \
                                  REG_R10,REG_R11,REG_EBX,REG_ETW_FRAMED_EBP_LIST \
                                  REG_R14,REG_R15,REG_R12,REG_R13
-#else // !UNIX_AMD64_ABI
+#else 
   #define REG_VAR_ORDER          REG_EAX,REG_EDX,REG_ECX, \
                                  REG_R8,REG_R9,REG_R10,REG_R11, \
                                  REG_ESI,REG_EDI,REG_EBX,REG_ETW_FRAMED_EBP_LIST \
                                  REG_R14,REG_R15,REG_R12,REG_R13
-#endif // !UNIX_AMD64_ABI
 #endif
 
   #define REG_VAR_ORDER_FLT      REG_XMM0,REG_XMM1,REG_XMM2,REG_XMM3,REG_XMM4,REG_XMM5,REG_XMM6,REG_XMM7,REG_XMM8,REG_XMM9,REG_XMM10,REG_XMM11,REG_XMM12,REG_XMM13,REG_XMM14,REG_XMM15
@@ -216,26 +197,6 @@
   #define REG_PINVOKE_SCRATCH      REG_EAX
   #define RBM_PINVOKE_SCRATCH      RBM_EAX
 
-  // Which register are int and long values returned in ?
-  #define REG_INTRET               REG_EAX
-  #define RBM_INTRET               RBM_EAX
-
-#ifdef UNIX_AMD64_ABI
-    #define REG_INTRET_1           REG_RDX
-    #define RBM_INTRET_1           RBM_RDX
-#endif 
-
-  #define REG_FLOATRET             REG_XMM0
-  #define RBM_FLOATRET             RBM_XMM0
-
-#ifdef UNIX_AMD64_ABI
-#define REG_FLOATRET_1             REG_XMM1
-#define RBM_FLOATRET_1             RBM_XMM1
-
-#define REG_DOUBLERET_1            REG_XMM1
-#define RBM_DOUBLERET_1            RBM_XMM1
-#endif // UNIX_AMD64_ABI
-
   #define REG_FPBASE               REG_EBP
   #define RBM_FPBASE               RBM_EBP
   #define STR_FPBASE               "rbp"
@@ -243,14 +204,20 @@
   #define RBM_SPBASE               RBM_ESP
   #define STR_SPBASE               "rsp"
 
-  #define FIRST_ARG_STACK_OFFS     (REGSIZE_BYTES)   // return address
+  #define REG_INTRET               REG_EAX
+  #define RBM_INTRET               RBM_EAX
+  #define REG_FLOATRET             REG_XMM0
+  #define RBM_FLOATRET             RBM_XMM0
 
 #ifdef UNIX_AMD64_ABI
+  #define REG_INTRET_1             REG_RDX
+  #define RBM_INTRET_1             RBM_RDX
+  #define REG_FLOATRET_1           REG_XMM1
+  #define RBM_FLOATRET_1           RBM_XMM1
+
+  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
   #define MAX_INT_REG_ARG          6
   #define MAX_FLOAT_REG_ARG        8
-  #define REG_ARG_FIRST            REG_EDI
-  #define REG_ARG_LAST             REG_R9
-  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
 
   #define REG_ARG_0                REG_EDI
   #define REG_ARG_1                REG_ESI
@@ -259,11 +226,6 @@
   #define REG_ARG_4                REG_R8
   #define REG_ARG_5                REG_R9
 
-  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
-  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
-  extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
-
   #define RBM_ARG_0                RBM_RDI
   #define RBM_ARG_1                RBM_RSI
   #define RBM_ARG_2                RBM_EDX
@@ -271,21 +233,14 @@
   #define RBM_ARG_4                RBM_R8
   #define RBM_ARG_5                RBM_R9
 #else // !UNIX_AMD64_ABI
+  #define INIT_ARG_STACK_SLOT      4                  // 4 outgoing reserved stack slots
   #define MAX_INT_REG_ARG          4
   #define MAX_FLOAT_REG_ARG        4
-  #define REG_ARG_FIRST            REG_ECX
-  #define REG_ARG_LAST             REG_R9
-  #define INIT_ARG_STACK_SLOT      4                  // 4 outgoing reserved stack slots
 
   #define REG_ARG_0                REG_ECX
   #define REG_ARG_1                REG_EDX
   #define REG_ARG_2                REG_R8
   #define REG_ARG_3                REG_R9
-
-  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
-  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
-  extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
 
   #define RBM_ARG_0                RBM_ECX
   #define RBM_ARG_1                RBM_EDX
@@ -293,33 +248,13 @@
   #define RBM_ARG_3                RBM_R9
 #endif // !UNIX_AMD64_ABI
 
-  #define REG_FLTARG_0             REG_XMM0
-  #define REG_FLTARG_1             REG_XMM1
-  #define REG_FLTARG_2             REG_XMM2
-  #define REG_FLTARG_3             REG_XMM3
-
-  #define RBM_FLTARG_0             RBM_XMM0
-  #define RBM_FLTARG_1             RBM_XMM1
-  #define RBM_FLTARG_2             RBM_XMM2
-  #define RBM_FLTARG_3             RBM_XMM3
-
 #ifdef UNIX_AMD64_ABI
-  #define REG_FLTARG_4             REG_XMM4
-  #define REG_FLTARG_5             REG_XMM5
-  #define REG_FLTARG_6             REG_XMM6
-  #define REG_FLTARG_7             REG_XMM7
-
-  #define RBM_FLTARG_4             RBM_XMM4
-  #define RBM_FLTARG_5             RBM_XMM5
-  #define RBM_FLTARG_6             RBM_XMM6
-  #define RBM_FLTARG_7             RBM_XMM7
-
   #define RBM_ARG_REGS            (RBM_ARG_0|RBM_ARG_1|RBM_ARG_2|RBM_ARG_3|RBM_ARG_4|RBM_ARG_5)
-  #define RBM_FLTARG_REGS         (RBM_FLTARG_0|RBM_FLTARG_1|RBM_FLTARG_2|RBM_FLTARG_3|RBM_FLTARG_4|RBM_FLTARG_5|RBM_FLTARG_6|RBM_FLTARG_7)
-#else // !UNIX_AMD64_ABI
+  #define RBM_FLTARG_REGS         (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3|RBM_XMM4|RBM_XMM5|RBM_XMM6|RBM_XMM7)
+#else
   #define RBM_ARG_REGS            (RBM_ARG_0|RBM_ARG_1|RBM_ARG_2|RBM_ARG_3)
-  #define RBM_FLTARG_REGS         (RBM_FLTARG_0|RBM_FLTARG_1|RBM_FLTARG_2|RBM_FLTARG_3)
-#endif // !UNIX_AMD64_ABI
+  #define RBM_FLTARG_REGS         (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3)
+#endif
 
   // The registers trashed by profiler enter/leave/tailcall hook
   // See vm\amd64\asmhelpers.asm for more details.
@@ -350,11 +285,11 @@
   #define REG_STACK_PROBE_HELPER_ARG   REG_R11
   #define RBM_STACK_PROBE_HELPER_ARG   RBM_R11
 
-#ifdef TARGET_UNIX
+#ifdef UNIX_AMD64_ABI
   #define RBM_STACK_PROBE_HELPER_TRASH RBM_NONE
-#else // !TARGET_UNIX
+#else
   #define RBM_STACK_PROBE_HELPER_TRASH RBM_RAX
-#endif // !TARGET_UNIX
+#endif
 
 // clang-format on
 
@@ -367,3 +302,8 @@ constexpr bool IsFloatReg(RegNum reg)
 {
     return (reg >= REG_FP_FIRST) && (reg <= REG_FP_LAST);
 }
+
+extern const RegNum    intArgRegs[MAX_INT_REG_ARG];
+extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
+extern const RegNum    fltArgRegs[MAX_FLOAT_REG_ARG];
+extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];

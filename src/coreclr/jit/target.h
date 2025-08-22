@@ -3,8 +3,11 @@
 
 #pragma once
 
-// Native Varargs are not supported on Unix (all architectures) and Windows ARM
-#if defined(TARGET_WINDOWS) && !defined(TARGET_ARM)
+// Native Varargs are not supported on Unix (all architectures) and win-arm
+// On unix-arm64 the native varargs calling convention is identical to the
+// non-varargs one so the JIT allows such calls to be generated. But the
+// runtime (ArgIterator in particular) does not support it.
+#if (defined(TARGET_WINDOWS) && !defined(TARGET_ARM)) || defined(TARGET_ARM64)
 #define FEATURE_VARARG 1
 #else
 #define FEATURE_VARARG 0
@@ -92,6 +95,10 @@ enum RegMask : IntRegMask
     RBM_ALL = ~RBM_NONE
 };
 
+static_assert_no_msg(REG_FIRST == 0);
+static_assert_no_msg(REG_INT_FIRST < REG_INT_LAST);
+static_assert_no_msg(REG_FP_FIRST < REG_FP_LAST);
+
 using regMaskTP = IntRegMask;
 
 #define LEA_AVAILABLE 1
@@ -110,10 +117,6 @@ using regMaskTP = IntRegMask;
 #else
 #error Unsupported or unset target architecture
 #endif
-
-static_assert_no_msg(REG_FIRST == 0);
-static_assert_no_msg(REG_INT_FIRST < REG_INT_LAST);
-static_assert_no_msg(REG_FP_FIRST < REG_FP_LAST);
 
 // Opportunistic tail call feature converts non-tail prefixed calls into
 // tail calls where possible. It requires fast tail calling mechanism for
@@ -197,7 +200,11 @@ inline bool isValidIntArgReg(RegNum reg)
 // Returns true if the register is a valid floating-point argument register
 inline bool isValidFloatArgReg(RegNum reg)
 {
+#ifdef TARGET_X86
+    return false;
+#else
     return (FIRST_FP_ARGREG <= reg) && (reg <= LAST_FP_ARGREG);
+#endif
 }
 
 // Map a register number to a register mask.
@@ -271,49 +278,41 @@ inline RegNum MapVarargsParamIntRegToFloatReg(RegNum intReg)
 }
 #endif // WINDOWS_AMD64_ABI
 
-// Map a register argument number ("RegArgNum") to a register number ("RegNum").
-// A RegArgNum is in this range:
-//      [0, MAX_INT_REG_ARG)    -- for integer registers
-//      [0, MAX_FLOAT_REG_ARG)  -- for floating point registers
-// Note that RegArgNum's are overlapping for integer and floating-point registers,
-// while RegNum's are not (for ARM anyway, though for x86, it might be different).
-// If we have a fixed return buffer register and are given it's index
-// we return the fixed return buffer register
-inline RegNum genMapIntRegArgNumToRegNum(unsigned argNum)
+inline RegNum GetIntArgReg(unsigned index)
 {
 #ifdef TARGET_ARM64
-    if (argNum == RET_BUFF_ARGNUM)
+    if (index == RET_BUFF_ARGNUM)
     {
         return REG_ARG_RET_BUFF;
     }
 #endif
 
-    assert(argNum < _countof(intArgRegs));
+    assert(index < _countof(intArgRegs));
 
-    return intArgRegs[argNum];
+    return intArgRegs[index];
 }
 
-inline RegNum genMapFloatRegArgNumToRegNum(unsigned argNum)
+inline RegNum GetFloatArgReg(unsigned index)
 {
 #ifndef TARGET_X86
-    assert(argNum < _countof(fltArgRegs));
+    assert(index < _countof(fltArgRegs));
 
-    return fltArgRegs[argNum];
+    return fltArgRegs[index];
 #else
     assert(!"no x86 float arg regs\n");
     return REG_NA;
 #endif
 }
 
-__forceinline RegNum genMapRegArgNumToRegNum(unsigned argNum, var_types type)
+__forceinline RegNum genMapRegArgNumToRegNum(unsigned index, var_types type)
 {
     if (varTypeUsesFloatArgReg(type))
     {
-        return genMapFloatRegArgNumToRegNum(argNum);
+        return GetFloatArgReg(index);
     }
     else
     {
-        return genMapIntRegArgNumToRegNum(argNum);
+        return GetIntArgReg(index);
     }
 }
 

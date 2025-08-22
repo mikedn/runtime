@@ -3774,8 +3774,8 @@ void LinearScan::BuildReturn(GenTreeUnOp* ret)
     {
         assert(src->OperIs(GT_LONG) && src->isContained());
 
-        BuildUse(src->AsOp()->GetOp(0), RBM_LNGRET_LO);
-        BuildUse(src->AsOp()->GetOp(1), RBM_LNGRET_HI);
+        BuildUse(src->AsOp()->GetOp(0), genRegMask(REG_LNGRET_LO));
+        BuildUse(src->AsOp()->GetOp(1), genRegMask(REG_LNGRET_HI));
 
         return;
     }

@@ -2,52 +2,42 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 #pragma once
 
-#if !defined(TARGET_X86)
+#ifndef TARGET_X86
 #error The file should not be included for this platform.
 #endif
 
 // clang-format off
-  #define ROUND_FLOAT              1       // round intermed float expression results
-
   // TODO-CQ: Fine tune the following xxBlk threshold values:
-
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     128     // Upper bound to let the code generator to loop unroll InitBlk.
   #define CPOBJ_NONGC_SLOTS_LIMIT  4       // For CpObj code generation, this is the the threshold of the number
                                            // of contiguous non-gc slots that trigger generating rep movsq instead of
                                            // sequences of movsq instructions
 
-  #define FEATURE_FIXED_OUT_ARGS   0       // X86 uses push instructions to pass args
-  #define FEATURE_FASTTAILCALL     0       // Tail calls made as epilog+jmp
-  #define FEATURE_TAILCALL_OPT     0       // opportunistic Tail calls (without ".tail" prefix) made as fast tail calls.
-  #define FEATURE_MULTIREG_ARGS_OR_RET  1  // Support for passing and/or returning single values in more than one register
+  #define FEATURE_FIXED_OUT_ARGS        0  // X86 uses push instructions to pass args
+  #define FEATURE_FASTTAILCALL          0  // Tail calls made as epilog+jmp
+  #define FEATURE_TAILCALL_OPT          0  // opportunistic Tail calls (without ".tail" prefix) made as fast tail calls.
   #define FEATURE_MULTIREG_ARGS         0  // Support for passing a single argument in more than one register
-  #define MAX_PASS_SINGLEREG_BYTES      8  // Maximum size of a struct passed in a single register (double).
-  #define MAX_PASS_MULTIREG_BYTES       0  // No multireg arguments
-
+  #define MAX_PASS_ARGREG_BYTES         4
   #define MAX_ARG_REG_COUNT             1  // Maximum registers used to pass an argument.
-
-  #define MAX_MULTIREG_COUNT            2  // Maxiumum number of registers defined by a single instruction (including calls).
-                                           // This is also the maximum number of registers for a MultiReg node.
+  #define MAX_MULTIREG_COUNT            2  // Maximum number of registers defined by a single instruction node.
 
 #ifdef TARGET_WINDOWS
-#   define WINDOWS_X86_ABI
-#   define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register
-#   define MAX_RET_REG_COUNT             2  // Maximum registers used to return a value.
-#   define MAX_RET_MULTIREG_BYTES        8  // Maximum size of a struct that could be returned in more than one register
+  #define WINDOWS_X86_ABI
+  #define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register
+  #define MAX_RET_REG_COUNT             2  // Maximum registers used to return a value.
 #else
-#   define FEATURE_MULTIREG_RET          0
-#   define MAX_RET_REG_COUNT             0
-#   define MAX_RET_MULTIREG_BYTES        0  
+  #define FEATURE_MULTIREG_RET          0
+  #define MAX_RET_REG_COUNT             0
 #endif
 
 #ifdef FEATURE_USE_ASM_GC_WRITE_BARRIERS
   #define NOGC_WRITE_BARRIERS      1       // We have specialized WriteBarrier JIT Helpers that DO-NOT trash the
-                                           // RBM_CALLEE_TRASH registers
 #else
   #define NOGC_WRITE_BARRIERS      0       // Do not modify this -- modify the definition above.  (If we're not using
                                            // ASM barriers we definitely don't have NOGC barriers).
 #endif
+
   #define TARGET_POINTER_SIZE      4       // equal to sizeof(void*) and the managed pointer size in bytes for this
                                            // target
   #define FEATURE_EH               1       // To aid platform bring-up, eliminate exceptional EH clauses (catch, filter,
@@ -58,22 +48,7 @@
   #define ETW_EBP_FRAMED           1       // if 1 we cannot use EBP as a scratch register and must create EBP based
                                            // frames for most methods
 
-  // TODO-MIKE-Review: Why the heck are these defined on x86?
-  #define FIRST_FP_ARGREG          REG_XMM0
-  #define LAST_FP_ARGREG           REG_XMM3
-  #define REG_FLTARG_0             REG_XMM0
-  #define REG_FLTARG_1             REG_XMM1
-  #define REG_FLTARG_2             REG_XMM2
-  #define REG_FLTARG_3             REG_XMM3
-
-  #define RBM_FLTARG_0             RBM_XMM0
-  #define RBM_FLTARG_1             RBM_XMM1
-  #define RBM_FLTARG_2             RBM_XMM2
-  #define RBM_FLTARG_3             RBM_XMM3
-
-  #define RBM_FLTARG_REGS         (RBM_FLTARG_0|RBM_FLTARG_1|RBM_FLTARG_2|RBM_FLTARG_3)
-
-  #define RBM_ALLFLOAT            (RBM_XMM0 | RBM_XMM1 | RBM_XMM2 | RBM_XMM3 | RBM_XMM4 | RBM_XMM5 | RBM_XMM6 | RBM_XMM7)
+  #define RBM_ALLFLOAT            (RBM_XMM0|RBM_XMM1|RBM_XMM2|RBM_XMM3|RBM_XMM4|RBM_XMM5|RBM_XMM6|RBM_XMM7)
 
   // TODO-CQ: Currently we are following the x86 ABI for SSE2 registers.
   // This should be reconsidered.
@@ -91,6 +66,7 @@
   #define MIN_ARG_AREA_FOR_CALL    0       // Minimum required outgoing argument space for a call.
 
   #define CODE_ALIGN               1       // code alignment requirement
+
 #ifndef UNIX_X86_ABI
   #define STACK_ALIGN              4       // stack alignment requirement
   #define STACK_ALIGN_SHIFT        2       // Shift-right amount to convert size in bytes to size in STACK_ALIGN units == log2(STACK_ALIGN)
@@ -143,7 +119,7 @@
   #define RBM_WRITE_BARRIER_SRC    (RBM_EAX|RBM_ECX|RBM_EBX|RBM_ESI|RBM_EDI)
 
   #define RBM_CALLEE_TRASH_NOGC    RBM_EDX
-#endif // NOGC_WRITE_BARRIERS
+#endif
 
   // GenericPInvokeCalliHelper unmanaged target parameter
   #define REG_PINVOKE_TARGET_PARAM REG_EAX
@@ -169,17 +145,6 @@
   #define REG_PINVOKE_SCRATCH      REG_EAX      // EAX is trashed by CORINFO_HELP_INIT_PINVOKE_FRAME helper
   #define RBM_PINVOKE_SCRATCH      RBM_EAX
 
-  // Which register are int and long values returned in ?
-  #define REG_INTRET               REG_EAX
-  #define RBM_INTRET               RBM_EAX
-  #define REG_LNGRET_LO            REG_EAX
-  #define RBM_LNGRET_LO            RBM_EAX
-  #define REG_LNGRET_HI            REG_EDX
-  #define RBM_LNGRET_HI            RBM_EDX
-
-  #define REG_FLOATRET             REG_NA
-  #define RBM_FLOATRET             RBM_NONE
-
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper
   #define RBM_STOP_FOR_GC_TRASH    RBM_CALLEE_TRASH
 
@@ -194,22 +159,19 @@
   #define RBM_SPBASE               RBM_ESP
   #define STR_SPBASE               "esp"
 
-  #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved EBP and return address
+  #define REG_INTRET               REG_EAX
+  #define RBM_INTRET               RBM_EAX
+  #define REG_LNGRET_LO            REG_EAX
+  #define REG_LNGRET_HI            REG_EDX
+  #define REG_FLOATRET             REG_NA
+  #define RBM_FLOATRET             RBM_NONE
 
-  #define MAX_INT_REG_ARG          2
-
-  #define MAX_FLOAT_REG_ARG        0
-  #define REG_ARG_FIRST            REG_ECX
-  #define REG_ARG_LAST             REG_EDX
   #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
+  #define MAX_INT_REG_ARG          2
+  #define MAX_FLOAT_REG_ARG        0
 
   #define REG_ARG_0                REG_ECX
   #define REG_ARG_1                REG_EDX
-
-  extern const RegNum intArgRegs [MAX_INT_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
-  extern const RegNum longShiftHelperArgRegs[3];
-  extern const RegNum initPInvokeFrameArgRegs[1];
 
   #define RBM_ARG_0                RBM_ECX
   #define RBM_ARG_1                RBM_EDX
@@ -221,12 +183,6 @@
   #define RBM_PROFILER_ENTER_TRASH     RBM_NONE
   #define RBM_PROFILER_LEAVE_TRASH     RBM_NONE
   #define RBM_PROFILER_TAILCALL_TRASH  (RBM_CALLEE_TRASH & ~RBM_ARG_REGS)
-
-  // Pointer-sized string move instructions
-  #define INS_movsp                INS_movsd
-  #define INS_r_movsp              INS_r_movsd
-  #define INS_stosp                INS_stosd
-  #define INS_r_stosp              INS_r_stosd
 
   // Any stack pointer adjustments larger than this (in bytes) when setting up outgoing call arguments
   // requires a stack probe. Set it large enough so all normal stack arguments don't get a probe.
@@ -256,3 +212,8 @@ constexpr bool IsFloatReg(RegNum reg)
 {
     return (REG_FP_FIRST <= reg) && (reg <= REG_FP_LAST);
 }
+
+extern const RegNum    intArgRegs[MAX_INT_REG_ARG];
+extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
+extern const RegNum    longShiftHelperArgRegs[3];
+extern const RegNum    initPInvokeFrameArgRegs[1];

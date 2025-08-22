@@ -4692,11 +4692,6 @@ class CallArgInfo
 #ifdef WINDOWS_X86_ABI
     bool m_isReturn : 1;
 #endif
-#ifdef DEBUG
-    // True if it is an arg that is passed in a reg other than a standard arg reg,
-    // or is forced to be on the stack despite its arg list position.
-    bool m_isNonStandard : 1;
-#endif
 
     // Count of registers used by this argument.
     // Note that on ARM, if we have a double HFA, this reflects the number of DOUBLE registers.
@@ -4734,9 +4729,6 @@ public:
 #endif
 #ifdef WINDOWS_X86_ABI
         , m_isReturn(isReturn)
-#endif
-#ifdef DEBUG
-        , m_isNonStandard(false)
 #endif
     {
     }
@@ -4845,18 +4837,6 @@ public:
     }
 #endif
 
-#ifdef DEBUG
-    bool IsNonStandard() const
-    {
-        return m_isNonStandard;
-    }
-
-    void SetNonStandard(bool isNonStandard)
-    {
-        m_isNonStandard = isNonStandard;
-    }
-#endif
-
     void SetRegCount(unsigned regCount)
     {
 #ifdef WINDOWS_X86_ABI
@@ -4891,7 +4871,7 @@ public:
         assert(m_regCount > 0);
         m_regType = type;
     }
-#else
+#elif FEATURE_MULTIREG_RET
     var_types GetRegType(unsigned i = 0) const
     {
         assert(i < m_regCount);

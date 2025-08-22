@@ -479,7 +479,7 @@ void Lowering::LowerTailCallViaJitHelper(GenTreeCall* call)
 {
     assert(call->IsTailCallViaJitHelper());
     assert(!call->IsUnmanaged());
-    assert((comp->info.compFlags & CORINFO_FLG_SYNCH) == 0);
+    assert(!comp->info.IsSynchronized());
     assert(!comp->compLocallocUsed);
 
     // CORINFO_HELP_TAILCALL never returns to the caller and is not GC interruptible.

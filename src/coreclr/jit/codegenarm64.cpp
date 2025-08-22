@@ -9255,10 +9255,10 @@ void CodeGen::PrologPushCalleeSavedRegisters(regNumber initReg, bool* pInitRegZe
 
         // There are 8 general-purpose registers to home, thus 'offset' must be 16-byte aligned here.
         assert((offset % 16) == 0);
-        for (regNumber reg1 = REG_ARG_FIRST; reg1 < REG_ARG_LAST; reg1 = REG_NEXT(REG_NEXT(reg1)))
+
+        for (RegNum reg1 = REG_ARG_FIRST; reg1 < REG_ARG_LAST; reg1 = REG_NEXT(REG_NEXT(reg1)))
         {
-            regNumber reg2 = REG_NEXT(reg1);
-            // stp REG, REG + 1, [SP, #offset]
+            RegNum reg2 = REG_NEXT(reg1);
             GetEmitter()->emitIns_R_R_R_I(INS_stp, EA_8BYTE, reg1, reg2, REG_SPBASE, offset);
             unwindNop();
             offset += 2 * REGSIZE_BYTES;

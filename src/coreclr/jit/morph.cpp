@@ -4401,8 +4401,10 @@ void CallArgInfo::Dump() const
     {
 #ifdef UNIX_AMD64_ABI
         printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
-#else
+#elif FEATURE_MULTIREG_RET
         printf(", %u %s reg%s (", m_regCount, varTypeName(GetRegType()), m_regCount == 1 ? "" : "s");
+#else
+        printf(", %u reg%s (", m_regCount, m_regCount == 1 ? "" : "s");
 #endif
         for (unsigned i = 0; i < m_regCount; i++)
         {
@@ -4432,11 +4434,6 @@ void CallArgInfo::Dump() const
         printf(", needLateUse");
     }
 #endif
-
-    if (m_isNonStandard)
-    {
-        printf(", isNonStandard");
-    }
 
     printf("\n");
 }
@@ -5241,7 +5238,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
     const bool callIsVararg = call->IsVarargs();
 
-#ifdef TARGET_UNIX
+#if !FEATURE_VARARG
     NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
 #endif
 
@@ -5250,6 +5247,33 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     for (GenTreeCall::Use& use : call->Uses())
     {
         numArgs++;
+
+#ifdef DEBUG
+        GenTree* const  argNode = use.GetNode();
+        var_types const argType = argNode->GetType();
+
+        // We should not have setup the arguments yet
+        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+
+        if (typIsLayoutNum(use.GetSigTypeNum()))
+        {
+            assert(!typGetLayoutByNum(use.GetSigTypeNum())->IsVector() || varTypeIsSIMD(argType));
+        }
+        else
+        {
+            var_types sigType = static_cast<var_types>(use.GetSigTypeNum());
+
+            // The signature type should type should never be STRUCT, for struct params we should have
+            // a layout instead. If it is, then it's likely that we have a helper call with struct params.
+            assert(!varTypeIsStruct(sigType));
+            // We may get primitive args for struct params but never the other way around.
+            assert(!varTypeIsStruct(argType));
+            assert((varActualType(sigType) == varActualType(argType)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
+                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
+                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
+        }
+#endif // DEBUG
     }
 
     // Insert or mark non-standard args. These are either outside the normal calling convention, or
@@ -5377,7 +5401,7 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 
     CallInfo* callInfo = new (this, CMK_CallInfo) CallInfo(this, call, numArgs);
     call->SetInfo(callInfo);
-    moAllocCallArgs(call, nonStandardArgs);
+    moAllocCallArgs(call, nonStandardArgs X86_ARG(numArgs));
 
 #ifdef DEBUG
     if (verbose)
@@ -5391,562 +5415,73 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
 #if defined(WINDOWS_AMD64_ABI)
 void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArgs& nonStandardArgs)
 {
-    CallInfo*  callInfo     = call->GetInfo();
-    const bool callIsVararg = call->IsVarargs();
+    CallInfo* callInfo = call->GetInfo();
 
-#ifdef TARGET_X86
-    unsigned maxIntArgRegNum;
-
-    if (call->IsUnmanaged())
-    {
-        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
-        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
-               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
-        assert(!call->HasThisArg());
-
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-    }
-    else if (callIsVararg || call->CallerPop())
-    {
-        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
-    }
-    else
-    {
-        maxIntArgRegNum = MAX_INT_REG_ARG;
-    }
-#endif // TARGET_X86
-
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
-
-    bool anyFloatStackArgs = false;
-
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
-
-    unsigned intArgRegNum  = 0;
-    unsigned fltArgRegNum  = 0;
-    unsigned argIndex      = 0;
     unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
+    unsigned argRegIndex   = 0;
+    unsigned argIndex      = 0;
 
-    auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
-        unsigned offset = roundUp(stackArgsSize, alignment);
-        stackArgsSize   = offset + size;
-        return offset;
-    };
-
-    for (GenTreeCall::Use& args : call->Uses())
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* const  argNode = args.GetNode();
+        GenTree* const  argNode = use.GetNode();
         var_types const argType = argNode->GetType();
 
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&use, argIndex++);
+        callInfo->AddArg(argInfo);
 
-        unsigned     size          = 0;
-        unsigned     argAlign      = REGSIZE_BYTES;
-        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize    = 0;
-        var_types    structArgType = TYP_STRUCT;
-        bool         implicitByRef = false;
-        var_types    hfaType       = TYP_UNDEF;
-        unsigned     hfaSlots      = 0;
-
-        if (isStructArg)
+        if (RegNum nonStdReg = nonStandardArgs.FindReg(argNode); nonStdReg != REG_NA)
         {
-            structSize = layout->GetSize();
-            layout->EnsureHfaInfo(this);
+            assert(nonStdReg != REG_STK);
+            assert(varTypeIsIntegralOrI(argType));
 
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
-            {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, nonStdReg);
+            argInfo->SetArgType(argType);
 
-                compFloatingPointUsed = true;
-            }
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
-#endif
-
-            StructPassing pass = abiGetStructParamType(layout, callIsVararg);
-
-            structArgType = pass.type;
-            implicitByRef = pass.kind == SPK_ByReference;
-
-#if defined(WINDOWS_AMD64_ABI)
-            size = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
-            size         = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                assert(size == 1);
-            }
-#elif defined(TARGET_ARM)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                size = 1 + (pass.type == TYP_DOUBLE);
-            }
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else if (implicitByRef)
-            {
-                size = 1;
-            }
-            else
-            {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!implicitByRef || (size == 1));
-            }
-#else
-#error Unsupported or unset target architecture
-#endif
-        }
-        else
-        {
-            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
-
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(!varTypeIsStruct(sigType));
-
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(sigType, false);
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
+            continue;
         }
 
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
+        RegNum reg = REG_NA;
 
-        if (argAlign == 2 * REGSIZE_BYTES)
+        if (ClassLayout* layout = typTryGetLayoutByNum(use.GetSigTypeNum()))
         {
-            if (passUsingFloatRegs)
-            {
-                if (fltArgRegNum % 2 == 1)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_INT_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
-#ifdef TARGET_WINDOWS
-                                                                   && !callIsVararg
-#endif
-                                                                   );
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
+            StructPassing pass = abiGetStructParamType(layout, false);
 
-        bool isRegArg = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
+            if (pass.kind == SPK_ByReference)
             {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
-                    {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
-                    }
-                    else
-#endif
-                    {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_INT_REG_ARG;
-                    }
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
-
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                        {
-                            structFloatRegs++;
-                        }
-                        else
-                        {
-                            structIntRegs++;
-                        }
-                    }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
-                }
-            }
-            else if (passUsingFloatRegs)
-            {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
+                argInfo->SetIsImplicitByRef(true);
             }
 
-            if (call->IsTailCallViaJitHelper())
+            argInfo->SetArgType(pass.type);
+
+            if (argRegIndex < MAX_INT_REG_ARG)
             {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(callInfo->GetArgCount() >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= callInfo->GetArgCount() - 4)
-                {
-                    isRegArg = false;
-                }
+                reg = GetIntArgReg(argRegIndex);
             }
-#else
-#error Unknown target
-#endif
-        }
-
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
-        {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
-            {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
-            }
-        }
-        else
-        {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
-            {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
-            }
-        }
-#endif // TARGET_ARM
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
-        {
-            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
-        }
-        else
-        {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount = size;
-#if FEATURE_ARG_SPLIT
-            unsigned stackSize = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
-                        stackSize            = (size - regCount) * REGSIZE_BYTES;
-                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
-                        assert(stackOffset == 0);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
-            {
-                regCount = 1;
-            }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
-            else
-            {
-                argInfo->SetRegType(0, argType);
-            }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
-
-#if FEATURE_ARG_SPLIT
-            if (stackSize != 0)
-            {
-                argInfo->SetStack(0, stackSize);
-            }
-#endif
-        }
-
-        if (isStructArg)
-        {
-            argInfo->SetIsImplicitByRef(implicitByRef);
-            argInfo->SetArgType(structArgType);
         }
         else
         {
             argInfo->SetArgType(argType);
+
+            if (argRegIndex < MAX_INT_REG_ARG)
+            {
+                var_types regType = static_cast<var_types>(use.GetSigTypeNum());
+                reg = varTypeIsFloating(regType) ? GetFloatArgReg(argRegIndex) : GetIntArgReg(argRegIndex);
+            }
         }
 
-        callInfo->AddArg(argInfo);
+        if (reg == REG_NA)
+        {
+            unsigned offset = stackArgsSize;
+            stackArgsSize += REGSIZE_BYTES;
+            argInfo->SetStack(offset, REGSIZE_BYTES);
+        }
+        else
+        {
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, reg);
+            argRegIndex++;
+        }
     }
 
     callInfo->SetStackArgsSize(stackArgsSize);
@@ -5954,574 +5489,144 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
 #elif defined(UNIX_AMD64_ABI)
 void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArgs& nonStandardArgs)
 {
-    CallInfo*  callInfo     = call->GetInfo();
-    const bool callIsVararg = call->IsVarargs();
+    CallInfo* callInfo = call->GetInfo();
 
-#ifdef TARGET_X86
-    unsigned   maxIntArgRegNum;
+    unsigned stackArgsSize = 0;
 
-    if (call->IsUnmanaged())
-    {
-        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
-        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
-               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
-        assert(!call->HasThisArg());
-
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-    }
-    else if (callIsVararg || call->CallerPop())
-    {
-        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
-    }
-    else
-    {
-        maxIntArgRegNum = MAX_INT_REG_ARG;
-    }
-#endif // TARGET_X86
-
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
-
-    bool anyFloatStackArgs = false;
-
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
-
-    unsigned intArgRegNum  = 0;
-    unsigned fltArgRegNum  = 0;
-    unsigned argIndex      = 0;
-    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
-
-    auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
-        unsigned offset = roundUp(stackArgsSize, alignment);
+    auto AllocateStack = [&stackArgsSize](unsigned size) {
+        assert(size % REGSIZE_BYTES == 0);
+        unsigned offset = stackArgsSize;
         stackArgsSize   = offset + size;
         return offset;
     };
 
-    for (GenTreeCall::Use& args : call->Uses())
+    unsigned intArgRegIndex = 0;
+    unsigned xmmArgRegIndex = 0;
+    unsigned argIndex       = 0;
+
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* const  argNode = args.GetNode();
+        GenTree* const  argNode = use.GetNode();
         var_types const argType = argNode->GetType();
 
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&use, argIndex++);
+        callInfo->AddArg(argInfo);
 
-        unsigned     size          = 0;
-        unsigned     argAlign      = REGSIZE_BYTES;
-        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize    = 0;
-        var_types    structArgType = TYP_STRUCT;
-        bool         implicitByRef = false;
-        var_types    hfaType       = TYP_UNDEF;
-        unsigned     hfaSlots      = 0;
-
-        if (isStructArg)
+        if (RegNum nonStdReg = nonStandardArgs.FindReg(argNode); nonStdReg != REG_NA)
         {
-            structSize = layout->GetSize();
-            layout->EnsureHfaInfo(this);
+            assert(nonStdReg != REG_STK);
+            assert(varTypeIsIntegralOrI(argType));
 
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
-            {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, nonStdReg);
+            argInfo->SetRegType(0, argType);
+            argInfo->SetArgType(argType);
 
-                compFloatingPointUsed = true;
-            }
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
-#endif
-
-            StructPassing pass = abiGetStructParamType(layout, callIsVararg);
-
-            structArgType = pass.type;
-            implicitByRef = pass.kind == SPK_ByReference;
-
-#if defined(WINDOWS_AMD64_ABI)
-            size          = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                assert(size == 1);
-            }
-#elif defined(TARGET_ARM)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                size = 1 + (pass.type == TYP_DOUBLE);
-            }
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else if (implicitByRef)
-            {
-                size = 1;
-            }
-            else
-            {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!implicitByRef || (size == 1));
-            }
-#else
-#error Unsupported or unset target architecture
-#endif
-        }
-        else
-        {
-            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
-
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(!varTypeIsStruct(sigType));
-
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(sigType, false);
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
+            continue;
         }
 
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
-
-        if (argAlign == 2 * REGSIZE_BYTES)
+        if (ClassLayout* layout = typTryGetLayoutByNum(use.GetSigTypeNum()))
         {
-            if (passUsingFloatRegs)
+            StructPassing pass = abiGetStructParamType(layout, false);
+            assert(pass.kind != SPK_ByReference);
+            argInfo->SetArgType(pass.type);
+
+            unsigned size = roundUp(layout->GetSize(), REGSIZE_BYTES);
+            assert((pass.kind == SPK_ByValue) || (size == REGSIZE_BYTES));
+
+            unsigned regCount = 0;
+
+            if (layout->GetSysVAmd64AbiRegCount() != 0)
             {
-                if (fltArgRegNum % 2 == 1)
+                unsigned structFloatRegs = 0;
+                unsigned structIntRegs   = 0;
+
+                for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
                 {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_INT_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
-#ifdef TARGET_WINDOWS
-                                                                   && !callIsVararg
-#endif
-                                                                   );
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
-
-        bool     isRegArg         = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
-            {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
+                    if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                     {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
+                        structFloatRegs++;
                     }
                     else
-#endif
                     {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_INT_REG_ARG;
+                        structIntRegs++;
                     }
                 }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
 
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
+                if ((xmmArgRegIndex + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
+                    (intArgRegIndex + structIntRegs <= MAX_INT_REG_ARG))
+                {
+                    regCount = layout->GetSysVAmd64AbiRegCount();
+                    argInfo->SetRegCount(regCount);
+
+                    for (unsigned i = 0; i < regCount; i++)
                     {
+                        RegNum reg;
+
                         if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
                         {
-                            structFloatRegs++;
+                            reg = GetFloatArgReg(xmmArgRegIndex++);
                         }
                         else
                         {
-                            structIntRegs++;
+                            reg = GetIntArgReg(intArgRegIndex++);
                         }
+
+                        argInfo->SetRegNum(i, reg);
+                        // TODO-MIKE-Review: Does this really need to be the actual type?
+                        argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
                     }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
                 }
             }
-            else if (passUsingFloatRegs)
+
+            if (regCount == 0)
             {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
+                argInfo->SetStack(AllocateStack(size), size);
             }
 
-            if (call->IsTailCallViaJitHelper())
-            {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(callInfo->GetArgCount() >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= callInfo->GetArgCount() - 4)
-                {
-                    isRegArg = false;
-                }
-            }
-#else
-#error Unknown target
-#endif
+            continue;
         }
 
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
+        var_types sigType = static_cast<var_types>(use.GetSigTypeNum());
+        RegNum    reg     = REG_NA;
+
+        if (varTypeIsFloating(sigType))
         {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
+            if (xmmArgRegIndex < MAX_FLOAT_REG_ARG)
             {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
+                reg = GetFloatArgReg(xmmArgRegIndex++);
             }
         }
         else
         {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
+            if (intArgRegIndex < MAX_INT_REG_ARG)
             {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
+                reg = GetIntArgReg(intArgRegIndex++);
             }
         }
-#endif // TARGET_ARM
 
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
+        if (reg == REG_NA)
         {
-            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
+            argInfo->SetStack(AllocateStack(REGSIZE_BYTES), REGSIZE_BYTES);
         }
         else
         {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount  = size;
-#if FEATURE_ARG_SPLIT
-            unsigned stackSize = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
-                        stackSize            = (size - regCount) * REGSIZE_BYTES;
-                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
-                        assert(stackOffset == 0);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
-            {
-                regCount = 1;
-            }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
-            else
-            {
-                argInfo->SetRegType(0, argType);
-            }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
-
-#if FEATURE_ARG_SPLIT
-            if (stackSize != 0)
-            {
-                argInfo->SetStack(0, stackSize);
-            }
-#endif
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, reg);
+            argInfo->SetRegType(0, argType);
         }
 
-        if (isStructArg)
-        {
-            argInfo->SetIsImplicitByRef(implicitByRef);
-            argInfo->SetArgType(structArgType);
-        }
-        else
-        {
-            argInfo->SetArgType(argType);
-        }
-
-        callInfo->AddArg(argInfo);
+        argInfo->SetArgType(argType);
     }
 
     callInfo->SetStackArgsSize(stackArgsSize);
 }
 #elif defined(TARGET_X86)
-void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArgs& nonStandardArgs)
+void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArgs& nonStandardArgs, unsigned argCount)
 {
-    CallInfo*  callInfo     = call->GetInfo();
-    const bool callIsVararg = call->IsVarargs();
+    CallInfo* callInfo = call->GetInfo();
 
-#ifdef TARGET_X86
-    unsigned   maxIntArgRegNum;
+    unsigned maxArgRegCount;
 
     if (call->IsUnmanaged())
     {
@@ -6530,549 +5635,99 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
                (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
         assert(!call->HasThisArg());
 
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
+        maxArgRegCount = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
     }
-    else if (callIsVararg || call->CallerPop())
+    else if (call->IsVarargs() || call->CallerPop())
     {
         // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
+        maxArgRegCount = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
     }
     else
     {
-        maxIntArgRegNum = MAX_INT_REG_ARG;
+        maxArgRegCount = MAX_INT_REG_ARG;
     }
-#endif // TARGET_X86
 
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
+    unsigned maxRegArgIndex = UINT_MAX;
 
-    bool anyFloatStackArgs = false;
+    if (call->IsTailCallViaJitHelper())
+    {
+        // The last 4 args of the tail call helper are always passed on the stack.
+        assert(argCount >= 4);
 
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
+        maxRegArgIndex = argCount - 4;
+    }
 
-    unsigned intArgRegNum  = 0;
-    unsigned fltArgRegNum  = 0;
-    unsigned argIndex      = 0;
-    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
+    unsigned stackArgsSize = 0;
 
-    auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
-        unsigned offset = roundUp(stackArgsSize, alignment);
-        stackArgsSize   = offset + size;
+    auto AllocateStack = [&stackArgsSize](unsigned size) {
+        assert(size % REGSIZE_BYTES == 0);
+        unsigned offset = stackArgsSize;
+        stackArgsSize += size;
         return offset;
     };
 
-    for (GenTreeCall::Use& args : call->Uses())
+    unsigned argRegIndex = 0;
+    unsigned argIndex    = 0;
+
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* const  argNode = args.GetNode();
+        GenTree* const  argNode = use.GetNode();
         var_types const argType = argNode->GetType();
 
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&use, argIndex++);
+        callInfo->AddArg(argInfo);
 
-        unsigned     size          = 0;
-        unsigned     argAlign      = REGSIZE_BYTES;
-        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize    = 0;
-        var_types    structArgType = TYP_STRUCT;
-        bool         implicitByRef = false;
-        var_types    hfaType       = TYP_UNDEF;
-        unsigned     hfaSlots      = 0;
-
-        if (isStructArg)
+        if (RegNum nonStdReg = nonStandardArgs.FindReg(argNode); nonStdReg != REG_NA)
         {
-            structSize = layout->GetSize();
-            layout->EnsureHfaInfo(this);
+            assert(varTypeIsI(argType));
 
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
+            if (nonStdReg == REG_STK)
             {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
-
-                compFloatingPointUsed = true;
-            }
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
-#endif
-
-            StructPassing pass = abiGetStructParamType(layout, callIsVararg);
-
-            structArgType = pass.type;
-            implicitByRef = pass.kind == SPK_ByReference;
-
-#if defined(WINDOWS_AMD64_ABI)
-            size          = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                assert(size == 1);
-            }
-#elif defined(TARGET_ARM)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                size = 1 + (pass.type == TYP_DOUBLE);
-            }
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else if (implicitByRef)
-            {
-                size = 1;
+                argInfo->SetStack(AllocateStack(REGSIZE_BYTES), REGSIZE_BYTES);
             }
             else
             {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!implicitByRef || (size == 1));
+                argInfo->SetRegCount(1);
+                argInfo->SetRegNum(0, nonStdReg);
             }
-#else
-#error Unsupported or unset target architecture
-#endif
-        }
-        else
-        {
-            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
 
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(!varTypeIsStruct(sigType));
+            argInfo->SetArgType(argType);
 
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(sigType, false);
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
+            continue;
         }
 
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
+        unsigned size   = 0;
+        bool     useReg = false;
 
-        if (argAlign == 2 * REGSIZE_BYTES)
+        if (ClassLayout* layout = typTryGetLayoutByNum(use.GetSigTypeNum()))
         {
-            if (passUsingFloatRegs)
-            {
-                if (fltArgRegNum % 2 == 1)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_INT_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
-#ifdef TARGET_WINDOWS
-                                                                   && !callIsVararg
-#endif
-                                                                   );
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
+            StructPassing pass = abiGetStructParamType(layout, false);
+            assert(pass.kind != SPK_ByReference);
+            argInfo->SetArgType(pass.type);
 
-        bool     isRegArg         = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
-            {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
-                    {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
-                    }
-                    else
-#endif
-                    {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_INT_REG_ARG;
-                    }
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
-
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                        {
-                            structFloatRegs++;
-                        }
-                        else
-                        {
-                            structIntRegs++;
-                        }
-                    }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
-                }
-            }
-            else if (passUsingFloatRegs)
-            {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
-            }
-
-            if (call->IsTailCallViaJitHelper())
-            {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(callInfo->GetArgCount() >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= callInfo->GetArgCount() - 4)
-                {
-                    isRegArg = false;
-                }
-            }
-#else
-#error Unknown target
-#endif
-        }
-
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
-        {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
-            {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
-            }
-        }
-        else
-        {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
-            {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
-            }
-        }
-#endif // TARGET_ARM
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
-        {
-            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
-        }
-        else
-        {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount  = size;
-#if FEATURE_ARG_SPLIT
-            unsigned stackSize = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
-                        stackSize            = (size - regCount) * REGSIZE_BYTES;
-                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
-                        assert(stackOffset == 0);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
-            {
-                regCount = 1;
-            }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
-            else
-            {
-                argInfo->SetRegType(0, argType);
-            }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
-
-#if FEATURE_ARG_SPLIT
-            if (stackSize != 0)
-            {
-                argInfo->SetStack(0, stackSize);
-            }
-#endif
-        }
-
-        if (isStructArg)
-        {
-            argInfo->SetIsImplicitByRef(implicitByRef);
-            argInfo->SetArgType(structArgType);
+            size   = layout->GetSize();
+            useReg = pass.kind == SPK_PrimitiveType;
         }
         else
         {
             argInfo->SetArgType(argType);
+
+            var_types sigType = static_cast<var_types>(use.GetSigTypeNum());
+
+            size   = varTypeSize(sigType);
+            useReg = varTypeIsIntegralOrI(sigType) && (size <= REGSIZE_BYTES);
         }
 
-        callInfo->AddArg(argInfo);
+        if (useReg && (argRegIndex < maxArgRegCount) && (argIndex <= maxRegArgIndex))
+        {
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, GetIntArgReg(argRegIndex++));
+        }
+        else
+        {
+            size = roundUp(size, REGSIZE_BYTES);
+            argInfo->SetStack(AllocateStack(size), size);
+        }
     }
 
     callInfo->SetStackArgsSize(stackArgsSize);
@@ -7083,73 +5738,7 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
     CallInfo*  callInfo     = call->GetInfo();
     const bool callIsVararg = call->IsVarargs();
 
-#ifdef TARGET_X86
-    unsigned   maxIntArgRegNum;
-
-    if (call->IsUnmanaged())
-    {
-        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
-        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
-               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
-        assert(!call->HasThisArg());
-
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-    }
-    else if (callIsVararg || call->CallerPop())
-    {
-        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
-    }
-    else
-    {
-        maxIntArgRegNum = MAX_INT_REG_ARG;
-    }
-#endif // TARGET_X86
-
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
-
-    bool anyFloatStackArgs = false;
-
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
-
-    unsigned intArgRegNum  = 0;
-    unsigned fltArgRegNum  = 0;
-    unsigned argIndex      = 0;
-    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
+    unsigned stackArgsSize = 0;
 
     auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
         unsigned offset = roundUp(stackArgsSize, alignment);
@@ -7157,485 +5746,166 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
         return offset;
     };
 
-    for (GenTreeCall::Use& args : call->Uses())
+    regMaskTP skippedFloatArgRegs = RBM_NONE;
+
+    unsigned intArgRegIndex = 0;
+    unsigned hfaArgRegIndex = 0;
+    unsigned argIndex       = 0;
+
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* const  argNode = args.GetNode();
+        GenTree* const  argNode = use.GetNode();
         var_types const argType = argNode->GetType();
 
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&use, argIndex++);
+        callInfo->AddArg(argInfo);
 
-        unsigned     size          = 0;
-        unsigned     argAlign      = REGSIZE_BYTES;
-        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize    = 0;
-        var_types    structArgType = TYP_STRUCT;
-        bool         implicitByRef = false;
-        var_types    hfaType       = TYP_UNDEF;
-        unsigned     hfaSlots      = 0;
-
-        if (isStructArg)
+        if (RegNum nonStdReg = nonStandardArgs.FindReg(argNode); nonStdReg != REG_NA)
         {
-            structSize = layout->GetSize();
+            assert(nonStdReg != REG_STK);
+            assert(varTypeIsI(argType));
+
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, nonStdReg);
+            argInfo->SetArgType(argType);
+
+            continue;
+        }
+
+        unsigned  size        = 0;
+        unsigned  align       = REGSIZE_BYTES;
+        var_types hfaType     = TYP_UNDEF;
+        unsigned  hfaRegCount = 0;
+
+        if (ClassLayout* layout = typTryGetLayoutByNum(use.GetSigTypeNum()))
+        {
             layout->EnsureHfaInfo(this);
 
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
+            if (layout->IsHfa() && opts.UseHfa() && !callIsVararg)
             {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
+                hfaType     = layout->GetHfaElementType();
+                hfaRegCount = layout->GetHfaRegCount();
+                assert(varTypeIsFloating(hfaType));
 
-                compFloatingPointUsed = true;
-            }
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
-#endif
-
-            StructPassing pass = abiGetStructParamType(layout, callIsVararg);
-
-            structArgType = pass.type;
-            implicitByRef = pass.kind == SPK_ByReference;
-
-#if defined(WINDOWS_AMD64_ABI)
-            size          = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                assert(size == 1);
-            }
-#elif defined(TARGET_ARM)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                size = 1 + (pass.type == TYP_DOUBLE);
-            }
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else if (implicitByRef)
-            {
-                size = 1;
+                argInfo->SetArgType(hfaRegCount > 1 ? TYP_STRUCT : hfaType);
             }
             else
             {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!implicitByRef || (size == 1));
+                argInfo->SetArgType(abiGetStructParamType(layout, true).type);
+
+                size  = roundUp(layout->GetSize(), REGSIZE_BYTES);
+                align = info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle());
             }
-#else
-#error Unsupported or unset target architecture
-#endif
-        }
-        else
-        {
-            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
-
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(!varTypeIsStruct(sigType));
-
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(sigType, false);
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
-        }
-
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
-
-        if (argAlign == 2 * REGSIZE_BYTES)
-        {
-            if (passUsingFloatRegs)
-            {
-                if (fltArgRegNum % 2 == 1)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_INT_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
-#ifdef TARGET_WINDOWS
-                                                                   && !callIsVararg
-#endif
-                                                                   );
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
-
-        bool     isRegArg         = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
-            {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
-                    {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
-                    }
-                    else
-#endif
-                    {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_INT_REG_ARG;
-                    }
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
-
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                        {
-                            structFloatRegs++;
-                        }
-                        else
-                        {
-                            structIntRegs++;
-                        }
-                    }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
-                }
-            }
-            else if (passUsingFloatRegs)
-            {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
-            }
-
-            if (call->IsTailCallViaJitHelper())
-            {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(callInfo->GetArgCount() >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= callInfo->GetArgCount() - 4)
-                {
-                    isRegArg = false;
-                }
-            }
-#else
-#error Unknown target
-#endif
-        }
-
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
-        {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
-            {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
-            }
-        }
-        else
-        {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
-            {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
-            }
-        }
-#endif // TARGET_ARM
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
-        {
-            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
-        }
-        else
-        {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount  = size;
-#if FEATURE_ARG_SPLIT
-            unsigned stackSize = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
-                        stackSize            = (size - regCount) * REGSIZE_BYTES;
-                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
-                        assert(stackOffset == 0);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
-            {
-                regCount = 1;
-            }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
-            else
-            {
-                argInfo->SetRegType(0, argType);
-            }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
-
-#if FEATURE_ARG_SPLIT
-            if (stackSize != 0)
-            {
-                argInfo->SetStack(0, stackSize);
-            }
-#endif
-        }
-
-        if (isStructArg)
-        {
-            argInfo->SetIsImplicitByRef(implicitByRef);
-            argInfo->SetArgType(structArgType);
         }
         else
         {
             argInfo->SetArgType(argType);
+
+            var_types sigType = static_cast<var_types>(use.GetSigTypeNum());
+
+            if (varTypeIsFloating(sigType) && opts.UseHfa() && !callIsVararg)
+            {
+                hfaType     = sigType;
+                hfaRegCount = sigType == TYP_DOUBLE ? 2 : 1;
+            }
+            else
+            {
+                size  = varTypeSize(varActualType(sigType));
+                align = (sigType == TYP_LONG) || (sigType == TYP_DOUBLE) ? 8 : 4;
+
+                assert(size <= 2 * REGSIZE_BYTES);
+            }
         }
 
-        callInfo->AddArg(argInfo);
+        RegNum   reg       = REG_NA;
+        unsigned regCount  = 0;
+        unsigned stackSize = 0;
+
+        if (hfaType != TYP_UNDEF)
+        {
+            compFloatingPointUsed = true;
+
+            if ((hfaRegCount == 1) && (skippedFloatArgRegs != RBM_NONE))
+            {
+                assert(hfaType == TYP_FLOAT);
+
+                regMaskTP skippedRegBit = genFindLowestBit(skippedFloatArgRegs);
+                skippedFloatArgRegs &= ~skippedRegBit;
+                unsigned skippedRegIndex = genRegNumFromMask(skippedRegBit) - REG_F0;
+
+                reg      = GetFloatArgReg(skippedRegIndex);
+                regCount = hfaRegCount;
+            }
+            else if ((hfaType == TYP_FLOAT) && (hfaArgRegIndex + hfaRegCount <= MAX_FLOAT_REG_ARG))
+            {
+                reg = GetFloatArgReg(hfaArgRegIndex);
+                hfaArgRegIndex += hfaRegCount;
+                regCount = hfaRegCount;
+            }
+            else if ((hfaType == TYP_DOUBLE) && (roundUp(hfaArgRegIndex, 2) + hfaRegCount <= MAX_FLOAT_REG_ARG))
+            {
+                if (hfaArgRegIndex % 2 == 1)
+                {
+                    skippedFloatArgRegs |= genMapFloatRegArgNumToRegMask(hfaArgRegIndex++);
+                }
+
+                reg = GetFloatArgReg(hfaArgRegIndex);
+                hfaArgRegIndex += hfaRegCount;
+                regCount = hfaRegCount / 2;
+            }
+            else
+            {
+                skippedFloatArgRegs = RBM_NONE;
+                hfaArgRegIndex      = MAX_FLOAT_REG_ARG;
+
+                size  = varTypeSize(hfaType) * hfaRegCount / (hfaType == TYP_DOUBLE ? 2 : 1);
+                align = varTypeSize(hfaType);
+            }
+        }
+        else
+        {
+            if (align == 2 * REGSIZE_BYTES)
+            {
+                intArgRegIndex = roundUp(intArgRegIndex, 2);
+            }
+
+            if ((intArgRegIndex + size / REGSIZE_BYTES <= MAX_INT_REG_ARG) ||
+                ((intArgRegIndex + 1 <= MAX_INT_REG_ARG) && (stackArgsSize == 0)))
+            {
+                reg      = GetIntArgReg(intArgRegIndex);
+                regCount = size / REGSIZE_BYTES;
+
+                if (intArgRegIndex + regCount > MAX_INT_REG_ARG)
+                {
+                    regCount  = MAX_INT_REG_ARG - intArgRegIndex;
+                    stackSize = size - regCount * REGSIZE_BYTES;
+                }
+
+                intArgRegIndex += regCount;
+            }
+        }
+
+        if (regCount == 0)
+        {
+            argInfo->SetStack(AllocateStack(size, align), size);
+        }
+        else
+        {
+            argInfo->SetRegCount(regCount);
+            argInfo->SetRegNum(0, reg);
+
+            if (hfaType != TYP_UNDEF)
+            {
+                argInfo->SetRegType(hfaType);
+            }
+
+            if (stackSize != 0)
+            {
+                unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
+                assert(stackOffset == 0);
+                argInfo->SetStack(0, stackSize);
+            }
+        }
     }
 
     callInfo->SetStackArgsSize(stackArgsSize);
@@ -7646,73 +5916,7 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
     CallInfo*  callInfo     = call->GetInfo();
     const bool callIsVararg = call->IsVarargs();
 
-#ifdef TARGET_X86
-    unsigned   maxIntArgRegNum;
-
-    if (call->IsUnmanaged())
-    {
-        // CheckPInvokeCall should have rejected fastcall unmanaged calls.
-        assert((call->GetCallConv() != CorInfoCallConvExtension::Fastcall) &&
-               (call->GetCallConv() != CorInfoCallConvExtension::FastcallMemberFunction));
-        assert(!call->HasThisArg());
-
-        maxIntArgRegNum = call->GetCallConv() == CorInfoCallConvExtension::Thiscall ? 1 : 0;
-    }
-    else if (callIsVararg || call->CallerPop())
-    {
-        // Varargs passes all args on stack, with the exception of "this" and ret buf args.
-        maxIntArgRegNum = (call->HasThisArg() ? 1 : 0) + (call->HasRetBufArg() ? 1 : 0);
-    }
-    else
-    {
-        maxIntArgRegNum = MAX_INT_REG_ARG;
-    }
-#endif // TARGET_X86
-
-#ifdef TARGET_ARM
-    // The ARM ABI has a concept of back-filling of floating-point argument registers, according
-    // to the "Procedure Call Standard for the ARM Architecture" document, especially
-    // section 6.1.2.3 "Parameter passing". Back-filling is where floating-point argument N+1 can
-    // appear in a lower-numbered register than floating point argument N. That is, argument
-    // register allocation is not strictly increasing. To support this, we need to keep track of unused
-    // floating-point argument registers that we can back-fill. We only support 4-byte float and
-    // 8-byte double types, and one to four element HFAs composed of these types. With this, we will
-    // only back-fill single registers, since there is no way with these types to create
-    // an alignment hole greater than one register. However, there can be up to 3 back-fill slots
-    // available (with 16 FP argument registers). Consider this code:
-    //
-    // struct HFA { float x, y, z; }; // a three element HFA
-    // void bar(float a1,   // passed in f0
-    //          double a2,  // passed in f2/f3; skip f1 for alignment
-    //          HFA a3,     // passed in f4/f5/f6
-    //          double a4,  // passed in f8/f9; skip f7 for alignment. NOTE: it doesn't fit in the f1 back-fill slot
-    //          HFA a5,     // passed in f10/f11/f12
-    //          double a6,  // passed in f14/f15; skip f13 for alignment. NOTE: it doesn't fit in the f1 or f7 back-fill
-    //                      // slots
-    //          float a7,   // passed in f1 (back-filled)
-    //          float a8,   // passed in f7 (back-filled)
-    //          float a9,   // passed in f13 (back-filled)
-    //          float a10)  // passed on the stack in [OutArg+0]
-    //
-    // Note that if we ever support FP types with larger alignment requirements, then there could
-    // be more than single register back-fills.
-    //
-    // Once we assign a floating-pointer register to the stack, they all must be on the stack.
-    // See "Procedure Call Standard for the ARM Architecture", section 6.1.2.3, "The back-filling
-    // continues only so long as no VFP CPRC has been allocated to a slot on the stack."
-    // We set anyFloatStackArgs to true when a floating-point argument has been assigned to the stack
-    // and prevent any additional floating-point arguments from going in registers.
-
-    bool anyFloatStackArgs = false;
-
-    regMaskTP intArgSkippedRegMask = RBM_NONE;
-    regMaskTP fltArgSkippedRegMask = RBM_NONE;
-#endif //  TARGET_ARM
-
-    unsigned intArgRegNum  = 0;
-    unsigned fltArgRegNum  = 0;
-    unsigned argIndex      = 0;
-    unsigned stackArgsSize = INIT_ARG_STACK_SLOT * REGSIZE_BYTES;
+    unsigned stackArgsSize = 0;
 
     auto AllocateStack = [&stackArgsSize](unsigned size, unsigned alignment) {
         unsigned offset = roundUp(stackArgsSize, alignment);
@@ -7720,488 +5924,167 @@ void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArg
         return offset;
     };
 
-    for (GenTreeCall::Use& args : call->Uses())
+#ifdef TARGET_WINDOWS
+    const unsigned hfaArgRegCount = callIsVararg ? 0 : MAX_FLOAT_REG_ARG;
+#else
+    const unsigned hfaArgRegCount = MAX_FLOAT_REG_ARG;
+#endif
+
+    unsigned intArgRegIndex = 0;
+    unsigned hfaArgRegIndex = 0;
+    unsigned argIndex       = 0;
+
+    for (GenTreeCall::Use& use : call->Uses())
     {
-        GenTree* const  argNode = args.GetNode();
+        GenTree* const  argNode = use.GetNode();
         var_types const argType = argNode->GetType();
 
-        // We should not have setup the arguments yet
-        assert(!argNode->OperIs(GT_FIELD_LIST, GT_LCL_STORE));
+        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&use, argIndex++);
+        callInfo->AddArg(argInfo);
 
-        unsigned     size          = 0;
-        unsigned     argAlign      = REGSIZE_BYTES;
-        const bool   isStructArg   = typIsLayoutNum(args.GetSigTypeNum());
-        ClassLayout* layout        = isStructArg ? typGetLayoutByNum(args.GetSigTypeNum()) : nullptr;
-        unsigned     structSize    = 0;
-        var_types    structArgType = TYP_STRUCT;
-        bool         implicitByRef = false;
-        var_types    hfaType       = TYP_UNDEF;
-        unsigned     hfaSlots      = 0;
-
-        if (isStructArg)
+        if (RegNum nonStdReg = nonStandardArgs.FindReg(argNode); nonStdReg != REG_NA)
         {
-            structSize = layout->GetSize();
+            assert(nonStdReg != REG_STK);
+            assert(varTypeIsI(argType));
+
+            argInfo->SetRegCount(1);
+            argInfo->SetRegNum(0, nonStdReg);
+            argInfo->SetArgType(argType);
+
+            continue;
+        }
+
+        if (ClassLayout* layout = typTryGetLayoutByNum(use.GetSigTypeNum()))
+        {
             layout->EnsureHfaInfo(this);
 
-            if (layout->IsHfa()
-#if defined(TARGET_WINDOWS) && defined(TARGET_ARM64)
-                && !callIsVararg
-#endif
-                )
+            if (layout->IsHfa() && (hfaArgRegCount > 0))
             {
-                hfaType  = layout->GetHfaElementType();
-                hfaSlots = layout->GetHfaRegCount();
+                unsigned  regCount = layout->GetHfaRegCount();
+                var_types hfaType  = layout->GetHfaElementType();
 
-                compFloatingPointUsed = true;
-            }
+                argInfo->SetArgType(regCount == 1 ? hfaType : TYP_STRUCT);
 
-#ifdef TARGET_ARM
-            argAlign = roundUp(info.compCompHnd->getClassAlignmentRequirement(layout->GetClassHandle()), REGSIZE_BYTES);
-#endif
+                if (hfaArgRegIndex + regCount <= hfaArgRegCount)
+                {
+                    RegNum reg = GetFloatArgReg(hfaArgRegIndex);
+                    hfaArgRegIndex += regCount;
+
+                    argInfo->SetRegCount(regCount);
+                    argInfo->SetRegNum(0, reg);
+                    argInfo->SetRegType(hfaType);
+
+                    compFloatingPointUsed = true;
+
+                    continue;
+                }
+
 #ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(TYP_STRUCT, hfaType == TYP_FLOAT);
+                unsigned stackSize  = varTypeSize(hfaType) * regCount;
+                unsigned stackAlign = Min(varTypeSize(hfaType), static_cast<unsigned>(REGSIZE_BYTES));
+#else
+                // TODO-MIKE-Review: Alignment of SIMD16 HVAs is bogus, it's supposed
+                // to be 16 but it is 8 instead, as if they're normal structs.
+
+                unsigned stackSize  = roundUp(layout->GetSize(), REGSIZE_BYTES);
+                unsigned stackAlign = REGSIZE_BYTES;
 #endif
+
+                argInfo->SetStack(AllocateStack(stackSize, stackAlign), stackSize);
+                hfaArgRegIndex = hfaArgRegCount;
+
+                continue;
+            }
 
             StructPassing pass = abiGetStructParamType(layout, callIsVararg);
+            argInfo->SetArgType(pass.type);
 
-            structArgType = pass.type;
-            implicitByRef = pass.kind == SPK_ByReference;
+            unsigned regCount = 0;
 
-#if defined(WINDOWS_AMD64_ABI)
-            size          = 1;
-#elif defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
+            if (pass.kind == SPK_ByReference)
             {
-                assert(size == 1);
+                argInfo->SetIsImplicitByRef(true);
+                regCount = 1;
             }
-#elif defined(TARGET_ARM)
-            size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-            if (pass.kind == SPK_PrimitiveType)
-            {
-                size = 1 + (pass.type == TYP_DOUBLE);
-            }
-#elif defined(TARGET_ARM64)
-            if (hfaType != TYP_UNDEF)
-            {
-                size = hfaSlots;
-            }
-            else if (implicitByRef)
-            {
-                size = 1;
-            }
-            else
-            {
-                size = (8 <= structSize) && (structSize <= 16) ? 2 : 1;
-                assert(!implicitByRef || (size == 1));
-            }
-#else
-#error Unsupported or unset target architecture
-#endif
-        }
-        else
-        {
-            var_types sigType = static_cast<var_types>(args.GetSigTypeNum());
-
-            // The signature type should type should never be STRUCT, for struct params we should have
-            // a layout instead. If it is then it's likely that we have a helper call with struct params.
-            assert(!varTypeIsStruct(sigType));
-
-            // We may get primitive args for struct params but never the other way around.
-            assert(!varTypeIsStruct(argType));
-
-            assert((varActualType(sigType) == varActualType(argType)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_I_IMPL)) ||
-                   ((sigType == TYP_I_IMPL) && (argType == TYP_BYREF)) ||
-                   ((sigType == TYP_BYREF) && (argType == TYP_REF)));
-
-#ifdef TARGET_ARM
-            argAlign = roundUp(varTypeAlignment(argType), REGSIZE_BYTES);
-#endif
-#ifdef OSX_ARM64_ABI
-            argAlign = lvaGetParamAlignment(sigType, false);
-#endif
-
-#ifdef TARGET_64BIT
-            size = 1;
-#else
-            size                      = (argType == TYP_LONG) || (argType == TYP_DOUBLE) ? 2 : 1;
-#endif
-        }
-
-#if defined(TARGET_ARM)
-        const bool passUsingFloatRegs =
-            !opts.UseSoftFP() && ((hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)));
-
-        if (argAlign == 2 * REGSIZE_BYTES)
-        {
-            if (passUsingFloatRegs)
-            {
-                if (fltArgRegNum % 2 == 1)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                    fltArgRegNum++;
-                }
-            }
-            else if (intArgRegNum < MAX_INT_REG_ARG)
-            {
-                if (intArgRegNum % 2 == 1)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                    intArgRegNum++;
-                }
-            }
-        }
-#elif defined(TARGET_ARM64)
-        const bool passUsingFloatRegs = (hfaType != TYP_UNDEF) || (!isStructArg && varTypeUsesFloatReg(argType)
-#ifdef TARGET_WINDOWS
-                                                                   && !callIsVararg
-#endif
-                                                                   );
-#elif defined(TARGET_AMD64)
-        const bool passUsingFloatRegs = !isStructArg && varTypeIsFloating(argType);
-#elif defined(TARGET_X86)
-        const bool passUsingFloatRegs = false;
-#else
-#error Unsupported or unset target architecture
-#endif
-
-        bool     isRegArg         = false;
-#ifdef TARGET_ARM
-        bool     isBackFilled     = false;
-        unsigned nextFltArgRegNum = fltArgRegNum; // This is the next floating-point argument register number to use
-#endif
-        RegNum const nonStdRegNum = nonStandardArgs.FindReg(argNode);
-
-        if (nonStdRegNum != REG_NA)
-        {
-            assert(!passUsingFloatRegs);
-            assert(size == 1);
-
-            isRegArg = nonStdRegNum != REG_STK;
-        }
-        else
-        {
-#if defined(TARGET_ARM)
-            if (passUsingFloatRegs)
-            {
-                // First, see if it can be back-filled
-                if (!anyFloatStackArgs && // Is it legal to back-fill? (We haven't put any FP args on the stack yet)
-                    (fltArgSkippedRegMask != RBM_NONE) && // Is there an available back-fill slot?
-                    (size == 1))                          // The size to back-fill is one float register
-                {
-                    isBackFilled              = true;
-                    regMaskTP backFillBitMask = genFindLowestBit(fltArgSkippedRegMask);
-                    fltArgSkippedRegMask &= ~backFillBitMask;
-                    nextFltArgRegNum = genRegNumFromMask(backFillBitMask) - REG_F0;
-                    assert(nextFltArgRegNum < MAX_FLOAT_REG_ARG);
-                }
-
-                // Does the entire float, double, or HFA fit in the FP arg registers?
-                // Check if the last register needed is still in the argument register range.
-                isRegArg = (nextFltArgRegNum + size - 1) < MAX_FLOAT_REG_ARG;
-
-                if (!isRegArg)
-                {
-                    anyFloatStackArgs = true;
-                }
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(TARGET_ARM64)
-            if (passUsingFloatRegs)
-            {
-                // Check if the last register needed is still in the fp argument register range.
-                isRegArg = (fltArgRegNum + (size - 1)) < MAX_FLOAT_REG_ARG;
-
-                // Do we have a HFA arg that we wanted to pass in registers, but we ran out of FP registers?
-                if ((hfaType != TYP_UNDEF) && !isRegArg)
-                {
-                    // recompute the 'size' so that it represent the number of stack slots
-                    // rather than the number of registers
-                    size = roundUp(structSize, REGSIZE_BYTES) / REGSIZE_BYTES;
-
-                    // We also must update fltArgRegNum so that we no longer try to
-                    // allocate any new floating point registers for args
-                    // This prevents us from backfilling a subsequent arg into d7
-                    fltArgRegNum = MAX_FLOAT_REG_ARG;
-                }
-            }
-            else
-            {
-                // Check if the last register needed is still in the int argument register range.
-                isRegArg = (intArgRegNum + (size - 1)) < MAX_INT_REG_ARG;
-
-                // Did we run out of registers when we had a 16-byte struct (size===2) ?
-                // (i.e we only have one register remaining but we needed two registers to pass this arg)
-                // This prevents us from backfilling a subsequent arg into x7
-                if (!isRegArg && (size > 1))
-                {
-#ifdef TARGET_WINDOWS
-                    // win-arm64 native varargs allows splitting a 16 byte struct
-                    // between x7 and a the first stack slot
-                    if (callIsVararg)
-                    {
-                        isRegArg = (intArgRegNum + (size - 1)) <= MAX_INT_REG_ARG;
-                    }
-                    else
-#endif
-                    {
-                        // We also must update intArgRegNum so that we no longer try to
-                        // allocate any new general purpose registers for args
-                        intArgRegNum = MAX_INT_REG_ARG;
-                    }
-                }
-            }
-#elif defined(UNIX_AMD64_ABI)
-            if (isStructArg)
-            {
-                if (layout->GetSysVAmd64AbiRegCount() != 0)
-                {
-                    unsigned structFloatRegs = 0;
-                    unsigned structIntRegs   = 0;
-
-                    for (unsigned i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                    {
-                        if (varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                        {
-                            structFloatRegs++;
-                        }
-                        else
-                        {
-                            structIntRegs++;
-                        }
-                    }
-
-                    isRegArg = (fltArgRegNum + structFloatRegs <= MAX_FLOAT_REG_ARG) &&
-                               (intArgRegNum + structIntRegs <= MAX_INT_REG_ARG);
-                }
-            }
-            else if (passUsingFloatRegs)
-            {
-                isRegArg = fltArgRegNum < MAX_FLOAT_REG_ARG;
-            }
-            else
-            {
-                isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-            }
-#elif defined(WINDOWS_AMD64_ABI)
-            assert(size == 1);
-            isRegArg = intArgRegNum < MAX_INT_REG_ARG;
-#elif defined(TARGET_X86)
-            if (!isStructArg ? varTypeIsI(varActualType(argType)) : isTrivialPointerSizedStruct(layout))
-            {
-                assert(size == 1);
-                isRegArg = intArgRegNum < maxIntArgRegNum;
-            }
-
-            if (call->IsTailCallViaJitHelper())
-            {
-                // The last 4 args of the tail call helper are always passed on the stack.
-                assert(callInfo->GetArgCount() >= 4);
-                assert(!passUsingFloatRegs);
-
-                if (argIndex >= callInfo->GetArgCount() - 4)
-                {
-                    isRegArg = false;
-                }
-            }
-#else
-#error Unknown target
-#endif
-        }
-
-#ifdef TARGET_ARM
-        if (passUsingFloatRegs)
-        {
-            // If we ever allocate a floating point argument to the stack, then
-            // all subsequent HFA/float/double arguments go on the stack.
-            if (!isRegArg)
-            {
-                for (; fltArgRegNum < MAX_FLOAT_REG_ARG; fltArgRegNum++)
-                {
-                    fltArgSkippedRegMask |= genMapFloatRegArgNumToRegMask(fltArgRegNum);
-                }
-            }
-        }
-        else
-        {
-            // If we're going to split a struct between integer registers and the stack, check to
-            // see if we've already assigned a floating-point arg to the stack.
-            if (isRegArg && (intArgRegNum + size > MAX_INT_REG_ARG) && anyFloatStackArgs)
-            {
-                isRegArg = false;
-
-                // Skip the rest of the integer argument registers
-                for (; intArgRegNum < MAX_INT_REG_ARG; intArgRegNum++)
-                {
-                    intArgSkippedRegMask |= genMapIntRegArgNumToRegMask(intArgRegNum);
-                }
-            }
-        }
-#endif // TARGET_ARM
-
-        CallArgInfo* argInfo = new (this, CMK_CallInfo) CallArgInfo(&args, argIndex++);
-
-        if (!isRegArg)
-        {
-            argInfo->SetStack(AllocateStack(size * REGSIZE_BYTES, argAlign), size * REGSIZE_BYTES);
-        }
-        else
-        {
-            RegNum regs[]{REG_NA UNIX_AMD64_ABI_ONLY_ARG(REG_NA)};
-
-            if (nonStdRegNum != REG_NA)
-            {
-                regs[0] = nonStdRegNum;
-            }
-#ifdef UNIX_AMD64_ABI
-            else if (isStructArg && (layout->GetSysVAmd64AbiRegCount() != 0))
-            {
-                assert(layout->GetSysVAmd64AbiRegCount() <= _countof(regs));
-
-                for (unsigned int i = 0; i < layout->GetSysVAmd64AbiRegCount(); i++)
-                {
-                    if (!varTypeUsesFloatReg(layout->GetSysVAmd64AbiRegType(i)))
-                    {
-                        regs[i] = genMapIntRegArgNumToRegNum(intArgRegNum++);
-                    }
-                    else
-                    {
-                        regs[i] = genMapFloatRegArgNumToRegNum(fltArgRegNum++);
-                    }
-                }
-            }
-#endif // UNIX_AMD64_ABI
-            else
-            {
-                regs[0] = passUsingFloatRegs ? genMapFloatRegArgNumToRegNum(fltArgRegNum)
-                                             : genMapIntRegArgNumToRegNum(intArgRegNum);
-            }
-
-            unsigned regCount  = size;
-#if FEATURE_ARG_SPLIT
-            unsigned stackSize = 0;
-#endif
-
-            if ((nonStdRegNum == REG_NA)ARM_ONLY(&&!isBackFilled) UNIX_AMD64_ABI_ONLY(&&!isStructArg))
-            {
-#ifdef WINDOWS_AMD64_ABI
-                assert(regCount == 1);
-
-                intArgRegNum++;
-                fltArgRegNum++;
-#else // !WINDOWS_AMD64_ABI
-                if (passUsingFloatRegs)
-                {
-                    fltArgRegNum += regCount;
-                    // No supported architecture supports partial structs using float registers.
-                    assert(fltArgRegNum <= MAX_FLOAT_REG_ARG);
-                }
-                else
-                {
-#if FEATURE_ARG_SPLIT
-                    if (intArgRegNum + regCount > MAX_INT_REG_ARG)
-                    {
-                        // This indicates a partial enregistration of a struct arg
-                        assert(isStructArg);
-
-                        regCount             = MAX_INT_REG_ARG - intArgRegNum;
-                        stackSize            = (size - regCount) * REGSIZE_BYTES;
-                        unsigned stackOffset = AllocateStack(stackSize, REGSIZE_BYTES);
-                        assert(stackOffset == 0);
-                    }
-#endif
-
-                    intArgRegNum += regCount;
-                }
-#endif // WINDOWS_AMD64_ABI
-            }
-
-#ifdef TARGET_ARM
-            // Adjust regCount for DOUBLE args, including HFAs, since up to here we counted 2 regs
-            // for every DOUBLE reg the arg needs. For most purposes, we don't care about the fact
-            // that a DOUBLE reg actually takes 2 FLOAT regs (e.g. a HFA with 3 elements may end up
-            // being turned into a FIELD_LIST with 3 fields, no matter if the HFA type is FLOAT or
-            // DOUBLE) so it's preferrable to treat DOUBLE regs as single reg.
-
-            if (hfaType != TYP_UNDEF)
-            {
-                regCount = hfaSlots;
-
-                if (hfaType == TYP_DOUBLE)
-                {
-                    assert((regCount & 1) == 0);
-                    regCount = hfaSlots / 2;
-                }
-            }
-            else if ((argType == TYP_DOUBLE) && opts.UseHfa())
+            else if (layout->GetSize() <= REGSIZE_BYTES)
             {
                 regCount = 1;
             }
-#endif
-
-            argInfo->SetRegCount(regCount);
-            argInfo->SetRegNum(0, regs[0]);
-            INDEBUG(argInfo->SetNonStandard(nonStdRegNum != REG_NA));
-
-#if defined(UNIX_AMD64_ABI)
-            assert(regCount <= 2);
-
-            if (regCount == 2)
-            {
-                argInfo->SetRegNum(1, regs[1]);
-            }
-
-            if (isStructArg)
-            {
-                for (unsigned i = 0; i < regCount; i++)
-                {
-                    // TODO-MIKE-Review: Does this really need to be the actual type?
-                    argInfo->SetRegType(i, varActualType(layout->GetSysVAmd64AbiRegType(i)));
-                }
-            }
             else
             {
-                argInfo->SetRegType(0, argType);
+                assert(layout->GetSize() <= 2 * REGSIZE_BYTES);
+                regCount = 2;
             }
-#elif defined(TARGET_ARMARCH)
-            if (hfaType != TYP_UNDEF)
-            {
-                argInfo->SetRegType(hfaType);
-            }
-            else if (varTypeIsFloating(argType) && opts.UseHfa())
-            {
-                argInfo->SetRegType(argType);
-            }
-#endif
 
-#if FEATURE_ARG_SPLIT
-            if (stackSize != 0)
+            if (intArgRegIndex + regCount <= MAX_INT_REG_ARG)
             {
-                argInfo->SetStack(0, stackSize);
+                RegNum reg = GetIntArgReg(intArgRegIndex);
+                intArgRegIndex += regCount;
+                argInfo->SetRegCount(regCount);
+                argInfo->SetRegNum(0, reg);
+            }
+#ifdef TARGET_WINDOWS
+            else if (callIsVararg && (intArgRegIndex + 1 <= MAX_INT_REG_ARG))
+            {
+                assert(stackArgsSize == 0);
+                RegNum reg = GetIntArgReg(intArgRegIndex++);
+
+                argInfo->SetRegCount(1);
+                argInfo->SetRegNum(0, reg);
+                argInfo->SetStack(AllocateStack(REGSIZE_BYTES, REGSIZE_BYTES), REGSIZE_BYTES);
             }
 #endif
+            else
+            {
+                intArgRegIndex = MAX_INT_REG_ARG;
+
+                unsigned stackSize = regCount * REGSIZE_BYTES;
+                argInfo->SetStack(AllocateStack(stackSize, REGSIZE_BYTES), stackSize);
+            }
+
+            continue;
         }
 
-        if (isStructArg)
+        argInfo->SetArgType(argType);
+
+        var_types sigType = static_cast<var_types>(use.GetSigTypeNum());
+
+        if (varTypeIsFloating(sigType))
         {
-            argInfo->SetIsImplicitByRef(implicitByRef);
-            argInfo->SetArgType(structArgType);
+            if (hfaArgRegIndex < hfaArgRegCount)
+            {
+                RegNum reg = GetFloatArgReg(hfaArgRegIndex++);
+                argInfo->SetRegCount(1);
+                argInfo->SetRegNum(0, reg);
+                argInfo->SetRegType(sigType);
+
+                continue;
+            }
         }
         else
         {
-            argInfo->SetArgType(argType);
+            assert(varTypeIsIntegralOrI(sigType));
+
+            if (intArgRegIndex < MAX_INT_REG_ARG)
+            {
+                RegNum reg = GetIntArgReg(intArgRegIndex++);
+                argInfo->SetRegCount(1);
+                argInfo->SetRegNum(0, reg);
+
+                continue;
+            }
         }
 
-        callInfo->AddArg(argInfo);
+#ifdef OSX_ARM64_ABI
+        const unsigned stackSize = varTypeSize(sigType);
+#else
+        const unsigned   stackSize  = REGSIZE_BYTES;
+#endif
+
+        argInfo->SetStack(AllocateStack(stackSize, stackSize), stackSize);
     }
 
-    callInfo->SetStackArgsSize(stackArgsSize);
+    callInfo->SetStackArgsSize(roundUp(stackArgsSize, REGSIZE_BYTES));
 }
 #else
 #error Unsupported or unset target architecture
@@ -8306,9 +6189,6 @@ void Compiler::moSetupCallArgs(GenTreeCall* const call)
             continue;
         }
 
-        // Non-standard args are expected to have primitive type.
-        assert(!argInfo->IsNonStandard());
-
         // TODO-MIKE-Review: Can we get COMMAs here other than those generated for
         // temp arg copies? The struct arg morph code below doesn't handle that.
         GenTree* argVal = arg->SkipComma();
@@ -8362,7 +6242,7 @@ void Compiler::moSetupCallArgs(GenTreeCall* const call)
     if (verbose)
     {
         printf("Call [%06u] arg table after moSetupCallArgs:\n", call->GetID());
-        call->fgArgInfo->Dump();
+        call->GetInfo()->Dump();
     }
 #endif
 }
@@ -8840,8 +6720,6 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     if (arg->OperIs(GT_IND_LOAD_OBJ))
     {
         argSize = arg->AsIndLoadObj()->GetLayout()->GetSize();
-
-        assert(argSize <= argRegType);
 
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_X86)
         // On win-x64 and x86 only register sized structs are passed in a register, others are passed by reference.

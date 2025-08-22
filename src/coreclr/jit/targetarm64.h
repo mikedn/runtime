@@ -2,13 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 #pragma once
 
-#if !defined(TARGET_ARM64)
+#ifndef TARGET_ARM64
 #error The file should not be included for this platform.
 #endif
 
 // clang-format off
-  #define ROUND_FLOAT              0       // Do not round intermed float expression results
-
   #define CPBLK_UNROLL_LIMIT       64      // Upper bound to let the code generator to loop unroll CpBlk.
   #define INITBLK_UNROLL_LIMIT     64      // Upper bound to let the code generator to loop unroll InitBlk.
 
@@ -16,18 +14,13 @@
   #define FEATURE_FIXED_OUT_ARGS   1       // Preallocate the outgoing arg area in the prolog
   #define FEATURE_FASTTAILCALL     1       // Tail calls made as epilog+jmp
   #define FEATURE_TAILCALL_OPT     1       // opportunistic Tail calls (i.e. without ".tail" prefix) made as fast tail calls.
-  #define FEATURE_MULTIREG_ARGS_OR_RET  1  // Support for passing and/or returning single values in more than one register
   #define FEATURE_MULTIREG_ARGS         1  // Support for passing a single argument in more than one register
   #define FEATURE_MULTIREG_RET          1  // Support for returning a single value in more than one register
   #define FEATURE_STRUCT_CLASSIFIER     0  // Uses a classifier function to determine is structs are passed/returned in more than one register
-  #define MAX_PASS_SINGLEREG_BYTES     16  // Maximum size of a struct passed in a single register (16-byte vector).
-  #define MAX_PASS_MULTIREG_BYTES      64  // Maximum size of a struct that could be passed in more than one register (max is 4 16-byte vectors using an HVA)
-  #define MAX_RET_MULTIREG_BYTES       64  // Maximum size of a struct that could be returned in more than one register (Max is an HVA of 4 16-byte vectors)
+  #define MAX_PASS_ARGREG_BYTES        64  // Maximum size of a struct that could be passed in more than one register (max is 4 16-byte vectors using an HVA)
   #define MAX_ARG_REG_COUNT             4  // Maximum registers used to pass a single argument in multiple registers. (max is 4 128-bit vectors using an HVA)
   #define MAX_RET_REG_COUNT             4  // Maximum registers used to return a value.
-
-  #define MAX_MULTIREG_COUNT            4  // Maxiumum number of registers defined by a single instruction (including calls).
-                                           // This is also the maximum number of registers for a MultiReg node.
+  #define MAX_MULTIREG_COUNT            4  // Maximum number of registers defined by a single instruction node.
 
   #define NOGC_WRITE_BARRIERS      1       // We have specialized WriteBarrier JIT Helpers that DO-NOT trash the RBM_CALLEE_TRASH registers
   #define TARGET_POINTER_SIZE      8       // equal to sizeof(void*) and the managed pointer size in bytes for this target
@@ -201,16 +194,6 @@
   #define RBM_PROFILER_LEAVE_TRASH     (RBM_CALLEE_TRASH & ~(RBM_ARG_REGS|RBM_ARG_RET_BUFF|RBM_FLTARG_REGS|RBM_FP))
   #define RBM_PROFILER_TAILCALL_TRASH  RBM_PROFILER_LEAVE_TRASH
 
-  // Which register are int and long values returned in ?
-  #define REG_INTRET               REG_R0
-  #define RBM_INTRET               RBM_R0
-  // second return register for 16-byte structs
-  #define REG_INTRET_1             REG_R1
-  #define RBM_INTRET_1             RBM_R1
-
-  #define REG_FLOATRET             REG_V0
-  #define RBM_FLOATRET             RBM_V0
-
   // The registers trashed by the CORINFO_HELP_STOP_FOR_GC helper
   #define RBM_STOP_FOR_GC_TRASH    RBM_CALLEE_TRASH
 
@@ -224,7 +207,12 @@
   #define RBM_SPBASE               RBM_ZR     // reuse the RBM for REG_ZR
   #define STR_SPBASE               "sp"
 
-  #define FIRST_ARG_STACK_OFFS    (2*REGSIZE_BYTES)   // Caller's saved FP and return address
+  #define REG_INTRET               REG_R0
+  #define RBM_INTRET               RBM_R0
+  #define REG_INTRET_1             REG_R1
+  #define RBM_INTRET_1             RBM_R1
+  #define REG_FLOATRET             REG_V0
+  #define RBM_FLOATRET             RBM_V0
 
   // On ARM64 the calling convention defines REG_R8 (x8) as an additional argument register.
   // It isn't allocated for the normal user arguments, so it isn't counted by MAX_INT_REG_ARG.
@@ -232,14 +220,11 @@
   #define RBM_ARG_RET_BUFF         RBM_R8
   #define RET_BUFF_ARGNUM          8
 
+  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
   #define MAX_INT_REG_ARG          8
   #define MAX_FLOAT_REG_ARG        8
-
   #define REG_ARG_FIRST            REG_R0
   #define REG_ARG_LAST             REG_R7
-  #define REG_ARG_FP_FIRST         REG_V0
-  #define REG_ARG_FP_LAST          REG_V7
-  #define INIT_ARG_STACK_SLOT      0                  // No outgoing reserved stack slots
 
   #define REG_ARG_0                REG_R0
   #define REG_ARG_1                REG_R1
@@ -250,9 +235,6 @@
   #define REG_ARG_6                REG_R6
   #define REG_ARG_7                REG_R7
 
-  extern const RegNum intArgRegs[MAX_INT_REG_ARG];
-  extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
-
   #define RBM_ARG_0                RBM_R0
   #define RBM_ARG_1                RBM_R1
   #define RBM_ARG_2                RBM_R2
@@ -262,29 +244,8 @@
   #define RBM_ARG_6                RBM_R6
   #define RBM_ARG_7                RBM_R7
 
-  #define REG_FLTARG_0             REG_V0
-  #define REG_FLTARG_1             REG_V1
-  #define REG_FLTARG_2             REG_V2
-  #define REG_FLTARG_3             REG_V3
-  #define REG_FLTARG_4             REG_V4
-  #define REG_FLTARG_5             REG_V5
-  #define REG_FLTARG_6             REG_V6
-  #define REG_FLTARG_7             REG_V7
-
-  #define RBM_FLTARG_0             RBM_V0
-  #define RBM_FLTARG_1             RBM_V1
-  #define RBM_FLTARG_2             RBM_V2
-  #define RBM_FLTARG_3             RBM_V3
-  #define RBM_FLTARG_4             RBM_V4
-  #define RBM_FLTARG_5             RBM_V5
-  #define RBM_FLTARG_6             RBM_V6
-  #define RBM_FLTARG_7             RBM_V7
-
   #define RBM_ARG_REGS            (RBM_ARG_0|RBM_ARG_1|RBM_ARG_2|RBM_ARG_3|RBM_ARG_4|RBM_ARG_5|RBM_ARG_6|RBM_ARG_7)
-  #define RBM_FLTARG_REGS         (RBM_FLTARG_0|RBM_FLTARG_1|RBM_FLTARG_2|RBM_FLTARG_3|RBM_FLTARG_4|RBM_FLTARG_5|RBM_FLTARG_6|RBM_FLTARG_7)
-
-  extern const RegNum fltArgRegs [MAX_FLOAT_REG_ARG];
-  extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];
+  #define RBM_FLTARG_REGS         (RBM_V0|RBM_V1|RBM_V2|RBM_V3|RBM_V4|RBM_V5|RBM_V6|RBM_V7)
 
   // The number of bytes from the end the last probed page that must also be probed, to allow for some
   // small SP adjustments without probes. If zero, then the stack pointer can point to the last byte/word
@@ -316,3 +277,8 @@ constexpr bool IsFloatReg(RegNum reg)
 {
     return IsVectorRegister(reg);
 }
+
+extern const RegNum    intArgRegs[MAX_INT_REG_ARG];
+extern const regMaskTP intArgMasks[MAX_INT_REG_ARG];
+extern const RegNum    fltArgRegs[MAX_FLOAT_REG_ARG];
+extern const regMaskTP fltArgMasks[MAX_FLOAT_REG_ARG];

@@ -929,19 +929,18 @@ void Compiler::lvaAllocUserParam(ParamAllocInfo& paramInfo, LclVarDsc* lcl)
     {
         paramInfo.SetHasStackParam(regType);
 
-        unsigned offset    = paramInfo.stackOffset;
-        unsigned alignment = lvaGetParamAlignment(lcl->GetType(), (regType == TYP_FLOAT));
+        unsigned alignment = REGSIZE_BYTES;
 
 #ifdef OSX_ARM64_ABI
-        // TODO-MIKE-Review: Note that lvaGetParamAlignment appears to be returning wrong
-        // alignment for vector params, if that's the case then this code should be enabled
-        // for all ARM64 targets, not just OSX.
-        offset = roundUp(offset, alignment);
+        // TODO-MIKE-Review: Alignment of SIMD16 HVAs is bogus, it's supposed
+        // to be 16 but it is 8 instead, as if they're normal structs.
+        if (!lcl->TypeIs(TYP_STRUCT))
+        {
+            alignment = regType == TYP_FLOAT ? 4 : varTypeSize(lcl->GetType());
+        }
 #endif
 
-        assert(paramSize % alignment == 0);
-        assert(offset % alignment == 0);
-
+        unsigned offset = roundUp(paramInfo.stackOffset, alignment);
         lcl->SetStackOffset(offset);
         paramInfo.stackOffset = offset + paramSize;
 
@@ -3096,7 +3095,7 @@ unsigned Compiler::lvaGetParamAllocSize(LclVarDsc* lcl)
         unsigned     size   = layout->GetSize();
 
 #ifdef TARGET_ARM64
-        if (size <= MAX_PASS_MULTIREG_BYTES)
+        if (size <= MAX_PASS_ARGREG_BYTES)
         {
             layout->EnsureHfaInfo(this);
 
@@ -3127,7 +3126,11 @@ unsigned Compiler::lvaGetParamAllocSize(LclVarDsc* lcl)
 
     assert((lcl->GetTypeSize() <= REGSIZE_BYTES) || lcl->IsImplicitByRefParam());
 
+#ifdef OSX_ARM64_ABI
+    return varTypeSize(lcl->GetType());
+#else
     return REGSIZE_BYTES;
+#endif
 }
 
 // Return alignment for a parameter of the given type.
@@ -3737,8 +3740,8 @@ void Compiler::lvaFixVirtualFrameOffsets()
             // We need to re-adjust the offsets of the parameters so they
             // are EBP relative rather than stack/frame pointer relative.
 
-            lcl->SetStackOffset(lcl->GetStackOffset() + 2 * REGSIZE_BYTES); // return address and pushed EBP
-
+            constexpr unsigned FIRST_ARG_STACK_OFFS = 2 * REGSIZE_BYTES; // Caller's saved EBP and return address
+            lcl->SetStackOffset(lcl->GetStackOffset() + FIRST_ARG_STACK_OFFS);
             noway_assert(lcl->GetStackOffset() >= FIRST_ARG_STACK_OFFS);
         }
 #endif
@@ -4367,7 +4370,7 @@ void Compiler::lvaAssignLocalsVirtualFrameOffsets()
             // "pre-spilled" and then they also have offsets already assigned.
             if (lcl->IsParam()
 #ifndef WINDOWS_AMD64_ABI
-                && (!lcl->IsRegParam() ARM64_ONLY(|| (info.compIsVarArgs && (lcl->GetParamReg() != RET_BUFF_ARGNUM)))
+                && (!lcl->IsRegParam() ARM64_ONLY(|| (info.compIsVarArgs && (lcl->GetParamReg() != REG_ARG_RET_BUFF)))
                          ARM_ONLY(|| lcl->IsPreSpilledRegParam(codeGen->preSpillParamRegs)))
 #endif
                     )
