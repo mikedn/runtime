@@ -4230,7 +4230,10 @@ private:
         }
     };
 
+    class NonStandardArgs;
+
     void moInitCallInfo(GenTreeCall* call);
+    void moAllocCallArgs(GenTreeCall* call, const NonStandardArgs& nonStandardArgs);
     void moMorphCallArgs(GenTreeCall* call);
     void moSetupCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL

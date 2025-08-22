@@ -5185,6 +5185,40 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
     lateArgUseListTail->SetNext(nullptr);
 }
 
+// Data structure for keeping track of non-standard args. Non-standard args are those that are not passed
+// following the normal calling convention or in the normal argument registers. We either mark existing
+// arguments as non-standard (such as the x8 return buffer register on ARM64), or we manually insert the
+// non-standard arguments into the argument list, below.
+class Compiler::NonStandardArgs
+{
+    GenTree* args[4];
+    RegNum   regs[4];
+    unsigned count = 0;
+
+public:
+    void Add(GenTree* node, RegNum reg)
+    {
+        assert((node != nullptr) && (reg != REG_NA));
+        noway_assert(count < _countof(args));
+        args[count] = node;
+        regs[count] = reg;
+        count++;
+    }
+
+    RegNum FindReg(GenTree* node) const
+    {
+        for (unsigned i = 0; i < count; i++)
+        {
+            if (node == args[i])
+            {
+                return regs[i];
+            }
+        }
+
+        return REG_NA;
+    }
+};
+
 // This method only computes the arg table and arg entries for the call (the fgArgInfo),
 // and makes no modification of the args themselves.
 // The IR for the call args can change for calls with non-standard arguments: some non-standard
@@ -5211,40 +5245,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     NYI_IF(callIsVararg, "Morphing Vararg call not yet implemented on non Windows targets.");
 #endif
 
-    // Data structure for keeping track of non-standard args. Non-standard args are those that are not passed
-    // following the normal calling convention or in the normal argument registers. We either mark existing
-    // arguments as non-standard (such as the x8 return buffer register on ARM64), or we manually insert the
-    // non-standard arguments into the argument list, below.
-    class NonStandardArgs
-    {
-        GenTree* args[4];
-        RegNum   regs[4];
-        unsigned count = 0;
-
-    public:
-        void Add(GenTree* node, RegNum reg)
-        {
-            assert((node != nullptr) && (reg != REG_NA));
-            noway_assert(count < _countof(args));
-            args[count] = node;
-            regs[count] = reg;
-            count++;
-        }
-
-        RegNum FindReg(GenTree* node) const
-        {
-            for (unsigned i = 0; i < count; i++)
-            {
-                if (node == args[i])
-                {
-                    return regs[i];
-                }
-            }
-
-            return REG_NA;
-        }
-    } nonStandardArgs;
-
     unsigned numArgs = 0;
 
     for (GenTreeCall::Use& use : call->Uses())
@@ -5257,7 +5257,8 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     // convention (such as for the ARM64 fixed return buffer argument x8).
     // The logic here must remain in sync with HasNonStandardAddedArgs, which is used to map arguments
     // in the implementation of fast tail call.
-    CLANG_FORMAT_COMMENT_ANCHOR;
+
+    NonStandardArgs nonStandardArgs;
 
 #ifdef TARGET_ARM64
     if (call->HasFixedRetBufArg())
@@ -5375,6 +5376,22 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     }
 
     CallInfo* callInfo = new (this, CMK_CallInfo) CallInfo(this, call, numArgs);
+    call->SetInfo(callInfo);
+    moAllocCallArgs(call, nonStandardArgs);
+
+#ifdef DEBUG
+    if (verbose)
+    {
+        callInfo->Dump();
+        printf("\n");
+    }
+#endif
+}
+
+void Compiler::moAllocCallArgs(GenTreeCall* call, const Compiler::NonStandardArgs& nonStandardArgs)
+{
+    CallInfo*  callInfo     = call->GetInfo();
+    const bool callIsVararg = call->IsVarargs();
 
 #ifdef TARGET_X86
     unsigned maxIntArgRegNum;
@@ -5732,10 +5749,10 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
             if (call->IsTailCallViaJitHelper())
             {
                 // The last 4 args of the tail call helper are always passed on the stack.
-                assert(numArgs >= 4);
+                assert(callInfo->GetArgCount() >= 4);
                 assert(!passUsingFloatRegs);
 
-                if (argIndex >= numArgs - 4)
+                if (argIndex >= callInfo->GetArgCount() - 4)
                 {
                     isRegArg = false;
                 }
@@ -5932,15 +5949,6 @@ void Compiler::moInitCallInfo(GenTreeCall* call)
     }
 
     callInfo->SetStackArgsSize(stackArgsSize);
-    call->SetInfo(callInfo);
-
-#ifdef DEBUG
-    if (verbose)
-    {
-        callInfo->Dump();
-        printf("\n");
-    }
-#endif
 }
 
 void Compiler::moMorphCallArgs(GenTreeCall* const call)
