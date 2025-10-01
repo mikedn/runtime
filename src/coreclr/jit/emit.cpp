@@ -1490,7 +1490,8 @@ void insGroup::Print(Compiler* compiler) const
 
     if (compiler->verbose)
     {
-        printf("%c func %u, offs %06XH, size %04XH", separator, ig->GetFuncletIndex(), ig->igOffs, ig->igSize);
+        printf("%c func %u, offs %06XH, size %04XH, eh %04XH", separator, ig->GetFuncletIndex(), ig->igOffs, ig->igSize,
+               ig->tryIndex);
         separator = ',';
 
         if ((flags & IGF_UPD_ISZ) != 0)
@@ -2686,8 +2687,8 @@ void Encoder::Encode(ArchEmitter& emit)
 #ifdef TARGET_AMD64
             // We can't have a call at the end of the try region, the unwinder needs
             // an extra instruction to understand that the call is inside the region.
-            // TODO-MIKE-Fix: This has a problem with a prolog profiler helper call on linux-x64.
-            assert((curInstrDesc->idIns() != INS_call) || (i < count - 1) || (ig->tryIndex == ig->igNext->tryIndex));
+            assert((curInstrDesc->idIns() != INS_call) || (i < count - 1) || (ig->tryIndex == ig->igNext->tryIndex) ||
+                   ig->IsMainProlog());
 #endif
         }
 
