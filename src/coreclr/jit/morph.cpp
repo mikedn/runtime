@@ -9992,6 +9992,13 @@ GenTreeLclStore* Compiler::moMorphTailCallViaJitHelper(GenTreeCall* call, Statem
         // Normally we'd need an indirection to get the actual target address but
         // the CORINFO_HELP_TAILCALL helper handles this if the VSD flag is set.
         targetArg = gtNewIconHandleNode(call->m_entryPointAddr, HandleKind::MethodAddr);
+
+        // The runtime requires that we perform a null check on the `this` argument before tail
+        // calling to a virtual dispatch stub. This requirement is a consequence of limitations
+        // in the runtime's ability to map an AV to a NullReferenceException if the AV occurs
+        // in a dispatch stub that has unmanaged caller.
+        assert(call->HasThisArg());
+        call->gtFlags |= GTF_CALL_NULLCHECK;
     }
     else
     {
