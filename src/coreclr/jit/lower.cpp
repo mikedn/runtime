@@ -2602,6 +2602,24 @@ void Lowering::LowerLclStoreFld(GenTreeLclStoreFld* store)
 
     GenTree* value = store->GetValue();
 
+    if (value->OperIs(GT_BITCAST))
+    {
+        GenTree* src = value->AsUnOp()->GetOp(0);
+
+        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType()))
+        {
+            assert(varTypeSize(src->GetType()) == varTypeSize(store->GetType()));
+
+            src->ClearContained();
+            src->ClearRegOptional();
+            store->SetType(src->GetType());
+            store->SetValue(src);
+
+            BlockRange().Unlink(value);
+            value = src;
+        }
+    }
+
     if (varTypeIsStruct(store->GetType()))
     {
         ClassLayout* layout = store->GetLayout(comp);
@@ -4849,8 +4867,28 @@ void Lowering::LowerIndStore(GenTreeIndStore* store)
 {
     assert(!store->TypeIs(TYP_STRUCT));
 
+    GenTree* value = store->GetValue();
+
+    if (value->OperIs(GT_BITCAST))
+    {
+        GenTree* src = value->AsUnOp()->GetOp(0);
+
+        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType()))
+        {
+            assert(varTypeSize(src->GetType()) == varTypeSize(store->GetType()));
+
+            src->ClearContained();
+            src->ClearRegOptional();
+            store->SetType(src->GetType());
+            store->SetValue(src);
+
+            BlockRange().Unlink(value);
+            value = src;
+        }
+    }
+
 #ifndef WINDOWS_AMD64_ABI
-    if (GenTreeCall* call = store->GetValue()->IsCall())
+    if (GenTreeCall* call = value->IsCall())
     {
         if (call->GetRegCount() > 1)
         {
