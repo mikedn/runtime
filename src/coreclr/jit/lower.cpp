@@ -2887,10 +2887,10 @@ void Lowering::LowerStructCall(GenTreeCall* call)
             break;
 
         case GT_IND_STORE:
-            call->SetType(varActualType(regType));
-
             if (!varTypeIsSIMD(user->GetType()))
             {
+                call->SetType(varActualType(regType));
+
                 assert(user->TypeIs(TYP_REF) || (user->TypeIs(TYP_I_IMPL) && comp->IsTargetAbi(CORINFO_CORERT_ABI)));
                 assert(call->IsHelperCall());
                 assert(regType == user->GetType());
