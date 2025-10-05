@@ -17,17 +17,6 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LCL_LOAD:
         case GT_LCL_LOAD_FLD:
             assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
-
-            // Need an additional register to read upper 4 bytes of Vector3.
-            if (tree->TypeIs(TYP_SIMD12))
-            {
-                // We need an internal register different from targetReg in which 'interlocked' produces its result
-                // because both targetReg and internal reg will be in use at the same time.
-                BuildInternalFloatDef(tree, allFloatRegs());
-                setInternalRegsDelayFree = true;
-                BuildInternalUses();
-            }
-
             BuildDef(tree);
             break;
 
