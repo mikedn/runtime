@@ -356,6 +356,43 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
+void LinearScan::BuildIndir(GenTreeIndir* indir)
+{
+    assert(!indir->TypeIs(TYP_STRUCT));
+
+    GenTree* addr = indir->GetAddr();
+
+    if (indir->IsUnaligned() && varTypeIsFloating(indir->GetType()))
+    {
+        BuildInternalIntDef(indir);
+
+        if (indir->TypeIs(TYP_DOUBLE))
+        {
+            BuildInternalIntDef(indir);
+        }
+    }
+
+    if (addr->isContained())
+    {
+        if (GenTreeAddrMode* lea = addr->IsAddrMode())
+        {
+            if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+                !ArmImm::IsLdStImm(lea->GetOffset(), emitTypeSize(indir->GetType())))
+            {
+                BuildInternalIntDef(indir);
+            }
+        }
+    }
+
+    BuildAddrUses(indir->GetAddr());
+    BuildInternalUses();
+
+    if (!indir->OperIs(GT_IND_STORE, GT_NULLCHECK))
+    {
+        BuildDef(indir);
+    }
+}
+
 void LinearScan::BuildArgStore(GenTreeArgStore* store)
 {
     GenTree* src = store->GetOp(0);

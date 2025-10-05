@@ -311,6 +311,61 @@ void LinearScan::BuildNode(GenTree* tree)
     }
 }
 
+void LinearScan::BuildIndir(GenTreeIndir* indir)
+{
+    assert(!indir->TypeIs(TYP_STRUCT));
+
+    GenTree* addr = indir->GetAddr();
+
+    if (addr->isContained())
+    {
+        if (GenTreeAddrMode* lea = addr->IsAddrMode())
+        {
+            if (((lea->GetIndex() != nullptr) && (lea->GetOffset() != 0)) ||
+                !Arm64Imm::IsLdStImm(lea->GetOffset(), emitTypeSize(indir->GetType())))
+            {
+                BuildInternalIntDef(indir);
+            }
+        }
+        else if (addr->OperIs(GT_CONST_ADDR))
+        {
+            BuildInternalIntDef(indir);
+        }
+    }
+
+    if (indir->TypeIs(TYP_SIMD12))
+    {
+        BuildInternalIntDef(indir);
+
+        if (GenTreeIndStore* store = indir->IsIndStore())
+        {
+            GenTree* value = store->GetValue();
+
+            if (value->isContained())
+            {
+                BuildAddrUses(store->GetAddr());
+
+                if (value->OperIs(GT_IND_LOAD))
+                {
+                    BuildAddrUses(value->AsIndLoad()->GetAddr());
+                }
+
+                BuildInternalUses();
+
+                return;
+            }
+        }
+    }
+
+    BuildAddrUses(indir->GetAddr());
+    BuildInternalUses();
+
+    if (!indir->OperIs(GT_IND_STORE, GT_NULLCHECK))
+    {
+        BuildDef(indir);
+    }
+}
+
 void LinearScan::BuildArgStore(GenTreeArgStore* store)
 {
     GenTree* src = store->GetOp(0);
