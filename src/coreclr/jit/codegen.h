@@ -569,7 +569,7 @@ private:
 #ifdef FEATURE_SIMD
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
-    void PushSIMD12(RegNum valueReg, GenTree* store) const;
+    void PushSIMD12(GenTree* store, RegNum valueReg) const;
 #endif
 #endif
 
@@ -909,12 +909,12 @@ public:
     };
 
 #ifdef FEATURE_SIMD
-    void GenVector3Store(GenTree* store, GenTree* value)
+    void StoreSIMD12(GenTree* store, GenTree* value)
     {
-        GenVector3Store(GenAddrMode(store, this), value, store->HasAnyTempRegs() ? store->GetSingleTempReg() : REG_NA);
+        StoreSIMD12(store, GenAddrMode(store, this), value);
     }
 
-    void GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);
+    void StoreSIMD12(GenTree* store, const GenAddrMode& dst, GenTree* value);
 #endif
 
     void inst_R_AM(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& addrMode, unsigned offset = 0);

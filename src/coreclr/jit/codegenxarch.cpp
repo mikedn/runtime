@@ -3277,7 +3277,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
 #ifdef FEATURE_SIMD
     else if (type == TYP_SIMD12)
     {
-        GenVector3Store(store, src);
+        StoreSIMD12(store, src);
     }
 #endif
     else if (!src->isContained())
@@ -3371,7 +3371,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 #ifdef FEATURE_SIMD
     if (lclRegType == TYP_SIMD12)
     {
-        GenVector3Store(store, src);
+        StoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
         // And how exactly does this work anyway? It does not check if a register was allocated
         // to the local, it always stores to memory. Always storing to memory is probably correct
@@ -3789,7 +3789,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 #ifdef FEATURE_SIMD
     if (store->TypeIs(TYP_SIMD12))
     {
-        GenVector3Store(store, store->GetValue());
+        StoreSIMD12(store, store->GetValue());
         return;
     }
 #endif
@@ -5807,7 +5807,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
         if (type == TYP_SIMD12)
         {
-            PushSIMD12(srcReg, store);
+            PushSIMD12(store, srcReg);
         }
         else
         {
@@ -6149,8 +6149,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     {
         // TODO-MIKE-CQ: Arg store lowering doesn't contain a SIMD12 load like other stores do,
         // memory copying SIMD12 generates smaller code if GPRs are used instead of XMM regs.
-        RegNum tempReg = store->HasAnyTempRegs() ? store->ExtractTempReg() : REG_NA;
-        GenVector3Store(GenAddrMode(argLclNum, argLclOffs), src, tempReg);
+        StoreSIMD12(store, GenAddrMode(argLclNum, argLclOffs), src);
         return;
     }
 #endif
@@ -7136,10 +7135,11 @@ void CodeGen::inst_AM_R_I(instruction ins, emitAttr size, RegNum reg, const GenA
     }
 }
 
-void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, RegNum tmpReg)
+void CodeGen::StoreSIMD12(GenTree* store, const GenAddrMode& dst, GenTree* value)
 {
     if (value->isContained())
     {
+        RegNum      tmpReg = store->GetSingleTempReg();
         GenAddrMode src(value, this);
 
 #ifdef TARGET_64BIT
@@ -7170,6 +7170,7 @@ void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, RegNum tmp
     }
     else
     {
+        RegNum tmpReg = store->GetSingleTempReg();
         GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
         inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
     }
@@ -7199,7 +7200,7 @@ void CodeGen::LoadSIMD12(GenTree* load)
 
 #ifdef TARGET_X86
 
-void CodeGen::PushSIMD12(RegNum valueReg, GenTree* store) const
+void CodeGen::PushSIMD12(GenTree* store, RegNum valueReg) const
 {
     assert(genIsValidFloatReg(valueReg));
 

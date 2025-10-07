@@ -1867,7 +1867,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
     }
     else if (type == TYP_SIMD12)
     {
-        GenVector3Store(store, src);
+        StoreSIMD12(store, src);
     }
     else
     {
@@ -1951,7 +1951,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (lclRegType == TYP_SIMD12)
     {
-        GenVector3Store(store, src);
+        StoreSIMD12(store, src);
         // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
         return;
     }
@@ -2395,8 +2395,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
     if (type == TYP_SIMD12)
     {
-        RegNum tempReg = store->HasAnyTempRegs() ? store->ExtractTempReg() : REG_NA;
-        GenVector3Store(GenAddrMode(argLclNum, argLclOffs), src, tempReg);
+        StoreSIMD12(store, GenAddrMode(argLclNum, argLclOffs), src);
         return;
     }
 
@@ -3027,7 +3026,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 {
     if (store->TypeIs(TYP_SIMD12))
     {
-        GenVector3Store(store, store->GetValue());
+        StoreSIMD12(store, store->GetValue());
         return;
     }
 
@@ -3605,9 +3604,9 @@ void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
     GenTree* op1 = node->GetOp(0);
     assert(op1->IsLclLoad() && op1->TypeIs(TYP_SIMD12, TYP_SIMD16));
 
-    regNumber srcReg = node->GetRegNum();
+    RegNum srcReg = node->GetRegNum();
     assert(srcReg != REG_NA);
-    regNumber dstReg = UseReg(op1);
+    RegNum dstReg = UseReg(op1);
     assert(dstReg != REG_NA);
 
     if (node->IsRegSpilled(0))
@@ -3621,7 +3620,7 @@ void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
     GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_8BYTE, dstReg, srcReg, 1, 0);
 }
 
-void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, RegNum tmpReg)
+void CodeGen::StoreSIMD12(GenTree* store, const GenAddrMode& dst, GenTree* value)
 {
     if (value->IsHWIntrinsicZero())
     {
@@ -3630,7 +3629,7 @@ void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, RegNum tmp
         return;
     }
 
-    assert(tmpReg != REG_NA);
+    RegNum tmpReg = store->GetSingleTempReg();
 
     if (value->isContained())
     {
@@ -3653,8 +3652,8 @@ void CodeGen::LoadSIMD12(GenTree* load)
 {
     GenAddrMode src(load, this);
 
-    regNumber tmpReg = load->GetSingleTempReg();
-    regNumber dstReg = load->GetRegNum();
+    RegNum tmpReg = load->GetSingleTempReg();
+    RegNum dstReg = load->GetRegNum();
 
     assert(tmpReg != dstReg);
 
