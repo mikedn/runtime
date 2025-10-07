@@ -3575,9 +3575,12 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
             return;
         }
 
-        if (!src->OperIs(GT_CNS_INT))
+        if (!src->IsHWIntrinsicZero()
+#ifdef TARGET_XARCH
+            && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41)
+#endif
+                )
         {
-            // Need an additional register to extract upper 4 bytes of Vector3.
             BuildInternalFloatDef(store, allFloatRegs());
         }
     }

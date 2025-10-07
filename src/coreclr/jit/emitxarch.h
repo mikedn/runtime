@@ -97,7 +97,8 @@ public:
     void emitIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
     void emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
     void emitIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
-    void emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm);
+    void Ins_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm);
+    void Ins_R_S_I(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s, int32_t imm);
     void emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, RegNum reg, int32_t imm);
     void emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, RegNum reg, int32_t imm);
     void emitIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm);
@@ -129,6 +130,22 @@ public:
         instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
     void emitIns_ARX_R(
         instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
+    void Ins_ARX_R_I(instruction ins,
+                     emitAttr    attr,
+                     RegNum      base,
+                     RegNum      index,
+                     unsigned    scale,
+                     int32_t     disp,
+                     RegNum      reg,
+                     int32_t     imm);
+    void Ins_R_ARX_I(instruction ins,
+                     emitAttr    attr,
+                     RegNum      reg,
+                     RegNum      base,
+                     RegNum      index,
+                     unsigned    scale,
+                     int32_t     disp,
+                     int32_t     imm);
     void emitIns_AR_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
     void emitIns_R_AR_R(
         instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum base, RegNum index, int scale, int32_t disp);

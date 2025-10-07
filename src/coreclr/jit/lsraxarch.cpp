@@ -19,12 +19,8 @@ void LinearScan::BuildNode(GenTree* tree)
             assert(!tree->AsLclRef()->GetLcl()->IsRegCandidate());
 
 #ifdef FEATURE_SIMD
-            // Need an additional register to read upper 4 bytes of Vector3.
-            if (tree->TypeIs(TYP_SIMD12))
+            if (tree->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
             {
-                // We need an internal register different from targetReg in which 'interlocked'
-                // produces its result because both targetReg and internal reg will be in
-                // use at the same time.
                 BuildInternalFloatDef(tree, allFloatRegs());
                 setInternalRegsDelayFree = true;
                 BuildInternalUses();
@@ -1203,8 +1199,12 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
     if (type == TYP_SIMD12)
     {
         BuildUse(src);
-        BuildInternalFloatDef(store);
-        BuildInternalUses();
+
+        if (!compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            BuildInternalFloatDef(store);
+            BuildInternalUses();
+        }
 
         return;
     }
@@ -1755,7 +1755,7 @@ void LinearScan::BuildLoadInd(GenTreeIndir* load)
     {
         SetContainsAVXFlags(varTypeSize(load->GetType()));
 
-        if (load->TypeIs(TYP_SIMD12))
+        if (load->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
         {
             BuildInternalFloatDef(load);
             // We need an internal register different from the destination
@@ -1774,43 +1774,32 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
 {
     assert(store->OperIs(GT_IND_STORE) && !store->TypeIs(TYP_STRUCT));
 
+    GenTree* value = store->GetValue();
+
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(store->GetType()))
+    if (store->TypeIs(TYP_SIMD12) && value->isContained())
     {
-        SetContainsAVXFlags(varTypeSize(store->GetType()));
-
-        if (store->TypeIs(TYP_SIMD12))
-        {
-            GenTree* value = store->GetValue();
-
-            if (value->isContained())
-            {
 #ifdef TARGET_64BIT
-                BuildInternalIntDef(store);
+        BuildInternalIntDef(store);
 #else
-                BuildInternalFloatDef(store);
+        BuildInternalFloatDef(store);
 #endif
-                BuildAddrUses(store->GetAddr());
+        BuildAddrUses(store->GetAddr());
 
-                if (value->OperIs(GT_IND_LOAD))
-                {
-                    BuildAddrUses(value->AsIndLoad()->GetAddr());
-                }
-
-                BuildInternalUses();
-
-                return;
-            }
-
-            BuildInternalFloatDef(store);
+        if (value->OperIs(GT_IND_LOAD))
+        {
+            BuildAddrUses(value->AsIndLoad()->GetAddr());
         }
+
+        BuildInternalUses();
+
+        return;
     }
 #endif // FEATURE_SIMD
 
     BuildAddrUses(store->GetAddr());
 
-    GenTree* value   = store->GetValue();
-    bool     isShift = false;
+    bool isShift = false;
 
     if (value->isContained() && value->OperIsRMWMemOp())
     {
@@ -1852,6 +1841,19 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
             buildKillPositionsForNode(store, currentLoc + 1, RBM_RCX);
         }
     }
+
+#ifdef FEATURE_SIMD
+    if (varTypeIsSIMD(store->GetType()))
+    {
+        SetContainsAVXFlags(varTypeSize(store->GetType()));
+
+        if (store->TypeIs(TYP_SIMD12) && !value->IsHWIntrinsicZero() &&
+            !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            BuildInternalFloatDef(store);
+        }
+    }
+#endif
 
     BuildInternalUses();
 }

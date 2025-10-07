@@ -5807,7 +5807,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
 
         if (type == TYP_SIMD12)
         {
-            PushSIMD12(srcReg, store->GetSingleTempReg());
+            PushSIMD12(srcReg, store);
         }
         else
         {
@@ -7095,6 +7095,20 @@ void CodeGen::inst_R_AM(instruction ins, emitAttr attr, RegNum reg, const GenAdd
     }
 }
 
+void CodeGen::inst_R_AM_I(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& am, unsigned offset, int imm)
+{
+    Emitter& emit = *GetEmitter();
+
+    if (am.IsLcl())
+    {
+        emit.Ins_R_S_I(ins, size, reg, GetStackAddrMode(am.LclNum(), am.Disp() + offset), imm);
+    }
+    else
+    {
+        emit.Ins_R_ARX_I(ins, size, reg, am.Base(), am.Index(), am.Scale(), am.Disp() + offset, imm);
+    }
+}
+
 void CodeGen::inst_AM_R(instruction ins, emitAttr attr, RegNum reg, const GenAddrMode& addrMode, unsigned offset)
 {
     if (addrMode.IsLcl())
@@ -7105,6 +7119,20 @@ void CodeGen::inst_AM_R(instruction ins, emitAttr attr, RegNum reg, const GenAdd
     {
         GetEmitter()->emitIns_ARX_R(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(),
                                     addrMode.Disp(offset));
+    }
+}
+
+void CodeGen::inst_AM_R_I(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& am, unsigned offset, int imm)
+{
+    Emitter& emit = *GetEmitter();
+
+    if (am.IsLcl())
+    {
+        emit.Ins_S_R_I(ins, size, GetStackAddrMode(am.LclNum(), am.Disp() + offset), reg, imm);
+    }
+    else
+    {
+        emit.Ins_ARX_R_I(ins, size, am.Base(), am.Index(), am.Scale(), am.Disp() + offset, reg, imm);
     }
 }
 
@@ -7134,40 +7162,62 @@ void CodeGen::GenVector3Store(const GenAddrMode& dst, GenTree* value, RegNum tmp
 
     if (value->IsHWIntrinsicZero())
     {
-        tmpReg = valueReg;
+        inst_AM_R(INS_movss, EA_4BYTE, valueReg, dst, 8);
+    }
+    else if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        inst_AM_R_I(INS_extractps, EA_4BYTE, valueReg, dst, 8, 2);
     }
     else
     {
         GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+        inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
     }
-
-    inst_AM_R(INS_movss, EA_4BYTE, tmpReg, dst, 8);
 }
 
 void CodeGen::LoadSIMD12(GenTree* load)
 {
     GenAddrMode src(load, this);
 
-    RegNum tmpReg = load->GetSingleTempReg();
     RegNum dstReg = load->GetRegNum();
 
-    assert(tmpReg != dstReg);
-
     inst_R_AM(INS_movsd, EA_8BYTE, dstReg, src, 0);
-    inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
-    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
+
+    if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        inst_R_AM_I(INS_insertps, EA_4BYTE, dstReg, src, 8, 0x28);
+    }
+    else
+    {
+        RegNum tmpReg = load->GetSingleTempReg();
+        assert(tmpReg != dstReg);
+
+        inst_R_AM(INS_movss, EA_4BYTE, tmpReg, src, 8);
+        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, tmpReg);
+    }
 }
 
 #ifdef TARGET_X86
 
-void CodeGen::PushSIMD12(RegNum valueReg, RegNum tmpReg) const
+void CodeGen::PushSIMD12(RegNum valueReg, GenTree* store) const
 {
     assert(genIsValidFloatReg(valueReg));
-    assert(genIsValidFloatReg(tmpReg));
 
-    GetEmitter()->emitIns_AR_R(INS_movsd, EA_8BYTE, valueReg, REG_SPBASE, 0);
-    GetEmitter()->emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
-    GetEmitter()->emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
+    Emitter& emit = *GetEmitter();
+
+    emit.emitIns_AR_R(INS_movsd, EA_8BYTE, valueReg, REG_SPBASE, 0);
+
+    if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    {
+        emit.Ins_ARX_R_I(INS_extractps, EA_4BYTE, REG_SPBASE, REG_NA, 1, 8, valueReg, 2);
+    }
+    else
+    {
+        RegNum tmpReg = store->GetSingleTempReg();
+        assert(genIsValidFloatReg(tmpReg));
+        emit.emitIns_R_R(INS_movhlps, EA_16BYTE, tmpReg, valueReg);
+        emit.emitIns_AR_R(INS_movss, EA_4BYTE, tmpReg, REG_SPBASE, 8);
+    }
 }
 
 #endif // TARGET_X86
@@ -7201,7 +7251,7 @@ void CodeGen::GenVectorUpperSpill(GenTreeUnOp* node)
         LclVarDsc* lcl = op1->AsLclLoad()->GetLcl();
         assert(lcl->lvOnFrame);
 
-        GetEmitter()->emitIns_S_R_I(INS_vextractf128, EA_32BYTE, GetStackAddrMode(lcl, 16), srcReg, 1);
+        GetEmitter()->Ins_S_R_I(INS_vextractf128, EA_32BYTE, GetStackAddrMode(lcl, 16), srcReg, 1);
     }
 }
 

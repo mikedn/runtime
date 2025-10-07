@@ -2866,17 +2866,31 @@ void X86Emitter::emitIns_R_AH(instruction ins, RegNum reg, void* addr)
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm)
+void X86Emitter::Ins_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm)
 {
-    assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-    assert(attr == EA_32BYTE);
     assert(reg != REG_NA);
-    assert((imm == 0) || (imm == 1));
 
     instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
-    id->idOpSize(EA_32BYTE);
+    id->idOpSize(attr);
     id->idInsFmt(IF_SWR_RRD_CNS);
+    id->idReg1(reg);
+    SetInstrLclAddrMode(id, s);
+
+    unsigned sz = EncodingSizeSV(id, GetCodeMR(ins)) + 1;
+    id->idCodeSize(sz);
+    PrintInstr(id);
+    currentIGCodeSize += sz;
+}
+
+void X86Emitter::Ins_R_S_I(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
+{
+    assert(reg != REG_NA);
+
+    instrDesc* id = NewInstrCns(imm);
+    id->idIns(ins);
+    id->idOpSize(attr);
+    id->idInsFmt(IF_RWR_SRD_CNS);
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
@@ -3037,6 +3051,46 @@ void X86Emitter::emitIns_ARX_R(
 #if !FEATURE_FIXED_OUT_ARGS
     UpdateStackLevel(ins);
 #endif
+}
+
+void X86Emitter::Ins_ARX_R_I(
+    instruction ins, emitAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg, int32_t imm)
+{
+    assert(reg != REG_NA);
+
+    instrDesc* id = NewInstrAMDispImm(disp, imm);
+    id->idIns(ins);
+    id->idInsFmt(IF_AWR_RRD_CNS);
+    id->idOpSize(attr);
+    id->idReg1(reg);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
+
+    unsigned size = EncodingSizeAM(id, GetCodeMR(ins)) + 1;
+    id->idCodeSize(size);
+    PrintInstr(id);
+    currentIGCodeSize += size;
+}
+
+void X86Emitter::Ins_R_ARX_I(
+    instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm)
+{
+    assert(reg != REG_NA);
+
+    instrDesc* id = NewInstrAMDispImm(disp, imm);
+    id->idIns(ins);
+    id->idInsFmt(IF_RRW_ARD_CNS);
+    id->idOpSize(attr);
+    id->idReg1(reg);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
+
+    unsigned size = EncodingSizeAM(id, GetCodeMR(ins)) + 1;
+    id->idCodeSize(size);
+    PrintInstr(id);
+    currentIGCodeSize += size;
 }
 
 void X86Emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
@@ -4591,7 +4645,7 @@ private:
                 break;
 
             case IF_AWR_RRD_CNS:
-                PrintAddrMode(id, EA_16BYTE);
+                PrintAddrMode(id, mattr);
                 printf(", %s, ", RegName(id->idReg1(), attr));
                 PrintImm(id);
                 break;
@@ -7839,12 +7893,10 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_AWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
             assert(!IsVexTernary(ins));
 
             code   = GetCodeMR(ins);
-            code   = AddVexPrefix(ins, code, size);
+            code   = AddVexPrefixIfNeeded(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = EncodeAM(dst, id, code, &cnsVal);
@@ -7965,12 +8017,10 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
             break;
 
         case IF_SWR_RRD_CNS:
-            assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
             assert(!IsVexTernary(ins));
 
             code   = GetCodeMR(ins);
-            code   = AddVexPrefix(ins, code, size);
+            code   = AddVexPrefixIfNeeded(ins, code, size);
             code   = SetRMReg(ins, id->idReg1(), size, code);
             cnsVal = id->GetImm();
             dst    = EncodeSV(dst, id, code, &cnsVal);

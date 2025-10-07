@@ -323,7 +323,7 @@ INST3(packuswb,         "packuswb",         WR, NA,                NA,     h660F
                                                                                                                   
 INST3(dpps,             "dpps",             WR, NA,                NA,     h660F3A(0x40),                     VexDstDstSrc)
 INST3(dppd,             "dppd",             WR, NA,                NA,     h660F3A(0x41),                     VexDstDstSrc)
-INST3(insertps,         "insertps",         WR, NA,                NA,     h660F3A(0x21),                     VexDstDstSrc)
+INST3(insertps,         "insertps",         WR, h660F3A(0x21),     NA,     h660F3A(0x21),                     VexDstDstSrc)
 INST3(pcmpeqq,          "pcmpeqq",          WR, NA,                NA,     h660F38(0x29),                     VexDstDstSrc | VexCommute)
 INST3(pcmpgtq,          "pcmpgtq",          WR, NA,                NA,     h660F38(0x37),                     VexDstDstSrc)
 INST3(pmulld,           "pmulld",           WR, NA,                NA,     h660F38(0x40),                     VexDstDstSrc | VexCommute)

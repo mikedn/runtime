@@ -569,7 +569,7 @@ private:
 #ifdef FEATURE_SIMD
     void LoadSIMD12(GenTree* load);
 #ifdef TARGET_X86
-    void PushSIMD12(RegNum valueReg, RegNum tmpReg) const;
+    void PushSIMD12(RegNum valueReg, GenTree* store) const;
 #endif
 #endif
 
@@ -917,8 +917,10 @@ public:
     void GenVector3Store(const GenAddrMode& dst, GenTree* value, regNumber tmpReg);
 #endif
 
-    void inst_R_AM(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
-    void inst_AM_R(instruction ins, emitAttr size, regNumber reg, const GenAddrMode& addrMode, unsigned offset = 0);
+    void inst_R_AM(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& addrMode, unsigned offset = 0);
+    void inst_R_AM_I(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& addrMode, unsigned offset, int imm);
+    void inst_AM_R(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& addrMode, unsigned offset = 0);
+    void inst_AM_R_I(instruction ins, emitAttr size, RegNum reg, const GenAddrMode& addrMode, unsigned offset, int imm);
 
     bool isMoveIns(instruction ins);
 
