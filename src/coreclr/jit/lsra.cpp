@@ -7379,7 +7379,7 @@ void LinearScan::dumpLsraAllocationEvent(
             dumpRefPositionShort(activeRefPosition, currentBlock);
             if (allocationPassComplete || (registerScore == 0))
             {
-                printf("Reuse     %-4s ", getRegName(reg));
+                printf("Reuse    %-4s ", getRegName(reg));
             }
             else
             {

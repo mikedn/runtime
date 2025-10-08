@@ -4121,7 +4121,7 @@ size_t instrDescSmall::GetDescSize() const
 
 static void PrintHexCode(const uint8_t* code, size_t size)
 {
-    constexpr size_t minSize = 6 AMD64_ONLY(+4);
+    constexpr size_t minSize = 12;
     constexpr size_t maxSize = 15;
 
     assert(size <= maxSize);

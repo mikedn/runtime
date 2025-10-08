@@ -3367,60 +3367,50 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     }
 #endif
 
-#ifdef FEATURE_SIMD
-    if (lclRegType == TYP_SIMD12)
-    {
-        StoreSIMD12(store, src);
-        liveness.UpdateLife(this, store);
-
-        // TODO-MIKE-Review: How exactly does this work anyway?
-        // It does not check if a register was allocated to the local, it always stores to memory.
-        // Always storing to memory is probably correct but not always necessary. Problem is, what
-        // if the destination register is different from the source register? No reg-reg move is
-        // being generated?!?
-        // Unspilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
-        // like it will emit a movups and load garbage in the 4th vector element instead of 0.
-        // See vec3-param-def-spill.cs.
-
-        return;
-    }
-#endif
-
     RegNum dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
     {
-        bool          isAligned = IsSimdLocalAligned(lcl);
-        StackAddrMode s         = GetStackAddrMode(lcl, 0);
-        instruction   ins       = ins_Store(lclRegType, isAligned);
-        emitAttr      attr      = emitTypeSize(lclRegType);
-
-        if (src->isContained())
+#ifdef FEATURE_SIMD
+        if (lclRegType == TYP_SIMD12)
         {
-            if (src->OperIs(GT_BITCAST))
-            {
-                GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
-                var_types bitCastSrcType = bitCastSrc->GetType();
-                RegNum    bitCastSrcReg  = UseReg(bitCastSrc);
+            StoreSIMD12(store, src);
+        }
+        else
+#endif
+        {
+            bool          isAligned = IsSimdLocalAligned(lcl);
+            StackAddrMode s         = GetStackAddrMode(lcl, 0);
+            instruction   ins       = ins_Store(lclRegType, isAligned);
+            emitAttr      attr      = emitTypeSize(lclRegType);
 
-                ins = ins_Store(bitCastSrcType, isAligned);
-
-                GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, s);
-            }
-            else if (src->OperIsRMWMemOp())
+            if (src->isContained())
             {
-                GenStoreLclRMW(lclRegType, s, src);
+                if (src->OperIs(GT_BITCAST))
+                {
+                    GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
+                    var_types bitCastSrcType = bitCastSrc->GetType();
+                    RegNum    bitCastSrcReg  = UseReg(bitCastSrc);
+
+                    ins = ins_Store(bitCastSrcType, isAligned);
+
+                    GetEmitter()->emitIns_S_R(ins, attr, bitCastSrcReg, s);
+                }
+                else if (src->OperIsRMWMemOp())
+                {
+                    GenStoreLclRMW(lclRegType, s, src);
+                }
+                else
+                {
+                    GetEmitter()->emitIns_S_I(ins, attr, s, static_cast<int>(src->AsIntCon()->GetValue()));
+                }
             }
             else
             {
-                GetEmitter()->emitIns_S_I(ins, attr, s, static_cast<int>(src->AsIntCon()->GetValue()));
-            }
-        }
-        else
-        {
-            RegNum srcReg = UseReg(src);
+                RegNum srcReg = UseReg(src);
 
-            GetEmitter()->emitIns_S_R(ins, attr, srcReg, s);
+                GetEmitter()->emitIns_S_R(ins, attr, srcReg, s);
+            }
         }
 
         liveness.UpdateLife(this, store);
@@ -3471,7 +3461,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         // need a temporary register, which too must be requested before knowing if this
         // local gets a register or not. Hopefully this doesn't actually matter, if the
         // src node is spilled LSRA should reload it directly in our dstReg.
-        regNumber srcReg = UseReg(src);
+        RegNum srcReg = UseReg(src);
 
         // TODO-MIKE-Cleanup: emitIns_Mov tries to skip generating useless mov reg, reg
         // instructions but cannot do it properly because it doesn't know the source reg

@@ -1263,6 +1263,9 @@ bool CodeGen::SpillRegCandidateLcl(GenTreeLclVar* lclVar)
         {
             assert(lcl->GetRegNum() == lclVar->GetRegNum());
 
+            // TODO-MIKE-Fix: SIMD12 spills are broken in some cases - x86 & osx SIMD12 params
+            // are only 12 bytes in size, so doing a 16 byte store may corrupt something.
+
             // In order for a local to have been allocated to a register, it must not have been address
             // exposed, and can therefore be store-normalized (rather than load-normalized).
             // In fact, not performing store normalization can lead to problems on architectures where

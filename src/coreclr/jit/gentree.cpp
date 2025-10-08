@@ -7108,6 +7108,11 @@ void Compiler::dmpLIRRange(const LIR::ReadOnlyRange& range)
 {
     for (GenTree* node : range)
     {
+        if (node->IsILOffset())
+        {
+            printf("\n");
+        }
+
         dmpLIRNode(node);
     }
 }

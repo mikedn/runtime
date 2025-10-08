@@ -1948,20 +1948,21 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     }
 
     var_types lclRegType = lcl->GetRegisterType(store);
+    RegNum    dstReg     = store->GetRegNum();
+    RegNum    srcReg;
 
-    if (lclRegType == TYP_SIMD12)
+    if ((lclRegType == TYP_SIMD12) && (dstReg == REG_NA))
     {
         StoreSIMD12(store, src);
         liveness.UpdateLife(this, store);
+        lcl->SetRegNum(REG_STK);
 
         return;
     }
 
-    RegNum srcReg;
-
     if (src->isContained())
     {
-        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero() || src->TypeIs(TYP_SIMD12));
 
         srcReg = REG_ZR;
     }
@@ -1969,8 +1970,6 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     {
         srcReg = UseReg(src);
     }
-
-    RegNum dstReg = store->GetRegNum();
 
     if (dstReg == REG_NA)
     {
