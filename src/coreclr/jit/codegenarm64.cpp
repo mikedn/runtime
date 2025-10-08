@@ -1820,7 +1820,7 @@ void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 
     assert(!lcl->IsIndependentPromoted());
 
-    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
+    if (lcl->IsRegCandidate())
     {
         JITDUMP("Local is enregistered\n");
         return;

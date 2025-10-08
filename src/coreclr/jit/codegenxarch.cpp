@@ -3220,8 +3220,7 @@ void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 
     assert(!lcl->IsIndependentPromoted());
 
-    // TODO-MIKE-Review: The spilled check is dubious, it cannot be spilled unless it's a reg candidate...
-    if (lcl->IsRegCandidate() || load->IsRegSpilled(0))
+    if (lcl->IsRegCandidate())
     {
         JITDUMP("Local is enregistered\n");
         return;
