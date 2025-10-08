@@ -285,7 +285,7 @@ void CodeGenLivenessUpdater::UpdateLife(CodeGen* codeGen, GenTreeLclRef* lclNode
         // gets spilled and that results in an assert in "variable range". The range was already closed above
         // and now we're trying to update it to account for spilling. But why would a last-use need spilling
         // to begin with?
-        if (codeGen->SpillRegCandidateLclVar(lclNode->AsLclVar()))
+        if (codeGen->SpillRegCandidateLcl(lclNode->AsLclVar()))
         {
             UpdateRange(codeGen, lcl);
         }

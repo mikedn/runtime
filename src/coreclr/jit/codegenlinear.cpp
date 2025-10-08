@@ -1240,7 +1240,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
+bool CodeGen::SpillRegCandidateLcl(GenTreeLclVar* lclVar)
 {
     LclVarDsc* lcl = lclVar->GetLcl();
 
@@ -1294,7 +1294,7 @@ bool CodeGen::SpillRegCandidateLclVar(GenTreeLclVar* lclVar)
     return needsSpill;
 }
 
-regNumber CodeGen::UseReg(GenTree* node)
+RegNum CodeGen::UseReg(GenTree* node)
 {
     assert(node->isUsedFromReg() && !node->IsMultiRegNode());
 
@@ -1324,7 +1324,7 @@ regNumber CodeGen::UseReg(GenTree* node)
     return node->GetRegNum();
 }
 
-regNumber CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
+RegNum CodeGen::UseRegCandidateLclLoad(GenTreeLclLoad* node)
 {
     LclVarDsc* lcl = node->GetLcl();
     assert(lcl->IsRegCandidate());
@@ -1374,8 +1374,8 @@ void CodeGen::CopyReg(GenTreeCopyOrReload* copy)
     assert(copy->OperIs(GT_COPY) && !copy->IsMultiRegNode() && !copy->IsAnyRegSpill());
 
     GenTree*  src     = copy->GetOp(0);
-    regNumber srcReg  = UseReg(src);
-    regNumber dstReg  = copy->GetRegNum();
+    RegNum    srcReg  = UseReg(src);
+    RegNum    dstReg  = copy->GetRegNum();
     var_types dstType = copy->GetType();
 
     GetEmitter()->emitIns_Mov(ins_Copy(srcReg, dstType), emitActualTypeSize(dstType), dstReg, srcReg,
@@ -1467,7 +1467,7 @@ void CodeGen::UnspillRegCandidateLclLoad(GenTreeLclLoad* node)
     }
 #endif
 
-    regNumber dstReg = node->GetRegNum();
+    RegNum dstReg = node->GetRegNum();
 
     instruction ins = ins_Load(regType, IsSimdLocalAligned(lcl));
     GetEmitter()->emitIns_R_S(ins, emitTypeSize(regType), dstReg, GetStackAddrMode(lcl, 0));
@@ -1475,11 +1475,11 @@ void CodeGen::UnspillRegCandidateLclLoad(GenTreeLclLoad* node)
     liveness.Unspill(this, lcl, node, dstReg, regType);
 }
 
-regNumber CodeGen::UseReg(GenTree* node, unsigned regIndex)
+RegNum CodeGen::UseReg(GenTree* node, unsigned regIndex)
 {
     assert(node->IsMultiRegNode() && !node->gtSkipReloadOrCopy()->IsMultiRegLclStore());
 
-    regNumber reg = node->GetRegNum(regIndex);
+    RegNum reg = node->GetRegNum(regIndex);
 
     if (node->OperIs(GT_COPY))
     {
@@ -1559,7 +1559,7 @@ IntRegMask CodeGen::GetNodeRegMask(GenTree* node)
 // A multireg copy doesn't support moving between register files, as the GT_COPY
 // node does not retain separate types for each index.
 //
-regNumber CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
+RegNum CodeGen::CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex)
 {
     assert(copy->OperIs(GT_COPY));
     assert(!copy->IsAnyRegSpill());
@@ -1737,8 +1737,7 @@ bool CodeGen::IsValidContainedLcl(GenTreeLclRef* node)
 }
 #endif
 
-void CodeGen::ConsumeStructStore(
-    GenTree* store, ClassLayout* layout, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
+void CodeGen::ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg)
 {
     assert(store->OperIs(GT_IND_STORE_OBJ, GT_IND_STORE_BLK, GT_LCL_STORE, GT_LCL_STORE_FLD));
 
@@ -1793,30 +1792,32 @@ void CodeGen::ConsumeStructStore(
 
     // Copy registers as needed
 
+    Emitter& emit = *GetEmitter();
+
     if (dstAddr != nullptr)
     {
-        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(dstAddr->GetType()), dstReg, dstAddr->GetRegNum(),
-                                  /*canSkip*/ true);
+        emit.emitIns_Mov(INS_mov, emitTypeSize(dstAddr->GetType()), dstReg, dstAddr->GetRegNum(),
+                         /*canSkip*/ true);
     }
 
     if (!src->isContained())
     {
-        GetEmitter()->emitIns_Mov(INS_mov, emitActualTypeSize(src->GetType()), srcReg, src->GetRegNum(),
-                                  /*canSkip*/ true);
+        emit.emitIns_Mov(INS_mov, emitActualTypeSize(src->GetType()), srcReg, src->GetRegNum(),
+                         /*canSkip*/ true);
     }
 
     if (dstAddr == nullptr)
     {
         assert(store->OperIs(GT_LCL_STORE, GT_LCL_STORE_FLD));
 
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclRef()));
+        emit.emitIns_R_S(INS_lea, EA_PTRSIZE, dstReg, GetStackAddrMode(store->AsLclRef()));
     }
 
     if (src->isContained())
     {
         assert(src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD));
 
-        GetEmitter()->emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclRef()));
+        emit.emitIns_R_S(INS_lea, EA_PTRSIZE, srcReg, GetStackAddrMode(src->AsLclRef()));
     }
 
     if (sizeReg != REG_NA)
@@ -1824,14 +1825,14 @@ void CodeGen::ConsumeStructStore(
         assert(store->HasTempReg(sizeReg));
 
 #ifdef TARGET_XARCH
-        GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+        emit.emitIns_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
 #else
         instGen_Set_Reg_To_Imm(EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
 #endif
     }
 }
 
-void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, regNumber dstReg, regNumber srcReg, regNumber sizeReg)
+void CodeGen::ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg)
 {
     GenTree* addr  = store->GetAddr();
     GenTree* value = store->GetValue();
@@ -1853,7 +1854,7 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
     assert(!varTypeIsMultiReg(regType));
     assert(node->IsRegSpill(regIndex));
 
-    regNumber  reg  = node->GetRegNum(regIndex);
+    RegNum     reg  = node->GetRegNum(regIndex);
     SpillTemp* temp = spillTemps.DefSpillTemp(node, regIndex, regType);
 
     JITDUMP("Spilling register %s after [%06u]\n", getRegName(reg), node->GetID());
@@ -1871,26 +1872,26 @@ void CodeGen::SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex)
 }
 
 #ifdef TARGET_X86
-void CodeGen::SpillST0(GenTree* node)
+void CodeGen::SpillST0(GenTreeCall* call)
 {
-    var_types  type = node->GetType();
-    SpillTemp* temp = spillTemps.DefSpillTemp(node, 0, type);
+    var_types  type = call->GetType();
+    SpillTemp* temp = spillTemps.DefSpillTemp(call, 0, type);
 
-    JITDUMP("Spilling register ST0 after [%06u]\n", node->GetID());
+    JITDUMP("Spilling register ST0 after [%06u]\n", call->GetID());
 
     GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), GetStackAddrMode(temp));
 
-    node->SetRegSpill(0, false);
-    node->SetRegSpilled(0, true);
+    call->SetRegSpill(0, false);
+    call->SetRegSpilled(0, true);
 }
 #endif // TARGET_X86
 
-void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
+void CodeGen::UnspillNodeReg(GenTree* node, RegNum reg, unsigned regIndex)
 {
     assert(!node->IsCopyOrReload());
     assert(!node->IsMultiRegLclStore());
 
-    regNumber  oldReg = node->GetRegNum(regIndex);
+    RegNum     oldReg = node->GetRegNum(regIndex);
     SpillTemp* temp   = spillTemps.UseSpillTemp(node, regIndex);
 
     node->SetRegSpilled(regIndex, false);
@@ -1909,7 +1910,7 @@ void CodeGen::UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex)
 #ifdef TARGET_X86
 void CodeGen::UnspillST0(GenTree* node)
 {
-    regNumber  oldReg = node->GetRegNum();
+    RegNum     oldReg = node->GetRegNum();
     SpillTemp* temp   = spillTemps.UseSpillTemp(node, 0);
 
     node->SetRegSpilled(0, false);
@@ -1943,7 +1944,7 @@ void CodeGen::DefReg(GenTree* node)
     }
 }
 
-void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
+void CodeGen::DefLclReg(GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_LOAD, GT_LCL_STORE) && !lclVar->IsMultiReg());
     assert((lclVar->gtDebugFlags & GTF_DEBUG_NODE_CG_PRODUCED) == 0);
@@ -1963,7 +1964,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
             return;
         }
 
-        SpillLclVarReg(lcl, lclVar);
+        SpillLclReg(lcl, lclVar);
     }
 
     if (lclVar->OperIs(GT_LCL_STORE))
@@ -1977,7 +1978,7 @@ void CodeGen::DefLclVarReg(GenTreeLclVar* lclVar)
     }
 }
 
-void CodeGen::SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
+void CodeGen::SpillLclReg(LclVarDsc* lcl, GenTreeLclVar* lclVar)
 {
     assert(lclVar->OperIs(GT_LCL_STORE, GT_LCL_LOAD));
 

@@ -1832,7 +1832,7 @@ void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 
     GetEmitter()->Ins_R_S(ins_Load(type), emitActualTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
-    DefLclVarReg(load);
+    DefLclReg(load);
 }
 
 void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
@@ -1952,7 +1952,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     if (lclRegType == TYP_SIMD12)
     {
         StoreSIMD12(store, src);
-        // TODO-MIKE-Review: Doesn't this need a DefLclVarReg call?
+        // TODO-MIKE-Review: Doesn't this need a DefLclReg call?
         return;
     }
 
@@ -2002,7 +2002,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
                                   /* canSkip */ true);
     }
 
-    DefLclVarReg(store);
+    DefLclReg(store);
 }
 
 void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
@@ -2014,7 +2014,7 @@ void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
 
     GenTreeCall* call     = src->gtSkipReloadOrCopy()->AsCall();
     unsigned     regCount = call->GetRegCount();
-    regNumber    dstReg   = store->GetRegNum();
+    RegNum       dstReg   = store->GetRegNum();
 
     for (unsigned i = 0; i < regCount; i++)
     {
@@ -2027,7 +2027,7 @@ void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
         GetEmitter()->emitIns_R_R_I_I(INS_mov, EA_4BYTE, dstReg, call->GetRegNum(regIndex), regIndex, 0);
     }
 
-    DefLclVarReg(store);
+    DefLclReg(store);
 }
 
 void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
@@ -2042,7 +2042,7 @@ void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
     assert((regCount >= 2) && (regCount <= 4));
     assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
 
-    regNumber regs[4];
+    RegNum regs[4];
 
     for (unsigned i = 0; i < regCount; ++i)
     {

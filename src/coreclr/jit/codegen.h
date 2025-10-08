@@ -184,7 +184,7 @@ public:
     }
 #endif
 
-    bool SpillRegCandidateLclVar(GenTreeLclVar* node);
+    bool SpillRegCandidateLcl(GenTreeLclVar* node);
 
 #ifdef TARGET_X86
     void GenHelperCall(CorInfoHelpFunc helper, emitAttr retSize = EA_UNKNOWN)
@@ -611,16 +611,16 @@ private:
 #endif // FEATURE_HW_INTRINSICS
 
     void SpillNodeReg(GenTree* node, var_types regType, unsigned regIndex);
-    X86_ONLY(void SpillST0(GenTree* node);)
+    X86_ONLY(void SpillST0(GenTreeCall* call);)
     void UnspillNodeReg(GenTree* node, regNumber reg, unsigned regIndex);
     X86_ONLY(void UnspillST0(GenTree* node);)
     void DefReg(GenTree* node);
-    void DefLclVarReg(GenTreeLclVar* lclVar);
+    void DefLclReg(GenTreeLclVar* lclVar);
     void DefCallRegs(GenTreeCall* call);
 #ifndef TARGET_64BIT
     void DefLongRegs(GenTree* node);
 #endif
-    void SpillLclVarReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
+    void SpillLclReg(LclVarDsc* lcl, GenTreeLclVar* lclNode);
     void UnspillRegIfNeeded(GenTree* node);
     void UnspillRegCandidateLclLoad(GenTreeLclLoad* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);

@@ -922,7 +922,7 @@ void CodeGen::GenLclLoad(GenTreeLclLoad* load)
 
     GetEmitter()->Ins_R_S(ins_Load(type), emitTypeSize(type), load->GetRegNum(), GetStackAddrMode(lcl, 0));
 
-    DefLclVarReg(load);
+    DefLclReg(load);
 }
 
 void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
@@ -1055,7 +1055,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
                                   /*canSkip*/ true);
     }
 
-    DefLclVarReg(store);
+    DefLclReg(store);
 }
 
 void CodeGen::GenArgStore(GenTreeArgStore* store)

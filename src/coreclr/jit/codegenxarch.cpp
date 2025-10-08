@@ -1351,7 +1351,7 @@ void CodeGen::GenFloatReturn(GenTree* src)
 
     var_types srcType = src->GetType();
     emitAttr  srcSize = emitTypeSize(srcType);
-    regNumber srcReg  = UseReg(src);
+    RegNum    srcReg  = UseReg(src);
 
     // Spill the return shift register from an XMM register to the stack, then load it on the x87 stack.
     // If it already has a home location, use that. Otherwise, we need a temp.
@@ -3240,7 +3240,7 @@ void CodeGen::GenLclLoad(GenTreeLclLoad* load)
                                   GetStackAddrMode(lcl, 0));
     }
 
-    DefLclVarReg(load);
+    DefLclReg(load);
 }
 
 void CodeGen::GenLclLoadFld(GenTreeLclLoadFld* load)
@@ -3398,7 +3398,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
             {
                 GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
                 var_types bitCastSrcType = bitCastSrc->GetType();
-                regNumber bitCastSrcReg  = UseReg(bitCastSrc);
+                RegNum    bitCastSrcReg  = UseReg(bitCastSrc);
 
                 ins = ins_Store(bitCastSrcType, isAligned);
 
@@ -3415,7 +3415,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         }
         else
         {
-            regNumber srcReg = UseReg(src);
+            RegNum srcReg = UseReg(src);
 
             GetEmitter()->emitIns_S_R(ins, attr, srcReg, s);
         }
@@ -3504,7 +3504,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         }
     }
 
-    DefLclVarReg(store);
+    DefLclReg(store);
 }
 
 #if defined(UNIX_AMD64_ABI) || defined(TARGET_X86)
@@ -3533,38 +3533,40 @@ void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
     assert(varTypeUsesFloatReg(call->GetRegType(1)));
 #endif
 
-    regNumber srcReg0 = call->GetRegNum(0);
-    regNumber srcReg1 = call->GetRegNum(1);
-    regNumber dstReg  = store->GetRegNum();
+    RegNum srcReg0 = call->GetRegNum(0);
+    RegNum srcReg1 = call->GetRegNum(1);
+    RegNum dstReg  = store->GetRegNum();
+
+    Emitter& emit = *GetEmitter();
 
 #ifdef TARGET_X86
-    regNumber tmpReg = store->GetSingleTempReg();
+    RegNum tmpReg = store->GetSingleTempReg();
 
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
-    GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
-    GetEmitter()->emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
+    emit.emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, false);
+    emit.emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, false);
+    emit.emitIns_R_R(INS_unpcklps, EA_16BYTE, dstReg, tmpReg);
 #else
     if (dstReg == srcReg0)
     {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+        emit.emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
     }
     else if (compiler->canUseVexEncoding())
     {
-        GetEmitter()->emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
+        emit.emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
     }
     else if (dstReg == srcReg1)
     {
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
-        GetEmitter()->emitIns_Mov(INS_movsd, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+        emit.emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+        emit.emitIns_Mov(INS_movsd, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
     }
     else
     {
-        GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
-        GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
+        emit.emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg0, /* canSkip */ false);
+        emit.emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
     }
 #endif
 
-    DefLclVarReg(store);
+    DefLclReg(store);
 }
 
 void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
@@ -3578,29 +3580,31 @@ void CodeGen::GenLclStoreMultiRegVectorMem(GenTreeLclStore* store)
     assert(call->GetRegCount() == 2);
     assert(!lcl->IsRegCandidate() || (store->GetRegNum() == REG_NA));
 
-    regNumber reg0 = UseReg(src, 0);
-    regNumber reg1 = UseReg(src, 1);
+    RegNum reg0 = UseReg(src, 0);
+    RegNum reg1 = UseReg(src, 1);
+
+    Emitter& emit = *GetEmitter();
 
 #ifdef TARGET_X86
     assert(store->TypeIs(TYP_SIMD8));
     assert((call->GetRegType(0) == TYP_INT) && (call->GetRegType(1) == TYP_INT));
 
-    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg0, GetStackAddrMode(lcl, 0));
-    GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, reg1, GetStackAddrMode(lcl, 4));
+    emit.emitIns_S_R(INS_mov, EA_4BYTE, reg0, GetStackAddrMode(lcl, 0));
+    emit.emitIns_S_R(INS_mov, EA_4BYTE, reg1, GetStackAddrMode(lcl, 4));
 #else
     assert(store->TypeIs(TYP_SIMD12, TYP_SIMD16));
     assert(call->GetRegType(0) == TYP_DOUBLE);
     assert((call->GetRegType(1) == TYP_DOUBLE) || (call->GetRegType(1) == TYP_FLOAT));
 
-    GetEmitter()->emitIns_S_R(INS_movsd, EA_8BYTE, reg0, GetStackAddrMode(lcl, 0));
+    emit.emitIns_S_R(INS_movsd, EA_8BYTE, reg0, GetStackAddrMode(lcl, 0));
     // TODO-MIKE-Review: Do we need to store a 0 for the 4th element of Vector3? Old code did not.
     // Also, it may be better to do a 8 byte store instead of 4 byte store whenever there is
     // enough space (pretty much always since local sizes are normally rounded up to 8 bytes,
     // P-DEP fields are probably the only exception).
     // Actually, it may be even better to pack the 2 regs into one and do a single store, if there
     // are subsequent SIMD loads then doing 2 stores here will block store forwarding.
-    GetEmitter()->emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsd,
-                              store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE, reg1, GetStackAddrMode(lcl, 8));
+    emit.emitIns_S_R(store->TypeIs(TYP_SIMD12) ? INS_movss : INS_movsd, store->TypeIs(TYP_SIMD12) ? EA_4BYTE : EA_8BYTE,
+                     reg1, GetStackAddrMode(lcl, 8));
 #endif
 
     liveness.UpdateLife(this, store);
