@@ -1952,7 +1952,8 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     if (lclRegType == TYP_SIMD12)
     {
         StoreSIMD12(store, src);
-        // TODO-MIKE-Review: Doesn't this need a DefLclReg call?
+        liveness.UpdateLife(this, store);
+
         return;
     }
 

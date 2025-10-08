@@ -3371,14 +3371,17 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
     if (lclRegType == TYP_SIMD12)
     {
         StoreSIMD12(store, src);
-        // TODO-MIKE-Review: Doesn't this need a genUpdateLife call?
-        // And how exactly does this work anyway? It does not check if a register was allocated
-        // to the local, it always stores to memory. Always storing to memory is probably correct
-        // but not always necessary. Problem is, what if the destination register is different
-        // from the source register? No reg-reg move is being generated?!?
+        liveness.UpdateLife(this, store);
+
+        // TODO-MIKE-Review: How exactly does this work anyway?
+        // It does not check if a register was allocated to the local, it always stores to memory.
+        // Always storing to memory is probably correct but not always necessary. Problem is, what
+        // if the destination register is different from the source register? No reg-reg move is
+        // being generated?!?
         // Unspilling SIMD12 is probably broken too since it doesn't use LoadSIMD12, it looks
         // like it will emit a movups and load garbage in the 4th vector element instead of 0.
         // See vec3-param-def-spill.cs.
+
         return;
     }
 #endif
@@ -3448,7 +3451,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
         {
             GenTree*  bitCastSrc     = src->AsUnOp()->GetOp(0);
             var_types bitCastSrcType = bitCastSrc->GetType();
-            regNumber bitCastSrcReg  = UseReg(bitCastSrc);
+            RegNum    bitCastSrcReg  = UseReg(bitCastSrc);
 
             inst_BitCast(lclRegType, dstReg, bitCastSrcType, bitCastSrc->GetRegNum());
         }

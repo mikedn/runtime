@@ -269,7 +269,7 @@ void DbgInfoVarLoc::Dump(const char* suffix) const
             break;
 
         case VLT_FPSTK:
-            printf("ST(L-%d)", vlFPstk.vlfReg);
+            printf("%s", getRegName(vlFPstk.vlfReg));
             break;
 
         case VLT_FIXED_VA:
