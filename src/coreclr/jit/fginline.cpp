@@ -1002,43 +1002,6 @@ bool Compiler::inlImportReturn(Importer&            importer,
             }
         }
     }
-    else if (info.GetRetSigType() == TYP_BYREF)
-    {
-        // If we are inlining a method that returns a struct byref, check whether
-        // we are "reinterpreting" the struct.
-
-        GenTree* effectiveRetVal = retExpr->gtEffectiveVal();
-
-        if (retExpr->TypeIs(TYP_BYREF) && effectiveRetVal->OperIs(GT_LCL_ADDR))
-        {
-            // Currently the importer doesn't generate local field addresses.
-            assert(effectiveRetVal->AsLclAddr()->GetLclOffs() == 0);
-
-            LclVarDsc* lcl = effectiveRetVal->AsLclAddr()->GetLcl();
-
-            if (varTypeIsStruct(lcl->GetType()) && !lcl->GetLayout()->IsOpaqueVector())
-            {
-                CORINFO_CLASS_HANDLE byrefClass;
-                var_types            byrefType = CorTypeToVarType(
-                    info.compCompHnd->getChildType(info.compMethodInfo->args.retTypeClass, &byrefClass));
-
-                if (varTypeIsStruct(byrefType) && (lcl->GetLayout()->GetClassHandle() != byrefClass))
-                {
-                    // We are returning a byref to struct1; the method signature specifies return type as
-                    // byref to struct2. struct1 and struct2 are different so we are "reinterpreting" the
-                    // struct (e.g. System.Runtime.CompilerServices.Unsafe.As<TFrom, TTo>).
-                    // We need to mark the source struct variable as having overlapping fields because its
-                    // fields may be accessed using field handles of a different type, which may confuse
-                    // optimizations, in particular, value numbering.
-
-                    JITDUMP("\nSetting lvOverlappingFields on V%02u due to struct reinterpretation\n",
-                            lcl->GetLclNum());
-
-                    lcl->lvOverlappingFields = true;
-                }
-            }
-        }
-    }
 
     if (retExpr->IsCall() && retExpr->AsCall()->TreatAsRequiresRetBufArg() && (info.retDesc.GetRegCount() >= 1))
     {

@@ -3105,7 +3105,7 @@ ValueNum ValueNumbering::CoerceStoreValue(
         // This store is wider than the field so it may modify other fields, leave it to the
         // caller to handle as the outcome depends on context (e.g. wider store to a static
         // field can still be treated as modifying only that static field, it could modify
-        // other static fields but that's undefined behaviour and can be ignored).
+        // other static fields but that's undefined behavior and can be ignored).
         return NoVN;
     }
 
