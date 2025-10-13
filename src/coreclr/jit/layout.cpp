@@ -591,7 +591,7 @@ var_types Compiler::typGetStructType(ClassLayout* layout)
 
 ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 {
-    assert(varTypeIsStruct(node->GetType()));
+    assert(node->TypeIs(TYP_STRUCT));
 
     node = node->gtEffectiveVal();
 
@@ -616,12 +616,6 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
             return node->AsLclLoadFld()->GetLayout(this);
         case GT_EXTRACT:
             return node->AsExtract()->GetLayout(this);
-        case GT_BITCAST:
-        case GT_IND_LOAD:
-#ifdef FEATURE_HW_INTRINSICS
-        case GT_HWINTRINSIC:
-#endif
-            return nullptr;
         default:
             unreached();
     }
