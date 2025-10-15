@@ -1033,6 +1033,16 @@ private:
                     fieldSeq = nullptr;
                 }
             }
+
+            if ((fieldSeq != nullptr) && (fieldSeq != FieldSeqNode::NotAField()))
+            {
+                if (m_compiler->info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle()) !=
+                    lcl->GetLayout()->GetClassHandle())
+                {
+                    JITDUMP("Removing bad field sequence\n");
+                    fieldSeq = FieldSeq::NotAField();
+                }
+            }
         }
 
         load->ChangeToLclLoadFld(loadType, lcl, lclOffs, fieldSeq);
