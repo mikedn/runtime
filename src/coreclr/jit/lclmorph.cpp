@@ -186,7 +186,8 @@ class LocalAddressVisitor final : public GenTreeVisitor<LocalAddressVisitor>
 #endif // DEBUG
     };
 
-    Compiler* m_compiler;
+    Compiler*    m_compiler;
+    ICorJitInfo& m_vm;
     ArrayStack<Value, 16> m_valueStack;
 #ifdef DEBUG
     bool m_stmtModified;
@@ -199,7 +200,8 @@ public:
         DoPostOrder = true
     };
 
-    LocalAddressVisitor(Compiler* comp) : m_compiler(comp), m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
+    LocalAddressVisitor(Compiler* comp)
+        : m_compiler(comp), m_vm(*comp->info.compCompHnd), m_valueStack(comp->getAllocator(CMK_LocalAddressVisitor))
     {
     }
 
@@ -1036,11 +1038,9 @@ private:
 
             if ((fieldSeq != nullptr) && (fieldSeq != FieldSeqNode::NotAField()))
             {
-                if (m_compiler->info.compCompHnd->getFieldClass(fieldSeq->GetFieldHandle()) !=
-                    lcl->GetLayout()->GetClassHandle())
+                if (m_vm.getFieldClass(fieldSeq->GetFieldHandle()) != lcl->GetLayout()->GetClassHandle())
                 {
-                    JITDUMP("Removing bad field sequence\n");
-                    fieldSeq = FieldSeq::NotAField();
+                    fieldSeq = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), lclOffs, loadType, loadLayout);
                 }
             }
         }
@@ -1907,13 +1907,13 @@ private:
 
     var_types GetScalarFieldType(CORINFO_FIELD_HANDLE fieldHandle)
     {
-        return CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldHandle));
+        return CorTypeToVarType(m_vm.getFieldType(fieldHandle));
     }
 
     CORINFO_CLASS_HANDLE GetStructFieldType(CORINFO_FIELD_HANDLE fieldHandle)
     {
         CORINFO_CLASS_HANDLE fc;
-        var_types            ft = CorTypeToVarType(m_compiler->info.compCompHnd->getFieldType(fieldHandle, &fc));
+        var_types            ft = CorTypeToVarType(m_vm.getFieldType(fieldHandle, &fc));
         assert((fc != nullptr) || (ft != TYP_STRUCT));
 
         return ft == TYP_STRUCT ? fc : nullptr;
@@ -1923,15 +1923,14 @@ private:
     {
         assert(fieldType != TYP_STRUCT);
 
-        ICorJitInfo*         vm       = m_compiler->info.compCompHnd;
-        FieldSeqNode*        fieldSeq = nullptr;
-        CORINFO_FIELD_HANDLE fieldHandle;
+        ICorJitInfo&  vm       = m_vm;
+        FieldSeqNode* fieldSeq = nullptr;
 
         *fieldLayout = nullptr;
 
         for (var_types classType = TYP_STRUCT; classType == TYP_STRUCT;)
         {
-            if (vm->getClassNumInstanceFields(classHandle) < 1)
+            if (vm.getClassNumInstanceFields(classHandle) < 1)
             {
                 return FieldSeqNode::NotAField();
             }
@@ -1940,14 +1939,14 @@ private:
             // and the requested type. But since this is needed for single field struct
             // promotion there should be only one field anyway.
 
-            fieldHandle = vm->getFieldInClass(classHandle, 0);
+            CORINFO_FIELD_HANDLE fieldHandle = vm.getFieldInClass(classHandle, 0);
 
-            if (vm->getFieldOffset(fieldHandle) != 0)
+            if (vm.getFieldOffset(fieldHandle) != 0)
             {
                 return FieldSeqNode::NotAField();
             }
 
-            classType = CorTypeToVarType(vm->getFieldType(fieldHandle, &classHandle));
+            classType = CorTypeToVarType(vm.getFieldType(fieldHandle, &classHandle));
 
 #ifdef FEATURE_SIMD
             if (classType == TYP_STRUCT)
@@ -1974,6 +1973,85 @@ private:
             {
                 return FieldSeqNode::NotAField();
             }
+        }
+
+        return fieldSeq;
+    }
+
+    FieldSeqNode* GetFieldSequence(CORINFO_CLASS_HANDLE classHandle,
+                                   unsigned             seqOffset,
+                                   var_types            seqType,
+                                   ClassLayout*         seqLayout)
+    {
+        ICorJitInfo& vm = m_vm;
+
+        if ((vm.getClassAttribs(classHandle) & CORINFO_FLG_OVERLAPPING_FIELDS) != 0)
+        {
+            return FieldSeqNode::NotAField();
+        }
+
+        unsigned seqSize = seqLayout != nullptr ? seqLayout->GetSize() : varTypeSize(seqType);
+
+        FieldSeqNode* fieldSeq = nullptr;
+
+        while (classHandle != nullptr)
+        {
+            unsigned fieldCount = vm.getClassNumInstanceFields(classHandle);
+
+            if (fieldCount == 0)
+            {
+                return FieldSeqNode::NotAField();
+            }
+
+            CORINFO_CLASS_HANDLE childClassHandle = nullptr;
+
+            for (unsigned fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++)
+            {
+                CORINFO_FIELD_HANDLE fieldHandle = vm.getFieldInClass(classHandle, fieldIndex);
+                unsigned             fieldOffset = vm.getFieldOffset(fieldHandle);
+                CORINFO_CLASS_HANDLE fieldClassHandle;
+                var_types            fieldType = CorTypeToVarType(vm.getFieldType(fieldHandle, &fieldClassHandle));
+
+                if (fieldType == TYP_STRUCT)
+                {
+                    ClassLayout* fieldLayout = m_compiler->typGetObjLayout(fieldClassHandle);
+                    unsigned     fieldSize   = fieldLayout->GetSize();
+
+                    if ((seqOffset < fieldOffset) || (fieldOffset + fieldSize < seqOffset + seqSize))
+                    {
+                        continue;
+                    }
+
+                    if (fieldLayout->IsVector())
+                    {
+                        fieldType = fieldLayout->GetElementType();
+                    }
+                    else if ((seqType == TYP_STRUCT) && (fieldOffset == seqOffset) && (seqLayout == fieldLayout))
+                    {
+                        return m_compiler->GetFieldSeqStore()->Append(fieldSeq, fieldHandle);
+                    }
+                    else
+                    {
+                        childClassHandle = fieldClassHandle;
+                        seqOffset -= fieldOffset;
+                        fieldSeq = m_compiler->GetFieldSeqStore()->Append(fieldSeq, fieldHandle);
+
+                        break;
+                    }
+                }
+
+                if ((fieldOffset == seqOffset) && (fieldType == seqType))
+                {
+                    return m_compiler->GetFieldSeqStore()->Append(fieldSeq, fieldHandle);
+                }
+            }
+
+            if (childClassHandle == nullptr)
+            {
+                return FieldSeqNode::NotAField();
+            }
+
+            classHandle = childClassHandle;
         }
 
         return fieldSeq;
@@ -2016,7 +2094,7 @@ private:
             return FieldSeqNode::NotAField();
         }
 
-        if (m_compiler->info.compCompHnd->getFieldOffset(elementSeq->GetFieldHandle()) != lclOffs)
+        if (m_vm.getFieldOffset(elementSeq->GetFieldHandle()) != lclOffs)
         {
             return FieldSeqNode::NotAField();
         }
