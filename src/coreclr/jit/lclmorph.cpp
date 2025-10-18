@@ -962,8 +962,7 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && lcl->lvIsUsedInSIMDIntrinsic() &&
-            !lcl->lvDoNotEnregister)
+        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetElement would work. But other vector
@@ -987,11 +986,6 @@ private:
             //
             // Ultimately the best option may be to keep doing this here and compensate for the memory case
             // in lowering. This is already done for GetElement but doesn't work very well.
-
-            // TODO-MIKE-CQ: The IsUsedInSIMDIntrinsic check is bogus. It's really intended to block
-            // promotion and this transform doesn't have anything to do with that. In fact using it here
-            // hurts promotion because SIMD typed promoted fields don't have it set so accessing their
-            // X/Y/Z/W fields will just result in DNER.
 
             load->ChangeOper(GT_HWINTRINSIC);
             load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
