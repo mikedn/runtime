@@ -55,6 +55,11 @@ if "%VisualStudioVersion%"=="17.0" (
     set __PlatformToolset=v142
     goto :SetVCEnvironment
 )
+if "%VisualStudioVersion%"=="18.0" (
+    set __VSVersion=vs2026
+    set __PlatformToolset=v145
+    goto :SetVCEnvironment
+)
 
 :VSMissing
 echo %__MsgPrefix%Error: Visual Studio 2019 or 2022 with C++ tools required. ^
