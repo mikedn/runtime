@@ -150,7 +150,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
     {
-        genVectorGetElement(node);
+        GenVectorGetElement(node);
         DefReg(node);
 
         return;
@@ -569,7 +569,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     DefReg(node);
 }
 
-void CodeGen::genVectorGetElement(GenTreeHWIntrinsic* node)
+void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_Vector64_GetElement) || (node->GetIntrinsic() == NI_Vector128_GetElement));
 

@@ -575,37 +575,39 @@ private:
 
 #ifdef FEATURE_HW_INTRINSICS
     void GenHWIntrinsic(GenTreeHWIntrinsic* node);
-    void genVectorGetElement(GenTreeHWIntrinsic* node);
+    void GenVectorGetElement(GenTreeHWIntrinsic* node);
 
 #ifdef TARGET_XARCH
-    void genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber reg, GenTree* rmOp);
-    void genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival);
-    void genHWIntrinsic_R_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr);
+    void genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum reg, GenTree* rmOp);
+    void genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t imm);
     void genHWIntrinsic_R_R_RM(
-        GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, GenTree* op2);
-    void genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t ival);
+        GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, GenTree* op2);
+    void genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t imm);
     void genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins);
     void genHWIntrinsic_R_R_R_RM(
-        instruction ins, emitAttr attr, regNumber targetReg, regNumber op1Reg, regNumber op2Reg, GenTree* op3);
-    void genBaseIntrinsic(GenTreeHWIntrinsic* node);
-    void genX86BaseIntrinsic(GenTreeHWIntrinsic* node);
-    void genSSEIntrinsic(GenTreeHWIntrinsic* node);
-    void genSSE2Intrinsic(GenTreeHWIntrinsic* node);
-    void genSSE41Intrinsic(GenTreeHWIntrinsic* node);
-    void genSSE42Intrinsic(GenTreeHWIntrinsic* node);
-    void genAvxOrAvx2Intrinsic(GenTreeHWIntrinsic* node);
-    void genAESIntrinsic(GenTreeHWIntrinsic* node);
-    void genBMI1OrBMI2Intrinsic(GenTreeHWIntrinsic* node);
-    void genFMAIntrinsic(GenTreeHWIntrinsic* node);
-    void genLZCNTIntrinsic(GenTreeHWIntrinsic* node);
-    void genPCLMULQDQIntrinsic(GenTreeHWIntrinsic* node);
-    void genPOPCNTIntrinsic(GenTreeHWIntrinsic* node);
-    void genXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins);
+        instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3);
+
+    void GenGenericIntrinsic(GenTreeHWIntrinsic* node);
+    void GenVectorNIntrinsic(GenTreeHWIntrinsic* node);
+    void GenX86BaseIntrinsic(GenTreeHWIntrinsic* node);
+    void GenSSEIntrinsic(GenTreeHWIntrinsic* node);
+    void GenSSE2Intrinsic(GenTreeHWIntrinsic* node);
+    void GenSSE41Intrinsic(GenTreeHWIntrinsic* node);
+    void GenSSE42Intrinsic(GenTreeHWIntrinsic* node);
+    void GenAVXIntrinsic(GenTreeHWIntrinsic* node);
+    void GenAESIntrinsic(GenTreeHWIntrinsic* node);
+    void GenBMIIntrinsic(GenTreeHWIntrinsic* node);
+    void GenFMAIntrinsic(GenTreeHWIntrinsic* node);
+    void GenLZCNTIntrinsic(GenTreeHWIntrinsic* node);
+    void GenPCLMULQDQIntrinsic(GenTreeHWIntrinsic* node);
+    void GenPOPCNTIntrinsic(GenTreeHWIntrinsic* node);
+    void GenXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins);
+
     template <typename HWIntrinsicSwitchCaseBody>
-    void genHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsic,
-                                         regNumber                 nonConstImmReg,
-                                         regNumber                 baseReg,
-                                         regNumber                 offsReg,
+    void GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsic,
+                                         RegNum                    nonConstImmReg,
+                                         RegNum                    baseReg,
+                                         RegNum                    offsReg,
                                          HWIntrinsicSwitchCaseBody emitSwCase);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
@@ -644,10 +646,10 @@ private:
     void UseOperandRegs(GenTree* node);
 #endif
 #ifdef TARGET_XARCH
-    void genConsumeRegs(GenTree* tree);
+    void UseHWIntrinsicOp(GenTree* tree);
     void UseRMRegs(GenTree* op);
 #ifdef FEATURE_HW_INTRINSICS
-    void genConsumeHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
+    void UseHWIntrinsicOperands(GenTreeHWIntrinsic* tree);
 #endif
     void GenIndStoreRMWShift(GenTree* addr, GenTreeOp* shift, GenTree* shiftBy);
     void GenBitTest(GenTreeOp* bt);
