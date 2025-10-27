@@ -39,7 +39,7 @@ struct ExpandNonConstImmHelper
             simdSize = intrin->GetSimdSize();
         }
 
-        HWIntrinsicInfo::lookupImmBounds(intrin->GetIntrinsic(), simdSize, intrin->GetSimdBaseType(), &immLowerBound,
+        HWIntrinsicInfo::LookupImmBounds(intrin->GetIntrinsic(), simdSize, intrin->GetSimdBaseType(), &immLowerBound,
                                          &immUpperBound);
 
         nonConstImmReg = immOp->GetRegNum();

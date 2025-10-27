@@ -290,8 +290,8 @@ struct HWIntrinsicInfo
 #if defined(TARGET_XARCH)
     static int lookupImmUpperBound(NamedIntrinsic intrinsic);
 #elif defined(TARGET_ARM64)
-    static void lookupImmBounds(
-        NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* lowerBound, int* upperBound);
+    static void LookupImmBounds(
+        NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound);
 #else
 #error Unsupported platform
 #endif
@@ -302,7 +302,6 @@ struct HWIntrinsicInfo
 
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
-    static FloatComparisonMode SwapFloatComparisonMode(FloatComparisonMode comparison);
     static int GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 

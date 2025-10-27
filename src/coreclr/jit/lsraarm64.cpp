@@ -611,7 +611,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             immVecSize = node->GetSimdSize();
         }
 
-        HWIntrinsicInfo::lookupImmBounds(intrin.id, immVecSize, intrin.baseType, &immLowerBound, &immUpperBound);
+        HWIntrinsicInfo::LookupImmBounds(intrin.id, immVecSize, intrin.baseType, &immLowerBound, &immUpperBound);
         GenTree* immOp = nullptr;
 
         if ((immLowerBound != 0) || (immUpperBound != 1))

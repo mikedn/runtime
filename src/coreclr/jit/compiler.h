@@ -1857,7 +1857,7 @@ public:
     GenTree* impSIMDPopStack(var_types type);
     GenTree* impVectorPop(var_types type);
 
-    GenTree* impHWIntrinsic(NamedIntrinsic        intrinsic,
+    GenTree* ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                             CORINFO_CLASS_HANDLE  clsHnd,
                             CORINFO_METHOD_HANDLE method,
                             CORINFO_SIG_INFO*     sig,
@@ -1944,19 +1944,19 @@ public:
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 
-    GenTree* impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 
-    GenTree* impPopArgForHWIntrinsic(var_types paramType, ClassLayout* paramLayout);
-    GenTree* impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
-    GenTree* addRangeCheckIfNeeded(
+    GenTree* PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout);
+    GenTree* ImportNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
+    GenTree* AddHWIntrinsicRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
-    GenTree* addRangeCheckForHWIntrinsic(GenTree* immOp, int immLowerBound, int immUpperBound);
+    GenTree* AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, int immUpperBound);
 
 #ifdef TARGET_XARCH
-    GenTree* impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 #endif // FEATURE_HW_INTRINSICS
     GenTree* ImportArrayAccessIntrinsic(

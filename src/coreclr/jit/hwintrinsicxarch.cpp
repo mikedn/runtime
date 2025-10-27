@@ -6,14 +6,6 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// X64VersionOfIsa: Gets the corresponding 64-bit only InstructionSet for a given InstructionSet
-//
-// Arguments:
-//    isa -- The InstructionSet ID
-//
-// Return Value:
-//    The 64-bit only InstructionSet associated with isa
 static CORINFO_InstructionSet X64VersionOfIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
@@ -57,17 +49,10 @@ static CORINFO_InstructionSet X64VersionOfIsa(CORINFO_InstructionSet isa)
     }
 }
 
-//------------------------------------------------------------------------
-// lookupInstructionSet: Gets the InstructionSet for a given class name
-//
-// Arguments:
-//    className -- The name of the class associated with the InstructionSet to lookup
-//
-// Return Value:
-//    The InstructionSet associated with className
 static CORINFO_InstructionSet lookupInstructionSet(const char* className)
 {
     assert(className != nullptr);
+
     if (className[0] == 'A')
     {
         if (strcmp(className, "Aes") == 0)
@@ -163,15 +148,6 @@ static CORINFO_InstructionSet lookupInstructionSet(const char* className)
     return InstructionSet_ILLEGAL;
 }
 
-//------------------------------------------------------------------------
-// lookupIsa: Gets the InstructionSet for a given class name and enclosing class name
-//
-// Arguments:
-//    className -- The name of the class associated with the InstructionSet to lookup
-//    enclosingClassName -- The name of the enclosing class of X64 classes
-//
-// Return Value:
-//    The InstructionSet associated with className and enclosingClassName
 CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const char* enclosingClassName)
 {
     assert(className != nullptr);
@@ -181,21 +157,10 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
         assert(enclosingClassName != nullptr);
         return X64VersionOfIsa(lookupInstructionSet(enclosingClassName));
     }
-    else
-    {
-        return lookupInstructionSet(className);
-    }
+
+    return lookupInstructionSet(className);
 }
 
-//------------------------------------------------------------------------
-// lookupImmUpperBound: Gets the upper bound for the imm-value of a given NamedIntrinsic
-//
-// Arguments:
-//    id -- The NamedIntrinsic associated with the HWIntrinsic to lookup
-//
-// Return Value:
-//     The upper bound for the imm-value of the intrinsic associated with id
-//
 int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
 {
     assert(HWIntrinsicInfo::GetCategory(id) == HW_Category_IMM);
@@ -219,15 +184,6 @@ int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
     }
 }
 
-//------------------------------------------------------------------------
-// isAVX2GatherIntrinsic: Check if the intrinsic is AVX Gather*
-//
-// Arguments:
-//    id   -- The NamedIntrinsic associated with the HWIntrinsic to lookup
-//
-// Return Value:
-//     true if id is AVX Gather* intrinsic
-//
 bool HWIntrinsicInfo::isAVX2GatherIntrinsic(NamedIntrinsic id)
 {
     switch (id)
@@ -397,98 +353,10 @@ int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDep
     }
 }
 
-FloatComparisonMode HWIntrinsicInfo::SwapFloatComparisonMode(FloatComparisonMode mode)
-{
-    switch (mode)
-    {
-        // These comparison modes are the same even if the operands are swapped
-
-        case FloatComparisonMode::OrderedEqualNonSignaling:
-            return FloatComparisonMode::OrderedEqualNonSignaling;
-        case FloatComparisonMode::UnorderedNonSignaling:
-            return FloatComparisonMode::UnorderedNonSignaling;
-        case FloatComparisonMode::UnorderedNotEqualNonSignaling:
-            return FloatComparisonMode::UnorderedNotEqualNonSignaling;
-        case FloatComparisonMode::OrderedNonSignaling:
-            return FloatComparisonMode::OrderedNonSignaling;
-        case FloatComparisonMode::UnorderedEqualNonSignaling:
-            return FloatComparisonMode::UnorderedEqualNonSignaling;
-        case FloatComparisonMode::OrderedFalseNonSignaling:
-            return FloatComparisonMode::OrderedFalseNonSignaling;
-        case FloatComparisonMode::OrderedNotEqualNonSignaling:
-            return FloatComparisonMode::OrderedNotEqualNonSignaling;
-        case FloatComparisonMode::UnorderedTrueNonSignaling:
-            return FloatComparisonMode::UnorderedTrueNonSignaling;
-        case FloatComparisonMode::OrderedEqualSignaling:
-            return FloatComparisonMode::OrderedEqualSignaling;
-        case FloatComparisonMode::UnorderedSignaling:
-            return FloatComparisonMode::UnorderedSignaling;
-        case FloatComparisonMode::UnorderedNotEqualSignaling:
-            return FloatComparisonMode::UnorderedNotEqualSignaling;
-        case FloatComparisonMode::OrderedSignaling:
-            return FloatComparisonMode::OrderedSignaling;
-        case FloatComparisonMode::UnorderedEqualSignaling:
-            return FloatComparisonMode::UnorderedEqualSignaling;
-        case FloatComparisonMode::OrderedFalseSignaling:
-            return FloatComparisonMode::OrderedFalseSignaling;
-        case FloatComparisonMode::OrderedNotEqualSignaling:
-            return FloatComparisonMode::OrderedNotEqualSignaling;
-        case FloatComparisonMode::UnorderedTrueSignaling:
-            return FloatComparisonMode::UnorderedTrueSignaling;
-
-        // These comparison modes need a different mode if the operands are swapped
-
-        case FloatComparisonMode::OrderedLessThanSignaling:
-            return FloatComparisonMode::OrderedGreaterThanSignaling;
-        case FloatComparisonMode::OrderedLessThanOrEqualSignaling:
-            return FloatComparisonMode::OrderedGreaterThanOrEqualSignaling;
-        case FloatComparisonMode::UnorderedNotLessThanSignaling:
-            return FloatComparisonMode::UnorderedNotGreaterThanSignaling;
-        case FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling:
-            return FloatComparisonMode::UnorderedNotGreaterThanOrEqualSignaling;
-        case FloatComparisonMode::UnorderedNotGreaterThanOrEqualSignaling:
-            return FloatComparisonMode::UnorderedNotLessThanOrEqualSignaling;
-        case FloatComparisonMode::UnorderedNotGreaterThanSignaling:
-            return FloatComparisonMode::UnorderedNotLessThanSignaling;
-        case FloatComparisonMode::OrderedGreaterThanOrEqualSignaling:
-            return FloatComparisonMode::OrderedLessThanOrEqualSignaling;
-        case FloatComparisonMode::OrderedGreaterThanSignaling:
-            return FloatComparisonMode::OrderedLessThanSignaling;
-        case FloatComparisonMode::OrderedLessThanNonSignaling:
-            return FloatComparisonMode::OrderedGreaterThanNonSignaling;
-        case FloatComparisonMode::OrderedLessThanOrEqualNonSignaling:
-            return FloatComparisonMode::OrderedGreaterThanOrEqualNonSignaling;
-        case FloatComparisonMode::UnorderedNotLessThanNonSignaling:
-            return FloatComparisonMode::UnorderedNotGreaterThanNonSignaling;
-        case FloatComparisonMode::UnorderedNotLessThanOrEqualNonSignaling:
-            return FloatComparisonMode::UnorderedNotGreaterThanOrEqualNonSignaling;
-        case FloatComparisonMode::UnorderedNotGreaterThanOrEqualNonSignaling:
-            return FloatComparisonMode::UnorderedNotLessThanOrEqualNonSignaling;
-        case FloatComparisonMode::UnorderedNotGreaterThanNonSignaling:
-            return FloatComparisonMode::UnorderedNotLessThanNonSignaling;
-        case FloatComparisonMode::OrderedGreaterThanOrEqualNonSignaling:
-            return FloatComparisonMode::OrderedLessThanOrEqualNonSignaling;
-        case FloatComparisonMode::OrderedGreaterThanNonSignaling:
-            return FloatComparisonMode::OrderedLessThanNonSignaling;
-
-        default:
-            unreached();
-    }
-}
-
-//------------------------------------------------------------------------
-// isFullyImplementedIsa: Gets a value that indicates whether the InstructionSet is fully implemented
-//
-// Arguments:
-//    isa - The InstructionSet to check
-//
-// Return Value:
-//    true if isa is supported; otherwise, false
 bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
-        // These ISAs are fully implemented
         case InstructionSet_AES:
         case InstructionSet_AES_X64:
         case InstructionSet_AVX:
@@ -525,25 +393,12 @@ bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
         case InstructionSet_Vector256:
         case InstructionSet_X86Base:
         case InstructionSet_X86Base_X64:
-        {
             return true;
-        }
-
         default:
-        {
             return false;
-        }
     }
 }
 
-//------------------------------------------------------------------------
-// isScalarIsa: Gets a value that indicates whether the InstructionSet is scalar
-//
-// Arguments:
-//    isa - The InstructionSet to check
-//
-// Return Value:
-//    true if isa is scalar; otherwise, false
 bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
@@ -556,35 +411,20 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
         case InstructionSet_LZCNT_X64:
         case InstructionSet_X86Base:
         case InstructionSet_X86Base_X64:
-        {
             // InstructionSet_POPCNT and InstructionSet_POPCNT_X64 are excluded
             // even though they are "scalar" ISA because they depend on SSE4.2
             // and Popcnt.IsSupported implies Sse42.IsSupported
             return true;
-        }
 
         default:
-        {
             return false;
-        }
     }
 }
 
-//------------------------------------------------------------------------
-// impNonConstFallback: convert certain SSE2/AVX2 shift intrinsic to its semantic alternative when the imm-arg is
-// not a compile-time constant
-//
-// Arguments:
-//    intrinsic  -- intrinsic ID
-//    simdType   -- Vector type
-//    baseType   -- base type of the Vector128/256<T>
-//
-// Return Value:
-//     return the IR of semantic alternative on non-const imm-arg
-//
-GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType)
+GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
 {
     assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
+
     switch (intrinsic)
     {
         case NI_SSE2_ShiftLeftLogical:
@@ -595,10 +435,10 @@ GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
         case NI_AVX2_ShiftRightLogical:
         {
             GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impSIMDPopStack(simdType);
+            GenTree* op1 = impSIMDPopStack(vecType);
             GenTree* tmpOp =
                 gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
-            return gtNewSimdHWIntrinsicNode(simdType, intrinsic, baseType, varTypeSize(simdType), op1, tmpOp);
+            return gtNewSimdHWIntrinsicNode(vecType, intrinsic, eltType, varTypeSize(vecType), op1, tmpOp);
         }
 
         default:
@@ -606,32 +446,32 @@ GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types simdT
     }
 }
 
-GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (HWIntrinsicInfo::GetIsa(intrinsic))
     {
         case InstructionSet_Vector128:
         case InstructionSet_Vector256:
-            return impBaseIntrinsic(intrinsic, sig);
+            return ImportBaseIntrinsic(intrinsic, sig);
         case InstructionSet_SSE:
         case InstructionSet_SSE2:
         case InstructionSet_SSE41:
         case InstructionSet_SSE41_X64:
-            return impSSEIntrinsic(intrinsic, sig);
+            return ImportSSEIntrinsic(intrinsic, sig);
         case InstructionSet_AVX:
         case InstructionSet_AVX2:
-            return impAvxOrAvx2Intrinsic(intrinsic, sig);
+            return ImportAVXIntrinsic(intrinsic, sig);
         case InstructionSet_BMI1:
         case InstructionSet_BMI1_X64:
         case InstructionSet_BMI2:
         case InstructionSet_BMI2_X64:
-            return impBMI1OrBMI2Intrinsic(intrinsic, sig);
+            return ImportBMIIntrinsic(intrinsic, sig);
         default:
             return nullptr;
     }
 }
 
-GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     assert(!sig.hasThisParam);
 
@@ -876,7 +716,7 @@ GenTree* Importer::impBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicS
     }
 }
 
-GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
@@ -972,7 +812,7 @@ GenTree* Importer::impSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSi
     }
 }
 
-GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
@@ -1002,9 +842,9 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
         {
             assert(sig.paramCount == 3);
 
-            GenTree* op3 = impPopArgForHWIntrinsic(sig.paramType[2], sig.paramLayout[2]);
-            GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
-            GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+            GenTree* op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
+            GenTree* op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+            GenTree* op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
             unsigned  vecSize   = sig.retLayout->GetSize();
             var_types eltType   = sig.retLayout->GetElementType();
@@ -1023,11 +863,11 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
         {
             assert(sig.paramCount == 5);
 
-            GenTree* op5 = impPopArgForHWIntrinsic(sig.paramType[4], sig.paramLayout[4]);
-            GenTree* op4 = impPopArgForHWIntrinsic(sig.paramType[3], sig.paramLayout[3]);
-            GenTree* op3 = impPopArgForHWIntrinsic(sig.paramType[2], sig.paramLayout[2]);
-            GenTree* op2 = impPopArgForHWIntrinsic(sig.paramType[1], sig.paramLayout[1]);
-            GenTree* op1 = impPopArgForHWIntrinsic(sig.paramType[0], sig.paramLayout[0]);
+            GenTree* op5 = PopHWIntrinsicArg(sig.paramType[4], sig.paramLayout[4]);
+            GenTree* op4 = PopHWIntrinsicArg(sig.paramType[3], sig.paramLayout[3]);
+            GenTree* op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
+            GenTree* op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+            GenTree* op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
             unsigned  vecSize   = sig.retLayout->GetSize();
             var_types eltType   = sig.retLayout->GetElementType();
@@ -1047,7 +887,7 @@ GenTree* Importer::impAvxOrAvx2Intrinsic(NamedIntrinsic intrinsic, const HWIntri
     }
 }
 
-GenTree* Importer::impBMI1OrBMI2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {

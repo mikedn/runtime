@@ -2531,7 +2531,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 #ifdef FEATURE_HW_INTRINSICS
             if (NI_HW_INTRINSIC_FIRST <= ni && ni <= NI_HW_INTRINSIC_LAST)
             {
-                GenTree* hwintrinsic = impHWIntrinsic(ni, clsHnd, method, sig, mustExpand);
+                GenTree* hwintrinsic = ImportHWIntrinsic(ni, clsHnd, method, sig, mustExpand);
 
                 if (mustExpand && (hwintrinsic == nullptr))
                 {

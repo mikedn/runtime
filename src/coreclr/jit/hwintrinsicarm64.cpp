@@ -6,14 +6,6 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-//------------------------------------------------------------------------
-// Arm64VersionOfIsa: Gets the corresponding 64-bit only InstructionSet for a given InstructionSet
-//
-// Arguments:
-//    isa -- The InstructionSet ID
-//
-// Return Value:
-//    The 64-bit only InstructionSet associated with isa
 static CORINFO_InstructionSet Arm64VersionOfIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
@@ -39,14 +31,6 @@ static CORINFO_InstructionSet Arm64VersionOfIsa(CORINFO_InstructionSet isa)
     }
 }
 
-//------------------------------------------------------------------------
-// lookupInstructionSet: Gets the InstructionSet for a given class name
-//
-// Arguments:
-//    className -- The name of the class associated with the InstructionSet to lookup
-//
-// Return Value:
-//    The InstructionSet associated with className
 static CORINFO_InstructionSet lookupInstructionSet(const char* className)
 {
     assert(className != nullptr);
@@ -113,15 +97,6 @@ static CORINFO_InstructionSet lookupInstructionSet(const char* className)
     return InstructionSet_ILLEGAL;
 }
 
-//------------------------------------------------------------------------
-// lookupIsa: Gets the InstructionSet for a given class name and enclsoing class name
-//
-// Arguments:
-//    className -- The name of the class associated with the InstructionSet to lookup
-//    enclosingClassName -- The name of the enclosing class or nullptr if one doesn't exist
-//
-// Return Value:
-//    The InstructionSet associated with className and enclosingClassName
 CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const char* enclosingClassName)
 {
     assert(className != nullptr);
@@ -131,25 +106,14 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
         assert(enclosingClassName != nullptr);
         return Arm64VersionOfIsa(lookupInstructionSet(enclosingClassName));
     }
-    else
-    {
-        return lookupInstructionSet(className);
-    }
+
+    return lookupInstructionSet(className);
 }
 
-//------------------------------------------------------------------------
-// isFullyImplementedIsa: Gets a value that indicates whether the InstructionSet is fully implemented
-//
-// Arguments:
-//    isa - The InstructionSet to check
-//
-// Return Value:
-//    true if isa is supported; otherwise, false
 bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
-        // These ISAs are fully implemented
         case InstructionSet_AdvSimd:
         case InstructionSet_AdvSimd_Arm64:
         case InstructionSet_Aes:
@@ -169,20 +133,11 @@ bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
         case InstructionSet_Vector64:
         case InstructionSet_Vector128:
             return true;
-
         default:
             return false;
     }
 }
 
-//------------------------------------------------------------------------
-// isScalarIsa: Gets a value that indicates whether the InstructionSet is scalar
-//
-// Arguments:
-//    isa - The InstructionSet to check
-//
-// Return Value:
-//    true if isa is scalar; otherwise, false
 bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
@@ -191,55 +146,35 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
         case InstructionSet_ArmBase_Arm64:
         case InstructionSet_Crc32:
         case InstructionSet_Crc32_Arm64:
-        {
             return true;
-        }
-
         default:
-        {
             return false;
-        }
     }
 }
 
-//------------------------------------------------------------------------
-// lookupImmBounds: Gets the lower and upper bounds for the imm-value of a given NamedIntrinsic
-//
-// Arguments:
-//    intrinsic -- NamedIntrinsic associated with the HWIntrinsic to lookup
-//    simdType  -- vector size
-//    baseType  -- base type of the Vector64/128<T>
-//    pImmLowerBound [OUT] - The lower incl. bound for a value of the intrinsic immediate operand
-//    pImmUpperBound [OUT] - The upper incl. bound for a value of the intrinsic immediate operand
-//
-void HWIntrinsicInfo::lookupImmBounds(
-    NamedIntrinsic intrinsic, unsigned simdSize, var_types baseType, int* pLowerBound, int* pUpperBound)
+void HWIntrinsicInfo::LookupImmBounds(
+    NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound)
 {
-    HWIntrinsicCategory category            = HWIntrinsicInfo::GetCategory(intrinsic);
-    bool                hasImmediateOperand = HasImmediateOperand(intrinsic);
+    assert(HasImmediateOperand(intrinsic));
+    assert(lowerBound != nullptr);
+    assert(upperBound != nullptr);
 
-    assert(hasImmediateOperand);
-
-    assert(pLowerBound != nullptr);
-    assert(pUpperBound != nullptr);
-
-    int lowerBound = 0;
-    int upperBound = 0;
+    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
     if (category == HW_Category_ShiftLeftByImmediate)
     {
-        // The left shift amount is in the range 0 to the element width in bits minus 1.
-        upperBound = varTypeBitSize(baseType) - 1;
+        *lowerBound = 0;
+        *upperBound = varTypeBitSize(eltType) - 1;
     }
     else if (category == HW_Category_ShiftRightByImmediate)
     {
-        // The right shift amount, in the range 1 to the element width in bits.
-        lowerBound = 1;
-        upperBound = varTypeBitSize(baseType);
+        *lowerBound = 1;
+        *upperBound = varTypeBitSize(eltType);
     }
     else if (category == HW_Category_SIMDByIndexedElement)
     {
-        upperBound = getSIMDVectorLength(simdSize, baseType) - 1;
+        *lowerBound = 0;
+        *upperBound = getSIMDVectorLength(vecSize, eltType) - 1;
     }
     else
     {
@@ -256,26 +191,23 @@ void HWIntrinsicInfo::lookupImmBounds(
             case NI_AdvSimd_StoreSelectedScalar:
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
-                upperBound = getSIMDVectorLength(simdSize, baseType) - 1;
+                *lowerBound = 0;
+                *upperBound = getSIMDVectorLength(vecSize, eltType) - 1;
                 break;
-
             default:
                 unreached();
         }
     }
 
-    assert(lowerBound <= upperBound);
-
-    *pLowerBound = lowerBound;
-    *pUpperBound = upperBound;
+    assert(*lowerBound <= *upperBound);
 }
 
-GenTree* Importer::impNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
+GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
 {
     return nullptr;
 }
 
-GenTree* Importer::impSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     assert(!sig.hasThisParam);
 
