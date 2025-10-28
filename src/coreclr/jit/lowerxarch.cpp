@@ -4548,11 +4548,9 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_SSE_ConvertScalarToVector128Single:
                 case NI_SSE2_ConvertScalarToVector128Double:
                 case NI_SSE2_ConvertScalarToVector128Int32:
-                case NI_SSE2_ConvertScalarToVector128UInt32:
                 case NI_SSE_X64_ConvertScalarToVector128Single:
                 case NI_SSE2_X64_ConvertScalarToVector128Double:
                 case NI_SSE2_X64_ConvertScalarToVector128Int64:
-                case NI_SSE2_X64_ConvertScalarToVector128UInt64:
                 {
                     if (!varTypeIsIntegral(node->GetType()))
                     {
@@ -4781,10 +4779,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     case NI_SSE2_ConvertToInt32:
                     case NI_SSE2_X64_ConvertToInt64:
-                    case NI_SSE2_ConvertToUInt32:
-                    case NI_SSE2_X64_ConvertToUInt64:
-                    case NI_AVX2_ConvertToInt32:
-                    case NI_AVX2_ConvertToUInt32:
                         if (varTypeIsIntegral(baseType))
                         {
                             // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm" and don't

@@ -455,12 +455,12 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             return ImportBaseIntrinsic(intrinsic, sig);
         case InstructionSet_SSE:
         case InstructionSet_SSE2:
+        case InstructionSet_SSE2_X64:
         case InstructionSet_SSE41:
         case InstructionSet_SSE41_X64:
             return ImportSSEIntrinsic(intrinsic, sig);
-        case InstructionSet_AVX:
         case InstructionSet_AVX2:
-            return ImportAVXIntrinsic(intrinsic, sig);
+            return ImportAVX2Intrinsic(intrinsic, sig);
         case InstructionSet_BMI1:
         case InstructionSet_BMI1_X64:
         case InstructionSet_BMI2:
@@ -755,6 +755,20 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
                                             baseType, 16, op1Uses[1], retNode);
         }
 
+        case NI_SSE2_ConvertScalarToVector128UInt32:
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16,
+                                            impPopStackCoerceArg(TYP_INT));
+
+        case NI_SSE2_X64_ConvertScalarToVector128UInt64:
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16,
+                                            impPopStackCoerceArg(TYP_LONG));
+
+        case NI_SSE2_ConvertToUInt32:
+            return gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
+
+        case NI_SSE2_X64_ConvertToUInt64:
+            return gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
+
         case NI_SSE2_Extract:
         case NI_SSE41_Extract:
         case NI_SSE41_X64_Extract:
@@ -812,10 +826,14 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
     }
 }
 
-GenTree* Importer::ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
+        case NI_AVX2_ConvertToInt32:
+        case NI_AVX2_ConvertToUInt32:
+            return gtNewSimdGetElementNode(TYP_SIMD32, TYP_INT, impSIMDPopStack(TYP_SIMD32), comp->gtNewIconNode(0));
+
         case NI_AVX2_PermuteVar8x32:
         {
             var_types eltType = sig.retLayout->GetElementType();

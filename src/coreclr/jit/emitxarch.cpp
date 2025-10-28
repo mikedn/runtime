@@ -4773,13 +4773,13 @@ private:
                 {
                     // BMI bextr and bzhi encodes the reg2 in VEX.vvvv and reg3 in modRM,
                     // which is different from most of other instructions
-                    printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg3(), attr),
-                           RegName(id->idReg2(), attr));
+                    printf("%s, %s, %s", RegName(id->idReg1(), attr1), RegName(id->idReg3(), attr2),
+                           RegName(id->idReg2(), attr3));
                 }
                 else
                 {
-                    printf("%s, %s, %s", RegName(id->idReg1(), attr), RegName(id->idReg2(), attr),
-                           RegName(id->idReg3(), attr));
+                    printf("%s, %s, %s", RegName(id->idReg1(), attr1), RegName(id->idReg2(), attr2),
+                           RegName(id->idReg3(), attr3));
                 }
                 break;
 
