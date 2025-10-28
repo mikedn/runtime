@@ -53,8 +53,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
         case InstructionSet_SSE:
         case InstructionSet_SSE_X64:
-            GenSSEIntrinsic(node);
-            break;
         case InstructionSet_SSE2:
         case InstructionSet_SSE2_X64:
             GenSSE2Intrinsic(node);
@@ -1113,12 +1111,14 @@ void CodeGen::GenX86BaseIntrinsic(GenTreeHWIntrinsic* node)
     DefReg(node);
 }
 
-void CodeGen::GenSSEIntrinsic(GenTreeHWIntrinsic* node)
+void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     var_types      type      = node->GetType();
-    RegNum         dstReg    = node->GetRegNum();
     var_types      eltType   = node->GetSimdBaseType();
+    RegNum         dstReg    = node->GetRegNum();
+    GenTree*       op1       = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
+    GenTree*       op2       = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
     Emitter&       emit      = *GetEmitter();
 
     UseHWIntrinsicOperands(node);
@@ -1126,62 +1126,26 @@ void CodeGen::GenSSEIntrinsic(GenTreeHWIntrinsic* node)
     switch (intrinsic)
     {
         case NI_SSE_ConvertToInt32:
+        case NI_SSE2_ConvertToInt32:
         case NI_SSE_X64_ConvertToInt64:
+        case NI_SSE2_X64_ConvertToInt64:
         case NI_SSE_ConvertToInt32WithTruncation:
+        case NI_SSE2_ConvertToInt32WithTruncation:
         case NI_SSE_X64_ConvertToInt64WithTruncation:
-            genHWIntrinsic_R_RM(node, HWIntrinsicInfo::GetIns(intrinsic, eltType), emitTypeSize(type), dstReg,
-                                node->GetOp(0));
+        case NI_SSE2_X64_ConvertToInt64WithTruncation:
+            assert(op1 != nullptr);
+            assert(op2 == nullptr);
+            genHWIntrinsic_R_RM(node, HWIntrinsicInfo::GetIns(intrinsic, eltType), emitTypeSize(type), dstReg, op1);
             break;
 
         case NI_SSE_ConvertScalarToVector128Single:
         case NI_SSE_X64_ConvertScalarToVector128Single:
-            assert(HWIntrinsicInfo::GetIns(intrinsic, eltType) == INS_cvtsi2ss);
-            genHWIntrinsic_R_R_RM(node, INS_cvtsi2ss, emitActualTypeSize(node->GetOp(1)->GetType()), dstReg,
-                                  node->GetOp(0)->GetRegNum(), node->GetOp(1));
-            break;
-
-        case NI_SSE_Prefetch0:
-        case NI_SSE_Prefetch1:
-        case NI_SSE_Prefetch2:
-        case NI_SSE_PrefetchNonTemporal:
-        {
-            GenTree* op1 = node->GetOp(0);
-            assert(!op1->isContained());
-            emit.emitIns_AR(HWIntrinsicInfo::GetIns(intrinsic, eltType), EA_1BYTE, op1->GetRegNum(), 0);
-        }
-        break;
-
-        case NI_SSE_StoreFence:
-            emit.emitIns(INS_sfence);
-            break;
-
-        default:
-            unreached();
-    }
-
-    DefReg(node);
-}
-
-void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
-{
-    NamedIntrinsic intrinsic = node->GetIntrinsic();
-    GenTree*       op1       = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
-    GenTree*       op2       = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
-    RegNum         dstReg    = node->GetRegNum();
-    var_types      type      = node->GetType();
-    var_types      eltType   = node->GetSimdBaseType();
-    Emitter&       emit      = *GetEmitter();
-
-    UseHWIntrinsicOperands(node);
-
-    switch (intrinsic)
-    {
-        case NI_SSE2_ConvertToInt32:
-        case NI_SSE2_X64_ConvertToInt64:
-        case NI_SSE2_ConvertToInt32WithTruncation:
-        case NI_SSE2_X64_ConvertToInt64WithTruncation:
-            assert(op2 == nullptr);
-            genHWIntrinsic_R_RM(node, HWIntrinsicInfo::GetIns(intrinsic, eltType), emitTypeSize(type), dstReg, op1);
+        case NI_SSE2_ConvertScalarToVector128Double:
+        case NI_SSE2_X64_ConvertScalarToVector128Double:
+            assert(op1 != nullptr);
+            assert(op2 != nullptr);
+            genHWIntrinsic_R_R_RM(node, HWIntrinsicInfo::GetIns(intrinsic, eltType), emitActualTypeSize(op2->GetType()),
+                                  dstReg, op1->GetRegNum(), op2);
             break;
 
         case NI_SSE2_ConvertScalarToVector128Int32:
@@ -1192,13 +1156,10 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
             genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(op1->GetType()), dstReg, op1);
             break;
 
-        case NI_SSE2_ConvertScalarToVector128Double:
-        case NI_SSE2_X64_ConvertScalarToVector128Double:
-            assert(HWIntrinsicInfo::GetIns(intrinsic, eltType) == INS_cvtsi2sd);
-            assert(op1 != nullptr);
-            assert(op2 != nullptr);
-            genHWIntrinsic_R_R_RM(node, INS_cvtsi2sd, emitActualTypeSize(op2->GetType()), dstReg, op1->GetRegNum(),
-                                  op2);
+        case NI_SSE_StoreFence:
+            assert(op1 == nullptr);
+            assert(op2 == nullptr);
+            emit.emitIns(INS_sfence);
             break;
 
         case NI_SSE2_LoadFence:
@@ -1211,6 +1172,14 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
             assert(op1 == nullptr);
             assert(op2 == nullptr);
             emit.emitIns(INS_mfence);
+            break;
+
+        case NI_SSE_Prefetch0:
+        case NI_SSE_Prefetch1:
+        case NI_SSE_Prefetch2:
+        case NI_SSE_PrefetchNonTemporal:
+            assert((op1 != nullptr) && !op1->isContained());
+            emit.emitIns_AR(HWIntrinsicInfo::GetIns(intrinsic, eltType), EA_1BYTE, op1->GetRegNum(), 0);
             break;
 
         case NI_SSE2_StoreNonTemporal:
@@ -1285,7 +1254,6 @@ void CodeGen::GenSSE41Intrinsic(GenTreeHWIntrinsic* node)
 
         default:
             unreached();
-            break;
     }
 
     DefReg(node);
