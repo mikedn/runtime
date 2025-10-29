@@ -4529,22 +4529,31 @@ private:
                     break;
                 case INS_pextrb:
                 case INS_pinsrb:
+                case INS_vpbroadcastb:
                     mattr = EA_1BYTE;
                     break;
                 case INS_pextrw:
                 case INS_pextrw_sse41:
                 case INS_pinsrw:
+                case INS_vpbroadcastw:
                     mattr = EA_2BYTE;
                     break;
                 case INS_extractps:
                 case INS_insertps:
                 case INS_pextrd:
                 case INS_pinsrd:
+                case INS_vpbroadcastd:
+                case INS_vbroadcastss:
                     mattr = EA_4BYTE;
                     break;
                 case INS_pextrq:
                 case INS_pinsrq:
+                case INS_vpbroadcastq:
+                case INS_vbroadcastsd:
                     mattr = EA_8BYTE;
+                    break;
+                case INS_vbroadcasti128:
+                    mattr = EA_16BYTE;
                     break;
                 case INS_pmovsxbw:
                 case INS_pmovzxbw:

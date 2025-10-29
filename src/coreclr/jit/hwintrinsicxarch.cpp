@@ -763,9 +763,27 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16,
                                             impPopStackCoerceArg(TYP_LONG));
 
+        case NI_SSE2_ConvertToInt32:
+            assert(sig.paramCount == 1);
+            if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
+            {
+                return gtNewSimdHWIntrinsicNode(TYP_INT, NI_SSE2_ConvertToInt32, TYP_DOUBLE, 16,
+                                                impSIMDPopStack(TYP_SIMD16));
+            }
+            assert(sig.paramLayout[0]->GetElementType() == TYP_INT);
+            FALLTHROUGH;
         case NI_SSE2_ConvertToUInt32:
             return gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
 
+        case NI_SSE2_X64_ConvertToInt64:
+            assert(sig.paramCount == 1);
+            if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
+            {
+                return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_DOUBLE, 16,
+                                                impSIMDPopStack(TYP_SIMD16));
+            }
+            assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
+            FALLTHROUGH;
         case NI_SSE2_X64_ConvertToUInt64:
             return gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
 
@@ -833,6 +851,29 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
             return gtNewSimdGetElementNode(TYP_SIMD32, TYP_INT, impSIMDPopStack(TYP_SIMD32), comp->gtNewIconNode(0));
+
+        case NI_AVX2_BroadcastScalarToVector128:
+        {
+            assert(sig.paramCount == 1);
+
+            GenTree* op1;
+
+            if (sig.paramType[0] == TYP_SIMD16)
+            {
+                if (sig.retLayout->GetElementType() == TYP_DOUBLE)
+                {
+                    intrinsic = NI_SSE3_MoveAndDuplicate;
+                }
+
+                op1 = impSIMDPopStack(TYP_SIMD16);
+            }
+            else
+            {
+                op1 = impPopStack().val;
+            }
+
+            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, sig.retLayout->GetElementType(), 16, op1);
+        }
 
         case NI_AVX2_PermuteVar8x32:
         {
