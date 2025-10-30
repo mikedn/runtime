@@ -138,32 +138,6 @@ GenTree* Importer::impPopStackCoerceArg(var_types signatureType)
     return tree;
 }
 
-#ifdef FEATURE_SIMD
-
-GenTree* Importer::impSIMDPopStack(var_types type)
-{
-    assert(varTypeIsSIMD(type));
-
-    GenTree* tree = impPopStack().val;
-
-    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
-    {
-        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
-
-        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
-
-        LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address for call/obj"));
-        impAppendTempStore(tmpLcl, tree, layout, CHECK_SPILL_ALL);
-        tree = comp->gtNewLclLoad(tmpLcl, tmpLcl->GetType());
-    }
-
-    assert(varTypeGetTargetVec(tree->GetType()) == varTypeGetTargetVec(type));
-
-    return tree;
-}
-
-#endif // FEATURE_SIMD
-
 Importer::StackEntry& Importer::impStackTop(unsigned n)
 {
     if (verCurrentState.esStackDepth <= n)
@@ -3215,13 +3189,12 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op3);
-            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op2);
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op1);
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
+            op3 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op3);
+            op2 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op2);
+            op1 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, 16, op1);
+            op1 = NewVecNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, 16, op1, op2, op3);
 
-            return gtNewSimdHWIntrinsicNode(callType, NI_Vector128_GetElement, callType, 16, op1,
-                                            comp->gtNewIconNode(0));
+            return NewVecNode(callType, NI_Vector128_GetElement, callType, 16, op1, comp->gtNewIconNode(0));
         }
 #endif
 
@@ -3234,12 +3207,12 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            op3 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op3);
-            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op2);
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, create, callType, 8, op1);
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, 8, op3, op2, op1);
+            op3 = NewVecNode(TYP_SIMD8, create, callType, 8, op3);
+            op2 = NewVecNode(TYP_SIMD8, create, callType, 8, op2);
+            op1 = NewVecNode(TYP_SIMD8, create, callType, 8, op1);
+            op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, 8, op3, op2, op1);
 
-            return gtNewSimdHWIntrinsicNode(callType, NI_Vector64_GetElement, callType, 8, op1, comp->gtNewIconNode(0));
+            return NewVecNode(callType, NI_Vector64_GetElement, callType, 8, op1, comp->gtNewIconNode(0));
         }
 #endif
 
@@ -3777,7 +3750,7 @@ GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
 #ifdef FEATURE_SIMD
     if (varTypeIsSIMD(typGetStructType(layout)))
     {
-        return gtNewZeroSimdHWIntrinsicNode(layout);
+        return NewVecZeroNode(layout);
     }
 #endif
 
@@ -15661,7 +15634,7 @@ void Importer::impImportInitObj(GenTree* dstAddr, ClassLayout* layout)
 #ifdef FEATURE_SIMD
     if (layout->IsVector())
     {
-        initValue = gtNewZeroSimdHWIntrinsicNode(layout);
+        initValue = NewVecZeroNode(layout);
     }
     else
 #endif
@@ -16785,109 +16758,103 @@ GenTreeCall* Importer::gtNewIndCallNode(GenTree* addr, var_types type, GenTreeCa
 
 #ifdef FEATURE_HW_INTRINSICS
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
-                                                       unsigned       size)
+GenTreeHWIntrinsic* Importer::NewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
+GenTreeHWIntrinsic* Importer::NewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, GenTree* op1)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, op1);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+GenTreeHWIntrinsic* Importer::NewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, GenTree* op1, GenTree* op2)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, op1, op2);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
-                                                       unsigned       size,
-                                                       GenTree*       op1,
-                                                       GenTree*       op2,
-                                                       GenTree*       op3)
+GenTreeHWIntrinsic* Importer::NewVecNode(var_types      type,
+                                         NamedIntrinsic intrinsic,
+                                         var_types      eltType,
+                                         unsigned       vecSize,
+                                         GenTree*       op1,
+                                         GenTree*       op2,
+                                         GenTree*       op3)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, op1, op2, op3);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
-                                                       unsigned       size,
-                                                       GenTree*       op1,
-                                                       GenTree*       op2,
-                                                       GenTree*       op3,
-                                                       GenTree*       op4)
+GenTreeHWIntrinsic* Importer::NewVecNode(var_types      type,
+                                         NamedIntrinsic intrinsic,
+                                         var_types      eltType,
+                                         unsigned       vecSize,
+                                         GenTree*       op1,
+                                         GenTree*       op2,
+                                         GenTree*       op3,
+                                         GenTree*       op4)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3, op4);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, op1, op2, op3, op4);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
-                                                       unsigned       size,
-                                                       GenTree*       op1,
-                                                       GenTree*       op2,
-                                                       GenTree*       op3,
-                                                       GenTree*       op4,
-                                                       GenTree*       op5)
+GenTreeHWIntrinsic* Importer::NewVecNode(var_types      type,
+                                         NamedIntrinsic intrinsic,
+                                         var_types      eltType,
+                                         unsigned       vecSize,
+                                         GenTree*       op1,
+                                         GenTree*       op2,
+                                         GenTree*       op3,
+                                         GenTree*       op4,
+                                         GenTree*       op5)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, op1, op2, op3, op4, op5);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, op1, op2, op3, op4, op5);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
+GenTreeHWIntrinsic* Importer::NewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, unsigned numOps, GenTree** ops)
 {
-    return comp->gtNewSimdHWIntrinsicNode(type, hwIntrinsicID, baseType, size, numOps, ops);
+    return comp->gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, vecSize, numOps, ops);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
+GenTreeHWIntrinsic* Importer::NewVecZeroNode(ClassLayout* layout)
 {
     return comp->gtNewZeroSimdHWIntrinsicNode(layout);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types eltType)
+GenTreeHWIntrinsic* Importer::NewVecZeroNode(var_types vecType, var_types eltType)
 {
-    return comp->gtNewZeroSimdHWIntrinsicNode(type, eltType);
+    return comp->gtNewZeroSimdHWIntrinsicNode(vecType, eltType);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdGetElementNode(var_types simdType,
-                                                      var_types elementType,
-                                                      GenTree*  value,
-                                                      GenTree*  index)
+GenTreeHWIntrinsic* Importer::NewVecExtractNode(var_types vecType, var_types eltType, GenTree* value, GenTree* index)
 {
-    return comp->gtNewSimdGetElementNode(simdType, elementType, value, index);
+    return comp->gtNewSimdGetElementNode(vecType, eltType, value, index);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewSimdWithElementNode(
+GenTreeHWIntrinsic* Importer::NewVecInsertNode(
     var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
     return comp->gtNewSimdWithElementNode(type, eltType, vec, idx, elt);
 }
 
-GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
+GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic intrinsic, GenTree* op1)
 {
-    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1);
+    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1);
 }
 
 GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types      type,
-                                                         NamedIntrinsic hwIntrinsicID,
+                                                         NamedIntrinsic intrinsic,
                                                          GenTree*       op1,
                                                          GenTree*       op2)
 {
-    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1, op2);
+    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1, op2);
 }
 
 GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
+    var_types type, NamedIntrinsic intrinsic, GenTree* op1, GenTree* op2, GenTree* op3)
 {
-    return comp->gtNewScalarHWIntrinsicNode(type, hwIntrinsicID, op1, op2, op3);
+    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1, op2, op3);
 }
 
 #endif // FEATURE_HW_INTRINSICS

@@ -180,9 +180,54 @@ GenTree* Importer::PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayo
         return arg;
     }
 
-    GenTree* arg = impSIMDPopStack(paramType);
+    GenTree* arg = PopVec(paramType);
     assert(varTypeIsSIMD(arg->GetType()));
     return arg;
+}
+
+GenTree* Importer::PopVec(var_types type)
+{
+    assert(varTypeIsSIMD(type));
+
+    GenTree* tree = impPopStack().val;
+
+    if (tree->OperIs(GT_RET_EXPR, GT_CALL))
+    {
+        // TODO-MIKE-Cleanup: This is probably not needed when the SIMD type is returned in a register.
+
+        ClassLayout* layout = tree->IsRetExpr() ? tree->AsRetExpr()->GetLayout() : tree->AsCall()->GetRetLayout();
+
+        LclVarDsc* tmpLcl = lvaAllocTemp(true DEBUGARG("struct address for call/obj"));
+        impAppendTempStore(tmpLcl, tree, layout, CHECK_SPILL_ALL);
+        tree = comp->gtNewLclLoad(tmpLcl, tmpLcl->GetType());
+    }
+
+    assert(varTypeGetTargetVec(tree->GetType()) == varTypeGetTargetVec(type));
+
+    return tree;
+}
+
+GenTree* Importer::PopVecAddrLoad(var_types type)
+{
+    assert(varTypeIsSIMD(type));
+
+    GenTree* addr = impPopStack().val;
+
+    if (!addr->TypeIs(TYP_BYREF, TYP_I_IMPL))
+    {
+        BADCODE("incompatible stack type");
+    }
+
+    if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLcl()->GetType() == type))
+    {
+        LclVarDsc* lcl = addr->AsLclAddr()->GetLcl();
+        // Currently the importer doesn't generate local field addresses.
+        assert(addr->AsLclAddr()->GetLclOffs() == 0);
+
+        return addr->ChangeToLclLoad(type, lcl);
+    }
+
+    return comp->gtNewIndLoad(type, addr);
 }
 
 GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
@@ -690,7 +735,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         case 0:
             assert(!isScalar);
-            return gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize);
+            return NewVecNode(nodeType, intrinsic, baseType, simdSize);
 
         case 1:
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
@@ -706,7 +751,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
 
             retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
-                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1);
+                               : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1);
             break;
 
         case 2:
@@ -753,7 +798,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (!isScalar)
             {
-                retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
+                retNode = NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
             }
             else
             {
@@ -815,7 +860,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
 
             retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
-                               : gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
+                               : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
 
             break;
 
@@ -830,7 +875,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op3->GetType()));
             assert(!isScalar);
 
-            retNode = gtNewSimdHWIntrinsicNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
+            retNode = NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
             break;
 #endif
 
@@ -875,7 +920,7 @@ GenTree* Importer::impVectorGetElement(ClassLayout* layout, GenTree* value, GenT
         index = AddHWIntrinsicRangeCheck(index, 0, maxIndexValue);
     }
 
-    return gtNewSimdGetElementNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
+    return NewVecExtractNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
 }
 
 #endif // FEATURE_HW_INTRINSICS

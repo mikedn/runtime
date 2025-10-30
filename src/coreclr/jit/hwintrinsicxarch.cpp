@@ -434,11 +434,10 @@ GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types ve
         case NI_AVX2_ShiftRightArithmetic:
         case NI_AVX2_ShiftRightLogical:
         {
-            GenTree* op2 = impPopStack().val;
-            GenTree* op1 = impSIMDPopStack(vecType);
-            GenTree* tmpOp =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
-            return gtNewSimdHWIntrinsicNode(vecType, intrinsic, eltType, varTypeSize(vecType), op1, tmpOp);
+            GenTree* op2   = impPopStack().val;
+            GenTree* op1   = PopVec(vecType);
+            GenTree* tmpOp = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16, op2);
+            return NewVecNode(vecType, intrinsic, eltType, varTypeSize(vecType), op1, tmpOp);
         }
 
         default:
@@ -532,7 +531,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return nullptr;
             }
 
-            op1 = impSIMDPopStack(sig.paramType[0]);
+            op1 = PopVec(sig.paramType[0]);
 
             if (sig.paramType[0] == sig.retType)
             {
@@ -542,7 +541,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             intrinsic = sig.retType == TYP_SIMD16 ? NI_Vector256_GetLower : NI_Vector128_ToVector256;
             eltType   = varTypeNodeType(sig.paramLayout[0]->GetElementType());
             vecSize   = sig.retType == TYP_SIMD16 ? 32 : 16;
-            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1);
+            return NewVecNode(sig.retType, intrinsic, eltType, vecSize, op1);
 
         case NI_Vector128_ToVector256Unsafe:
             assert(sig.paramCount == 1);
@@ -555,8 +554,8 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return nullptr;
             }
 
-            op1 = impSIMDPopStack(TYP_SIMD16);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, op1);
+            op1 = PopVec(TYP_SIMD16);
+            return NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, op1);
 
         case NI_Vector128_get_Zero:
         case NI_Vector128_get_AllBitsSet:
@@ -573,7 +572,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return nullptr;
             }
 
-            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize);
+            return NewVecNode(sig.retType, intrinsic, eltType, vecSize);
 
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
@@ -600,7 +599,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             }
 
             {
-                GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize);
+                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, intrinsic, eltType, vecSize);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
                 for (unsigned i = 0; i < sig.paramCount; i++)
@@ -658,9 +657,9 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             GenTree* elt = impPopStack().val;
             /* idx = */ impPopStack();
-            GenTree* vec = impSIMDPopStack(sig.retType);
+            GenTree* vec = PopVec(sig.retType);
 
-            return gtNewSimdWithElementNode(sig.retType, sig.paramType[2], vec, idx, elt);
+            return NewVecInsertNode(sig.retType, sig.paramType[2], vec, idx, elt);
         }
 
         case NI_Vector256_GetElement:
@@ -683,7 +682,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             }
 
             op2 = impPopStackCoerceArg(TYP_INT);
-            op1 = impSIMDPopStack(sig.paramType[0]);
+            op1 = PopVec(sig.paramType[0]);
             return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         case NI_Vector128_ToScalar:
@@ -708,8 +707,8 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             }
 
             op2 = comp->gtNewIconNode(0);
-            op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdGetElementNode(sig.paramType[0], sig.retType, op1, op2);
+            op1 = PopVec(sig.paramType[0]);
+            return NewVecExtractNode(sig.paramType[0], sig.retType, op1, op2);
 
         default:
             return nullptr;
@@ -730,8 +729,8 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
         case NI_SSE2_CompareScalarNotGreaterThanOrEqual:
         {
             assert(sig.paramCount == 2);
-            GenTree* op2 = impSIMDPopStack(TYP_SIMD16);
-            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+            GenTree* op2 = PopVec(TYP_SIMD16);
+            GenTree* op1 = PopVec(TYP_SIMD16);
 
             var_types baseType = sig.retLayout->GetElementType();
             assert(varTypeIsFloating(baseType));
@@ -743,49 +742,47 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
 
                 FloatComparisonMode comparison =
                     static_cast<FloatComparisonMode>(HWIntrinsicInfo::GetImplicitImm(intrinsic, true));
-                return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
-                                                comp->gtNewIconNode(static_cast<int>(comparison)));
+                return NewVecNode(TYP_SIMD16, NI_AVX_CompareScalar, baseType, 16, op1, op2,
+                                  comp->gtNewIconNode(static_cast<int>(comparison)));
             }
 
             GenTree* op1Uses[2];
             impMakeMultiUse(op1, 2, op1Uses, sig.paramLayout[0],
                             CHECK_SPILL_ALL DEBUGARG("Sse.CompareScalarGreaterThan temp"));
-            GenTree* retNode = gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar,
-                                            baseType, 16, op1Uses[1], retNode);
+            GenTree* retNode = NewVecNode(TYP_SIMD16, intrinsic, baseType, 16, op2, op1Uses[0]);
+            return NewVecNode(TYP_SIMD16, baseType == TYP_FLOAT ? NI_SSE_MoveScalar : NI_SSE2_MoveScalar, baseType, 16,
+                              op1Uses[1], retNode);
         }
 
         case NI_SSE2_ConvertScalarToVector128UInt32:
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16,
-                                            impPopStackCoerceArg(TYP_INT));
+            return NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, 16,
+                              impPopStackCoerceArg(TYP_INT));
 
         case NI_SSE2_X64_ConvertScalarToVector128UInt64:
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16,
-                                            impPopStackCoerceArg(TYP_LONG));
+            return NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16,
+                              impPopStackCoerceArg(TYP_LONG));
 
         case NI_SSE2_ConvertToInt32:
             assert(sig.paramCount == 1);
             if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
             {
-                return gtNewSimdHWIntrinsicNode(TYP_INT, NI_SSE2_ConvertToInt32, TYP_DOUBLE, 16,
-                                                impSIMDPopStack(TYP_SIMD16));
+                return NewVecNode(TYP_INT, NI_SSE2_ConvertToInt32, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
             }
             assert(sig.paramLayout[0]->GetElementType() == TYP_INT);
             FALLTHROUGH;
         case NI_SSE2_ConvertToUInt32:
-            return gtNewSimdGetElementNode(TYP_SIMD16, TYP_INT, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_SIMD16, TYP_INT, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
         case NI_SSE2_X64_ConvertToInt64:
             assert(sig.paramCount == 1);
             if (sig.paramLayout[0]->GetElementType() == TYP_DOUBLE)
             {
-                return gtNewSimdHWIntrinsicNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_DOUBLE, 16,
-                                                impSIMDPopStack(TYP_SIMD16));
+                return NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_DOUBLE, 16, PopVec(TYP_SIMD16));
             }
             assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
             FALLTHROUGH;
         case NI_SSE2_X64_ConvertToUInt64:
-            return gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, impSIMDPopStack(TYP_SIMD16), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_SIMD16, TYP_LONG, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
         case NI_SSE2_Extract:
         case NI_SSE41_Extract:
@@ -793,7 +790,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
         {
             assert(sig.paramCount == 2);
             GenTree* op2 = impPopStackCoerceArg(TYP_INT);
-            GenTree* op1 = impSIMDPopStack(TYP_SIMD16);
+            GenTree* op1 = PopVec(TYP_SIMD16);
 
             var_types eltType   = sig.paramLayout[0]->GetElementType();
             int       indexMask = static_cast<int>(sig.paramLayout[0]->GetElementCount()) - 1;
@@ -807,8 +804,8 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
                 op2 = comp->gtNewOperNode(GT_AND, TYP_INT, op2, comp->gtNewIconNode(indexMask));
             }
 
-            return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement,
-                                            varTypeNodeType(eltType), 16, op1, op2);
+            return NewVecNode(varTypeNodeType(sig.retType), NI_Vector128_GetElement, varTypeNodeType(eltType), 16, op1,
+                              op2);
         }
 
         case NI_SSE_Prefetch0:
@@ -819,7 +816,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             assert(sig.paramCount == 1);
             assert(sig.retType == TYP_VOID);
             GenTree* op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
+            return NewVecNode(TYP_VOID, intrinsic, TYP_UBYTE, 0, op1);
         }
 
         case NI_SSE_StoreFence:
@@ -827,7 +824,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
         case NI_SSE2_MemoryFence:
             assert(sig.paramCount == 0);
             assert(sig.retType == TYP_VOID);
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, intrinsic, TYP_VOID, 0);
+            return NewVecNode(TYP_VOID, intrinsic, TYP_VOID, 0);
 
         case NI_SSE2_StoreNonTemporal:
         {
@@ -835,7 +832,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             assert(sig.retType == TYP_VOID);
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
-            return gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
+            return NewVecNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
         }
 
         default:
@@ -850,7 +847,7 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
     {
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
-            return gtNewSimdGetElementNode(TYP_SIMD32, TYP_INT, impSIMDPopStack(TYP_SIMD32), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_SIMD32, TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));
 
         case NI_AVX2_BroadcastScalarToVector128:
         {
@@ -865,21 +862,21 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
                     intrinsic = NI_SSE3_MoveAndDuplicate;
                 }
 
-                op1 = impSIMDPopStack(TYP_SIMD16);
+                op1 = PopVec(TYP_SIMD16);
             }
             else
             {
                 op1 = impPopStack().val;
             }
 
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD16, intrinsic, sig.retLayout->GetElementType(), 16, op1);
+            return NewVecNode(TYP_SIMD16, intrinsic, sig.retLayout->GetElementType(), 16, op1);
         }
 
         case NI_AVX2_PermuteVar8x32:
         {
             var_types eltType = sig.retLayout->GetElementType();
-            GenTree*  control = impSIMDPopStack(TYP_SIMD32);
-            GenTree*  left    = impSIMDPopStack(TYP_SIMD32);
+            GenTree*  control = PopVec(TYP_SIMD32);
+            GenTree*  left    = PopVec(TYP_SIMD32);
 
             // AVX2.PermuteVar8x32 signature is messed up, parameter order does not match
             // instruction operand order.
@@ -893,7 +890,7 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 left = comp->gtNewLclLoad(tempLcl, sig.paramType[0]);
             }
 
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, 32, control, left);
+            return NewVecNode(TYP_SIMD32, NI_AVX2_PermuteVar8x32, eltType, 32, control, left);
         }
 
         case NI_AVX2_GatherVector128:
@@ -912,7 +909,7 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
 
-            GenTree* node = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3);
+            GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3);
             node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
             return node;
         }
@@ -935,7 +932,7 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             intrinsic = indexType == TYP_LONG ? NI_AVX2_GATHERQ : NI_AVX2_GATHERD;
 
-            GenTree* node = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3, op4, op5);
+            GenTree* node = NewVecNode(sig.retType, intrinsic, eltType, vecSize, op1, op2, op3, op4, op5);
             node->AddSideEffects(GTF_GLOB_REF | GTF_EXCEPT);
             return node;
         }

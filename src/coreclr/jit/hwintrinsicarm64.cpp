@@ -252,7 +252,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramType[0] == sig.retType);
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            return impSIMDPopStack(sig.paramType[0]);
+            return PopVec(sig.paramType[0]);
 
         case NI_Vector64_get_Zero:
         case NI_Vector64_get_AllBitsSet:
@@ -264,7 +264,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             eltType  = varTypeNodeType(sig.retLayout->GetElementType());
             simdSize = sig.retLayout->GetSize();
 
-            return gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+            return NewVecNode(sig.retType, intrinsic, eltType, simdSize);
 
         case NI_Vector64_Create:
         case NI_Vector128_Create:
@@ -280,7 +280,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             simdSize = sig.retLayout->GetSize();
 
             {
-                GenTreeHWIntrinsic* create = gtNewSimdHWIntrinsicNode(sig.retType, intrinsic, eltType, simdSize);
+                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, intrinsic, eltType, simdSize);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
                 for (unsigned i = 0; i < sig.paramCount; i++)
@@ -311,9 +311,9 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             GenTree* elt = impPopStack().val;
             /* idx = */ impPopStack();
-            GenTree* vec = impSIMDPopStack(sig.retType);
+            GenTree* vec = PopVec(sig.retType);
 
-            return gtNewSimdWithElementNode(sig.retType, sig.paramType[2], vec, idx, elt);
+            return NewVecInsertNode(sig.retType, sig.paramType[2], vec, idx, elt);
         }
 
         case NI_Vector64_GetElement:
@@ -327,7 +327,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             }
 
             op2 = impPopStackCoerceArg(TYP_INT);
-            op1 = impSIMDPopStack(sig.paramType[0]);
+            op1 = PopVec(sig.paramType[0]);
             return impVectorGetElement(sig.paramLayout[0], op1, op2);
 
         case NI_Vector64_ToScalar:
@@ -340,8 +340,8 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             }
 
             op2 = comp->gtNewIconNode(0);
-            op1 = impSIMDPopStack(sig.paramType[0]);
-            return gtNewSimdGetElementNode(sig.paramType[0], sig.retType, op1, op2);
+            op1 = PopVec(sig.paramType[0]);
+            return NewVecExtractNode(sig.paramType[0], sig.retType, op1, op2);
 
         case NI_AdvSimd_Extract:
             eltType = sig.retType;
@@ -356,17 +356,16 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             }
 
             op2 = impPopStackCoerceArg(TYP_INT);
-            op1 = impSIMDPopStack(sig.paramType[0]);
+            op1 = PopVec(sig.paramType[0]);
 
             if (op2->IsIntCon() && (op2->AsIntCon()->GetUInt8Value() < sig.paramLayout[0]->GetElementCount()))
             {
-                return gtNewSimdGetElementNode(sig.paramType[0], eltType, op1, op2);
+                return NewVecExtractNode(sig.paramType[0], eltType, op1, op2);
             }
 
             simdSize = sig.paramLayout[0]->GetSize();
 
-            return gtNewSimdHWIntrinsicNode(varTypeNodeType(sig.retType), NI_AdvSimd_Extract, eltType, simdSize, op1,
-                                            op2);
+            return NewVecNode(varTypeNodeType(sig.retType), NI_AdvSimd_Extract, eltType, simdSize, op1, op2);
 
         case NI_Vector128_GetUpper:
             assert(sig.paramCount == 1);
@@ -374,11 +373,11 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
-            op1 = impSIMDPopStack(TYP_SIMD16);
-            op2 = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType, 8);
-            op1 = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, 16, op1, op2,
-                                           comp->gtNewIconNode(8 / varTypeSize(eltType)));
-            return gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
+            op1 = PopVec(TYP_SIMD16);
+            op2 = NewVecNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType, 8);
+            op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, 16, op1, op2,
+                             comp->gtNewIconNode(8 / varTypeSize(eltType)));
+            return NewVecNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
 
         default:
             return nullptr;

@@ -1854,14 +1854,14 @@ public:
     void FreeBlockListNode(BlockListNode* node);
 
 #ifdef FEATURE_HW_INTRINSICS
-    GenTree* impSIMDPopStack(var_types type);
-    GenTree* impVectorPop(var_types type);
+    GenTree* PopVec(var_types type);
+    GenTree* PopVecAddrLoad(var_types type);
 
     GenTree* ImportHWIntrinsic(NamedIntrinsic        intrinsic,
-                            CORINFO_CLASS_HANDLE  clsHnd,
-                            CORINFO_METHOD_HANDLE method,
-                            CORINFO_SIG_INFO*     sig,
-                            bool                  mustExpand);
+                               CORINFO_CLASS_HANDLE  clsHnd,
+                               CORINFO_METHOD_HANDLE method,
+                               CORINFO_SIG_INFO*     sig,
+                               bool                  mustExpand);
 
     GenTree* impVectorGetElement(ClassLayout* layout, GenTree* op1, GenTree* op2);
 
@@ -2267,52 +2267,45 @@ public:
                                   IL_OFFSETX        ilOffset = BAD_IL_OFFSET);
 
 #ifdef FEATURE_HW_INTRINSICS
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(
-        var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size,
-                                                 GenTree*       op1,
-                                                 GenTree*       op2,
-                                                 GenTree*       op3);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size,
-                                                 GenTree*       op1,
-                                                 GenTree*       op2,
-                                                 GenTree*       op3,
-                                                 GenTree*       op4);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size,
-                                                 GenTree*       op1,
-                                                 GenTree*       op2,
-                                                 GenTree*       op3,
-                                                 GenTree*       op4,
-                                                 GenTree*       op5);
-    GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
-                                                 NamedIntrinsic hwIntrinsicID,
-                                                 var_types      baseType,
-                                                 unsigned       size,
-                                                 unsigned       numOps,
-                                                 GenTree**      ops);
-    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout);
-    GenTreeHWIntrinsic* gtNewZeroSimdHWIntrinsicNode(var_types type, var_types baseType);
-    GenTreeHWIntrinsic* gtNewSimdGetElementNode(var_types simdType,
-                                                var_types elementType,
-                                                GenTree*  value,
-                                                GenTree*  index);
-    GenTreeHWIntrinsic* gtNewSimdWithElementNode(
+    GenTreeHWIntrinsic* NewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize);
+    GenTreeHWIntrinsic* NewVecNode(
+        var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, GenTree* op1);
+    GenTreeHWIntrinsic* NewVecNode(
+        var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, GenTree* op1, GenTree* op2);
+    GenTreeHWIntrinsic* NewVecNode(var_types      type,
+                                   NamedIntrinsic intrinsic,
+                                   var_types      eltType,
+                                   unsigned       vecSize,
+                                   GenTree*       op1,
+                                   GenTree*       op2,
+                                   GenTree*       op3);
+    GenTreeHWIntrinsic* NewVecNode(var_types      type,
+                                   NamedIntrinsic intrinsic,
+                                   var_types      eltType,
+                                   unsigned       vecSize,
+                                   GenTree*       op1,
+                                   GenTree*       op2,
+                                   GenTree*       op3,
+                                   GenTree*       op4);
+    GenTreeHWIntrinsic* NewVecNode(var_types      type,
+                                   NamedIntrinsic intrinsic,
+                                   var_types      eltType,
+                                   unsigned       vecSize,
+                                   GenTree*       op1,
+                                   GenTree*       op2,
+                                   GenTree*       op3,
+                                   GenTree*       op4,
+                                   GenTree*       op5);
+    GenTreeHWIntrinsic* NewVecNode(
+        var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned vecSize, unsigned numOps, GenTree** ops);
+
+    GenTreeHWIntrinsic* NewVecZeroNode(ClassLayout* layout);
+    GenTreeHWIntrinsic* NewVecZeroNode(var_types vecType, var_types eltType);
+
+    GenTreeHWIntrinsic* NewVecExtractNode(var_types vecType, var_types eltType, GenTree* value, GenTree* index);
+    GenTreeHWIntrinsic* NewVecInsertNode(
         var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
+
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1);
     GenTreeHWIntrinsic* gtNewScalarHWIntrinsicNode(var_types      type,
                                                    NamedIntrinsic hwIntrinsicID,
