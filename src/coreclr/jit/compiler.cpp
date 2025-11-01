@@ -835,13 +835,6 @@ void Compiler::compSetProcessor()
 #endif
 }
 
-bool Compiler::notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool supported) const
-{
-    const char* isaString = InstructionSetToString(isa);
-    JITDUMP("Notify VM instruction set (%s) %s be supported.\n", isaString, supported ? "must" : "must not");
-    return info.compCompHnd->notifyInstructionSetUsage(isa, supported);
-}
-
 #if defined(DEBUG) && defined(PROFILING_SUPPORTED)
 // A dummy function to receive Enter/Leave/Tailcall profiler callbacks.
 // These are used when JitEltHookEnabled=1

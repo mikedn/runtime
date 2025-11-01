@@ -353,7 +353,7 @@ int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDep
     }
 }
 
-bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
+bool HWIntrinsicInfo::IsImplementedIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
@@ -395,11 +395,15 @@ bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
         case InstructionSet_X86Base_X64:
             return true;
         default:
+#ifdef DEBUG
+            return JitConfig.EnableIncompleteISAClass();
+#else
             return false;
+#endif
     }
 }
 
-bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
+bool HWIntrinsicInfo::IsScalarIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
@@ -415,7 +419,6 @@ bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
             // even though they are "scalar" ISA because they depend on SSE4.2
             // and Popcnt.IsSupported implies Sse42.IsSupported
             return true;
-
         default:
             return false;
     }
@@ -526,7 +529,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
 
             if (((sig.paramType[0] == TYP_SIMD32) || (sig.retType == TYP_SIMD32)) &&
-                !compExactlyDependsOn(InstructionSet_AVX))
+                !comp->compExactlyDependsOn(InstructionSet_AVX))
             {
                 return nullptr;
             }
@@ -549,7 +552,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
-            if (!compExactlyDependsOn(InstructionSet_AVX))
+            if (!comp->compExactlyDependsOn(InstructionSet_AVX))
             {
                 return nullptr;
             }
@@ -567,7 +570,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             vecSize = sig.retLayout->GetSize();
 
-            if (!compExactlyDependsOn(sig.retType == TYP_SIMD32 ? InstructionSet_AVX : InstructionSet_SSE))
+            if (!comp->compExactlyDependsOn(sig.retType == TYP_SIMD32 ? InstructionSet_AVX : InstructionSet_SSE))
             {
                 return nullptr;
             }
@@ -593,7 +596,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 requiredIsa = eltType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2;
             }
 
-            if (!compExactlyDependsOn(requiredIsa))
+            if (!comp->compExactlyDependsOn(requiredIsa))
             {
                 return nullptr;
             }
@@ -650,7 +653,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 requiredIsa = InstructionSet_SSE41;
             }
 
-            if (!compExactlyDependsOn(requiredIsa))
+            if (!comp->compExactlyDependsOn(requiredIsa))
             {
                 return nullptr;
             }
@@ -676,7 +679,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 requiredIsa = sig.retType == TYP_FLOAT ? InstructionSet_SSE : InstructionSet_SSE2;
             }
 
-            if (!compExactlyDependsOn(requiredIsa))
+            if (!comp->compExactlyDependsOn(requiredIsa))
             {
                 return nullptr;
             }
@@ -701,7 +704,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 intrinsic   = NI_Vector128_GetElement;
             }
 
-            if (!compExactlyDependsOn(requiredIsa))
+            if (!comp->compExactlyDependsOn(requiredIsa))
             {
                 return nullptr;
             }
@@ -735,7 +738,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             var_types baseType = sig.retLayout->GetElementType();
             assert(varTypeIsFloating(baseType));
 
-            if (compOpportunisticallyDependsOn(InstructionSet_AVX))
+            if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
             {
                 // These intrinsics are "special import" because the non-AVX path isn't directly
                 // hardware supported. Instead, they start with "swapped operands" and we fix that here.

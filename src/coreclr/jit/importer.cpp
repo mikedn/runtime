@@ -2993,7 +2993,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
         case NI_System_Threading_Interlocked_And:
             assert(sig->numArgs == 2);
 
-            if (opts.OptimizationEnabled() && compOpportunisticallyDependsOn(InstructionSet_Atomics))
+            if (opts.OptimizationEnabled() && comp->compOpportunisticallyDependsOn(InstructionSet_Atomics))
             {
                 op2 = impPopStack().val;
                 op1 = impPopStack().val;
@@ -3183,7 +3183,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
         assert(varTypeIsFloating(callType));
 
 #ifdef TARGET_XARCH
-        if (compExactlyDependsOn(InstructionSet_FMA) && opts.SIMDTypes())
+        if (comp->compExactlyDependsOn(InstructionSet_FMA) && opts.SIMDTypes())
         {
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
@@ -3199,7 +3199,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
 #endif
 
 #ifdef TARGET_ARM64
-        if (compExactlyDependsOn(InstructionSet_AdvSimd))
+        if (comp->compExactlyDependsOn(InstructionSet_AdvSimd))
         {
             NamedIntrinsic create = callType == TYP_DOUBLE ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
 
@@ -16237,16 +16237,6 @@ bool Importer::compDonotInline() const
 Compiler* Importer::impInlineRoot()
 {
     return comp->impInlineRoot();
-}
-
-bool Importer::compExactlyDependsOn(CORINFO_InstructionSet isa)
-{
-    return comp->compExactlyDependsOn(isa);
-}
-
-bool Importer::compOpportunisticallyDependsOn(CORINFO_InstructionSet isa)
-{
-    return comp->compOpportunisticallyDependsOn(isa);
 }
 
 void Importer::setMethodHasExpRuntimeLookup()

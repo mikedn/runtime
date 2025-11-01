@@ -5233,10 +5233,10 @@ static bool HasSBit(instruction ins)
 
 class X86Encoder final : public Encoder
 {
-    const bool useVEXEncodings;
+    const bool m_useVex;
 
 public:
-    X86Encoder(X86Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo), useVEXEncodings(emit.useVEXEncodings)
+    X86Encoder(X86Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo), m_useVex(emit.useVEXEncodings)
     {
     }
 
@@ -5293,35 +5293,30 @@ private:
 
     code_t AddVexPrefixIfNeeded(instruction ins, code_t code, emitAttr size);
 
-    bool UseVEXEncoding() const
-    {
-        return useVEXEncodings;
-    }
-
     bool TakesVexPrefix(instruction ins) const
     {
-        return ::TakesVexPrefix(ins, useVEXEncodings);
+        return ::TakesVexPrefix(ins, m_useVex);
     }
 
     bool IsVexDstDstSrc(instruction ins) const
     {
-        return ::IsVexDstDstSrc(ins, useVEXEncodings);
+        return ::IsVexDstDstSrc(ins, m_useVex);
     }
 
     bool IsVexDstSrcSrc(instruction ins) const
     {
-        return ::IsVexDstSrcSrc(ins, useVEXEncodings);
+        return ::IsVexDstSrcSrc(ins, m_useVex);
     }
 
 #ifdef DEBUG
     bool IsVexTernary(instruction ins) const
     {
-        return ::IsVexTernary(ins, useVEXEncodings);
+        return ::IsVexTernary(ins, m_useVex);
     }
 
     bool IsReallyVexTernary(instruction ins) const
     {
-        return ::IsReallyVexTernary(ins, useVEXEncodings);
+        return ::IsReallyVexTernary(ins, m_useVex);
     }
 
     void PrintInstr(instrDesc* id, uint8_t* code, size_t sz);
@@ -5340,7 +5335,7 @@ void X86Encoder::PrintInstr(instrDesc* id, uint8_t* code, size_t sz)
         PrintHexCode(code, sz);
     }
 
-    X86AsmPrinter printer(compiler, codeGen, true, UseVEXEncoding());
+    X86AsmPrinter printer(compiler, codeGen, true, m_useVex);
 #if !FEATURE_FIXED_OUT_ARGS
     printer.SetStackLevel(stackLevel);
 #endif
@@ -6981,7 +6976,7 @@ uint8_t* X86Encoder::EncodeRRI(uint8_t* dst, instrDesc* id)
     }
     else if (HasCodeMI(ins))
     {
-        assert((INS_psrldq <= ins) && (ins <= INS_psrad) && UseVEXEncoding());
+        assert((INS_psrldq <= ins) && (ins <= INS_psrad) && m_useVex);
 
         code = GetCodeMI(ins);
         code = AddVexPrefixIfNeeded(ins, code, size);
@@ -8148,7 +8143,7 @@ size_t X86Encoder::EncodeInstr(insGroup* ig, instrDesc* id, uint8_t** dp)
 
         case IF_MWR_RRD_CNS:
             assert(ins == INS_vextracti128 || ins == INS_vextractf128);
-            assert(UseVEXEncoding());
+            assert(m_useVex);
             assert(!IsVexTernary(ins));
 
             code   = GetCodeMR(ins);

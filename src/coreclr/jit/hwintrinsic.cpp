@@ -4,6 +4,99 @@
 #include "jitpch.h"
 #include "hwintrinsic.h"
 
+#ifdef FEATURE_SIMD
+
+var_types Compiler::GetVectorTSimdType()
+{
+#if defined(TARGET_XARCH)
+    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
+    {
+        return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
+    }
+
+    bool isaUseable = compExactlyDependsOn(InstructionSet_AVX2);
+    assert(!isaUseable);
+
+    return TYP_SIMD16;
+#elif defined(TARGET_ARM64)
+    return TYP_SIMD16;
+#else
+#error Unsupported platform
+#endif
+}
+
+#ifdef DEBUG
+// Answer the question: Is a particular ISA supported?
+// Use this api when asking the question so that future
+// ISA questions can be asked correctly or when asserting
+// support/nonsupport for an instruction set
+bool Compiler::compIsaSupportedDebugOnly(CORINFO_InstructionSet isa) const
+{
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    return opts.IsIsaSupported(isa);
+#else
+    return false;
+#endif
+}
+#endif // DEBUG
+
+// Answer the question: Is a particular ISA supported for explicit hardware intrinsics?
+bool Compiler::compHWIntrinsicDependsOn(CORINFO_InstructionSet isa)
+{
+    compExactlyDependsOn(isa);
+
+    return opts.IsIsaSupported(isa) && JitConfig.EnableHWIntrinsic() &&
+           (opts.SIMDFeature() || HWIntrinsicInfo::IsScalarIsa(isa)) && HWIntrinsicInfo::IsImplementedIsa(isa);
+}
+
+#ifdef TARGET_XARCH
+bool Compiler::canUseVexEncoding()
+{
+    return compOpportunisticallyDependsOn(InstructionSet_AVX);
+}
+#endif
+
+// Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
+// The result of this api call will match the target machine if the result is true
+// If the result is false, then the target machine may have support for the instruction
+bool Compiler::compOpportunisticallyDependsOn(CORINFO_InstructionSet isa)
+{
+    return opts.IsIsaSupported(isa) && compExactlyDependsOn(isa);
+}
+
+// Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
+// The result of this api call will exactly match the target machine
+// on which the function is executed (except for CoreLib, where there are special rules)
+bool Compiler::compExactlyDependsOn(CORINFO_InstructionSet isa)
+{
+#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
+    uint64_t isaBit = (1ULL << isa);
+
+    if ((opts.compSupportsISAReported & isaBit) == 0)
+    {
+        if (notifyInstructionSetUsage(isa, opts.IsIsaSupported(isa)))
+        {
+            opts.compSupportsISAExactly |= isaBit;
+        }
+
+        opts.compSupportsISAReported |= isaBit;
+    }
+
+    return (opts.compSupportsISAExactly & isaBit) != 0;
+#else
+    return false;
+#endif
+}
+
+bool Compiler::notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool supported) const
+{
+    JITDUMP("Notify VM instruction set (%s) %s be supported.\n", InstructionSetToString(isa),
+            supported ? "must" : "must not");
+    return info.compCompHnd->notifyInstructionSetUsage(isa, supported);
+}
+
+#endif // FEATURE_SIMD
+
 #ifdef FEATURE_HW_INTRINSICS
 
 struct HWIntrinsicInfoEntry
@@ -105,7 +198,7 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
         return NI_Illegal;
     }
 
-    bool isIsaSupported = comp->compHWIntrinsicDependsOn(isa) && comp->compSupportsHWIntrinsic(isa);
+    bool isIsaSupported = comp->compHWIntrinsicDependsOn(isa);
 
     if (strcmp(methodName, "get_IsSupported") == 0)
     {
@@ -283,23 +376,6 @@ GenTree* Importer::AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, i
     GenTreeBoundsChk* check =
         comp->gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
     return comp->gtNewCommaNode(check, immOpUses[0]);
-}
-
-bool Compiler::compHWIntrinsicDependsOn(CORINFO_InstructionSet isa) const
-{
-    // Report intent to use the ISA to the EE
-    compExactlyDependsOn(isa);
-    return (opts.compSupportsISA & (1ULL << isa)) != 0;
-}
-
-bool Compiler::compSupportsHWIntrinsic(CORINFO_InstructionSet isa) const
-{
-    return JitConfig.EnableHWIntrinsic() && (opts.SIMDFeature() || HWIntrinsicInfo::isScalarIsa(isa)) &&
-           (
-#ifdef DEBUG
-               JitConfig.EnableIncompleteISAClass() ||
-#endif
-               HWIntrinsicInfo::isFullyImplementedIsa(isa));
 }
 
 static bool impIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)

@@ -1270,6 +1270,11 @@ public:
         compSupportsISA = isas;
     }
 
+    bool IsIsaSupported(CORINFO_InstructionSet isa) const
+    {
+        return (compSupportsISA & (1ULL << isa)) != 0;
+    }
+
     bool MinOpts() const
     {
         assert(compMinOptsIsSet);
@@ -1568,8 +1573,6 @@ public:
     bool      compDonotInline() const;
     Compiler* impInlineRoot();
     bool      IsSysNumVecIntrinsicSupported();
-    bool compExactlyDependsOn(CORINFO_InstructionSet isa);
-    bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     void setMethodHasExpRuntimeLookup();
 #ifdef DEBUG
@@ -5042,79 +5045,21 @@ public:
     void lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src);
     void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
-    // Get the type for the hardware SIMD vector.
-    // This is the maximum SIMD type supported for this target.
     var_types GetVectorTSimdType();
-#endif // FEATURE_SIMD
+
+    bool compHWIntrinsicDependsOn(CORINFO_InstructionSet isa);
+#ifdef TARGET_XARCH
+    bool canUseVexEncoding();
+#endif
+    bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
+    bool compExactlyDependsOn(CORINFO_InstructionSet isa);
+#ifdef DEBUG
+    bool compIsaSupportedDebugOnly(CORINFO_InstructionSet isa) const;
+#endif
 
 private:
-#ifdef DEBUG
-    // Answer the question: Is a particular ISA supported?
-    // Use this api when asking the question so that future
-    // ISA questions can be asked correctly or when asserting
-    // support/nonsupport for an instruction set
-    bool compIsaSupportedDebugOnly(CORINFO_InstructionSet isa) const
-    {
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        return (opts.compSupportsISA & (1ULL << isa)) != 0;
-#else
-        return false;
-#endif
-    }
-#endif // DEBUG
-
     bool notifyInstructionSetUsage(CORINFO_InstructionSet isa, bool supported) const;
-
-public:
-    // Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
-    // The result of this api call will exactly match the target machine
-    // on which the function is executed (except for CoreLib, where there are special rules)
-    bool compExactlyDependsOn(CORINFO_InstructionSet isa) const
-    {
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-        uint64_t isaBit = (1ULL << isa);
-        if ((opts.compSupportsISAReported & isaBit) == 0)
-        {
-            if (notifyInstructionSetUsage(isa, (opts.compSupportsISA & isaBit) != 0))
-                ((Compiler*)this)->opts.compSupportsISAExactly |= isaBit;
-            ((Compiler*)this)->opts.compSupportsISAReported |= isaBit;
-        }
-        return (opts.compSupportsISAExactly & isaBit) != 0;
-#else
-        return false;
-#endif
-    }
-
-    // Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?
-    // The result of this api call will match the target machine if the result is true
-    // If the result is false, then the target machine may have support for the instruction
-    bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa) const
-    {
-        if ((opts.compSupportsISA & (1ULL << isa)) != 0)
-        {
-            return compExactlyDependsOn(isa);
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-#ifdef FEATURE_HW_INTRINSICS
-    // Answer the question: Is a particular ISA supported for explicit hardware intrinsics?
-    bool compHWIntrinsicDependsOn(CORINFO_InstructionSet isa) const;
-
-    bool compSupportsHWIntrinsic(CORINFO_InstructionSet isa) const;
-#endif
-
-    bool canUseVexEncoding() const
-    {
-#ifdef TARGET_XARCH
-        return compOpportunisticallyDependsOn(InstructionSet_AVX);
-#else
-        return false;
-#endif
-    }
+#endif // FEATURE_SIMD
 
     /*
     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

@@ -25,25 +25,6 @@ static constexpr bool varTypeIsUnsigned(var_types t)
     return varTypeIsSmallUnsigned(t) || (t == TYP_UINT) || (t == TYP_ULONG);
 }
 
-var_types Compiler::GetVectorTSimdType()
-{
-#if defined(TARGET_XARCH)
-    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
-    {
-        return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
-    }
-
-    bool isaUseable = compExactlyDependsOn(InstructionSet_AVX2);
-    assert(!isaUseable);
-
-    return TYP_SIMD16;
-#elif defined(TARGET_ARM64)
-    return TYP_SIMD16;
-#else
-#error Unsupported platform
-#endif
-}
-
 #endif // FEATURE_SIMD
 
 #ifdef FEATURE_HW_INTRINSICS
@@ -295,7 +276,7 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
         return impVector234TSpecial(intrinsic, signature, layout, isNewObj);
     }
 
-    if (!compOpportunisticallyDependsOn(HWIntrinsicInfo::GetIsa(hwIntrinsic)))
+    if (!comp->compOpportunisticallyDependsOn(HWIntrinsicInfo::GetIsa(hwIntrinsic)))
     {
         return nullptr;
     }
@@ -763,7 +744,7 @@ GenTree* Importer::impVector34CreateExtend(const HWIntrinsicSignature& sig, Clas
         create  = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16, args[1], args[2]);
         create  = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, args[0], create);
     }
-    else if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         create = NewVecNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, args[0], args[1],
                             comp->gtNewIconNode(insertIndex << 4));
@@ -1284,7 +1265,7 @@ GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
         return NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, op1, mask);
     }
 
-    if ((eltType != TYP_LONG) && compOpportunisticallyDependsOn(InstructionSet_SSSE3))
+    if ((eltType != TYP_LONG) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
         return NewVecNode(TYP_SIMD16, NI_SSSE3_Abs, eltType, 16, op1);
     }
@@ -1304,7 +1285,7 @@ GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
         sign = comp->gtNewIconNode(varTypeBitSize(eltType) - 1);
         sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, uses[0], sign);
     }
-    else if (compOpportunisticallyDependsOn(InstructionSet_SSE42))
+    else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE42))
     {
         sign = NewVecZeroNode(layout);
         sign = NewVecNode(TYP_SIMD16, NI_SSE42_CompareGreaterThan, TYP_LONG, 16, sign, uses[0]);
@@ -1514,7 +1495,7 @@ GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
     e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[0]);
 
-    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         e[1] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
     }
@@ -1682,7 +1663,7 @@ GenTree* Importer::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature&
     e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
     e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
 
-    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[1]);
         return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_LONG, 16, e[0], e[1]);
@@ -1744,7 +1725,7 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     ClassLayout* layout = sig.paramLayout[0];
     unsigned     size   = layout->GetSize();
 
-    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         uint8_t imm = 0b11110000;
         imm >>= 4 - layout->GetElementCount();
@@ -1767,7 +1748,7 @@ GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig)
 
     var_types eltType = varTypeToSigned(sig.paramLayout[0]->GetElementType());
 
-    if ((eltType != TYP_FLOAT) && !compOpportunisticallyDependsOn(InstructionSet_SSE2))
+    if ((eltType != TYP_FLOAT) && !comp->compOpportunisticallyDependsOn(InstructionSet_SSE2))
     {
         return nullptr;
     }
@@ -1810,7 +1791,7 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
 
     var_types eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
 
-    bool hasSse41 = compOpportunisticallyDependsOn(InstructionSet_SSE41);
+    bool hasSse41 = comp->compOpportunisticallyDependsOn(InstructionSet_SSE41);
 
     if ((eltType == TYP_INT || eltType == TYP_LONG) && !hasSse41)
     {
@@ -1950,7 +1931,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
     // It's too early to use PTEST here because op2 may not be a constant zero vector yet
     // and it's rather cumbersome to import to CompareEqual/MoveMask and pattern match in
     // lowering to change to PTEST.
-    if (varTypeIsIntegral(eltType) && compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (varTypeIsIntegral(eltType) && comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         NamedIntrinsic eq;
 
@@ -2019,7 +2000,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     var_types    eltType = layout->GetElementType();
 
     if (((eltType == TYP_BYTE) || (eltType == TYP_USHORT) || (eltType == TYP_INT) || (eltType == TYP_UINT)) &&
-        compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         return NewVecNode(TYP_SIMD16, isMax ? NI_SSE41_Max : NI_SSE41_Min, eltType, 16, op1, op2);
     }
@@ -2064,7 +2045,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
 
     GenTree* mask;
 
-    if (!varTypeIsLong(eltType) || compOpportunisticallyDependsOn(InstructionSet_SSE42))
+    if (!varTypeIsLong(eltType) || comp->compOpportunisticallyDependsOn(InstructionSet_SSE42))
     {
         NamedIntrinsic ni = !varTypeIsLong(eltType) ? NI_SSE2_CompareGreaterThan : NI_SSE42_CompareGreaterThan;
 
@@ -2089,7 +2070,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
         std::swap(uses[0][1], uses[1][1]);
     }
 
-    if (!compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         GenTree* maskUses[2];
         impMakeMultiUse(mask, maskUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax mask temp"));
@@ -2242,7 +2223,7 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         hi = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, uses[1], uses[2]);
         hi = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, 16, hi);
     }
-    else if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         NamedIntrinsic intrinsic;
 
@@ -2420,7 +2401,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
             break;
     }
 
-    if ((intrinsic != NI_SSE41_MultiplyLow) || compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if ((intrinsic != NI_SSE41_MultiplyLow) || comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         return NewVecNode(vecType, intrinsic, eltType, varTypeSize(vecType), op1, op2);
     }
@@ -2674,7 +2655,7 @@ GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenT
     var_types    eltType = layout->GetElementType();
     assert(varTypeIsLong(eltType));
 
-    if (compOpportunisticallyDependsOn(InstructionSet_SSE41))
+    if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         return NewVecNode(TYP_SIMD16, NI_SSE41_CompareEqual, TYP_LONG, 16, op1, op2);
     }
@@ -2726,7 +2707,7 @@ GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
 
     GenTree* gt;
 
-    if (!varTypeIsLong(eltType) || compOpportunisticallyDependsOn(InstructionSet_SSE42))
+    if (!varTypeIsLong(eltType) || comp->compOpportunisticallyDependsOn(InstructionSet_SSE42))
     {
         if (!varTypeIsLong(eltType))
         {

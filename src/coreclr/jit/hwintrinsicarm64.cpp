@@ -110,7 +110,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
     return lookupInstructionSet(className);
 }
 
-bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
+bool HWIntrinsicInfo::IsImplementedIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
@@ -134,11 +134,15 @@ bool HWIntrinsicInfo::isFullyImplementedIsa(CORINFO_InstructionSet isa)
         case InstructionSet_Vector128:
             return true;
         default:
+#ifdef DEBUG
+            return JitConfig.EnableIncompleteISAClass();
+#else
             return false;
+#endif
     }
 }
 
-bool HWIntrinsicInfo::isScalarIsa(CORINFO_InstructionSet isa)
+bool HWIntrinsicInfo::IsScalarIsa(CORINFO_InstructionSet isa)
 {
     switch (isa)
     {
@@ -271,7 +275,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert((sig.paramCount >= 1) && (sig.paramCount <= 16));
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            if (!compExactlyDependsOn(InstructionSet_AdvSimd))
+            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
             {
                 return nullptr;
             }
@@ -321,7 +325,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramCount == 2);
             assert(sig.paramLayout[0]->GetElementType() == sig.retType);
 
-            if (!compExactlyDependsOn(InstructionSet_AdvSimd))
+            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
             {
                 return nullptr;
             }
@@ -334,7 +338,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
         case NI_Vector128_ToScalar:
             assert(sig.paramCount == 1);
 
-            if (!compExactlyDependsOn(InstructionSet_AdvSimd))
+            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
             {
                 return nullptr;
             }
@@ -350,7 +354,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramLayout[0]->GetElementType() == eltType);
             assert(sig.paramType[1] == TYP_UBYTE);
 
-            if (!compExactlyDependsOn(InstructionSet_AdvSimd))
+            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
             {
                 return nullptr;
             }
