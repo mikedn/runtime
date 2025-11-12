@@ -215,11 +215,6 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 {
     assert(!sig.hasThisParam);
 
-    if (!comp->opts.SIMDFeature())
-    {
-        return nullptr;
-    }
-
     switch (intrinsic)
     {
         var_types eltType;

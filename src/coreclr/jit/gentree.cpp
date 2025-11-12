@@ -11239,7 +11239,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
     unsigned       simdSize;
 
 #if defined(TARGET_XARCH)
-    assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || compIsaSupportedDebugOnly(InstructionSet_SSE41));
+    assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || opts.IsIsaSupported(InstructionSet_SSE41));
     assert((eltType == TYP_FLOAT) || (varTypeSize(type) >= 16));
 
     intrinsic = type == TYP_SIMD32 ? NI_Vector256_WithElement : NI_Vector128_WithElement;

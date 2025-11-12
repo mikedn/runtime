@@ -477,11 +477,6 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 {
     assert(!sig.hasThisParam);
 
-    if (!opts.SIMDFeature())
-    {
-        return nullptr;
-    }
-
     // TODO-MIKE-Cleanup: ISA checking & reporting is dubious.
 
     switch (intrinsic)

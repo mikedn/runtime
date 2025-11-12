@@ -948,7 +948,7 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
 
             if (!compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
             {
-                assert(compiler->compIsaSupportedDebugOnly(InstructionSet_AVX));
+                assert(compiler->opts.IsIsaSupported(InstructionSet_AVX));
                 emit.emitIns_SIMD_R_R_R(INS_xorps, EA_32BYTE, dstReg, dstReg, dstReg);
                 emit.emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, dstReg, dstReg, dstReg, 15);
                 break;

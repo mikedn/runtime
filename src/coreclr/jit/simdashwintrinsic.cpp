@@ -104,11 +104,11 @@ static const SysNumSimdIntrinsicInfo& GetIntrinsicInfo(NamedIntrinsic id)
     return sysNumSimdIntrinsicInfo[id - NI_SIMD_AS_HWINTRINSIC_FIRST];
 }
 
-static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char* enclosingClassName)
+static SysNumSimdIntrinsicClassId FindClassId(const char* className)
 {
     assert(className != nullptr);
 
-    if ((enclosingClassName != nullptr) || (className[0] != 'V'))
+    if (className[0] != 'V')
     {
         return SysNumSimdIntrinsicClassId::Unknown;
     }
@@ -134,10 +134,14 @@ static SysNumSimdIntrinsicClassId FindClassId(const char* className, const char*
 
 NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
                                                     const char*           className,
-                                                    const char*           methodName,
-                                                    const char*           enclosingClassName)
+                                                    const char*           methodName)
 {
-    SysNumSimdIntrinsicClassId classId = FindClassId(className, enclosingClassName);
+    if (!JitConfig.EnableHWIntrinsic() || !opts.SIMDFeature())
+    {
+        return NI_Illegal;
+    }
+
+    SysNumSimdIntrinsicClassId classId = FindClassId(className);
 
     if (classId == SysNumSimdIntrinsicClassId::Unknown)
     {
@@ -145,7 +149,7 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
     }
 
 #ifdef TARGET_XARCH
-    if ((classId == SysNumSimdIntrinsicClassId::VectorT128) && (GetVectorTSimdType() == TYP_SIMD32))
+    if ((classId == SysNumSimdIntrinsicClassId::VectorT128) && (GetVectorTSize() == 32))
     {
         classId = SysNumSimdIntrinsicClassId::VectorT256;
     }
@@ -176,24 +180,13 @@ NamedIntrinsic Compiler::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method
     return NI_Illegal;
 }
 
-bool Importer::IsSysNumVecIntrinsicSupported()
-{
-#ifndef FEATURE_SIMD
-    return false;
-#else
-
 #if defined(TARGET_XARCH)
-    CORINFO_InstructionSet minimumIsa = InstructionSet_SSE2;
+constexpr CORINFO_InstructionSet MinimumIsa = InstructionSet_SSE2;
 #elif defined(TARGET_ARM64)
-    CORINFO_InstructionSet minimumIsa = InstructionSet_AdvSimd;
+constexpr CORINFO_InstructionSet MinimumIsa = InstructionSet_AdvSimd;
 #else
 #error Unsupported platform
 #endif
-
-    return JitConfig.EnableHWIntrinsic() && comp->opts.SIMDFeature() &&
-           comp->compOpportunisticallyDependsOn(minimumIsa);
-#endif
-}
 
 GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
                                             CORINFO_CLASS_HANDLE  clsHnd,
@@ -201,7 +194,9 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
                                             CORINFO_SIG_INFO*     sig,
                                             bool                  isNewObj)
 {
-    bool isSupported = IsSysNumVecIntrinsicSupported();
+    assert(JitConfig.EnableHWIntrinsic() && opts.SIMDFeature());
+
+    bool isSupported = comp->compOpportunisticallyDependsOn(MinimumIsa);
 
     if (intrinsic == NI_VectorT128_get_IsHardwareAccelerated
 #ifdef TARGET_XARCH
@@ -215,6 +210,11 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
     if (!isSupported)
     {
         return nullptr;
+    }
+
+    if ((NI_VectorT256_Abs <= intrinsic) && (intrinsic <= NI_VectorT256_Widen))
+    {
+        comp->compExactlyDependsOn(InstructionSet_AVX2);
     }
 
     HWIntrinsicSignature signature;

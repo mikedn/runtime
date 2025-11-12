@@ -1220,7 +1220,7 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
 
 void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
 {
-    assert(compiler->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+    assert(compiler->opts.IsIsaSupported(InstructionSet_SSE41));
 
     GenTree* srcNode = round->GetOp(0);
 

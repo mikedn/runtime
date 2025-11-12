@@ -3183,7 +3183,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
         assert(varTypeIsFloating(callType));
 
 #ifdef TARGET_XARCH
-        if (comp->compExactlyDependsOn(InstructionSet_FMA))
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_FMA))
         {
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
@@ -3199,7 +3199,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
 #endif
 
 #ifdef TARGET_ARM64
-        if (comp->compExactlyDependsOn(InstructionSet_AdvSimd))
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_AdvSimd))
         {
             NamedIntrinsic create = callType == TYP_DOUBLE ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
 
@@ -3301,20 +3301,6 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
 
     return comp->gtNewIntrinsic(varActualType(callType), intrinsic, isCall ? callInfo : nullptr, op1, op2);
 }
-
-//------------------------------------------------------------------------
-// lookupNamedIntrinsic: map method to jit named intrinsic value
-//
-// Arguments:
-//    method -- method handle for method
-//
-// Return Value:
-//    Id for the named intrinsic, or Illegal if none.
-//
-// Notes:
-//    method should have CORINFO_FLG_JIT_INTRINSIC set in its attributes,
-//    otherwise it is not a named jit intrinsic.
-//
 
 NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
 {
@@ -3579,7 +3565,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
             result = NI_System_Buffers_Binary_BinaryPrimitives_ReverseEndianness;
         }
     }
-#endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
+#endif
     else if (strcmp(namespaceName, "System.Collections.Generic") == 0)
     {
         if ((strcmp(className, "EqualityComparer`1") == 0) && (strcmp(methodName, "get_Default") == 0))
@@ -3591,59 +3577,39 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
             result = NI_System_Collections_Generic_Comparer_get_Default;
         }
     }
-    else if ((strcmp(namespaceName, "System.Numerics") == 0) && (strcmp(className, "BitOperations") == 0))
-    {
-        if (strcmp(methodName, "PopCount") == 0)
-        {
-            result = NI_System_Numerics_BitOperations_PopCount;
-        }
-    }
-#ifdef FEATURE_HW_INTRINSICS
     else if (strcmp(namespaceName, "System.Numerics") == 0)
     {
-        result = impFindSysNumSimdIntrinsic(method, className, methodName, enclosingClassName);
+        if (strcmp(className, "BitOperations") == 0)
+        {
+            if (strcmp(methodName, "PopCount") == 0)
+            {
+                result = NI_System_Numerics_BitOperations_PopCount;
+            }
+        }
+#ifdef FEATURE_HW_INTRINSICS
+        else if (enclosingClassName == nullptr)
+        {
+            result = impFindSysNumSimdIntrinsic(method, className, methodName);
+        }
+#endif
     }
-#endif // FEATURE_HW_INTRINSICS
     else if (strncmp(namespaceName, "System.Runtime.Intrinsics", 25) == 0)
     {
-        // We go down this path even when FEATURE_HW_INTRINSICS isn't enabled
-        // so we can specially handle IsSupported and recursive calls.
-
-        // This is required to appropriately handle the intrinsics on platforms
-        // which don't support them. On such a platform methods like Vector64.Create
-        // will be seen as `Intrinsic` and `mustExpand` due to having a code path
-        // which is recursive. When such a path is hit we expect it to be handled by
-        // the importer and we fire an assert if it wasn't and in previous versions
-        // of the JIT would fail fast. This was changed to throw a PNSE instead but
-        // we still assert as most intrinsics should have been recognized/handled.
-
-        // In order to avoid the assert, we specially handle the IsSupported checks
-        // (to better allow dead-code optimizations) and we explicitly throw a PNSE
-        // as we know that is the desired behavior for the HWIntrinsics when not
-        // supported. For cases like Vector64.Create, this is fine because it will
-        // be behind a relevant IsSupported check and will never be hit and the
-        // software fallback will be executed instead.
-
-        CLANG_FORMAT_COMMENT_ANCHOR;
-
 #ifdef FEATURE_HW_INTRINSICS
-        namespaceName += 25;
-        const char* platformNamespaceName;
-
+        if (JitConfig.EnableHWIntrinsic())
+        {
 #if defined(TARGET_XARCH)
-        platformNamespaceName = ".X86";
+            constexpr const char* platformNamespaceName = ".X86";
 #elif defined(TARGET_ARM64)
-        platformNamespaceName = ".Arm";
+            constexpr const char* platformNamespaceName = ".Arm";
 #else
 #error Unsupported platform
 #endif
 
-        if ((namespaceName[0] == '\0') || (strcmp(namespaceName, platformNamespaceName) == 0))
-        {
-            CORINFO_SIG_INFO sig;
-            info.compCompHnd->getMethodSig(method, &sig);
-
-            result = HWIntrinsicInfo::lookupId(this, &sig, className, methodName, enclosingClassName);
+            if ((namespaceName[25] == '\0') || (strcmp(namespaceName + 25, platformNamespaceName) == 0))
+            {
+                result = HWIntrinsicInfo::lookupId(this, method, className, methodName, enclosingClassName);
+            }
         }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -3651,17 +3617,10 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
         {
             if (strcmp(methodName, "get_IsSupported") == 0)
             {
-                // This allows the relevant code paths to be dropped as dead code even
-                // on platforms where FEATURE_HW_INTRINSICS is not supported.
-
                 result = NI_IsSupported_False;
             }
             else if (gtIsRecursiveCall(method))
             {
-                // For the framework itself, any recursive intrinsics will either be
-                // only supported on a single platform or will be guarded by a relevant
-                // IsSupported check so the throw PNSE will be valid or dropped.
-
                 result = NI_Throw_PlatformNotSupportedException;
             }
         }
@@ -3683,6 +3642,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
     {
         JITDUMP("Recognized\n");
     }
+
     return result;
 }
 
@@ -11746,22 +11706,22 @@ void Importer::ImportNewObj(const uint8_t* codeAddr, int prefixFlags, BasicBlock
             const char*           methodName =
                 vm->getMethodNameFromMetadata(methodHandle, &className, &namespaceName, &enclosingClassName);
 
-            NamedIntrinsic ni = impFindSysNumSimdIntrinsic(methodHandle, className, methodName, enclosingClassName);
-
-            if (ni != NI_Illegal)
+            if (enclosingClassName == nullptr)
             {
-                GenTree* intrinsic = ImportSysNumVecIntrinsic(ni, classHandle, methodHandle, &callInfo.sig, true);
-
-                // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
-                // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
-                // ISAs aren't available. Otherwise there's no reason for intrinsic import to fail.
-                if (intrinsic != nullptr)
+                if (NamedIntrinsic ni = comp->impFindSysNumSimdIntrinsic(methodHandle, className, methodName))
                 {
-                    // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
-                    // this call as an intrinsic. These are constructors so the type is always VOID.
-                    impPushOnStack(intrinsic, typeInfo(TI_STRUCT, classHandle));
+                    // TODO-MIKE-Cleanup: This should probably be an assert. impFindSysNumSimdIntrinsic is
+                    // dumb and returns an intrinsic even if intrinsics are disabled or if the relevant
+                    // ISAs aren't available. Otherwise there's no reason for intrinsic import to fail.
+                    if (GenTree* intrinsic =
+                            ImportSysNumVecIntrinsic(ni, classHandle, methodHandle, &callInfo.sig, true))
+                    {
+                        // Set the call type for ICorDebugInfo::CALL_SITE_BOUNDARIES, even if we treated
+                        // this call as an intrinsic. These are constructors so the type is always VOID.
+                        impPushOnStack(intrinsic, typeInfo(TI_STRUCT, classHandle));
 
-                    return;
+                        return;
+                    }
                 }
             }
         }
@@ -16248,16 +16208,6 @@ void Importer::setMethodHasExpRuntimeLookup()
 bool Importer::compTailCallStress()
 {
     return comp->compTailCallStress();
-}
-#endif
-
-#ifdef FEATURE_HW_INTRINSICS
-NamedIntrinsic Importer::impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
-                                                    const char*           className,
-                                                    const char*           methodName,
-                                                    const char*           enclosingClassName)
-{
-    return comp->impFindSysNumSimdIntrinsic(method, className, methodName, enclosingClassName);
 }
 #endif
 

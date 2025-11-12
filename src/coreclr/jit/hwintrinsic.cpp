@@ -15,8 +15,6 @@ unsigned GetVectorTSize(CORJIT_FLAGS flags)
     assert(!flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_PREJIT));
     assert(flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_FEATURE_SIMD));
 
-    unsigned length = 16;
-
 #ifdef TARGET_XARCH
     if (JitConfig.EnableHWIntrinsic())
     {
@@ -25,58 +23,22 @@ unsigned GetVectorTSize(CORJIT_FLAGS flags)
 
         if (FilterInstructionSet(isaFlags).HasInstructionSet(InstructionSet_AVX2))
         {
-            length = 32;
+            return 32;
         }
     }
 #endif
 
-    return length;
-}
-
-var_types Compiler::GetVectorTSimdType()
-{
-#if defined(TARGET_XARCH)
-    if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
-    {
-        return JitConfig.EnableHWIntrinsic() && opts.SIMDFeature() ? TYP_SIMD32 : TYP_SIMD16;
-    }
-
-    bool isaUseable = compExactlyDependsOn(InstructionSet_AVX2);
-    assert(!isaUseable);
-
-    return TYP_SIMD16;
-#elif defined(TARGET_ARM64)
-    return TYP_SIMD16;
-#else
-#error Unsupported platform
-#endif
-}
-
-#ifdef DEBUG
-// Answer the question: Is a particular ISA supported?
-// Use this api when asking the question so that future
-// ISA questions can be asked correctly or when asserting
-// support/nonsupport for an instruction set
-bool Compiler::compIsaSupportedDebugOnly(CORINFO_InstructionSet isa) const
-{
-#if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-    return opts.IsIsaSupported(isa);
-#else
-    return false;
-#endif
-}
-#endif // DEBUG
-
-// Answer the question: Is a particular ISA supported for explicit hardware intrinsics?
-bool Compiler::compHWIntrinsicDependsOn(CORINFO_InstructionSet isa)
-{
-    compExactlyDependsOn(isa);
-
-    return opts.IsIsaSupported(isa) && JitConfig.EnableHWIntrinsic() &&
-           (opts.SIMDFeature() || HWIntrinsicInfo::IsScalarIsa(isa)) && HWIntrinsicInfo::IsImplementedIsa(isa);
+    return 16;
 }
 
 #ifdef TARGET_XARCH
+unsigned Compiler::GetVectorTSize() const
+{
+    assert(JitConfig.EnableHWIntrinsic() && opts.SIMDFeature());
+
+    return opts.IsIsaSupported(InstructionSet_AVX2) ? 32 : 16;
+}
+
 bool Compiler::canUseVexEncoding()
 {
     return compOpportunisticallyDependsOn(InstructionSet_AVX);
@@ -211,11 +173,11 @@ const char* GetHWIntrinsicIdName(NamedIntrinsic id)
 }
 #endif
 
-NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
-                                         CORINFO_SIG_INFO* sig,
-                                         const char*       className,
-                                         const char*       methodName,
-                                         const char*       enclosingClassName)
+NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*             comp,
+                                         CORINFO_METHOD_HANDLE method,
+                                         const char*           className,
+                                         const char*           methodName,
+                                         const char*           enclosingClassName)
 {
     // TODO-Throughput: replace sequential search by binary search
     CORINFO_InstructionSet isa = lookupIsa(className, enclosingClassName);
@@ -225,18 +187,25 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
         return NI_Illegal;
     }
 
-    bool isIsaSupported = comp->compHWIntrinsicDependsOn(isa);
+    comp->compExactlyDependsOn(isa);
+
+    bool isSupported = comp->opts.IsIsaSupported(isa) &&
+                       (comp->opts.SIMDTypes() || HWIntrinsicInfo::IsScalarIsa(isa)) &&
+                       HWIntrinsicInfo::IsImplementedIsa(isa);
 
     if (strcmp(methodName, "get_IsSupported") == 0)
     {
-        return isIsaSupported ? (comp->compExactlyDependsOn(isa) ? NI_IsSupported_True : NI_IsSupported_Dynamic)
-                              : NI_IsSupported_False;
+        return isSupported ? (comp->compExactlyDependsOn(isa) ? NI_IsSupported_True : NI_IsSupported_Dynamic)
+                           : NI_IsSupported_False;
     }
 
-    if (!isIsaSupported)
+    if (!isSupported)
     {
         return NI_Throw_PlatformNotSupportedException;
     }
+
+    CORINFO_SIG_INFO sig;
+    comp->info.compCompHnd->getMethodSig(method, &sig);
 
     for (unsigned i = 0; i < NI_HW_INTRINSIC_LAST - NI_HW_INTRINSIC_FIRST + 1; i++)
     {
@@ -249,7 +218,7 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*         comp,
 
         unsigned numArgs = static_cast<unsigned>(info.numArgs);
 
-        if ((numArgs != UINT_MAX) && (sig->numArgs != numArgs))
+        if ((numArgs != UINT_MAX) && (sig.numArgs != numArgs))
         {
             continue;
         }
@@ -567,7 +536,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 
-    if ((retLayout != nullptr) && opts.SIMDFeature())
+    if ((retLayout != nullptr) && opts.SIMDTypes())
     {
         // Currently all HW intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())

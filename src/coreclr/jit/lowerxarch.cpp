@@ -1986,7 +1986,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     if (node->GetIntrinsic() == NI_Vector256_Create)
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+        assert(comp->opts.IsIsaSupported(InstructionSet_AVX));
 
         GenTreeHWIntrinsic* lo = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16);
         GenTreeHWIntrinsic* hi = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16);
@@ -2325,7 +2325,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     if ((intrinsic == NI_Vector256_Create) && !comp->compOpportunisticallyDependsOn(InstructionSet_AVX2))
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+        assert(comp->opts.IsIsaSupported(InstructionSet_AVX));
 
         GenTree* half = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, op1);
         BlockRange().InsertAfter(op1, half);
@@ -2375,7 +2375,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     if (intrinsic == NI_Vector256_Create)
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX2));
+        assert(comp->opts.IsIsaSupported(InstructionSet_AVX2));
 
         node->SetIntrinsic(NI_AVX2_BroadcastScalarToVector256, 1);
         node->SetOp(0, vec);
@@ -2688,7 +2688,7 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
 
     if (node->GetIntrinsic() == NI_Vector256_GetElement)
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+        assert(comp->opts.IsIsaSupported(InstructionSet_AVX));
 
         if (index >= count / 2)
         {
@@ -2810,7 +2810,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
 
     if (node->GetIntrinsic() == NI_Vector256_WithElement)
     {
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_AVX));
+        assert(comp->opts.IsIsaSupported(InstructionSet_AVX));
 
         LIR::Use vecUse(BlockRange(), &node->GetUse(0).NodeRef(), node);
         vec           = ReplaceWithLclLoad(vecUse);
@@ -2839,7 +2839,7 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
     if (eltType == TYP_LONG)
     {
         assert(elt->OperIs(GT_LONG));
-        assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+        assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
 
         index *= 2;
         index256 *= 2;
@@ -2873,12 +2873,12 @@ void Lowering::LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node)
         case TYP_BYTE:
         case TYP_UBYTE:
         case TYP_INT:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41));
+            assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
             intrinsic = NI_SSE41_Insert;
             break;
 #ifdef TARGET_64BIT
         case TYP_LONG:
-            assert(comp->compIsaSupportedDebugOnly(InstructionSet_SSE41_X64));
+            assert(comp->opts.IsIsaSupported(InstructionSet_SSE41_X64));
             intrinsic = NI_SSE41_X64_Insert;
             break;
 #endif

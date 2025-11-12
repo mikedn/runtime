@@ -1572,18 +1572,10 @@ public:
     bool      compIsForInlining() const;
     bool      compDonotInline() const;
     Compiler* impInlineRoot();
-    bool      IsSysNumVecIntrinsicSupported();
     bool IsIntrinsicImplementedByUserCall(NamedIntrinsic intrinsicName);
     void setMethodHasExpRuntimeLookup();
 #ifdef DEBUG
     bool compTailCallStress();
-#endif
-
-#ifdef FEATURE_HW_INTRINSICS
-    NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
-                                              const char*           className,
-                                              const char*           methodName,
-                                              const char*           enclosingClassName);
 #endif
 
     FieldSeqStore* GetFieldSeqStore();
@@ -3470,8 +3462,7 @@ protected:
 
     NamedIntrinsic impFindSysNumSimdIntrinsic(CORINFO_METHOD_HANDLE method,
                                               const char*           className,
-                                              const char*           methodName,
-                                              const char*           enclosingClassName);
+                                              const char*           methodName);
 
 public:
     void impMakeDiscretionaryInlineObservations(InlineInfo* pInlineInfo, InlineResult* inlineResult);
@@ -5045,16 +5036,12 @@ public:
     void lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src);
     void lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src);
 
-    var_types GetVectorTSimdType();
-
-    bool compHWIntrinsicDependsOn(CORINFO_InstructionSet isa);
-#ifdef TARGET_XARCH
-    bool canUseVexEncoding();
-#endif
     bool compOpportunisticallyDependsOn(CORINFO_InstructionSet isa);
     bool compExactlyDependsOn(CORINFO_InstructionSet isa);
-#ifdef DEBUG
-    bool compIsaSupportedDebugOnly(CORINFO_InstructionSet isa) const;
+
+#ifdef TARGET_XARCH
+    unsigned GetVectorTSize() const;
+    bool     canUseVexEncoding();
 #endif
 
 private:

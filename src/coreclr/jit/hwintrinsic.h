@@ -280,11 +280,11 @@ enum class FloatRoundingMode : uint8_t
 
 struct HWIntrinsicInfo
 {
-    static NamedIntrinsic lookupId(Compiler*         comp,
-                                   CORINFO_SIG_INFO* sig,
-                                   const char*       className,
-                                   const char*       methodName,
-                                   const char*       enclosingClassName);
+    static NamedIntrinsic lookupId(Compiler*             comp,
+                                   CORINFO_METHOD_HANDLE method,
+                                   const char*           className,
+                                   const char*           methodName,
+                                   const char*           enclosingClassName);
     static CORINFO_InstructionSet lookupIsa(const char* className, const char* enclosingClassName);
 
 #if defined(TARGET_XARCH)
