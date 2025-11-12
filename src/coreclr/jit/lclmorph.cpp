@@ -2704,11 +2704,11 @@ void StructPromotionHelper::GetFieldInfo(unsigned index)
     if (field.type == TYP_STRUCT)
     {
 #ifdef FEATURE_SIMD
-        ClassLayout* layout = compiler->opts.SIMDTypes() ? compiler->typGetObjLayout(typeHandle) : nullptr;
+        ClassLayout* layout = compiler->typGetObjLayout(typeHandle);
 
-        if ((layout != nullptr) && layout->IsVector())
+        if (layout->IsVector())
         {
-            field.type   = layout->GetSIMDType();
+            field.type   = layout->GetVectorType();
             field.layout = layout;
         }
         else

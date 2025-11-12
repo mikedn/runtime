@@ -6,12 +6,39 @@
 
 #ifdef FEATURE_SIMD
 
+#ifdef TARGET_XARCH
+CORINFO_InstructionSetFlags FilterInstructionSet(CORINFO_InstructionSetFlags instructionSetFlags);
+#endif
+
+unsigned GetVectorTSize(CORJIT_FLAGS flags)
+{
+    assert(!flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_PREJIT));
+    assert(flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_FEATURE_SIMD));
+
+    unsigned length = 16;
+
+#ifdef TARGET_XARCH
+    if (JitConfig.EnableHWIntrinsic())
+    {
+        CORINFO_InstructionSetFlags isaFlags;
+        isaFlags.SetFromFlagsRaw(flags.GetInstructionSetFlagsRaw());
+
+        if (FilterInstructionSet(isaFlags).HasInstructionSet(InstructionSet_AVX2))
+        {
+            length = 32;
+        }
+    }
+#endif
+
+    return length;
+}
+
 var_types Compiler::GetVectorTSimdType()
 {
 #if defined(TARGET_XARCH)
     if (compOpportunisticallyDependsOn(InstructionSet_AVX2))
     {
-        return JitConfig.EnableHWIntrinsic() ? TYP_SIMD32 : TYP_SIMD16;
+        return JitConfig.EnableHWIntrinsic() && opts.SIMDFeature() ? TYP_SIMD32 : TYP_SIMD16;
     }
 
     bool isaUseable = compExactlyDependsOn(InstructionSet_AVX2);

@@ -3183,7 +3183,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
         assert(varTypeIsFloating(callType));
 
 #ifdef TARGET_XARCH
-        if (comp->compExactlyDependsOn(InstructionSet_FMA) && opts.SIMDTypes())
+        if (comp->compExactlyDependsOn(InstructionSet_FMA))
         {
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;

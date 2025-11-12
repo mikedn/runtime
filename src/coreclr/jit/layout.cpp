@@ -560,17 +560,16 @@ ClassLayout* Compiler::typGetObjLayout(CORINFO_CLASS_HANDLE classHandle)
 var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types* elementType)
 {
 #ifdef FEATURE_SIMD
-    if (opts.SIMDTypes())
+    ClassLayout* layout = typGetObjLayout(classHandle);
+
+    if (layout->IsVector())
     {
-        ClassLayout* layout = typGetObjLayout(classHandle);
-        if (layout->IsVector())
+        if (elementType != nullptr)
         {
-            if (elementType != nullptr)
-            {
-                *elementType = layout->GetElementType();
-            }
-            return layout->GetSIMDType();
+            *elementType = layout->GetElementType();
         }
+
+        return layout->GetVectorType();
     }
 #endif
 
@@ -579,12 +578,10 @@ var_types Compiler::typGetStructType(CORINFO_CLASS_HANDLE classHandle, var_types
 
 var_types Compiler::typGetStructType(ClassLayout* layout)
 {
-#ifdef FEATURE_SIMD
     if (layout->IsVector())
     {
-        return layout->GetSIMDType();
+        return layout->GetVectorType();
     }
-#endif
 
     return TYP_STRUCT;
 }
@@ -676,33 +673,26 @@ ClassLayout* Compiler::typGetVectorLayout(var_types simdType, var_types elementT
 #ifdef FEATURE_SIMD
 unsigned Compiler::typGetLargestSimdTypeSize()
 {
-#if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
-    if (opts.IsReadyToRun())
+#ifdef TARGET_XARCH
+    // This function is only used by ClassLayout as a throughput optimization. Return
+    // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
+    // to avoid ISA usage reporting when we're not actually using any ISA instructions.
+    if (opts.IsReadyToRun() || compOpportunisticallyDependsOn(InstructionSet_AVX))
     {
-        // This function is only used by ClassLayout as a throughput optimization. Return
-        // the largest SIMD register size instead of using compOpportunisticallyDependsOn,
-        // to avoid ISA usage reporting when we're not actually using any ISA instructions.
         return YMM_REGSIZE_BYTES;
-    }
-
-    if (compOpportunisticallyDependsOn(InstructionSet_AVX))
-    {
-        return JitConfig.EnableHWIntrinsic() ? YMM_REGSIZE_BYTES : XMM_REGSIZE_BYTES;
     }
 
     return XMM_REGSIZE_BYTES;
 #else
-    return varTypeSize(GetVectorTSimdType());
+    return varTypeSize(TYP_SIMD16);
 #endif
 }
 #endif
 
 ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     : m_classHandle(classHandle)
-    , m_size(0)
     , m_isValueClass(true)
     , m_gcPtrCount(0)
-    , m_gcPtrs(nullptr)
 #ifdef DEBUG
     , m_className(compiler->eeGetSimpleClassName(classHandle))
 #endif
@@ -737,10 +727,10 @@ ClassLayout::ClassLayout(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
     if ((attribs & (CORINFO_FLG_CONTAINS_GC_PTR | CORINFO_FLG_CONTAINS_STACK_PTR)) == 0)
     {
 #ifdef FEATURE_SIMD
-        if (m_isValueClass && ((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && compiler->opts.SIMDTypes() &&
+        if (((attribs & CORINFO_FLG_INTRINSIC_TYPE) != 0) && m_isValueClass && compiler->opts.SIMDTypes() &&
             (m_size >= varTypeSize(TYP_SIMD8)) && (m_size <= compiler->typGetLargestSimdTypeSize()))
         {
-            m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler);
+            m_layoutInfo = GetVectorLayoutInfo(classHandle, compiler, m_size);
 
             if (m_layoutInfo.simdType != TYP_UNDEF)
             {
@@ -917,7 +907,9 @@ var_types ClassLayout::GetEightbyteType(const SYSTEMV_AMD64_CORINFO_STRUCT_REG_P
 
 #ifdef FEATURE_SIMD
 
-ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler)
+ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle,
+                                                         Compiler*            compiler,
+                                                         unsigned             size)
 {
     ICorJitInfo* vm               = compiler->info.compCompHnd;
     const char*  namespaceName    = nullptr;
@@ -963,9 +955,21 @@ ClassLayout::LayoutInfo ClassLayout::GetVectorLayoutInfo(CORINFO_CLASS_HANDLE cl
 
     if (isNumericsVector && strcmp(className, "Vector`1") == 0)
     {
-        var_types simdType = compiler->GetVectorTSimdType();
-        assert((simdType == TYP_SIMD16) || (simdType == TYP_SIMD32));
-        return {VectorKind::VectorT, false, simdType, elementType};
+        var_types vectorType;
+
+#ifdef TARGET_XARCH
+        if (size == 32)
+        {
+            vectorType = TYP_SIMD32;
+        }
+        else
+#endif
+        {
+            noway_assert(size == 16);
+            vectorType = TYP_SIMD16;
+        }
+
+        return {VectorKind::VectorT, false, vectorType, elementType};
     }
 
     bool isNInt = (elementCorType == CORINFO_TYPE_NATIVEINT) || (elementCorType == CORINFO_TYPE_NATIVEUINT);

@@ -649,7 +649,7 @@ void Compiler::compInit()
 #endif
 }
 
-static CORINFO_InstructionSetFlags FilterInstructionSet(
+CORINFO_InstructionSetFlags FilterInstructionSet(
     CORINFO_InstructionSetFlags instructionSetFlags ARM64_ARG(bool matchedVM))
 {
 // NOTE: This function needs to be kept in sync with EEJitManager::SetCpuInfo() in vm\codeman.cpp
@@ -691,9 +691,7 @@ static CORINFO_InstructionSetFlags FilterInstructionSet(
         instructionSetFlags.RemoveInstructionSet(InstructionSet_PCLMULQDQ);
     }
 
-    // We need to additionally check that COMPlus_EnableSSE3_4 is set, as that
-    // is a pre-existing config flag that controls the SSE3+ ISAs
-    if (!JitConfig.EnableSSE3() || !JitConfig.EnableSSE3_4())
+    if (!JitConfig.EnableSSE3())
     {
         instructionSetFlags.RemoveInstructionSet(InstructionSet_SSE3);
     }

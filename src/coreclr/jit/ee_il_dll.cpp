@@ -338,40 +338,15 @@ void CILJit::getVersionIdentifier(GUID* versionIdentifier)
     *versionIdentifier = JITEEVersionIdentifier;
 }
 
+unsigned GetVectorTSize(CORJIT_FLAGS cpuCompileFlags);
+
 unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
 {
-#ifndef FEATURE_SIMD
-    const unsigned length = 0;
+#ifdef FEATURE_SIMD
+    return GetVectorTSize(cpuCompileFlags);
 #else
-    unsigned length = 16;
-
-#ifdef TARGET_XARCH
-    JitFlags jitFlags(cpuCompileFlags);
-
-    if (!jitFlags.IsSet(JitFlags::JIT_FLAG_PREJIT) && jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD) &&
-        jitFlags.GetInstructionSetFlags().HasInstructionSet(InstructionSet_AVX2))
-    {
-        // Since the ISAs can be disabled individually and since they are hierarchical in nature (that is
-        // disabling SSE also disables SSE2 through AVX2), we need to check each ISA in the hierarchy to
-        // ensure that AVX2 is actually supported. Otherwise, we will end up getting asserts downstream.
-        if (JitConfig.EnableAVX2() && JitConfig.EnableAVX() && JitConfig.EnableSSE42() && JitConfig.EnableSSE41() &&
-            JitConfig.EnableSSSE3() && JitConfig.EnableSSE3_4() && JitConfig.EnableSSE3() && JitConfig.EnableSSE2() &&
-            JitConfig.EnableSSE() && JitConfig.EnableHWIntrinsic())
-        {
-            length = 32;
-        }
-    }
+    return 0;
 #endif
-#endif // FEATURE_SIMD
-
-#ifdef DEBUG
-    if ((GetJitTls() != nullptr) && (JitTls::GetCompiler() != nullptr))
-    {
-        JITDUMP("getMaxIntrinsicSIMDVectorLength: returning %u\n", length);
-    }
-#endif
-
-    return length;
 }
 
 void Compiler::eeGetVars()

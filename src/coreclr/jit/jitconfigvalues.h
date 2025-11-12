@@ -232,17 +232,14 @@ CONFIG_UNSIGNED(AltJitAssertOnNYI, "AltJitAssertOnNYI", 0)
 CONFIG_UNSIGNED(AltJitAssertOnNYI, "AltJitAssertOnNYI", 1)
 #endif
 
-///
-/// JIT Hardware Intrinsics
-///
-#if defined(TARGET_X86) || defined(TARGET_AMD64)
-CONFIG_BOOL(EnableSSE3_4, "EnableSSE3_4", true) // Enable SSE3, SSSE3, SSE 4.1 and 4.2 instruction set as default
+CONFIG_BOOL(EnableEHWriteThru, "EnableEHWriteThru", true) // Enable the register allocator to support EH-write thru:
+                                                          // partial enregistration of vars exposed on EH boundaries
+
+#if defined(TARGET_AMD64) || defined(TARGET_X86) || defined(TARGET_ARM64)
+CONFIG_BOOL(EnableHWIntrinsic, "EnableHWIntrinsic", true)
 #endif
 
 #if defined(TARGET_AMD64) || defined(TARGET_X86)
-// Enable AVX instruction set for wide operations as default. When both AVX and SSE3_4 are set, we will use the most
-// capable instruction set available which will prefer AVX over SSE3/4.
-CONFIG_BOOL(EnableHWIntrinsic, "EnableHWIntrinsic", true)
 CONFIG_BOOL(EnableSSE, "EnableSSE", true)
 CONFIG_BOOL(EnableSSE2, "EnableSSE2", true)
 CONFIG_BOOL(EnableSSE3, "EnableSSE3", true)
@@ -259,18 +256,11 @@ CONFIG_BOOL(EnableBMI2, "EnableBMI2", true)
 CONFIG_BOOL(EnableLZCNT, "EnableLZCNT", true)
 CONFIG_BOOL(EnablePCLMULQDQ, "EnablePCLMULQDQ", true)
 CONFIG_BOOL(EnablePOPCNT, "EnablePOPCNT", true)
-#else
-// Enable AVX instruction set for wide operations as default
-CONFIG_BOOL(EnableAVX, "EnableAVX", false)
 #endif
-
-CONFIG_BOOL(EnableEHWriteThru, "EnableEHWriteThru", true) // Enable the register allocator to support EH-write thru:
-                                                          // partial enregistration of vars exposed on EH boundaries
 
 // clang-format off
 
 #ifdef TARGET_ARM64
-CONFIG_BOOL(EnableHWIntrinsic,       "EnableHWIntrinsic", true)
 CONFIG_BOOL(EnableArm64Aes,          "EnableArm64Aes", true)
 CONFIG_BOOL(EnableArm64Atomics,      "EnableArm64Atomics", true)
 CONFIG_BOOL(EnableArm64Crc32,        "EnableArm64Crc32", true)

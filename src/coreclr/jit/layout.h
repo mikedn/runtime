@@ -30,7 +30,7 @@ class ClassLayout
     // Size of the layout in bytes (as reported by ICorJitInfo::getClassSize/getHeapClassSize
     // for non "block" layouts). For "block" layouts this may be 0 due to 0 being a valid size
     // for cpblk/initblk.
-    unsigned m_size;
+    unsigned m_size = 0;
 
     unsigned m_isValueClass : 1;
     // The number of GC pointers in this layout. Since the the maximum size is 2^32-1 the count
@@ -50,8 +50,8 @@ class ClassLayout
         // Array of CorInfoGCType (as BYTE) that describes the GC layout of the class.
         // For small classes the array is stored inline, avoiding an extra allocation
         // and the pointer size overhead.
-        BYTE* m_gcPtrs;
-        BYTE  m_gcPtrsArray[sizeof(BYTE*)];
+        uint8_t* m_gcPtrs = nullptr;
+        uint8_t  m_gcPtrsArray[sizeof(uint8_t*)];
 
         // Layout information for vector and HFA structs. Valid when m_gcPtrCount is 0.
         LayoutInfo m_layoutInfo;
@@ -83,7 +83,6 @@ class ClassLayout
         , m_size(size)
         , m_isValueClass(false)
         , m_gcPtrCount(0)
-        , m_gcPtrs(nullptr)
 #ifdef DEBUG
         , m_className("block")
 #endif
@@ -383,7 +382,7 @@ private:
     }
 
 #ifdef FEATURE_SIMD
-    static LayoutInfo GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler);
+    static LayoutInfo GetVectorLayoutInfo(CORINFO_CLASS_HANDLE classHandle, Compiler* compiler, unsigned size);
 #endif
 
 #ifdef UNIX_AMD64_ABI
