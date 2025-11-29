@@ -212,10 +212,12 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
+#ifdef TARGET_XARCH
     if ((NI_VectorT256_Abs <= intrinsic) && (intrinsic <= NI_VectorT256_Widen))
     {
         comp->compExactlyDependsOn(InstructionSet_AVX2);
     }
+#endif
 
     HWIntrinsicSignature signature;
     signature.Read(comp, sig);
