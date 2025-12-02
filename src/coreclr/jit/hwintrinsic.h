@@ -298,9 +298,6 @@ struct HWIntrinsicInfo
 
     static bool isImmOp(NamedIntrinsic id, const GenTree* op);
 
-    static bool IsImplementedIsa(CORINFO_InstructionSet isa);
-    static bool IsScalarIsa(CORINFO_InstructionSet isa);
-
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
     static int GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);

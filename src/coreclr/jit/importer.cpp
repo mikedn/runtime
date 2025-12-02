@@ -3596,7 +3596,7 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
     else if (strncmp(namespaceName, "System.Runtime.Intrinsics", 25) == 0)
     {
 #ifdef FEATURE_HW_INTRINSICS
-        if (JitConfig.EnableHWIntrinsic())
+        if (JitConfig.EnableHWIntrinsic() && opts.SIMDTypes())
         {
 #if defined(TARGET_XARCH)
             constexpr const char* platformNamespaceName = ".X86";

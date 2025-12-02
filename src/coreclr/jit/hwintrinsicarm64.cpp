@@ -110,52 +110,6 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
     return lookupInstructionSet(className);
 }
 
-bool HWIntrinsicInfo::IsImplementedIsa(CORINFO_InstructionSet isa)
-{
-    switch (isa)
-    {
-        case InstructionSet_AdvSimd:
-        case InstructionSet_AdvSimd_Arm64:
-        case InstructionSet_Aes:
-        case InstructionSet_Aes_Arm64:
-        case InstructionSet_ArmBase:
-        case InstructionSet_ArmBase_Arm64:
-        case InstructionSet_Crc32:
-        case InstructionSet_Crc32_Arm64:
-        case InstructionSet_Dp:
-        case InstructionSet_Dp_Arm64:
-        case InstructionSet_Rdm:
-        case InstructionSet_Rdm_Arm64:
-        case InstructionSet_Sha1:
-        case InstructionSet_Sha1_Arm64:
-        case InstructionSet_Sha256:
-        case InstructionSet_Sha256_Arm64:
-        case InstructionSet_Vector64:
-        case InstructionSet_Vector128:
-            return true;
-        default:
-#ifdef DEBUG
-            return JitConfig.EnableIncompleteISAClass();
-#else
-            return false;
-#endif
-    }
-}
-
-bool HWIntrinsicInfo::IsScalarIsa(CORINFO_InstructionSet isa)
-{
-    switch (isa)
-    {
-        case InstructionSet_ArmBase:
-        case InstructionSet_ArmBase_Arm64:
-        case InstructionSet_Crc32:
-        case InstructionSet_Crc32_Arm64:
-            return true;
-        default:
-            return false;
-    }
-}
-
 void HWIntrinsicInfo::LookupImmBounds(
     NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound)
 {

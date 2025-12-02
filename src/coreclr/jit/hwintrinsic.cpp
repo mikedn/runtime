@@ -179,6 +179,8 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*             comp,
                                          const char*           methodName,
                                          const char*           enclosingClassName)
 {
+    assert(JitConfig.EnableHWIntrinsic() && comp->opts.SIMDTypes());
+
     // TODO-Throughput: replace sequential search by binary search
     CORINFO_InstructionSet isa = lookupIsa(className, enclosingClassName);
 
@@ -187,16 +189,18 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*             comp,
         return NI_Illegal;
     }
 
-    comp->compExactlyDependsOn(isa);
+    bool isSupported = comp->compExactlyDependsOn(isa);
 
-    bool isSupported = comp->opts.IsIsaSupported(isa) &&
-                       (comp->opts.SIMDTypes() || HWIntrinsicInfo::IsScalarIsa(isa)) &&
-                       HWIntrinsicInfo::IsImplementedIsa(isa);
-
+    // TODO-MIKE-Review: This probably picks up the internal VectorN.IsSupported,
+    // resulting in the element type validity check being ignored.
     if (strcmp(methodName, "get_IsSupported") == 0)
     {
-        return isSupported ? (comp->compExactlyDependsOn(isa) ? NI_IsSupported_True : NI_IsSupported_Dynamic)
-                           : NI_IsSupported_False;
+        if (!isSupported)
+        {
+            return comp->opts.IsIsaSupported(isa) ? NI_IsSupported_Dynamic : NI_IsSupported_False;
+        }
+
+        return NI_IsSupported_True;
     }
 
     if (!isSupported)

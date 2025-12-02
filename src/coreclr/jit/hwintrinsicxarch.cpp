@@ -353,77 +353,6 @@ int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDep
     }
 }
 
-bool HWIntrinsicInfo::IsImplementedIsa(CORINFO_InstructionSet isa)
-{
-    switch (isa)
-    {
-        case InstructionSet_AES:
-        case InstructionSet_AES_X64:
-        case InstructionSet_AVX:
-        case InstructionSet_AVX_X64:
-        case InstructionSet_AVX2:
-        case InstructionSet_AVX2_X64:
-        case InstructionSet_AVXVNNI:
-        case InstructionSet_AVXVNNI_X64:
-        case InstructionSet_BMI1:
-        case InstructionSet_BMI1_X64:
-        case InstructionSet_BMI2:
-        case InstructionSet_BMI2_X64:
-        case InstructionSet_FMA:
-        case InstructionSet_FMA_X64:
-        case InstructionSet_LZCNT:
-        case InstructionSet_LZCNT_X64:
-        case InstructionSet_PCLMULQDQ:
-        case InstructionSet_PCLMULQDQ_X64:
-        case InstructionSet_POPCNT:
-        case InstructionSet_POPCNT_X64:
-        case InstructionSet_SSE:
-        case InstructionSet_SSE_X64:
-        case InstructionSet_SSE2:
-        case InstructionSet_SSE2_X64:
-        case InstructionSet_SSE3:
-        case InstructionSet_SSE3_X64:
-        case InstructionSet_SSSE3:
-        case InstructionSet_SSSE3_X64:
-        case InstructionSet_SSE41:
-        case InstructionSet_SSE41_X64:
-        case InstructionSet_SSE42:
-        case InstructionSet_SSE42_X64:
-        case InstructionSet_Vector128:
-        case InstructionSet_Vector256:
-        case InstructionSet_X86Base:
-        case InstructionSet_X86Base_X64:
-            return true;
-        default:
-#ifdef DEBUG
-            return JitConfig.EnableIncompleteISAClass();
-#else
-            return false;
-#endif
-    }
-}
-
-bool HWIntrinsicInfo::IsScalarIsa(CORINFO_InstructionSet isa)
-{
-    switch (isa)
-    {
-        case InstructionSet_BMI1:
-        case InstructionSet_BMI1_X64:
-        case InstructionSet_BMI2:
-        case InstructionSet_BMI2_X64:
-        case InstructionSet_LZCNT:
-        case InstructionSet_LZCNT_X64:
-        case InstructionSet_X86Base:
-        case InstructionSet_X86Base_X64:
-            // InstructionSet_POPCNT and InstructionSet_POPCNT_X64 are excluded
-            // even though they are "scalar" ISA because they depend on SSE4.2
-            // and Popcnt.IsSupported implies Sse42.IsSupported
-            return true;
-        default:
-            return false;
-    }
-}
-
 GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
 {
     assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
@@ -622,8 +551,6 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_Vector256_ToScalar:
             assert(sig.paramCount == 1);
             assert(sig.paramLayout[0]->GetElementType() == sig.retType);
-
-            intrinsic = sig.paramType[0] == TYP_SIMD32 ? NI_Vector256_GetElement : NI_Vector128_GetElement;
 
             op2 = comp->gtNewIconNode(0);
             op1 = PopVec(sig.paramType[0]);
