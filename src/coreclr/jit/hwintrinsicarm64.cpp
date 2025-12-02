@@ -270,11 +270,6 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert((sig.paramCount >= 1) && (sig.paramCount <= 16));
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
-            {
-                return nullptr;
-            }
-
             eltType  = varTypeNodeType(sig.retLayout->GetElementType());
             simdSize = sig.retLayout->GetSize();
 
@@ -320,11 +315,6 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramCount == 2);
             assert(sig.paramLayout[0]->GetElementType() == sig.retType);
 
-            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
-            {
-                return nullptr;
-            }
-
             op2 = impPopStackCoerceArg(TYP_INT);
             op1 = PopVec(sig.paramType[0]);
             return impVectorGetElement(sig.paramLayout[0], op1, op2);
@@ -332,11 +322,6 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
         case NI_Vector64_ToScalar:
         case NI_Vector128_ToScalar:
             assert(sig.paramCount == 1);
-
-            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
-            {
-                return nullptr;
-            }
 
             op2 = comp->gtNewIconNode(0);
             op1 = PopVec(sig.paramType[0]);
@@ -348,11 +333,6 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramCount == 2);
             assert(sig.paramLayout[0]->GetElementType() == eltType);
             assert(sig.paramType[1] == TYP_UBYTE);
-
-            if (!comp->compExactlyDependsOn(InstructionSet_AdvSimd))
-            {
-                return nullptr;
-            }
 
             op2 = impPopStackCoerceArg(TYP_INT);
             op1 = PopVec(sig.paramType[0]);
