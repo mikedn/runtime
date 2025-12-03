@@ -172,7 +172,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
     switch (intrinsic)
     {
         var_types eltType;
-        unsigned  simdSize;
+        unsigned  vecSize;
         GenTree*  op1;
         GenTree*  op2;
 
@@ -214,21 +214,19 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             assert(sig.paramCount == 0);
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            eltType  = varTypeNodeType(sig.retLayout->GetElementType());
-            simdSize = sig.retLayout->GetSize();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
-            return NewVecNode(sig.retType, intrinsic, eltType, simdSize);
+            return NewVecNode(sig.retType, intrinsic, eltType);
 
         case NI_Vector64_Create:
         case NI_Vector128_Create:
             assert((sig.paramCount >= 1) && (sig.paramCount <= 16));
             assert((sig.retType == TYP_SIMD8) || (sig.retType == TYP_SIMD16));
 
-            eltType  = varTypeNodeType(sig.retLayout->GetElementType());
-            simdSize = sig.retLayout->GetSize();
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
             {
-                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, intrinsic, eltType, simdSize);
+                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, intrinsic, eltType);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
                 for (unsigned i = 0; i < sig.paramCount; i++)
@@ -296,9 +294,9 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
                 return NewVecExtractNode(sig.paramType[0], eltType, op1, op2);
             }
 
-            simdSize = sig.paramLayout[0]->GetSize();
+            vecSize = sig.paramLayout[0]->GetSize();
 
-            return NewVecNode(varTypeNodeType(sig.retType), NI_AdvSimd_Extract, eltType, simdSize, op1, op2);
+            return NewVecNode(varTypeNodeType(sig.retType), NI_AdvSimd_Extract, eltType, vecSize, op1, op2);
 
         case NI_Vector128_GetUpper:
             assert(sig.paramCount == 1);
@@ -307,8 +305,8 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
             op1 = PopVec(TYP_SIMD16);
-            op2 = NewVecNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType, 8);
-            op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, 16, op1, op2,
+            op2 = NewVecNode(TYP_SIMD8, NI_Vector128_get_Zero, eltType);
+            op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, op1, op2,
                              comp->gtNewIconNode(8 / varTypeSize(eltType)));
             return NewVecNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
 

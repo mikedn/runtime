@@ -15,8 +15,8 @@ struct ExpandNonConstImmHelper
     int            immValue;
     int            immLowerBound;
     int            immUpperBound;
-    regNumber      nonConstImmReg;
-    regNumber      branchTargetReg = REG_NA;
+    RegNum         nonConstImmReg;
+    RegNum         branchTargetReg = REG_NA;
     Emitter&       emit;
 
     ExpandNonConstImmHelper(CodeGen* codeGen, GenTree* immOp, GenTreeHWIntrinsic* intrin)
@@ -182,8 +182,8 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     const bool isRMW         = node->IsRMW(compiler);
     const bool hasImmOperand = HWIntrinsicInfo::HasImmediateOperand(intrin.id);
 
-    regNumber defReg = node->GetRegNum();
-    regNumber regs[4]{REG_NA, REG_NA, REG_NA, REG_NA};
+    RegNum defReg = node->GetRegNum();
+    RegNum regs[4]{REG_NA, REG_NA, REG_NA, REG_NA};
 
     noway_assert(intrin.numOperands <= _countof(regs));
 
@@ -576,13 +576,13 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
     var_types eltType = node->GetSimdBaseType();
     GenTree*  vec     = node->GetOp(0);
     GenTree*  index   = node->GetOp(1);
-    regNumber destReg = node->GetRegNum();
+    RegNum    destReg = node->GetRegNum();
     Emitter&  emit    = *GetEmitter();
 
     if (vec->isUsedFromReg())
     {
-        regNumber vecReg     = UseReg(vec);
-        ssize_t   indexValue = index->AsIntCon()->GetValue();
+        RegNum  vecReg     = UseReg(vec);
+        ssize_t indexValue = index->AsIntCon()->GetValue();
 
         if (!varTypeIsFloating(eltType) || (destReg != vecReg) || (indexValue != 0))
         {
@@ -596,7 +596,7 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
 
     if (!index->IsIntCon())
     {
-        regNumber baseReg;
+        RegNum baseReg;
 
         if (vec->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
@@ -608,7 +608,7 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
             baseReg = UseReg(vec->AsIndir()->GetAddr());
         }
 
-        regNumber indexReg = UseReg(index);
+        RegNum indexReg = UseReg(index);
         assert(baseReg != indexReg);
 
         emit.emitIns_R_R_R_Ext(ins_Load(eltType), emitTypeSize(eltType), destReg, baseReg, indexReg, INS_OPTS_UXTW,
@@ -627,8 +627,8 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
         return;
     }
 
-    GenTree*  addr = vec->AsIndir()->GetAddr();
-    regNumber baseReg;
+    GenTree* addr = vec->AsIndir()->GetAddr();
+    RegNum   baseReg;
 
     if (addr->isUsedFromReg())
     {

@@ -6590,9 +6590,9 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             // TODO-MIKE-Review: Could we get here on ARM64 due to Vector2/Vector64
             // reinterpretation?
 
-            val = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
-                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
-                                           gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
+            val = gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT,
+                               gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
+                               gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
 
             var_types regType = varActualType(info.retDesc.GetRegType(0));
             assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
@@ -6921,7 +6921,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
             GenTreeLclLoad* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
 
             GenTree* doubleValue =
-                gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, field0LclNode, field1LclNode);
+                gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, field0LclNode, field1LclNode);
 
             return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
         }
@@ -7437,11 +7437,11 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
         {
             assert(regValue->TypeIs(TYP_FLOAT));
 
-            regValue = gtNewSimdHWIntrinsicNode(
+            regValue = gtNewVecNode(
 #ifdef UNIX_AMD64_ABI
-                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16,
+                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT,
 #elif defined(TARGET_ARM64)
-                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT, 8,
+                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT,
 #else
 #error Unknown target
 #endif
@@ -7681,7 +7681,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             arg->SetDoNotCSE();
         }
 
-        arg = gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, 16, arg, gtCloneExpr(arg));
+        arg = gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, arg, gtCloneExpr(arg));
         // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
         // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
         arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
@@ -10892,8 +10892,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
         }
         else
         {
-            return gtNewSimdHWIntrinsicNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, varTypeSize(type),
-                                            initVal);
+            return gtNewVecNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, initVal);
         }
     }
 #endif

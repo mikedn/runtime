@@ -11081,32 +11081,58 @@ GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_t
         GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(eltType), varTypeSize(type));
 }
 
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType)
+{
+    assert(varTypeIsTargetVec(type));
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, varTypeSize(type));
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
+                                                       NamedIntrinsic intrinsic,
+                                                       var_types      eltType,
                                                        unsigned       size)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size);
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType, GenTree* op1)
+{
+    assert(varTypeIsTargetVec(type));
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, varTypeSize(type), op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1)
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned size, GenTree* op1)
 {
     lvaRecordSimdIntrinsicUse(op1);
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size, op1);
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, GenTree* op1, GenTree* op2)
+{
+    assert(varTypeIsTargetVec(type));
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, varTypeSize(type), op1, op2);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned size, GenTree* op1, GenTree* op2)
 {
     lvaRecordSimdIntrinsicUse(op1);
     lvaRecordSimdIntrinsicUse(op2);
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size, op1, op2);
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, GenTree* op1, GenTree* op2, GenTree* op3)
+{
+    assert(varTypeIsTargetVec(type));
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, eltType, varTypeSize(type), op1, op2, op3);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
+                                                       NamedIntrinsic intrinsic,
+                                                       var_types      eltType,
                                                        unsigned       size,
                                                        GenTree*       op1,
                                                        GenTree*       op2,
@@ -11115,19 +11141,19 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     lvaRecordSimdIntrinsicUse(op1);
     lvaRecordSimdIntrinsicUse(op2);
     lvaRecordSimdIntrinsicUse(op3);
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size, op1, op2, op3);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size, op1, op2, op3);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
+                                                       NamedIntrinsic intrinsic,
+                                                       var_types      eltType,
                                                        unsigned       size,
                                                        GenTree*       op1,
                                                        GenTree*       op2,
                                                        GenTree*       op3,
                                                        GenTree*       op4)
 {
-    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size);
+    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size);
     node->SetNumOps(4, getAllocator(CMK_ASTNode));
     node->SetOp(0, op1);
     node->SetOp(1, op2);
@@ -11141,35 +11167,10 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     return node;
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
-                                                       NamedIntrinsic hwIntrinsicID,
-                                                       var_types      baseType,
-                                                       unsigned       size,
-                                                       GenTree*       op1,
-                                                       GenTree*       op2,
-                                                       GenTree*       op3,
-                                                       GenTree*       op4,
-                                                       GenTree*       op5)
-{
-    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size);
-    node->SetNumOps(5, getAllocator(CMK_ASTNode));
-    node->SetOp(0, op1);
-    node->SetOp(1, op2);
-    node->SetOp(2, op3);
-    node->SetOp(3, op4);
-    node->SetOp(4, op5);
-    for (GenTreeHWIntrinsic::Use& use : node->Uses())
-    {
-        node->gtFlags |= use.GetNode()->GetSideEffects();
-        lvaRecordSimdIntrinsicUse(use.GetNode());
-    }
-    return node;
-}
-
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, var_types baseType, unsigned size, unsigned numOps, GenTree** ops)
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned size, unsigned numOps, GenTree** ops)
 {
-    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, baseType, size);
+    GenTreeHWIntrinsic* node = new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size);
     node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
     for (unsigned i = 0; i < numOps; i++)
     {
@@ -11247,7 +11248,7 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
 #elif defined(TARGET_ARM64)
     if ((type == TYP_SIMD8) && (varTypeSize(eltType) == 8))
     {
-        return gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector64_Create, eltType, 8, elt);
+        return gtNewVecNode(TYP_SIMD8, NI_Vector64_Create, eltType, elt);
     }
 
     intrinsic = NI_AdvSimd_Insert;

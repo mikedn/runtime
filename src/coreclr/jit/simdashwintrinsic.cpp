@@ -514,7 +514,7 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
         case NI_VectorT256_AndNot:
             return impVectorTAndNot(sig, ops[0], ops[1]);
         case NI_VectorT256_ConvertToInt32:
-            return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, 32, ops[0]);
+            return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Int32WithTruncation, TYP_INT, ops[0]);
         case NI_VectorT128_ConvertToSingle:
             return impVectorT128ConvertUInt32ToSingle(sig, ops[0]);
         case NI_VectorT256_ConvertToSingle:
@@ -523,7 +523,7 @@ GenTree* Importer::impVector234TSpecial(NamedIntrinsic              intrinsic,
             if (sig.paramLayout[0]->GetElementType() == TYP_INT)
             {
                 assert(sig.retLayout->GetElementType() == TYP_FLOAT);
-                return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, 32, ops[0]);
+                return NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, ops[0]);
             }
             return impVectorT256ConvertUInt32ToSingle(sig, ops[0]);
         case NI_VectorT128_ConvertToDouble:
@@ -577,12 +577,11 @@ GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
     assert(varTypeIsSIMD(sig.retType));
     assert(sig.paramCount == 0);
 
-    var_types type    = sig.retLayout->GetSIMDType();
-    var_types vecType = varTypeGetTargetVec(type);
+    var_types vecType = varTypeGetTargetVec(sig.retLayout->GetVectorType());
     var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
     GenTree* one = gtNewOneConNode(eltType);
-    return NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), one);
+    return NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, one);
 }
 
 GenTree* Importer::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -602,7 +601,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     assert(layout->IsVector());
     assert(sig.paramCount == 1);
 
-    var_types type     = layout->GetSIMDType();
+    var_types type     = layout->GetVectorType();
     var_types vecType  = varTypeGetTargetVec(type);
     var_types eltType  = varTypeNodeType(layout->GetElementType());
     GenTree*  arg      = impPopStackCoerceArg(varActualType(sig.paramType[0]));
@@ -615,7 +614,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     }
     else
     {
-        create = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), arg);
+        create = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, arg);
     }
 
     if (destAddr != nullptr)
@@ -697,8 +696,7 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
                 break;
         }
 
-        create =
-            NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), TYP_FLOAT, varTypeSize(vecType), argCount, args);
+        create = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), TYP_FLOAT, argCount, args);
     }
 
     if (destAddr != nullptr)
@@ -735,27 +733,27 @@ GenTree* Importer::impVector34CreateExtend(const HWIntrinsicSignature& sig, Clas
 
     for (unsigned i = 1; i < sig.paramCount; i++)
     {
-        create = NewVecNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, 16, create,
-                            comp->gtNewIconNode(insertIndex + i - 1), args[i]);
+        create = NewVecNode(TYP_SIMD16, NI_AdvSimd_Insert, TYP_FLOAT, create, comp->gtNewIconNode(insertIndex + i - 1),
+                            args[i]);
     }
 #elif defined(TARGET_XARCH)
     if (sig.paramCount == 3)
     {
-        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[1]);
-        args[2] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[2]);
-        create  = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16, args[1], args[2]);
-        create  = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, args[0], create);
+        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[1]);
+        args[2] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[2]);
+        create  = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, args[1], args[2]);
+        create  = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, args[0], create);
     }
     else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        create = NewVecNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, 16, args[0], args[1],
-                            comp->gtNewIconNode(insertIndex << 4));
+        create =
+            NewVecNode(TYP_SIMD16, NI_SSE41_Insert, TYP_FLOAT, args[0], args[1], comp->gtNewIconNode(insertIndex << 4));
     }
     else if (insertIndex == 2)
     {
         create = NewVecZeroNode(TYP_SIMD16, TYP_FLOAT);
-        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, 16, create, args[1]);
-        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, args[0], create);
+        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveScalar, TYP_FLOAT, create, args[1]);
+        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, args[0], create);
     }
     else
     {
@@ -764,11 +762,11 @@ GenTree* Importer::impVector34CreateExtend(const HWIntrinsicSignature& sig, Clas
         GenTree* arg0Uses[3];
         impMakeMultiUse(args[0], 3, arg0Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector3 extend temp"));
 
-        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, 16, args[1]);
+        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[1]);
 
-        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, arg0Uses[0], arg0Uses[1]);
-        create = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, 16, create, args[1]);
-        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, arg0Uses[2], create);
+        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, arg0Uses[0], arg0Uses[1]);
+        create = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, create, args[1]);
+        create = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, arg0Uses[2], create);
     }
 #else
 #error Unsupported platform
@@ -978,7 +976,7 @@ GenTree* Importer::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
 
     var_types eltType = sig.retLayout->GetElementType();
 
-    return NewVecNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, 16, mask, op1, op2);
+    return NewVecNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, mask, op1, op2);
 }
 
 GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -990,11 +988,11 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
 
     if (sig.paramType[0] == TYP_SIMD8)
     {
-        op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_Multiply, TYP_FLOAT, 8, op1, op2);
+        op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_Multiply, TYP_FLOAT, op1, op2);
         return NewVecNode(TYP_FLOAT, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_FLOAT, 8, op1);
     }
 
-    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, 16, op1, op2);
+    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, op1, op2);
 
     if (sig.paramType[0] == TYP_SIMD12)
     {
@@ -1024,7 +1022,7 @@ GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op
     eltType = varTypeToSigned(eltType);
 
     op1 = NewVecNode(TYP_SIMD16, eltType == TYP_LONG ? NI_AdvSimd_Arm64_AddPairwiseScalar : NI_AdvSimd_Arm64_AddAcross,
-                     eltType, 16, op1);
+                     eltType, op1);
     return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
 }
 
@@ -1039,13 +1037,13 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
 
     if (eltType == TYP_FLOAT)
     {
-        op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, 16, op1, op2);
+        op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, TYP_FLOAT, op1, op2);
         return NewVecNode(TYP_FLOAT, NI_Vector128_Sum, TYP_FLOAT, 16, op1);
     }
 
     if (eltType == TYP_DOUBLE)
     {
-        op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Arm64_Multiply, TYP_DOUBLE, 16, op1, op2);
+        op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Arm64_Multiply, TYP_DOUBLE, op1, op2);
         return NewVecNode(TYP_DOUBLE, NI_AdvSimd_Arm64_AddPairwiseScalar, TYP_DOUBLE, 16, op1);
     }
 
@@ -1074,8 +1072,8 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
         return comp->gtNewOperNode(GT_ADD, TYP_LONG, mul1, mul2);
     }
 
-    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, eltType, 16, op1, op2);
-    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddAcross, eltType, 16, op1);
+    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, eltType, op1, op2);
+    op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddAcross, eltType, op1);
     return NewVecExtractNode(TYP_SIMD16, eltType, op1, comp->gtNewIconNode(0));
 }
 
@@ -1095,8 +1093,8 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     impMakeMultiUse(op1, uses[0], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
     impMakeMultiUse(op2, uses[1], layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Max/Min temp"));
 
-    GenTree* condition = NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, uses[0][0], uses[1][0]);
-    return NewVecNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, 16, condition, uses[0][1], uses[1][1]);
+    GenTree* condition = NewVecNode(TYP_SIMD16, intrinsic, eltType, uses[0][0], uses[1][0]);
+    return NewVecNode(TYP_SIMD16, NI_AdvSimd_BitwiseSelect, eltType, condition, uses[0][1], uses[1][1]);
 }
 
 GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -1123,7 +1121,7 @@ GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree*
     var_types retEltType = sig.retLayout->GetElementType();
 
     op1 = NewVecNode(TYP_SIMD16, lower, retEltType, 8, op1);
-    return NewVecNode(TYP_SIMD16, upper, retEltType, 16, op1, op2);
+    return NewVecNode(TYP_SIMD16, upper, retEltType, op1, op2);
 }
 
 GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
@@ -1162,7 +1160,7 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
     }
 
     GenTree* lo = NewVecNode(TYP_SIMD16, lower, eltType, 8, uses[0]);
-    GenTree* hi = NewVecNode(TYP_SIMD16, upper, eltType, 16, uses[1]);
+    GenTree* hi = NewVecNode(TYP_SIMD16, upper, eltType, uses[1]);
     impSpillAllAppendTree(impVectorStore(TYP_SIMD16, loAddr, lo));
     return impVectorStore(TYP_SIMD16, hiAddr, hi);
 }
@@ -1189,7 +1187,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = PopVec(sig.paramType[1]);
         op1 = impPopStack().val;
 
-        op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Create, varTypeNodeType(eltType), 16, op1);
+        op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Create, varTypeNodeType(eltType), op1);
     }
     else if (sig.paramLayout[1] == nullptr)
     {
@@ -1201,12 +1199,12 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
         if (varTypeIsByte(eltType))
         {
-            op2 = NewVecNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, op2);
+            op2 = NewVecNode(TYP_SIMD16, NI_Vector128_Create, eltType, op2);
         }
         else
         {
             intrinsic = eltType == TYP_DOUBLE ? NI_AdvSimd_Arm64_MultiplyByScalar : NI_AdvSimd_MultiplyByScalar;
-            op2       = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varTypeNodeType(eltType), 16, op2);
+            op2       = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varTypeNodeType(eltType), op2);
         }
     }
     else
@@ -1225,7 +1223,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
     // the integer multiplication result back into a vector register and that's
     // probably costly enough - FMOV has latency 5 and INS has latency 8!!!
 
-    return NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
+    return NewVecNode(TYP_SIMD16, intrinsic, eltType, op1, op2);
 }
 
 #endif // TARGET_ARMARCH
@@ -1263,13 +1261,13 @@ GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
             intrinsic = NI_SSE2_And;
         }
 
-        mask = NewVecNode(TYP_SIMD16, NI_Vector128_Create, eltType, 16, mask);
-        return NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, op1, mask);
+        mask = NewVecNode(TYP_SIMD16, NI_Vector128_Create, eltType, mask);
+        return NewVecNode(TYP_SIMD16, intrinsic, eltType, op1, mask);
     }
 
     if ((eltType != TYP_LONG) && comp->compOpportunisticallyDependsOn(InstructionSet_SSSE3))
     {
-        return NewVecNode(TYP_SIMD16, NI_SSSE3_Abs, eltType, 16, op1);
+        return NewVecNode(TYP_SIMD16, NI_SSSE3_Abs, eltType, op1);
     }
 
     GenTree* uses[2];
@@ -1280,30 +1278,30 @@ GenTree* Importer::impVector234T128Abs(const HWIntrinsicSignature& sig, GenTree*
     if (eltType == TYP_BYTE)
     {
         sign = NewVecZeroNode(layout);
-        sign = NewVecNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, TYP_BYTE, 16, sign, uses[0]);
+        sign = NewVecNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, TYP_BYTE, sign, uses[0]);
     }
     else if ((eltType == TYP_SHORT) || (eltType == TYP_INT))
     {
         sign = comp->gtNewIconNode(varTypeBitSize(eltType) - 1);
-        sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, uses[0], sign);
+        sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, uses[0], sign);
     }
     else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE42))
     {
         sign = NewVecZeroNode(layout);
-        sign = NewVecNode(TYP_SIMD16, NI_SSE42_CompareGreaterThan, TYP_LONG, 16, sign, uses[0]);
+        sign = NewVecNode(TYP_SIMD16, NI_SSE42_CompareGreaterThan, TYP_LONG, sign, uses[0]);
     }
     else
     {
         sign = comp->gtNewIconNode(31);
-        sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, 16, uses[0], sign);
-        sign = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, sign, comp->gtNewIconNode(0b11110101));
+        sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, uses[0], sign);
+        sign = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, sign, comp->gtNewIconNode(0b11110101));
     }
 
     GenTree* signUses[2];
     impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
 
-    GenTree* tmp = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, signUses[0], uses[1]);
-    return NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, eltType, 16, tmp, signUses[1]);
+    GenTree* tmp = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, eltType, signUses[0], uses[1]);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, eltType, tmp, signUses[1]);
 }
 
 GenTree* Importer::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op1)
@@ -1334,8 +1332,8 @@ GenTree* Importer::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op
             mask = comp->gtNewDconNode(jitstd::bit_cast<double, int64_t>(0x7fffffffffffffffLL), TYP_DOUBLE);
         }
 
-        mask = NewVecNode(TYP_SIMD32, NI_Vector256_Create, eltType, 32, mask);
-        return NewVecNode(TYP_SIMD32, NI_AVX_And, eltType, 32, op1, mask);
+        mask = NewVecNode(TYP_SIMD32, NI_Vector256_Create, eltType, mask);
+        return NewVecNode(TYP_SIMD32, NI_AVX_And, eltType, op1, mask);
     }
 
     if (eltType == TYP_LONG)
@@ -1344,15 +1342,15 @@ GenTree* Importer::impVectorT256Abs(const HWIntrinsicSignature& sig, GenTree* op
         impMakeMultiUse(op1, uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs temp"));
 
         GenTree* zero = NewVecZeroNode(layout);
-        GenTree* sign = NewVecNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, 32, zero, uses[0]);
+        GenTree* sign = NewVecNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, zero, uses[0]);
         GenTree* signUses[2];
         impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Abs sign temp"));
 
-        GenTree* tmp = NewVecNode(TYP_SIMD32, NI_AVX2_Xor, eltType, 32, signUses[0], uses[1]);
-        return NewVecNode(TYP_SIMD32, NI_AVX2_Subtract, eltType, 32, tmp, signUses[1]);
+        GenTree* tmp = NewVecNode(TYP_SIMD32, NI_AVX2_Xor, eltType, signUses[0], uses[1]);
+        return NewVecNode(TYP_SIMD32, NI_AVX2_Subtract, eltType, tmp, signUses[1]);
     }
 
-    return NewVecNode(TYP_SIMD32, NI_AVX2_Abs, eltType, 32, op1);
+    return NewVecNode(TYP_SIMD32, NI_AVX2_Abs, eltType, op1);
 }
 
 GenTree* Importer::impVectorTAndNot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -1407,17 +1405,17 @@ GenTree* Importer::impVectorT128ConvertUInt32ToSingle(const HWIntrinsicSignature
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     GenTree* c;
-    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, 16, uses[0], comp->gtNewIconNode(16));
-    c       = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, comp->gtNewIconNode(0x53000000));
-    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, 16, uses[0], c);
-    c       = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, comp->gtNewIconNode(0x53000000));
-    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE_Subtract, TYP_FLOAT, 16, uses[0], c);
+    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, uses[0], comp->gtNewIconNode(16));
+    c       = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, comp->gtNewIconNode(0x53000000));
+    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, uses[0], c);
+    c       = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, comp->gtNewIconNode(0x53000000));
+    uses[0] = NewVecNode(TYP_SIMD16, NI_SSE_Subtract, TYP_FLOAT, uses[0], c);
 
-    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_INT, 16, uses[1], comp->gtNewIconNode(16));
-    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, 16, uses[1], comp->gtNewIconNode(16));
-    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_INT, 16, uses[1]);
+    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_INT, uses[1], comp->gtNewIconNode(16));
+    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_INT, uses[1], comp->gtNewIconNode(16));
+    uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_INT, uses[1]);
 
-    return NewVecNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, 16, uses[0], uses[1]);
+    return NewVecNode(TYP_SIMD16, NI_SSE_Add, TYP_FLOAT, uses[0], uses[1]);
 }
 
 GenTree* Importer::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature& sig, GenTree* op1)
@@ -1432,17 +1430,17 @@ GenTree* Importer::impVectorT256ConvertUInt32ToSingle(const HWIntrinsicSignature
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     GenTree* c;
-    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, 32, uses[0], comp->gtNewIconNode(16));
-    c       = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, 32, comp->gtNewIconNode(0x53000000));
-    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, 32, uses[0], c);
-    c       = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, 32, comp->gtNewIconNode(0x53000000));
-    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_FLOAT, 32, uses[0], c);
+    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, uses[0], comp->gtNewIconNode(16));
+    c       = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, comp->gtNewIconNode(0x53000000));
+    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, uses[0], c);
+    c       = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_INT, comp->gtNewIconNode(0x53000000));
+    uses[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_FLOAT, uses[0], c);
 
-    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_INT, 32, uses[1], comp->gtNewIconNode(16));
-    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, 32, uses[1], comp->gtNewIconNode(16));
-    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, 32, uses[1]);
+    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_INT, uses[1], comp->gtNewIconNode(16));
+    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_INT, uses[1], comp->gtNewIconNode(16));
+    uses[1] = NewVecNode(TYP_SIMD32, NI_AVX_ConvertToVector256Single, TYP_FLOAT, uses[1]);
 
-    return NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_FLOAT, 32, uses[0], uses[1]);
+    return NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_FLOAT, uses[0], uses[1]);
 }
 
 GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
@@ -1457,37 +1455,37 @@ GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
     GenTree* uses[3];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
-    GenTree* sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], comp->gtNewIconNode(63));
-    sign          = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, sign, comp->gtNewIconNode(63));
+    GenTree* sign = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(63));
+    sign          = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, sign, comp->gtNewIconNode(63));
 
-    GenTree* uns = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, uses[1], comp->gtNewIconNode(0xF5));
-    uns          = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, 16, uns, comp->gtNewIconNode(32));
+    GenTree* uns = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, uses[1], comp->gtNewIconNode(0xF5));
+    uns          = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, TYP_INT, uns, comp->gtNewIconNode(32));
     GenTree* unsUses[2];
     impMakeMultiUse(uns, unsUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
-    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[2], unsUses[0]);
-    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_LONG, 16, uns, unsUses[1]);
+    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, uses[2], unsUses[0]);
+    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_LONG, uns, unsUses[1]);
 
     GenTree* e[2];
     GenTree* c[2];
 
     impMakeMultiUse(uns, 2, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], comp->gtNewIconNode(32));
-    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[0], c[0]);
-    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[0], c[0]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(32));
+    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, e[0], c[0]);
+    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, e[0], c[0]);
 
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, uses[1], comp->gtNewIconNode(32));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, e[1], comp->gtNewIconNode(32));
-    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[1], c[1]);
-    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[1], c[1]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, uses[1], comp->gtNewIconNode(32));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, e[1], comp->gtNewIconNode(32));
+    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, e[1], c[1]);
+    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, e[1], c[1]);
 
-    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, 16, e[0], e[1]);
+    uns = NewVecNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, e[0], e[1]);
 
-    return NewVecNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, 16, uns, sign);
+    return NewVecNode(TYP_SIMD16, NI_SSE_Or, TYP_FLOAT, uns, sign);
 #else
     GenTree* uses[4];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
@@ -1495,7 +1493,7 @@ GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
     GenTree* e[2];
 
     e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[0]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[0]);
 
     if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
@@ -1503,12 +1501,12 @@ GenTree* Importer::impVectorT128ConvertInt64ToDouble(const HWIntrinsicSignature&
     }
     else
     {
-        e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, uses[2], comp->gtNewIconNode(0b00001110));
+        e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, uses[2], comp->gtNewIconNode(0b00001110));
         e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, e[1]);
     }
 
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[1]);
-    return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[0], e[1]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[1]);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[0], e[1]);
 #endif
 }
 
@@ -1524,37 +1522,37 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
     GenTree* uses[3];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
-    GenTree* sign = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], comp->gtNewIconNode(63));
-    sign          = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, sign, comp->gtNewIconNode(63));
+    GenTree* sign = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(63));
+    sign          = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, sign, comp->gtNewIconNode(63));
 
-    GenTree* uns = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, uses[1], comp->gtNewIconNode(0xF5));
-    uns          = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightArithmetic, TYP_INT, 32, uns, comp->gtNewIconNode(32));
+    GenTree* uns = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, uses[1], comp->gtNewIconNode(0xF5));
+    uns          = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightArithmetic, TYP_INT, uns, comp->gtNewIconNode(32));
     GenTree* unsUses[2];
     impMakeMultiUse(uns, unsUses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
-    uns = NewVecNode(TYP_SIMD32, NI_AVX2_Xor, TYP_LONG, 32, uses[2], unsUses[0]);
-    uns = NewVecNode(TYP_SIMD32, NI_AVX2_Subtract, TYP_LONG, 32, uns, unsUses[1]);
+    uns = NewVecNode(TYP_SIMD32, NI_AVX2_Xor, TYP_LONG, uses[2], unsUses[0]);
+    uns = NewVecNode(TYP_SIMD32, NI_AVX2_Subtract, TYP_LONG, uns, unsUses[1]);
 
     GenTree* e[2];
     GenTree* c[2];
 
     impMakeMultiUse(uns, 2, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], comp->gtNewIconNode(32));
-    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[0], c[0]);
-    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[0], c[0]);
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(32));
+    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, e[0], c[0]);
+    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, e[0], c[0]);
 
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, uses[1], comp->gtNewIconNode(32));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, e[1], comp->gtNewIconNode(32));
-    c[1] = NewVecNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[1], c[1]);
-    c[1] = NewVecNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[1], c[1]);
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, uses[1], comp->gtNewIconNode(32));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, e[1], comp->gtNewIconNode(32));
+    c[1] = NewVecNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, e[1], c[1]);
+    c[1] = NewVecNode(TYP_SIMD32, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, e[1], c[1]);
 
-    uns = NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, 32, e[0], e[1]);
+    uns = NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, e[0], e[1]);
 
-    return NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, 32, uns, sign);
+    return NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_FLOAT, uns, sign);
 #else
     // TODO-MIKE-Cleanup: These temps should be SIMD16 but we don't have a SIMD16 layout
     // handy so they're SIMD32 instead. This would mean that all the uses should really
@@ -1564,22 +1562,22 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
 
     GenTree* e[4];
     e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[0]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[0]);
     e[1] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[1]);
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[0], e[1]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[1]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[0], e[1]);
 
     uses[0] = NewVecNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[4], comp->gtNewIconNode(1));
     uses[0] = NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, uses[0]);
     impMakeMultiUse(uses[0], 4, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     e[2] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
-    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[1], e[2]);
+    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[1], e[2]);
     e[3] = NewVecNode(TYP_LONG, NI_SSE41_X64_Extract, TYP_LONG, 16, uses[2], comp->gtNewIconNode(1));
-    e[3] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, 16, uses[3], e[3]);
-    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, 16, e[2], e[3]);
+    e[3] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Double, TYP_LONG, uses[3], e[3]);
+    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[2], e[3]);
 
-    return NewVecNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_DOUBLE, 32, e[0], e[2], comp->gtNewIconNode(1));
+    return NewVecNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_DOUBLE, e[0], e[2], comp->gtNewIconNode(1));
 #endif
 }
 
@@ -1597,20 +1595,20 @@ GenTree* Importer::impVectorT128ConvertUInt64ToDouble(const HWIntrinsicSignature
     GenTree* e[2];
     GenTree* c[2];
 
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, uses[0], comp->gtNewIconNode(32));
-    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[0], c[0]);
-    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[0], c[0]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(32));
+    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, e[0], c[0]);
+    c[0] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, e[0], c[0]);
 
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, 16, uses[1], comp->gtNewIconNode(32));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, 16, e[1], comp->gtNewIconNode(32));
-    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, 16, e[1], c[1]);
-    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, 16, e[1], c[1]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, TYP_LONG, uses[1], comp->gtNewIconNode(32));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical, TYP_LONG, e[1], comp->gtNewIconNode(32));
+    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_DOUBLE, e[1], c[1]);
+    c[1] = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_Subtract, TYP_DOUBLE, e[1], c[1]);
 
-    return NewVecNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, 16, e[0], e[1]);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_Add, TYP_DOUBLE, e[0], e[1]);
 }
 
 GenTree* Importer::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature& sig, GenTree* op1)
@@ -1627,20 +1625,20 @@ GenTree* Importer::impVectorT256ConvertUInt64ToDouble(const HWIntrinsicSignature
     GenTree* e[2];
     GenTree* c[2];
 
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, uses[0], comp->gtNewIconNode(32));
-    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[0], c[0]);
-    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4530000000000000));
-    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[0], c[0]);
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, uses[0], comp->gtNewIconNode(32));
+    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, e[0], c[0]);
+    c[0] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4530000000000000));
+    e[0] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, e[0], c[0]);
 
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, 32, uses[1], comp->gtNewIconNode(32));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, 32, e[1], comp->gtNewIconNode(32));
-    c[1] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, 32, e[1], c[1]);
-    c[1] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, 32, comp->gtNewLconNode(0x4330000000000000));
-    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, 32, e[1], c[1]);
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, TYP_LONG, uses[1], comp->gtNewIconNode(32));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, TYP_LONG, e[1], comp->gtNewIconNode(32));
+    c[1] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Or, TYP_DOUBLE, e[1], c[1]);
+    c[1] = NewVecNode(TYP_SIMD32, NI_Vector256_Create, TYP_LONG, comp->gtNewLconNode(0x4330000000000000));
+    e[1] = NewVecNode(TYP_SIMD32, NI_AVX_Subtract, TYP_DOUBLE, e[1], c[1]);
 
-    return NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, 32, e[0], e[1]);
+    return NewVecNode(TYP_SIMD32, NI_AVX_Add, TYP_DOUBLE, e[0], e[1]);
 }
 
 GenTree* Importer::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature& sig)
@@ -1661,17 +1659,17 @@ GenTree* Importer::impVectorT128ConvertDoubleToInt64(const HWIntrinsicSignature&
 
     GenTree* e[2];
     e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[0]);
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, e[0]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, uses[0], uses[1]);
     e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
 
     if (!comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[1]);
-        return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_LONG, 16, e[0], e[1]);
+        e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, e[1]);
+        return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_LONG, e[0], e[1]);
     }
 
-    return NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[0], e[1], comp->gtNewIconNode(1));
+    return NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, e[0], e[1], comp->gtNewIconNode(1));
 #endif
 }
 
@@ -1696,8 +1694,8 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
 
     GenTree* e[4];
     e[0] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[0]);
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, e[0]);
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, uses[0], uses[1]);
     e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
 
     uses[3] = NewVecNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[3], comp->gtNewIconNode(1));
@@ -1705,15 +1703,15 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
     impMakeMultiUse(uses[3], 3, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     e[2] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
-    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, 16, e[2]);
-    e[3] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, 16, uses[0], uses[1]);
+    e[2] = NewVecNode(TYP_SIMD16, NI_SSE2_X64_ConvertScalarToVector128Int64, TYP_LONG, e[2]);
+    e[3] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, TYP_DOUBLE, uses[0], uses[1]);
     e[3] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[3]);
 
-    e[0] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[0], e[1], comp->gtNewIconNode(1));
+    e[0] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, e[0], e[1], comp->gtNewIconNode(1));
     e[0] = NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, e[0]);
-    e[1] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, 16, e[2], e[3], comp->gtNewIconNode(1));
+    e[1] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, e[2], e[3], comp->gtNewIconNode(1));
 
-    return NewVecNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, 32, e[0], e[1], comp->gtNewIconNode(1));
+    return NewVecNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, e[0], e[1], comp->gtNewIconNode(1));
 #endif
 }
 
@@ -1725,7 +1723,6 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
     assert(sig.retType == TYP_FLOAT);
 
     ClassLayout* layout = sig.paramLayout[0];
-    unsigned     size   = layout->GetSize();
 
     if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
@@ -1734,12 +1731,14 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
         imm &= 0b11110000;
         imm |= 0b00000001;
 
-        op1 = NewVecNode(TYP_FLOAT, NI_SSE41_DotProduct, TYP_FLOAT, 16, op1, op2, comp->gtNewIconNode(imm));
-        return NewVecNode(TYP_FLOAT, NI_Vector128_GetElement, TYP_FLOAT, 16, op1, comp->gtNewIconNode(0));
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE41_DotProduct, TYP_FLOAT, op1, op2, comp->gtNewIconNode(imm));
+    }
+    else
+    {
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, op1, op2);
+        op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, TYP_FLOAT, layout->GetSize(), op1);
     }
 
-    op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
-    op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, TYP_FLOAT, size, op1);
     return NewVecExtractNode(TYP_SIMD16, TYP_FLOAT, op1, comp->gtNewIconNode(0));
 }
 
@@ -1764,12 +1763,12 @@ GenTree* Importer::impVectorT128Sum(GenTree* vec, var_types eltType, var_types r
 {
     if (eltType == TYP_BYTE)
     {
-        vec = NewVecNode(TYP_SIMD16, NI_SSE2_SumAbsoluteDifferences, TYP_USHORT, 16, vec,
+        vec = NewVecNode(TYP_SIMD16, NI_SSE2_SumAbsoluteDifferences, TYP_USHORT, vec,
                          NewVecZeroNode(TYP_SIMD16, TYP_BYTE));
         eltType = TYP_LONG;
     }
 
-    vec = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, vec);
+    vec = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, vec);
     return NewVecExtractNode(TYP_SIMD16, retType, vec, comp->gtNewIconNode(0));
 }
 
@@ -1807,29 +1806,29 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
     {
         uint8_t imm = eltType == TYP_FLOAT ? 0b11110001 : 0b00110001;
 
-        op1 = NewVecNode(eltType, NI_SSE41_DotProduct, eltType, 16, op1, op2, comp->gtNewIconNode(imm));
-        return NewVecNode(eltType, NI_Vector128_GetElement, eltType, 16, op1, comp->gtNewIconNode(0));
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE41_DotProduct, eltType, op1, op2, comp->gtNewIconNode(imm));
+        return NewVecExtractNode(TYP_SIMD16, eltType, op1, comp->gtNewIconNode(0));
     }
 
     switch (eltType)
     {
         case TYP_FLOAT:
-            op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, 16, op1, op2);
+            op1 = NewVecNode(TYP_SIMD16, NI_SSE_Multiply, TYP_FLOAT, op1, op2);
             break;
         case TYP_DOUBLE:
-            op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_DOUBLE, 16, op1, op2);
+            op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_DOUBLE, op1, op2);
             break;
         case TYP_LONG:
             op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
-            op1     = NewVecNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, 16, op1, op2);
+            op1     = NewVecNode(TYP_SIMD16, NI_SSE41_MultiplyLow, TYP_INT, op1, op2);
             eltType = TYP_INT;
             break;
         case TYP_SHORT:
         case TYP_USHORT:
-            op1     = NewVecNode(TYP_SIMD16, NI_SSE2_MultiplyAddAdjacent, TYP_INT, 16, op1, op2);
+            op1     = NewVecNode(TYP_SIMD16, NI_SSE2_MultiplyAddAdjacent, TYP_INT, op1, op2);
             eltType = TYP_INT;
             break;
         default:
@@ -1839,7 +1838,7 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
             break;
     }
 
-    op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, op1);
+    op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, op1);
     return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
 }
 
@@ -1856,28 +1855,27 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
 
     if (eltType == TYP_FLOAT)
     {
-        uint8_t imm = 0b11110001;
-        op1         = NewVecNode(TYP_SIMD32, NI_AVX_DotProduct, TYP_FLOAT, 32, op1, op2, comp->gtNewIconNode(imm));
-        op1         = NewVecNode(TYP_SIMD16, NI_Vector256_Sum, TYP_FLOAT, 32, op1);
-        return NewVecNode(eltType, NI_Vector128_GetElement, TYP_FLOAT, 16, op1, comp->gtNewIconNode(0));
+        op1 = NewVecNode(TYP_SIMD32, NI_AVX_DotProduct, TYP_FLOAT, op1, op2, comp->gtNewIconNode(0b11110001));
+        op1 = NewVecNode(TYP_SIMD16, NI_Vector256_Sum, TYP_FLOAT, 32, op1);
+        return NewVecExtractNode(TYP_SIMD16, TYP_FLOAT, op1, comp->gtNewIconNode(0));
     }
 
     switch (eltType)
     {
         case TYP_DOUBLE:
-            op1 = NewVecNode(TYP_SIMD32, NI_AVX_Multiply, TYP_DOUBLE, 32, op1, op2);
+            op1 = NewVecNode(TYP_SIMD32, NI_AVX_Multiply, TYP_DOUBLE, op1, op2);
             break;
         case TYP_LONG:
             op1     = impVectorTMultiplyLong(sig.paramLayout[0], op1, op2);
             eltType = TYP_LONG;
             break;
         case TYP_INT:
-            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyLow, TYP_INT, 32, op1, op2);
+            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyLow, TYP_INT, op1, op2);
             eltType = TYP_INT;
             break;
         case TYP_SHORT:
         case TYP_USHORT:
-            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyAddAdjacent, TYP_INT, 32, op1, op2);
+            op1     = NewVecNode(TYP_SIMD32, NI_AVX2_MultiplyAddAdjacent, TYP_INT, op1, op2);
             eltType = TYP_INT;
             break;
         default:
@@ -1888,7 +1886,7 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
     }
 
     op1 = NewVecNode(TYP_SIMD16, NI_Vector256_Sum, eltType, 32, op1);
-    op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, 16, op1);
+    op1 = NewVecNode(TYP_SIMD16, NI_Vector128_Sum, eltType, op1);
     return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
 }
 
@@ -1924,7 +1922,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
     assert(sig.retType == TYP_BOOL);
 
     ClassLayout* layout  = sig.paramLayout[0];
-    var_types    type    = layout->GetSIMDType();
+    var_types    type    = layout->GetVectorType();
     var_types    vecType = varTypeGetTargetVec(type);
     var_types    eltType = layout->GetElementType();
     unsigned     size    = layout->GetSize();
@@ -1946,7 +1944,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
             eq = notEqual ? NI_Vector128_op_Inequality : NI_Vector128_op_Equality;
         }
 
-        return NewVecNode(sig.retType, eq, eltType, size, op1, op2);
+        return NewVecNode(TYP_BOOL, eq, eltType, size, op1, op2);
     }
 
     NamedIntrinsic cmpeq;
@@ -2004,7 +2002,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     if (((eltType == TYP_BYTE) || (eltType == TYP_USHORT) || (eltType == TYP_INT) || (eltType == TYP_UINT)) &&
         comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        return NewVecNode(TYP_SIMD16, isMax ? NI_SSE41_Max : NI_SSE41_Min, eltType, 16, op1, op2);
+        return NewVecNode(TYP_SIMD16, isMax ? NI_SSE41_Max : NI_SSE41_Min, eltType, op1, op2);
     }
 
     if ((eltType == TYP_BYTE) || (eltType == TYP_USHORT))
@@ -2029,14 +2027,14 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
             eltType       = TYP_SHORT;
         }
 
-        GenTree* constVector = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, 16, constVal);
+        GenTree* constVector = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_INT, constVal);
         GenTree* constUses[3];
         impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax const temp"));
 
-        op1 = NewVecNode(TYP_SIMD16, preIntrinsic, eltType, 16, op1, constUses[0]);
-        op2 = NewVecNode(TYP_SIMD16, preIntrinsic, eltType, 16, op2, constUses[1]);
-        op1 = NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
-        return NewVecNode(TYP_SIMD16, postIntrinsic, eltType, 16, op1, constUses[2]);
+        op1 = NewVecNode(TYP_SIMD16, preIntrinsic, eltType, op1, constUses[0]);
+        op2 = NewVecNode(TYP_SIMD16, preIntrinsic, eltType, op2, constUses[1]);
+        op1 = NewVecNode(TYP_SIMD16, intrinsic, eltType, op1, op2);
+        return NewVecNode(TYP_SIMD16, postIntrinsic, eltType, op1, constUses[2]);
     }
 
     assert(varTypeIsInt(eltType) || varTypeIsLong(eltType));
@@ -2056,7 +2054,7 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
             eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &uses[0][0], &uses[1][0]);
         }
 
-        mask = NewVecNode(TYP_SIMD16, ni, eltType, 16, uses[0][0], uses[1][0]);
+        mask = NewVecNode(TYP_SIMD16, ni, eltType, uses[0][0], uses[1][0]);
     }
     else if (eltType == TYP_LONG)
     {
@@ -2076,12 +2074,12 @@ GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree*
     {
         GenTree* maskUses[2];
         impMakeMultiUse(mask, maskUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.MinMax mask temp"));
-        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_And, eltType, 16, uses[1][1], maskUses[0]);
-        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_AndNot, eltType, 16, maskUses[1], uses[0][1]);
-        return NewVecNode(TYP_SIMD16, NI_SSE2_Or, eltType, 16, op1, op2);
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_And, eltType, uses[1][1], maskUses[0]);
+        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_AndNot, eltType, maskUses[1], uses[0][1]);
+        return NewVecNode(TYP_SIMD16, NI_SSE2_Or, eltType, op1, op2);
     }
 
-    return NewVecNode(TYP_SIMD16, NI_SSE41_BlendVariable, TYP_UBYTE, 16, uses[0][1], uses[1][1], mask);
+    return NewVecNode(TYP_SIMD16, NI_SSE41_BlendVariable, TYP_UBYTE, uses[0][1], uses[1][1], mask);
 }
 
 GenTree* Importer::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
@@ -2104,14 +2102,14 @@ GenTree* Importer::impVectorT256MinMax(const HWIntrinsicSignature& sig, GenTree*
         impVectorTUnsignedCompareAdjust(layout, eltType, &uses[0][0], &uses[1][0]);
     }
 
-    GenTree* mask = NewVecNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, 32, uses[0][0], uses[1][0]);
+    GenTree* mask = NewVecNode(TYP_SIMD32, NI_AVX2_CompareGreaterThan, TYP_LONG, uses[0][0], uses[1][0]);
 
     if (isMax)
     {
         std::swap(uses[0][1], uses[1][1]);
     }
 
-    return NewVecNode(TYP_SIMD32, NI_AVX2_BlendVariable, TYP_UBYTE, 32, uses[0][1], uses[1][1], mask);
+    return NewVecNode(TYP_SIMD32, NI_AVX2_BlendVariable, TYP_UBYTE, uses[0][1], uses[1][1], mask);
 }
 
 GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -2126,20 +2124,20 @@ GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree*
 
     if (eltType == TYP_DOUBLE)
     {
-        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, 16, op1);
-        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, 16, op2);
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, op1);
+        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Single, TYP_DOUBLE, op2);
 
-        return NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, 16, op1, op2);
+        return NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, op1, op2);
     }
 
     if (eltType == TYP_LONG)
     {
-        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, op1, comp->gtNewIconNode(128));
-        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_LONG, 16, op1, comp->gtNewIconNode(8));
-        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, op2, comp->gtNewIconNode(8));
-        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_LONG, 16, op2, comp->gtNewIconNode(8));
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, op1, comp->gtNewIconNode(128));
+        op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_LONG, op1, comp->gtNewIconNode(8));
+        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, op2, comp->gtNewIconNode(8));
+        op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical128BitLane, TYP_LONG, op2, comp->gtNewIconNode(8));
 
-        return NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, 16, op1, op2);
+        return NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, op1, op2);
     }
 
     assert((eltType == TYP_SHORT) || (eltType == TYP_INT));
@@ -2147,12 +2145,12 @@ GenTree* Importer::impVectorT128Narrow(const HWIntrinsicSignature& sig, GenTree*
     var_types retEltType = varTypeToSigned(sig.retLayout->GetElementType());
     ssize_t   retEltSize = varTypeSize(retEltType) * 8;
 
-    op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, 16, op1, comp->gtNewIconNode(retEltSize));
-    op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, op1, comp->gtNewIconNode(retEltSize));
-    op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, 16, op2, comp->gtNewIconNode(retEltSize));
-    op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, 16, op2, comp->gtNewIconNode(retEltSize));
+    op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, op1, comp->gtNewIconNode(retEltSize));
+    op1 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, op1, comp->gtNewIconNode(retEltSize));
+    op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftLeftLogical, eltType, op2, comp->gtNewIconNode(retEltSize));
+    op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightArithmetic, eltType, op2, comp->gtNewIconNode(retEltSize));
 
-    return NewVecNode(TYP_SIMD16, NI_SSE2_PackSignedSaturate, retEltType, 16, op1, op2);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_PackSignedSaturate, retEltType, op1, op2);
 }
 
 GenTree* Importer::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -2170,20 +2168,20 @@ GenTree* Importer::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree*
         op1 = NewVecNode(TYP_SIMD16, NI_AVX_ConvertToVector128Single, TYP_FLOAT, 32, op1);
         op2 = NewVecNode(TYP_SIMD16, NI_AVX_ConvertToVector128Single, TYP_FLOAT, 32, op2);
 
-        return NewVecNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_FLOAT, 32, op1, op2, comp->gtNewIconNode(1));
+        return NewVecNode(TYP_SIMD32, NI_AVX_InsertVector128, TYP_FLOAT, op1, op2, comp->gtNewIconNode(1));
     }
 
     GenTree* uses[2][2];
     impMakeMultiUse(op1, uses[0], sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Narrow temp"));
     impMakeMultiUse(op2, uses[1], sig.paramLayout[1], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Narrow temp"));
 
-    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, 32, uses[0][0], uses[1][0], comp->gtNewIconNode(32));
-    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, 32, uses[0][1], uses[1][1], comp->gtNewIconNode(49));
+    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, uses[0][0], uses[1][0], comp->gtNewIconNode(32));
+    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_Permute2x128, eltType, uses[0][1], uses[1][1], comp->gtNewIconNode(49));
 
     if (eltType == TYP_LONG)
     {
-        op1 = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, op1, comp->gtNewIconNode(8));
-        op2 = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, 32, op2, comp->gtNewIconNode(8));
+        op1 = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, op1, comp->gtNewIconNode(8));
+        op2 = NewVecNode(TYP_SIMD32, NI_AVX2_Shuffle, TYP_INT, op2, comp->gtNewIconNode(8));
 
         return NewVecNode(TYP_SIMD32, NI_AVX2_UnpackLow, TYP_LONG, 32, op1, op2);
     }
@@ -2193,12 +2191,12 @@ GenTree* Importer::impVectorT256Narrow(const HWIntrinsicSignature& sig, GenTree*
     var_types retEltType = varTypeToSmallUnsigned(sig.retLayout->GetElementType());
     ssize_t   retEltSize = varTypeSize(retEltType) * 8;
 
-    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, 32, op1, comp->gtNewIconNode(retEltSize));
-    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, 32, op1, comp->gtNewIconNode(retEltSize));
-    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, 32, op2, comp->gtNewIconNode(retEltSize));
-    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, 32, op2, comp->gtNewIconNode(retEltSize));
+    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, op1, comp->gtNewIconNode(retEltSize));
+    op1 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, op1, comp->gtNewIconNode(retEltSize));
+    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftLeftLogical, eltType, op2, comp->gtNewIconNode(retEltSize));
+    op2 = NewVecNode(TYP_SIMD32, NI_AVX2_ShiftRightLogical, eltType, op2, comp->gtNewIconNode(retEltSize));
 
-    return NewVecNode(TYP_SIMD32, NI_AVX2_PackUnsignedSaturate, retEltType, 32, op1, op2);
+    return NewVecNode(TYP_SIMD32, NI_AVX2_PackUnsignedSaturate, retEltType, op1, op2);
 }
 
 GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
@@ -2221,9 +2219,9 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         GenTree* uses[3];
         impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
 
-        lo = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, 16, uses[0]);
-        hi = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, 16, uses[1], uses[2]);
-        hi = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, 16, hi);
+        lo = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, uses[0]);
+        hi = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, uses[1], uses[2]);
+        hi = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertToVector128Double, TYP_FLOAT, hi);
     }
     else if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
@@ -2248,11 +2246,10 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         GenTree* uses[2];
         impMakeMultiUse(value, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
         // TODO-MIKE-CQ: NI_SSE2_UnpackHigh would be better but it tends to generate an extra movaps.
-        uses[1] =
-            NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, eltType, 16, uses[1], comp->gtNewIconNode(8));
+        uses[1] = NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, eltType, uses[1], comp->gtNewIconNode(8));
 
-        lo = NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, uses[0]);
-        hi = NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, uses[1]);
+        lo = NewVecNode(TYP_SIMD16, intrinsic, eltType, uses[0]);
+        hi = NewVecNode(TYP_SIMD16, intrinsic, eltType, uses[1]);
     }
     else
     {
@@ -2262,7 +2259,7 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
         if (varTypeIsSigned(eltType))
         {
             impMakeMultiUse(value, 3, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
-            sign[0] = NewVecNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, eltType, 16, sign[0], uses[2]);
+            sign[0] = NewVecNode(TYP_SIMD16, NI_SSE2_CompareGreaterThan, eltType, sign[0], uses[2]);
             impMakeMultiUse(sign[0], sign, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Widen temp"));
         }
         else
@@ -2271,8 +2268,8 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
             sign[1] = NewVecZeroNode(sig.paramLayout[0]);
         }
 
-        lo = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, uses[0], sign[0]);
-        hi = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, 16, uses[1], sign[1]);
+        lo = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, uses[0], sign[0]);
+        hi = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackHigh, eltType, uses[1], sign[1]);
     }
 
     impSpillAllAppendTree(impVectorStore(TYP_SIMD16, loAddr, lo));
@@ -2324,9 +2321,9 @@ GenTree* Importer::impVectorT256Widen(const HWIntrinsicSignature& sig)
             break;
     }
 
-    lo = NewVecNode(TYP_SIMD32, widenIntrinsic, eltType, 32, uses[0]);
-    hi = NewVecNode(TYP_SIMD32, extractIntrinsic, eltType, 32, uses[1], comp->gtNewIconNode(1));
-    hi = NewVecNode(TYP_SIMD32, widenIntrinsic, eltType, 32, hi);
+    lo = NewVecNode(TYP_SIMD32, widenIntrinsic, eltType, uses[0]);
+    hi = NewVecNode(TYP_SIMD32, extractIntrinsic, eltType, uses[1], comp->gtNewIconNode(1));
+    hi = NewVecNode(TYP_SIMD32, widenIntrinsic, eltType, hi);
 
     impSpillAllAppendTree(impVectorStore(TYP_SIMD32, loAddr, lo));
     return impVectorStore(TYP_SIMD32, hiAddr, hi);
@@ -2352,7 +2349,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = PopVec(sig.paramType[1]);
         op1 = impPopStack().val;
 
-        op1 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), op1);
+        op1 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, op1);
     }
     else if (sig.paramLayout[1] == nullptr)
     {
@@ -2362,7 +2359,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = impPopStack().val;
         op1 = PopVec(sig.paramType[0]);
 
-        op2 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, varTypeSize(vecType), op2);
+        op2 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, op2);
     }
     else
     {
@@ -2405,7 +2402,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
     if ((intrinsic != NI_SSE41_MultiplyLow) || comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        return NewVecNode(vecType, intrinsic, eltType, varTypeSize(vecType), op1, op2);
+        return NewVecNode(vecType, intrinsic, eltType, op1, op2);
     }
 
     GenTree* uses[2][2];
@@ -2413,17 +2410,17 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
     impMakeMultiUse(op2, uses[1], sig.retLayout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Multiply temp"));
 
     GenTree* t =
-        NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16, uses[0][0], comp->gtNewIconNode(4));
+        NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, uses[0][0], comp->gtNewIconNode(4));
     GenTree* u =
-        NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, 16, uses[1][0], comp->gtNewIconNode(4));
+        NewVecNode(TYP_SIMD16, NI_SSE2_ShiftRightLogical128BitLane, TYP_INT, uses[1][0], comp->gtNewIconNode(4));
 
-    u = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, 16, u, t);
-    u = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, u, comp->gtNewIconNode(SHUFFLE_XXZX));
+    u = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, u, t);
+    u = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, u, comp->gtNewIconNode(SHUFFLE_XXZX));
 
-    t = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, 16, uses[0][1], uses[1][1]);
-    t = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, t, comp->gtNewIconNode(SHUFFLE_XXZX));
+    t = NewVecNode(TYP_SIMD16, NI_SSE2_Multiply, TYP_ULONG, uses[0][1], uses[1][1]);
+    t = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, t, comp->gtNewIconNode(SHUFFLE_XXZX));
 
-    return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, 16, t, u);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, eltType, t, u);
 }
 
 GenTree* Importer::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, GenTree* op2)
@@ -2435,22 +2432,21 @@ GenTree* Importer::impVectorTMultiplyLong(ClassLayout* layout, GenTree* op1, Gen
     GenTree* op2Uses[3];
     impMakeMultiUse(op2, op2Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
 
-    var_types type = layout->GetSIMDType();
-    unsigned  size = layout->GetSize();
+    var_types type = layout->GetVectorType();
 
-    NamedIntrinsic mul = size == 32 ? NI_AVX2_Multiply : NI_SSE2_Multiply;
-    NamedIntrinsic add = size == 32 ? NI_AVX2_Add : NI_SSE2_Add;
-    NamedIntrinsic srl = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
-    NamedIntrinsic sll = size == 32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
+    NamedIntrinsic mul = type == TYP_SIMD32 ? NI_AVX2_Multiply : NI_SSE2_Multiply;
+    NamedIntrinsic add = type == TYP_SIMD32 ? NI_AVX2_Add : NI_SSE2_Add;
+    NamedIntrinsic srl = type == TYP_SIMD32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
+    NamedIntrinsic sll = type == TYP_SIMD32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
 
-    GenTree* lo  = NewVecNode(type, mul, TYP_ULONG, size, op1Uses[0], op2Uses[0]);
-    GenTree* hi1 = NewVecNode(type, srl, TYP_LONG, size, op1Uses[1], comp->gtNewIconNode(32));
-    hi1          = NewVecNode(type, mul, TYP_ULONG, size, hi1, op2Uses[1]);
-    GenTree* hi2 = NewVecNode(type, srl, TYP_LONG, size, op2Uses[2], comp->gtNewIconNode(32));
-    hi2          = NewVecNode(type, mul, TYP_ULONG, size, hi2, op1Uses[2]);
-    GenTree* hi  = NewVecNode(type, add, TYP_LONG, size, hi1, hi2);
-    hi           = NewVecNode(type, sll, TYP_LONG, size, hi, comp->gtNewIconNode(32));
-    return NewVecNode(type, add, TYP_LONG, size, lo, hi);
+    GenTree* lo  = NewVecNode(type, mul, TYP_ULONG, op1Uses[0], op2Uses[0]);
+    GenTree* hi1 = NewVecNode(type, srl, TYP_LONG, op1Uses[1], comp->gtNewIconNode(32));
+    hi1          = NewVecNode(type, mul, TYP_ULONG, hi1, op2Uses[1]);
+    GenTree* hi2 = NewVecNode(type, srl, TYP_LONG, op2Uses[2], comp->gtNewIconNode(32));
+    hi2          = NewVecNode(type, mul, TYP_ULONG, hi2, op1Uses[2]);
+    GenTree* hi  = NewVecNode(type, add, TYP_LONG, hi1, hi2);
+    hi           = NewVecNode(type, sll, TYP_LONG, hi, comp->gtNewIconNode(32));
+    return NewVecNode(type, add, TYP_LONG, lo, hi);
 }
 
 GenTree* Importer::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, GenTree* op2)
@@ -2462,23 +2458,22 @@ GenTree* Importer::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, Gen
     GenTree* op2Uses[2];
     impMakeMultiUse(op2, op2Uses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<byte>.Multiply temp"));
 
-    var_types type = layout->GetSIMDType();
-    unsigned  size = layout->GetSize();
+    var_types type = layout->GetVectorType();
 
-    NamedIntrinsic mul  = size == 32 ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
-    NamedIntrinsic srlw = size == 32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
-    NamedIntrinsic sllw = size == 32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
-    NamedIntrinsic pand = size == 32 ? NI_AVX2_And : NI_SSE2_And;
-    NamedIntrinsic por  = size == 32 ? NI_AVX2_Or : NI_SSE2_Or;
+    NamedIntrinsic mul  = type == TYP_SIMD32 ? NI_AVX2_MultiplyLow : NI_SSE2_MultiplyLow;
+    NamedIntrinsic srlw = type == TYP_SIMD32 ? NI_AVX2_ShiftRightLogical : NI_SSE2_ShiftRightLogical;
+    NamedIntrinsic sllw = type == TYP_SIMD32 ? NI_AVX2_ShiftLeftLogical : NI_SSE2_ShiftLeftLogical;
+    NamedIntrinsic pand = type == TYP_SIMD32 ? NI_AVX2_And : NI_SSE2_And;
+    NamedIntrinsic por  = type == TYP_SIMD32 ? NI_AVX2_Or : NI_SSE2_Or;
 
-    GenTree* lo  = NewVecNode(type, mul, TYP_SHORT, size, op1Uses[0], op2Uses[0]);
-    GenTree* hi1 = NewVecNode(type, srlw, TYP_SHORT, size, op1Uses[1], comp->gtNewIconNode(8));
-    GenTree* hi2 = NewVecNode(type, srlw, TYP_SHORT, size, op2Uses[1], comp->gtNewIconNode(8));
-    GenTree* hi  = NewVecNode(type, mul, TYP_SHORT, size, hi1, hi2);
-    hi           = NewVecNode(type, sllw, TYP_SHORT, size, hi, comp->gtNewIconNode(8));
-    GenTree* m   = NewVecNode(type, GetCreateSimdHWIntrinsic(type), TYP_SHORT, size, comp->gtNewIconNode(0xff));
-    lo           = NewVecNode(type, pand, TYP_SHORT, size, lo, m);
-    return NewVecNode(type, por, TYP_INT, size, lo, hi);
+    GenTree* lo  = NewVecNode(type, mul, TYP_SHORT, op1Uses[0], op2Uses[0]);
+    GenTree* hi1 = NewVecNode(type, srlw, TYP_SHORT, op1Uses[1], comp->gtNewIconNode(8));
+    GenTree* hi2 = NewVecNode(type, srlw, TYP_SHORT, op2Uses[1], comp->gtNewIconNode(8));
+    GenTree* hi  = NewVecNode(type, mul, TYP_SHORT, hi1, hi2);
+    hi           = NewVecNode(type, sllw, TYP_SHORT, hi, comp->gtNewIconNode(8));
+    GenTree* m   = NewVecNode(type, GetCreateSimdHWIntrinsic(type), TYP_SHORT, comp->gtNewIconNode(0xff));
+    lo           = NewVecNode(type, pand, TYP_SHORT, lo, m);
+    return NewVecNode(type, por, TYP_INT, lo, hi);
 }
 
 GenTree* Importer::impVectorT128ConditionalSelect(const HWIntrinsicSignature& sig,
@@ -2497,9 +2492,9 @@ GenTree* Importer::impVectorT128ConditionalSelect(const HWIntrinsicSignature& si
     var_types eltType = sig.retLayout->GetElementType();
     bool      sse     = eltType == TYP_FLOAT;
 
-    op1 = NewVecNode(TYP_SIMD16, sse ? NI_SSE_And : NI_SSE2_And, eltType, 16, op1, maskUses[0]);
-    op2 = NewVecNode(TYP_SIMD16, sse ? NI_SSE_AndNot : NI_SSE2_AndNot, eltType, 16, maskUses[1], op2);
-    return NewVecNode(TYP_SIMD16, sse ? NI_SSE_Or : NI_SSE2_Or, eltType, 16, op1, op2);
+    op1 = NewVecNode(TYP_SIMD16, sse ? NI_SSE_And : NI_SSE2_And, eltType, op1, maskUses[0]);
+    op2 = NewVecNode(TYP_SIMD16, sse ? NI_SSE_AndNot : NI_SSE2_AndNot, eltType, maskUses[1], op2);
+    return NewVecNode(TYP_SIMD16, sse ? NI_SSE_Or : NI_SSE2_Or, eltType, op1, op2);
 }
 
 GenTree* Importer::impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig,
@@ -2518,9 +2513,9 @@ GenTree* Importer::impVectorT256ConditionalSelect(const HWIntrinsicSignature& si
     var_types eltType = sig.retLayout->GetElementType();
     bool      avx     = varTypeIsFloating(eltType);
 
-    op1 = NewVecNode(TYP_SIMD32, avx ? NI_AVX_And : NI_AVX2_And, eltType, 32, op1, maskUses[0]);
-    op2 = NewVecNode(TYP_SIMD32, avx ? NI_AVX_AndNot : NI_AVX2_AndNot, eltType, 32, maskUses[1], op2);
-    return NewVecNode(TYP_SIMD32, avx ? NI_AVX_Or : NI_AVX2_Or, eltType, 32, op1, op2);
+    op1 = NewVecNode(TYP_SIMD32, avx ? NI_AVX_And : NI_AVX2_And, eltType, op1, maskUses[0]);
+    op2 = NewVecNode(TYP_SIMD32, avx ? NI_AVX_AndNot : NI_AVX2_AndNot, eltType, maskUses[1], op2);
+    return NewVecNode(TYP_SIMD32, avx ? NI_AVX_Or : NI_AVX2_Or, eltType, op1, op2);
 }
 
 var_types Importer::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
@@ -2552,18 +2547,17 @@ var_types Importer::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
             unreached();
     }
 
-    var_types      type   = layout->GetSIMDType();
-    unsigned       size   = layout->GetSize();
+    var_types      type   = layout->GetVectorType();
     NamedIntrinsic create = GetCreateSimdHWIntrinsic(type);
     // We don't have carry so SUB(x, INT_MIN) is the same as XOR(x, INT_MIN).
     // On Ryzen XOR has slightly higher throuput.
-    NamedIntrinsic pxor = (type == TYP_SIMD32) ? NI_AVX2_Xor : NI_SSE2_Xor;
+    NamedIntrinsic pxor = type == TYP_SIMD32 ? NI_AVX2_Xor : NI_SSE2_Xor;
 
-    GenTree* constVector = NewVecNode(type, create, constVal->GetType(), size, constVal);
+    GenTree* constVector = NewVecNode(type, create, constVal->GetType(), constVal);
     GenTree* constUses[2];
     impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
-    *op1 = NewVecNode(type, pxor, eltType, size, *op1, constUses[0]);
-    *op2 = NewVecNode(type, pxor, eltType, size, *op2, constUses[1]);
+    *op1 = NewVecNode(type, pxor, eltType, *op1, constUses[0]);
+    *op2 = NewVecNode(type, pxor, eltType, *op2, constUses[1]);
 
     return eltType;
 }
@@ -2591,24 +2585,24 @@ GenTree* Importer::impVectorT128LongGreaterThanSse2(ClassLayout* layout, GenTree
 
     NamedIntrinsic intrinsic = lessThan ? NI_SSE2_CompareLessThan : NI_SSE2_CompareGreaterThan;
 
-    GenTree* sign = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, 16, comp->gtNewLconNode(1LL << 31));
+    GenTree* sign = NewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_LONG, comp->gtNewLconNode(1LL << 31));
     GenTree* signUses[2];
     impMakeMultiUse(sign, signUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
 
-    uses[0][1] = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[0][1], signUses[0]);
-    uses[1][1] = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, 16, uses[1][1], signUses[1]);
+    uses[0][1] = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, uses[0][1], signUses[0]);
+    uses[1][1] = NewVecNode(TYP_SIMD16, NI_SSE2_Xor, TYP_LONG, uses[1][1], signUses[1]);
 
-    GenTree* gt = NewVecNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
+    GenTree* gt = NewVecNode(TYP_SIMD16, intrinsic, TYP_INT, uses[0][1], uses[1][1]);
     GenTree* gtUses[2];
     impMakeMultiUse(gt, gtUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
     GenTree* im = comp->gtNewIconNode(SHUFFLE_ZZXX);
-    GenTree* gl = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gtUses[0], im);
-    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, uses[0][0], uses[1][0]);
+    GenTree* gl = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, gtUses[0], im);
+    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, uses[0][0], uses[1][0]);
 
-    gt = NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, 16, eq, gl);
-    gt = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, 16, gtUses[1], gt);
-    return NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gt, comp->gtNewIconNode(SHUFFLE_WWYY));
+    gt = NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, eq, gl);
+    gt = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, gtUses[1], gt);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, gt, comp->gtNewIconNode(SHUFFLE_WWYY));
 }
 
 GenTree* Importer::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTree* op1, GenTree* op2, bool lessThan)
@@ -2633,17 +2627,17 @@ GenTree* Importer::impVectorT128ULongGreaterThanSse2(ClassLayout* layout, GenTre
 
     NamedIntrinsic intrinsic = lessThan ? NI_SSE2_CompareLessThan : NI_SSE2_CompareGreaterThan;
     impVectorTUnsignedCompareAdjust(layout, TYP_UINT, &uses[0][1], &uses[1][1]);
-    GenTree* gt = NewVecNode(TYP_SIMD16, intrinsic, TYP_INT, 16, uses[0][1], uses[1][1]);
+    GenTree* gt = NewVecNode(TYP_SIMD16, intrinsic, TYP_INT, uses[0][1], uses[1][1]);
     GenTree* gtUses[2];
     impMakeMultiUse(gt, gtUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan temp"));
 
     GenTree* im = comp->gtNewIconNode(SHUFFLE_ZZXX);
-    GenTree* gl = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gtUses[0], im);
-    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, uses[0][0], uses[1][0]);
+    GenTree* gl = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, gtUses[0], im);
+    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, uses[0][0], uses[1][0]);
 
-    gt = NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, 16, eq, gl);
-    gt = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, 16, gtUses[1], gt);
-    return NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, gt, comp->gtNewIconNode(SHUFFLE_WWYY));
+    gt = NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_INT, eq, gl);
+    gt = NewVecNode(TYP_SIMD16, NI_SSE2_Or, TYP_INT, gtUses[1], gt);
+    return NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, gt, comp->gtNewIconNode(SHUFFLE_WWYY));
 }
 
 GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -2659,17 +2653,14 @@ GenTree* Importer::impVectorT128LongEquals(const HWIntrinsicSignature& sig, GenT
 
     if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        return NewVecNode(TYP_SIMD16, NI_SSE41_CompareEqual, TYP_LONG, 16, op1, op2);
+        return NewVecNode(TYP_SIMD16, NI_SSE41_CompareEqual, TYP_LONG, op1, op2);
     }
 
-    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, 16, op1, op2);
+    GenTree* eq = NewVecNode(TYP_SIMD16, NI_SSE2_CompareEqual, TYP_INT, op1, op2);
     GenTree* eqUses[2];
     impMakeMultiUse(eq, eqUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Equals temp"));
-
-    GenTree* shuffleEq =
-        NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, 16, eqUses[0], comp->gtNewIconNode(SHUFFLE_ZWXY));
-
-    return NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_LONG, 16, shuffleEq, eqUses[1]);
+    GenTree* shuffleEq = NewVecNode(TYP_SIMD16, NI_SSE2_Shuffle, TYP_INT, eqUses[0], comp->gtNewIconNode(SHUFFLE_ZWXY));
+    return NewVecNode(TYP_SIMD16, NI_SSE2_And, TYP_LONG, shuffleEq, eqUses[1]);
 }
 
 GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
@@ -2725,7 +2716,7 @@ GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
             eltType = impVectorTUnsignedCompareAdjust(layout, eltType, &op1, &op2);
         }
 
-        gt = NewVecNode(TYP_SIMD16, intrinsic, eltType, 16, op1, op2);
+        gt = NewVecNode(TYP_SIMD16, intrinsic, eltType, op1, op2);
     }
     else if (eltType == TYP_LONG)
     {
@@ -2741,8 +2732,8 @@ GenTree* Importer::impVectorT128Compare(const HWIntrinsicSignature& sig,
         return gt;
     }
 
-    GenTree* allBitsSet = NewVecNode(TYP_SIMD16, NI_Vector128_get_AllBitsSet, varTypeNodeType(eltType), 16);
-    return NewVecNode(TYP_SIMD16, NI_SSE2_Xor, eltType, 16, gt, allBitsSet);
+    GenTree* allBitsSet = NewVecNode(TYP_SIMD16, NI_Vector128_get_AllBitsSet, varTypeNodeType(eltType));
+    return NewVecNode(TYP_SIMD16, NI_SSE2_Xor, eltType, gt, allBitsSet);
 }
 
 GenTree* Importer::impVectorT256Compare(const HWIntrinsicSignature& sig,
@@ -2783,15 +2774,15 @@ GenTree* Importer::impVectorT256Compare(const HWIntrinsicSignature& sig,
             break;
     }
 
-    GenTree* gt = NewVecNode(TYP_SIMD32, intrinsic, eltType, 32, op1, op2);
+    GenTree* gt = NewVecNode(TYP_SIMD32, intrinsic, eltType, op1, op2);
 
     if (!orEqual)
     {
         return gt;
     }
 
-    GenTree* allBitsSet = NewVecNode(TYP_SIMD32, NI_Vector256_get_AllBitsSet, eltType, 32);
-    return NewVecNode(TYP_SIMD32, NI_AVX2_Xor, eltType, 32, gt, allBitsSet);
+    GenTree* allBitsSet = NewVecNode(TYP_SIMD32, NI_Vector256_get_AllBitsSet, eltType);
+    return NewVecNode(TYP_SIMD32, NI_AVX2_Xor, eltType, gt, allBitsSet);
 }
 #endif // TARGET_XARCH
 

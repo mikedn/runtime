@@ -28,52 +28,67 @@ enum VarTypeKind
 #endif
 };
 
-extern const uint8_t varTypeKinds[TYP_COUNT];
-extern const uint8_t varTypeSizes[TYP_COUNT];
-extern const uint8_t varTypeAlignments[TYP_COUNT];
-extern const uint8_t varTypeActualTypes[TYP_COUNT];
+inline constexpr uint8_t varTypeSizes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
+#include "typelist.h"
+};
+
+inline constexpr uint8_t varTypeAlignments[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
+#include "typelist.h"
+};
+
+inline constexpr uint8_t varTypeActualTypes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
+#include "typelist.h"
+};
+
+inline constexpr uint8_t varTypeKinds[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) tf,
+#include "typelist.h"
+};
 
 const char* varTypeName(var_types type);
 
-inline unsigned varTypeSize(var_types type)
+constexpr unsigned varTypeSize(var_types type)
 {
     assert(type < _countof(varTypeSizes));
     return varTypeSizes[type];
 }
 
-inline unsigned varTypeBitSize(var_types type)
+constexpr unsigned varTypeBitSize(var_types type)
 {
     return varTypeSize(type) * 8;
 }
 
-inline unsigned varTypeAlignment(var_types type)
+constexpr unsigned varTypeAlignment(var_types type)
 {
     assert(type < _countof(varTypeAlignments));
     return varTypeAlignments[type];
 }
 
-inline var_types varActualType(var_types type)
+constexpr var_types varActualType(var_types type)
 {
     assert(type < _countof(varTypeActualTypes));
     return static_cast<var_types>(varTypeActualTypes[type]);
 }
 
-inline bool varTypeIsByte(var_types vt)
+constexpr bool varTypeIsByte(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_UBYTE);
 }
 
-inline bool varTypeIsShort(var_types vt)
+constexpr bool varTypeIsShort(var_types vt)
 {
     return (vt == TYP_SHORT) || (vt == TYP_USHORT);
 }
 
-inline bool varTypeIsSmall(var_types vt)
+constexpr bool varTypeIsSmall(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_USHORT);
 }
 
-inline bool varTypeIsSmallInt(var_types vt)
+constexpr bool varTypeIsSmallInt(var_types vt)
 {
     return (vt >= TYP_BYTE) && (vt <= TYP_USHORT);
 }
@@ -88,52 +103,52 @@ constexpr bool varTypeIsSmallUnsigned(var_types t)
     return (t == TYP_BOOL) || (t == TYP_UBYTE) || (t == TYP_USHORT);
 }
 
-inline bool varActualTypeIsInt(var_types vt)
+constexpr bool varActualTypeIsInt(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_UINT);
 }
 
-inline bool varTypeIsIntegral(var_types vt)
+constexpr bool varTypeIsIntegral(var_types vt)
 {
     return (TYP_INT_MIN <= vt) && (vt <= TYP_INT_MAX);
 }
 
-inline bool varActualTypeIsIntOrI(var_types vt)
+constexpr bool varActualTypeIsIntOrI(var_types vt)
 {
     return (vt >= TYP_BOOL) && (vt <= TYP_U_IMPL);
 }
 
-inline bool varTypeIsIntOrI(var_types t)
+constexpr bool varTypeIsIntOrI(var_types t)
 {
     return (t == TYP_INT) || (t == TYP_I_IMPL);
 }
 
-inline bool varTypeIsFloating(var_types vt)
+constexpr bool varTypeIsFloating(var_types vt)
 {
     return (vt == TYP_FLOAT) || (vt == TYP_DOUBLE);
 }
 
-inline bool varTypeIsArithmetic(var_types t)
+constexpr bool varTypeIsArithmetic(var_types t)
 {
     return varTypeIsIntegral(t) || varTypeIsFloating(t);
 }
 
-inline bool varTypeIsGC(var_types vt)
+constexpr bool varTypeIsGC(var_types vt)
 {
     return (vt == TYP_REF) || (vt == TYP_BYREF);
 }
 
-inline bool varTypeIsIntegralOrI(var_types vt)
+constexpr bool varTypeIsIntegralOrI(var_types vt)
 {
     return varTypeIsIntegral(vt) || varTypeIsGC(vt);
 }
 
-inline bool varTypeIsI(var_types vt)
+constexpr bool varTypeIsI(var_types vt)
 {
     return (vt == TYP_I_IMPL) || varTypeIsGC(vt);
 }
 
-inline bool varTypeIsSIMD(var_types vt)
+constexpr bool varTypeIsSIMD(var_types vt)
 {
 #ifdef FEATURE_SIMD
     return (TYP_VEC_MIN <= vt) && (vt <= TYP_VEC_MAX);
@@ -142,7 +157,7 @@ inline bool varTypeIsSIMD(var_types vt)
 #endif
 }
 
-inline bool varTypeIsTargetVec(var_types vt)
+constexpr bool varTypeIsTargetVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
     return (vt == TYP_SIMD16)
@@ -158,7 +173,7 @@ inline bool varTypeIsTargetVec(var_types vt)
 #endif
 }
 
-inline bool varTypeIsNonTargetVec(var_types vt)
+constexpr bool varTypeIsNonTargetVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
     return (vt == TYP_SIMD12)
@@ -185,27 +200,27 @@ __declspec(noinline) inline var_types varTypeGetTargetVec(var_types vt)
     return vt;
 }
 
-inline bool varTypeIsStruct(var_types vt)
+constexpr bool varTypeIsStruct(var_types vt)
 {
     return (vt == TYP_STRUCT) || varTypeIsSIMD(vt);
 }
 
-inline bool varTypeIsComposite(var_types t)
+constexpr bool varTypeIsComposite(var_types t)
 {
     return varTypeIsStruct(t) || varTypeIsGC(t);
 }
 
-inline VarTypeKind varTypeKind(var_types type)
+constexpr VarTypeKind varTypeKind(var_types type)
 {
     return static_cast<VarTypeKind>(varTypeKinds[type] & VTK_TYPE_MASK);
 }
 
-inline VarTypeKind varTypeGCKind(var_types type)
+constexpr VarTypeKind varTypeGCKind(var_types type)
 {
     return static_cast<VarTypeKind>(varTypeKinds[type] & VTK_GC_MASK);
 }
 
-inline bool varTypeIsMultiReg(var_types vt)
+constexpr bool varTypeIsMultiReg(var_types vt)
 {
 #ifdef TARGET_64BIT
     return false;
@@ -214,17 +229,17 @@ inline bool varTypeIsMultiReg(var_types vt)
 #endif
 }
 
-inline bool varTypeIsSingleReg(var_types vt)
+constexpr bool varTypeIsSingleReg(var_types vt)
 {
     return !varTypeIsMultiReg(vt);
 }
 
-inline bool varTypeUsesFloatReg(var_types vt)
+constexpr bool varTypeUsesFloatReg(var_types vt)
 {
     return varTypeIsFloating(vt) || varTypeIsSIMD(vt);
 }
 
-inline bool varTypeUsesFloatArgReg(var_types vt)
+constexpr bool varTypeUsesFloatArgReg(var_types vt)
 {
 #ifdef TARGET_ARM64
     // Arm64 passes SIMD types in floating point registers.
@@ -235,18 +250,18 @@ inline bool varTypeUsesFloatArgReg(var_types vt)
 #endif
 }
 
-inline var_types varConvType(var_types type)
+constexpr var_types varConvType(var_types type)
 {
     assert(varTypeIsSmall(type));
     return type == TYP_BOOL ? TYP_UBYTE : type;
 }
 
-inline var_types varTypeAddrAdd(var_types type)
+constexpr var_types varTypeAddrAdd(var_types type)
 {
     return type == TYP_REF ? TYP_BYREF : type;
 }
 
-inline var_types varTypeNodeType(var_types type)
+constexpr var_types varTypeNodeType(var_types type)
 {
     switch (type)
     {
@@ -259,7 +274,7 @@ inline var_types varTypeNodeType(var_types type)
     }
 }
 
-inline var_types varTypeToSigned(var_types type)
+constexpr var_types varTypeToSigned(var_types type)
 {
     switch (type)
     {
@@ -277,7 +292,7 @@ inline var_types varTypeToSigned(var_types type)
     }
 }
 
-inline var_types varTypeToSmallUnsigned(var_types type)
+constexpr var_types varTypeToSmallUnsigned(var_types type)
 {
     switch (type)
     {
@@ -290,12 +305,12 @@ inline var_types varTypeToSmallUnsigned(var_types type)
     }
 }
 
-inline var_types varTypeFromTypeNum(unsigned typeNum)
+constexpr var_types varTypeFromTypeNum(unsigned typeNum)
 {
     return typeNum < TYP_COUNT ? static_cast<var_types>(typeNum) : TYP_STRUCT;
 }
 
-inline unsigned varTypeToTypeNum(var_types type, unsigned layoutNum)
+constexpr unsigned varTypeToTypeNum(var_types type, unsigned layoutNum)
 {
     // TODO-MIKE-SSA: We may need to preserve the layout for SIMD types too,
     // otherwise we may run into problems during VN.
@@ -318,7 +333,7 @@ constexpr bool varTypeIsValidLclType(var_types type)
     }
 }
 
-inline bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
+constexpr bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
 {
     switch (type)
     {
@@ -354,7 +369,7 @@ constexpr var_types getSIMDTypeForSize(unsigned size)
     }
 }
 
-inline int getSIMDVectorLength(unsigned simdSize, var_types baseType)
+constexpr int getSIMDVectorLength(unsigned simdSize, var_types baseType)
 {
     return simdSize / varTypeSize(baseType);
 }

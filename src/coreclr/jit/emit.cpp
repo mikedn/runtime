@@ -123,16 +123,6 @@ const char* EmitterBase::GetFormatName(insFormat format)
 
 #endif
 
-const uint16_t emitTypeSizes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sze,
-#include "typelist.h"
-};
-
-const uint16_t emitTypeActSz[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) asze,
-#include "typelist.h"
-};
-
 void* EmitterBase::AllocMem(size_t sz)
 {
     assert(sz % sizeof(int) == 0);

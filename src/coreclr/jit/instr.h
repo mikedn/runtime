@@ -281,17 +281,24 @@ enum emitAttr : unsigned
 #define EA_IS_RELOC(x) (EA_IS_DSP_RELOC(x) || EA_IS_CNS_RELOC(x))
 #endif
 
-extern const uint16_t emitTypeSizes[TYP_COUNT];
-extern const uint16_t emitTypeActSz[TYP_COUNT];
+inline constexpr uint16_t emitTypeSizes[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sze,
+#include "typelist.h"
+};
 
-inline emitAttr emitTypeSize(var_types type)
+inline constexpr uint16_t emitTypeActSz[]{
+#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) asze,
+#include "typelist.h"
+};
+
+constexpr emitAttr emitTypeSize(var_types type)
 {
     assert(type < _countof(emitTypeSizes));
     assert(emitTypeSizes[type] != EA_UNKNOWN);
     return static_cast<emitAttr>(emitTypeSizes[type]);
 }
 
-inline emitAttr emitActualTypeSize(var_types type)
+constexpr emitAttr emitActualTypeSize(var_types type)
 {
     assert(type < _countof(emitTypeActSz));
     assert(emitTypeActSz[type] != EA_UNKNOWN);

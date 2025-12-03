@@ -76,33 +76,7 @@ extern const char* const opcodeNames[]{
 #include "opcode.def"
 #undef OPDEF
 };
-
-extern const OPCODE_FORMAT opcodeArgKinds[]{
-#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) oprType,
-#include "opcode.def"
-#undef OPDEF
-};
 #endif
-
-const uint8_t varTypeSizes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) sz,
-#include "typelist.h"
-};
-
-const uint8_t varTypeAlignments[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) al,
-#include "typelist.h"
-};
-
-const uint8_t varTypeActualTypes[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) jitType,
-#include "typelist.h"
-};
-
-const uint8_t varTypeKinds[]{
-#define DEF_TP(tn, nm, jitType, sz, sze, asze, al, tf) tf,
-#include "typelist.h"
-};
 
 const char* varTypeName(var_types type)
 {
@@ -400,12 +374,14 @@ DECODE_OPCODE:
         return static_cast<unsigned>(opcodePtr - startOpcodePtr);
     }
 
-    /* Get the size of additional parameters */
+    static const OPCODE_FORMAT opcodeArgKinds[]{
+#define OPDEF(name, string, pop, push, oprType, opcType, l, s1, s2, ctrl) oprType,
+#include "opcode.def"
+#undef OPDEF
+    };
 
     size_t        sz      = opcodeSizes[opcode];
     OPCODE_FORMAT argKind = opcodeArgKinds[opcode];
-
-    /* See what kind of an opcode we have, then */
 
     switch (opcode)
     {

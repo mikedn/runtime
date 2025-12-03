@@ -8,6 +8,5 @@
 extern const uint8_t opcodeSizes[];
 
 #ifdef DEBUG
-extern const char* const   opcodeNames[];
-extern const OPCODE_FORMAT opcodeArgKinds[];
+extern const char* const opcodeNames[];
 #endif
