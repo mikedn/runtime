@@ -1338,7 +1338,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
         instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
 
         UseRMRegs(op2);
-        inst_RV_RV_TT(ins, size, node->GetRegNum(), op1Reg, op2, !compiler->canUseVexEncoding());
+        inst_RV_RV_TT(ins, size, node->GetRegNum(), op1Reg, op2, !UseVexEncoding());
     }
 
     DefReg(node);
@@ -3543,7 +3543,7 @@ void CodeGen::GenLclStoreMultiRegVectorReg(GenTreeLclStore* store)
     {
         emit.emitIns_R_R(INS_movlhps, EA_16BYTE, dstReg, srcReg1);
     }
-    else if (compiler->canUseVexEncoding())
+    else if (UseVexEncoding())
     {
         emit.emitIns_R_R_R(INS_unpcklpd, EA_16BYTE, dstReg, srcReg0, srcReg1);
     }
@@ -4246,7 +4246,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     // would be a stub compiled by the JIT, that uses AVX-256 if available, like any other method.
     if (call->IsPInvoke() && call->IsUserCall() && contains256bitAVXInstructions)
     {
-        assert(compiler->canUseVexEncoding());
+        assert(UseVexEncoding());
         emit.emitIns(INS_vzeroupper);
     }
 
@@ -7410,13 +7410,12 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 
     if (regMask == RBM_NONE)
     {
-        genVzeroupperIfNeeded();
         return;
     }
 
-    unsigned  firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
-    unsigned  offset;
-    regNumber regBase;
+    unsigned firstFPRegPadding = compiler->lvaIsCalleeSavedIntRegCountEven() ? REGSIZE_BYTES : 0;
+    unsigned offset;
+    RegNum   regBase;
 
     if (compiler->compLocallocUsed)
     {
@@ -7434,7 +7433,7 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
     // Offset is 16-byte aligned since we use movaps for restoring xmm regs
     assert((offset % 16) == 0);
 
-    for (regNumber reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_FLT_CALLEE_SAVED_FIRST; regMask != RBM_NONE; reg = REG_NEXT(reg))
     {
         regMaskTP regBit = genRegMask(reg);
 
@@ -7446,8 +7445,6 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
         }
     }
 #endif // WINDOWS_AMD64_ABI
-
-    genVzeroupperIfNeeded();
 }
 
 // Generate VZEROUPPER instruction as needed to zero out upper 128b-bit of all YMM registers so that the
@@ -7463,19 +7460,9 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 //
 void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
 {
-    bool emitVzeroUpper = false;
-    if (check256bitOnly)
+    if (check256bitOnly ? contains256bitAVXInstructions : containsAVXInstructions)
     {
-        emitVzeroUpper = contains256bitAVXInstructions;
-    }
-    else
-    {
-        emitVzeroUpper = containsAVXInstructions;
-    }
-
-    if (emitVzeroUpper)
-    {
-        assert(compiler->canUseVexEncoding());
+        assert(UseVexEncoding());
         GetEmitter()->emitIns(INS_vzeroupper);
     }
 }
@@ -7931,6 +7918,7 @@ void CodeGen::genFuncletEpilog()
     // Restore callee saved XMM regs from their stack slots before modifying SP
     // to position at callee saved int regs.
     genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
+    genVzeroupperIfNeeded(true);
     GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, genFuncletInfo.fiSpDelta);
     genPopCalleeSavedRegisters();
     GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
@@ -8012,6 +8000,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     // Restore float registers that were saved to stack before SP is modified.
     genRestoreCalleeSavedFltRegs(lclFrameSize);
+    genVzeroupperIfNeeded(true);
 
 #ifdef JIT32_GCENCODER
     // When using the JIT32 GC encoder, we do not start the OS-reported portion of the epilog until after

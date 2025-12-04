@@ -104,7 +104,7 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
-            if (compiler->canUseVexEncoding())
+            if (compiler->codeGen->UseVexEncoding())
             {
                 BuildOperandUses(tree->AsOp()->GetOp(0));
                 BuildOperandUses(tree->AsOp()->GetOp(1));
@@ -447,7 +447,7 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
         case GT_FSUB:
         case GT_FMUL:
         case GT_FDIV:
-            return !compiler->canUseVexEncoding();
+            return !compiler->codeGen->UseVexEncoding();
 
 #ifdef TARGET_X86
         case GT_ADD_LO:
@@ -1341,13 +1341,14 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 #ifdef FEATURE_HW_INTRINSICS
 void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    // Set the AVX Flags if this instruction may use VEX encoding for SIMD operations.
-    // Note that this may be true even if the ISA is not AVX (e.g. for platform-agnostic
-    // intrinsics or non-AVX intrinsics that will use VEX encoding if it is available
-    // on the target).
     if (node->IsSimd())
     {
-        SetContainsAVXFlags(node->GetSimdSize());
+        SetContainsAVXFlags();
+
+        if (node->TypeIs(TYP_SIMD32))
+        {
+            compiler->codeGen->SetContains256bitAVX();
+        }
     }
 
     unsigned numOps = node->GetNumOps();
@@ -1461,7 +1462,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_SSE41_BlendVariable:
                 assert(numOps == 3);
 
-                if (!compiler->canUseVexEncoding())
+                if (!compiler->codeGen->UseVexEncoding())
                 {
                     assert(isRMW);
 
@@ -1751,17 +1752,12 @@ void LinearScan::BuildLoadInd(GenTreeIndir* load)
     assert(load->OperIs(GT_IND_LOAD) && !load->TypeIs(TYP_STRUCT));
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(load->GetType()))
+    if (load->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        SetContainsAVXFlags(varTypeSize(load->GetType()));
-
-        if (load->TypeIs(TYP_SIMD12) && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-        {
-            BuildInternalFloatDef(load);
-            // We need an internal register different from the destination
-            // register and both registers are used at the same time.
-            setInternalRegsDelayFree = true;
-        }
+        BuildInternalFloatDef(load);
+        // We need an internal register different from the destination
+        // register and both registers are used at the same time.
+        setInternalRegsDelayFree = true;
     }
 #endif
 
@@ -1843,15 +1839,10 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
     }
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(store->GetType()))
+    if (store->TypeIs(TYP_SIMD12) && !value->IsHWIntrinsicZero() &&
+        !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
-        SetContainsAVXFlags(varTypeSize(store->GetType()));
-
-        if (store->TypeIs(TYP_SIMD12) && !value->IsHWIntrinsicZero() &&
-            !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-        {
-            BuildInternalFloatDef(store);
-        }
+        BuildInternalFloatDef(store);
     }
 #endif
 
@@ -1913,19 +1904,11 @@ void LinearScan::BuildMulLong(GenTreeOp* mul)
     }
 }
 
-void LinearScan::SetContainsAVXFlags(unsigned byteSize)
+void LinearScan::SetContainsAVXFlags()
 {
-    if (!compiler->canUseVexEncoding())
+    if (compiler->codeGen->UseVexEncoding())
     {
-        return;
-    }
-
-    compiler->compExactlyDependsOn(InstructionSet_AVX);
-    compiler->codeGen->SetContainsAVX();
-
-    if (byteSize == 32)
-    {
-        compiler->codeGen->SetContains256bitAVX();
+        compiler->codeGen->SetContainsAVX();
     }
 }
 

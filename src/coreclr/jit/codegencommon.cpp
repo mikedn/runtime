@@ -71,9 +71,14 @@ CodeGen::CodeGen(Compiler* compiler)
 }
 
 #ifdef TARGET_XARCH
-void CodeGenInterface::SetUseVEXEncoding(bool value)
+void CodeGenInterface::SetUseVexEncoding(bool value)
 {
-    static_cast<CodeGen*>(this)->GetEmitter()->SetUseVEXEncoding(value);
+    static_cast<CodeGen*>(this)->GetEmitter()->SetUseVexEncoding(value);
+}
+
+bool CodeGenInterface::UseVexEncoding() const
+{
+    return static_cast<const CodeGen*>(this)->GetEmitter()->UseVexEncoding();
 }
 #endif
 
@@ -563,7 +568,7 @@ void CodeGen::DumpDisasmHeader() const
     printf(" for ");
 
 #if defined(TARGET_AMD64)
-    printf("X64 CPU with %s", compiler->canUseVexEncoding() ? "AVX" : "SSE2");
+    printf("X64 CPU with %s", UseVexEncoding() ? "AVX" : "SSE2");
 #elif defined(TARGET_ARM64)
     printf("generic ARM64 CPU");
 #elif defined(TARGET_X86)

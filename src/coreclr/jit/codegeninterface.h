@@ -156,7 +156,8 @@ public:
         contains256bitAVXInstructions = true;
     }
 
-    void SetUseVEXEncoding(bool value);
+    void SetUseVexEncoding(bool value);
+    bool UseVexEncoding() const;
 #endif
 
     int genCallerSPtoFPdelta() const;

@@ -148,13 +148,18 @@ constexpr bool varTypeIsI(var_types vt)
     return (vt == TYP_I_IMPL) || varTypeIsGC(vt);
 }
 
-constexpr bool varTypeIsSIMD(var_types vt)
+constexpr bool varTypeIsVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
     return (TYP_VEC_MIN <= vt) && (vt <= TYP_VEC_MAX);
 #else
     return false;
 #endif
+}
+
+constexpr bool varTypeIsSIMD(var_types vt)
+{
+    return varTypeIsVec(vt);
 }
 
 constexpr bool varTypeIsTargetVec(var_types vt)

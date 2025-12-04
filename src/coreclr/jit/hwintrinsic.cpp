@@ -38,11 +38,6 @@ unsigned Compiler::GetVectorTSize() const
 
     return opts.IsIsaSupported(InstructionSet_AVX2) ? 32 : 16;
 }
-
-bool Compiler::canUseVexEncoding()
-{
-    return compOpportunisticallyDependsOn(InstructionSet_AVX);
-}
 #endif
 
 // Answer the question: Is a particular ISA allowed to be used implicitly by optimizations?

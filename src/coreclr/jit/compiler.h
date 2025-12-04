@@ -5033,7 +5033,6 @@ public:
 
 #ifdef TARGET_XARCH
     unsigned GetVectorTSize() const;
-    bool     canUseVexEncoding();
 #endif
 
 private:

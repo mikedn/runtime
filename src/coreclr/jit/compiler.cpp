@@ -829,7 +829,7 @@ void Compiler::compSetProcessor()
     assert(!compIsForInlining());
 
 #ifdef TARGET_XARCH
-    codeGen->SetUseVEXEncoding(canUseVexEncoding());
+    codeGen->SetUseVexEncoding(compOpportunisticallyDependsOn(InstructionSet_AVX));
 #endif
 }
 

@@ -25,9 +25,14 @@ public:
     {
     }
 
-    void SetUseVEXEncoding(bool value)
+    void SetUseVexEncoding(bool value)
     {
         useVEXEncodings = value;
+    }
+
+    bool UseVexEncoding() const
+    {
+        return useVEXEncodings;
     }
 
     // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits

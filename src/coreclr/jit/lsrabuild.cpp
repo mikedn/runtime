@@ -1018,6 +1018,11 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
     if (varTypeUsesFloatReg(tree->GetType()))
     {
         SetContainsAVXFlags();
+
+        if (tree->TypeIs(TYP_SIMD32))
+        {
+            compiler->codeGen->SetContains256bitAVX();
+        }
     }
 #endif
 

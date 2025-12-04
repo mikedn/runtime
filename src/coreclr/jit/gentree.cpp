@@ -11037,7 +11037,7 @@ bool GenTreeHWIntrinsic::IsCommutative() const
 bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 {
 #if defined(TARGET_XARCH)
-    if (!comp->canUseVexEncoding())
+    if (!comp->codeGen->UseVexEncoding())
     {
         return HWIntrinsicInfo::HasRMWSemantics(m_intrinsic);
     }

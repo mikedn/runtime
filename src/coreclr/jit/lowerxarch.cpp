@@ -3055,7 +3055,7 @@ void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
     // trade-off - only make elt reg optional if it is a LCL_VAR, otherwise it means that it's
     // more likely to already be in a register so reg optional isn't useful.
 
-    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_LOAD) && comp->canUseVexEncoding())
+    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_LOAD) && comp->codeGen->UseVexEncoding())
     {
         vec->SetContained();
     }
@@ -4391,7 +4391,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                         return false;
                     }
 
-                    if (!comp->canUseVexEncoding())
+                    if (!comp->codeGen->UseVexEncoding())
                     {
                         // Most instructions under the non-VEX encoding require aligned operands.
                         // Those used for Sse2.ConvertToVector128Double (CVTDQ2PD and CVTPS2PD)
@@ -4457,8 +4457,8 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
                     assert(supportsSIMDScalarLoads == false);
 
-                    supportsAlignedSIMDLoads   = !comp->canUseVexEncoding() || !comp->opts.MinOpts();
-                    supportsUnalignedSIMDLoads = comp->canUseVexEncoding();
+                    supportsAlignedSIMDLoads   = !comp->codeGen->UseVexEncoding() || !comp->opts.MinOpts();
+                    supportsUnalignedSIMDLoads = comp->codeGen->UseVexEncoding();
                     supportsGeneralLoads       = supportsUnalignedSIMDLoads;
 
                     break;
