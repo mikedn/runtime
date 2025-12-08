@@ -1224,23 +1224,6 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
     }
 }
 
-// Decompose GT_HWINTRINSIC -- NI_Vector*_GetElement.
-//
-// Decompose a get[i] node on Vector*<long>. For:
-//
-// GT_HWINTRINSIC{GetElement}[long](simd_var, index)
-//
-// create:
-//
-// tmp_simd_var = simd_var
-// tmp_index = index
-// loResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, tmp_index * 2)
-// hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, tmp_index * 2 + 1)
-// return: GT_LONG(loResult, hiResult)
-//
-// This isn't optimal codegen, since NI_Vector*_GetElement sometimes requires
-// temps that could be shared, for example.
-//
 GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node)
 {
     assert(node == use.Def());
@@ -1248,91 +1231,70 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHW
     assert(node->TypeIs(TYP_LONG));
     assert(node->GetSimdBaseType() == TYP_LONG);
 
-    GenTree* op1     = node->GetOp(0);
-    GenTree* op2     = node->GetOp(1);
-    unsigned vecSize = node->GetSimdSize();
+    GenTree* vec = node->GetOp(0);
+    GenTree* idx = node->GetOp(1);
 
-    assert(varTypeIsSIMD(op1->GetType()));
+    assert(vec->TypeIs(TYP_SIMD16, TYP_SIMD32));
+    assert(varActualTypeIsInt(idx->GetType()));
 
-    GenTreeIntCon* indexConst = op2->IsIntCon();
-    ssize_t        index      = 0;
-
-    if (indexConst != nullptr)
+    if (GenTreeIntCon* idxCon = idx->IsIntCon())
     {
-        index = indexConst->GetValue();
-    }
+        idxCon->SetValue(idxCon->GetValue() * 2);
 
-    GenTree*   simdTmpVar = RepresentOpAsLclLoad(op1, node, &node->GetUse(0).NodeRef());
-    LclVarDsc* simdTmpLcl = simdTmpVar->AsLclLoad()->GetLcl();
-    Range().Unlink(simdTmpVar);
-    op1 = node->GetOp(0);
+        if (vec->TypeIs(TYP_SIMD32))
+        {
+            GenTree* upper;
 
-    GenTree*   indexTmpVar = nullptr;
-    LclVarDsc* indexTmpLcl = nullptr;
+            if (idxCon->GetValue() >= 4)
+            {
+                idxCon->SetValue(idxCon->GetValue() - 4);
+                GenTree* one = m_compiler->gtNewIconNode(1, TYP_INT);
+                upper =
+                    m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_AVX2_ExtractVector128, TYP_LONG, 32, vec, one);
+                Range().InsertAfter(vec, one, upper);
+            }
+            else
+            {
+                upper = m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, TYP_LONG, 32, vec);
+                Range().InsertAfter(vec, upper);
+            }
 
-    if (indexConst == nullptr)
-    {
-        indexTmpVar = RepresentOpAsLclLoad(op2, node, &node->GetUse(1).NodeRef());
-        indexTmpLcl = indexTmpVar->AsLclLoad()->GetLcl();
-        Range().Unlink(indexTmpVar);
-        op2 = node->GetOp(1);
-    }
-
-    // Create:
-    //      loResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2)
-
-    GenTree* simdTmpVar1 = simdTmpVar;
-    GenTree* indexTimesTwo1;
-
-    if (indexConst != nullptr)
-    {
-        // Reuse the existing index constant node.
-        indexTimesTwo1 = node->GetOp(1);
-        Range().Unlink(indexTimesTwo1);
-        indexTimesTwo1->AsIntCon()->SetValue(index * 2);
-
-        Range().InsertBefore(node, simdTmpVar1, indexTimesTwo1);
+            node->SetOp(0, upper);
+            vec = upper;
+        }
     }
     else
     {
-        GenTree* indexTmpVar1 = indexTmpVar;
-        GenTree* two1         = m_compiler->gtNewIconNode(2, TYP_INT);
-        indexTimesTwo1        = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar1, two1);
-        Range().InsertBefore(node, simdTmpVar1, indexTmpVar1, two1, indexTimesTwo1);
+        GenTree* two = m_compiler->gtNewIconNode(2, TYP_INT);
+        GenTree* mul = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, idx, two);
+        Range().InsertAfter(idx, two, mul);
+        node->SetOp(1, mul);
+        idx = RepresentOpAsLclLoad(mul, node, &node->GetUse(1).NodeRef());
     }
 
-    GenTree* loResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->GetIntrinsic(), TYP_INT, vecSize,
-                                                             simdTmpVar1, indexTimesTwo1);
-    Range().InsertBefore(node, loResult);
+    vec = RepresentOpAsLclLoad(vec, node, &node->GetUse(0).NodeRef());
+    Range().Unlink(vec);
+    Range().Unlink(idx);
 
-    // Create:
-    //      hiResult = GT_HWINTRINSIC{GetElement}[int](tmp_simd_var, index * 2 + 1)
+    GenTree* loResult = m_compiler->gtNewSimdGetElementNode(vec->GetType(), TYP_INT, vec, idx);
+    Range().InsertBefore(node, vec, idx, loResult);
 
-    GenTree* simdTmpVar2 = m_compiler->gtNewLclLoad(simdTmpLcl, op1->GetType());
-    GenTree* indexTimesTwoPlusOne;
-
-    if (indexConst != nullptr)
+    if (GenTreeIntCon* idxCon = idx->IsIntCon())
     {
-        indexTimesTwoPlusOne = m_compiler->gtNewIconNode(index * 2 + 1, TYP_INT);
-        Range().InsertBefore(node, simdTmpVar2, indexTimesTwoPlusOne);
+        idx = m_compiler->gtNewIconNode(idxCon->GetValue() + 1, TYP_INT);
     }
     else
     {
-        GenTree* indexTmpVar2   = m_compiler->gtNewLclLoad(indexTmpLcl, TYP_INT);
-        GenTree* two2           = m_compiler->gtNewIconNode(2, TYP_INT);
-        GenTree* indexTimesTwo2 = m_compiler->gtNewOperNode(GT_MUL, TYP_INT, indexTmpVar2, two2);
-        GenTree* one            = m_compiler->gtNewIconNode(1, TYP_INT);
-        indexTimesTwoPlusOne    = m_compiler->gtNewOperNode(GT_ADD, TYP_INT, indexTimesTwo2, one);
-        Range().InsertBefore(node, simdTmpVar2, indexTmpVar2, two2, indexTimesTwo2);
-        Range().InsertBefore(node, one, indexTimesTwoPlusOne);
+        idx          = m_compiler->gtNewLclLoad(idx->AsLclLoad()->GetLcl(), TYP_INT);
+        GenTree* one = m_compiler->gtNewIconNode(1, TYP_INT);
+        Range().InsertBefore(node, idx, one);
+        idx = m_compiler->gtNewOperNode(GT_ADD, TYP_INT, idx, one);
     }
 
-    GenTree* hiResult = m_compiler->gtNewSimdHWIntrinsicNode(TYP_INT, node->GetIntrinsic(), TYP_INT, vecSize,
-                                                             simdTmpVar2, indexTimesTwoPlusOne);
-    Range().InsertBefore(node, hiResult);
+    vec = m_compiler->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), vec->GetType());
 
-    // Done with the original tree; remove it.
-
+    GenTree* hiResult = m_compiler->gtNewSimdGetElementNode(vec->GetType(), TYP_INT, vec, idx);
+    Range().InsertBefore(node, vec, idx, hiResult);
     Range().Unlink(node);
 
     return FinalizeDecomposition(use, loResult, hiResult, hiResult);
