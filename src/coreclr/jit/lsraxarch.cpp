@@ -1425,8 +1425,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector128_GetElement:
-            case NI_Vector256_GetElement:
+            case NI_VEC_EXTRACT:
                 assert(numOps == 2);
                 assert(op2->IsIntCon() || op1->isContained());
 

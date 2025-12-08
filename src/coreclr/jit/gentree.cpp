@@ -3074,7 +3074,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
                     // but due to decomposition it ends up with 4 operands in lowering so we need to
                     // prevent reordering.
-                    && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_Create) ||
+                    && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_VEC_PACK) ||
                         (tree->AsHWIntrinsic()->GetSimdBaseType() != TYP_LONG))
 #endif
                         )
@@ -11010,12 +11010,8 @@ bool GenTreeHWIntrinsic::IsContainable() const
         case NI_AVX_LoadVector256:
         case NI_AVX_ExtractVector128:
         case NI_AVX2_ExtractVector128:
-        case NI_Vector256_get_Zero:
 #endif
-#ifdef TARGET_ARM64
-        case NI_Vector64_get_Zero:
-#endif
-        case NI_Vector128_get_Zero:
+        case NI_VEC_ZERO:
             return true;
         default:
             return false;
@@ -11144,6 +11140,25 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, size, op1, op2, op3);
 }
 
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, GenTree* op1, GenTree* op2, GenTree* op3, GenTree* op4)
+{
+    assert(varTypeIsTargetVec(type));
+    GenTreeHWIntrinsic* node =
+        new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, varTypeSize(type));
+    node->SetNumOps(4, getAllocator(CMK_ASTNode));
+    node->SetOp(0, op1);
+    node->SetOp(1, op2);
+    node->SetOp(2, op3);
+    node->SetOp(3, op4);
+    for (GenTreeHWIntrinsic::Use& use : node->Uses())
+    {
+        node->gtFlags |= use.GetNode()->GetSideEffects();
+        lvaRecordSimdIntrinsicUse(use.GetNode());
+    }
+    return node;
+}
+
 GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
                                                        NamedIntrinsic intrinsic,
                                                        var_types      eltType,
@@ -11163,6 +11178,22 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(var_types      type,
     {
         node->gtFlags |= use.GetNode()->GetSideEffects();
         lvaRecordSimdIntrinsicUse(use.GetNode());
+    }
+    return node;
+}
+
+GenTreeHWIntrinsic* Compiler::gtNewVecNode(
+    var_types type, NamedIntrinsic intrinsic, var_types eltType, unsigned numOps, GenTree** ops)
+{
+    assert(varTypeIsTargetVec(type));
+    GenTreeHWIntrinsic* node =
+        new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, eltType, varTypeSize(type));
+    node->SetNumOps(numOps, getAllocator(CMK_ASTNode));
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        node->SetOp(i, ops[i]);
+        node->gtFlags |= ops[i]->GetSideEffects();
+        lvaRecordSimdIntrinsicUse(ops[i]);
     }
     return node;
 }
@@ -11194,70 +11225,59 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types vecType,
                                                       GenTree*  value,
                                                       GenTree*  index)
 {
-    assert(varTypeIsSIMD(vecType));
+    assert(varTypeIsVec(vecType));
     assert(varTypeIsArithmetic(eltType));
     assert(varActualTypeIsInt(index->GetType()));
 
-    NamedIntrinsic intrinsic = NI_Vector128_GetElement;
-    unsigned       size;
+    unsigned size = 16;
 
 #ifdef TARGET_XARCH
     if (vecType == TYP_SIMD32)
     {
-        intrinsic = NI_Vector256_GetElement;
-        size      = 32;
-    }
-    else
-    {
-        size = 16;
+        size = 32;
     }
 #elif defined(TARGET_ARM64)
     if (vecType == TYP_SIMD8)
     {
-        intrinsic = NI_Vector64_GetElement;
-        size      = 8;
-    }
-    else
-    {
-        size = 16;
+        size = 8;
     }
 #else
 #error Unsupported platform
 #endif
 
     eltType = varTypeNodeType(eltType);
-    return gtNewSimdHWIntrinsicNode(eltType, intrinsic, eltType, size, value, index);
+    return gtNewSimdHWIntrinsicNode(eltType, NI_VEC_EXTRACT, eltType, size, value, index);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
     var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
-    assert(varTypeIsSIMD(type));
+    assert(varTypeIsVec(type));
     assert(varTypeIsArithmetic(eltType));
     assert(idx->GetUInt32Value() < varTypeSize(type) / varTypeSize(eltType));
 
     NamedIntrinsic intrinsic;
-    unsigned       simdSize;
+    unsigned       size;
 
 #if defined(TARGET_XARCH)
     assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || opts.IsIsaSupported(InstructionSet_SSE41));
     assert((eltType == TYP_FLOAT) || (varTypeSize(type) >= 16));
 
-    intrinsic = type == TYP_SIMD32 ? NI_Vector256_WithElement : NI_Vector128_WithElement;
-    simdSize  = type == TYP_SIMD32 ? 32 : 16;
+    intrinsic = NI_VEC_INSERT;
+    size      = type == TYP_SIMD32 ? 32 : 16;
 #elif defined(TARGET_ARM64)
     if ((type == TYP_SIMD8) && (varTypeSize(eltType) == 8))
     {
-        return gtNewVecNode(TYP_SIMD8, NI_Vector64_Create, eltType, elt);
+        return gtNewVecNode(TYP_SIMD8, NI_VEC_PACK, eltType, elt);
     }
 
     intrinsic = NI_AdvSimd_Insert;
-    simdSize  = type == TYP_SIMD8 ? 8 : 16;
+    size      = type == TYP_SIMD8 ? 8 : 16;
 #else
 #error Unsupported platform
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
-    return gtNewSimdHWIntrinsicNode(type, intrinsic, varTypeNodeType(eltType), simdSize, vec, idx, elt);
+    return gtNewSimdHWIntrinsicNode(type, intrinsic, varTypeNodeType(eltType), size, vec, idx, elt);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)

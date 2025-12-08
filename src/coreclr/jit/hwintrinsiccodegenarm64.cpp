@@ -148,9 +148,9 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);
 
-    if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
+    if (intrin.id == NI_VEC_EXTRACT)
     {
-        GenVectorGetElement(node);
+        GenVecExtract(node);
         DefReg(node);
 
         return;
@@ -535,15 +535,11 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_Store:
                 emit.emitIns_R_R(ins, emitSize, regs[1], regs[0], opt);
                 break;
-            case NI_Vector64_get_Zero:
-            case NI_Vector128_get_Zero:
+            case NI_VEC_ZERO:
                 emit.emitIns_R_I(INS_movi, EA_16BYTE, defReg, 0, INS_OPTS_16B);
                 break;
-            case NI_Vector64_get_AllBitsSet:
-                emit.emitIns_R_I(INS_movi, EA_8BYTE, defReg, 0xFF, INS_OPTS_8B);
-                break;
-            case NI_Vector128_get_AllBitsSet:
-                emit.emitIns_R_I(INS_movi, EA_16BYTE, defReg, 0xFF, INS_OPTS_16B);
+            case NI_VEC_ONE_BITS:
+                emit.emitIns_R_I(INS_movi, emitSize, defReg, 0xFF, emitSize == EA_8BYTE ? INS_OPTS_8B : INS_OPTS_16B);
                 break;
             case NI_Vector64_ToVector128:
                 emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false);
@@ -569,9 +565,9 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     DefReg(node);
 }
 
-void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
+void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_Vector64_GetElement) || (node->GetIntrinsic() == NI_Vector128_GetElement));
+    assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
 
     var_types eltType = node->GetSimdBaseType();
     GenTree*  vec     = node->GetOp(0);

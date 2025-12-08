@@ -509,8 +509,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (intrinsicId)
     {
-        case NI_Vector64_Create:
-        case NI_Vector128_Create:
+        case NI_VEC_PACK:
             if (node->IsUnary())
             {
                 LowerHWIntrinsicCreateBroadcast(node);
@@ -528,20 +527,13 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerHWIntrinsicCreateScalarUnsafe(node);
             return;
 
-        case NI_Vector128_Sum:
-            LowerHWIntrinsicSum(node);
+        case NI_VEC_SUM:
+            LowerVecSum(node);
             return;
 
-        case NI_Vector64_GetElement:
-        case NI_Vector128_GetElement:
-            LowerHWIntrinsicGetElement(node);
+        case NI_VEC_EXTRACT:
+            LowerVecExtract(node);
             return;
-
-        case NI_Vector64_op_Equality:
-        case NI_Vector128_op_Equality:
-        case NI_Vector64_op_Inequality:
-        case NI_Vector128_op_Inequality:
-            unreached();
 
         case NI_AdvSimd_FusedMultiplyAddScalar:
             LowerHWIntrinsicFusedMultiplyAddScalar(node);
@@ -571,8 +563,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 //     This check may end up modifying node's first operand if it is a cast node that can be removed
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_Vector64_Create) || (node->GetIntrinsic() == NI_Vector128_Create) ||
-           (node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
+    assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
+           (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector64) ||
@@ -625,10 +617,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     if (op->IsDblConPositiveZero() || op->IsIntCon(0))
     {
         BlockRange().Unlink(op);
-
-        node->SetIntrinsic(node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe ? NI_Vector128_get_Zero
-                                                                                   : NI_Vector64_get_Zero,
-                           0);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
     }
     else
     {
@@ -640,13 +629,11 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 {
     var_types type    = node->GetType();
     var_types eltType = node->GetSimdBaseType();
-    unsigned  size    = node->GetSimdSize();
     unsigned  numOps  = node->GetNumOps();
 
-    assert(varTypeIsSIMD(type));
+    assert(varTypeIsTargetVec(type));
     assert(varTypeIsArithmetic(eltType));
-    assert((size == 8) || (size == 16));
-    assert(numOps == (size / varTypeSize(eltType)));
+    assert(numOps == varTypeSize(type) / varTypeSize(eltType));
 
     // TODO-ARM64-CQ: We should be able to modify at least the paths that use Insert to trivially support partial
     // vector constants. With this, we can create a constant if say 50% of the inputs are also constant and just
@@ -686,7 +673,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     if (nonZeroOpMask == 1)
     {
         GenTree* op = node->GetOp(0);
-        node->SetIntrinsic((size == 8) ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
+        node->SetIntrinsic(type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
         node->SetOp(0, op);
         LowerNode(node);
 
@@ -715,15 +702,15 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
             // If we have 0 operands then use CreateScalar to ensure that upper elements are zeroed.
             if (nonZeroOpMask != ((1u << numOps) - 1))
             {
-                createScalar = (size == 8) ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
+                createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
             }
             else
             {
-                createScalar = (size == 8) ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
+                createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
             }
 
             op  = TryRemoveCastIfPresent(eltType, op);
-            vec = comp->gtNewSimdHWIntrinsicNode(type, createScalar, eltType, size, op);
+            vec = comp->gtNewVecNode(type, createScalar, eltType, op);
             BlockRange().InsertAfter(op, vec);
             LowerNode(vec);
 
@@ -742,7 +729,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         if (nonZeroOpMask != 1)
         {
-            vec = comp->gtNewSimdHWIntrinsicNode(type, NI_AdvSimd_Insert, eltType, size, vec, idx, op);
+            vec = comp->gtNewVecNode(type, NI_AdvSimd_Insert, eltType, vec, idx, op);
 
             if (zero == nullptr)
             {
@@ -780,11 +767,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     assert(node->IsUnary());
 
     var_types eltType = node->GetSimdBaseType();
-    unsigned  size    = node->GetSimdSize();
 
-    assert(varTypeIsSIMD(node->GetType()));
+    assert(varTypeIsTargetVec(node->GetType()));
     assert(varTypeIsArithmetic(eltType));
-    assert((size == 8) || (size == 12) || (size == 16));
 
     VectorConstant vecConst;
 
@@ -798,11 +783,12 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     if (varTypeSize(eltType) == 8)
     {
-        intrinsic = size == 8 ? NI_AdvSimd_Arm64_DuplicateToVector64 : NI_AdvSimd_Arm64_DuplicateToVector128;
+        intrinsic =
+            node->TypeIs(TYP_SIMD8) ? NI_AdvSimd_Arm64_DuplicateToVector64 : NI_AdvSimd_Arm64_DuplicateToVector128;
     }
     else
     {
-        intrinsic = size == 8 ? NI_AdvSimd_DuplicateToVector64 : NI_AdvSimd_DuplicateToVector128;
+        intrinsic = node->TypeIs(TYP_SIMD8) ? NI_AdvSimd_DuplicateToVector64 : NI_AdvSimd_DuplicateToVector128;
     }
 
     node->SetIntrinsic(intrinsic);
@@ -811,32 +797,33 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
 {
-    unsigned numOps = node->GetNumOps();
+    var_types type    = node->GetType();
+    var_types eltType = node->GetSimdBaseType();
+    unsigned  numOps  = node->GetNumOps();
+
+    assert(varTypeIsTargetVec(type));
+    assert(varTypeIsArithmetic(eltType));
 
     for (unsigned i = 0; i < numOps; i++)
     {
         BlockRange().Unlink(node->GetOp(i));
     }
 
-    unsigned size = node->GetSimdSize();
-
-    if (vecConst.AllBitsZero(size))
+    if (vecConst.AllBitsZero(type))
     {
-        node->SetIntrinsic((size == 8) ? NI_Vector64_get_Zero : NI_Vector128_get_Zero);
+        node->SetIntrinsic(NI_VEC_ZERO);
         node->SetNumOps(0);
         return;
     }
 
-    if ((size != 12) && vecConst.AllBitsOne(size))
+    if (vecConst.AllBitsOne(type))
     {
-        node->SetIntrinsic((size == 8) ? NI_Vector64_get_AllBitsSet : NI_Vector128_get_AllBitsSet);
+        node->SetIntrinsic(NI_VEC_ONE_BITS);
         node->SetNumOps(0);
         return;
     }
 
-    size = size == 12 ? 16 : size;
-
-    ConstData* data = comp->codeGen->GetConst(vecConst.u8, size, size DEBUGARG(getSIMDTypeForSize(size)));
+    ConstData* data = comp->codeGen->GetConst(vecConst.u8, varTypeSize(type), varTypeSize(type) DEBUGARG(type));
 
     GenTree* addr = new (comp, GT_CONST_ADDR) GenTreeConstAddr(data);
     BlockRange().InsertBefore(node, addr);
@@ -846,7 +833,7 @@ void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const Vecto
     indir->AsIndLoad()->SetAddr(addr);
 }
 
-void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
 {
     var_types eltType = node->GetSimdBaseType();
 
@@ -915,9 +902,9 @@ void Lowering::LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
     }
 }
 
-void Lowering::LowerHWIntrinsicSum(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecSum(GenTreeHWIntrinsic* node)
 {
-    assert(node->GetIntrinsic() == NI_Vector128_Sum);
+    assert(node->GetIntrinsic() == NI_VEC_SUM);
     assert(node->GetSimdBaseType() == TYP_FLOAT);
     assert(node->GetSimdSize() == 16);
 

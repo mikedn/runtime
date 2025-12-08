@@ -43,6 +43,9 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (HWIntrinsicInfo::GetIsa(intrinsic))
     {
+        case InstructionSet_ILLEGAL:
+            GenVecIntrinsic(node);
+            break;
         case InstructionSet_Vector128:
         case InstructionSet_Vector256:
             GenVectorNIntrinsic(node);
@@ -858,6 +861,46 @@ void CodeGen::UseHWIntrinsicOperands(GenTreeHWIntrinsic* node)
     }
 }
 
+void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
+{
+    RegNum    dstReg  = node->GetRegNum();
+    var_types type    = node->GetType();
+    var_types eltType = node->GetSimdBaseType();
+    Emitter&  emit    = *GetEmitter();
+
+    assert(varTypeIsTargetVec(type) || (node->GetIntrinsic() == NI_VEC_EXTRACT));
+    assert(varTypeIsArithmetic(eltType));
+
+    switch (node->GetIntrinsic())
+    {
+        case NI_VEC_ONE_BITS:
+            if ((type != TYP_SIMD16) && !compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
+            {
+                assert(compiler->opts.IsIsaSupported(InstructionSet_AVX));
+                emit.emitIns_SIMD_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
+                emit.emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, dstReg, dstReg, dstReg, 15);
+            }
+            else
+            {
+                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, emitTypeSize(type), dstReg, dstReg, dstReg);
+            }
+            break;
+
+        case NI_VEC_ZERO:
+            emit.emitIns_SIMD_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
+            break;
+
+        case NI_VEC_EXTRACT:
+            GenVecExtract(node);
+            break;
+
+        default:
+            unreached();
+    }
+
+    DefReg(node);
+}
+
 void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
 {
     UseHWIntrinsicOperands(node);
@@ -900,11 +943,6 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
-        case NI_Vector128_GetElement:
-        case NI_Vector256_GetElement:
-            GenVectorGetElement(node);
-            break;
-
         case NI_Vector128_ToVector256:
         {
             GenTree* op1 = node->GetOp(0);
@@ -943,23 +981,6 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
-        case NI_Vector256_get_AllBitsSet:
-            assert(ins == INS_pcmpeqd);
-
-            if (!compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
-            {
-                assert(compiler->opts.IsIsaSupported(InstructionSet_AVX));
-                emit.emitIns_SIMD_R_R_R(INS_xorps, EA_32BYTE, dstReg, dstReg, dstReg);
-                emit.emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, dstReg, dstReg, dstReg, 15);
-                break;
-            }
-            FALLTHROUGH;
-        case NI_Vector128_get_Zero:
-        case NI_Vector256_get_Zero:
-        case NI_Vector128_get_AllBitsSet:
-            emit.emitIns_SIMD_R_R_R(ins, emitVecTypeSize(node->GetSimdSize()), dstReg, dstReg, dstReg);
-            break;
-
         default:
             unreached();
     }
@@ -967,24 +988,28 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
     DefReg(node);
 }
 
-void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
+void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
 {
+    assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
+
+    UseHWIntrinsicOperands(node);
+
     var_types eltType = node->GetSimdBaseType();
-    GenTree*  src     = node->GetOp(0);
+    GenTree*  vec     = node->GetOp(0);
     GenTree*  index   = node->GetOp(1);
     RegNum    destReg = node->GetRegNum();
     Emitter&  emit    = *GetEmitter();
 
-    if (!src->isUsedFromReg())
+    if (!vec->isUsedFromReg())
     {
         RegNum   baseReg;
         RegNum   indexReg;
         unsigned scale;
         int      offset;
 
-        if (src->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
+        if (vec->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD))
         {
-            LclVarDsc* lcl = src->AsLclRef()->GetLcl();
+            LclVarDsc* lcl = vec->AsLclRef()->GetLcl();
 
             bool isEBPbased;
             int  frameOffset = compiler->lvaLclFrameAddress(lcl, &isEBPbased);
@@ -1000,11 +1025,11 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
             baseReg  = isEBPbased ? REG_EBP : REG_ESP;
             indexReg = REG_NA;
             scale    = 1;
-            offset   = frameOffset + src->AsLclRef()->GetLclOffs();
+            offset   = frameOffset + vec->AsLclRef()->GetLclOffs();
         }
-        else if (src->AsIndir()->GetAddr()->isUsedFromReg())
+        else if (vec->AsIndir()->GetAddr()->isUsedFromReg())
         {
-            baseReg  = src->AsIndir()->GetAddr()->GetRegNum();
+            baseReg  = vec->AsIndir()->GetAddr()->GetRegNum();
             indexReg = REG_NA;
             scale    = 1;
             offset   = 0;
@@ -1013,7 +1038,7 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
         {
             assert(index->IsIntCon());
 
-            GenTreeAddrMode* am = src->AsIndir()->GetAddr()->AsAddrMode();
+            GenTreeAddrMode* am = vec->AsIndir()->GetAddr()->AsAddrMode();
 
             baseReg  = am->GetBase()->GetRegNum();
             indexReg = am->HasIndex() ? am->GetIndex()->GetRegNum() : REG_NA;
@@ -1040,7 +1065,7 @@ void CodeGen::GenVectorGetElement(GenTreeHWIntrinsic* node)
         return;
     }
 
-    RegNum  srcReg     = src->GetRegNum();
+    RegNum  srcReg     = vec->GetRegNum();
     ssize_t indexValue = index->AsIntCon()->GetValue();
 
     assert(varTypeIsFloating(eltType));

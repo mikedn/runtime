@@ -2714,7 +2714,7 @@ void Lowering::LowerStructReturn(GenTreeUnOp* ret)
 
             if (GenTreeHWIntrinsic* extract = use.GetNode()->IsHWIntrinsic())
             {
-                if ((extract->GetIntrinsic() == NI_Vector128_GetElement) && extract->GetOp(1)->IsIntCon(0) &&
+                if ((extract->GetIntrinsic() == NI_VEC_EXTRACT) && extract->GetOp(1)->IsIntCon(0) &&
                     varTypeUsesFloatReg(extract->GetType()) && varTypeUsesFloatReg(extract->GetOp(0)->GetType()))
                 {
                     GenTree* vec = extract->GetOp(0);
@@ -5303,9 +5303,11 @@ GenTree* Lowering::TryRemoveCastIfPresent(var_types expectedType, GenTree* op)
     return op;
 }
 
-bool Lowering::VectorConstant::AllBitsZero(unsigned vectorByteSize) const
+bool Lowering::VectorConstant::AllBitsZero(var_types type) const
 {
-    for (unsigned i = 0; i < vectorByteSize; i++)
+    assert(varTypeIsTargetVec(type));
+
+    for (unsigned i = 0; i < varTypeSize(type); i++)
     {
         if (u8[i] != 0)
         {
@@ -5315,9 +5317,11 @@ bool Lowering::VectorConstant::AllBitsZero(unsigned vectorByteSize) const
     return true;
 }
 
-bool Lowering::VectorConstant::AllBitsOne(unsigned vectorByteSize) const
+bool Lowering::VectorConstant::AllBitsOne(var_types type) const
 {
-    for (unsigned i = 0; i < vectorByteSize; i++)
+    assert(varTypeIsTargetVec(type));
+
+    for (unsigned i = 0; i < varTypeSize(type); i++)
     {
         if (u8[i] != 0xFF)
         {
@@ -5407,8 +5411,8 @@ bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
         return false;
     }
 
-    unsigned eltCount = create->GetSimdSize() / varTypeSize(eltType);
     unsigned eltSize  = varTypeSize(eltType);
+    unsigned eltCount = varTypeSize(create->GetType()) / eltSize;
 
     for (unsigned i = 1; i < eltCount; i++)
     {

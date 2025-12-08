@@ -49,7 +49,7 @@ private:
 
 #ifdef FEATURE_HW_INTRINSICS
     GenTree* DecomposeHWIntrinsic(LIR::Use& use);
-    GenTree* DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node);
+    GenTree* DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* node);
 #endif // FEATURE_HW_INTRINSICS
 
     GenTree* OptimizeTruncate(GenTreeUnOp* trunc, GenTree* nextNode);

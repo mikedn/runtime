@@ -575,7 +575,7 @@ private:
 
 #ifdef FEATURE_HW_INTRINSICS
     void GenHWIntrinsic(GenTreeHWIntrinsic* node);
-    void GenVectorGetElement(GenTreeHWIntrinsic* node);
+    void GenVecExtract(GenTreeHWIntrinsic* node);
 
 #ifdef TARGET_XARCH
     void genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum reg, GenTree* rmOp);
@@ -588,6 +588,7 @@ private:
         instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3);
 
     void GenGenericIntrinsic(GenTreeHWIntrinsic* node);
+    void GenVecIntrinsic(GenTreeHWIntrinsic* node);
     void GenVectorNIntrinsic(GenTreeHWIntrinsic* node);
     void GenX86BaseIntrinsic(GenTreeHWIntrinsic* node);
     void GenSSE2Intrinsic(GenTreeHWIntrinsic* node);

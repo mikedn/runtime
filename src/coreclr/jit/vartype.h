@@ -148,6 +148,11 @@ constexpr bool varTypeIsI(var_types vt)
     return (vt == TYP_I_IMPL) || varTypeIsGC(vt);
 }
 
+constexpr bool varTypeIsVecElt(var_types vt)
+{
+    return varTypeIsArithmetic(vt);
+}
+
 constexpr bool varTypeIsVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
@@ -207,7 +212,7 @@ __declspec(noinline) inline var_types varTypeGetTargetVec(var_types vt)
 
 constexpr bool varTypeIsStruct(var_types vt)
 {
-    return (vt == TYP_STRUCT) || varTypeIsSIMD(vt);
+    return (vt == TYP_STRUCT) || varTypeIsVec(vt);
 }
 
 constexpr bool varTypeIsComposite(var_types t)

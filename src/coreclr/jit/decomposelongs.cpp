@@ -1216,18 +1216,17 @@ GenTree* DecomposeLongs::DecomposeHWIntrinsic(LIR::Use& use)
 
     switch (intrinsic->GetIntrinsic())
     {
-        case NI_Vector128_GetElement:
-        case NI_Vector256_GetElement:
-            return DecomposeHWIntrinsicGetElement(use, intrinsic);
+        case NI_VEC_EXTRACT:
+            return DecomposeVecExtract(use, intrinsic);
         default:
             unreached();
     }
 }
 
-GenTree* DecomposeLongs::DecomposeHWIntrinsicGetElement(LIR::Use& use, GenTreeHWIntrinsic* node)
+GenTree* DecomposeLongs::DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* node)
 {
     assert(node == use.Def());
-    assert((node->GetIntrinsic() == NI_Vector128_GetElement) || (node->GetIntrinsic() == NI_Vector256_GetElement));
+    assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
     assert(node->TypeIs(TYP_LONG));
     assert(node->GetSimdBaseType() == TYP_LONG);
 

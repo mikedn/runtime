@@ -988,7 +988,7 @@ private:
             // in lowering. This is already done for GetElement but doesn't work very well.
 
             load->ChangeOper(GT_HWINTRINSIC);
-            load->AsHWIntrinsic()->SetIntrinsic(NI_Vector128_GetElement, TYP_FLOAT, 16, 2);
+            load->AsHWIntrinsic()->SetIntrinsic(NI_VEC_EXTRACT, TYP_FLOAT, 16, 2);
             load->AsHWIntrinsic()->SetOp(0, NewLclLoad(lclType, lcl));
             load->AsHWIntrinsic()->SetOp(1, NewIntConNode(TYP_INT, lclOffs / 4));
             INDEBUG(m_stmtModified = true);
@@ -1744,8 +1744,8 @@ private:
             case TYP_SIMD16:
             case TYP_SIMD32:
                 zero->ChangeOper(GT_HWINTRINSIC);
-                zero->SetType(type);
-                zero->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(type), TYP_FLOAT, varTypeSize(type), 0);
+                zero->SetType(varTypeGetTargetVec(type));
+                zero->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(type), 0);
                 break;
 #endif
             default:
@@ -2217,15 +2217,11 @@ void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrin
 
 void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src)
 {
-    // Don't block promotion due to Create/Zero intrinsics, we can promote these.
+    // Don't block promotion due to intrinsics that we can promote.
     switch (src->GetIntrinsic())
     {
-#ifdef TARGET_ARM64
-        case NI_Vector64_Create:
-        case NI_Vector64_get_Zero:
-#endif
-        case NI_Vector128_Create:
-        case NI_Vector128_get_Zero:
+        case NI_VEC_PACK:
+        case NI_VEC_ZERO:
             return;
         default:
             break;

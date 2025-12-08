@@ -7523,19 +7523,10 @@ inline bool GenTree::IsDblCon2() const
 inline bool GenTree::IsHWIntrinsicZero() const
 {
 #ifdef FEATURE_HW_INTRINSICS
-    if (OperIs(GT_HWINTRINSIC))
-    {
-        NamedIntrinsic intrinsic = AsHWIntrinsic()->GetIntrinsic();
-        return (intrinsic == NI_Vector128_get_Zero)
-#if defined(TARGET_XARCH)
-               || (intrinsic == NI_Vector256_get_Zero)
-#elif defined(TARGET_ARM64)
-               || (intrinsic == NI_Vector64_get_Zero)
-#endif
-            ;
-    }
-#endif
+    return OperIs(GT_HWINTRINSIC) && (AsHWIntrinsic()->GetIntrinsic() == NI_VEC_ZERO);
+#else
     return false;
+#endif
 }
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const

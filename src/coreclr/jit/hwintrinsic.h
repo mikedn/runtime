@@ -421,7 +421,7 @@ struct HWIntrinsicSignature final
     ClassLayout* paramLayout[5];
 
     void Read(class Compiler* compiler, CORINFO_SIG_INFO* sig);
-    var_types GetBaseTypeFromParam(NamedIntrinsic intrinsic, ClassLayout** argLayout) const;
+    var_types GetBaseTypeFromParam(unsigned index, ClassLayout** argLayout) const;
 };
 
 #ifdef TARGET_ARM64
@@ -497,17 +497,15 @@ inline NamedIntrinsic GetCreateSimdHWIntrinsic(var_types type)
 {
     switch (type)
     {
-        case TYP_SIMD8:
 #ifdef TARGET_ARM64
-            return NI_Vector64_Create;
+        case TYP_SIMD8:
 #endif
         case TYP_SIMD12:
         case TYP_SIMD16:
-            return NI_Vector128_Create;
 #ifdef TARGET_XARCH
         case TYP_SIMD32:
-            return NI_Vector256_Create;
 #endif
+            return NI_VEC_PACK;
         default:
             unreached();
     }
@@ -517,17 +515,15 @@ inline NamedIntrinsic GetZeroSimdHWIntrinsic(var_types type)
 {
     switch (type)
     {
-        case TYP_SIMD8:
 #ifdef TARGET_ARM64
-            return NI_Vector64_get_Zero;
+        case TYP_SIMD8:
 #endif
         case TYP_SIMD12:
         case TYP_SIMD16:
-            return NI_Vector128_get_Zero;
 #ifdef TARGET_XARCH
         case TYP_SIMD32:
-            return NI_Vector256_get_Zero;
 #endif
+            return NI_VEC_ZERO;
         default:
             unreached();
     }

@@ -3194,14 +3194,14 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, op1);
             op1 = NewVecNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, op1, op2, op3);
 
-            return NewVecNode(callType, NI_Vector128_GetElement, callType, 16, op1, comp->gtNewIconNode(0));
+            return NewVecNode(callType, NI_VEC_EXTRACT, callType, 16, op1, comp->gtNewIconNode(0));
         }
 #endif
 
 #ifdef TARGET_ARM64
         if (comp->compOpportunisticallyDependsOn(InstructionSet_AdvSimd))
         {
-            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_Vector64_Create : NI_Vector64_CreateScalarUnsafe;
+            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_VEC_PACK: NI_Vector64_CreateScalarUnsafe;
 
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
@@ -3212,7 +3212,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             op1 = NewVecNode(TYP_SIMD8, create, callType, op1);
             op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, op3, op2, op1);
 
-            return NewVecNode(callType, NI_Vector64_GetElement, callType, 8, op1, comp->gtNewIconNode(0));
+            return NewVecNode(callType, NI_VEC_EXTRACT, callType, 8, op1, comp->gtNewIconNode(0));
         }
 #endif
 

@@ -271,7 +271,7 @@ private:
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
-    void LowerHWIntrinsicEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
+    void LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
     void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
@@ -281,18 +281,18 @@ private:
     void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
 #endif
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicSum128(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicSum256(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
+    void LowerVecSum128(GenTreeHWIntrinsic* node);
+    void LowerVecSum256(GenTreeHWIntrinsic* node);
+    void LowerVecExtract(GenTreeHWIntrinsic* node);
+    void LowerVecInsert(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
     void ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
 #elif defined(TARGET_ARM64)
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicSum(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicWithElement(GenTreeHWIntrinsic* node);
+    void LowerVecSum(GenTreeHWIntrinsic* node);
+    void LowerVecExtract(GenTreeHWIntrinsic* node);
+    void LowerVecInsert(GenTreeHWIntrinsic* node);
 #endif // !TARGET_XARCH && !TARGET_ARM64
 
     struct VectorConstant
@@ -308,8 +308,8 @@ private:
         {
         }
 
-        bool AllBitsZero(unsigned vectorByteSize) const;
-        bool AllBitsOne(unsigned vectorByteSize) const;
+        bool AllBitsZero(var_types type) const;
+        bool AllBitsOne(var_types type) const;
         bool Insert(var_types type, int index, GenTree* value);
         bool Create(GenTreeHWIntrinsic* create);
         bool Broadcast(GenTreeHWIntrinsic* create);

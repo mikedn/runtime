@@ -1371,7 +1371,7 @@ private:
     void BuildHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_ARM64
     void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
-    void BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node);
+    void BuildVecExtract(GenTreeHWIntrinsic* node);
 #endif
 #endif
 

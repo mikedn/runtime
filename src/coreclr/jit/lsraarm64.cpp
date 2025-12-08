@@ -578,9 +578,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     const HWIntrinsic intrin(node);
 
-    if ((intrin.id == NI_Vector64_GetElement) || (intrin.id == NI_Vector128_GetElement))
+    if (intrin.id == NI_VEC_EXTRACT)
     {
-        BuildHWIntrinsicGetElement(node);
+        BuildVecExtract(node);
 
         return;
     }
@@ -765,9 +765,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     }
 }
 
-void LinearScan::BuildHWIntrinsicGetElement(GenTreeHWIntrinsic* node)
+void LinearScan::BuildVecExtract(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_Vector64_GetElement) || (node->GetIntrinsic() == NI_Vector128_GetElement));
+    assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
 
     GenTree* vec   = node->GetOp(0);
     GenTree* index = node->GetOp(1);

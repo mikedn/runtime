@@ -99,14 +99,18 @@ static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
 // clang-format off
 #if defined(TARGET_XARCH)
 #define INS_movsdsse2 INS_movsd
+#define InstructionSet_VEC InstructionSet_ILLEGAL
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
     {#name, InstructionSet_##isa, size, numarg, category, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistxarch.h"
+#undef InstructionSet_VEC
 #undef INS_movsdsse2
 #elif defined (TARGET_ARM64)
+#define InstructionSet_VEC InstructionSet_ILLEGAL
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
     {#name, InstructionSet_##isa, size, numarg, category, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistarm64.h"
+#undef InstructionSet_VEC
 #else
 #error Unsupported platform
 #endif
@@ -373,68 +377,6 @@ GenTree* Importer::AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, i
     return comp->gtNewCommaNode(check, immOpUses[0]);
 }
 
-static bool impIsTableDrivenHWIntrinsic(NamedIntrinsic intrinsicId, HWIntrinsicCategory category)
-{
-    return NOT_ARM64((category != HW_Category_Special) &&) HWIntrinsicInfo::RequiresCodegen(intrinsicId) &&
-           !HWIntrinsicInfo::HasSpecialImport(intrinsicId);
-}
-
-static bool isSupportedBaseType(NamedIntrinsic intrinsic, var_types baseType)
-{
-    // We don't actually check the intrinsic outside of the false case as we expect
-    // the exposed managed signatures are either generic and support all types
-    // or they are explicit and support the type indicated.
-
-    if (varTypeIsArithmetic(baseType))
-    {
-        return true;
-    }
-
-#ifdef TARGET_XARCH
-    assert((intrinsic == NI_Vector128_As) || (intrinsic == NI_Vector128_AsByte) ||
-           (intrinsic == NI_Vector128_AsDouble) || (intrinsic == NI_Vector128_AsInt16) ||
-           (intrinsic == NI_Vector128_AsInt32) || (intrinsic == NI_Vector128_AsInt64) ||
-           (intrinsic == NI_Vector128_AsSByte) || (intrinsic == NI_Vector128_AsSingle) ||
-           (intrinsic == NI_Vector128_AsUInt16) || (intrinsic == NI_Vector128_AsUInt32) ||
-           (intrinsic == NI_Vector128_AsUInt64) || (intrinsic == NI_Vector128_get_AllBitsSet) ||
-           (intrinsic == NI_Vector128_get_Count) || (intrinsic == NI_Vector128_get_Zero) ||
-           (intrinsic == NI_Vector128_GetElement) || (intrinsic == NI_Vector128_WithElement) ||
-           (intrinsic == NI_Vector128_ToScalar) || (intrinsic == NI_Vector128_ToVector256) ||
-           (intrinsic == NI_Vector128_ToVector256Unsafe) || (intrinsic == NI_Vector256_As) ||
-           (intrinsic == NI_Vector256_AsByte) || (intrinsic == NI_Vector256_AsDouble) ||
-           (intrinsic == NI_Vector256_AsInt16) || (intrinsic == NI_Vector256_AsInt32) ||
-           (intrinsic == NI_Vector256_AsInt64) || (intrinsic == NI_Vector256_AsSByte) ||
-           (intrinsic == NI_Vector256_AsSingle) || (intrinsic == NI_Vector256_AsUInt16) ||
-           (intrinsic == NI_Vector256_AsUInt32) || (intrinsic == NI_Vector256_AsUInt64) ||
-           (intrinsic == NI_Vector256_get_AllBitsSet) || (intrinsic == NI_Vector256_get_Count) ||
-           (intrinsic == NI_Vector256_get_Zero) || (intrinsic == NI_Vector256_GetElement) ||
-           (intrinsic == NI_Vector256_WithElement) || (intrinsic == NI_Vector256_GetLower) ||
-           (intrinsic == NI_Vector256_ToScalar));
-#endif // TARGET_XARCH
-#ifdef TARGET_ARM64
-    assert((intrinsic == NI_Vector64_As) || (intrinsic == NI_Vector64_AsByte) || (intrinsic == NI_Vector64_AsDouble) ||
-           (intrinsic == NI_Vector64_AsInt16) || (intrinsic == NI_Vector64_AsInt32) ||
-           (intrinsic == NI_Vector64_AsInt64) || (intrinsic == NI_Vector64_AsSByte) ||
-           (intrinsic == NI_Vector64_AsSingle) || (intrinsic == NI_Vector64_AsUInt16) ||
-           (intrinsic == NI_Vector64_AsUInt32) || (intrinsic == NI_Vector64_AsUInt64) ||
-           (intrinsic == NI_Vector64_get_AllBitsSet) || (intrinsic == NI_Vector64_get_Count) ||
-           (intrinsic == NI_Vector64_get_Zero) || (intrinsic == NI_Vector64_GetElement) ||
-           (intrinsic == NI_Vector64_ToScalar) || (intrinsic == NI_Vector64_ToVector128) ||
-           (intrinsic == NI_Vector64_ToVector128Unsafe) || (intrinsic == NI_Vector64_WithElement) ||
-           (intrinsic == NI_Vector128_As) || (intrinsic == NI_Vector128_AsByte) ||
-           (intrinsic == NI_Vector128_AsDouble) || (intrinsic == NI_Vector128_AsInt16) ||
-           (intrinsic == NI_Vector128_AsInt32) || (intrinsic == NI_Vector128_AsInt64) ||
-           (intrinsic == NI_Vector128_AsSByte) || (intrinsic == NI_Vector128_AsSingle) ||
-           (intrinsic == NI_Vector128_AsUInt16) || (intrinsic == NI_Vector128_AsUInt32) ||
-           (intrinsic == NI_Vector128_AsUInt64) || (intrinsic == NI_Vector128_get_AllBitsSet) ||
-           (intrinsic == NI_Vector128_get_Count) || (intrinsic == NI_Vector128_get_Zero) ||
-           (intrinsic == NI_Vector128_GetElement) || (intrinsic == NI_Vector128_GetLower) ||
-           (intrinsic == NI_Vector128_GetUpper) || (intrinsic == NI_Vector128_ToScalar) ||
-           (intrinsic == NI_Vector128_WithElement));
-#endif // TARGET_ARM64
-    return false;
-}
-
 void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
 {
     // Most HW intrinsics have return and parameters of the same type
@@ -454,7 +396,7 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
         prevLayout = compiler->typGetObjLayout(prevClass);
 
         retLayout = prevLayout;
-        retType   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
+        retType   = prevLayout->IsVector() ? prevLayout->GetVectorType() : TYP_STRUCT;
     }
 
     ICorJitInfo*            vm    = compiler->info.compCompHnd;
@@ -495,15 +437,13 @@ void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
         }
 
         paramLayout[i] = prevLayout;
-        paramType[i]   = prevLayout->IsVector() ? prevLayout->GetSIMDType() : TYP_STRUCT;
+        paramType[i]   = prevLayout->IsVector() ? prevLayout->GetVectorType() : TYP_STRUCT;
     }
 }
 
-var_types HWIntrinsicSignature::GetBaseTypeFromParam(NamedIntrinsic intrinsic, ClassLayout** layout) const
+var_types HWIntrinsicSignature::GetBaseTypeFromParam(unsigned index, ClassLayout** layout) const
 {
-    assert(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic));
-
-    unsigned index = HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic);
+    assert(index < paramCount);
 
     if (var_types pointerType = paramPointerType[index])
     {
@@ -511,7 +451,7 @@ var_types HWIntrinsicSignature::GetBaseTypeFromParam(NamedIntrinsic intrinsic, C
         return pointerType;
     }
 
-    if (!varTypeIsSIMD(paramType[index]))
+    if (!varTypeIsStruct(paramType[index]))
     {
         *layout = nullptr;
         return paramType[index];
@@ -535,26 +475,26 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 
-    if ((retLayout != nullptr) && opts.SIMDTypes())
+    if (retLayout != nullptr)
     {
-        // Currently all HW intrinsics return either vectors or primitive types, not structs.
+        // Currently all intrinsics return either vectors or primitive types, not structs.
         if (!retLayout->IsVector() || retLayout->ElementTypeIsNInt())
         {
             return nullptr;
         }
 
         baseType = retLayout->GetElementType();
-        retType  = retLayout->GetSIMDType();
+        retType  = retLayout->GetVectorType();
     }
 
-    if (HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic))
+    if (HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
     {
         ClassLayout* argLayout = nullptr;
-        baseType               = sig.GetBaseTypeFromParam(intrinsic, &argLayout);
+        baseType = sig.GetBaseTypeFromParam(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic), &argLayout);
 
-        if ((argLayout != nullptr) && argLayout->IsVector())
+        if (argLayout != nullptr)
         {
-            if (argLayout->ElementTypeIsNInt())
+            if (!argLayout->IsVector() || argLayout->ElementTypeIsNInt())
             {
                 return nullptr;
             }
@@ -563,6 +503,10 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 simdSize = argLayout->GetSize();
             }
+        }
+        else
+        {
+            assert(varTypeIsArithmetic(baseType));
         }
     }
     else if (retLayout != nullptr)
@@ -573,25 +517,43 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
+    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
     if (baseType == TYP_UNDEF)
     {
-        if (category != HW_Category_Scalar)
+        switch (intrinsic)
         {
-            baseType = typGetObjLayout(clsHnd)->GetElementType();
-        }
-        else
-        {
-            baseType = retType;
-        }
-    }
+#ifdef TARGET_ARM64
+            case NI_Vector64_get_Count:
+#endif
+            case NI_Vector128_get_Count:
+#ifdef TARGET_XARCH
+            case NI_Vector256_get_Count:
+#endif
+                baseType = typGetObjLayout(clsHnd)->GetElementType();
 
-    // Immediately return if the category is other than scalar/special and this is not a supported base type.
-    if (NOT_ARM64((category != HW_Category_Special) &&)(category != HW_Category_Scalar) &&
-        !isSupportedBaseType(intrinsic, baseType))
-    {
-        return nullptr;
+                if (baseType == TYP_UNDEF)
+                {
+                    return nullptr;
+                }
+                break;
+
+            default:
+#ifdef TARGET_XARCH
+                if (category == HW_Category_Special)
+                {
+                    assert(retType == TYP_VOID);
+                    baseType = retType;
+                }
+                else
+#endif
+                {
+                    assert(category == HW_Category_Scalar);
+                    assert(varTypeIsArithmetic(retType));
+                    baseType = retType;
+                }
+                break;
+        }
     }
 
     GenTree* immOp = nullptr;
@@ -760,7 +722,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         comp->compFloatingPointUsed = true;
     }
 
-    if (!impIsTableDrivenHWIntrinsic(intrinsic, category))
+    if (HWIntrinsicInfo::HasSpecialImport(intrinsic))
     {
         switch (intrinsic)
         {
@@ -969,7 +931,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     return retNode;
 }
 
-GenTree* Importer::impVectorGetElement(ClassLayout* layout, GenTree* value, GenTree* index)
+GenTree* Importer::impVecExtract(ClassLayout* layout, GenTree* value, GenTree* index)
 {
     assert(value->GetType() == layout->GetSIMDType());
     assert(varActualType(index->GetType()) == TYP_INT);

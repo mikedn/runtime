@@ -4280,12 +4280,11 @@ GenTree* Compiler::moRecognizeAndMorphBitwiseRotation(GenTreeOp* tree)
 GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 {
 #ifdef TARGET_AMD64
-    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_Vector128_GetElement) &&
-        tree->GetOp(1)->IsIntCon(0))
+    if (tree->TypeIs(TYP_LONG, TYP_DOUBLE) && (tree->GetIntrinsic() == NI_VEC_EXTRACT) && tree->GetOp(1)->IsIntCon(0))
     {
         if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
         {
-            if ((create->GetIntrinsic() == NI_Vector128_Create) && (create->GetSimdBaseType() == TYP_FLOAT) &&
+            if ((create->GetIntrinsic() == NI_VEC_PACK) && (create->GetSimdBaseType() == TYP_FLOAT) &&
                 (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
             {
                 uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
@@ -6590,9 +6589,10 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             // TODO-MIKE-Review: Could we get here on ARM64 due to Vector2/Vector64
             // reinterpretation?
 
-            val = gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT,
+            val = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT,
                                gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(0)), TYP_FLOAT),
-                               gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT));
+                               gtNewLclLoad(lvaGetDesc(lcl->GetPromotedFieldLclNum(1)), TYP_FLOAT),
+                               gtNewDconNode(0.0, TYP_FLOAT), gtNewDconNode(0.0, TYP_FLOAT));
 
             var_types regType = varActualType(info.retDesc.GetRegType(0));
             assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
@@ -6920,8 +6920,8 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
             GenTreeLclLoad* field0LclNode = gtNewLclLoad(field0Lcl, TYP_FLOAT);
             GenTreeLclLoad* field1LclNode = gtNewLclLoad(field1Lcl, TYP_FLOAT);
 
-            GenTree* doubleValue =
-                gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, field0LclNode, field1LclNode);
+            GenTree* doubleValue = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, field0LclNode, field1LclNode,
+                                                gtNewDconNode(0.0, TYP_FLOAT), gtNewDconNode(0.0, TYP_FLOAT));
 
             return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
         }
@@ -7437,15 +7437,14 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
         {
             assert(regValue->TypeIs(TYP_FLOAT));
 
-            regValue = gtNewVecNode(
 #ifdef UNIX_AMD64_ABI
-                TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT,
+            regValue = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, regValue, fieldValue,
+                                    gtNewDconNode(0.0, TYP_FLOAT), gtNewDconNode(0.0, TYP_FLOAT));
 #elif defined(TARGET_ARM64)
-                TYP_SIMD8, NI_Vector64_Create, TYP_FLOAT,
+            regValue = gtNewVecNode(TYP_SIMD8, NI_VEC_PACK, TYP_FLOAT, regValue, fieldValue);
 #else
 #error Unknown target
 #endif
-                regValue, fieldValue);
         }
         else
 #endif // TARGET_64BIT
@@ -7622,17 +7621,11 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
     {
         switch (hwi->GetIntrinsic())
         {
-            case NI_Vector128_get_Zero:
-#ifdef TARGET_ARM64
-            case NI_Vector64_get_Zero:
-#endif
+            case NI_VEC_ZERO:
                 argIsZero = true;
                 break;
 
-            case NI_Vector128_Create:
-#ifdef TARGET_ARM64
-            case NI_Vector64_Create:
-#endif
+            case NI_VEC_PACK:
                 if ((hwi->GetSimdBaseType() == TYP_FLOAT)
 #ifdef TARGET_ARM64
                     && (argInfo->GetRegType() == TYP_FLOAT)
@@ -7681,7 +7674,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             arg->SetDoNotCSE();
         }
 
-        arg = gtNewVecNode(TYP_SIMD16, NI_Vector128_Create, TYP_FLOAT, arg, gtCloneExpr(arg));
+        arg = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, arg, gtCloneExpr(arg));
         // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
         // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
         arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
@@ -7738,7 +7731,8 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             {
                 GenTree* regValue2 = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
                 assert(regValue2->TypeIs(TYP_FLOAT));
-                regValue = gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_Create, TYP_FLOAT, 16, regValue, regValue2);
+                regValue = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, regValue, regValue2,
+                                        gtNewDconNode(0.0, TYP_FLOAT), gtNewDconNode(0.0, TYP_FLOAT));
             }
 #endif
         }
@@ -11048,19 +11042,10 @@ GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
-    var_types dstType = store->GetType();
-#ifdef TARGET_XARCH
-    NamedIntrinsic create = NI_Vector128_Create;
-    unsigned       numOps = 4;
-#elif defined(TARGET_ARM64)
-    NamedIntrinsic create = dstType == TYP_SIMD8 ? NI_Vector64_Create : NI_Vector128_Create;
-    unsigned       numOps = dstType == TYP_SIMD8 ? 2 : 4;
-#else
-#error Unsupported platform
-#endif
-
-    unsigned srcFieldCount = srcLcl->GetPromotedFieldCount();
-    GenTree* ops[4];
+    var_types type          = varTypeGetTargetVec(store->GetType());
+    unsigned  numOps        = varTypeSize(type) / varTypeSize(TYP_FLOAT);
+    unsigned  srcFieldCount = srcLcl->GetPromotedFieldCount();
+    GenTree*  ops[4];
 
     for (unsigned i = 0; i < numOps; i++)
     {
@@ -11074,7 +11059,7 @@ GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcL
         }
     }
 
-    store->SetValue(gtNewSimdHWIntrinsicNode(dstType, create, TYP_FLOAT, numOps * 4, numOps, ops));
+    store->SetValue(gtNewVecNode(type, NI_VEC_PACK, TYP_FLOAT, numOps, ops));
 
     JITDUMPTREE(store, "moMorphStructCopy (after SIMD source promotion):\n\n");
 
@@ -11095,17 +11080,11 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
     {
         switch (hwi->GetIntrinsic())
         {
-#ifdef TARGET_ARM64
-            case NI_Vector64_get_Zero:
-#endif
-            case NI_Vector128_get_Zero:
+            case NI_VEC_ZERO:
                 srcIsZero = true;
                 break;
 
-#ifdef TARGET_ARM64
-            case NI_Vector64_Create:
-#endif
-            case NI_Vector128_Create:
+            case NI_VEC_PACK:
                 // TODO-MIKE-CQ: Promote broadcast create.
                 srcIsCreate = !hwi->IsUnary();
 

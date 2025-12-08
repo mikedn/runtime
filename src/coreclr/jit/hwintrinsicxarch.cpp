@@ -469,27 +469,40 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             return NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, op1);
 
         case NI_Vector128_get_Zero:
-        case NI_Vector128_get_AllBitsSet:
         case NI_Vector256_get_Zero:
-        case NI_Vector256_get_AllBitsSet:
             assert(sig.paramCount == 0);
-            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
+            assert(varTypeIsTargetVec(sig.retType));
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
-            return NewVecNode(sig.retType, intrinsic, eltType);
+            return NewVecNode(sig.retType, NI_VEC_ZERO, eltType);
+
+        case NI_Vector128_get_AllBitsSet:
+        case NI_Vector256_get_AllBitsSet:
+            assert(sig.paramCount == 0);
+            assert(varTypeIsTargetVec(sig.retType));
+
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+            return NewVecNode(sig.retType, NI_VEC_ONE_BITS, eltType);
 
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
+            assert(sig.paramCount == 1);
+            assert(varTypeIsTargetVec(sig.retType));
+
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+            op1     = impPopStack().val;
+            return NewVecNode(sig.retType, intrinsic, eltType, op1);
+
         case NI_Vector128_Create:
         case NI_Vector256_Create:
             assert((sig.paramCount >= 1) && (sig.paramCount <= 32));
-            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
+            assert(varTypeIsTargetVec(sig.retType));
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             vecSize = sig.retLayout->GetSize();
 
             {
-                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, intrinsic, eltType);
+                GenTreeHWIntrinsic* create = NewVecNode(sig.retType, NI_VEC_PACK, eltType);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
 
                 for (unsigned i = 0; i < sig.paramCount; i++)
@@ -506,7 +519,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_Vector256_WithElement:
         {
             assert(sig.paramCount == 3);
-            assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
+            assert(varTypeIsTargetVec(sig.retType));
             assert(sig.paramType[0] == sig.retType);
             assert(sig.paramLayout[0]->GetElementType() == sig.paramType[2]);
             assert(sig.paramType[1] == TYP_INT);
@@ -543,7 +556,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             op2 = impPopStackCoerceArg(TYP_INT);
             op1 = PopVec(sig.paramType[0]);
-            return impVectorGetElement(sig.paramLayout[0], op1, op2);
+            return impVecExtract(sig.paramLayout[0], op1, op2);
 
         case NI_Vector128_ToScalar:
         case NI_Vector256_ToScalar:
