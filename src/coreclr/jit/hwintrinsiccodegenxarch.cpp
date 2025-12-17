@@ -903,84 +903,51 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
 
 void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
 {
-    UseHWIntrinsicOperands(node);
-
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     RegNum         dstReg    = node->GetRegNum();
     var_types      eltType   = node->GetSimdBaseType();
+    GenTree*       op1       = node->GetOp(0);
     instruction    ins       = HWIntrinsicInfo::GetIns(intrinsic, eltType);
     Emitter&       emit      = *GetEmitter();
 
     assert(varTypeIsArithmetic(eltType));
 
+    UseHWIntrinsicOp(op1);
+
+    auto GenMove = [&](emitAttr size, bool canSkip) {
+        if (op1->isContained() || op1->isUsedFromSpillTemp())
+        {
+            genHWIntrinsic_R_RM(node, ins, size, dstReg, op1);
+        }
+        else
+        {
+            RegNum op1Reg = op1->GetRegNum();
+            emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, canSkip);
+        }
+    };
+
     switch (intrinsic)
     {
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
-        {
-            GenTree* op1 = node->GetOp(0);
-
             if (varTypeIsIntegral(eltType))
             {
-                genHWIntrinsic_R_RM(node, ins, emitActualTypeSize(eltType), dstReg, op1);
+                genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(eltType), dstReg, op1);
             }
             else
             {
-                assert(varTypeIsFloating(eltType));
-
-                emitAttr size = emitTypeSize(eltType);
-
-                if (op1->isContained() || op1->isUsedFromSpillTemp())
-                {
-                    genHWIntrinsic_R_RM(node, ins, size, dstReg, op1);
-                }
-                else
-                {
-                    RegNum op1Reg = op1->GetRegNum();
-                    emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, /* canSkip */ true);
-                }
+                GenMove(emitTypeSize(node->GetType()), /* canSkip */ true);
             }
             break;
-        }
-
         case NI_Vector128_ToVector256:
-        {
-            GenTree* op1 = node->GetOp(0);
-
-            // ToVector256 has zero-extend semantics in order to ensure it is deterministic
-            // We always emit a move to the target register, even when op1Reg == dstReg,
-            // in order to ensure that Bits MAXVL-1:128 are zeroed.
-
-            if (op1->isContained() || op1->isUsedFromSpillTemp())
-            {
-                genHWIntrinsic_R_RM(node, ins, EA_16BYTE, dstReg, op1);
-            }
-            else
-            {
-                RegNum op1Reg = op1->GetRegNum();
-                emit.emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, op1Reg, /* canSkip */ false);
-            }
+            GenMove(EA_16BYTE, /* canSkip */ false);
             break;
-        }
-
         case NI_Vector128_ToVector256Unsafe:
-        case NI_Vector256_GetLower:
-        {
-            GenTree* op1  = node->GetOp(0);
-            emitAttr size = emitVecTypeSize(node->GetSimdSize());
-
-            if (op1->isContained() || op1->isUsedFromSpillTemp())
-            {
-                genHWIntrinsic_R_RM(node, ins, size, dstReg, op1);
-            }
-            else
-            {
-                RegNum op1Reg = op1->GetRegNum();
-                emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, /* canSkip */ true);
-            }
+            GenMove(EA_16BYTE, /* canSkip */ true);
             break;
-        }
-
+        case NI_Vector256_GetLower:
+            GenMove(EA_32BYTE, /* canSkip */ true);
+            break;
         default:
             unreached();
     }

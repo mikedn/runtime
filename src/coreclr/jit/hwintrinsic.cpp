@@ -98,13 +98,11 @@ static const HWIntrinsicInfoEntry hwIntrinsicInfoArray[]
 {
 // clang-format off
 #if defined(TARGET_XARCH)
-#define INS_movsdsse2 INS_movsd
 #define InstructionSet_VEC InstructionSet_ILLEGAL
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
     {#name, InstructionSet_##isa, size, numarg, category, static_cast<HWIntrinsicFlag>(flag), t1, t2, t3, t4, t5, t6, t7, t8, t9, t10},
 #include "hwintrinsiclistxarch.h"
 #undef InstructionSet_VEC
-#undef INS_movsdsse2
 #elif defined (TARGET_ARM64)
 #define InstructionSet_VEC InstructionSet_ILLEGAL
 #define HARDWARE_INTRINSIC(isa, name, size, numarg, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, category, flag) \
