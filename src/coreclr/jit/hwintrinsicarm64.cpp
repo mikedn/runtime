@@ -264,7 +264,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             /* idx = */ impPopStack();
             GenTree* vec = PopVec(sig.retType);
 
-            return NewVecInsertNode(sig.retType, sig.paramType[2], vec, idx, elt);
+            return comp->gtNewVecInsertNode(sig.paramType[2], vec, idx, elt);
         }
 
         case NI_Vector64_GetElement:
@@ -282,7 +282,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             op2 = comp->gtNewIconNode(0);
             op1 = PopVec(sig.paramType[0]);
-            return NewVecExtractNode(sig.paramType[0], sig.retType, op1, op2);
+            return comp->gtNewVecExtractNode(sig.retType, op1, op2);
 
         case NI_AdvSimd_Extract:
             eltType = sig.retType;
@@ -296,7 +296,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             if (op2->IsIntCon() && (op2->AsIntCon()->GetUInt8Value() < sig.paramLayout[0]->GetElementCount()))
             {
-                return NewVecExtractNode(sig.paramType[0], eltType, op1, op2);
+                return NewVecExtractNode(eltType, op1, op2);
             }
 
             vecSize = sig.paramLayout[0]->GetSize();

@@ -11065,13 +11065,12 @@ bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 #endif
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(ClassLayout* layout)
+GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(ClassLayout* layout)
 {
-    return gtNewZeroSimdHWIntrinsicNode(varTypeGetTargetVec(layout->GetSIMDType()),
-                                        varTypeNodeType(layout->GetElementType()));
+    return gtNewVecZeroNode(varTypeGetTargetVec(layout->GetSIMDType()), varTypeNodeType(layout->GetElementType()));
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewZeroSimdHWIntrinsicNode(var_types type, var_types eltType)
+GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(var_types type, var_types eltType)
 {
     return new (this, GT_HWINTRINSIC)
         GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(eltType), varTypeSize(type));
@@ -11212,91 +11211,64 @@ GenTreeHWIntrinsic* Compiler::gtNewSimdHWIntrinsicNode(
     return node;
 }
 
-GenTreeHWIntrinsic* Compiler::NewExtractVectorElement(var_types vecType,
-                                                      var_types eltType,
-                                                      GenTree*  vec,
-                                                      unsigned  index)
+GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* vec, unsigned index)
 {
-    return gtNewSimdGetElementNode(vecType, eltType, vec, gtNewIconNode(index));
+    return gtNewVecExtractNode(eltType, vec, gtNewIconNode(index));
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdGetElementNode(var_types vecType,
-                                                      var_types eltType,
-                                                      GenTree*  value,
-                                                      GenTree*  index)
+GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* vec, GenTree* index)
 {
-    assert(varTypeIsVec(vecType));
+    var_types vecType = varTypeGetTargetVec(vec->GetType());
+
     assert(varTypeIsArithmetic(eltType));
     assert(varActualTypeIsInt(index->GetType()));
 
-    unsigned size = 16;
-
-#ifdef TARGET_XARCH
-    if (vecType == TYP_SIMD32)
-    {
-        size = 32;
-    }
-#elif defined(TARGET_ARM64)
-    if (vecType == TYP_SIMD8)
-    {
-        size = 8;
-    }
-#else
-#error Unsupported platform
-#endif
-
     eltType = varTypeNodeType(eltType);
-    return gtNewSimdHWIntrinsicNode(eltType, NI_VEC_EXTRACT, eltType, size, value, index);
+    return gtNewSimdHWIntrinsicNode(eltType, NI_VEC_EXTRACT, eltType, varTypeSize(vecType), vec, index);
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewSimdWithElementNode(
-    var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
+GenTreeHWIntrinsic* Compiler::gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
-    assert(varTypeIsVec(type));
+    var_types type = varTypeGetTargetVec(vec->GetType());
+
     assert(varTypeIsArithmetic(eltType));
     assert(idx->GetUInt32Value() < varTypeSize(type) / varTypeSize(eltType));
 
-    NamedIntrinsic intrinsic;
-    unsigned       size;
-
 #if defined(TARGET_XARCH)
     assert(varTypeIsFloating(eltType) || varTypeIsShort(eltType) || opts.IsIsaSupported(InstructionSet_SSE41));
-    assert((eltType == TYP_FLOAT) || (varTypeSize(type) >= 16));
 
-    intrinsic = NI_VEC_INSERT;
-    size      = type == TYP_SIMD32 ? 32 : 16;
+    NamedIntrinsic intrinsic = NI_VEC_INSERT;
 #elif defined(TARGET_ARM64)
-    if ((type == TYP_SIMD8) && (varTypeSize(eltType) == 8))
+    if (varTypeSize(eltType) == varTypeSize(type))
     {
         return gtNewVecNode(TYP_SIMD8, NI_VEC_PACK, eltType, elt);
     }
 
-    intrinsic = NI_AdvSimd_Insert;
-    size      = type == TYP_SIMD8 ? 8 : 16;
+    NamedIntrinsic intrinsic = NI_AdvSimd_Insert;
 #else
 #error Unsupported platform
-#endif // !TARGET_XARCH && !TARGET_ARM64
+#endif
 
-    return gtNewSimdHWIntrinsicNode(type, intrinsic, varTypeNodeType(eltType), size, vec, idx, elt);
+    return gtNewVecNode(type, intrinsic, varTypeNodeType(eltType), vec, idx, elt);
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1)
+GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic intrinsic, GenTree* op1)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, TYP_UNDEF, 0, op1);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(var_types      type,
-                                                         NamedIntrinsic hwIntrinsicID,
+                                                         NamedIntrinsic intrinsic,
                                                          GenTree*       op1,
                                                          GenTree*       op2)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, TYP_UNDEF, 0, op1, op2);
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewScalarHWIntrinsicNode(
-    var_types type, NamedIntrinsic hwIntrinsicID, GenTree* op1, GenTree* op2, GenTree* op3)
+    var_types type, NamedIntrinsic intrinsic, GenTree* op1, GenTree* op2, GenTree* op3)
 {
-    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, hwIntrinsicID, TYP_UNDEF, 0, op1, op2, op3);
+    return new (this, GT_HWINTRINSIC) GenTreeHWIntrinsic(type, intrinsic, TYP_UNDEF, 0, op1, op2, op3);
 }
 
 bool GenTreeHWIntrinsic::IsMemoryLoad() const

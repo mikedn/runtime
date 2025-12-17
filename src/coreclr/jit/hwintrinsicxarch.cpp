@@ -546,7 +546,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             /* idx = */ impPopStack();
             GenTree* vec = PopVec(sig.retType);
 
-            return NewVecInsertNode(sig.retType, sig.paramType[2], vec, idx, elt);
+            return comp->gtNewVecInsertNode(sig.paramType[2], vec, idx, elt);
         }
 
         case NI_Vector256_GetElement:
@@ -565,7 +565,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             op2 = comp->gtNewIconNode(0);
             op1 = PopVec(sig.paramType[0]);
-            return NewVecExtractNode(sig.paramType[0], sig.retType, op1, op2);
+            return NewVecExtractNode(sig.retType, op1, op2);
 
         default:
             return nullptr;
@@ -628,7 +628,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             assert(sig.paramLayout[0]->GetElementType() == TYP_INT);
             FALLTHROUGH;
         case NI_SSE2_ConvertToUInt32:
-            return NewVecExtractNode(TYP_SIMD16, TYP_INT, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
         case NI_SSE2_X64_ConvertToInt64:
             assert(sig.paramCount == 1);
@@ -639,7 +639,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             assert(sig.paramLayout[0]->GetElementType() == TYP_LONG);
             FALLTHROUGH;
         case NI_SSE2_X64_ConvertToUInt64:
-            return NewVecExtractNode(TYP_SIMD16, TYP_LONG, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_LONG, PopVec(TYP_SIMD16), comp->gtNewIconNode(0));
 
         case NI_SSE2_Extract:
         case NI_SSE41_Extract:
@@ -663,7 +663,7 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
                 op2 = comp->gtNewOperNode(GT_AND, TYP_INT, op2, comp->gtNewIconNode(indexMask));
             }
 
-            return NewVecExtractNode(TYP_SIMD16, varTypeNodeType(sig.retType), op1, op2);
+            return NewVecExtractNode(varTypeNodeType(sig.retType), op1, op2);
         }
 
         case NI_SSE_Prefetch0:
@@ -705,7 +705,7 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
     {
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
-            return NewVecExtractNode(TYP_SIMD32, TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));
+            return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));
 
         case NI_AVX2_BroadcastScalarToVector128:
         {
@@ -838,7 +838,7 @@ GenTree* Importer::ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             // TODO-MIKE-Review: It would be better for codegen to handle this instead of having
             // to swap here and potentially add a temp...
 
-            return gtNewScalarHWIntrinsicNode(type, intrinsic, op2, op1);
+            return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op2, op1);
         }
 
         default:

@@ -783,7 +783,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                 }
             }
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
+            retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
                                : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1);
             break;
 
@@ -835,7 +835,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
             else
             {
-                retNode = gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
+                retNode = comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
 
                 switch (intrinsic)
                 {
@@ -892,7 +892,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                 op3 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
             }
 
-            retNode = isScalar ? gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
+            retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
                                : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
 
             break;
@@ -953,7 +953,7 @@ GenTree* Importer::impVecExtract(ClassLayout* layout, GenTree* value, GenTree* i
         index = AddHWIntrinsicRangeCheck(index, 0, maxIndexValue);
     }
 
-    return NewVecExtractNode(layout->GetSIMDType(), layout->GetElementType(), value, index);
+    return NewVecExtractNode(layout->GetElementType(), value, index);
 }
 
 #endif // FEATURE_HW_INTRINSICS

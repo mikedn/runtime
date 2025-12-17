@@ -3186,7 +3186,7 @@ private:
                         if ((user->OperIs(GT_IND_STORE, GT_IND_STORE_OBJ, GT_LCL_STORE_FLD) &&
                              user->TypeIs(TYP_SIMD12))ARM64_ONLY(|| user->IsCall()))
                         {
-                            *use               = m_compiler->gtNewZeroSimdHWIntrinsicNode(tree->GetType(), TYP_FLOAT);
+                            *use               = m_compiler->gtNewVecZeroNode(tree->GetType(), TYP_FLOAT);
                             m_stmtMorphPending = true;
                         }
                     }

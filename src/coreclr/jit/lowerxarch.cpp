@@ -1867,7 +1867,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
 
     if (op1->IsIntCon(0))
     {
-        movd1 = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_LONG);
+        movd1 = comp->gtNewVecZeroNode(TYP_SIMD16, TYP_LONG);
         BlockRange().Unlink(op1);
         BlockRange().InsertBefore(node, movd1);
     }
@@ -2155,7 +2155,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
             if (vec == nullptr)
             {
-                zero = comp->gtNewZeroSimdHWIntrinsicNode(TYP_SIMD16, TYP_FLOAT);
+                zero = comp->gtNewVecZeroNode(TYP_SIMD16, TYP_FLOAT);
                 vec  = zero;
             }
 

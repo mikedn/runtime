@@ -1183,7 +1183,7 @@ private:
             // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
             // their X/Y/Z/W fields will just result in DNER.
 
-            value = NewInsertElement(lcl->GetType(), lclOffs / 4, TYP_FLOAT, NewLclLoad(lcl->GetType(), lcl), value);
+            value = NewInsertElement(lclOffs / 4, TYP_FLOAT, NewLclLoad(lcl->GetType(), lcl), value);
             store->ChangeToLclStore(lclType, lcl, value);
             INDEBUG(m_stmtModified = true);
 
@@ -2163,15 +2163,14 @@ private:
     }
 
 #ifdef FEATURE_SIMD
-    GenTreeHWIntrinsic* NewInsertElement(
-        var_types type, unsigned index, var_types elementType, GenTree* dest, GenTree* value)
+    GenTreeHWIntrinsic* NewInsertElement(unsigned index, var_types elementType, GenTree* dest, GenTree* value)
     {
-        return m_compiler->gtNewSimdWithElementNode(type, elementType, dest, m_compiler->gtNewIconNode(index), value);
+        return m_compiler->gtNewVecInsertNode(elementType, dest, m_compiler->gtNewIconNode(index), value);
     }
 
     GenTreeHWIntrinsic* NewExtractElement(var_types eltType, GenTree* vec, var_types vecType, unsigned index)
     {
-        return m_compiler->gtNewSimdGetElementNode(vecType, eltType, vec, m_compiler->gtNewIconNode(index));
+        return m_compiler->gtNewVecExtractNode(eltType, vec, m_compiler->gtNewIconNode(index));
     }
 #endif
 };

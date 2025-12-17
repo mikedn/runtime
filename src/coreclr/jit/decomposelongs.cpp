@@ -1275,7 +1275,7 @@ GenTree* DecomposeLongs::DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* 
     Range().Unlink(vec);
     Range().Unlink(idx);
 
-    GenTree* loResult = m_compiler->gtNewSimdGetElementNode(vec->GetType(), TYP_INT, vec, idx);
+    GenTree* loResult = m_compiler->gtNewVecExtractNode(TYP_INT, vec, idx);
     Range().InsertBefore(node, vec, idx, loResult);
 
     if (GenTreeIntCon* idxCon = idx->IsIntCon())
@@ -1292,7 +1292,7 @@ GenTree* DecomposeLongs::DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* 
 
     vec = m_compiler->gtNewLclLoad(vec->AsLclLoad()->GetLcl(), vec->GetType());
 
-    GenTree* hiResult = m_compiler->gtNewSimdGetElementNode(vec->GetType(), TYP_INT, vec, idx);
+    GenTree* hiResult = m_compiler->gtNewVecExtractNode(TYP_INT, vec, idx);
     Range().InsertBefore(node, vec, idx, hiResult);
     Range().Unlink(node);
 

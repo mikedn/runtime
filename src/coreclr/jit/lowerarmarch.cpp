@@ -721,7 +721,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
         if (vec == nullptr)
         {
-            zero = comp->gtNewZeroSimdHWIntrinsicNode(type, eltType);
+            zero = comp->gtNewVecZeroNode(type, eltType);
             vec  = zero;
         }
 

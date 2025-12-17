@@ -962,7 +962,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
     assert(sig.hasThisParam || (sig.paramLayout[0] == sig.paramLayout[1]));
 
     ClassLayout* layout    = sig.paramLayout[0];
-    var_types    type      = layout->GetSIMDType();
+    var_types    type      = layout->GetVectorType();
     var_types    eltType   = layout->GetElementType();
     unsigned     size      = layout->GetSize();
     bool         isVector3 = type == TYP_SIMD12;
@@ -978,11 +978,11 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
 
     if (isVector3)
     {
-        op1 = NewVecInsertNode(type, TYP_INT, op1, comp->gtNewIconNode(3), comp->gtNewIconNode(-1));
+        op1 = comp->gtNewVecInsertNode(TYP_INT, op1, comp->gtNewIconNode(3), comp->gtNewIconNode(-1));
     }
 
     op1 = NewVecNode(type, NI_AdvSimd_Arm64_MinAcross, TYP_UBYTE, size, op1);
-    op1 = NewVecExtractNode(type, TYP_UBYTE, op1, comp->gtNewIconNode(0));
+    op1 = NewVecExtractNode(TYP_UBYTE, op1, comp->gtNewIconNode(0));
     return comp->gtNewOperNode(notEqual ? GT_EQ : GT_NE, TYP_INT, op1, comp->gtNewIconNode(0));
 }
 
@@ -1018,7 +1018,7 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
 
     if (sig.paramType[0] == TYP_SIMD12)
     {
-        op1 = NewVecInsertNode(TYP_SIMD16, TYP_FLOAT, op1, comp->gtNewIconNode(3), comp->gtNewDconNode(0, TYP_FLOAT));
+        op1 = comp->gtNewVecInsertNode(TYP_FLOAT, op1, comp->gtNewIconNode(3), comp->gtNewDconNode(0, TYP_FLOAT));
     }
 
     return NewVecNode(TYP_FLOAT, NI_VEC_SUM, TYP_FLOAT, 16, op1);
@@ -1045,7 +1045,7 @@ GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig, GenTree* op
 
     op1 = NewVecNode(TYP_SIMD16, eltType == TYP_LONG ? NI_AdvSimd_Arm64_AddPairwiseScalar : NI_AdvSimd_Arm64_AddAcross,
                      eltType, op1);
-    return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
+    return NewVecExtractNode(sig.retType, op1, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)
@@ -1081,13 +1081,13 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
         GenTree* op2Uses[2];
         impMakeMultiUse(op2, op2Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
 
-        op1 = NewVecExtractNode(TYP_SIMD16, TYP_LONG, op1Uses[0], comp->gtNewIconNode(0));
-        op2 = NewVecExtractNode(TYP_SIMD16, TYP_LONG, op2Uses[0], comp->gtNewIconNode(0));
+        op1 = NewVecExtractNode(TYP_LONG, op1Uses[0], comp->gtNewIconNode(0));
+        op2 = NewVecExtractNode(TYP_LONG, op2Uses[0], comp->gtNewIconNode(0));
 
         GenTree* mul1 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op1, op2);
 
-        op1 = NewVecExtractNode(TYP_SIMD16, TYP_LONG, op1Uses[1], comp->gtNewIconNode(1));
-        op2 = NewVecExtractNode(TYP_SIMD16, TYP_LONG, op2Uses[1], comp->gtNewIconNode(1));
+        op1 = NewVecExtractNode(TYP_LONG, op1Uses[1], comp->gtNewIconNode(1));
+        op2 = NewVecExtractNode(TYP_LONG, op2Uses[1], comp->gtNewIconNode(1));
 
         GenTree* mul2 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op1, op2);
 
@@ -1096,7 +1096,7 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig, GenTree* op
 
     op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Multiply, eltType, op1, op2);
     op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_Arm64_AddAcross, eltType, op1);
-    return NewVecExtractNode(TYP_SIMD16, eltType, op1, comp->gtNewIconNode(0));
+    return NewVecExtractNode(eltType, op1, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorT128MinMax(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2, bool isMax)
@@ -1761,7 +1761,7 @@ GenTree* Importer::impVector234Dot(const HWIntrinsicSignature& sig, GenTree* op1
         op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, TYP_FLOAT, layout->GetSize(), op1);
     }
 
-    return NewVecExtractNode(TYP_SIMD16, TYP_FLOAT, op1, comp->gtNewIconNode(0));
+    return NewVecExtractNode(TYP_FLOAT, op1, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorT128Sum(const HWIntrinsicSignature& sig)
@@ -1791,7 +1791,7 @@ GenTree* Importer::impVectorT128Sum(GenTree* vec, var_types eltType, var_types r
     }
 
     vec = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, vec);
-    return NewVecExtractNode(TYP_SIMD16, retType, vec, comp->gtNewIconNode(0));
+    return NewVecExtractNode(retType, vec, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorT256Sum(const HWIntrinsicSignature& sig)
@@ -1829,7 +1829,7 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
         uint8_t imm = eltType == TYP_FLOAT ? 0b11110001 : 0b00110001;
 
         op1 = NewVecNode(TYP_SIMD16, NI_SSE41_DotProduct, eltType, op1, op2, comp->gtNewIconNode(imm));
-        return NewVecExtractNode(TYP_SIMD16, eltType, op1, comp->gtNewIconNode(0));
+        return NewVecExtractNode(eltType, op1, comp->gtNewIconNode(0));
     }
 
     switch (eltType)
@@ -1861,7 +1861,7 @@ GenTree* Importer::impVectorT128Dot(const HWIntrinsicSignature& sig)
     }
 
     op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, op1);
-    return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
+    return NewVecExtractNode(sig.retType, op1, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
@@ -1879,7 +1879,7 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
     {
         op1 = NewVecNode(TYP_SIMD32, NI_AVX_DotProduct, TYP_FLOAT, op1, op2, comp->gtNewIconNode(0b11110001));
         op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, TYP_FLOAT, 32, op1);
-        return NewVecExtractNode(TYP_SIMD16, TYP_FLOAT, op1, comp->gtNewIconNode(0));
+        return NewVecExtractNode(TYP_FLOAT, op1, comp->gtNewIconNode(0));
     }
 
     switch (eltType)
@@ -1909,7 +1909,7 @@ GenTree* Importer::impVectorT256Dot(const HWIntrinsicSignature& sig)
 
     op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, 32, op1);
     op1 = NewVecNode(TYP_SIMD16, NI_VEC_SUM, eltType, op1);
-    return NewVecExtractNode(TYP_SIMD16, sig.retType, op1, comp->gtNewIconNode(0));
+    return NewVecExtractNode(sig.retType, op1, comp->gtNewIconNode(0));
 }
 
 GenTree* Importer::impVectorTMultiplyAddAdjacentByte(const HWIntrinsicSignature& sig, GenTree* op1, GenTree* op2)

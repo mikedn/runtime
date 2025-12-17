@@ -3201,7 +3201,7 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
 #ifdef TARGET_ARM64
         if (comp->compOpportunisticallyDependsOn(InstructionSet_AdvSimd))
         {
-            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_VEC_PACK: NI_Vector64_CreateScalarUnsafe;
+            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_VEC_PACK : NI_Vector64_CreateScalarUnsafe;
 
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
@@ -16773,42 +16773,17 @@ GenTreeHWIntrinsic* Importer::NewVecNode(
 
 GenTreeHWIntrinsic* Importer::NewVecZeroNode(ClassLayout* layout)
 {
-    return comp->gtNewZeroSimdHWIntrinsicNode(layout);
+    return comp->gtNewVecZeroNode(layout);
 }
 
 GenTreeHWIntrinsic* Importer::NewVecZeroNode(var_types vecType, var_types eltType)
 {
-    return comp->gtNewZeroSimdHWIntrinsicNode(vecType, eltType);
+    return comp->gtNewVecZeroNode(vecType, eltType);
 }
 
-GenTreeHWIntrinsic* Importer::NewVecExtractNode(var_types vecType, var_types eltType, GenTree* value, GenTree* index)
+GenTreeHWIntrinsic* Importer::NewVecExtractNode(var_types eltType, GenTree* value, GenTree* index)
 {
-    return comp->gtNewSimdGetElementNode(vecType, eltType, value, index);
-}
-
-GenTreeHWIntrinsic* Importer::NewVecInsertNode(
-    var_types type, var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
-{
-    return comp->gtNewSimdWithElementNode(type, eltType, vec, idx, elt);
-}
-
-GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types type, NamedIntrinsic intrinsic, GenTree* op1)
-{
-    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1);
-}
-
-GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(var_types      type,
-                                                         NamedIntrinsic intrinsic,
-                                                         GenTree*       op1,
-                                                         GenTree*       op2)
-{
-    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1, op2);
-}
-
-GenTreeHWIntrinsic* Importer::gtNewScalarHWIntrinsicNode(
-    var_types type, NamedIntrinsic intrinsic, GenTree* op1, GenTree* op2, GenTree* op3)
-{
-    return comp->gtNewScalarHWIntrinsicNode(type, intrinsic, op1, op2, op3);
+    return comp->gtNewVecExtractNode(eltType, value, index);
 }
 
 #endif // FEATURE_HW_INTRINSICS

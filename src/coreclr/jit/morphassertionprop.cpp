@@ -883,7 +883,7 @@ GenTree* Compiler::morphAssertionPropagateLclLoadConst(const MorphAssertion& ass
                 assert(val.intCon.value == 0);
                 assert(lcl->GetType() == load->GetType());
 
-                conNode = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+                conNode = gtNewVecZeroNode(lcl->GetLayout());
                 break;
             }
 #endif
@@ -1082,7 +1082,7 @@ GenTree* Compiler::morphAssertionPropagateLclLoadFld(GenTreeLclLoadFld* load)
 #ifdef FEATURE_SIMD
             if (varTypeIsSIMD(load->GetType()))
             {
-                return gtNewZeroSimdHWIntrinsicNode(load->GetLayout(this));
+                return gtNewVecZeroNode(load->GetLayout(this));
             }
 #endif
 

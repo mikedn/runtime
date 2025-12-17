@@ -6581,7 +6581,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         LclVarDsc* lcl = val->AsLclLoad()->GetLcl();
 
 #ifdef TARGET_AMD64
-        if (varTypeIsSIMD(lcl->GetType()) && lcl->IsPromoted())
+        if (varTypeIsVec(lcl->GetType()) && lcl->IsPromoted())
         {
             // Only Vector2/3/4 are promoted.
             assert(lvaGetDesc(lcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
@@ -6597,7 +6597,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             var_types regType = varActualType(info.retDesc.GetRegType(0));
             assert((regType == TYP_LONG) || (regType == TYP_DOUBLE));
 
-            val = gtNewSimdGetElementNode(TYP_SIMD16, regType, val, gtNewIconNode(0));
+            val = gtNewVecExtractNode(regType, val, gtNewIconNode(0));
 
             ret->SetOp(0, val);
             ret->SetType(regType);
@@ -6608,7 +6608,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
     }
 
 #ifdef WINDOWS_AMD64_ABI
-    if (varTypeIsSIMD(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
+    if (varTypeIsVec(val->GetType()) && (info.retDesc.GetRegType(0) == TYP_LONG))
     {
         if (val->IsCall())
         {
@@ -6621,7 +6621,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
         }
         else
         {
-            val = gtNewSimdGetElementNode(TYP_SIMD16, TYP_LONG, val, gtNewIconNode(0));
+            val = gtNewVecExtractNode(TYP_LONG, val, gtNewIconNode(0));
         }
 
         ret->SetOp(0, val);
@@ -6923,7 +6923,7 @@ GenTree* Compiler::abiMorphSingleRegLclArgPromoted(GenTreeLclLoad* arg, var_type
             GenTree* doubleValue = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, field0LclNode, field1LclNode,
                                                 gtNewDconNode(0.0, TYP_FLOAT), gtNewDconNode(0.0, TYP_FLOAT));
 
-            return gtNewSimdGetElementNode(TYP_SIMD16, argRegType, doubleValue, gtNewIconNode(0));
+            return gtNewVecExtractNode(argRegType, doubleValue, gtNewIconNode(0));
         }
     }
 #endif // TARGET_AMD64
@@ -7156,8 +7156,7 @@ GenTree* Compiler::abiMorphMultiRegHfaLclArgPromoted(CallArgInfo* argInfo, GenTr
             assert((regOffset >= fieldOffset) && (regOffset < fieldOffset + varTypeSize(fieldType)));
             assert((regOffset - fieldOffset) % 4 == 0);
 
-            fieldNode =
-                gtNewSimdGetElementNode(fieldType, regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
+            fieldNode = gtNewVecExtractNode(regType, fieldNode, gtNewIconNode((regOffset - fieldOffset) / 4));
 
             if (regOffset + regSize >= fieldOffset + varTypeSize(fieldType))
             {
@@ -7380,7 +7379,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             unsigned extractOffset = regOffset - fieldOffset;
             assert(extractOffset % 4 == 0);
 
-            regValue = NewExtractVectorElement(fieldType, TYP_INT, fieldValue, extractOffset / 4);
+            regValue = gtNewVecExtractNode(TYP_INT, fieldValue, extractOffset / 4);
         }
         else
 #elif defined(TARGET_64BIT)
@@ -7403,12 +7402,12 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             {
                 assert((extractOffset % 4) == 0);
 
-                fieldValue  = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                fieldValue  = gtNewVecExtractNode(TYP_FLOAT, fieldValue, extractOffset / 4);
                 fieldOffset = regOffset;
             }
             else if ((extractOffset % 8 == 0))
             {
-                fieldValue  = NewExtractVectorElement(fieldType, TYP_DOUBLE, fieldValue, extractOffset / 8);
+                fieldValue  = gtNewVecExtractNode(TYP_DOUBLE, fieldValue, extractOffset / 8);
                 fieldOffset = regOffset;
             }
             else
@@ -7416,9 +7415,9 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
                 assert(extractSize == 8);
                 assert(extractOffset % 4 == 0);
 
-                regValue   = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4);
+                regValue   = gtNewVecExtractNode(TYP_FLOAT, fieldValue, extractOffset / 4);
                 fieldValue = gtNewLclLoad(fieldValue->AsLclLoad()->GetLcl(), fieldType);
-                fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
+                fieldValue = gtNewVecExtractNode(TYP_FLOAT, fieldValue, extractOffset / 4 + 1);
 
                 fieldOffset = regOffset + 4;
                 fieldType   = TYP_FLOAT;
@@ -7429,7 +7428,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             // The vector overlaps the second half of an eightbyte, extract a FLOAT
             // and continue as if this was a FLOAT field.
 
-            fieldValue = NewExtractVectorElement(fieldType, TYP_FLOAT, fieldValue, 0);
+            fieldValue = gtNewVecExtractNode(TYP_FLOAT, fieldValue, 0u);
             fieldType  = TYP_FLOAT;
         }
 
@@ -7464,7 +7463,7 @@ GenTree* Compiler::abiMorphMultiRegLclArgPromoted(CallArgInfo* argInfo, const Ab
             }
             else if (varTypeIsSIMD(regValue->GetType()) && !varTypeUsesFloatReg(regType))
             {
-                regValue = NewExtractVectorElement(regValue->GetType(), TYP_LONG, regValue, 0);
+                regValue = gtNewVecExtractNode(TYP_LONG, regValue, 0u);
             }
             else if (varTypeIsIntegral(regValue->GetType()) && varTypeUsesFloatReg(regType))
             {
@@ -7524,7 +7523,7 @@ GenTree* Compiler::abiMorphMultiRegStructArg(CallArgInfo* argInfo, GenTree* arg)
 #ifdef FEATURE_HW_INTRINSICS
             if (varTypeIsSIMD(regType))
             {
-                fieldList->AddField(this, gtNewZeroSimdHWIntrinsicNode(regType, TYP_FLOAT), regOffset, regType);
+                fieldList->AddField(this, gtNewVecZeroNode(regType, TYP_FLOAT), regOffset, regType);
             }
             else
 #endif
@@ -7677,7 +7676,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         arg = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, arg, gtCloneExpr(arg));
         // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
         // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
-        arg = gtNewSimdGetElementNode(TYP_SIMD16, TYP_DOUBLE, arg, gtNewIconNode(0));
+        arg = gtNewVecExtractNode(TYP_DOUBLE, arg, gtNewIconNode(0));
 
         LclVarDsc* dblTempLcl    = lvaNewTemp(TYP_DOUBLE, true DEBUGARG("multi-reg SIMD arg temp"));
         GenTree*   dblTempAssign = gtNewLclStore(dblTempLcl, TYP_DOUBLE, arg);
@@ -7743,7 +7742,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         else
         {
             regValue = gtNewLclLoad(tempLcl, tempLcl->GetType());
-            regValue = gtNewSimdGetElementNode(arg->GetType(), regType, regValue, gtNewIconNode(regOffset / regSize));
+            regValue = gtNewVecExtractNode(regType, regValue, gtNewIconNode(regOffset / regSize));
         }
 
         if ((i == 0) && (tempAssign != nullptr))
@@ -7878,14 +7877,14 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* a
             assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
 
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
-            GenTree* simdValue    = gtNewLclLoad(lcl, lcl->GetType());
+            GenTree* vecValue    = gtNewLclLoad(lcl, lcl->GetType());
 
             if (lcl->IsAddressExposed())
             {
-                simdValue->AddSideEffects(GTF_GLOB_REF);
+                vecValue->AddSideEffects(GTF_GLOB_REF);
             }
 
-            regValue = gtNewSimdGetElementNode(lcl->GetType(), regType, simdValue, elementIndex);
+            regValue = gtNewVecExtractNode(regType, vecValue, elementIndex);
         }
         else
 #endif
@@ -10149,7 +10148,7 @@ void Compiler::moMorphCreateLclInit(LclVarDsc* lcl, BasicBlock* block, Statement
 #ifdef FEATURE_SIMD
     else if (varTypeIsSIMD(lclType))
     {
-        init = gtNewZeroSimdHWIntrinsicNode(lcl->GetLayout());
+        init = gtNewVecZeroNode(lcl->GetLayout());
     }
 #endif
     else
@@ -10882,7 +10881,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
     {
         if (initPattern == 0)
         {
-            return gtNewZeroSimdHWIntrinsicNode(type, initPatternType);
+            return gtNewVecZeroNode(type, initPatternType);
         }
         else
         {
@@ -11180,7 +11179,7 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
             // work well when we have extractps, but if we don't know how the value was
             // stored to memory in the first place we risk blocking store forwarding.
             src->AddSideEffects(src->AsLclLoad()->GetLcl()->IsAddressExposed() ? GTF_GLOB_REF : GTF_NONE);
-            fieldSrc = gtNewSimdGetElementNode(src->GetType(), TYP_FLOAT, src, gtNewIconNode(fieldIndex));
+            fieldSrc = gtNewVecExtractNode(TYP_FLOAT, src, gtNewIconNode(fieldIndex));
         }
 
         fieldStores[i] = gtNewLclStore(fieldLcl, TYP_FLOAT, fieldSrc);
