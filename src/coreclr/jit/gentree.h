@@ -1492,6 +1492,7 @@ public:
     bool IsDblConNonPositiveZero() const;
     bool IsDblCon2() const;
     bool IsHWIntrinsicZero() const;
+    bool IsVecZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
     bool IsIntCon(ssize_t value) const;
@@ -7527,6 +7528,11 @@ inline bool GenTree::IsHWIntrinsicZero() const
 #else
     return false;
 #endif
+}
+
+inline bool GenTree::IsVecZero() const
+{
+    return IsHWIntrinsicZero();
 }
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const

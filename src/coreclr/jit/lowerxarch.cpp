@@ -1738,35 +1738,27 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 {
-    NamedIntrinsic intrinsicId = node->GetIntrinsic();
-    var_types      baseType    = node->GetSimdBaseType();
-    unsigned       simdSize    = node->GetSimdSize();
-    var_types      simdType    = getSIMDTypeForSize(simdSize);
-
-    assert((intrinsicId == NI_VEC_EQ) || (intrinsicId == NI_VEC_NE));
-
-    assert(varTypeIsIntegral(baseType));
-    assert(comp->compOpportunisticallyDependsOn(InstructionSet_SSE41));
+    assert((node->GetIntrinsic() == NI_VEC_EQ) || (node->GetIntrinsic() == NI_VEC_NE));
     assert(node->TypeIs(TYP_UBYTE));
+    assert(varTypeIsIntegral(node->GetSimdBaseType()));
+    assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
-    assert((simdSize == 16) || (simdSize == 32));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
+    var_types type = varTypeGetTargetVec(op1->GetType());
+    assert(type == varTypeGetTargetVec(op2->GetType()));
+
     GenCondition cmpCnd = (cmpOp == GT_EQ) ? GenCondition::EQ : GenCondition::NE;
 
-    if (op1->IsHWIntrinsicZero())
+    if (op1->IsVecZero())
     {
         std::swap(op1, op2);
     }
 
-    if (op2->IsHWIntrinsicZero())
+    if (op2->IsVecZero())
     {
-        // On SSE4.1 or higher we can optimize comparisons against zero to
-        // just use PTEST. We can't support it for floating-point, however,
-        // as it has both +0.0 and -0.0 where +0.0 == -0.0
-
         BlockRange().Unlink(op2);
 
         node->SetOp(0, op1);
@@ -1776,8 +1768,8 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         BlockRange().InsertAfter(op1, op2);
         node->SetOp(1, op2);
 
-        NamedIntrinsic testz = simdSize == 32 ? NI_AVX_TestZ : NI_SSE41_TestZ;
-        NamedIntrinsic ptest = simdSize == 32 ? NI_AVX_PTEST : NI_SSE41_PTEST;
+        NamedIntrinsic testz = type == TYP_SIMD32 ? NI_AVX_TestZ : NI_SSE41_TestZ;
+        NamedIntrinsic ptest = type == TYP_SIMD32 ? NI_AVX_PTEST : NI_SSE41_PTEST;
 
         node->SetIntrinsic(testz);
         LowerHWIntrinsicCC(node, ptest, cmpCnd);
@@ -1785,12 +1777,12 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
         return;
     }
 
-    NamedIntrinsic cmpIntrinsic = simdSize == 32 ? NI_AVX2_CompareEqual : NI_SSE2_CompareEqual;
-    NamedIntrinsic mskIntrinsic = simdSize == 32 ? NI_AVX2_MoveMask : NI_SSE2_MoveMask;
-    int            mskConstant  = simdSize == 32 ? -1 : 0xFFFF;
+    NamedIntrinsic cmpIntrinsic = type == TYP_SIMD32 ? NI_AVX2_CompareEqual : NI_SSE2_CompareEqual;
+    NamedIntrinsic mskIntrinsic = type == TYP_SIMD32 ? NI_AVX2_MoveMask : NI_SSE2_MoveMask;
+    int            mskConstant  = type == TYP_SIMD32 ? -1 : 0xFFFF;
 
-    GenTree* cmp    = comp->gtNewSimdHWIntrinsicNode(simdType, cmpIntrinsic, TYP_UBYTE, simdSize, op1, op2);
-    GenTree* msk    = comp->gtNewSimdHWIntrinsicNode(TYP_INT, mskIntrinsic, TYP_UBYTE, simdSize, cmp);
+    GenTree* cmp    = comp->gtNewVecNode(type, cmpIntrinsic, TYP_UBYTE, op1, op2);
+    GenTree* msk    = comp->gtNewSimdHWIntrinsicNode(TYP_INT, mskIntrinsic, TYP_UBYTE, varTypeSize(type), cmp);
     GenTree* mskCns = comp->gtNewIconNode(mskConstant, TYP_INT);
     BlockRange().InsertBefore(node, cmp, msk, mskCns);
     LowerNode(cmp);
