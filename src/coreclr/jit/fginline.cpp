@@ -953,7 +953,7 @@ bool Compiler::inlImportReturn(Importer&            importer,
         {
             if (!((returnType == TYP_BYREF) && (callType == TYP_I_IMPL)) &&
                 !((returnType == TYP_I_IMPL) && (callType == TYP_BYREF)) &&
-                !(varTypeIsSIMD(returnType) && (varTypeGetTargetVec(callType) == returnType)))
+                !(varTypeIsVec(returnType) && (varTypeTargetVec(callType) == returnType)))
             {
                 JITDUMP("Return type mismatch: have %s, needed %s\n", varTypeName(returnType), varTypeName(callType));
                 compInlineResult->NoteFatal(InlineObservation::CALLSITE_RETURN_TYPE_MISMATCH);
@@ -1348,7 +1348,7 @@ bool Compiler::inlAnalyzeInlineeSignature(InlineInfo* inlineInfo)
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(paramType) && (varTypeGetTargetVec(paramType) == argNode->GetType()))
+        if (varTypeIsVec(paramType) && (varTypeTargetVec(paramType) == argNode->GetType()))
         {
             // We may get SIMD16 arg values for SIMD8/12 params.
 

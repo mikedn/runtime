@@ -878,7 +878,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
     // because the only way to get implement that is by taking the address of the local,
     // which requires making the local address exposed.
 
-    unsigned count = node->GetSimdSize() / varTypeSize(eltType);
+    unsigned count = varTypeTargetVecSize(vec->GetType()) / varTypeSize(eltType);
     unsigned index = idx->AsIntCon()->GetUInt32Value() % count;
 
     idx->AsIntCon()->SetValue(index);

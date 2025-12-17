@@ -300,17 +300,17 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
 
         if (varTypeIsNonTargetVec(signature.retType))
         {
-            signature.retType = varTypeGetTargetVec(signature.retType);
+            signature.retType = varTypeTargetVec(signature.retType);
         }
 
         if ((signature.paramCount > 0) && varTypeIsNonTargetVec(signature.paramType[0]))
         {
-            signature.paramType[0] = varTypeGetTargetVec(signature.paramType[0]);
+            signature.paramType[0] = varTypeTargetVec(signature.paramType[0]);
         }
 
         if ((signature.paramCount > 1) && varTypeIsNonTargetVec(signature.paramType[1]))
         {
-            signature.paramType[1] = varTypeGetTargetVec(signature.paramType[1]);
+            signature.paramType[1] = varTypeTargetVec(signature.paramType[1]);
         }
     }
 
@@ -599,7 +599,7 @@ GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
     assert(varTypeIsSIMD(sig.retType));
     assert(sig.paramCount == 0);
 
-    var_types vecType = varTypeGetTargetVec(sig.retLayout->GetVectorType());
+    var_types vecType = varTypeTargetVec(sig.retLayout->GetVectorType());
     var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
     GenTree* one = gtNewOneConNode(eltType);
@@ -624,7 +624,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     assert(sig.paramCount == 1);
 
     var_types type     = layout->GetVectorType();
-    var_types vecType  = varTypeGetTargetVec(type);
+    var_types vecType  = varTypeTargetVec(type);
     var_types eltType  = varTypeNodeType(layout->GetElementType());
     GenTree*  arg      = impPopStackCoerceArg(varActualType(sig.paramType[0]));
     GenTree*  destAddr = isNewObj ? nullptr : impPopStack().val;
@@ -678,8 +678,8 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
         }
     }
 
-    var_types type     = layout->GetSIMDType();
-    var_types vecType  = varTypeGetTargetVec(type);
+    var_types type     = layout->GetVectorType();
+    var_types vecType  = varTypeTargetVec(type);
     var_types eltType  = varTypeNodeType(layout->GetElementType());
     GenTree*  destAddr = isNewObj ? nullptr : impPopStack().val;
     GenTree*  create;
@@ -806,7 +806,7 @@ GenTree* Importer::impVectorStore(var_types type, GenTree* destAddr, GenTree* sr
 {
     assert(destAddr->TypeIs(TYP_BYREF, TYP_I_IMPL));
     assert(src->OperIs(GT_IND_LOAD, GT_HWINTRINSIC));
-    assert(varTypeGetTargetVec(type) == varTypeGetTargetVec(src->GetType()));
+    assert(varTypeTargetVec(type) == varTypeTargetVec(src->GetType()));
 
     GenTree* store;
 
@@ -1945,7 +1945,7 @@ GenTree* Importer::impVector234TEquals(const HWIntrinsicSignature& sig, GenTree*
 
     ClassLayout* layout  = sig.paramLayout[0];
     var_types    type    = layout->GetVectorType();
-    var_types    vecType = varTypeGetTargetVec(type);
+    var_types    vecType = varTypeTargetVec(type);
     var_types    eltType = layout->GetElementType();
     unsigned     size    = layout->GetSize();
 

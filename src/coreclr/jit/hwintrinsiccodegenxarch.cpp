@@ -1521,8 +1521,10 @@ void CodeGen::GenBMIIntrinsic(GenTreeHWIntrinsic* node)
 
 void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
 {
+    assert(varTypeIsTargetVec(node->GetType()));
+
     NamedIntrinsic intrinsic = node->GetIntrinsic();
-    emitAttr       size      = emitVecTypeSize(node->GetSimdSize());
+    emitAttr       size      = emitTypeSize(node->GetType());
     instruction    ins       = HWIntrinsicInfo::GetIns(intrinsic, node->GetSimdBaseType());
     GenTree*       op1       = node->GetOp(0);
     GenTree*       op2       = node->GetOp(1);

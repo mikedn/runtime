@@ -3363,7 +3363,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
         assert(varTypeUsesFloatReg(lclRegType) == varTypeUsesFloatReg(srcRegType));
         assert(!varTypeUsesFloatReg(lclRegType) || (emitTypeSize(lclRegType) == emitTypeSize(srcRegType)) ||
-               (varTypeIsSIMD(lclRegType) && (varTypeGetTargetVec(lclRegType) == varTypeGetTargetVec(srcRegType))));
+               (varTypeIsVec(lclRegType) && (varTypeTargetVec(lclRegType) == varTypeTargetVec(srcRegType))));
     }
 #endif
 

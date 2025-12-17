@@ -11037,11 +11037,11 @@ GenTree* Compiler::moMorphStructStore(GenTree* store, GenTree* value)
 
 GenTree* Compiler::moMorphPromoteVecLoad(GenTreeLclStore* store, LclVarDsc* srcLcl)
 {
-    assert(varTypeIsSIMD(srcLcl->GetType()));
+    assert(varTypeIsVec(srcLcl->GetType()));
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(srcLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
-    var_types type          = varTypeGetTargetVec(store->GetType());
+    var_types type          = varTypeTargetVec(store->GetType());
     unsigned  numOps        = varTypeSize(type) / varTypeSize(TYP_FLOAT);
     unsigned  srcFieldCount = srcLcl->GetPromotedFieldCount();
     GenTree*  ops[4];

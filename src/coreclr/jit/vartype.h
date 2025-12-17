@@ -196,7 +196,7 @@ constexpr bool varTypeIsNonTargetVec(var_types vt)
 #endif
 }
 
-__declspec(noinline) inline var_types varTypeGetTargetVec(var_types vt)
+__declspec(noinline) inline var_types varTypeTargetVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
     if (varTypeIsNonTargetVec(vt))
@@ -208,6 +208,11 @@ __declspec(noinline) inline var_types varTypeGetTargetVec(var_types vt)
     assert(varTypeIsTargetVec(vt));
 
     return vt;
+}
+
+inline unsigned varTypeTargetVecSize(var_types vt)
+{
+    return varTypeSize(varTypeTargetVec(vt));
 }
 
 constexpr bool varTypeIsStruct(var_types vt)

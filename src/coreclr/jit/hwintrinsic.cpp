@@ -273,13 +273,13 @@ GenTree* Importer::PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayo
     }
 
     GenTree* arg = PopVec(paramType);
-    assert(varTypeIsSIMD(arg->GetType()));
+    assert(varTypeIsVec(arg->GetType()));
     return arg;
 }
 
 GenTree* Importer::PopVec(var_types type)
 {
-    assert(varTypeIsSIMD(type));
+    assert(varTypeIsVec(type));
 
     GenTree* tree = impPopStack().val;
 
@@ -294,14 +294,14 @@ GenTree* Importer::PopVec(var_types type)
         tree = comp->gtNewLclLoad(tmpLcl, tmpLcl->GetType());
     }
 
-    assert(varTypeGetTargetVec(tree->GetType()) == varTypeGetTargetVec(type));
+    assert(varTypeTargetVec(tree->GetType()) == varTypeTargetVec(type));
 
     return tree;
 }
 
 GenTree* Importer::PopVecAddrLoad(var_types type)
 {
-    assert(varTypeIsSIMD(type));
+    assert(varTypeIsVec(type));
 
     GenTree* addr = impPopStack().val;
 

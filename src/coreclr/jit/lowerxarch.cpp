@@ -1422,26 +1422,6 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
     }
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerFusedMultiplyAdd: Changes NI_FMA_MultiplyAddScalar produced by Math(F).FusedMultiplyAdd
-//     to a better FMA intrinsics if there are GT_FNEG around in order to eliminate them.
-//
-//  Arguments:
-//     node - The hardware intrinsic node
-//
-//  Notes:
-//     Math(F).FusedMultiplyAdd is expanded into NI_FMA_MultiplyAddScalar and
-//     depending on additional GT_FNEG nodes around it can be:
-//
-//      x *  y + z -> NI_FMA_MultiplyAddScalar
-//      x * -y + z -> NI_FMA_MultiplyAddNegatedScalar
-//     -x *  y + z -> NI_FMA_MultiplyAddNegatedScalar
-//     -x * -y + z -> NI_FMA_MultiplyAddScalar
-//      x *  y - z -> NI_FMA_MultiplySubtractScalar
-//      x * -y - z -> NI_FMA_MultiplySubtractNegatedScalar
-//     -x *  y - z -> NI_FMA_MultiplySubtractNegatedScalar
-//     -x * -y - z -> NI_FMA_MultiplySubtractScalar
-//
 void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_FMA_MultiplyAddScalar);
@@ -1455,8 +1435,6 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
         if (!use.GetNode()->IsHWIntrinsic() ||
             (use.GetNode()->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_CreateScalarUnsafe))
         {
-            // Math(F).FusedMultiplyAdd is expected to emit three NI_Vector128_CreateScalarUnsafe
-            // but it's also possible to use NI_FMA_MultiplyAddScalar directly with any operands
             return;
         }
 
@@ -1747,8 +1725,8 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
 
-    var_types type = varTypeGetTargetVec(op1->GetType());
-    assert(type == varTypeGetTargetVec(op2->GetType()));
+    var_types type = varTypeTargetVec(op1->GetType());
+    assert(type == varTypeTargetVec(op2->GetType()));
 
     GenCondition cmpCnd = (cmpOp == GT_EQ) ? GenCondition::EQ : GenCondition::NE;
 
@@ -2582,7 +2560,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
 
-    unsigned count = node->GetSimdSize() / varTypeSize(eltType);
+    unsigned count = varTypeTargetVecSize(vec->GetType()) / varTypeSize(eltType);
     unsigned index = idx->AsIntCon()->GetUInt32Value() % count;
 
     idx->AsIntCon()->SetValue(index);
@@ -4632,6 +4610,13 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
+    if ((category != HW_Category_Scalar) && (node->GetSimdSize() < 16))
+    {
+        // Ignore anything having a non-target vector size, such
+        // intrinsic nodes should not appear but just in case...
+        return;
+    }
+
     if (category == HW_Category_IMM)
     {
         if ((intrinsic == NI_SSE41_Insert) && (baseType == TYP_FLOAT))
@@ -4646,17 +4631,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         if (HWIntrinsicInfo::isImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
         {
             lastOp->SetContained();
-        }
-    }
-
-    if ((node->GetSimdSize() == 8) || (node->GetSimdSize() == 12))
-    {
-        // We want to handle extract still for Vector2/3
-        if (intrinsic != NI_VEC_EXTRACT)
-        {
-            // TODO-XArch-CQ: Ideally we would key this off of the size containingNode
-            // expects vs the size node actually is or would be if spilled to the stack
-            return;
         }
     }
 

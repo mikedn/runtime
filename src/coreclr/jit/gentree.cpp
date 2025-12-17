@@ -11067,7 +11067,7 @@ bool GenTreeHWIntrinsic::IsRMW(Compiler* comp) const
 
 GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(ClassLayout* layout)
 {
-    return gtNewVecZeroNode(varTypeGetTargetVec(layout->GetSIMDType()), varTypeNodeType(layout->GetElementType()));
+    return gtNewVecZeroNode(varTypeTargetVec(layout->GetVectorType()), varTypeNodeType(layout->GetElementType()));
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(var_types type, var_types eltType)
@@ -11218,7 +11218,7 @@ GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* ve
 
 GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* vec, GenTree* index)
 {
-    var_types vecType = varTypeGetTargetVec(vec->GetType());
+    var_types vecType = varTypeTargetVec(vec->GetType());
 
     assert(varTypeIsArithmetic(eltType));
     assert(varActualTypeIsInt(index->GetType()));
@@ -11229,7 +11229,7 @@ GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* ve
 
 GenTreeHWIntrinsic* Compiler::gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
-    var_types type = varTypeGetTargetVec(vec->GetType());
+    var_types type = varTypeTargetVec(vec->GetType());
 
     assert(varTypeIsArithmetic(eltType));
     assert(idx->GetUInt32Value() < varTypeSize(type) / varTypeSize(eltType));

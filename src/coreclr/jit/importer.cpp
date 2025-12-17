@@ -1024,7 +1024,7 @@ GenTree* Importer::impGetStructAddr(GenTree*             value,
 GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLayout, unsigned curLevel)
 {
     assert((arg->GetType() == typGetStructType(argLayout)) ||
-           (argLayout->IsVector() && (varTypeGetTargetVec(argLayout->GetSIMDType()) == arg->GetType())));
+           (argLayout->IsVector() && (varTypeTargetVec(argLayout->GetVectorType()) == arg->GetType())));
 
     bool spillToTemp = false;
 

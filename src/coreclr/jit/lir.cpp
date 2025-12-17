@@ -160,9 +160,9 @@ LclVarDsc* LIR::Use::ReplaceWithLclLoad(Compiler* compiler, LclVarDsc* lcl, GenT
     {
         assert(varActualType(lcl->GetType()) == type);
     }
-    else if (varTypeIsSIMD(type))
+    else if (varTypeIsVec(type))
     {
-        lcl->lvType = varTypeGetTargetVec(type);
+        lcl->lvType = varTypeTargetVec(type);
     }
     else
     {

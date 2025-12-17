@@ -2051,9 +2051,9 @@ public:
         {
             compiler->lvaSetStruct(lcl, candidate.value->layout, false);
         }
-        else if (varTypeIsSIMD(lclType))
+        else if (varTypeIsVec(lclType))
         {
-            lclType     = varTypeGetTargetVec(lclType);
+            lclType     = varTypeTargetVec(lclType);
             lcl->lvType = lclType;
         }
         else

@@ -1055,10 +1055,10 @@ private:
     {
         GenTree* value = store->GetValue();
 
-        if (!varTypeIsSIMD(store->GetType()) && (value->GetType() != store->GetType()) && !value->IsIntCon(0))
+        if (!varTypeIsVec(store->GetType()) && (value->GetType() != store->GetType()) && !value->IsIntCon(0))
         {
             assert((store->GetLayout()->GetSize() == varTypeSize(value->GetType())) ||
-                   (varTypeGetTargetVec(store->GetLayout()->GetSIMDType()) == value->GetType()));
+                   (varTypeTargetVec(store->GetLayout()->GetVectorType()) == value->GetType()));
 
             store->SetOper(GT_IND_STORE);
             store->SetType(store->GetValue()->GetType());
@@ -1744,7 +1744,7 @@ private:
             case TYP_SIMD16:
             case TYP_SIMD32:
                 zero->ChangeOper(GT_HWINTRINSIC);
-                zero->SetType(varTypeGetTargetVec(type));
+                zero->SetType(varTypeTargetVec(type));
                 zero->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(type), 0);
                 break;
 #endif
