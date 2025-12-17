@@ -2721,7 +2721,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
     GenTreeIntCon* idx     = node->GetOp(1)->AsIntCon();
     GenTree*       elt     = node->GetOp(2);
     unsigned       index   = idx->GetUInt32Value();
-    unsigned       count   = node->GetSimdSize() / varTypeSize(eltType);
+    unsigned       count   = varTypeSize(node->GetType()) / varTypeSize(eltType);
 
     assert(index < count);
     assert(varTypeIsArithmetic(eltType) && (varTypeNodeType(eltType) == eltType));
@@ -3099,11 +3099,11 @@ void Lowering::LowerVecSum128(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecSum256(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_SUM);
-    assert(node->GetSimdSize() == 32);
 
     var_types eltType = node->GetSimdBaseType();
     GenTree*  vec     = node->GetOp(0);
 
+    assert(vec->TypeIs(TYP_SIMD32));
     assert(varTypeIsArithmetic(eltType));
 
     NamedIntrinsic extract = varTypeIsFloating(eltType) ? NI_AVX_ExtractVector128 : NI_AVX2_ExtractVector128;

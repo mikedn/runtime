@@ -1361,11 +1361,11 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
         case NI_AVX2_GATHERD:
         case NI_AVX2_GATHERQ:
         {
-            emitAttr attr       = emitVecTypeSize(node->GetSimdSize());
             GenTree* baseOp     = nullptr;
             GenTree* indexOp    = nullptr;
             GenTree* scaleOp    = nullptr;
             RegNum   maskDstReg = node->ExtractTempReg(RBM_ALLFLOAT);
+            emitAttr size       = emitTypeSize(node->GetType());
 
             if (node->GetNumOps() == 5)
             {
@@ -1375,8 +1375,8 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
                 GenTree* maskOp = node->GetOp(3);
                 scaleOp         = node->GetOp(4);
 
-                emit.emitIns_Mov(INS_movaps, attr, maskDstReg, maskOp->GetRegNum(), /* canSkip */ false);
-                emit.emitIns_Mov(INS_movaps, attr, dstReg, srcOp->GetRegNum(), /* canSkip */ true);
+                emit.emitIns_Mov(INS_movaps, size, maskDstReg, maskOp->GetRegNum(), /* canSkip */ false);
+                emit.emitIns_Mov(INS_movaps, size, dstReg, srcOp->GetRegNum(), /* canSkip */ true);
             }
             else
             {
@@ -1386,7 +1386,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
                 indexOp = node->GetOp(1);
                 scaleOp = node->GetOp(2);
 
-                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, attr, maskDstReg, maskDstReg, maskDstReg);
+                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, size, maskDstReg, maskDstReg, maskDstReg);
             }
 
             instruction ins = HWIntrinsicInfo::GetIns(intrinsic, eltType);
@@ -1394,7 +1394,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
             if ((intrinsic == NI_AVX2_GATHERQ) && node->TypeIs(TYP_SIMD16) && indexOp->TypeIs(TYP_SIMD32) &&
                 (ins == INS_vpgatherqd || ins == INS_vgatherqps))
             {
-                attr = EA_32BYTE;
+                size = EA_32BYTE;
             }
 
             RegNum  baseReg  = baseOp->GetRegNum();
@@ -1406,7 +1406,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
             assert(maskDstReg != indexReg);
             assert((scale >= 0) && (scale <= 8));
 
-            emit.emitIns_R_AR_R(ins, attr, dstReg, maskDstReg, baseReg, indexReg, static_cast<int8_t>(scale), 0);
+            emit.emitIns_R_AR_R(ins, size, dstReg, maskDstReg, baseReg, indexReg, static_cast<int8_t>(scale), 0);
 
             break;
         }
