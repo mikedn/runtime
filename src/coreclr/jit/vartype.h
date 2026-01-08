@@ -367,8 +367,8 @@ constexpr bool varTypeSmallIntCanRepresentValue(var_types type, ssize_t value)
 }
 
 #ifdef FEATURE_SIMD
-constexpr int getSIMDVectorLength(unsigned simdSize, var_types baseType)
+constexpr int varTypeVecLength(unsigned vecSize, var_types eltType)
 {
-    return simdSize / varTypeSize(baseType);
+    return vecSize / varTypeSize(eltType);
 }
 #endif // FEATURE_SIMD

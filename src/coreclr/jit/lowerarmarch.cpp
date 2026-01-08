@@ -550,17 +550,6 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     ContainCheckHWIntrinsic(node);
 }
 
-//----------------------------------------------------------------------------------------------
-// Lowering::IsValidConstForMovImm: Determines if the given node can be replaced by a mov/fmov immediate instruction
-//
-//  Arguments:
-//     node - The hardware intrinsic node.
-//
-//  Returns:
-//     true if the node can be replaced by a mov/fmov immediate instruction; otherwise, false
-//
-//  IMPORTANT:
-//     This check may end up modifying node's first operand if it is a cast node that can be removed
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
@@ -572,37 +561,25 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
            (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector64) ||
            (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector128));
     assert(node->IsUnary());
+    assert(varTypeIsTargetVec(node->GetType()));
 
-    GenTree* op1    = node->GetOp(0);
-    GenTree* castOp = nullptr;
+    GenTree* op1 = node->GetOp(0);
 
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        emitAttr emitSize = emitVecTypeSize(node->GetSimdSize());
-        insOpts  opt      = GetVecArrangementOpt(emitSize, node->GetSimdBaseType());
-
         if ((node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar))
         {
             return false;
         }
 
-        if (Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt))
-        {
-            if (castOp != nullptr)
-            {
-                // We found a containable immediate under
-                // a cast, so remove the cast from the LIR.
+        emitAttr attr = emitTypeSize(node->GetType());
+        insOpts  opt  = GetVecArrangementOpt(attr, node->GetSimdBaseType());
 
-                BlockRange().Unlink(node->GetOp(0));
-                node->SetOp(0, op1);
-            }
-            return true;
-        }
+        return Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt);
     }
     else if (GenTreeDblCon* dcon = op1->IsDblCon())
     {
         assert(varTypeIsFloating(node->GetSimdBaseType()));
-        assert(castOp == nullptr);
 
         return Arm64Imm::IsFMovImm(dcon->GetValue());
     }

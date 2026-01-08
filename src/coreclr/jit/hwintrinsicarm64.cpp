@@ -132,7 +132,7 @@ void HWIntrinsicInfo::LookupImmBounds(
     else if (category == HW_Category_SIMDByIndexedElement)
     {
         *lowerBound = 0;
-        *upperBound = getSIMDVectorLength(vecSize, eltType) - 1;
+        *upperBound = varTypeVecLength(vecSize, eltType) - 1;
     }
     else
     {
@@ -150,7 +150,7 @@ void HWIntrinsicInfo::LookupImmBounds(
             case NI_AdvSimd_Arm64_DuplicateSelectedScalarToVector128:
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
                 *lowerBound = 0;
-                *upperBound = getSIMDVectorLength(vecSize, eltType) - 1;
+                *upperBound = varTypeVecLength(vecSize, eltType) - 1;
                 break;
             default:
                 unreached();

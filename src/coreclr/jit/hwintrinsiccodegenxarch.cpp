@@ -735,7 +735,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     GenTree* op1    = node->GetOp(0);
     GenTree* op2    = node->GetOp(1);
     GenTree* op3    = node->GetOp(2);
-    emitAttr size   = emitVecTypeSize(node->GetSimdSize());
+    emitAttr size   = emitTypeSize(node->GetType());
     Emitter& emit   = *GetEmitter();
 
     RegNum op1Reg = op1->GetRegNum();

@@ -87,7 +87,7 @@ struct HWIntrinsicInfoEntry
 {
     const char*            name;
     CORINFO_InstructionSet isa;
-    int                    simdSize;
+    int                    vecSize;
     int                    numArgs;
     HWIntrinsicCategory    category;
     HWIntrinsicFlag        flags;
@@ -132,9 +132,9 @@ HWIntrinsicCategory HWIntrinsicInfo::GetCategory(NamedIntrinsic id)
     return GetHWIntrinsicInfo(id).category;
 }
 
-static unsigned GetSimdSize(NamedIntrinsic id)
+static unsigned GetVecSize(NamedIntrinsic id)
 {
-    return static_cast<unsigned>(GetHWIntrinsicInfo(id).simdSize);
+    return static_cast<unsigned>(GetHWIntrinsicInfo(id).vecSize);
 }
 
 instruction HWIntrinsicInfo::GetIns(NamedIntrinsic id, var_types type)
@@ -469,7 +469,6 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     sig.Read(comp, sigInfo);
 
     var_types    baseType  = TYP_UNDEF;
-    unsigned     simdSize  = GetSimdSize(intrinsic);
     var_types    retType   = sig.retType;
     ClassLayout* retLayout = sig.retLayout;
 
@@ -485,6 +484,8 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         retType  = retLayout->GetVectorType();
     }
 
+    unsigned vecSize = GetVecSize(intrinsic);
+
     if (HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
     {
         ClassLayout* argLayout = nullptr;
@@ -497,9 +498,9 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                 return nullptr;
             }
 
-            if (simdSize == UINT32_MAX)
+            if (vecSize == UINT32_MAX)
             {
-                simdSize = argLayout->GetSize();
+                vecSize = argLayout->GetSize();
             }
         }
         else
@@ -509,9 +510,9 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     }
     else if (retLayout != nullptr)
     {
-        if (simdSize == UINT32_MAX)
+        if (vecSize == UINT32_MAX)
         {
-            simdSize = retLayout->GetSize();
+            vecSize = retLayout->GetSize();
         }
     }
 
@@ -667,7 +668,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         }
         else
         {
-            HWIntrinsicInfo::LookupImmBounds(intrinsic, simdSize, baseType, &immLowerBound, &immUpperBound);
+            HWIntrinsicInfo::LookupImmBounds(intrinsic, vecSize, baseType, &immLowerBound, &immUpperBound);
         }
 #endif
 
@@ -735,7 +736,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                 assert(sig.retType == TYP_INT);
 
                 {
-                    GenTreeIntCon* countNode = comp->gtNewIconNode(getSIMDVectorLength(simdSize, baseType));
+                    GenTreeIntCon* countNode = comp->gtNewIconNode(varTypeVecLength(vecSize, baseType));
                     countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
                     return countNode;
                 }
@@ -748,7 +749,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     const bool isScalar = (category == HW_Category_Scalar);
 
     if (!isScalar && ((HWIntrinsicInfo::GetIns(intrinsic, baseType) == INS_invalid) ||
-                      ((simdSize != 8) && (simdSize != 16) && (simdSize != 32))))
+                      ((vecSize != 8) && (vecSize != 16) && (vecSize != 32))))
     {
         assert(!"Unexpected HW Intrinsic");
         return nullptr;
@@ -766,7 +767,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         case 0:
             assert(!isScalar);
-            return NewVecNode(nodeType, intrinsic, baseType, simdSize);
+            return NewVecNode(nodeType, intrinsic, baseType, vecSize);
 
         case 1:
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
@@ -782,7 +783,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
 
             retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1)
-                               : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1);
+                               : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1);
             break;
 
         case 2:
@@ -829,7 +830,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (!isScalar)
             {
-                retNode = NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2);
+                retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2);
             }
             else
             {
@@ -891,7 +892,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
 
             retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
-                               : NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3);
+                               : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3);
 
             break;
 
@@ -906,7 +907,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             assert((category != HW_Category_SIMDByIndexedElement) || varTypeIsSIMD(op3->GetType()));
             assert(!isScalar);
 
-            retNode = NewVecNode(nodeType, intrinsic, baseType, simdSize, op1, op2, op3, op4);
+            retNode = NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3, op4);
             break;
 #endif
 
