@@ -11073,7 +11073,7 @@ GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(ClassLayout* layout)
 GenTreeHWIntrinsic* Compiler::gtNewVecZeroNode(var_types type, var_types eltType)
 {
     return new (this, GT_HWINTRINSIC)
-        GenTreeHWIntrinsic(type, GetZeroSimdHWIntrinsic(type), varTypeNodeType(eltType), varTypeSize(type));
+        GenTreeHWIntrinsic(type, NI_VEC_ZERO, varTypeNodeType(eltType), varTypeSize(type));
 }
 
 GenTreeHWIntrinsic* Compiler::gtNewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType)

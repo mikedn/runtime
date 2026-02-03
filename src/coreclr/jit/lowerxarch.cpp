@@ -1816,7 +1816,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
 
     if (op1->IsIntCon(0) && op2->IsIntCon(0))
     {
-        node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
         BlockRange().Unlink(op1);
         BlockRange().Unlink(op2);
 
@@ -1888,7 +1888,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     if (op->IsDblConPositiveZero() || op->IsIntCon(0))
     {
         BlockRange().Unlink(op);
-        node->SetIntrinsic(GetZeroSimdHWIntrinsic(node->GetType()), 0);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
     }
 }
 

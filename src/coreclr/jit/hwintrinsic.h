@@ -493,40 +493,4 @@ private:
 const char* GetHWIntrinsicIdName(NamedIntrinsic id);
 #endif
 
-inline NamedIntrinsic GetCreateSimdHWIntrinsic(var_types type)
-{
-    switch (type)
-    {
-#ifdef TARGET_ARM64
-        case TYP_SIMD8:
-#endif
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-#ifdef TARGET_XARCH
-        case TYP_SIMD32:
-#endif
-            return NI_VEC_PACK;
-        default:
-            unreached();
-    }
-}
-
-inline NamedIntrinsic GetZeroSimdHWIntrinsic(var_types type)
-{
-    switch (type)
-    {
-#ifdef TARGET_ARM64
-        case TYP_SIMD8:
-#endif
-        case TYP_SIMD12:
-        case TYP_SIMD16:
-#ifdef TARGET_XARCH
-        case TYP_SIMD32:
-#endif
-            return NI_VEC_ZERO;
-        default:
-            unreached();
-    }
-}
-
 #endif // FEATURE_HW_INTRINSICS

@@ -6563,7 +6563,7 @@ void Compiler::abiMorphStructReturn(GenTreeUnOp* ret, GenTree* val)
             // TODO-MIKE-Cleanup: Somehow we still generate INT(0) for SIMD types...
             val->ChangeOper(GT_HWINTRINSIC);
             val->SetType(regType);
-            val->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(regType), TYP_FLOAT, varTypeSize(regType), 0);
+            val->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(regType), 0);
         }
 #endif
         else
@@ -6705,8 +6705,7 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
         {
             arg->ChangeOper(GT_HWINTRINSIC);
             arg->SetType(argRegType);
-            arg->AsHWIntrinsic()->SetIntrinsic(GetZeroSimdHWIntrinsic(argRegType), TYP_FLOAT, varTypeSize(argRegType),
-                                               0);
+            arg->AsHWIntrinsic()->SetIntrinsic(NI_VEC_ZERO, TYP_FLOAT, varTypeSize(argRegType), 0);
         }
 #endif
         else
@@ -7877,7 +7876,7 @@ GenTree* Compiler::abiMorphMultiRegLclArg(CallArgInfo* argInfo, GenTreeLclRef* a
             assert(varTypeIsFloating(regType) || (regType == TYP_I_IMPL));
 
             GenTree* elementIndex = gtNewIconNode(lclOffset / regSize);
-            GenTree* vecValue    = gtNewLclLoad(lcl, lcl->GetType());
+            GenTree* vecValue     = gtNewLclLoad(lcl, lcl->GetType());
 
             if (lcl->IsAddressExposed())
             {
@@ -10885,7 +10884,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
         }
         else
         {
-            return gtNewVecNode(type, GetCreateSimdHWIntrinsic(type), initPatternType, initVal);
+            return gtNewVecNode(type, NI_VEC_PACK, initPatternType, initVal);
         }
     }
 #endif

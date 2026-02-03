@@ -603,7 +603,7 @@ GenTree* Importer::impVector234TOne(const HWIntrinsicSignature& sig)
     var_types eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
     GenTree* one = gtNewOneConNode(eltType);
-    return NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, one);
+    return NewVecNode(vecType, NI_VEC_PACK, eltType, one);
 }
 
 GenTree* Importer::impVectorTCount(const HWIntrinsicSignature& sig, ClassLayout* layout)
@@ -636,7 +636,7 @@ GenTree* Importer::impVector234TCreateBroadcast(const HWIntrinsicSignature& sig,
     }
     else
     {
-        create = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, arg);
+        create = NewVecNode(vecType, NI_VEC_PACK, eltType, arg);
     }
 
     if (destAddr != nullptr)
@@ -718,7 +718,7 @@ GenTree* Importer::impVector234Create(const HWIntrinsicSignature& sig, ClassLayo
                 break;
         }
 
-        create = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), TYP_FLOAT, argCount, args);
+        create = NewVecNode(vecType, NI_VEC_PACK, TYP_FLOAT, argCount, args);
     }
 
     if (destAddr != nullptr)
@@ -2360,7 +2360,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = PopVec(sig.paramType[1]);
         op1 = impPopStack().val;
 
-        op1 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, op1);
+        op1 = NewVecNode(vecType, NI_VEC_PACK, eltType, op1);
     }
     else if (sig.paramLayout[1] == nullptr)
     {
@@ -2370,7 +2370,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = impPopStack().val;
         op1 = PopVec(sig.paramType[0]);
 
-        op2 = NewVecNode(vecType, GetCreateSimdHWIntrinsic(vecType), eltType, op2);
+        op2 = NewVecNode(vecType, NI_VEC_PACK, eltType, op2);
     }
     else
     {
@@ -2482,7 +2482,7 @@ GenTree* Importer::impVectorTMultiplyByte(ClassLayout* layout, GenTree* op1, Gen
     GenTree* hi2 = NewVecNode(type, srlw, TYP_SHORT, op2Uses[1], comp->gtNewIconNode(8));
     GenTree* hi  = NewVecNode(type, mul, TYP_SHORT, hi1, hi2);
     hi           = NewVecNode(type, sllw, TYP_SHORT, hi, comp->gtNewIconNode(8));
-    GenTree* m   = NewVecNode(type, GetCreateSimdHWIntrinsic(type), TYP_SHORT, comp->gtNewIconNode(0xff));
+    GenTree* m   = NewVecNode(type, NI_VEC_PACK, TYP_SHORT, comp->gtNewIconNode(0xff));
     lo           = NewVecNode(type, pand, TYP_SHORT, lo, m);
     return NewVecNode(type, por, TYP_INT, lo, hi);
 }
@@ -2558,13 +2558,12 @@ var_types Importer::impVectorTUnsignedCompareAdjust(ClassLayout* layout,
             unreached();
     }
 
-    var_types      type   = layout->GetVectorType();
-    NamedIntrinsic create = GetCreateSimdHWIntrinsic(type);
+    var_types type = layout->GetVectorType();
     // We don't have carry so SUB(x, INT_MIN) is the same as XOR(x, INT_MIN).
     // On Ryzen XOR has slightly higher throuput.
     NamedIntrinsic pxor = type == TYP_SIMD32 ? NI_AVX2_Xor : NI_SSE2_Xor;
 
-    GenTree* constVector = NewVecNode(type, create, constVal->GetType(), constVal);
+    GenTree* constVector = NewVecNode(type, NI_VEC_PACK, constVal->GetType(), constVal);
     GenTree* constUses[2];
     impMakeMultiUse(constVector, constUses, layout, CHECK_SPILL_ALL DEBUGARG("Vector<T>.Greater/LessThan const temp"));
     *op1 = NewVecNode(type, pxor, eltType, *op1, constUses[0]);
