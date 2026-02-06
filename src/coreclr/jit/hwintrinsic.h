@@ -5,9 +5,9 @@
 
 #ifdef FEATURE_HW_INTRINSICS
 
-#ifdef TARGET_XARCH
 enum HWIntrinsicCategory : unsigned
 {
+#ifdef TARGET_XARCH
     // Simple SIMD intrinsics
     // - take Vector128/256<T> parameters
     // - return a Vector128/256<T>
@@ -38,12 +38,9 @@ enum HWIntrinsicCategory : unsigned
     // Special intrinsics
     // - have to be addressed specially
     HW_Category_Special
-};
 
 #elif defined(TARGET_ARM64)
 
-enum HWIntrinsicCategory : unsigned
-{
     // Most of the Arm64 intrinsic fall into SIMD category:
     // - vector or scalar intrinsics that operate on one-or-many SIMD registers
     HW_Category_SIMD,
@@ -63,11 +60,10 @@ enum HWIntrinsicCategory : unsigned
     // Helper intrinsics
     // - do not directly correspond to a instruction, such as Vector64.AllBitsSet
     HW_Category_Helper,
-};
-
 #else
 #error Unsupported platform
 #endif
+};
 
 enum HWIntrinsicFlag : unsigned
 {

@@ -160,11 +160,6 @@ void HWIntrinsicInfo::LookupImmBounds(
     assert(*lowerBound <= *upperBound);
 }
 
-GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
-{
-    return nullptr;
-}
-
 GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     assert(!sig.hasThisParam);

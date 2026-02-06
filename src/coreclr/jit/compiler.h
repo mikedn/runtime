@@ -1937,22 +1937,20 @@ public:
     GenTree* impVectorT256ConditionalSelect(const HWIntrinsicSignature& sig, GenTree* mask, GenTree* op1, GenTree* op2);
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
-#endif // TARGET_XARCH
 
-    GenTree* ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-
-    GenTree* PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout);
     GenTree* ImportNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
-    GenTree* AddHWIntrinsicRangeCheckIfNeeded(
-        NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
-    GenTree* AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, int immUpperBound);
-
-#ifdef TARGET_XARCH
     GenTree* ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
+
+    GenTree* ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout);
+    GenTree* AddHWIntrinsicRangeCheckIfNeeded(
+        NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
+    GenTree* AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, int immUpperBound);
+
 #endif // FEATURE_HW_INTRINSICS
     GenTree* ImportArrayAccessIntrinsic(
         CORINFO_CLASS_HANDLE clsHnd, CORINFO_SIG_INFO* sig, int memberRef, int prefixFlags, NamedIntrinsic name);

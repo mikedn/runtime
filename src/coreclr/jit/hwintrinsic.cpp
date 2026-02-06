@@ -590,7 +590,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         if (!immOp2->IsIntCon())
         {
             assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
-            return ImportNonConstFallback(intrinsic, retType, baseType);
+            return nullptr;
         }
 
         ClassLayout* sourceVectorLayout = sig.paramLayout[2];
@@ -700,14 +700,18 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         {
             if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
             {
+#ifdef TARGET_XARCH
                 return ImportNonConstFallback(intrinsic, retType, baseType);
+#else
+                return nullptr;
+#endif
             }
 
             if (!mustExpand)
             {
-                // When the imm-argument is not a constant and we are not being forced to expand, we need to
-                // return nullptr so a GT_CALL to the intrinsic method is emitted instead. The
-                // intrinsic method is recursive and will be forced to expand, at which point
+                // When the imm-argument is not a constant and we are not being forced to expand,
+                // we need to return nullptr so a CALL to the intrinsic method is emitted instead.
+                // The intrinsic method is recursive and will be forced to expand, at which point
                 // we emit some less efficient fallback code.
                 return nullptr;
             }
