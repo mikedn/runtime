@@ -1366,7 +1366,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
         if ((category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrinsicId))
         {
-            if (HWIntrinsicInfo::isImmOp(intrinsicId, lastOp) && !lastOp->IsContainedIntCon())
+            if (HWIntrinsicInfo::IsImmOp(intrinsicId, lastOp) && !lastOp->IsContainedIntCon())
             {
                 // We need two extra reg when lastOp isn't a constant so the offset
                 // into the jump table for the fallback path can be computed.

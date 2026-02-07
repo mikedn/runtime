@@ -235,7 +235,7 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*             comp,
     return NI_Illegal;
 }
 
-bool HWIntrinsicInfo::isImmOp(NamedIntrinsic id, const GenTree* op)
+bool HWIntrinsicInfo::IsImmOp(NamedIntrinsic id, const GenTree* op)
 {
 #ifdef TARGET_XARCH
     if (HWIntrinsicInfo::GetCategory(id) != HW_Category_IMM)
@@ -331,7 +331,7 @@ GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
 
     // Full-range imm-intrinsics do not need the range-check
     // because the imm-parameter of the intrinsic method is a byte.
-    if (!mustExpand || !HWIntrinsicInfo::isImmOp(intrinsic, immOp)
+    if (!mustExpand || !HWIntrinsicInfo::IsImmOp(intrinsic, immOp)
 #ifdef TARGET_XARCH
         || HWIntrinsicInfo::HasFullRangeImm(intrinsic)
 #endif
@@ -567,64 +567,49 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         (intrinsic == NI_AdvSimd_LoadAndInsertScalar))
     {
         assert(sig.paramCount == 3);
+
         immOp = impStackTop(1).val;
-        assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp));
+        assert(HWIntrinsicInfo::IsImmOp(intrinsic, immOp));
     }
     else if (intrinsic == NI_AdvSimd_Arm64_InsertSelectedScalar)
     {
-        // InsertSelectedScalar intrinsic has two immediate operands.
-        // Since all the remaining intrinsics on both platforms have only one immediate
-        // operand, in order to not complicate the shared logic even further we ensure here that
-        // 1) The second immediate operand immOp2 is constant and
-        // 2) its value belongs to [0, sizeof(op3) / sizeof(op3.BaseType)).
-        // If either is false, we should fallback to the managed implementation Insert(dst, dstIdx, Extract(src,
-        // srcIdx)).
-        // The check for the first immediate operand immOp will use the same logic as other intrinsics that have an
-        // immediate operand.
-
         assert(sig.paramCount == 4);
+        assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
 
-        GenTree* immOp2 = nullptr;
+        GenTree* srcImmOp = impStackTop().val;
 
-        immOp  = impStackTop(2).val;
-        immOp2 = impStackTop().val;
+        assert(HWIntrinsicInfo::IsImmOp(intrinsic, srcImmOp));
 
-        assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp));
-        assert(HWIntrinsicInfo::isImmOp(intrinsic, immOp2));
-
-        if (!immOp2->IsIntCon())
+        if (!srcImmOp->IsIntCon())
         {
-            assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
             return nullptr;
         }
 
-        ClassLayout* sourceVectorLayout = sig.paramLayout[2];
-        assert(sourceVectorLayout->IsVector());
-        unsigned  otherSimdSize = sourceVectorLayout->GetSize();
-        var_types otherBaseType = sourceVectorLayout->GetElementType();
+        ClassLayout* srcVecLayout = sig.paramLayout[2];
+        assert(srcVecLayout->IsVector());
+        assert(srcVecLayout->GetElementType() == baseType);
+        unsigned srcVecSize = srcVecLayout->GetSize();
 
-        assert(otherBaseType == baseType);
+        int srcImmLowerBound = 0;
+        int srcImmUpperBound = 0;
+        HWIntrinsicInfo::LookupImmBounds(intrinsic, srcVecSize, baseType, &srcImmLowerBound, &srcImmUpperBound);
 
-        int immLowerBound2 = 0;
-        int immUpperBound2 = 0;
+        const int srcImmVal = srcImmOp->AsIntCon()->GetInt32Value();
 
-        HWIntrinsicInfo::LookupImmBounds(intrinsic, otherSimdSize, otherBaseType, &immLowerBound2, &immUpperBound2);
-
-        const int immVal2 = immOp2->AsIntCon()->GetInt32Value();
-
-        if ((immVal2 < immLowerBound2) || (immVal2 > immUpperBound2))
+        if ((srcImmVal < srcImmLowerBound) || (srcImmVal > srcImmUpperBound))
         {
             assert(!mustExpand);
             return nullptr;
         }
+
+        immOp = impStackTop(2).val;
+        assert(HWIntrinsicInfo::IsImmOp(intrinsic, immOp));
     }
     else
 #endif
-        if ((sig.paramCount > 0) && HWIntrinsicInfo::isImmOp(intrinsic, impStackTop().val))
+        if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop().val))
     {
-        // NOTE: The following code assumes that for all intrinsics
-        // taking an immediate operand, that operand will be last.
-        immOp = impStackTop().val;
+        immOp = impStackTop(0).val;
     }
 
     int  immLowerBound   = 0;

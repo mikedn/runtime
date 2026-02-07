@@ -4628,7 +4628,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         GenTree* lastOp = node->GetLastOp();
         assert(lastOp != nullptr);
 
-        if (HWIntrinsicInfo::isImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
+        if (HWIntrinsicInfo::IsImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
         {
             lastOp->SetContained();
         }
@@ -4799,7 +4799,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ShiftRightArithmetic:
                     case NI_AVX2_ShiftRightLogical:
                         // These intrinsics can have op2 be immValue or reg/mem
-                        if (!HWIntrinsicInfo::isImmOp(intrinsic, op2))
+                        if (!HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
                             if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
                             {
@@ -4840,7 +4840,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX_Permute:
                         // These intrinsics can have op2 be immValue or reg/mem
                         // They also can have op1 be reg/mem and op2 be immValue
-                        if (HWIntrinsicInfo::isImmOp(intrinsic, op2))
+                        if (HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
                             if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
                             {
@@ -4884,7 +4884,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         GenTree* lastOp = node->GetLastOp();
                         assert(lastOp != nullptr);
 
-                        if (HWIntrinsicInfo::isImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
+                        if (HWIntrinsicInfo::IsImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
                         {
                             assert(lastOp->isContained());
                         }

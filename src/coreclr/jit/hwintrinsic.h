@@ -292,7 +292,7 @@ struct HWIntrinsicInfo
 #error Unsupported platform
 #endif
 
-    static bool isImmOp(NamedIntrinsic id, const GenTree* op);
+    static bool IsImmOp(NamedIntrinsic id, const GenTree* op);
 
 #ifdef TARGET_XARCH
     static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
