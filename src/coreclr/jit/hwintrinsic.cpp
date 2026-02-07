@@ -529,29 +529,34 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 #ifdef TARGET_XARCH
             case NI_Vector256_get_Count:
 #endif
-                baseType = typGetObjLayout(clsHnd)->GetElementType();
+                assert(sig.paramCount == 0);
+                assert(sig.retType == TYP_INT);
 
-                if (baseType == TYP_UNDEF)
+                if (var_types eltType = typGetObjLayout(clsHnd)->GetElementType())
                 {
-                    return nullptr;
+                    GenTreeIntCon* countNode = comp->gtNewIconNode(varTypeVecLength(vecSize, eltType));
+                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
+                    return countNode;
                 }
-                break;
+
+                return nullptr;
 
             default:
-#ifdef TARGET_XARCH
-                if (category == HW_Category_Special)
-                {
-                    assert(retType == TYP_VOID);
-                    baseType = retType;
-                }
-                else
-#endif
-                {
-                    assert(category == HW_Category_Scalar);
-                    assert(varTypeIsArithmetic(retType));
-                    baseType = retType;
-                }
                 break;
+        }
+
+#ifdef TARGET_XARCH
+        if (category == HW_Category_Special)
+        {
+            assert(retType == TYP_VOID);
+            baseType = retType;
+        }
+        else
+#endif
+        {
+            assert(category == HW_Category_Scalar);
+            assert(varTypeIsArithmetic(retType));
+            baseType = retType;
         }
     }
 
@@ -577,9 +582,9 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         // The check for the first immediate operand immOp will use the same logic as other intrinsics that have an
         // immediate operand.
 
-        GenTree* immOp2 = nullptr;
-
         assert(sig.paramCount == 4);
+
+        GenTree* immOp2 = nullptr;
 
         immOp  = impStackTop(2).val;
         immOp2 = impStackTop().val;
@@ -727,27 +732,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (HWIntrinsicInfo::HasSpecialImport(intrinsic))
     {
-        switch (intrinsic)
-        {
-            case NI_Vector128_get_Count:
-#ifdef TARGET_ARM64
-            case NI_Vector64_get_Count:
-#endif
-#ifdef TARGET_XARCH
-            case NI_Vector256_get_Count:
-#endif
-                assert(sig.paramCount == 0);
-                assert(sig.retType == TYP_INT);
-
-                {
-                    GenTreeIntCon* countNode = comp->gtNewIconNode(varTypeVecLength(vecSize, baseType));
-                    countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
-                    return countNode;
-                }
-
-            default:
-                return ImportSpecialIntrinsic(intrinsic, sig);
-        }
+        return ImportSpecialIntrinsic(intrinsic, sig);
     }
 
     const bool isScalar = (category == HW_Category_Scalar);
