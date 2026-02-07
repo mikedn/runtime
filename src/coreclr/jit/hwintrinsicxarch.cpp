@@ -169,8 +169,7 @@ int HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
     {
         case NI_AVX_Compare:
         case NI_AVX_CompareScalar:
-            assert(!HWIntrinsicInfo::HasFullRangeImm(id));
-            return 31; // enum FloatComparisonMode has 32 values
+            return 31;
         case NI_AVX2_GatherVector128:
         case NI_AVX2_GatherVector256:
         case NI_AVX2_GatherMaskVector128:
@@ -179,12 +178,11 @@ int HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
         case NI_AVX2_GATHERQ:
             return 8;
         default:
-            assert(HWIntrinsicInfo::HasFullRangeImm(id));
             return 255;
     }
 }
 
-bool HWIntrinsicInfo::isAVX2GatherIntrinsic(NamedIntrinsic id)
+bool HWIntrinsicInfo::IsAvx2GatherIntrinsic(NamedIntrinsic id)
 {
     switch (id)
     {

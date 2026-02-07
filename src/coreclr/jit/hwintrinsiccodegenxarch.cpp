@@ -824,9 +824,7 @@ void CodeGen::GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
                                               HWIntrinsicSwitchCaseBody emitSwCase)
 {
     assert(nonConstImmReg != REG_NA);
-    // AVX2 Gather intrinsics use managed non-const fallback since they have discrete imm8 value range
-    // that does work with the current compiler generated jump-table fallback
-    assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
+    assert(!HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic));
     Emitter& emit = *GetEmitter();
 
     const unsigned maxByte = static_cast<unsigned>(HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) + 1);

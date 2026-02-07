@@ -295,7 +295,7 @@ struct HWIntrinsicInfo
     static bool IsImmOp(NamedIntrinsic id, const GenTree* op);
 
 #ifdef TARGET_XARCH
-    static bool isAVX2GatherIntrinsic(NamedIntrinsic id);
+    static bool IsAvx2GatherIntrinsic(NamedIntrinsic id);
     static int GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
 #endif
 
@@ -336,11 +336,6 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_XARCH
-    static bool HasFullRangeImm(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_FullRangeIMM);
-    }
-
     static bool MaybeImm(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_MaybeIMM);

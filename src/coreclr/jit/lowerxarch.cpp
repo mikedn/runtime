@@ -4601,8 +4601,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (!HWIntrinsicInfo::SupportsContainment(intrinsic))
     {
-        // AVX2 gather are not containable and always have constant IMM argument
-        if (HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic))
+        if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
         {
             node->GetLastOp()->SetContained();
         }

@@ -324,16 +324,14 @@ GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
     NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int lowerBound, int upperBound)
 {
 #ifdef TARGET_XARCH
-    // AVX2 Gather intrinsics no not need the range-check (their imm has discrete valid
-    // values that are handle by managed code) and have special importing code.
-    assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
+    assert(!HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic));
+    assert(lowerBound == 0);
+    assert(upperBound <= 255);
 #endif
 
-    // Full-range imm-intrinsics do not need the range-check
-    // because the imm-parameter of the intrinsic method is a byte.
     if (!mustExpand || !HWIntrinsicInfo::IsImmOp(intrinsic, immOp)
 #ifdef TARGET_XARCH
-        || HWIntrinsicInfo::HasFullRangeImm(intrinsic)
+        || (upperBound == 255)
 #endif
             )
     {
@@ -345,34 +343,32 @@ GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
     return AddHWIntrinsicRangeCheck(immOp, lowerBound, upperBound);
 }
 
-GenTree* Importer::AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, int immUpperBound)
+GenTree* Importer::AddHWIntrinsicRangeCheck(GenTree* immOp, int lowerBound, int upperBound)
 {
-    // Bounds check for value of an immediate operand
-    //   (immLowerBound <= immOp) && (immOp <= immUpperBound)
-    //
-    // implemented as a single comparison in the form of
-    //
-    // if ((immOp - immLowerBound) >= (immUpperBound - immLowerBound + 1))
-    // {
-    //     throw new ArgumentOutOfRangeException();
-    // }
-    //
-    // The value of (immUpperBound - immLowerBound + 1) is denoted as adjustedUpperBound.
-
-    const ssize_t adjustedUpperBound     = (ssize_t)immUpperBound - immLowerBound + 1;
-    GenTree*      adjustedUpperBoundNode = comp->gtNewIconNode(adjustedUpperBound, TYP_INT);
+#ifdef TARGET_XARCH
+    assert(lowerBound == 0);
+    assert(upperBound <= 255);
+    assert(upperBound > lowerBound);
+#elif defined(TARGET_ARM64)
+    assert((lowerBound == 0) || (lowerBound == 1));
+    assert(upperBound <= 64);
+    assert((upperBound > lowerBound) || ((upperBound == 0) && (lowerBound == 0)));
+#endif
 
     GenTree* immOpUses[2];
     impMakeMultiUse(immOp, 2, immOpUses, CHECK_SPILL_ALL DEBUGARG("vector index check temp"));
 
-    if (immLowerBound != 0)
+#ifdef TARGET_ARM64
+    if (lowerBound != 0)
     {
-        immOpUses[1] = comp->gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], comp->gtNewIconNode(immLowerBound, TYP_INT));
+        immOpUses[1] = comp->gtNewOperNode(GT_SUB, TYP_INT, immOpUses[1], comp->gtNewIconNode(lowerBound));
+        upperBound -= lowerBound;
     }
+#endif
 
-    GenTreeBoundsChk* check =
-        comp->gtNewBoundsChk(immOpUses[1], adjustedUpperBoundNode, ThrowHelperKind::ArgumentOutOfRange);
-    return comp->gtNewCommaNode(check, immOpUses[0]);
+    return comp->gtNewCommaNode(comp->gtNewBoundsChk(immOpUses[1], comp->gtNewIconNode(upperBound + 1),
+                                                     ThrowHelperKind::ArgumentOutOfRange),
+                                immOpUses[0]);
 }
 
 void HWIntrinsicSignature::Read(Compiler* compiler, CORINFO_SIG_INFO* sig)
@@ -612,81 +608,78 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         immOp = impStackTop(0).val;
     }
 
-    int  immLowerBound   = 0;
-    int  immUpperBound   = 0;
-    bool hasFullRangeImm = false;
+#ifdef TARGET_XARCH
+    constexpr
+#endif
+        int immLowerBound = 0;
+    int     immUpperBound = 0;
 
     if (immOp != nullptr)
     {
 #ifdef TARGET_XARCH
-        immUpperBound   = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
-        hasFullRangeImm = HWIntrinsicInfo::HasFullRangeImm(intrinsic);
+        immUpperBound = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
 #elif defined(TARGET_ARM64)
-        if (category == HW_Category_SIMDByIndexedElement)
+        unsigned immVecSize;
+
+        if (category != HW_Category_SIMDByIndexedElement)
         {
-            var_types indexedElementBaseType;
-            unsigned  indexedElementSimdSize = 0;
+            immVecSize = vecSize;
+        }
+        else
+        {
+            ClassLayout* indexedLayout;
 
             if (sig.paramCount == 3)
             {
-                ClassLayout* layout = sig.paramLayout[1];
-                assert(layout->IsVector());
-                indexedElementBaseType = layout->GetElementType();
-                indexedElementSimdSize = layout->GetSize();
+                indexedLayout = sig.paramLayout[1];
             }
             else
             {
                 assert(sig.paramCount == 4);
-
-                ClassLayout* layout = sig.paramLayout[2];
-                assert(layout->IsVector());
-                indexedElementBaseType = layout->GetElementType();
-                indexedElementSimdSize = layout->GetSize();
-
-                if (intrinsic == NI_Dp_DotProductBySelectedQuadruplet)
-                {
-                    assert(((baseType == TYP_INT) && (indexedElementBaseType == TYP_BYTE)) ||
-                           ((baseType == TYP_UINT) && (indexedElementBaseType == TYP_UBYTE)));
-                    // The second source operand of sdot, udot instructions is an indexed 32-bit element.
-                    indexedElementBaseType = baseType;
-                }
+                indexedLayout = sig.paramLayout[2];
             }
 
-            assert(indexedElementBaseType == baseType);
-            HWIntrinsicInfo::GetImmOpBounds(intrinsic, indexedElementSimdSize, baseType, &immLowerBound,
-                                             &immUpperBound);
+            assert(indexedLayout->IsVector());
+
+            if (intrinsic == NI_Dp_DotProductBySelectedQuadruplet)
+            {
+                assert(((baseType == TYP_INT) && (indexedLayout->GetElementType() == TYP_BYTE)) ||
+                       ((baseType == TYP_UINT) && (indexedLayout->GetElementType() == TYP_UBYTE)));
+            }
+            else
+            {
+                assert(indexedLayout->GetElementType() == baseType);
+            }
+
+            immVecSize = indexedLayout->GetSize();
         }
-        else
-        {
-            HWIntrinsicInfo::GetImmOpBounds(intrinsic, vecSize, baseType, &immLowerBound, &immUpperBound);
-        }
+
+        HWIntrinsicInfo::GetImmOpBounds(intrinsic, immVecSize, baseType, &immLowerBound, &immUpperBound);
 #endif
 
-        if (!hasFullRangeImm && immOp->IsIntCon())
+        if (GenTreeIntCon* immIntCon = immOp->IsIntCon())
         {
-            const int ival = immOp->AsIntCon()->GetInt32Value();
+            const int imm = immIntCon->GetInt32Value();
             bool      immOutOfRange;
 
 #ifdef TARGET_XARCH
-            if (HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic))
+            if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
             {
-                immOutOfRange = (ival != 1) && (ival != 2) && (ival != 4) && (ival != 8);
+                immOutOfRange = (imm != 1) && (imm != 2) && (imm != 4) && (imm != 8);
             }
             else
 #endif
             {
-                immOutOfRange = (ival < immLowerBound) || (ival > immUpperBound);
+                immOutOfRange = (imm < immLowerBound) || (immUpperBound < imm);
             }
 
             if (immOutOfRange)
             {
                 assert(!mustExpand);
-                // The imm-HWintrinsics that do not accept all imm8 values may throw
-                // ArgumentOutOfRangeException when the imm argument is not in the valid range
                 return nullptr;
             }
         }
-        else if (!immOp->IsIntCon())
+        else
         {
             if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
             {
@@ -699,7 +692,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (!mustExpand)
             {
-                // When the imm-argument is not a constant and we are not being forced to expand,
+                // When the imm argument is not a constant and we are not being forced to expand,
                 // we need to return nullptr so a CALL to the intrinsic method is emitted instead.
                 // The intrinsic method is recursive and will be forced to expand, at which point
                 // we emit some less efficient fallback code.
@@ -710,8 +703,6 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (HWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
     {
-        // Set `compFloatingPointUsed` to cover the scenario where an intrinsic is operating on SIMD fields, but
-        // where no SIMD local vars are in use. This is the same logic as is used for FEATURE_SIMD.
         comp->compFloatingPointUsed = true;
     }
 
@@ -746,11 +737,9 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         case 1:
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
-            if ((category == HW_Category_MemoryLoad) && op1->OperIs(GT_BITCAST))
+            if ((category == HW_Category_MemoryLoad))
             {
-                // Although the API specifies a pointer, if what we have is a BYREF, that's what
-                // we really want, so throw away the cast.
-                if (op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
+                if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
                 {
                     op1 = op1->AsUnOp()->GetOp(0);
                 }
@@ -846,14 +835,12 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
             if (intrinsic == NI_AdvSimd_LoadAndInsertScalar)
             {
-                op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
-
-                // Although the API specifies a pointer, if what we have is a BYREF, that's what
-                // we really want, so throw away the cast.
                 if (op1->OperIs(GT_BITCAST) && op1->AsUnOp()->GetOp(0)->TypeIs(TYP_BYREF))
                 {
                     op1 = op1->AsUnOp()->GetOp(0);
                 }
+
+                op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
             }
             else if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar))
             {
