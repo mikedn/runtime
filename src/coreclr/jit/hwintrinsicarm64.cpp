@@ -110,7 +110,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
     return lookupInstructionSet(className);
 }
 
-void HWIntrinsicInfo::LookupImmBounds(
+void HWIntrinsicInfo::GetImmOpBounds(
     NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound)
 {
     assert(HasImmediateOperand(intrinsic));

@@ -829,7 +829,7 @@ void CodeGen::GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     assert(!HWIntrinsicInfo::isAVX2GatherIntrinsic(intrinsic));
     Emitter& emit = *GetEmitter();
 
-    const unsigned maxByte = static_cast<unsigned>(HWIntrinsicInfo::lookupImmUpperBound(intrinsic) + 1);
+    const unsigned maxByte = static_cast<unsigned>(HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) + 1);
     assert(maxByte <= 256);
 
     insGroup** labels;

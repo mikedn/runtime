@@ -284,9 +284,9 @@ struct HWIntrinsicInfo
     static CORINFO_InstructionSet lookupIsa(const char* className, const char* enclosingClassName);
 
 #if defined(TARGET_XARCH)
-    static int lookupImmUpperBound(NamedIntrinsic intrinsic);
+    static int GetImmOpUpperBound(NamedIntrinsic intrinsic);
 #elif defined(TARGET_ARM64)
-    static void LookupImmBounds(
+    static void GetImmOpBounds(
         NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound);
 #else
 #error Unsupported platform

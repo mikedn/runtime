@@ -161,7 +161,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
     return lookupInstructionSet(className);
 }
 
-int HWIntrinsicInfo::lookupImmUpperBound(NamedIntrinsic id)
+int HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
 {
     assert(HWIntrinsicInfo::GetCategory(id) == HW_Category_IMM);
 

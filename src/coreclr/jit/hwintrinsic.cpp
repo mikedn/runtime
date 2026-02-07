@@ -592,7 +592,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
         int srcImmLowerBound = 0;
         int srcImmUpperBound = 0;
-        HWIntrinsicInfo::LookupImmBounds(intrinsic, srcVecSize, baseType, &srcImmLowerBound, &srcImmUpperBound);
+        HWIntrinsicInfo::GetImmOpBounds(intrinsic, srcVecSize, baseType, &srcImmLowerBound, &srcImmUpperBound);
 
         const int srcImmVal = srcImmOp->AsIntCon()->GetInt32Value();
 
@@ -619,7 +619,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     if (immOp != nullptr)
     {
 #ifdef TARGET_XARCH
-        immUpperBound   = HWIntrinsicInfo::lookupImmUpperBound(intrinsic);
+        immUpperBound   = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
         hasFullRangeImm = HWIntrinsicInfo::HasFullRangeImm(intrinsic);
 #elif defined(TARGET_ARM64)
         if (category == HW_Category_SIMDByIndexedElement)
@@ -653,12 +653,12 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             }
 
             assert(indexedElementBaseType == baseType);
-            HWIntrinsicInfo::LookupImmBounds(intrinsic, indexedElementSimdSize, baseType, &immLowerBound,
+            HWIntrinsicInfo::GetImmOpBounds(intrinsic, indexedElementSimdSize, baseType, &immLowerBound,
                                              &immUpperBound);
         }
         else
         {
-            HWIntrinsicInfo::LookupImmBounds(intrinsic, vecSize, baseType, &immLowerBound, &immUpperBound);
+            HWIntrinsicInfo::GetImmOpBounds(intrinsic, vecSize, baseType, &immLowerBound, &immUpperBound);
         }
 #endif
 
