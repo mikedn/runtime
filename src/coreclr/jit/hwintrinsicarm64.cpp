@@ -310,6 +310,16 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
                              comp->gtNewIconNode(8 / varTypeSize(eltType)));
             return NewVecNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
 
+        case NI_ArmBase_Arm64_MultiplyHigh:
+            assert(sig.paramCount == 2);
+            assert((sig.retType == TYP_LONG) || (sig.retType == TYP_ULONG));
+            assert(sig.retType == sig.paramType[0]);
+            assert(sig.retType == sig.paramType[1]);
+
+            op2 = impPopStack().val;
+            op1 = impPopStack().val;
+            return comp->gtNewOperNode(sig.retType == TYP_LONG ? GT_SMULH : GT_UMULH, TYP_LONG, op1, op2);
+
         default:
             return nullptr;
     }

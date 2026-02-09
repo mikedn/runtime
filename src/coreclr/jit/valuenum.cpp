@@ -6594,6 +6594,8 @@ void ValueNumbering::NumberNode(GenTree* node)
             FALLTHROUGH;
         case GT_SUB:
         case GT_MUL:
+        case GT_SMULH:
+        case GT_UMULH:
         case GT_AND:
         case GT_OR:
         case GT_XOR:

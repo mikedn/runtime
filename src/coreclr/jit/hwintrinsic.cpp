@@ -806,11 +806,6 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                     case NI_SSE42_X64_Crc32:
 #endif
 #ifdef TARGET_ARM64
-                    case NI_ArmBase_Arm64_MultiplyHigh:
-                        assert(sig.retType == TYP_LONG || sig.retType == TYP_ULONG);
-                        assert(sig.retType == sig.paramType[0]);
-                        assert(sig.retType == sig.paramType[1]);
-                        FALLTHROUGH;
                     case NI_Crc32_ComputeCrc32:
                     case NI_Crc32_ComputeCrc32C:
                     case NI_Crc32_Arm64_ComputeCrc32:

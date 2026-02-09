@@ -132,8 +132,8 @@ GTNODE(RSZ              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(ROL              , GenTreeOp           , GTK_BINOP|GTK_VN)
 GTNODE(ROR              , GenTreeOp           , GTK_BINOP|GTK_VN)
 
-GTNODE(SMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
-GTNODE(UMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE) 
+GTNODE(SMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
+GTNODE(UMULH            , GenTreeOp           , GTK_BINOP|GTK_COMMUTE|GTK_VN)
 
 GTNODE(EQ               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_COMMUTE)
 GTNODE(NE               , GenTreeOp           , GTK_BINOP|GTK_NOCONTAIN|GTK_COMMUTE)
