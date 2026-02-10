@@ -4211,30 +4211,18 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 }
 
 #ifdef FEATURE_HW_INTRINSICS
-//----------------------------------------------------------------------------------------------
-// IsContainableHWIntrinsicOp: Return true if 'node' is a containable HWIntrinsic op.
-//
-//  Arguments:
-//     containingNode - The hardware intrinsic node which contains 'node'
-//     node - The node to check
-//     [Out] supportsRegOptional - On return, this will be true if 'containingNode' supports regOptional operands;
-//     otherwise, false.
-//
-// Return Value:
-//    true if 'node' is a containable hardware intrinsic node; otherwise, false.
-//
+
 bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
-                                          GenTreeHWIntrinsic* containingNode,
-                                          GenTree*            node,
+                                          GenTreeHWIntrinsic* instr,
+                                          GenTree*            op,
                                           bool*               supportsRegOptional)
 {
-    NamedIntrinsic      containingIntrinsicId = containingNode->GetIntrinsic();
-    HWIntrinsicCategory category              = HWIntrinsicInfo::GetCategory(containingIntrinsicId);
+    NamedIntrinsic      intrinsic = instr->GetIntrinsic();
+    HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
 
-    // We shouldn't have called in here if containingNode doesn't support containment
-    assert(HWIntrinsicInfo::SupportsContainment(containingIntrinsicId));
+    assert(HWIntrinsicInfo::SupportsContainment(intrinsic));
 
-    // containingNode supports nodes that read from an aligned memory address
+    // instr supports nodes that read from an aligned memory address
     //
     // This will generally be an explicit LoadAligned instruction and is false for
     // machines with VEX support when minOpts is enabled. This is because there is
@@ -4243,9 +4231,9 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
     // aren't enabled. However, when optimizations are enabled, we want to allow
     // folding of memory operands as it produces better codegen and allows simpler
     // coding patterns on the managed side.
-    bool supportsAlignedSIMDLoads = false;
+    bool supportsAlignedVecLoads = false;
 
-    // containingNode supports nodes that read from general memory
+    // instr supports nodes that read from general memory
     //
     // We currently have to assume all "general" loads are unaligned. As such, this is
     // generally used to determine if we can mark the node as `regOptional` in the case
@@ -4253,29 +4241,31 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
     // we can mark other types of reads as contained (such as when directly reading a local).
     bool supportsGeneralLoads = false;
 
-    // containingNode supports nodes that read from a scalar memory address
+    // instr supports nodes that read from a scalar memory address
     //
     // This will generally be an explicit LoadScalar instruction but is also used to determine
     // whether we can read an address of type T (we don't support this when the load would
     // read more than sizeof(T) bytes).
-    bool supportsSIMDScalarLoads = false;
+    bool supportsScalarVecLoads = false;
 
-    // containingNode supports nodes that read from an unaligned memory address
+    // instr supports nodes that read from an unaligned memory address
     //
     // This will generally be an explicit Load instruction and is generally false for machines
     // without VEX support. This is because older hardware required that the SIMD operand always
     // be aligned to the 'natural alignment' of the type.
-    bool supportsUnalignedSIMDLoads = false;
+    bool supportsUnalignedVecLoads = false;
 
     switch (category)
     {
         case HW_Category_MemoryLoad:
-            supportsGeneralLoads = !node->IsHWIntrinsic();
+            supportsGeneralLoads = !op->IsHWIntrinsic();
             break;
 
         case HW_Category_SimpleSIMD:
-        {
-            switch (containingIntrinsicId)
+        case HW_Category_IMM:
+        case HW_Category_SIMDScalar:
+        case HW_Category_Scalar:
+            switch (intrinsic)
             {
                 case NI_SSE41_ConvertToVector128Int16:
                 case NI_SSE41_ConvertToVector128Int32:
@@ -4283,45 +4273,108 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_AVX2_ConvertToVector256Int16:
                 case NI_AVX2_ConvertToVector256Int32:
                 case NI_AVX2_ConvertToVector256Int64:
-                    supportsGeneralLoads = !node->IsHWIntrinsic();
+                    supportsGeneralLoads = !op->IsHWIntrinsic();
                     break;
 
-                default:
-                {
-                    if (!node->TypeIs(TYP_SIMD16, TYP_SIMD32))
-                    {
-                        *supportsRegOptional = false;
-                        return false;
-                    }
+                case NI_SSE2_ConvertToVector128Double:
+                    assert(op->TypeIs(TYP_SIMD16));
 
-                    if (!comp->codeGen->UseVexEncoding())
-                    {
-                        // Most instructions under the non-VEX encoding require aligned operands.
-                        // Those used for Sse2.ConvertToVector128Double (CVTDQ2PD and CVTPS2PD)
-                        // are exceptions and don't fail for unaligned inputs.
+                    // ConvertToVector128Double has Vector128 operands but the memory versions of
+                    // CVTDQ2PD and CVTPS2PD have 64 bit operands and don't care about alignment.
 
-                        supportsAlignedSIMDLoads   = (containingIntrinsicId != NI_SSE2_ConvertToVector128Double);
-                        supportsUnalignedSIMDLoads = !supportsAlignedSIMDLoads;
+                    supportsAlignedVecLoads   = !comp->opts.MinOpts();
+                    supportsUnalignedVecLoads = true;
+                    supportsGeneralLoads      = true;
+                    break;
+
+                case NI_AVX_CompareScalar:
+                    assert(op->TypeIs(TYP_SIMD16));
+
+                    // CompareScalar has Vector128 operands but the memory versions of CMPSS
+                    // and CMPSD have 32/64 bit operands and don't care about alignment.
+
+                    supportsAlignedVecLoads   = !comp->opts.MinOpts();
+                    supportsUnalignedVecLoads = true;
+                    supportsScalarVecLoads    = true;
+                    supportsGeneralLoads      = true;
+                    break;
+
+                case NI_SSE2_Insert:
+                case NI_SSE41_Insert:
+                case NI_SSE41_X64_Insert:
+                    assert(instr->GetOp(1) == op);
+                    // insertps has its own special handling
+                    assert(instr->GetSimdBaseType() != TYP_FLOAT);
+                    assert(varTypeIsIntegral(op->GetType()));
+
+                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetSimdBaseType()));
+                    break;
+
+                case NI_Vector128_CreateScalarUnsafe:
+                case NI_Vector256_CreateScalarUnsafe:
+                    supportsGeneralLoads =
+                        (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));
+                    break;
+
+                case NI_AVX2_BroadcastScalarToVector128:
+                case NI_AVX2_BroadcastScalarToVector256:
+                    // The memory form of this already takes a pointer, and cannot be further contained.
+                    // The containable form is the one that takes a SIMD value, that may be in memory.
+                    supportsGeneralLoads = op->TypeIs(TYP_SIMD16);
+                    break;
+
+                case NI_SSE_ConvertScalarToVector128Single:
+                case NI_SSE2_ConvertScalarToVector128Double:
+                case NI_SSE2_ConvertScalarToVector128Int32:
+                case NI_SSE_X64_ConvertScalarToVector128Single:
+                case NI_SSE2_X64_ConvertScalarToVector128Double:
+                case NI_SSE2_X64_ConvertScalarToVector128Int64:
+                    if (!varTypeIsIntegral(op->GetType()))
+                    {
+                        // The floating-point overload doesn't require any special semantics
+                        assert(intrinsic == NI_SSE2_ConvertScalarToVector128Double);
+
+                        supportsScalarVecLoads = true;
+                        supportsGeneralLoads   = true;
                     }
                     else
                     {
-                        supportsAlignedSIMDLoads   = !comp->opts.MinOpts();
-                        supportsUnalignedSIMDLoads = true;
+                        supportsGeneralLoads =
+                            (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));
+                    }
+                    break;
+
+                default:
+                    if (category == HW_Category_Scalar)
+                    {
+                        assert(varTypeIsIntegral(op->GetType()));
+
+                        unsigned expectedSize = varTypeSize(instr->GetType());
+
+                        if (intrinsic == NI_SSE42_Crc32)
+                        {
+                            expectedSize = varTypeSize(instr->GetSimdBaseType());
+                        }
+
+                        supportsGeneralLoads = (varTypeSize(op->GetType()) >= expectedSize);
+                        break;
                     }
 
-                    supportsGeneralLoads = supportsUnalignedSIMDLoads;
-                    break;
-                }
-            }
+                    if (category == HW_Category_SIMDScalar)
+                    {
+                        if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
+                        {
+                            supportsScalarVecLoads = true;
+                            supportsGeneralLoads   = true;
+                        }
+                        break;
+                    }
 
-            assert(supportsSIMDScalarLoads == false);
-            break;
-        }
-
-        case HW_Category_IMM:
-        {
-            switch (containingIntrinsicId)
-            {
+                    if (category == HW_Category_IMM)
+                    {
+                        break;
+                    }
+                    FALLTHROUGH;
                 case NI_SSE_Shuffle:
                 case NI_SSE2_ShiftLeftLogical:
                 case NI_SSE2_ShiftRightArithmetic:
@@ -4341,6 +4394,8 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_AVX_InsertVector128:
                 case NI_AVX_Permute:
                 case NI_AVX_Permute2x128:
+                case NI_AVX_Shuffle:
+                case NI_AVX2_AlignRight:
                 case NI_AVX2_Blend:
                 case NI_AVX2_InsertVector128:
                 case NI_AVX2_MultipleSumAbsoluteDifferences:
@@ -4349,200 +4404,50 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                 case NI_AVX2_ShiftLeftLogical:
                 case NI_AVX2_ShiftRightArithmetic:
                 case NI_AVX2_ShiftRightLogical:
+                case NI_AVX2_Shuffle:
                 case NI_AVX2_ShuffleHigh:
                 case NI_AVX2_ShuffleLow:
-                {
-                    if (!node->TypeIs(TYP_SIMD16, TYP_SIMD32))
+                    if (!op->TypeIs(TYP_SIMD16, TYP_SIMD32))
                     {
                         *supportsRegOptional = false;
                         return false;
                     }
 
-                    assert(supportsSIMDScalarLoads == false);
-
-                    supportsAlignedSIMDLoads   = !comp->codeGen->UseVexEncoding() || !comp->opts.MinOpts();
-                    supportsUnalignedSIMDLoads = comp->codeGen->UseVexEncoding();
-                    supportsGeneralLoads       = supportsUnalignedSIMDLoads;
-
+                    supportsUnalignedVecLoads = comp->codeGen->UseVexEncoding();
+                    supportsAlignedVecLoads   = !supportsUnalignedVecLoads || !comp->opts.MinOpts();
+                    supportsGeneralLoads      = supportsUnalignedVecLoads;
                     break;
-                }
-
-                case NI_SSE2_Insert:
-                case NI_SSE41_Insert:
-                case NI_SSE41_X64_Insert:
-                {
-                    assert(containingNode->GetOp(1) == node);
-                    // insertps has its own special handling
-                    assert(containingNode->GetSimdBaseType() != TYP_FLOAT);
-                    // We should only get here for integral nodes.
-                    assert(varTypeIsIntegral(node->GetType()));
-
-                    assert(!supportsAlignedSIMDLoads);
-                    assert(!supportsUnalignedSIMDLoads);
-                    assert(!supportsSIMDScalarLoads);
-
-                    unsigned expectedSize = varTypeSize(containingNode->GetSimdBaseType());
-                    unsigned operandSize  = varTypeSize(node->GetType());
-
-                    supportsGeneralLoads = (operandSize >= expectedSize);
-                    break;
-                }
-
-                case NI_AVX_CompareScalar:
-                {
-                    if ((varTypeSize(node->GetType()) != 16) && (varTypeSize(node->GetType()) != 32))
-                    {
-                        // These intrinsics only expect 16 or 32-byte nodes for containment
-                        break;
-                    }
-
-                    assert(supportsAlignedSIMDLoads == false);
-                    assert(supportsUnalignedSIMDLoads == false);
-
-                    supportsSIMDScalarLoads = true;
-                    supportsGeneralLoads    = supportsSIMDScalarLoads;
-                    break;
-                }
-
-                default:
-                {
-                    assert(supportsAlignedSIMDLoads == false);
-                    assert(supportsGeneralLoads == false);
-                    assert(supportsSIMDScalarLoads == false);
-                    assert(supportsUnalignedSIMDLoads == false);
-                    break;
-                }
             }
             break;
-        }
-
-        case HW_Category_SIMDScalar:
-        {
-            assert(supportsAlignedSIMDLoads == false);
-            assert(supportsUnalignedSIMDLoads == false);
-
-            switch (containingIntrinsicId)
-            {
-                case NI_Vector128_CreateScalarUnsafe:
-                case NI_Vector256_CreateScalarUnsafe:
-                {
-                    assert(supportsSIMDScalarLoads == false);
-
-                    unsigned expectedSize = varTypeSize(varActualType(containingNode->GetSimdBaseType()));
-                    unsigned operandSize  = varTypeSize(node->GetType());
-
-                    supportsGeneralLoads = (operandSize == expectedSize);
-                    break;
-                }
-
-                case NI_AVX2_BroadcastScalarToVector128:
-                case NI_AVX2_BroadcastScalarToVector256:
-                {
-                    // The memory form of this already takes a pointer, and cannot be further contained.
-                    // The containable form is the one that takes a SIMD value, that may be in memory.
-                    supportsGeneralLoads = node->TypeIs(TYP_SIMD16);
-                    break;
-                }
-
-                case NI_SSE_ConvertScalarToVector128Single:
-                case NI_SSE2_ConvertScalarToVector128Double:
-                case NI_SSE2_ConvertScalarToVector128Int32:
-                case NI_SSE_X64_ConvertScalarToVector128Single:
-                case NI_SSE2_X64_ConvertScalarToVector128Double:
-                case NI_SSE2_X64_ConvertScalarToVector128Int64:
-                {
-                    if (!varTypeIsIntegral(node->GetType()))
-                    {
-                        // The floating-point overload doesn't require any special semantics
-                        assert(containingIntrinsicId == NI_SSE2_ConvertScalarToVector128Double);
-                        supportsSIMDScalarLoads = true;
-                        supportsGeneralLoads    = supportsSIMDScalarLoads;
-                        break;
-                    }
-
-                    assert(supportsSIMDScalarLoads == false);
-
-                    unsigned expectedSize = varTypeSize(varActualType(containingNode->GetSimdBaseType()));
-                    unsigned operandSize  = varTypeSize(node->GetType());
-
-                    supportsGeneralLoads = (operandSize == expectedSize);
-                    break;
-                }
-
-                default:
-                {
-                    if ((varTypeSize(node->GetType()) != 16) && (varTypeSize(node->GetType()) != 32))
-                    {
-                        // These intrinsics only expect 16 or 32-byte nodes for containment
-                        break;
-                    }
-
-                    supportsSIMDScalarLoads = true;
-                    supportsGeneralLoads    = supportsSIMDScalarLoads;
-                    break;
-                }
-            }
-            break;
-        }
-
-        case HW_Category_Scalar:
-        {
-            // We should only get here for integral nodes.
-            assert(varTypeIsIntegral(node->GetType()));
-
-            assert(supportsAlignedSIMDLoads == false);
-            assert(supportsUnalignedSIMDLoads == false);
-            assert(supportsSIMDScalarLoads == false);
-
-            unsigned       expectedSize = varTypeSize(containingNode->GetType());
-            const unsigned operandSize  = varTypeSize(node->GetType());
-
-            // CRC32 codegen depends on its second oprand's type.
-            // Currently, we are using SIMDBaseType to store the op2Type info.
-            if (containingIntrinsicId == NI_SSE42_Crc32)
-            {
-                expectedSize = varTypeSize(containingNode->GetSimdBaseType());
-            }
-
-            supportsGeneralLoads = (operandSize >= expectedSize);
-            break;
-        }
 
         default:
-        {
-            assert(supportsAlignedSIMDLoads == false);
-            assert(supportsGeneralLoads == false);
-            assert(supportsSIMDScalarLoads == false);
-            assert(supportsUnalignedSIMDLoads == false);
             break;
-        }
     }
 
-    noway_assert(supportsRegOptional != nullptr);
     *supportsRegOptional = supportsGeneralLoads;
 
-    if (!node->IsHWIntrinsic())
+    if (!op->IsHWIntrinsic())
     {
-        return supportsGeneralLoads && IsMemOperand(node);
+        return supportsGeneralLoads && IsMemOperand(op);
     }
 
     // TODO-XArch: Update this to be table driven, if possible.
 
-    switch (node->AsHWIntrinsic()->GetIntrinsic())
+    switch (op->AsHWIntrinsic()->GetIntrinsic())
     {
         case NI_SSE_LoadAlignedVector128:
         case NI_SSE2_LoadAlignedVector128:
         case NI_AVX_LoadAlignedVector256:
-            return supportsAlignedSIMDLoads;
+            return supportsAlignedVecLoads;
 
         case NI_SSE_LoadScalarVector128:
         case NI_SSE2_LoadScalarVector128:
-            return supportsSIMDScalarLoads;
+            return supportsScalarVecLoads;
 
         case NI_SSE_LoadVector128:
         case NI_SSE2_LoadVector128:
         case NI_AVX_LoadVector256:
-            return supportsUnalignedSIMDLoads;
+            return supportsUnalignedVecLoads;
 
         default:
             return false;
@@ -4811,11 +4716,24 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         }
                         break;
 
+                    case NI_AVX2_Shuffle:
+                        if (varTypeIsByte(node->GetSimdBaseType()))
+                        {
+                            if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                            {
+                                ContainHWIntrinsicOperand(node, op2);
+                            }
+                            else if (supportsRegOptional)
+                            {
+                                op2->SetRegOptional();
+                            }
+                            break;
+                        }
+                        FALLTHROUGH;
                     case NI_SSE2_Shuffle:
                     case NI_SSE2_ShuffleHigh:
                     case NI_SSE2_ShuffleLow:
                     case NI_AVX2_Permute4x64:
-                    case NI_AVX2_Shuffle:
                     case NI_AVX2_ShuffleHigh:
                     case NI_AVX2_ShuffleLow:
                         // These intrinsics have op2 as an immValue and op1 as a reg/mem
