@@ -1254,33 +1254,33 @@ void CodeGen::GenSSE42Intrinsic(GenTreeHWIntrinsic* node)
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     RegNum         dstReg    = node->GetRegNum();
     var_types      type      = node->GetType();
+    emitAttr       size      = emitTypeSize(type);
 
     UseHWIntrinsicOperands(node);
 
     switch (intrinsic)
     {
-        case NI_SSE42_Crc32:
-        case NI_SSE42_X64_Crc32:
+        case NI_SSE42_CRC32B:
+        case NI_SSE42_CRC32W:
+        case NI_SSE42_CRC32:
         {
-            var_types argType = node->GetSimdBaseType();
-            GenTree*  op1     = node->GetOp(0);
-            GenTree*  op2     = node->GetOp(1);
-            RegNum    reg1    = op1->GetRegNum();
+            GenTree* op1  = node->GetOp(0);
+            GenTree* op2  = node->GetOp(1);
+            RegNum   reg1 = op1->GetRegNum();
             assert((op2->GetRegNum() != dstReg) || (reg1 == dstReg));
 
-            GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(type), dstReg, reg1, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, reg1, /* canSkip */ true);
 
-            if ((argType == TYP_UBYTE) || (argType == TYP_USHORT))
+            if (intrinsic == NI_SSE42_CRC32B)
             {
-                assert(type == TYP_INT);
-                genHWIntrinsic_R_RM(node, INS_crc32, emitTypeSize(argType), dstReg, op2);
+                size = EA_1BYTE;
             }
-            else
+            else if (intrinsic == NI_SSE42_CRC32W)
             {
-                assert(op1->GetType() == op2->GetType());
-                assert((type == TYP_INT) || (type == TYP_LONG));
-                genHWIntrinsic_R_RM(node, INS_crc32, emitTypeSize(type), dstReg, op2);
+                size = EA_2BYTE;
             }
+
+            genHWIntrinsic_R_RM(node, INS_crc32, size, dstReg, op2);
         }
         break;
 

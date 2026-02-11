@@ -387,6 +387,8 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
         case InstructionSet_SSE2_X64:
         case InstructionSet_SSE41:
         case InstructionSet_SSE41_X64:
+        case InstructionSet_SSE42:
+        case InstructionSet_SSE42_X64:
             return ImportSSEIntrinsic(intrinsic, sig);
         case InstructionSet_AVX2:
             return ImportAVX2Intrinsic(intrinsic, sig);
@@ -689,6 +691,34 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
             return comp->gtNewSimdHWIntrinsicNode(TYP_VOID, NI_SSE2_StoreNonTemporal, op2->GetType(), 0, op1, op2);
+        }
+
+        case NI_SSE42_Crc32:
+        case NI_SSE42_X64_Crc32:
+        {
+            assert(sig.paramCount == 2);
+            assert((sig.retType == TYP_UINT) || (sig.retType == TYP_ULONG));
+            assert(sig.retType == sig.paramType[0]);
+
+            if (sig.paramType[1] == TYP_UBYTE)
+            {
+                assert(sig.retType == TYP_UINT);
+                intrinsic = NI_SSE42_CRC32B;
+            }
+            else if (sig.paramType[1] == TYP_USHORT)
+            {
+                assert(sig.retType == TYP_UINT);
+                intrinsic = NI_SSE42_CRC32W;
+            }
+            else
+            {
+                assert(sig.retType == sig.paramType[1]);
+                intrinsic = NI_SSE42_CRC32;
+            }
+
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = impPopStack().val;
+            return comp->gtNewScalarHWIntrinsicNode(varTypeNodeType(sig.retType), intrinsic, op1, op2);
         }
 
         default:

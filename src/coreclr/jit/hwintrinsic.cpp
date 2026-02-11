@@ -799,23 +799,19 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
             {
                 retNode = comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2);
 
+#ifdef TARGET_ARM64
                 switch (intrinsic)
                 {
-#ifdef TARGET_XARCH
-                    case NI_SSE42_Crc32:
-                    case NI_SSE42_X64_Crc32:
-#endif
-#ifdef TARGET_ARM64
                     case NI_Crc32_ComputeCrc32:
                     case NI_Crc32_ComputeCrc32C:
                     case NI_Crc32_Arm64_ComputeCrc32:
                     case NI_Crc32_Arm64_ComputeCrc32C:
-#endif
                         retNode->AsHWIntrinsic()->SetSimdBaseType(sig.paramType[1]);
                         break;
                     default:
                         break;
                 }
+#endif
             }
 
             break;

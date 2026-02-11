@@ -1550,15 +1550,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             node->SetOp(1, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(1)));
             break;
 
-        case NI_SSE42_Crc32:
-            if (varTypeIsSmall(node->GetSimdBaseType()))
-            {
-                // NI_SSE42_Crc32 nodes have type INT or LONG but the input value can be
-                // treated as a small integer, in which case we can remove some narrowing
-                // casts. The type of the input value (basically type of the operation)
-                // is stored as "SIMD base type", even if no SIMD types are involved.
-                node->SetOp(1, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(1)));
-            }
+        case NI_SSE42_CRC32B:
+            node->SetOp(1, TryRemoveCastIfPresent(TYP_BYTE, node->GetOp(1)));
+            break;
+
+        case NI_SSE42_CRC32W:
+            node->SetOp(1, TryRemoveCastIfPresent(TYP_SHORT, node->GetOp(1)));
             break;
 
         case NI_SSE2_CompareGreaterThan:
@@ -4344,19 +4341,20 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
                     }
                     break;
 
+                case NI_SSE42_CRC32B:
+                    supportsGeneralLoads = true;
+                    break;
+
+                case NI_SSE42_CRC32W:
+                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
+                    break;
+
                 default:
                     if (category == HW_Category_Scalar)
                     {
                         assert(varTypeIsIntegral(op->GetType()));
 
-                        unsigned expectedSize = varTypeSize(instr->GetType());
-
-                        if (intrinsic == NI_SSE42_Crc32)
-                        {
-                            expectedSize = varTypeSize(instr->GetSimdBaseType());
-                        }
-
-                        supportsGeneralLoads = (varTypeSize(op->GetType()) >= expectedSize);
+                        supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
                         break;
                     }
 
