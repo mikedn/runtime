@@ -4254,10 +4254,6 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
 
     switch (category)
     {
-        case HW_Category_MemoryLoad:
-            supportsGeneralLoads = !op->IsHWIntrinsic();
-            break;
-
         case HW_Category_SimpleSIMD:
         case HW_Category_IMM:
         case HW_Category_SIMDScalar:
@@ -4419,7 +4415,7 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
             break;
 
         default:
-            break;
+            unreached();
     }
 
     *supportsRegOptional = supportsGeneralLoads;

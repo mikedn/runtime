@@ -139,10 +139,7 @@ bool SsaOptimizer::IsCseCandidate(GenTree* node) const
                     return true;
 
                 case HW_Category_MemoryLoad:
-                case HW_Category_MemoryStore:
-#ifdef TARGET_XARCH
-                case HW_Category_Special:
-#endif
+                // TODO-MIKE-Review: Huh, why not CSE load intrinsics???
                 default:
                     return false;
             }

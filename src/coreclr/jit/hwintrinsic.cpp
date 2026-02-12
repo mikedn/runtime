@@ -512,8 +512,6 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         }
     }
 
-    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-
     if (baseType == TYP_UNDEF)
     {
         switch (intrinsic)
@@ -537,23 +535,25 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
                 return nullptr;
 
+#ifdef TARGET_XARCH
+            case NI_SSE_Prefetch0:
+            case NI_SSE_Prefetch1:
+            case NI_SSE_Prefetch2:
+            case NI_SSE_PrefetchNonTemporal:
+            case NI_SSE_StoreFence:
+            case NI_SSE2_LoadFence:
+            case NI_SSE2_MemoryFence:
+                assert(retType == TYP_VOID);
+                break;
+#endif
+
             default:
+                assert(HWIntrinsicInfo::GetCategory(intrinsic) == HW_Category_Scalar);
+                assert(varTypeIsArithmetic(retType));
                 break;
         }
 
-#ifdef TARGET_XARCH
-        if (category == HW_Category_Special)
-        {
-            assert(retType == TYP_VOID);
-            baseType = retType;
-        }
-        else
-#endif
-        {
-            assert(category == HW_Category_Scalar);
-            assert(varTypeIsArithmetic(retType));
-            baseType = retType;
-        }
+        baseType = retType;
     }
 
     GenTree* immOp = nullptr;
@@ -607,6 +607,8 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
     {
         immOp = impStackTop(0).val;
     }
+
+    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
 #ifdef TARGET_XARCH
     constexpr
