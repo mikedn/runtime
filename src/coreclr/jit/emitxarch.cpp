@@ -2908,6 +2908,14 @@ void X86Emitter::emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, Re
         return;
     }
 
+    if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
+    {
+        assert(lclAddr->GetLcl()->IsAddressExposed());
+        Ins_S_R_I(ins, attr, codeGen->GetStackAddrMode(lclAddr), reg, imm);
+
+        return;
+    }
+
     assert((ins == INS_vextracti128) || (ins == INS_vextractf128));
     assert(attr == EA_32BYTE);
     assert(reg != REG_NA);

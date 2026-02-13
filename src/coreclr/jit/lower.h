@@ -73,10 +73,10 @@ private:
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
 #endif
 #ifdef FEATURE_HW_INTRINSICS
-    void ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_XARCH
-    void ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op);
+    void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
+    void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
 #endif
 #endif
 
@@ -327,14 +327,11 @@ public:
     static bool IsMemOperand(GenTree* node);
 
 #ifdef FEATURE_HW_INTRINSICS
-    static bool IsContainableHWIntrinsicOp(Compiler*           comp,
-                                           GenTreeHWIntrinsic* containingNode,
-                                           GenTree*            node,
-                                           bool*               supportsRegOptional);
+    static bool IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional);
 
-    bool IsContainableHWIntrinsicOp(GenTreeHWIntrinsic* containingNode, GenTree* node, bool* supportsRegOptional)
+    bool IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional)
     {
-        return IsContainableHWIntrinsicOp(comp, containingNode, node, supportsRegOptional);
+        return IsHWIntrinsicMemOp(comp, instr, node, supportsRegOptional);
     }
 #endif
 

@@ -1403,8 +1403,8 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
         bool op1SupportsRegOptional = false;
         bool op2SupportsRegOptional = false;
 
-        if (!IsContainableHWIntrinsicOp(node, node->GetOp(1), &op2SupportsRegOptional) &&
-            IsContainableHWIntrinsicOp(node, node->GetOp(0), &op1SupportsRegOptional))
+        if (!IsHWIntrinsicMemOp(node, node->GetOp(1), &op2SupportsRegOptional) &&
+            IsHWIntrinsicMemOp(node, node->GetOp(0), &op1SupportsRegOptional))
         {
             // Swap operands if op2 cannot be contained but op1 can.
             swapOperands = true;
@@ -3459,35 +3459,6 @@ void Lowering::ContainCheckCallAddr(GenTreeCall* call)
     }
 }
 
-#ifdef FEATURE_HW_INTRINSICS
-void Lowering::ContainCheckHWIntrinsicAddr(GenTreeHWIntrinsic* node, GenTree* addr)
-{
-    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
-
-    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR) ||
-        (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon()))))
-    {
-        addr->SetContained();
-        return;
-    }
-
-    if (addr->OperIs(GT_ADD) && !TryCreateAddrMode(addr, true))
-    {
-        return;
-    }
-
-    if (GenTreeAddrMode* am = addr->IsAddrMode())
-    {
-        if (!IsSafeToMoveAddrModeForward(node, am))
-        {
-            return;
-        }
-
-        addr->SetContained();
-    }
-}
-#endif // FEATURE_HW_INTRINSICS
-
 void Lowering::ContainCheckIndir(GenTreeIndir* node)
 {
     assert(!node->TypeIs(TYP_STRUCT));
@@ -4180,6 +4151,23 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
     }
 }
 
+void Lowering::ContainCheckXAdd(GenTreeOp* node)
+{
+    if (node->IsUnusedValue())
+    {
+        // Make sure the types are identical, since the node type is changed to VOID
+        // CodeGen relies on op2's type to determine the instruction size.
+        // Note that the node type cannot be a small int but the data operand can.
+        assert(varActualType(node->GetOp(1)->GetType()) == node->GetType());
+
+        node->ClearUnusedValue();
+        node->SetOper(GT_LOCKADD);
+        node->SetType(TYP_VOID);
+
+        ContainImmOperand(node, node->GetOp(1));
+    }
+}
+
 void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 {
     switch (node->GetIntrinsic())
@@ -4209,10 +4197,7 @@ void Lowering::ContainCheckIntrinsic(GenTreeIntrinsic* node)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
-                                          GenTreeHWIntrinsic* instr,
-                                          GenTree*            op,
-                                          bool*               supportsRegOptional)
+bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* op, bool* supportsRegOptional)
 {
     NamedIntrinsic      intrinsic = instr->GetIntrinsic();
     HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
@@ -4433,37 +4418,29 @@ bool Lowering::IsContainableHWIntrinsicOp(Compiler*           comp,
         case NI_SSE2_LoadAlignedVector128:
         case NI_AVX_LoadAlignedVector256:
             return supportsAlignedVecLoads;
-
         case NI_SSE_LoadScalarVector128:
         case NI_SSE2_LoadScalarVector128:
             return supportsScalarVecLoads;
-
         case NI_SSE_LoadVector128:
         case NI_SSE2_LoadVector128:
         case NI_AVX_LoadVector256:
             return supportsUnalignedVecLoads;
-
         default:
             return false;
     }
 }
 
-void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
+void Lowering::MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
 {
-    var_types intrinsicLoadType = TYP_UNDEF;
-    GenTree*  intrinsicLoadAddr = nullptr;
-
     if (GenTreeHWIntrinsic* hwi = op->IsHWIntrinsic())
     {
+        var_types intrinsicLoadType = TYP_UNDEF;
+        GenTree*  intrinsicLoadAddr = nullptr;
+
         switch (hwi->GetIntrinsic())
         {
             case NI_SSE_LoadScalarVector128:
-                assert(hwi->GetSimdBaseType() == TYP_FLOAT);
-                intrinsicLoadType = TYP_FLOAT;
-                intrinsicLoadAddr = hwi->GetOp(0);
-                break;
             case NI_SSE2_LoadScalarVector128:
-                // TODO-MIKE-Review: This likely needs only DOUBLE.
                 intrinsicLoadType = hwi->GetSimdBaseType();
                 intrinsicLoadAddr = hwi->GetOp(0);
                 break;
@@ -4478,18 +4455,45 @@ void Lowering::ContainHWIntrinsicOperand(GenTreeHWIntrinsic* node, GenTree* op)
                 intrinsicLoadAddr = hwi->GetOp(0);
                 break;
             default:
-                break;
+                unreached();
+        }
+
+        if (intrinsicLoadType != TYP_UNDEF)
+        {
+            op->ChangeOper(GT_IND_LOAD);
+            op->SetType(intrinsicLoadType);
+            op->AsIndLoad()->SetAddr(intrinsicLoadAddr);
         }
     }
 
-    if (intrinsicLoadType != TYP_UNDEF)
+    op->SetContained();
+}
+
+void Lowering::TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr)
+{
+    assert(addr->TypeIs(TYP_I_IMPL, TYP_BYREF));
+
+    if (addr->OperIs(GT_CONST_ADDR, GT_LCL_ADDR) ||
+        (addr->IsIntCon() AMD64_ONLY(&&comp->IsRIPRelativeAddress(addr->AsIntCon()))))
     {
-        op->ChangeOper(GT_IND_LOAD);
-        op->SetType(intrinsicLoadType);
-        op->AsIndLoad()->SetAddr(intrinsicLoadAddr);
+        addr->SetContained();
+        return;
     }
 
-    op->SetContained();
+    if (addr->OperIs(GT_ADD) && !TryCreateAddrMode(addr, true))
+    {
+        return;
+    }
+
+    if (GenTreeAddrMode* am = addr->IsAddrMode())
+    {
+        if (!IsSafeToMoveAddrModeForward(node, am))
+        {
+            return;
+        }
+
+        addr->SetContained();
+    }
 }
 
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
@@ -4544,7 +4548,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         switch (category)
         {
             case HW_Category_MemoryLoad:
-                ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
+                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
                 break;
 
             case HW_Category_SimpleSIMD:
@@ -4586,9 +4590,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ConvertToVector256Int16:
                     case NI_AVX2_ConvertToVector256Int32:
                     case NI_AVX2_ConvertToVector256Int64:
-                        if (!varTypeIsSIMD(node->GetOp(0)->GetType()))
+                        if (!varTypeIsVec(node->GetOp(0)->GetType()))
                         {
-                            ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
+                            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
                             return;
                         }
                         break;
@@ -4599,9 +4603,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 bool supportsRegOptional = false;
 
-                if (IsContainableHWIntrinsicOp(node, node->GetOp(0), &supportsRegOptional))
+                if (IsHWIntrinsicMemOp(node, node->GetOp(0), &supportsRegOptional))
                 {
-                    ContainHWIntrinsicOperand(node, node->GetOp(0));
+                    MakeHWIntrinsicMemOp(node, node->GetOp(0));
                 }
                 else if (supportsRegOptional)
                 {
@@ -4624,23 +4628,23 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case HW_Category_MemoryLoad:
                 if ((intrinsic == NI_AVX_MaskLoad) || (intrinsic == NI_AVX2_MaskLoad))
                 {
-                    ContainCheckHWIntrinsicAddr(node, op1);
+                    TryMakeHWIntrinsicAddrMode(node, op1);
                 }
                 else
                 {
-                    ContainCheckHWIntrinsicAddr(node, op2);
+                    TryMakeHWIntrinsicAddrMode(node, op2);
                 }
                 break;
 
             case HW_Category_MemoryStore:
-                ContainCheckHWIntrinsicAddr(node, node->GetOp(0));
+                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
 
                 if (((intrinsic == NI_SSE_Store) || (intrinsic == NI_SSE2_Store)) && op2->IsHWIntrinsic() &&
                     ((op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX_ExtractVector128) ||
                      (op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
                     op2->AsHWIntrinsic()->GetOp(1)->IsIntCon())
                 {
-                    ContainHWIntrinsicOperand(node, op2);
+                    op2->SetContained();
                 }
                 break;
 
@@ -4651,19 +4655,18 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 bool op2SupportsRegOptional = false;
                 bool op1SupportsRegOptional = false;
 
-                if (IsContainableHWIntrinsicOp(node, op2, &op2SupportsRegOptional))
+                if (IsHWIntrinsicMemOp(node, op2, &op2SupportsRegOptional))
                 {
-                    ContainHWIntrinsicOperand(node, op2);
+                    MakeHWIntrinsicMemOp(node, op2);
                 }
                 else if ((isCommutative || (intrinsic == NI_BMI2_MultiplyNoFlags) ||
                           (intrinsic == NI_BMI2_X64_MultiplyNoFlags)) &&
-                         IsContainableHWIntrinsicOp(node, op1, &op1SupportsRegOptional))
+                         IsHWIntrinsicMemOp(node, op1, &op1SupportsRegOptional))
                 {
-                    ContainHWIntrinsicOperand(node, op1);
-
-                    // Swap the operands here to make the containment checks in codegen significantly simpler
-                    node->SetOp(0, op2);
-                    node->SetOp(1, op1);
+                    std::swap(op1, op2);
+                    node->SetOp(0, op1);
+                    node->SetOp(1, op2);
+                    MakeHWIntrinsicMemOp(node, op2);
                 }
                 else if (op2SupportsRegOptional)
                 {
@@ -4699,9 +4702,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         // These intrinsics can have op2 be immValue or reg/mem
                         if (!HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
-                            if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op2);
+                                MakeHWIntrinsicMemOp(node, op2);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4713,9 +4716,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_Shuffle:
                         if (varTypeIsByte(node->GetSimdBaseType()))
                         {
-                            if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op2);
+                                MakeHWIntrinsicMemOp(node, op2);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4731,9 +4734,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ShuffleHigh:
                     case NI_AVX2_ShuffleLow:
                         // These intrinsics have op2 as an immValue and op1 as a reg/mem
-                        if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                        if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
                         {
-                            ContainHWIntrinsicOperand(node, op1);
+                            MakeHWIntrinsicMemOp(node, op1);
                         }
                         else if (supportsRegOptional)
                         {
@@ -4753,18 +4756,18 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         // They also can have op1 be reg/mem and op2 be immValue
                         if (HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
-                            if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op1);
+                                MakeHWIntrinsicMemOp(node, op1);
                             }
                             else if (supportsRegOptional)
                             {
                                 op1->SetRegOptional();
                             }
                         }
-                        else if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                        else if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                         {
-                            ContainHWIntrinsicOperand(node, op2);
+                            MakeHWIntrinsicMemOp(node, op2);
                         }
                         else if (supportsRegOptional)
                         {
@@ -4773,9 +4776,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         break;
 
                     case NI_AES_KeygenAssist:
-                        if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                        if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
                         {
-                            ContainHWIntrinsicOperand(node, op1);
+                            MakeHWIntrinsicMemOp(node, op1);
                         }
                         else if (supportsRegOptional)
                         {
@@ -4832,7 +4835,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         switch (category)
         {
             case HW_Category_MemoryStore:
-                ContainCheckHWIntrinsicAddr(node, op1);
+                TryMakeHWIntrinsicAddrMode(node, op1);
                 break;
 
             case HW_Category_SimpleSIMD:
@@ -4842,24 +4845,24 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     bool supportsRegOptional = false;
 
-                    if (IsContainableHWIntrinsicOp(node, op3, &supportsRegOptional))
+                    if (IsHWIntrinsicMemOp(node, op3, &supportsRegOptional))
                     {
                         // 213 form: op1 = (op2 * op1) + [op3]
-                        ContainHWIntrinsicOperand(node, op3);
+                        MakeHWIntrinsicMemOp(node, op3);
                     }
-                    else if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                    else if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                     {
                         // 132 form: op1 = (op1 * op3) + [op2]
-                        ContainHWIntrinsicOperand(node, op2);
+                        MakeHWIntrinsicMemOp(node, op2);
                     }
-                    else if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                    else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
                     {
                         // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
 
                         if (!HWIntrinsicInfo::CopiesUpperBits(intrinsic))
                         {
                             // 231 form: op3 = (op2 * op3) + [op1]
-                            ContainHWIntrinsicOperand(node, op1);
+                            MakeHWIntrinsicMemOp(node, op1);
                         }
                     }
                     else
@@ -4884,9 +4887,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_SSE41_BlendVariable:
                         case NI_AVX_BlendVariable:
                         case NI_AVX2_BlendVariable:
-                            if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op2);
+                                MakeHWIntrinsicMemOp(node, op2);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4896,9 +4899,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         case NI_AVXVNNI_MultiplyWideningAndAdd:
                         case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-                            if (IsContainableHWIntrinsicOp(node, op3, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op3, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op3);
+                                MakeHWIntrinsicMemOp(node, op3);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4908,17 +4911,16 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         case NI_BMI2_MultiplyNoFlags:
                         case NI_BMI2_X64_MultiplyNoFlags:
-                            if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op2);
+                                MakeHWIntrinsicMemOp(node, op2);
                             }
-                            else if (IsContainableHWIntrinsicOp(node, op1, &supportsRegOptional))
+                            else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
                             {
-                                ContainHWIntrinsicOperand(node, op1);
-                                // MultiplyNoFlags is a Commutative operation, so swap the first two operands here
-                                // to make the containment checks in codegen significantly simpler
+                                std::swap(op1, op2);
                                 node->SetOp(0, op2);
                                 node->SetOp(1, op1);
+                                MakeHWIntrinsicMemOp(node, op2);
                             }
                             else if (supportsRegOptional)
                             {
@@ -4962,9 +4964,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     {
                         bool supportsRegOptional = false;
 
-                        if (IsContainableHWIntrinsicOp(node, op2, &supportsRegOptional))
+                        if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                         {
-                            ContainHWIntrinsicOperand(node, op2);
+                            MakeHWIntrinsicMemOp(node, op2);
                         }
                         else if (supportsRegOptional)
                         {
@@ -4988,23 +4990,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         unreached();
     }
 }
+
 #endif // FEATURE_HW_INTRINSICS
-
-void Lowering::ContainCheckXAdd(GenTreeOp* node)
-{
-    if (node->IsUnusedValue())
-    {
-        // Make sure the types are identical, since the node type is changed to VOID
-        // CodeGen relies on op2's type to determine the instruction size.
-        // Note that the node type cannot be a small int but the data operand can.
-        assert(varActualType(node->GetOp(1)->GetType()) == node->GetType());
-
-        node->ClearUnusedValue();
-        node->SetOper(GT_LOCKADD);
-        node->SetType(TYP_VOID);
-
-        ContainImmOperand(node, node->GetOp(1));
-    }
-}
 
 #endif // TARGET_XARCH
