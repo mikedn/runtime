@@ -4685,12 +4685,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case HW_Category_IMM:
             {
-                // We don't currently have any IMM intrinsics which are also commutative
                 assert(!isCommutative);
                 bool supportsRegOptional = false;
 
                 switch (intrinsic)
                 {
+                    case NI_SSE41_X64_Extract:
+                        assert(!varTypeIsFloating(baseType));
+                        FALLTHROUGH;
                     case NI_SSE2_Extract:
                     case NI_AVX_ExtractVector128:
                     case NI_AVX2_ExtractVector128:
@@ -4704,14 +4706,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ShiftLeftLogical:
                     case NI_AVX2_ShiftRightArithmetic:
                     case NI_AVX2_ShiftRightLogical:
-                        if (!HWIntrinsicInfo::IsImmOp(intrinsic, op2))
+                        if (varTypeIsVec(op2->GetType()))
                         {
                             TryMakeHWIntrinsicMemOp(node, op2);
                         }
                         break;
 
                     case NI_AVX2_Shuffle:
-                        if (varTypeIsByte(node->GetSimdBaseType()))
+                        if (varTypeIsVec(op2->GetType()))
                         {
                             TryMakeHWIntrinsicMemOp(node, op2);
                             break;
@@ -4723,27 +4725,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_Permute4x64:
                     case NI_AVX2_ShuffleHigh:
                     case NI_AVX2_ShuffleLow:
-                        TryMakeHWIntrinsicMemOp(node, op1);
-                        break;
-
                     case NI_SSE41_Extract:
-                    case NI_SSE41_X64_Extract:
-                        assert(!varTypeIsFloating(baseType));
-                        // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm, imm8" and don't
-                        // currently support containment.
-                        break;
-
                     case NI_AVX_Permute:
-                        if (HWIntrinsicInfo::IsImmOp(intrinsic, op2))
-                        {
-                            TryMakeHWIntrinsicMemOp(node, op1);
-                        }
-                        else
-                        {
-                            TryMakeHWIntrinsicMemOp(node, op2);
-                        }
-                        break;
-
                     case NI_AES_KeygenAssist:
                         TryMakeHWIntrinsicMemOp(node, op1);
                         break;
@@ -4752,21 +4735,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_SSE2_ShiftRightLogical128BitLane:
                     case NI_AVX2_ShiftLeftLogical128BitLane:
                     case NI_AVX2_ShiftRightLogical128BitLane:
-                    {
-#if DEBUG
-                        // These intrinsics should have been marked contained by the general-purpose handling
-                        // earlier in the method.
-
-                        GenTree* lastOp = node->GetLastOp();
-                        assert(lastOp != nullptr);
-
-                        if (HWIntrinsicInfo::IsImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
-                        {
-                            assert(lastOp->isContained());
-                        }
-#endif
+                        // These have been handled by the general-purpose handling at the start of this function.
                         break;
-                    }
 
                     default:
                         assert(!"Unhandled containment for binary hardware intrinsic with immediate indir1");
