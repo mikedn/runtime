@@ -77,6 +77,7 @@ private:
 #ifdef TARGET_XARCH
     void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
     void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
+    void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
 #endif
 #endif
 

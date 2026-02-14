@@ -4496,6 +4496,20 @@ void Lowering::TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* add
     }
 }
 
+void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
+{
+    bool supportsRegOptional = false;
+
+    if (IsHWIntrinsicMemOp(node, op, &supportsRegOptional))
+    {
+        MakeHWIntrinsicMemOp(node, op);
+    }
+    else if (supportsRegOptional)
+    {
+        op->SetRegOptional();
+    }
+}
+
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic      intrinsic = node->GetIntrinsic();
@@ -4601,16 +4615,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         break;
                 }
 
-                bool supportsRegOptional = false;
-
-                if (IsHWIntrinsicMemOp(node, node->GetOp(0), &supportsRegOptional))
-                {
-                    MakeHWIntrinsicMemOp(node, node->GetOp(0));
-                }
-                else if (supportsRegOptional)
-                {
-                    node->GetOp(0)->SetRegOptional();
-                }
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
                 break;
             }
 
@@ -4699,31 +4704,16 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_ShiftLeftLogical:
                     case NI_AVX2_ShiftRightArithmetic:
                     case NI_AVX2_ShiftRightLogical:
-                        // These intrinsics can have op2 be immValue or reg/mem
                         if (!HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
-                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op2);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op2->SetRegOptional();
-                            }
+                            TryMakeHWIntrinsicMemOp(node, op2);
                         }
                         break;
 
                     case NI_AVX2_Shuffle:
                         if (varTypeIsByte(node->GetSimdBaseType()))
                         {
-                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op2);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op2->SetRegOptional();
-                            }
+                            TryMakeHWIntrinsicMemOp(node, op2);
                             break;
                         }
                         FALLTHROUGH;
@@ -4733,15 +4723,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_Permute4x64:
                     case NI_AVX2_ShuffleHigh:
                     case NI_AVX2_ShuffleLow:
-                        // These intrinsics have op2 as an immValue and op1 as a reg/mem
-                        if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                        {
-                            MakeHWIntrinsicMemOp(node, op1);
-                        }
-                        else if (supportsRegOptional)
-                        {
-                            op1->SetRegOptional();
-                        }
+                        TryMakeHWIntrinsicMemOp(node, op1);
                         break;
 
                     case NI_SSE41_Extract:
@@ -4752,38 +4734,18 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         break;
 
                     case NI_AVX_Permute:
-                        // These intrinsics can have op2 be immValue or reg/mem
-                        // They also can have op1 be reg/mem and op2 be immValue
                         if (HWIntrinsicInfo::IsImmOp(intrinsic, op2))
                         {
-                            if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op1);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op1->SetRegOptional();
-                            }
+                            TryMakeHWIntrinsicMemOp(node, op1);
                         }
-                        else if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
+                        else
                         {
-                            MakeHWIntrinsicMemOp(node, op2);
-                        }
-                        else if (supportsRegOptional)
-                        {
-                            op2->SetRegOptional();
+                            TryMakeHWIntrinsicMemOp(node, op2);
                         }
                         break;
 
                     case NI_AES_KeygenAssist:
-                        if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                        {
-                            MakeHWIntrinsicMemOp(node, op1);
-                        }
-                        else if (supportsRegOptional)
-                        {
-                            op1->SetRegOptional();
-                        }
+                        TryMakeHWIntrinsicMemOp(node, op1);
                         break;
 
                     case NI_SSE2_ShiftLeftLogical128BitLane:
@@ -4887,26 +4849,12 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                         case NI_SSE41_BlendVariable:
                         case NI_AVX_BlendVariable:
                         case NI_AVX2_BlendVariable:
-                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op2);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op2->SetRegOptional();
-                            }
+                            TryMakeHWIntrinsicMemOp(node, op2);
                             break;
 
                         case NI_AVXVNNI_MultiplyWideningAndAdd:
                         case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-                            if (IsHWIntrinsicMemOp(node, op3, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op3);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op3->SetRegOptional();
-                            }
+                            TryMakeHWIntrinsicMemOp(node, op3);
                             break;
 
                         case NI_BMI2_MultiplyNoFlags:
@@ -4961,19 +4909,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_AVX2_MultipleSumAbsoluteDifferences:
                     case NI_AVX2_Permute2x128:
                     case NI_PCLMULQDQ_CarrylessMultiply:
-                    {
-                        bool supportsRegOptional = false;
-
-                        if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                        {
-                            MakeHWIntrinsicMemOp(node, op2);
-                        }
-                        else if (supportsRegOptional)
-                        {
-                            op2->SetRegOptional();
-                        }
+                        TryMakeHWIntrinsicMemOp(node, op2);
                         break;
-                    }
 
                     default:
                         assert(!"Unhandled containment for ternary hardware intrinsic with immediate indir1");
