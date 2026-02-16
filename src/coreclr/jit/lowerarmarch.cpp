@@ -70,7 +70,7 @@ void Lowering::LowerFloatMul(GenTreeOp* mul)
 
 #endif // TARGET_ARM
 
-void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
+void Lowering::LowerLclStoreArch(GenTreeLclStore* store)
 {
     GenTree* src = store->GetValue();
 

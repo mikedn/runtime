@@ -33,6 +33,11 @@ public:
     {
     }
 
+    static void TransformUnusedIndirection(GenTreeIndir* ind);
+#ifdef FEATURE_HW_INTRINSICS
+    static bool IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional);
+#endif
+
     void Run();
 
     void LowerNode(BasicBlock* block, GenTree* node)
@@ -46,7 +51,6 @@ private:
     GenTree* LowerNode(GenTree* node);
 
     void ContainCheckReturnTrap(GenTreeOp* node);
-    void LowerLclHeap(GenTreeUnOp* node);
     void ContainCheckRet(GenTreeUnOp* ret);
     void ContainCheckJTrue(GenTreeUnOp* node);
     void ContainCheckIndir(GenTreeIndir* indirNode);
@@ -72,34 +76,51 @@ private:
 #ifdef FEATURE_SIMD
     bool ContainSIMD12MemToMemCopy(GenTree* store, GenTree* value);
 #endif
-#ifdef FEATURE_HW_INTRINSICS
-    void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
-#ifdef TARGET_XARCH
-    void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
-    void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
-    void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
-#endif
-#endif
 
-    void LowerCall(GenTreeCall* call);
-#ifndef TARGET_64BIT
-    GenTree* DecomposeLongCompare(GenTreeOp* cmp);
-#endif
-#ifndef TARGET_ARM64
-    GenTree* OptimizeConstCompare(GenTreeOp* cmp);
-    GenTree* LowerCompare(GenTreeOp* cmp);
-#endif
-    GenTree* LowerJTrue(GenTreeUnOp* jtrue);
-#ifdef TARGET_XARCH
-    GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
-#endif
-    void LowerJmpMethod(GenTreeJmp* jmp);
-    void LowerReturn(GenTreeUnOp* ret);
     void LowerLclLoad(GenTreeLclLoad* load);
     void LowerLclStore(GenTreeLclStore* store);
-    void LowerStoreLclVarArch(GenTreeLclStore* store);
+    void LowerLclStoreArch(GenTreeLclStore* store);
     void LowerLclLoadFld(GenTreeLclLoadFld* load);
     void LowerLclStoreFld(GenTreeLclStoreFld* store);
+    void LowerLclHeap(GenTreeUnOp* node);
+    GenTree* LowerArrElem(GenTreeArrElem* node);
+    void LowerShift(GenTreeOp* shift);
+    void LowerRotateRight(GenTreeOp* node);
+#ifdef TARGET_XARCH
+    void LowerRotateLeft(GenTreeOp* node);
+    GenTree* LowerFloatConvert(GenTreeUnOp* node);
+#endif
+    GenTree* LowerKeepAlive(GenTreeUnOp* node);
+    void LowerIndir(GenTreeIndir* ind);
+    void LowerIndStore(GenTreeIndStore* store);
+    void LowerIndStoreArch(GenTreeIndStore* store);
+    GenTree* LowerAdd(GenTreeOp* node);
+    GenTree* LowerBitCast(GenTreeUnOp* bitcast);
+    void LowerOvfConv(GenTreeUnOp* node);
+    void LowerOvfUnsigned(GenTreeUnOp* node);
+    void LowerOvfTruncate(GenTreeUnOp* node);
+    GenTree* LowerConv(GenTreeUnOp* cast);
+    GenTree* LowerTruncate(GenTreeUnOp* node);
+    void LowerIntToFloat(GenTreeUnOp* node);
+    void LowerFloatToInt(GenTreeUnOp* node);
+#ifdef TARGET_64BIT
+    void LowerSignedExtend(GenTreeUnOp* node);
+    void LowerUnsignedExtend(GenTreeUnOp* node);
+#endif
+#ifdef TARGET_ARM
+    void LowerFloatMul(GenTreeOp* mul);
+#endif
+#ifndef USE_HELPERS_FOR_INT_DIV
+    bool LowerUnsignedDivRem(GenTreeOp* divMod);
+#endif
+#ifndef TARGET_ARM64
+    GenTree* LowerConstIntDivRem(GenTreeOp* node);
+    GenTree* LowerSignedDivRem(GenTree* node);
+#endif
+    GenTree* LowerJTrue(GenTreeUnOp* jtrue);
+    void LowerCall(GenTreeCall* call);
+    void LowerJmp(GenTreeJmp* jmp);
+    void LowerReturn(GenTreeUnOp* ret);
     void LowerStructReturn(GenTreeUnOp* ret);
     void LowerRetSingleRegStructLclVar(GenTreeUnOp* ret);
     void LowerStructCall(GenTreeCall* call);
@@ -111,6 +132,16 @@ private:
                                          GenTree* insertBefore DEBUGARG(GenTreeCall* call));
 #ifdef TARGET_X86
     void LowerTailCallViaJitHelper(GenTreeCall* call);
+#endif
+#ifdef TARGET_XARCH
+    GenTreeCC* LowerNodeCC(GenTree* node, GenCondition condition);
+#endif
+#ifndef TARGET_64BIT
+    GenTree* DecomposeLongCompare(GenTreeOp* cmp);
+#endif
+#ifndef TARGET_ARM64
+    GenTree* OptimizeConstCompare(GenTreeOp* cmp);
+    GenTree* LowerCompare(GenTreeOp* cmp);
 #endif
     void RemoveNonRegCallArgs(GenTreeCall* call);
 #if FEATURE_FASTTAILCALL
@@ -160,8 +191,8 @@ private:
     };
     void InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action);
 
-    // Replace the definition of the given use with a lclVar, allocating a new temp
-    // if 'tempNum' is BAD_VAR_NUM. Returns the LclVar node.
+    // Replace the definition of the given use with a local, allocating a new temp
+    // if 'tempNum' is BAD_VAR_NUM. Returns the local load node.
     GenTreeLclLoad* ReplaceWithLclLoad(LIR::Use& use, LclVarDsc* tempLcl = nullptr);
 
     // return true if this call target is within range of a pc-rel call on the machine
@@ -171,31 +202,20 @@ private:
     GenTree* GetPreferredRegOptionalOperand(GenTree* op1, GenTree* op2);
 #endif
 
-    void LowerIndir(GenTreeIndir* ind);
-    void LowerIndStore(GenTreeIndStore* store);
-    void LowerIndStoreArch(GenTreeIndStore* store);
-    GenTree* LowerAdd(GenTreeOp* node);
-#ifndef TARGET_ARM64
-#ifndef USE_HELPERS_FOR_INT_DIV
-    bool LowerUnsignedDivRem(GenTreeOp* divMod);
-#endif
-    GenTree* LowerConstIntDivRem(GenTreeOp* node);
-    GenTree* LowerSignedDivRem(GenTree* node);
-#endif
     void LowerStructStore(GenTree* store, StructStoreKind kind, ClassLayout* layout);
     void LowerIndStoreObj(GenTreeIndStoreObj* store);
     void LowerIndStoreBlk(GenTreeIndStoreBlk* store);
     void ContainStructStoreAddress(GenTree* store, unsigned size, GenTree* addr);
     void ContainStructStoreAddressUnrollRegsWB(GenTree* addr);
 
-#ifdef TARGET_64BIT
-    void LowerSignedExtend(GenTreeUnOp* node);
-    void LowerUnsignedExtend(GenTreeUnOp* node);
+#ifdef TARGET_XARCH
+    bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
+    GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);
+    void LowerStoreIndRMW(GenTreeIndStore* store);
+    static bool IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
+    static bool LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2);
 #endif
-    void LowerRotateRight(GenTreeOp* node);
-#ifdef TARGET_ARM
-    void LowerFloatMul(GenTreeOp* mul);
-#endif
+
 #ifdef TARGET_ARM64
     void LowerNot(GenTreeUnOp* node);
     void CombineNot(GenTreeInstr* instr);
@@ -238,27 +258,6 @@ private:
                                  BasicBlock*     bbSwitch,
                                  GenTreeLclLoad* switchValue);
 
-    GenTree* LowerBitCast(GenTreeUnOp* bitcast);
-    void LowerOvfConv(GenTreeUnOp* node);
-    void LowerOvfUnsigned(GenTreeUnOp* node);
-    void LowerOvfTruncate(GenTreeUnOp* node);
-    GenTree* LowerConv(GenTreeUnOp* cast);
-    GenTree* LowerTruncate(GenTreeUnOp* node);
-    void LowerIntToFloat(GenTreeUnOp* node);
-    void LowerFloatToInt(GenTreeUnOp* node);
-
-#ifdef TARGET_XARCH
-    void LowerRotateLeft(GenTreeOp* node);
-    GenTree* LowerFloatConvert(GenTreeUnOp* node);
-    bool IsIndLoadRMWCandidate(GenTreeIndStore* store, GenTreeIndir* load, GenTree* src);
-    GenTreeIndir* IsStoreIndRMW(GenTreeIndStore* store);
-    void LowerStoreIndRMW(GenTreeIndStore* store);
-    static bool IndirsAreRMWEquivalent(GenTreeIndir* indir1, GenTreeIndir* indir2);
-    static bool LeavesAreRMWEquivalent(GenTree* node1, GenTree* node2);
-
-private:
-#endif
-
 #ifdef FEATURE_SIMD
     void WidenSIMD12IfNecessary(GenTreeLclVar* node);
     bool CanWidenSimd12ToSimd16(const LclVarDsc* lcl);
@@ -266,9 +265,7 @@ private:
 #if FEATURE_MULTIREG_RET
     void MakeMultiRegLclStore(GenTreeLclStore* store, GenTree* value);
 #endif
-    GenTree* LowerArrElem(GenTreeArrElem* node);
-    void LowerShift(GenTreeOp* shift);
-    GenTree* LowerKeepAlive(GenTreeUnOp* node);
+
 #ifdef FEATURE_HW_INTRINSICS
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
@@ -277,10 +274,11 @@ private:
     void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
     LclVarDsc* GetSimdMemoryTemp(var_types type);
-#if defined(TARGET_XARCH)
+    void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_X86
     void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
 #endif
+#ifdef TARGET_XARCH
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
     void LowerVecSum128(GenTreeHWIntrinsic* node);
     void LowerVecSum256(GenTreeHWIntrinsic* node);
@@ -288,13 +286,17 @@ private:
     void LowerVecInsert(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
     void ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
-#elif defined(TARGET_ARM64)
+    void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
+    void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
+    void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
+#endif
+#ifdef TARGET_ARM64
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
     void LowerVecSum(GenTreeHWIntrinsic* node);
     void LowerVecExtract(GenTreeHWIntrinsic* node);
     void LowerVecInsert(GenTreeHWIntrinsic* node);
-#endif // !TARGET_XARCH && !TARGET_ARM64
+#endif
 
     struct VectorConstant
     {
@@ -318,27 +320,18 @@ private:
 
     void LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
     GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op);
-#endif // FEATURE_HW_INTRINSICS
-
-    // Utility functions
-public:
-    bool IsImmOperand(GenTree* operand, GenTree* instr) const;
-
-    static bool IsMemStore(GenTree* node);
-    static bool IsMemOperand(GenTree* node);
-
-#ifdef FEATURE_HW_INTRINSICS
-    static bool IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional);
 
     bool IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional)
     {
         return IsHWIntrinsicMemOp(comp, instr, node, supportsRegOptional);
     }
-#endif
+#endif // FEATURE_HW_INTRINSICS
 
-    static void TransformUnusedIndirection(GenTreeIndir* ind);
+    bool IsImmOperand(GenTree* operand, GenTree* instr) const;
 
-private:
+    static bool IsMemStore(GenTree* node);
+    static bool IsMemOperand(GenTree* node);
+
     LIR::Range& BlockRange() const
     {
         return LIR::AsRange(m_block);

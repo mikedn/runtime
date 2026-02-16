@@ -421,7 +421,7 @@ GenTree* Lowering::LowerNode(GenTree* node)
             return LowerJTrue(node->AsUnOp());
 
         case GT_JMP:
-            LowerJmpMethod(node->AsJmp());
+            LowerJmp(node->AsJmp());
             break;
 
         case GT_RETURN:
@@ -2481,7 +2481,7 @@ GenTree* Lowering::DecomposeLongCompare(GenTreeOp* cmp)
 }
 #endif // !TARGET_64BIT
 
-void Lowering::LowerJmpMethod(GenTreeJmp* jmp)
+void Lowering::LowerJmp(GenTreeJmp* jmp)
 {
     // If PInvokes are inlined, we have to remember to execute PInvoke method
     // epilog anywhere that a method returns.
@@ -2588,7 +2588,7 @@ void Lowering::LowerLclStore(GenTreeLclStore* store)
         return;
     }
 
-    LowerStoreLclVarArch(store);
+    LowerLclStoreArch(store);
 }
 
 void Lowering::LowerLclLoadFld(GenTreeLclLoadFld* load)
@@ -3270,19 +3270,12 @@ GenTree* Lowering::LowerVirtualStubCall(GenTreeCall* call)
     return target;
 }
 
-//------------------------------------------------------------------------
-// CreateReturnTrapSeq: Create a tree to perform a "return trap", used in PInvoke
-// epilogs to invoke a GC under a condition. The return trap checks some global
-// location (the runtime tells us where that is and how many indirections to make),
-// then, based on the result, conditionally calls a GC helper. We use a special node
-// for this because at this time (late in the compilation phases), introducing flow
-// is tedious/difficult.
-//
+// Create code to perform a "return trap", used in PInvoke epilogs to invoke a GC
+// under a condition. The return trap checks some global location (the runtime tells
+// us where that is and how many indirections to make), then, based on the result,
+// conditionally calls a GC helper. We use a special node for this because at this
+// time (late in the compilation phases), introducing flow is tedious/difficult.
 // This is used for PInvoke inlining.
-//
-// Return Value:
-//    Code tree to perform the action.
-//
 void Lowering::InsertReturnTrap(GenTree* before)
 {
     // The GT_RETURNTRAP node expands to this:
@@ -3318,18 +3311,8 @@ void Lowering::InsertReturnTrap(GenTree* before)
     ContainCheckReturnTrap(trap->AsOp());
 }
 
-//------------------------------------------------------------------------
-// SetGCState: Create a tree that stores the given constant (0 or 1) into the
-// thread's GC state field.
-//
+// Create code that stores the given constant (0 or 1) into the thread's GC state field.
 // This is used for PInvoke inlining.
-//
-// Arguments:
-//    state - constant (0 or 1) to store into the thread's GC state field.
-//
-// Return Value:
-//    Code tree to perform the action.
-//
 void Lowering::InsertSetGCState(GenTree* before, int state)
 {
     assert((state == 0) || (state == 1));
@@ -3348,18 +3331,8 @@ void Lowering::InsertSetGCState(GenTree* before, int state)
     ContainCheckIndStore(store);
 }
 
-//------------------------------------------------------------------------
-// CreateFrameLinkUpdate: Create a tree that either links or unlinks the
-// locally-allocated InlinedCallFrame from the Frame list.
-//
-// This is used for PInvoke inlining.
-//
-// Arguments:
-//    action - whether to link (push) or unlink (pop) the Frame
-//
-// Return Value:
-//    Code tree to perform the action.
-//
+// Create code that either links or unlinks the locally-allocated
+// InlinedCallFrame from the Frame list.
 void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLinkAction action)
 {
     const CORINFO_EE_INFO& info = *comp->eeGetEEInfo();
@@ -3385,14 +3358,11 @@ void Lowering::InsertFrameLinkUpdate(LIR::Range& block, GenTree* before, FrameLi
     }
 
     GenTreeIndStore* store = comp->gtNewIndStore(TYP_I_IMPL, addr, data);
-
     block.InsertBefore(before, tcb, addr, data, store);
     ContainCheckIndStore(store);
 }
 
-//------------------------------------------------------------------------
-// InsertPInvokeMethodProlog: Create the code that runs at the start of
-// every method that has PInvoke calls.
+// Create the code that runs at the start of every method that has PInvoke calls.
 //
 // Initialize the TCB local and the InlinedCallFrame object. Then link ("push")
 // the InlinedCallFrame object on the Frame chain. The layout of InlinedCallFrame

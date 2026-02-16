@@ -52,7 +52,7 @@ void Lowering::LowerRotateRight(GenTreeOp* node)
     ContainCheckShiftRotate(node);
 }
 
-void Lowering::LowerStoreLclVarArch(GenTreeLclStore* store)
+void Lowering::LowerLclStoreArch(GenTreeLclStore* store)
 {
     GenTree* src = store->GetValue();
 
