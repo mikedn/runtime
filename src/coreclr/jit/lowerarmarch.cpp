@@ -497,28 +497,20 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    assert(!node->TypeIs(TYP_SIMD32));
+    assert(!varTypeIsVec(node->GetType()) || varTypeIsTargetVec(node->GetType()));
 
-    if (node->TypeIs(TYP_SIMD12))
-    {
-        // SIMD12 HWINTRINSIC nodes produce in fact a SIMD16 value.
-        node->SetType(TYP_SIMD16);
-    }
-
-    NamedIntrinsic intrinsicId = node->GetIntrinsic();
-
-    switch (intrinsicId)
+    switch (node->GetIntrinsic())
     {
         case NI_VEC_PACK:
             if (node->IsUnary())
             {
-                LowerHWIntrinsicCreateBroadcast(node);
+                LowerVecSplat(node);
             }
             else
             {
-                LowerHWIntrinsicCreate(node);
+                LowerVecPack(node);
             }
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
             LowerNode(node);
             return;
 
@@ -602,7 +594,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     }
 }
 
-void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 {
     var_types type    = node->GetType();
     var_types eltType = node->GetSimdBaseType();
@@ -618,9 +610,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     VectorConstant vecConst;
 
-    if (vecConst.Create(node))
+    if (vecConst.Pack(node))
     {
-        LowerHWIntrinsicCreateConst(node, vecConst);
+        LowerVecPackConst(node, vecConst);
         return;
     }
 
@@ -739,7 +731,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     }
 }
 
-void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 {
     assert(node->IsUnary());
 
@@ -750,9 +742,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     VectorConstant vecConst;
 
-    if (!IsValidConstForMovImm(node) && vecConst.Broadcast(node))
+    if (!IsValidConstForMovImm(node) && vecConst.Splat(node))
     {
-        LowerHWIntrinsicCreateConst(node, vecConst);
+        LowerVecPackConst(node, vecConst);
         return;
     }
 
@@ -772,7 +764,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     node->SetOp(0, TryRemoveCastIfPresent(eltType, node->GetOp(0)));
 }
 
-void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
+void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
 {
     var_types type    = node->GetType();
     var_types eltType = node->GetSimdBaseType();

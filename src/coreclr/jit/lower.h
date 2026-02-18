@@ -271,8 +271,8 @@ private:
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
     void LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
     void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node);
+    void LowerVecPack(GenTreeHWIntrinsic* node);
+    void LowerVecSplat(GenTreeHWIntrinsic* node);
     LclVarDsc* GetSimdMemoryTemp(var_types type);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_X86
@@ -284,8 +284,8 @@ private:
     void LowerVecSum256(GenTreeHWIntrinsic* node);
     void LowerVecExtract(GenTreeHWIntrinsic* node);
     void LowerVecInsert(GenTreeHWIntrinsic* node);
-    void LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
-    void ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node);
+    void LowerSse41InsertFloat(GenTreeHWIntrinsic* node);
+    void ContainSse41InsertFloat(GenTreeHWIntrinsic* node);
     void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
     void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
     void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
@@ -314,11 +314,11 @@ private:
         bool AllBitsZero(var_types type) const;
         bool AllBitsOne(var_types type) const;
         bool Insert(var_types type, int index, GenTree* value);
-        bool Create(GenTreeHWIntrinsic* create);
-        bool Broadcast(GenTreeHWIntrinsic* create);
+        bool Pack(GenTreeHWIntrinsic* create);
+        bool Splat(GenTreeHWIntrinsic* create);
     };
 
-    void LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
+    void LowerVecPackConst(GenTreeHWIntrinsic* create, const VectorConstant& vecConst);
     GenTree* TryRemoveCastIfPresent(var_types expectedType, GenTree* op);
 
     bool IsHWIntrinsicMemOp(GenTreeHWIntrinsic* instr, GenTree* node, bool* supportsRegOptional)

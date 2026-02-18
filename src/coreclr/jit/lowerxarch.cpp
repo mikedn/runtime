@@ -1470,26 +1470,20 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    if (node->TypeIs(TYP_SIMD12))
-    {
-        // SIMD12 HWINTRINSIC nodes produce in fact a SIMD16 value.
-        node->SetType(TYP_SIMD16);
-    }
+    assert(!varTypeIsVec(node->GetType()) || varTypeIsTargetVec(node->GetType()));
 
-    NamedIntrinsic intrinsicId = node->GetIntrinsic();
-
-    switch (intrinsicId)
+    switch (node->GetIntrinsic())
     {
         case NI_VEC_PACK:
             if (node->IsUnary())
             {
-                LowerHWIntrinsicCreateBroadcast(node);
+                LowerVecSplat(node);
             }
             else
             {
-                LowerHWIntrinsicCreate(node);
+                LowerVecPack(node);
             }
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != intrinsicId));
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
             LowerNode(node);
             return;
 
@@ -1536,7 +1530,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE41_Insert:
             if (node->GetSimdBaseType() == TYP_FLOAT)
             {
-                LowerHWIntrinsicInsertFloat(node);
+                LowerSse41InsertFloat(node);
                 return;
             }
             FALLTHROUGH;
@@ -1889,7 +1883,7 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     }
 }
 
-void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_PACK);
 
@@ -1937,9 +1931,9 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
 
     VectorConstant vecConst;
 
-    if (vecConst.Create(node))
+    if (vecConst.Pack(node))
     {
-        LowerHWIntrinsicCreateConst(node, vecConst);
+        LowerVecPackConst(node, vecConst);
         return;
     }
 
@@ -2141,7 +2135,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                     BlockRange().InsertAfter(op, zero, idx, vec);
                 }
 
-                LowerHWIntrinsicInsertFloat(vec->AsHWIntrinsic());
+                LowerSse41InsertFloat(vec->AsHWIntrinsic());
             }
             else
             {
@@ -2158,7 +2152,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
                 node->SetOp(0, vec);
                 node->SetOp(1, op);
                 node->SetOp(2, idx);
-                LowerHWIntrinsicInsertFloat(node);
+                LowerSse41InsertFloat(node);
             }
         }
 
@@ -2265,7 +2259,7 @@ void Lowering::LowerHWIntrinsicCreate(GenTreeHWIntrinsic* node)
     node->SetOp(1, v[1]);
 }
 
-void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_PACK);
     assert(node->IsUnary());
@@ -2279,9 +2273,9 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
 
     VectorConstant vecConst;
 
-    if (vecConst.Broadcast(node))
+    if (vecConst.Splat(node))
     {
-        LowerHWIntrinsicCreateConst(node, vecConst);
+        LowerVecPackConst(node, vecConst);
         return;
     }
 
@@ -2462,7 +2456,7 @@ void Lowering::LowerHWIntrinsicCreateBroadcast(GenTreeHWIntrinsic* node)
     node->SetOp(1, idx);
 }
 
-void Lowering::LowerHWIntrinsicCreateConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
+void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
 {
     var_types type    = node->GetType();
     var_types eltType = node->GetSimdBaseType();
@@ -2868,7 +2862,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
     LowerNode(node);
 }
 
-void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
+void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
 
@@ -2918,10 +2912,10 @@ void Lowering::LowerHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
         }
     }
 
-    ContainHWIntrinsicInsertFloat(node);
+    ContainSse41InsertFloat(node);
 }
 
-void Lowering::ContainHWIntrinsicInsertFloat(GenTreeHWIntrinsic* node)
+void Lowering::ContainSse41InsertFloat(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
 
@@ -4512,9 +4506,7 @@ void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
 
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic      intrinsic = node->GetIntrinsic();
-    HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
-    var_types           baseType  = node->GetSimdBaseType();
+    NamedIntrinsic intrinsic = node->GetIntrinsic();
 
     if (!HWIntrinsicInfo::SupportsContainment(intrinsic))
     {
@@ -4526,6 +4518,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
+    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
+
     if ((category != HW_Category_Scalar) && (node->GetSimdSize() < 16))
     {
         // Ignore anything having a non-target vector size, such
@@ -4533,11 +4527,13 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
+    var_types baseType = node->GetSimdBaseType();
+
     if (category == HW_Category_IMM)
     {
         if ((intrinsic == NI_SSE41_Insert) && (baseType == TYP_FLOAT))
         {
-            ContainHWIntrinsicInsertFloat(node);
+            ContainSse41InsertFloat(node);
             return;
         }
 

@@ -5355,7 +5355,7 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
     return false;
 }
 
-bool Lowering::VectorConstant::Create(GenTreeHWIntrinsic* create)
+bool Lowering::VectorConstant::Pack(GenTreeHWIntrinsic* create)
 {
     unsigned  numOps  = create->GetNumOps();
     var_types eltType = create->GetSimdBaseType();
@@ -5371,7 +5371,7 @@ bool Lowering::VectorConstant::Create(GenTreeHWIntrinsic* create)
     return true;
 }
 
-bool Lowering::VectorConstant::Broadcast(GenTreeHWIntrinsic* create)
+bool Lowering::VectorConstant::Splat(GenTreeHWIntrinsic* create)
 {
     var_types eltType = create->GetSimdBaseType();
     GenTree*  op1     = create->GetOp(0);
