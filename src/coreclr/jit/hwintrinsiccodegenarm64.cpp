@@ -437,24 +437,32 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
                 {
                     emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
-                    break;
                 }
-                FALLTHROUGH;
+                else if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
+                {
+                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
+                }
+                else
+                {
+                    assert(intrin.op1->isUsedFromReg());
+
+                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0],
+                                     /*canSkip*/ varTypeIsFloating(intrin.baseType));
+                }
+                break;
+
             case NI_Vector64_CreateScalar:
             case NI_Vector128_CreateScalar:
                 if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
                 {
-                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue(), INS_OPTS_NONE);
-                    break;
+                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
                 }
+                else
+                {
+                    assert(intrin.op1->isUsedFromReg());
 
-                assert(intrin.op1->isUsedFromReg());
-
-                bool canSkip;
-                canSkip = varTypeIsFloating(intrin.baseType) && ((intrin.id == NI_Vector64_CreateScalarUnsafe) ||
-                                                                 (intrin.id == NI_Vector128_CreateScalarUnsafe));
-                emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0], canSkip,
-                                 INS_OPTS_NONE);
+                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ false);
+                }
                 break;
 
             case NI_AdvSimd_DuplicateToVector64:
