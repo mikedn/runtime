@@ -1475,15 +1475,14 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     switch (node->GetIntrinsic())
     {
         case NI_VEC_PACK:
-            if (node->IsUnary())
-            {
-                LowerVecSplat(node);
-            }
-            else
-            {
-                LowerVecPack(node);
-            }
+            LowerVecPack(node);
             assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
+            LowerNode(node);
+            return;
+
+        case NI_VEC_SPLAT:
+            LowerVecSplat(node);
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
             LowerNode(node);
             return;
 
@@ -2261,7 +2260,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 {
-    assert(node->GetIntrinsic() == NI_VEC_PACK);
+    assert(node->GetIntrinsic() == NI_VEC_SPLAT);
     assert(node->IsUnary());
 
     var_types type    = node->GetType();
@@ -2283,7 +2282,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     {
         assert(comp->opts.IsIsaSupported(InstructionSet_AVX));
 
-        GenTree* half = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, eltType, op1);
+        GenTree* half = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_SPLAT, eltType, op1);
         BlockRange().InsertAfter(op1, half);
 
         node->SetOp(0, half);

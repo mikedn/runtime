@@ -501,6 +501,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             vecSize = sig.retLayout->GetSize();
 
+            if (sig.paramCount > 1)
             {
                 GenTreeHWIntrinsic* create = NewVecNode(sig.retType, NI_VEC_PACK, eltType);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
@@ -514,6 +515,8 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
                 return create;
             }
+
+            return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, impPopStack().val);
 
         case NI_Vector128_WithElement:
         case NI_Vector256_WithElement:

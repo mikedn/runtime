@@ -1785,7 +1785,7 @@ private:
 
             if (type == TYP_SIMD8)
             {
-                return m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD8, NI_Vector128_CreateScalarUnsafe, TYP_LONG, 16,
+                return m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, 16,
                                                             call);
             }
 
@@ -2163,7 +2163,7 @@ private:
     }
 
 #ifdef FEATURE_SIMD
-    GenTreeHWIntrinsic* NewInsertElement(unsigned index, var_types elementType, GenTree* dest, GenTree* value)
+    GenTree* NewInsertElement(unsigned index, var_types elementType, GenTree* dest, GenTree* value)
     {
         return m_compiler->gtNewVecInsertNode(elementType, dest, m_compiler->gtNewIconNode(index), value);
     }
@@ -2220,6 +2220,7 @@ void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src
     switch (src->GetIntrinsic())
     {
         case NI_VEC_PACK:
+        case NI_VEC_SPLAT:
         case NI_VEC_ZERO:
             return;
         default:

@@ -225,6 +225,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
 
+            if (sig.paramCount > 1)
             {
                 GenTreeHWIntrinsic* create = NewVecNode(sig.retType, NI_VEC_PACK, eltType);
                 create->SetNumOps(sig.paramCount, getAllocator(CMK_ASTNode));
@@ -238,6 +239,14 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
                 return create;
             }
+
+            if (varTypeSize(sig.retType) == varTypeSize(eltType))
+            {
+                assert(sig.retType == TYP_SIMD8);
+                return comp->gtNewBitCastNode(sig.retType, impPopStack().val);
+            }
+
+            return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, impPopStack().val);
 
         case NI_Vector64_WithElement:
         case NI_Vector128_WithElement:

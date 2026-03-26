@@ -3070,7 +3070,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
 
                 if ((level1 < level2) && gtCanSwapOrder(op1, op2)
 #ifndef TARGET_64BIT
-                    // Create lowering depends on the evaluation ordering matching the operand order
+                    // VecPack lowering depends on the evaluation ordering matching the operand order
                     // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
                     // but due to decomposition it ends up with 4 operands in lowering so we need to
                     // prevent reordering.
@@ -4103,24 +4103,10 @@ GenTreeIndStoreObj* Compiler::gtNewIndStoreObj(var_types type, ClassLayout* layo
     return store->AsIndStoreObj();
 }
 
-//------------------------------------------------------------------------
-// gtNewBitCastNode: Creates a new BitCast node.
-//
-// Arguments:
-//    type   - The actual type of the argument
-//    arg    - The argument node
-//    argReg - The register that the argument will be passed in
-//
-// Return Value:
-//    Returns the newly created BitCast node.
-//
-// Notes:
-//    The node is generated as GenTreeMultiRegOp on RyuJIT/arm, as GenTreeOp on all the other archs.
-//
 GenTreeUnOp* Compiler::gtNewBitCastNode(var_types type, GenTree* arg)
 {
-    assert(arg != nullptr);
     assert(type != TYP_STRUCT);
+    assert(arg != nullptr);
 
     return gtNewOperNode(GT_BITCAST, type, arg)->AsUnOp();
 }
@@ -11228,7 +11214,7 @@ GenTreeHWIntrinsic* Compiler::gtNewVecExtractNode(var_types eltType, GenTree* ve
     return gtNewSimdHWIntrinsicNode(eltType, NI_VEC_EXTRACT, eltType, varTypeSize(vecType), vec, index);
 }
 
-GenTreeHWIntrinsic* Compiler::gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
+GenTree* Compiler::gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt)
 {
     var_types type = varTypeTargetVec(vec->GetType());
 
@@ -11242,7 +11228,7 @@ GenTreeHWIntrinsic* Compiler::gtNewVecInsertNode(var_types eltType, GenTree* vec
 #elif defined(TARGET_ARM64)
     if (varTypeSize(eltType) == varTypeSize(type))
     {
-        return gtNewVecNode(TYP_SIMD8, NI_VEC_PACK, eltType, elt);
+        return gtNewBitCastNode(type, elt);
     }
 
     NamedIntrinsic intrinsic = NI_AdvSimd_Insert;

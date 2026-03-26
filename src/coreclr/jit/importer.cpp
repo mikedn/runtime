@@ -1042,6 +1042,7 @@ GenTree* Importer::impCanonicalizeStructCallArg(GenTree* arg, ClassLayout* argLa
             break;
 #ifdef FEATURE_SIMD
         case GT_IND_LOAD:
+        case GT_BITCAST:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
 #endif
@@ -3201,15 +3202,13 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
 #ifdef TARGET_ARM64
         if (comp->compOpportunisticallyDependsOn(InstructionSet_AdvSimd))
         {
-            NamedIntrinsic create = callType == TYP_DOUBLE ? NI_VEC_PACK : NI_Vector64_CreateScalarUnsafe;
-
             GenTree* op3 = impPopStack().val;
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            op3 = NewVecNode(TYP_SIMD8, create, callType, op3);
-            op2 = NewVecNode(TYP_SIMD8, create, callType, op2);
-            op1 = NewVecNode(TYP_SIMD8, create, callType, op1);
+            op3 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op3);
+            op2 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op2);
+            op1 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op1);
             op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, op3, op2, op1);
 
             return NewVecNode(callType, NI_VEC_EXTRACT, callType, 8, op1, comp->gtNewIconNode(0));

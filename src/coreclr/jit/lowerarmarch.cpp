@@ -502,15 +502,14 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     switch (node->GetIntrinsic())
     {
         case NI_VEC_PACK:
-            if (node->IsUnary())
-            {
-                LowerVecSplat(node);
-            }
-            else
-            {
-                LowerVecPack(node);
-            }
+            LowerVecPack(node);
             assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
+            LowerNode(node);
+            return;
+
+        case NI_VEC_SPLAT:
+            LowerVecSplat(node);
+            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
             LowerNode(node);
             return;
 
@@ -544,8 +543,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
-           (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
+    assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
+           (node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector64) ||
@@ -733,6 +732,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 {
+    assert(node->GetIntrinsic() == NI_VEC_SPLAT);
     assert(node->IsUnary());
 
     var_types eltType = node->GetSimdBaseType();

@@ -7611,9 +7611,9 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
 #error Unknown target.
 #endif
 
-    bool argIsZero      = false;
-    bool argIsCreate    = false;
-    bool argIsBroadcast = false;
+    bool argIsZero  = false;
+    bool argIsPack  = false;
+    bool argIsSplat = false;
 
     if (GenTreeHWIntrinsic* hwi = arg->IsHWIntrinsic())
     {
@@ -7622,25 +7622,12 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             case NI_VEC_ZERO:
                 argIsZero = true;
                 break;
-
             case NI_VEC_PACK:
-                if ((hwi->GetSimdBaseType() == TYP_FLOAT)
-#ifdef TARGET_ARM64
-                    && (argInfo->GetRegType() == TYP_FLOAT)
-#endif
-                        )
-                {
-                    if (hwi->IsUnary())
-                    {
-                        argIsBroadcast = true;
-                    }
-                    else
-                    {
-                        argIsCreate = true;
-                    }
-                }
+                argIsPack = hwi->GetSimdBaseType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
                 break;
-
+            case NI_VEC_SPLAT:
+                argIsSplat = hwi->GetSimdBaseType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
+                break;
             default:
                 break;
         }
@@ -7649,7 +7636,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
     LclVarDsc* tempLcl    = nullptr;
     GenTree*   tempAssign = nullptr;
 
-    if (argIsBroadcast)
+    if (argIsSplat)
     {
         arg = arg->AsHWIntrinsic()->GetOp(0);
 
@@ -7672,7 +7659,8 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             arg->SetDoNotCSE();
         }
 
-        arg = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, arg, gtCloneExpr(arg));
+        arg = gtNewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_FLOAT, arg, gtCloneExpr(arg), gtNewDconNode(0.0, TYP_FLOAT),
+                           gtNewDconNode(0.0, TYP_FLOAT));
         // TODO-MIKE-Cleanup: We should be able to create a SIMD16 temp but we may
         // not have a layout for it so for now "convert" the SIMD16 to a DOUBLE.
         arg = gtNewVecExtractNode(TYP_DOUBLE, arg, gtNewIconNode(0));
@@ -7692,7 +7680,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         arg = gtNewLclLoad(dblTempLcl, TYP_DOUBLE);
 #endif // UNIX_AMD64_ABI
     }
-    else if (!argIsZero && !argIsCreate)
+    else if (!argIsZero && !argIsPack)
     {
         ClassLayout* argLayout = typGetLayoutByNum(argInfo->GetSigTypeNum());
 
@@ -7712,11 +7700,11 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
         unsigned regSize = varTypeSize(regType);
         GenTree* regValue;
 
-        if (argIsBroadcast)
+        if (argIsSplat)
         {
             regValue = i == 0 ? arg : gtCloneExpr(arg);
         }
-        else if (argIsCreate && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
+        else if (argIsPack && (createOpIndex < arg->AsHWIntrinsic()->GetNumOps()))
         {
             regValue = arg->AsHWIntrinsic()->GetOp(createOpIndex++);
             assert(regValue->TypeIs(TYP_FLOAT));
@@ -7734,7 +7722,7 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
             }
 #endif
         }
-        else if (argIsCreate || argIsZero)
+        else if (argIsPack || argIsZero)
         {
             regValue = gtNewZeroConNode(regType);
         }
@@ -10884,7 +10872,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
         }
         else
         {
-            return gtNewVecNode(type, NI_VEC_PACK, initPatternType, initVal);
+            return gtNewVecNode(type, NI_VEC_SPLAT, initPatternType, initVal);
         }
     }
 #endif
@@ -11070,9 +11058,9 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
     // Only Vector2/3/4 are promoted.
     assert(lvaGetDesc(dstLcl->GetPromotedFieldLclNum(0))->TypeIs(TYP_FLOAT));
 
-    GenTree* src         = store->GetOp(0);
-    bool     srcIsZero   = false;
-    bool     srcIsCreate = false;
+    GenTree* src       = store->GetOp(0);
+    bool     srcIsZero = false;
+    bool     srcIsPack = false;
 
     if (GenTreeHWIntrinsic* hwi = src->IsHWIntrinsic())
     {
@@ -11083,15 +11071,15 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
                 break;
 
             case NI_VEC_PACK:
-                // TODO-MIKE-CQ: Promote broadcast create.
-                srcIsCreate = !hwi->IsUnary();
+                // TODO-MIKE-CQ: Promote splat.
+                srcIsPack = true;
 
-                // We can use Create's operands directly only if they don't interfere with the field
-                // assignments we're going to generate. Otherwise we'll treat Create as any other
+                // We can use Pack's operands directly only if they don't interfere with the field
+                // assignments we're going to generate. Otherwise we'll treat Pack as any other
                 // intrinsic - store it into a temp.
-                // TODO-MIKE-CQ: It would be better to add a temp for each Create operand, packing and
+                // TODO-MIKE-CQ: It would be better to add a temp for each Pack operand, packing and
                 // unpacking SIMD values is rather expensive.
-                for (unsigned i = 0; i < hwi->GetNumOps() && srcIsCreate; i++)
+                for (unsigned i = 0; i < hwi->GetNumOps() && srcIsPack; i++)
                 {
                     GenTree* op = hwi->GetOp(i);
 
@@ -11101,7 +11089,7 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
 
                         if (lcl->IsPromotedField() && (lcl->GetPromotedFieldParentLclNum() == dstLcl->GetLclNum()))
                         {
-                            srcIsCreate = false;
+                            srcIsPack = false;
                         }
                     }
                     else if (!op->IsDblCon())
@@ -11109,7 +11097,7 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
                         // TODO-MIKE-CQ: This is overly conservative, we need to check if the op tree contains
                         // any references to the destination local, including its promoted fields. Basically
                         // something like impHasLclRef but that also checks for promoted fields.
-                        srcIsCreate = false;
+                        srcIsPack = false;
                     }
                 }
                 break;
@@ -11143,7 +11131,7 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
 
     GenTree* tempStore = nullptr;
 
-    if (!srcIsZero && !srcIsCreate && !src->OperIs(GT_LCL_LOAD))
+    if (!srcIsZero && !srcIsPack && !src->OperIs(GT_LCL_LOAD))
     {
         LclVarDsc* tmpLcl = lvaNewTemp(src, true DEBUGARG("promoted SIMD copy temp"));
 
@@ -11161,12 +11149,12 @@ GenTree* Compiler::moMorphPromoteVecStore(GenTreeLclRef* store, LclVarDsc* dstLc
 
         GenTree* fieldSrc;
 
-        if (srcIsCreate && (i < src->AsHWIntrinsic()->GetNumOps()))
+        if (srcIsPack && (i < src->AsHWIntrinsic()->GetNumOps()))
         {
             fieldSrc = src->AsHWIntrinsic()->GetOp(fieldIndex);
             assert(fieldSrc->TypeIs(TYP_FLOAT));
         }
-        else if (srcIsCreate || srcIsZero)
+        else if (srcIsPack || srcIsZero)
         {
             fieldSrc = gtNewDconNode(0, TYP_FLOAT);
         }

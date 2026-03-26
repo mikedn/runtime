@@ -1872,9 +1872,9 @@ public:
                                   const HWIntrinsicSignature& sig,
                                   ClassLayout*                layout,
                                   bool                        isNewObj);
-    GenTree* impVector234TCreateBroadcast(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVector234Create(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
-    GenTree* impVector34CreateExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234TCtorSplat(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector234CtorPack(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
+    GenTree* impVector34CtorExtend(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorTFromArray(const HWIntrinsicSignature& sig, ClassLayout* layout, bool isNewObj);
     GenTree* impVectorStore(var_types type, GenTree* destAddr, GenTree* src);
     GenTree* impGetArrayElementsAsVectorAddr(ClassLayout*    layout,
@@ -2817,7 +2817,7 @@ public:
     GenTreeHWIntrinsic* gtNewVecExtractNode(var_types eltType, GenTree* vec, unsigned index);
     GenTreeHWIntrinsic* gtNewVecExtractNode(var_types eltType, GenTree* vec, GenTree* index);
 
-    GenTreeHWIntrinsic* gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
+    GenTree* gtNewVecInsertNode(var_types eltType, GenTree* vec, GenTreeIntCon* idx, GenTree* elt);
 
     GenTreeHWIntrinsic* gtNewVecNode(var_types type, NamedIntrinsic intrinsic, var_types eltType);
     GenTreeHWIntrinsic* gtNewSimdHWIntrinsicNode(var_types      type,
