@@ -2894,7 +2894,7 @@ void X86Emitter::Ins_R_S_I(instruction ins, emitAttr attr, RegNum reg, StackAddr
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = EncodingSizeSV(id, GetCodeMR(ins)) + 1;
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
     PrintInstr(id);
     currentIGCodeSize += sz;
@@ -3095,7 +3095,7 @@ void X86Emitter::Ins_R_ARX_I(
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
-    unsigned size = EncodingSizeAM(id, GetCodeMR(ins)) + 1;
+    unsigned size = EncodingSizeAM(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(size);
     PrintInstr(id);
     currentIGCodeSize += size;
