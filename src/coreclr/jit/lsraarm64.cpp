@@ -669,9 +669,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             vecRegToVecRegMove = varTypeIsFloating(intrin.op1->GetType());
         }
-        else if (intrin.id == NI_AdvSimd_Arm64_DuplicateToVector64)
+        else if (intrin.id == NI_VEC_SPLAT)
         {
-            vecRegToVecRegMove = intrin.op1->TypeIs(TYP_DOUBLE);
+            vecRegToVecRegMove = node->TypeIs(TYP_SIMD8) && intrin.op1->TypeIs(TYP_DOUBLE);
         }
 
         if (node->IsMemoryLoadOrStore())

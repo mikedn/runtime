@@ -429,23 +429,6 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-//----------------------------------------------------------------------------------------------
-// LowerHWIntrinsicFusedMultiplyAddScalar: Lowers AdvSimd_FusedMultiplyAddScalar intrinsics
-//   when some of the operands are negated by "containing" such negation.
-//
-//  Arguments:
-//     node - The original hardware intrinsic node
-//
-// |  op1 | op2 | op3 |
-// |  +   |  +  |  +  | AdvSimd_FusedMultiplyAddScalar
-// |  +   |  +  |  -  | AdvSimd_FusedMultiplySubtractScalar
-// |  +   |  -  |  +  | AdvSimd_FusedMultiplySubtractScalar
-// |  +   |  -  |  -  | AdvSimd_FusedMultiplyAddScalar
-// |  -   |  +  |  +  | AdvSimd_FusedMultiplySubtractNegatedScalar
-// |  -   |  +  |  -  | AdvSimd_FusedMultiplyAddNegatedScalar
-// |  -   |  -  |  +  | AdvSimd_FusedMultiplyAddNegatedScalar
-// |  -   |  -  |  -  | AdvSimd_FusedMultiplySubtractNegatedScalar
-//
 void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_AdvSimd_FusedMultiplyAddScalar);
@@ -454,10 +437,10 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     GenTree* op2 = node->GetOp(1);
     GenTree* op3 = node->GetOp(2);
 
-    auto lowerOperand = [this](GenTree* op) {
+    auto removeNegation = [this](GenTree* op) {
         bool wasNegated = false;
 
-        if (op->IsHWIntrinsic() && ((op->AsHWIntrinsic()->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector64) ||
+        if (op->IsHWIntrinsic() && ((op->AsHWIntrinsic()->GetIntrinsic() == NI_VEC_SPLAT) ||
                                     (op->AsHWIntrinsic()->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe)))
         {
             GenTreeHWIntrinsic* createVector64 = op->AsHWIntrinsic();
@@ -474,9 +457,9 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
         return wasNegated;
     };
 
-    const bool op1WasNegated = lowerOperand(op1);
-    const bool op2WasNegated = lowerOperand(op2);
-    const bool op3WasNegated = lowerOperand(op3);
+    const bool op1WasNegated = removeNegation(op1);
+    const bool op2WasNegated = removeNegation(op2);
+    const bool op3WasNegated = removeNegation(op3);
 
     if (op1WasNegated)
     {
@@ -503,14 +486,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         case NI_VEC_PACK:
             LowerVecPack(node);
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_PACK));
-            LowerNode(node);
             return;
 
         case NI_VEC_SPLAT:
             LowerVecSplat(node);
-            assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
-            LowerNode(node);
             return;
 
         case NI_Vector64_CreateScalarUnsafe:
@@ -546,11 +525,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
-           (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe) ||
-           (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector64) ||
-           (node->GetIntrinsic() == NI_AdvSimd_DuplicateToVector128) ||
-           (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector64) ||
-           (node->GetIntrinsic() == NI_AdvSimd_Arm64_DuplicateToVector128));
+           (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe));
     assert(node->IsUnary());
     assert(varTypeIsTargetVec(node->GetType()));
 
@@ -612,6 +587,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
     if (vecConst.Pack(node))
     {
         LowerVecPackConst(node, vecConst);
+        LowerNode(node);
         return;
     }
 
@@ -745,22 +721,10 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     if (!IsValidConstForMovImm(node) && vecConst.Splat(node))
     {
         LowerVecPackConst(node, vecConst);
+        LowerNode(node);
         return;
     }
 
-    NamedIntrinsic intrinsic;
-
-    if (varTypeSize(eltType) == 8)
-    {
-        intrinsic =
-            node->TypeIs(TYP_SIMD8) ? NI_AdvSimd_Arm64_DuplicateToVector64 : NI_AdvSimd_Arm64_DuplicateToVector128;
-    }
-    else
-    {
-        intrinsic = node->TypeIs(TYP_SIMD8) ? NI_AdvSimd_DuplicateToVector64 : NI_AdvSimd_DuplicateToVector128;
-    }
-
-    node->SetIntrinsic(intrinsic);
     node->SetOp(0, TryRemoveCastIfPresent(eltType, node->GetOp(0)));
 }
 
@@ -1075,10 +1039,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_Vector128_CreateScalar:
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
-            case NI_AdvSimd_DuplicateToVector64:
-            case NI_AdvSimd_DuplicateToVector128:
-            case NI_AdvSimd_Arm64_DuplicateToVector64:
-            case NI_AdvSimd_Arm64_DuplicateToVector128:
+            case NI_VEC_SPLAT:
                 if (IsValidConstForMovImm(node))
                 {
                     node->GetOp(0)->SetContained();

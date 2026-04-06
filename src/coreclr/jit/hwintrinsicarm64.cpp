@@ -329,6 +329,17 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             op1 = impPopStack().val;
             return comp->gtNewOperNode(sig.retType == TYP_LONG ? GT_SMULH : GT_UMULH, TYP_LONG, op1, op2);
 
+        case NI_AdvSimd_DuplicateToVector64:
+        case NI_AdvSimd_DuplicateToVector128:
+        case NI_AdvSimd_Arm64_DuplicateToVector128:
+            assert(sig.paramCount == 1);
+            assert(sig.retLayout->GetElementType() == sig.paramType[0]);
+
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+
+            op1 = impPopStack().val;
+            return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, op1);
+
         default:
             return nullptr;
     }

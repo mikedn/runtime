@@ -465,22 +465,16 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_AdvSimd_DuplicateToVector64:
-            case NI_AdvSimd_DuplicateToVector128:
-            case NI_AdvSimd_Arm64_DuplicateToVector64:
-            case NI_AdvSimd_Arm64_DuplicateToVector128:
+            case NI_VEC_SPLAT:
                 if (varTypeIsFloating(intrin.baseType))
                 {
                     if (GenTreeDblCon* dbl = intrin.op1->IsContainedDblCon())
                     {
                         emit.emitIns_R_F(INS_fmov, emitSize, defReg, dbl->GetValue(), opt);
                     }
-                    else if (intrin.id == NI_AdvSimd_Arm64_DuplicateToVector64)
+                    else if (node->TypeIs(TYP_SIMD8) && (intrin.baseType == TYP_DOUBLE))
                     {
-                        assert(intrin.baseType == TYP_DOUBLE);
-                        assert(IsMovIns(ins));
-
-                        emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false, opt);
+                        emit.emitIns_Mov(INS_fmov, EA_8BYTE, defReg, regs[0], /* canSkip */ false);
                     }
                     else
                     {
