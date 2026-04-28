@@ -2307,14 +2307,27 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 #ifndef TARGET_AMD64
     if (op1->OperIs(GT_LONG))
     {
-        GenTree* lo = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_INT, op1->AsOp()->GetOp(0));
-        GenTree* hi = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_INT, op1->AsOp()->GetOp(1));
+        GenTree* loSrc = op1->AsOp()->GetOp(0);
+        GenTree* hiSrc = op1->AsOp()->GetOp(1);
 
-        vec = comp->gtNewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_INT, lo, hi);
-        BlockRange().InsertAfter(op1, lo, hi, vec);
+        GenTree* lo = comp->gtNewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, loSrc);
+        BlockRange().InsertAfter(loSrc, lo);
+
+        if (comp->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            GenTreeIntCon* idx = comp->gtNewIconNode(1);
+            BlockRange().InsertBefore(op1, idx);
+            vec = comp->gtNewVecNode(TYP_SIMD16, NI_SSE41_Insert, TYP_INT, lo, hiSrc, idx);
+        }
+        else
+        {
+            GenTree* hi = comp->gtNewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, hiSrc);
+            BlockRange().InsertAfter(hiSrc, hi);
+            vec = comp->gtNewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_INT, lo, hi);
+        }
+
+        BlockRange().InsertAfter(op1, vec);
         BlockRange().Unlink(op1);
-        LowerNode(lo);
-        LowerNode(hi);
         LowerNode(vec);
     }
     else
@@ -2332,6 +2345,20 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 
         node->SetIntrinsic(NI_AVX2_BroadcastScalarToVector256, 1);
         node->SetOp(0, vec);
+
+        return;
+    }
+
+    if (eltType == TYP_LONG)
+    {
+        node->SetOp(0, vec);
+        LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
+        GenTree* tmp1 = ReplaceWithLclLoad(use);
+        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
+        BlockRange().InsertBefore(node, tmp2);
+        node->SetIntrinsic(NI_SSE2_UnpackLow, 2);
+        node->SetOp(0, tmp1);
+        node->SetOp(1, tmp2);
 
         return;
     }
@@ -2387,20 +2414,6 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
         GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
         BlockRange().InsertBefore(node, tmp2);
         node->SetIntrinsic(NI_SSE_MoveLowToHigh, TYP_FLOAT, 2);
-        node->SetOp(0, tmp1);
-        node->SetOp(1, tmp2);
-
-        return;
-    }
-
-    if (eltType == TYP_LONG)
-    {
-        node->SetOp(0, vec);
-        LIR::Use use(BlockRange(), &node->GetUse(0).NodeRef(), node);
-        GenTree* tmp1 = ReplaceWithLclLoad(use);
-        GenTree* tmp2 = comp->gtNewLclLoad(tmp1->AsLclLoad()->GetLcl(), TYP_SIMD16);
-        BlockRange().InsertBefore(node, tmp2);
-        node->SetIntrinsic(NI_SSE2_UnpackLow, 2);
         node->SetOp(0, tmp1);
         node->SetOp(1, tmp2);
 
