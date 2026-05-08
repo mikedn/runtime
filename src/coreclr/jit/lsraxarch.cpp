@@ -1414,15 +1414,21 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // false, and any RMW handling (delayFree) must be handled within the case.
         switch (intrinsicId)
         {
+            case NI_VEC_REGCAST:
+                assert(numOps == 1);
+                assert(varTypeIsFloating(baseType));
+
+                if (!op1->isContained())
+                {
+                    tgtPrefUse = BuildUse(op1);
+                    buildUses = false;
+                }
+                break;
+
             case NI_Vector128_CreateScalarUnsafe:
             case NI_Vector256_CreateScalarUnsafe:
                 assert(numOps == 1);
-
-                if (varTypeIsFloating(baseType) && !op1->isContained())
-                {
-                    tgtPrefUse = BuildUse(op1);
-                    buildUses  = false;
-                }
+                assert(varTypeIsIntegral(baseType));
                 break;
 
             case NI_VEC_EXTRACT:

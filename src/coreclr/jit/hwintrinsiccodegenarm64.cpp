@@ -432,6 +432,25 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                                   [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, regs[1], regs[0], imm, opt); });
                 break;
 
+            case NI_VEC_REGCAST:
+                if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
+                {
+                    emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
+                }
+                else if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
+                {
+                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
+                }
+                else
+                {
+                    assert(intrin.op1->isUsedFromReg());
+                    assert(varTypeIsFloating(intrin.baseType));
+
+                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0],
+                                     /*canSkip*/ true);
+                }
+                break;
+
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
                 if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
@@ -445,9 +464,10 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 else
                 {
                     assert(intrin.op1->isUsedFromReg());
+                    assert(varTypeIsIntegral(intrin.baseType));
 
                     emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0],
-                                     /*canSkip*/ varTypeIsFloating(intrin.baseType));
+                                     /*canSkip*/ false);
                 }
                 break;
 

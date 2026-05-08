@@ -273,6 +273,7 @@ private:
     void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
     void LowerVecPack(GenTreeHWIntrinsic* node);
     void LowerVecSplat(GenTreeHWIntrinsic* node);
+    void LowerVecRegCast(GenTreeHWIntrinsic* node);
     LclVarDsc* GetSimdMemoryTemp(var_types type);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_X86

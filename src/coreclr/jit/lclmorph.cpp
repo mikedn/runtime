@@ -1783,22 +1783,16 @@ private:
             assert((retDesc.GetRegType(0) == TYP_INT) && (retDesc.GetRegType(1) == TYP_INT));
             call->SetType(TYP_LONG);
 
-            if (type == TYP_SIMD8)
+            if ((type == TYP_SIMD8) || (type == TYP_DOUBLE))
             {
-                return m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, 16,
-                                                            call);
-            }
-
-            if (type == TYP_DOUBLE)
-            {
-                // TODO-MIKE-CQ: We could probably make BITCAST LONG to DOUBLE work on x86.
+                // TODO-MIKE-CQ: We could probably make BITCAST LONG to DOUBLE/SIMD8 work on x86.
                 // But anyway decomposition manages to force the CALL return value into
                 // memory so it's all messed up anyway. Luckily this is a very rare case.
-                return NewExtractElement(TYP_DOUBLE,
-                                         m_compiler->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG,
-                                                                  call),
-                                         TYP_SIMD16, 0);
-            };
+
+                GenTree* vec = m_compiler->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, call);
+
+                return type == TYP_SIMD8 ? vec : NewExtractElement(TYP_DOUBLE, vec, TYP_SIMD16, 0);
+            }
 
             assert(type == TYP_LONG);
 

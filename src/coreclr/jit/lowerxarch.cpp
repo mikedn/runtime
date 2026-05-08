@@ -1432,8 +1432,7 @@ void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
 
     for (GenTreeHWIntrinsic::Use& use : node->Uses())
     {
-        if (!use.GetNode()->IsHWIntrinsic() ||
-            (use.GetNode()->AsHWIntrinsic()->GetIntrinsic() != NI_Vector128_CreateScalarUnsafe))
+        if (!use.GetNode()->IsHWIntrinsic() || (use.GetNode()->AsHWIntrinsic()->GetIntrinsic() != NI_VEC_REGCAST))
         {
             return;
         }
@@ -1485,6 +1484,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             assert(!node->IsHWIntrinsic() || (node->GetIntrinsic() != NI_VEC_SPLAT));
             LowerNode(node);
             return;
+
+        case NI_VEC_REGCAST:
+            LowerVecRegCast(node);
+            break;
 
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
@@ -1875,7 +1878,21 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
     }
 #endif
 
-    if (op->IsDblConPositiveZero() || op->IsIntCon(0))
+    if (op->IsIntCon(0))
+    {
+        BlockRange().Unlink(op);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
+    }
+}
+
+void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetIntrinsic() == NI_VEC_REGCAST);
+
+    GenTree* op = node->GetOp(0);
+    assert(varTypeUsesVecReg(op->GetType()));
+
+    if (op->IsDblConPositiveZero())
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
@@ -1982,7 +1999,9 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             return scalar;
         }
 
-        GenTree* vec = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, scalar);
+        NamedIntrinsic intrinsic = varTypeIsFloating(eltType) ? NI_VEC_REGCAST : NI_Vector128_CreateScalarUnsafe;
+
+        GenTree* vec = comp->gtNewVecNode(TYP_SIMD16, intrinsic, eltType, scalar);
         BlockRange().InsertAfter(scalar, vec);
         return vec;
     };
@@ -2304,8 +2323,13 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 
     GenTree* vec;
 
+    if (varTypeIsFloating(eltType))
+    {
+        vec = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, eltType, op1);
+        BlockRange().InsertAfter(op1, vec);
+    }
 #ifndef TARGET_AMD64
-    if (op1->OperIs(GT_LONG))
+    else if (op1->OperIs(GT_LONG))
     {
         GenTree* loSrc = op1->AsOp()->GetOp(0);
         GenTree* hiSrc = op1->AsOp()->GetOp(1);
@@ -2328,16 +2352,16 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 
         BlockRange().InsertAfter(op1, vec);
         BlockRange().Unlink(op1);
-        LowerNode(vec);
     }
-    else
 #endif
+    else
     {
         op1 = TryRemoveCastIfPresent(eltType, op1);
         vec = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, op1);
         BlockRange().InsertAfter(op1, vec);
-        LowerNode(vec);
     }
+
+    LowerNode(vec);
 
     if (type == TYP_SIMD32)
     {
@@ -2789,7 +2813,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
             intrinsic = (index == 0) ? NI_SSE2_MoveScalar : NI_SSE2_UnpackLow;
             BlockRange().Unlink(idx);
             idx = nullptr;
-            elt = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_DOUBLE, elt);
+            elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_DOUBLE, elt);
             BlockRange().InsertBefore(node, elt);
             LowerNode(elt);
             break;
@@ -2805,7 +2829,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
                 intrinsic = NI_SSE_MoveScalar;
                 BlockRange().Unlink(idx);
                 idx = nullptr;
-                elt = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, elt);
+                elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
                 BlockRange().InsertBefore(node, elt);
                 LowerNode(elt);
             }
@@ -2815,7 +2839,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
                 LIR::Use op1Use(BlockRange(), &node->GetUse(0).NodeRef(), node);
                 vec = ReplaceWithLclLoad(op1Use);
 
-                elt = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, elt);
+                elt = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, elt);
                 BlockRange().InsertBefore(node, elt);
                 LowerNode(elt);
 
@@ -2896,7 +2920,7 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
         {
             switch (vecElt->GetIntrinsic())
             {
-                case NI_Vector128_CreateScalarUnsafe:
+                case NI_VEC_REGCAST:
                     elt = vecElt->GetOp(0);
                     node->SetOp(1, elt);
                     BlockRange().Unlink(vecElt);
@@ -4294,8 +4318,14 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                     supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetSimdBaseType()));
                     break;
 
+                case NI_VEC_REGCAST:
+                    assert(varTypeIsFloating(instr->GetSimdBaseType()));
+                    supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(instr->GetSimdBaseType()));
+                    break;
+
                 case NI_Vector128_CreateScalarUnsafe:
                 case NI_Vector256_CreateScalarUnsafe:
+                    assert(varTypeIsIntegral(instr->GetSimdBaseType()));
                     supportsGeneralLoads =
                         (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));
                     break;

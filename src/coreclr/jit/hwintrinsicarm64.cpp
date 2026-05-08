@@ -218,6 +218,21 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             return NewVecNode(sig.retType, NI_VEC_ONE_BITS, eltType);
 
+        case NI_Vector64_CreateScalarUnsafe:
+        case NI_Vector128_CreateScalarUnsafe:
+            assert(sig.paramCount == 1);
+            assert(varTypeIsTargetVec(sig.retType));
+
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+            op1     = impPopStack().val;
+
+            if (varTypeIsFloating(eltType))
+            {
+                intrinsic = NI_VEC_REGCAST;
+            }
+
+            return NewVecNode(sig.retType, intrinsic, eltType, op1);
+
         case NI_Vector64_Create:
         case NI_Vector128_Create:
             assert((sig.paramCount >= 1) && (sig.paramCount <= 16));

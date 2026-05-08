@@ -249,18 +249,21 @@ constexpr bool varTypeIsSingleReg(var_types vt)
     return !varTypeIsMultiReg(vt);
 }
 
+constexpr bool varTypeUsesVecReg(var_types vt)
+{
+    return varTypeIsFloating(vt) || varTypeIsVec(vt);
+}
+
 constexpr bool varTypeUsesFloatReg(var_types vt)
 {
-    return varTypeIsFloating(vt) || varTypeIsSIMD(vt);
+    return varTypeUsesVecReg(vt);
 }
 
 constexpr bool varTypeUsesFloatArgReg(var_types vt)
 {
 #ifdef TARGET_ARM64
-    // Arm64 passes SIMD types in floating point registers.
-    return varTypeUsesFloatReg(vt);
+    return varTypeUsesVecReg(vt);
 #else
-    // Other targets pass them as regular structs - by reference or by value.
     return varTypeIsFloating(vt);
 #endif
 }

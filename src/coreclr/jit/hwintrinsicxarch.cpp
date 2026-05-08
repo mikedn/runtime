@@ -491,6 +491,12 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             op1     = impPopStack().val;
+
+            if (varTypeIsFloating(eltType))
+            {
+                intrinsic = NI_VEC_REGCAST;
+            }
+
             return NewVecNode(sig.retType, intrinsic, eltType, op1);
 
         case NI_Vector128_Create:

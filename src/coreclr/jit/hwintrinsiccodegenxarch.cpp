@@ -892,6 +892,25 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
             GenVecExtract(node);
             break;
 
+        case NI_VEC_REGCAST:
+        {
+            GenTree* op1 = node->GetOp(0);
+
+            assert(varTypeIsFloating(eltType));
+            assert(eltType == op1->GetType());
+
+            if (op1->isContained() || op1->isUsedFromSpillTemp())
+            {
+                genHWIntrinsic_R_RM(node, ins_Load(eltType), emitTypeSize(eltType), dstReg, op1);
+            }
+            else
+            {
+                RegNum op1Reg = UseReg(op1);
+                emit.emitIns_Mov(INS_movaps, emitTypeSize(type), dstReg, op1Reg, /*canSkip*/ true);
+            }
+            break;
+        }
+
         default:
             unreached();
     }
@@ -928,14 +947,8 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
     {
         case NI_Vector128_CreateScalarUnsafe:
         case NI_Vector256_CreateScalarUnsafe:
-            if (varTypeIsIntegral(eltType))
-            {
-                genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(eltType), dstReg, op1);
-            }
-            else
-            {
-                GenMove(emitTypeSize(node->GetType()), /* canSkip */ true);
-            }
+            assert(varTypeIsIntegral(eltType));
+            genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(eltType), dstReg, op1);
             break;
         case NI_Vector128_ToVector256:
             GenMove(EA_16BYTE, /* canSkip */ false);

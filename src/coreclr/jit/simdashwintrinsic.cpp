@@ -760,8 +760,8 @@ GenTree* Importer::impVector34CtorExtend(const HWIntrinsicSignature& sig, ClassL
 #elif defined(TARGET_XARCH)
     if (sig.paramCount == 3)
     {
-        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[1]);
-        args[2] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[2]);
+        args[1] = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, args[1]);
+        args[2] = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, args[2]);
         create  = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, args[1], args[2]);
         create  = NewVecNode(TYP_SIMD16, NI_SSE_MoveLowToHigh, TYP_FLOAT, args[0], create);
     }
@@ -783,7 +783,7 @@ GenTree* Importer::impVector34CtorExtend(const HWIntrinsicSignature& sig, ClassL
         GenTree* arg0Uses[3];
         impMakeMultiUse(args[0], 3, arg0Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector3 extend temp"));
 
-        args[1] = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_FLOAT, args[1]);
+        args[1] = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, TYP_FLOAT, args[1]);
 
         create = NewVecNode(TYP_SIMD16, NI_SSE_MoveHighToLow, TYP_FLOAT, arg0Uses[0], arg0Uses[1]);
         create = NewVecNode(TYP_SIMD16, NI_SSE_UnpackLow, TYP_FLOAT, create, args[1]);
@@ -1222,9 +1222,14 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         {
             op2 = NewVecNode(TYP_SIMD16, NI_VEC_SPLAT, eltType, op2);
         }
-        else
+        else if (varTypeIsFloating(eltType))
         {
             intrinsic = eltType == TYP_DOUBLE ? NI_AdvSimd_Arm64_MultiplyByScalar : NI_AdvSimd_MultiplyByScalar;
+            op2       = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, eltType, op2);
+        }
+        else
+        {
+            intrinsic = NI_AdvSimd_MultiplyByScalar;
             op2       = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varTypeNodeType(eltType), op2);
         }
     }

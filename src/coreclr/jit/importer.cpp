@@ -3190,9 +3190,9 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            op3 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, op3);
-            op2 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, op2);
-            op1 = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, callType, op1);
+            op3 = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, callType, op3);
+            op2 = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, callType, op2);
+            op1 = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, callType, op1);
             op1 = NewVecNode(TYP_SIMD16, NI_FMA_MultiplyAddScalar, callType, op1, op2, op3);
 
             return NewVecNode(callType, NI_VEC_EXTRACT, callType, 16, op1, comp->gtNewIconNode(0));
@@ -3206,9 +3206,9 @@ GenTree* Importer::impMathIntrinsic(const CORINFO_CALL_INFO* callInfo,
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = impPopStack().val;
 
-            op3 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op3);
-            op2 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op2);
-            op1 = NewVecNode(TYP_SIMD8, NI_Vector64_CreateScalarUnsafe, callType, op1);
+            op3 = NewVecNode(TYP_SIMD8, NI_VEC_REGCAST, callType, op3);
+            op2 = NewVecNode(TYP_SIMD8, NI_VEC_REGCAST, callType, op2);
+            op1 = NewVecNode(TYP_SIMD8, NI_VEC_REGCAST, callType, op1);
             op1 = NewVecNode(TYP_SIMD8, NI_AdvSimd_FusedMultiplyAddScalar, callType, op3, op2, op1);
 
             return NewVecNode(callType, NI_VEC_EXTRACT, callType, 8, op1, comp->gtNewIconNode(0));

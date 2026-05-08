@@ -441,7 +441,7 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
         bool wasNegated = false;
 
         if (op->IsHWIntrinsic() && ((op->AsHWIntrinsic()->GetIntrinsic() == NI_VEC_SPLAT) ||
-                                    (op->AsHWIntrinsic()->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe)))
+                                    (op->AsHWIntrinsic()->GetIntrinsic() == NI_VEC_REGCAST)))
         {
             GenTreeHWIntrinsic* createVector64 = op->AsHWIntrinsic();
             GenTree*            valueOp        = createVector64->GetOp(0);
@@ -492,6 +492,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerVecSplat(node);
             return;
 
+        case NI_VEC_REGCAST:
+            LowerVecRegCast(node);
+            return;
+
         case NI_Vector64_CreateScalarUnsafe:
         case NI_Vector128_CreateScalarUnsafe:
             LowerHWIntrinsicCreateScalarUnsafe(node);
@@ -523,7 +527,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
-           (node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
+           (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
+           (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
            (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe));
     assert(node->IsUnary());
@@ -557,7 +562,25 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
 {
     GenTree* op = node->GetOp(0);
 
-    if (op->IsDblConPositiveZero() || op->IsIntCon(0))
+    if (op->IsIntCon(0))
+    {
+        BlockRange().Unlink(op);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
+    }
+    else
+    {
+        ContainCheckHWIntrinsic(node);
+    }
+}
+
+void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetIntrinsic() == NI_VEC_REGCAST);
+
+    GenTree* op = node->GetOp(0);
+    assert(varTypeUsesVecReg(op->GetType()));
+
+    if (op->IsDblConPositiveZero())
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
@@ -647,6 +670,10 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             if (nonZeroOpMask != ((1u << numOps) - 1))
             {
                 createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
+            }
+            else if (varTypeIsFloating(eltType))
+            {
+                createScalar = NI_VEC_REGCAST;
             }
             else
             {
@@ -1040,6 +1067,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_Vector64_CreateScalarUnsafe:
             case NI_Vector128_CreateScalarUnsafe:
             case NI_VEC_SPLAT:
+            case NI_VEC_REGCAST:
                 if (IsValidConstForMovImm(node))
                 {
                     node->GetOp(0)->SetContained();
