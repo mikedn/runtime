@@ -230,11 +230,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BITCAST:
-            if (!tree->AsUnOp()->GetOp(0)->isContained())
-            {
-                BuildUse(tree->AsUnOp()->GetOp(0));
-            }
-            BuildDef(tree);
+            BuildBitCast(tree->AsUnOp());
             break;
 
         case GT_FNEG:
@@ -384,6 +380,45 @@ void LinearScan::BuildNode(GenTree* tree)
         default:
             unreached();
     }
+}
+
+void LinearScan::BuildBitCast(GenTreeUnOp* bitcast)
+{
+    GenTree* value = bitcast->GetOp(0);
+
+    if (!value->isContained())
+    {
+        BuildUse(value);
+    }
+#ifdef TARGET_X86
+    else if (value->OperIs(GT_LONG))
+    {
+        BuildUse(value->AsOp()->GetOp(0));
+        BuildUse(value->AsOp()->GetOp(1));
+
+        if (!compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            BuildInternalFloatDef(bitcast);
+        }
+    }
+
+    if (bitcast->TypeIs(TYP_LONG))
+    {
+        if (!compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+        {
+            BuildInternalFloatDef(bitcast);
+        }
+
+        BuildDef(bitcast, TYP_INT, genRegMask(bitcast->GetRegNum(0)), 0);
+        BuildDef(bitcast, TYP_INT, genRegMask(bitcast->GetRegNum(1)), 1);
+    }
+    else
+#endif
+    {
+        BuildDef(bitcast);
+    }
+
+    BuildInternalUses();
 }
 
 void LinearScan::BuildAddrMode(GenTreeAddrMode* lea)

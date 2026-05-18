@@ -1353,6 +1353,7 @@ private:
     void BuildLclStoreFld(GenTreeLclStoreFld* store);
     void BuildLclStoreCommon(GenTreeLclRef* store);
     void BuildGCWriteBarrier(GenTreeIndStore* store);
+    void BuildBitCast(GenTreeUnOp* bitcast);
 #ifdef TARGET_XARCH
     void BuildLoadInd(GenTreeIndir* load);
     void BuildIndStore(GenTreeIndir* store);

@@ -35,6 +35,7 @@ private:
     GenTree* DecomposeUnsignedExtend(LIR::Use& use);
     GenTree* DecomposeCnsLng(LIR::Use& use);
     GenTree* DecomposeCall(LIR::Use& use);
+    GenTree* DecomposeBitCast(LIR::Use& use);
     GenTree* DecomposeIndLoad(LIR::Use& use);
     GenTree* DecomposeIndStore(LIR::Use& use);
     GenTree* DecomposeNot(LIR::Use& use);

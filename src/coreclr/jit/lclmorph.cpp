@@ -906,19 +906,16 @@ private:
                         return;
                     }
 
-                    if (CanBitCastTo(loadType))
-                    {
-                        // Handle the relatively common case of floating point/integer reinterpretation.
-                        // Also handle GC pointer/native int reinterpretation, some corelib tracing code
-                        // uses object references as if they're normal pointers for logging purposes.
+                    // Handle the relatively common case of floating point/integer reinterpretation.
+                    // Also handle GC pointer/native int reinterpretation, some corelib tracing code
+                    // uses object references as if they're normal pointers for logging purposes.
 
-                        load->ChangeOper(GT_BITCAST);
-                        load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
-                        load->gtFlags = GTF_NONE;
-                        INDEBUG(m_stmtModified = true);
+                    load->ChangeOper(GT_BITCAST);
+                    load->AsUnOp()->SetOp(0, NewLclLoad(lclType, lcl));
+                    load->gtFlags = GTF_NONE;
+                    INDEBUG(m_stmtModified = true);
 
-                        return;
-                    }
+                    return;
                 }
                 else if (varTypeIsIntegral(loadType) && varTypeIsIntegral(lclType))
                 {
@@ -1142,7 +1139,7 @@ private:
         {
             bool isAssignable = varTypeKind(storeType) == varTypeKind(lclType);
 
-            if (!isAssignable && CanBitCastTo(lclType))
+            if (!isAssignable)
             {
                 value        = NewBitCastNode(lclType, value);
                 isAssignable = true;
@@ -1785,13 +1782,7 @@ private:
 
             if ((type == TYP_SIMD8) || (type == TYP_DOUBLE))
             {
-                // TODO-MIKE-CQ: We could probably make BITCAST LONG to DOUBLE/SIMD8 work on x86.
-                // But anyway decomposition manages to force the CALL return value into
-                // memory so it's all messed up anyway. Luckily this is a very rare case.
-
-                GenTree* vec = m_compiler->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, call);
-
-                return type == TYP_SIMD8 ? vec : NewExtractElement(TYP_DOUBLE, vec, TYP_SIMD16, 0);
+                return NewBitCastNode(type, call);
             }
 
             assert(type == TYP_LONG);
@@ -2089,18 +2080,6 @@ private:
         return elementSeq;
     }
 
-    static bool CanBitCastTo(var_types type)
-    {
-        assert(((TYP_INT <= type) && (type <= TYP_DOUBLE)) || (type == TYP_REF) || (type == TYP_BYREF));
-
-#ifdef TARGET_64BIT
-        return true;
-#else
-        // Currently long/double BITCAST isn't supported by decomposition on 32 bit targets.
-        return varTypeSize(type) <= REGSIZE_BYTES;
-#endif
-    }
-
 #if defined(WINDOWS_AMD64_ABI) || defined(TARGET_ARM64)
     // Updates the ref count for implicit byref params.
     // abiMakeImplicitlyByRefStructArgCopy checks the ref counts for implicit byref params when
@@ -2139,7 +2118,7 @@ private:
 
     GenTreeUnOp* NewBitCastNode(var_types type, GenTree* op)
     {
-        assert(varTypeSize(type) <= REGSIZE_BYTES);
+        assert(varTypeSize(type) == varTypeSize(op->GetType()));
 
         return m_compiler->gtNewBitCastNode(type, op);
     }

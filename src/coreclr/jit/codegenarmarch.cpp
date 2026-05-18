@@ -149,39 +149,72 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 {
     GenTree*  src     = bitcast->GetOp(0);
     var_types dstType = bitcast->GetType();
+    var_types srcType = src->GetType();
     Emitter&  emit    = *GetEmitter();
 
-    if (src->isContained())
+#ifdef TARGET_ARM
+    if (srcType == TYP_LONG)
+    {
+        assert(dstType == TYP_DOUBLE);
+
+        RegNum dstReg  = bitcast->GetRegNum();
+        RegNum srcReg1 = UseReg(src->AsOp()->GetOp(0));
+        RegNum srcReg2 = UseReg(src->AsOp()->GetOp(1));
+        emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dstReg, srcReg1, srcReg2);
+
+        DefReg(bitcast);
+
+        return;
+    }
+
+    if (dstType == TYP_LONG)
+    {
+        assert(srcType == TYP_DOUBLE);
+
+        RegNum dstReg1 = bitcast->GetRegNum(0);
+        RegNum dstReg2 = bitcast->GetRegNum(1);
+
+        if (src->isUsedFromReg())
+        {
+            RegNum srcReg = UseReg(src);
+            emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
+        }
+        else
+        {
+            assert(IsValidContainedLcl(src->AsLclLoad()));
+            liveness.UpdateLife(this, src->AsLclLoad());
+
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstReg1, GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0));
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstReg2, GetStackAddrMode(src->AsLclLoad()->GetLcl(), 4));
+        }
+
+        DefLongRegs(bitcast);
+
+        return;
+    }
+#endif
+
+    RegNum dstReg = bitcast->GetRegNum();
+
+    if (src->isUsedFromReg())
+    {
+#ifdef TARGET_ARM
+        assert((varTypeSize(dstType) <= 4) && (varTypeSize(srcType) <= 4));
+#endif
+
+        RegNum srcReg = UseReg(src);
+        inst_BitCast(dstType, dstReg, srcType, srcReg);
+    }
+    else
     {
         assert(IsValidContainedLcl(src->AsLclLoad()));
         liveness.UpdateLife(this, src->AsLclLoad());
-        StackAddrMode s      = GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0);
-        RegNum        dstReg = bitcast->GetRegNum();
+        StackAddrMode s = GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0);
 
         emit.Ins_R_S(ins_Load(dstType), emitTypeSize(dstType), dstReg, s);
-        DefReg(bitcast);
     }
-#ifdef TARGET_ARM
-    else if ((dstType == TYP_LONG) && src->TypeIs(TYP_DOUBLE))
-    {
-        RegNum srcReg  = UseReg(src);
-        RegNum dstReg1 = bitcast->GetRegNum(0);
-        RegNum dstReg2 = bitcast->GetRegNum(1);
-        emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
-        DefLongRegs(bitcast);
-    }
-    else if ((varTypeSize(dstType) > REGSIZE_BYTES) || (varTypeSize(src->GetType()) > REGSIZE_BYTES))
-    {
-        NYI_ARM("Converting to/from long/SIMD");
-    }
-#endif
-    else
-    {
-        RegNum srcReg = UseReg(src);
-        RegNum dstReg = bitcast->GetRegNum();
-        inst_BitCast(dstType, dstReg, src->GetType(), srcReg);
-        DefReg(bitcast);
-    }
+
+    DefReg(bitcast);
 }
 
 void CodeGen::GenBoundsCheck(GenTreeBoundsChk* node)

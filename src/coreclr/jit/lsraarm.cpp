@@ -321,31 +321,8 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_BITCAST:
-        {
-            if (!tree->AsUnOp()->GetOp(0)->isContained())
-            {
-                BuildUse(tree->AsUnOp()->GetOp(0));
-            }
-
-            RegNum    argReg  = tree->GetRegNum(0);
-            regMaskTP argMask = argReg == REG_NA ? RBM_NONE : genRegMask(argReg);
-
-            if (tree->TypeIs(TYP_LONG))
-            {
-                // TODO-MIKE-Cleanup: This should probably use tree->GetRegNum(1) instead of REG_NEXT
-                // to be on the safe side. REG_NEXT happens to work because such BITCAST nodes are
-                // used only as call args so the registers are consecutive.
-                regMaskTP argMaskNext = argReg == REG_NA ? RBM_NONE : genRegMask(REG_NEXT(argReg));
-
-                BuildDef(tree, TYP_INT, argMask, 0);
-                BuildDef(tree, TYP_INT, argMaskNext, 1);
-            }
-            else
-            {
-                BuildDef(tree, argMask);
-            }
-        }
-        break;
+            BuildBitCast(tree->AsUnOp());
+            break;
 
         case GT_INSTR:
             BuildInstr(tree->AsInstr());
@@ -353,6 +330,31 @@ void LinearScan::BuildNode(GenTree* tree)
 
         default:
             unreached();
+    }
+}
+
+void LinearScan::BuildBitCast(GenTreeUnOp* bitcast)
+{
+    GenTree* value = bitcast->GetOp(0);
+
+    if (!value->isContained())
+    {
+        BuildUse(value);
+    }
+    else if (value->OperIs(GT_LONG))
+    {
+        BuildUse(value->AsOp()->GetOp(0));
+        BuildUse(value->AsOp()->GetOp(1));
+    }
+
+    if (bitcast->TypeIs(TYP_LONG))
+    {
+        BuildDef(bitcast, TYP_INT, genRegMask(bitcast->GetRegNum(0)), 0);
+        BuildDef(bitcast, TYP_INT, genRegMask(bitcast->GetRegNum(1)), 1);
+    }
+    else
+    {
+        BuildDef(bitcast, genRegMask(bitcast->GetRegNum(0)));
     }
 }
 

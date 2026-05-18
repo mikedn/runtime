@@ -111,6 +111,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG));
 #endif
             break;
+        case GT_BITCAST:
+            nextNode = DecomposeBitCast(use);
+            break;
         case GT_NOT:
             nextNode = DecomposeNot(use);
             break;
@@ -265,7 +268,7 @@ GenTree* DecomposeLongs::DecomposeLclStore(LIR::Use& use)
     GenTreeLclStore* tree = use.Def()->AsLclStore();
     GenTree*         rhs  = tree->GetValue();
 
-    if (rhs->OperIs(GT_CALL, GT_SMULL, GT_UMULL))
+    if (rhs->OperIs(GT_CALL, GT_SMULL, GT_UMULL, GT_BITCAST))
     {
         // CALLs are not decomposed, so will not be converted to LONG
         // LCL_STORE = CALL are handled in genMultiRegCallStoreToLocal
@@ -465,6 +468,13 @@ GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
 
         return call->gtNext;
     }
+
+    return StoreMultiRegNodeToLcl(use);
+}
+
+GenTree* DecomposeLongs::DecomposeBitCast(LIR::Use& use)
+{
+    assert(use.Def()->OperIs(GT_BITCAST));
 
     return StoreMultiRegNodeToLcl(use);
 }

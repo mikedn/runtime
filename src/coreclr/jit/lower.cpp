@@ -1765,6 +1765,21 @@ void Lowering::InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
 
+#ifdef TARGET_ARM
+    if (arg->OperIs(GT_BITCAST))
+    {
+        assert(argInfo->GetRegCount() == 2);
+
+        GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, TYP_LONG, arg);
+        putArg->SetRegNum(0, argInfo->GetRegNum(0));
+        putArg->SetRegNum(1, argInfo->GetRegNum(1));
+        BlockRange().InsertAfter(arg, putArg);
+        argInfo->SetNode(putArg);
+
+        return;
+    }
+#endif
+
     noway_assert(arg->OperIs(GT_LONG));
 
     GenTree* argLo = arg->AsOp()->GetOp(0);
@@ -2606,7 +2621,11 @@ void Lowering::LowerLclStoreFld(GenTreeLclStoreFld* store)
     {
         GenTree* src = value->AsUnOp()->GetOp(0);
 
-        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType()))
+        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType())
+#ifndef TARGET_64BIT
+            && !src->TypeIs(TYP_LONG)
+#endif
+                )
         {
             assert(varTypeSize(src->GetType()) == varTypeSize(store->GetType()));
 
@@ -4554,6 +4573,23 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     GenTree* src    = bitcast->GetOp(0);
     bool     remove = false;
 
+#ifndef TARGET_64BIT
+    if (src->OperIs(GT_LONG))
+    {
+        assert(bitcast->TypeIs(TYP_DOUBLE X86_ARG(TYP_SIMD8)));
+        assert(src->isContained());
+
+        return next;
+    }
+
+    if (bitcast->TypeIs(TYP_LONG))
+    {
+        assert(src->TypeIs(TYP_DOUBLE X86_ARG(TYP_SIMD8)));
+
+        return next;
+    }
+#endif
+
     if ((src->OperIs(GT_IND_LOAD) && CanRetypeIndir(src->AsIndLoad(), bitcast->GetType())) ||
         (src->OperIs(GT_LCL_LOAD_FLD) && CanRetypeLclFld(src->AsLclLoadFld(), bitcast->GetType())))
     {
@@ -4843,7 +4879,11 @@ void Lowering::LowerIndStore(GenTreeIndStore* store)
     {
         GenTree* src = value->AsUnOp()->GetOp(0);
 
-        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType()))
+        if (varTypeUsesFloatReg(src->GetType()) != varTypeUsesFloatReg(store->GetType())
+#ifndef TARGET_64BIT
+            && !src->TypeIs(TYP_LONG)
+#endif
+                )
         {
             assert(varTypeSize(src->GetType()) == varTypeSize(store->GetType()));
 

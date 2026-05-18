@@ -3615,7 +3615,8 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
         // size.
 
         if (!bitCastSrc->isContained() && !bitCastSrc->IsRegOptional() &&
-            (varTypeSize(bitCastSrc->GetType()) == varTypeSize(src->GetType())))
+            (varTypeSize(bitCastSrc->GetType()) ==
+             varTypeSize(src->GetType()))X86_ONLY(&&!src->TypeIs(TYP_LONG, TYP_DOUBLE, TYP_SIMD8)))
         {
             src->SetContained();
             return;

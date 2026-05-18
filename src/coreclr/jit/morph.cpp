@@ -6162,27 +6162,16 @@ void Compiler::moSetupCallArgs(GenTreeCall* const call)
             // win-x64 passes single float/double field structs in integer registers, if we
             // promoted the struct, or if a float/double local was reinterpreted as a single
             // FP field struct we need to bitcast the FP value to integer.
-            if ((argInfo->GetRegCount() != 0) &&
-#ifdef TARGET_ARM
-                // Decomposition doesn't support LONG BITCAST so we'll have to handle the DOUBLE
-                // case in lowering/codegen.
-                arg->TypeIs(TYP_FLOAT)
-#else
-                arg->TypeIs(TYP_FLOAT, TYP_DOUBLE)
-#endif
-                && genIsValidIntReg(argInfo->GetRegNum(0)))
+            if ((argInfo->GetRegCount() != 0) && arg->TypeIs(TYP_FLOAT, TYP_DOUBLE) &&
+                genIsValidIntReg(argInfo->GetRegNum(0)))
             {
                 arg = gtNewBitCastNode(arg->TypeIs(TYP_FLOAT) ? TYP_INT : TYP_LONG, arg);
                 argUse.SetNode(arg);
             }
 #endif // defined(TARGET_WINDOWS)) || defined(TARGET_ARM)
 
-            bool argMatchesRegType =
-                (argInfo->GetRegCount() == 0) ||
-#ifdef TARGET_ARM
-                (arg->TypeIs(TYP_DOUBLE) && (argInfo->GetRegCount() == 2) && genIsValidIntReg(argInfo->GetRegNum(0))) ||
-#endif
-                (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
+            bool argMatchesRegType = (argInfo->GetRegCount() == 0) ||
+                                     (varTypeUsesFloatReg(arg->GetType()) == genIsValidFloatReg(argInfo->GetRegNum(0)));
             assert(argMatchesRegType);
 
             continue;
