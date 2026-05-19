@@ -492,23 +492,10 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     assert(addr->TypeIs(TYP_BYREF, TYP_I_IMPL));
     addr = m_compiler->gtNewLclLoad(addr->GetLcl(), addr->GetType());
 
-    if (!value->GetOp(0)->OperIsLeaf())
-    {
-        LIR::Use op1(Range(), &value->gtOp1, value);
-        op1.ReplaceWithLclLoad(m_compiler);
-    }
-
-    if (!value->GetOp(1)->OperIsLeaf())
-    {
-        LIR::Use op2(Range(), &value->gtOp2, value);
-        op2.ReplaceWithLclLoad(m_compiler);
-    }
-
     GenTree* valueLo = value->GetOp(0);
     GenTree* valueHi = value->GetOp(1);
 
     Range().Unlink(value);
-    Range().Unlink(valueHi);
     store->SetValue(valueLo);
     store->SetType(TYP_INT);
 
@@ -516,7 +503,14 @@ GenTree* DecomposeLongs::DecomposeIndStore(LIR::Use& use)
     GenTree* storeHi = m_compiler->gtNewIndStore(TYP_INT, addrHi, valueHi);
     storeHi->gtFlags = (store->gtFlags & (GTF_ALL_EFFECT | GTF_SPECIFIC_MASK));
 
-    Range().InsertAfter(store, valueHi, addr, addrHi, storeHi);
+    Range().InsertAfter(store, addr, addrHi, storeHi);
+
+    if (valueHi->OperIs(GT_CNS_INT) ||
+        (valueHi->OperIs(GT_LCL_LOAD, GT_LCL_LOAD_FLD) && !valueHi->AsLclRef()->GetLcl()->IsAddressExposed()))
+    {
+        Range().Unlink(valueHi);
+        Range().InsertBefore(storeHi, valueHi);
+    }
 
     return storeHi;
 }
