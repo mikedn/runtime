@@ -1316,9 +1316,6 @@ private:
     RefPosition* BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates = RBM_NONE));
     void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
     void BuildDelayFreeOperandUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
-#ifdef DEBUG
-    bool isRMWRegOper(GenTreeOp* node);
-#endif
     void BuildRMWUses(GenTreeOp* node);
 #endif
     void BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
@@ -1366,6 +1363,7 @@ private:
     void BuildIndir(GenTreeIndir* indir);
 #endif
 #ifdef TARGET_ARM
+    void BuildIntrinsic(GenTreeIntrinsic* intrinsic);
     void BuildShiftLong(GenTreeOp* node);
 #endif
 #ifdef FEATURE_HW_INTRINSICS

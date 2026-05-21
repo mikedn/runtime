@@ -53,21 +53,7 @@ void LinearScan::BuildNode(GenTree* tree)
             break;
 
         case GT_INTRINSIC:
-            // TODO-ARM: Implement other type of intrinsics (round, sqrt and etc.)
-            switch (tree->AsIntrinsic()->GetIntrinsic())
-            {
-                GenTree* op1;
-
-                case NI_System_Math_Abs:
-                case NI_System_Math_Sqrt:
-                    op1 = tree->AsIntrinsic()->GetOp(0);
-                    assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == tree->GetType()));
-                    BuildUse(op1);
-                    BuildDef(tree);
-                    break;
-                default:
-                    unreached();
-            }
+            BuildIntrinsic(tree->AsIntrinsic());
             break;
 
         case GT_OVF_TRUNC:
@@ -114,23 +100,24 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildUse(tree->AsOp()->GetOp(1));
             break;
 
+        case GT_SMULL:
+        case GT_UMULL:
+            BuildUse(tree->AsOp()->GetOp(0));
+            BuildUse(tree->AsOp()->GetOp(1));
+            BuildDef(tree, TYP_INT, RBM_NONE, 0);
+            BuildDef(tree, TYP_INT, RBM_NONE, 1);
+            break;
+
         case GT_FADD:
         case GT_FSUB:
         case GT_FDIV:
+        case GT_MUL:
             BuildUse(tree->AsOp()->GetOp(0));
             BuildUse(tree->AsOp()->GetOp(1));
             BuildDef(tree);
             break;
 
         case GT_FMUL:
-            BuildUse(tree->AsOp()->GetOp(0));
-            if (!tree->AsOp()->GetOp(1)->isContained())
-            {
-                BuildUse(tree->AsOp()->GetOp(1));
-            }
-            BuildDef(tree);
-            break;
-
         case GT_ADD_LO:
         case GT_ADD_HI:
         case GT_SUB_LO:
@@ -158,7 +145,10 @@ void LinearScan::BuildNode(GenTree* tree)
             {
                 BuildUse(tree->AsOp()->GetOp(1));
             }
-            FALLTHROUGH;
+
+            BuildDef(tree);
+            break;
+
         case GT_JMPTABLE:
         case GT_LCL_ADDR:
         case GT_CONST_ADDR:
@@ -166,7 +156,8 @@ void LinearScan::BuildNode(GenTree* tree)
         case GT_LABEL:
         case GT_SETCC:
             BuildDef(tree);
-            FALLTHROUGH;
+            break;
+
         case GT_NOP:
         case GT_NO_OP:
         case GT_IL_OFFSET:
@@ -207,33 +198,15 @@ void LinearScan::BuildNode(GenTree* tree)
             BuildDef(tree);
             break;
 
-        case GT_MUL:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildDef(tree);
-            break;
-
-        case GT_SMULL:
-        case GT_UMULL:
-            BuildUse(tree->AsOp()->GetOp(0));
-            BuildUse(tree->AsOp()->GetOp(1));
-            BuildDef(tree, TYP_INT, RBM_NONE, 0);
-            BuildDef(tree, TYP_INT, RBM_NONE, 1);
-            break;
-
         case GT_START_PREEMPTGC:
             BuildKills(tree, RBM_NONE);
             break;
 
         case GT_CNS_DBL:
-            if (tree->TypeIs(TYP_FLOAT))
+            BuildInternalIntDef(tree);
+
+            if (tree->TypeIs(TYP_DOUBLE))
             {
-                BuildInternalIntDef(tree);
-            }
-            else
-            {
-                assert(tree->TypeIs(TYP_DOUBLE));
-                BuildInternalIntDef(tree);
                 BuildInternalIntDef(tree);
             }
 
@@ -392,6 +365,24 @@ void LinearScan::BuildIndir(GenTreeIndir* indir)
     if (!indir->OperIs(GT_IND_STORE, GT_NULLCHECK))
     {
         BuildDef(indir);
+    }
+}
+
+void LinearScan::BuildIntrinsic(GenTreeIntrinsic* intrinsic)
+{
+    switch (intrinsic->GetIntrinsic())
+    {
+        GenTree* op1;
+
+        case NI_System_Math_Abs:
+        case NI_System_Math_Sqrt:
+            op1 = intrinsic->GetOp(0);
+            assert(varTypeIsFloating(op1->GetType()) && (op1->GetType() == intrinsic->GetType()));
+            BuildUse(op1);
+            BuildDef(intrinsic);
+            break;
+        default:
+            unreached();
     }
 }
 

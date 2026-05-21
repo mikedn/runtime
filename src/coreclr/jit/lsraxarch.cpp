@@ -474,9 +474,9 @@ RefPosition* LinearScan::BuildOperandUses(GenTree* node X86_ARG(regMaskTP candid
 
 #ifdef DEBUG
 // Check for instructions that use the read/modify/write register format (e.g. ADD eax, 42).
-bool LinearScan::isRMWRegOper(GenTreeOp* tree)
+static bool IsRMWRegOper(GenTreeOp* node, Compiler* compiler)
 {
-    switch (tree->GetOper())
+    switch (node->GetOper())
     {
         case GT_FADD:
         case GT_FSUB:
@@ -521,7 +521,7 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
         case GT_MUL:
         case GT_OVF_SMUL:
         case GT_OVF_UMUL:
-            return !tree->GetOp(0)->IsContainedIntCon() && !tree->GetOp(1)->IsContainedIntCon();
+            return !node->GetOp(0)->IsContainedIntCon() && !node->GetOp(1)->IsContainedIntCon();
 
         default:
             return false;
@@ -531,7 +531,7 @@ bool LinearScan::isRMWRegOper(GenTreeOp* tree)
 
 void LinearScan::BuildRMWUses(GenTreeOp* node)
 {
-    assert(isRMWRegOper(node));
+    assert(IsRMWRegOper(node, compiler));
 
     GenTree* op1 = node->GetOp(0);
     GenTree* op2 = node->GetOp(1);
