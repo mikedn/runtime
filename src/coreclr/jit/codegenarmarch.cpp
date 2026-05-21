@@ -160,6 +160,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
         RegNum dstReg  = bitcast->GetRegNum();
         RegNum srcReg1 = UseReg(src->AsOp()->GetOp(0));
         RegNum srcReg2 = UseReg(src->AsOp()->GetOp(1));
+
         emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, dstReg, srcReg1, srcReg2);
 
         DefReg(bitcast);
@@ -171,21 +172,20 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
     {
         assert(srcType == TYP_DOUBLE);
 
-        RegNum dstReg1 = bitcast->GetRegNum(0);
-        RegNum dstReg2 = bitcast->GetRegNum(1);
+        RegNum dstRegs[]{bitcast->GetRegNum(0), bitcast->GetRegNum(1)};
 
         if (src->isUsedFromReg())
         {
             RegNum srcReg = UseReg(src);
-            emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstReg1, dstReg2, srcReg);
+            emit.emitIns_R_R_R(INS_vmov_d2i, EA_8BYTE, dstRegs[0], dstRegs[1], srcReg);
         }
         else
         {
             assert(IsValidContainedLcl(src->AsLclLoad()));
             liveness.UpdateLife(this, src->AsLclLoad());
 
-            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstReg1, GetStackAddrMode(src->AsLclLoad()->GetLcl(), 0));
-            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstReg2, GetStackAddrMode(src->AsLclLoad()->GetLcl(), 4));
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstRegs[0], {src->AsLclLoad()->GetLcl(), 0});
+            emit.Ins_R_S(INS_ldr, EA_4BYTE, dstRegs[1], {src->AsLclLoad()->GetLcl(), 4});
         }
 
         DefLongRegs(bitcast);

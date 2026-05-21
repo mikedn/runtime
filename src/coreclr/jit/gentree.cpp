@@ -7164,7 +7164,7 @@ void Compiler::dmpLIRNode(GenTree* node)
 
 void Compiler::dmpLIRNodeOperands(GenTree* node)
 {
-    auto displayOperand = [](GenTree* operand, const char* prefix, const char* message = nullptr) {
+    auto displayOperand = [this](GenTree* operand, const char* prefix, const char* message = nullptr) {
         printf("%s", prefix);
 
         if (message != nullptr)
@@ -7174,12 +7174,22 @@ void Compiler::dmpLIRNodeOperands(GenTree* node)
 
         if (operand->HasReg(0))
         {
-            printf("t%u:%s %s", operand->GetID(), getRegName(operand->GetRegNum(0)), varTypeName(operand->GetType()));
+            printf("t%u:%s", operand->GetID(), getRegName(operand->GetRegNum(0)));
+
+            if (operand->IsMultiRegNode())
+            {
+                for (unsigned i = 1, count = operand->GetMultiRegCount(this); i < count; i++)
+                {
+                    printf(" %s", getRegName(operand->GetRegNum(i)));
+                }
+            }
         }
         else
         {
-            printf("t%u %s", operand->GetID(), varTypeName(operand->GetType()));
+            printf("t%u", operand->GetID());
         }
+
+        printf(" %s", varTypeName(operand->GetType()));
     };
 
     char        message[256];

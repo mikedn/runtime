@@ -4891,7 +4891,7 @@ void CodeGen::GenRetFilt(GenTree* retfilt, BasicBlock* block)
 
 #ifndef TARGET_64BIT
 
-void CodeGen::genLongReturn(GenTree* src)
+void CodeGen::GenLongReturn(GenTree* src)
 {
 #ifdef TARGET_X86
     if (src->TypeIs(TYP_DOUBLE))
@@ -4913,15 +4913,25 @@ void CodeGen::genLongReturn(GenTree* src)
     }
 #endif
 
-    assert(src->OperIs(GT_LONG));
+    RegNum srcRegs[2];
 
-    RegNum srcReg0 = UseReg(src->AsOp()->GetOp(0));
-    RegNum srcReg1 = UseReg(src->AsOp()->GetOp(1));
+    if (src->OperIs(GT_LONG))
+    {
+        srcRegs[0] = UseReg(src->AsOp()->GetOp(0));
+        srcRegs[1] = UseReg(src->AsOp()->GetOp(1));
+    }
+    else
+    {
+        assert(src->OperIs(GT_BITCAST));
 
-    assert((srcReg0 != REG_NA) && (srcReg1 != REG_NA));
+        srcRegs[0] = UseReg(src, 0);
+        srcRegs[1] = UseReg(src, 1);
+    }
 
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_LNGRET_LO, srcReg0, /* canSkip */ true);
-    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_LNGRET_HI, srcReg1, /* canSkip */ true);
+    assert((srcRegs[0] != REG_NA) && (srcRegs[1] != REG_NA));
+
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_LNGRET_LO, srcRegs[0], /* canSkip */ true);
+    GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_LNGRET_HI, srcRegs[1], /* canSkip */ true);
 }
 
 #endif // !TARGET_64BIT
@@ -4947,7 +4957,7 @@ void CodeGen::GenReturn(GenTree* ret, BasicBlock* block)
 #ifndef TARGET_64BIT
     else if (retType == TYP_LONG)
     {
-        genLongReturn(ret->AsUnOp()->GetOp(0));
+        GenLongReturn(ret->AsUnOp()->GetOp(0));
     }
 #endif
 #ifdef TARGET_X86

@@ -4529,7 +4529,7 @@ void Lowering::ContainCheckRet(GenTreeUnOp* ret)
 #ifndef TARGET_64BIT
     if (ret->TypeIs(TYP_LONG))
     {
-        noway_assert(src->TypeIs(TYP_DOUBLE) || src->OperIs(GT_LONG));
+        noway_assert(src->TypeIs(TYP_DOUBLE) || src->OperIs(GT_LONG, GT_BITCAST));
 
         return;
     }
@@ -4551,19 +4551,32 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
     assert(bitcast->OperIs(GT_BITCAST));
     assert(!bitcast->TypeIs(TYP_STRUCT));
 
-    auto CanRetypeIndir = [](GenTreeIndir* indir, var_types type) {
+    auto CanRetypeIndLoad = [](GenTreeIndLoad* load, var_types type) {
 #ifdef TARGET_ARMARCH
         // For simplicity and safety recognize only the typical int <-> float case.
-        return (type == TYP_INT) || ((type == TYP_FLOAT) && indir->TypeIs(TYP_INT) && !indir->IsUnaligned());
+        return (type == TYP_INT) || ((type == TYP_FLOAT) && load->TypeIs(TYP_INT) && !load->IsUnaligned());
+#elif !defined(TARGET_64BIT)
+        return type != TYP_LONG;
 #else
         return true;
 #endif
     };
 
-    auto CanRetypeLclFld = [](GenTreeLclFld* lclFld, var_types type) {
+    auto CanRetypeLclLoadFld = [](GenTreeLclFld* load, var_types type) {
 #ifdef TARGET_ARMARCH
-        // For simplicity and safety recognize only the typical int <-> float case.
-        return (type == TYP_INT) || ((type == TYP_FLOAT) && ((lclFld->GetLclOffs() % 4) == 0));
+        return (type == TYP_INT) || ((type == TYP_FLOAT) && ((load->GetLclOffs() % 4) == 0));
+#elif !defined(TARGET_64BIT)
+        return type != TYP_LONG;
+#else
+        return true;
+#endif
+    };
+
+    auto CanRetypeLclLoad = [](var_types type) {
+#ifdef TARGET_ARMARCH
+        return (type == TYP_INT) || (type == TYP_FLOAT);
+#elif !defined(TARGET_64BIT)
+        return type != TYP_LONG;
 #else
         return true;
 #endif
@@ -4581,17 +4594,10 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
         return next;
     }
-
-    if (bitcast->TypeIs(TYP_LONG))
-    {
-        assert(src->TypeIs(TYP_DOUBLE X86_ARG(TYP_SIMD8)));
-
-        return next;
-    }
 #endif
 
-    if ((src->OperIs(GT_IND_LOAD) && CanRetypeIndir(src->AsIndLoad(), bitcast->GetType())) ||
-        (src->OperIs(GT_LCL_LOAD_FLD) && CanRetypeLclFld(src->AsLclLoadFld(), bitcast->GetType())))
+    if ((src->OperIs(GT_IND_LOAD) && CanRetypeIndLoad(src->AsIndLoad(), bitcast->GetType())) ||
+        (src->OperIs(GT_LCL_LOAD_FLD) && CanRetypeLclLoadFld(src->AsLclLoadFld(), bitcast->GetType())))
     {
         src->SetType(bitcast->GetType());
         remove = true;
@@ -4602,10 +4608,17 @@ GenTree* Lowering::LowerBitCast(GenTreeUnOp* bitcast)
 
         if (srcLcl->lvDoNotEnregister)
         {
-            // If it's not a register candidate then we can turn it into a LCL_LOAD_FLD and retype it.
-            src->ChangeToLclLoadFld(bitcast->GetType(), srcLcl, 0, FieldSeqStore::NotAField());
-            comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
-            remove = true;
+            if (CanRetypeLclLoad(bitcast->GetType()))
+            {
+                // If it's not a register candidate then we can turn it into a LCL_LOAD_FLD and retype it.
+                src->ChangeToLclLoadFld(bitcast->GetType(), srcLcl, 0, FieldSeqStore::NotAField());
+                comp->lvaSetDoNotEnregister(srcLcl DEBUGARG(Compiler::DNER_LocalField));
+                remove = true;
+            }
+            else
+            {
+                src->SetContained();
+            }
         }
         else
         {

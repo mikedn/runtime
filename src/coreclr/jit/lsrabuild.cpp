@@ -3778,9 +3778,9 @@ void LinearScan::BuildReturn(GenTreeUnOp* ret)
 #endif
 
 #ifndef TARGET_64BIT
-    if (ret->TypeIs(TYP_LONG))
+    if (src->OperIs(GT_LONG))
     {
-        assert(src->OperIs(GT_LONG) && src->isContained());
+        assert(src->isContained());
 
         BuildUse(src->AsOp()->GetOp(0), genRegMask(REG_LNGRET_LO));
         BuildUse(src->AsOp()->GetOp(1), genRegMask(REG_LNGRET_HI));
@@ -3817,6 +3817,17 @@ void LinearScan::BuildReturn(GenTreeUnOp* ret)
 #if FEATURE_MULTIREG_RET
     if (retDesc.GetRegCount() > 1)
     {
+        if (src->OperIs(GT_BITCAST))
+        {
+            assert(src->TypeIs(TYP_LONG) && ret->TypeIs(TYP_LONG));
+            assert(retDesc.GetRegCount() == 2);
+
+            BuildUse(src, genRegMask(retDesc.GetRegNum(0)), 0);
+            BuildUse(src, genRegMask(retDesc.GetRegNum(1)), 1);
+
+            return;
+        }
+
         noway_assert(src->IsMultiRegCall());
         assert(varTypeIsStruct(ret->GetType()));
 

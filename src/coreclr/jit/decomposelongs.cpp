@@ -106,9 +106,9 @@ GenTree* DecomposeLongs::DecomposeNode(GenTree* tree)
             break;
         case GT_RETURN:
 #ifdef TARGET_X86
-            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
+            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST) || tree->AsUnOp()->GetOp(0)->TypeIs(TYP_DOUBLE));
 #else
-            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG));
+            assert(tree->AsUnOp()->GetOp(0)->OperIs(GT_LONG, GT_BITCAST));
 #endif
             break;
         case GT_BITCAST:
@@ -469,6 +469,11 @@ GenTree* DecomposeLongs::DecomposeCall(LIR::Use& use)
 GenTree* DecomposeLongs::DecomposeBitCast(LIR::Use& use)
 {
     assert(use.Def()->OperIs(GT_BITCAST));
+
+    if (!use.IsDummyUse() && use.User()->OperIs(GT_RETURN))
+    {
+        return use.Def()->gtNext;
+    }
 
     return StoreMultiRegNodeToLcl(use);
 }

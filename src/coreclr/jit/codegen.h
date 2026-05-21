@@ -789,7 +789,7 @@ private:
 #endif
 
 #ifndef TARGET_64BIT
-    void genLongReturn(GenTree* src);
+    void GenLongReturn(GenTree* src);
 #endif
 
 #if defined(TARGET_X86) || defined(TARGET_ARM)

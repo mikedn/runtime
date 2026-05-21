@@ -5608,71 +5608,88 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 {
     GenTree*  src     = bitcast->GetOp(0);
     var_types dstType = bitcast->GetType();
-    RegNum    dstReg  = bitcast->GetRegNum();
+    Emitter&  emit    = *GetEmitter();
 
 #ifdef TARGET_X86
     if (src->OperIs(GT_LONG))
     {
         assert((dstType == TYP_DOUBLE) || (dstType == TYP_SIMD8));
 
-        RegNum reg0 = UseReg(src->AsOp()->GetOp(0));
-        RegNum reg1 = UseReg(src->AsOp()->GetOp(1));
+        RegNum dstReg  = bitcast->GetRegNum();
+        RegNum srcReg0 = UseReg(src->AsOp()->GetOp(0));
+        RegNum srcReg1 = UseReg(src->AsOp()->GetOp(1));
 
-        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, dstReg, reg0, /*canSkip*/ false);
+        emit.emitIns_Mov(INS_movd, EA_4BYTE, dstReg, srcReg0, /*canSkip*/ false);
 
         if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
         {
-            GetEmitter()->emitIns_R_R_I(INS_pinsrd, EA_4BYTE, dstReg, reg1, 1);
+            emit.emitIns_R_R_I(INS_pinsrd, EA_4BYTE, dstReg, srcReg1, 1);
         }
         else
         {
             RegNum tmpReg = bitcast->GetSingleTempReg();
 
-            GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, reg1, /*canSkip*/ false);
-            GetEmitter()->emitIns_R_R(INS_punpckldq, EA_16BYTE, dstReg, tmpReg);
+            emit.emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, srcReg1, /*canSkip*/ false);
+            emit.emitIns_R_R(INS_punpckldq, EA_16BYTE, dstReg, tmpReg);
         }
+
+        DefReg(bitcast);
+
+        return;
     }
-    else
-#endif
-        if (!src->isUsedFromReg())
+
+    if (dstType == TYP_LONG)
+    {
+        assert(src->TypeIs(TYP_DOUBLE, TYP_SIMD8));
+
+        RegNum dstRegs[]{bitcast->GetRegNum(0), bitcast->GetRegNum(1)};
+
+        if (src->isUsedFromReg())
+        {
+            RegNum srcReg = UseReg(src);
+            emit.emitIns_Mov(INS_movd, EA_4BYTE, dstRegs[0], srcReg, /*canSkip*/ false);
+
+            if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
+            {
+                emit.emitIns_R_R_I(INS_pextrd, EA_16BYTE, dstRegs[1], srcReg, 1);
+            }
+            else
+            {
+                RegNum tmpReg = bitcast->GetSingleTempReg();
+
+                emit.emitIns_R_R_I(INS_pshufd, EA_16BYTE, tmpReg, srcReg, 0x55);
+                emit.emitIns_Mov(INS_movd, EA_4BYTE, dstRegs[1], tmpReg, /*canSkip*/ false);
+            }
+        }
+        else
+        {
+            assert(IsValidContainedLcl(src->AsLclLoad()));
+            liveness.UpdateLife(this, src->AsLclLoad());
+
+            emit.emitIns_R_S(INS_mov, EA_4BYTE, dstRegs[0], {src->AsLclLoad()->GetLcl(), 0});
+            emit.emitIns_R_S(INS_mov, EA_4BYTE, dstRegs[1], {src->AsLclLoad()->GetLcl(), 4});
+        }
+
+        DefLongRegs(bitcast);
+
+        return;
+    }
+#endif // TARGET_X86
+
+    RegNum dstReg = bitcast->GetRegNum();
+
+    if (!src->isUsedFromReg())
     {
         UseRMRegs(src);
         LclVarDsc*  lcl = src->AsLclLoad()->GetLcl();
         instruction ins = ins_Load(dstType, IsSimdLocalAligned(lcl));
-        GetEmitter()->emitIns_R_S(ins, emitTypeSize(dstType), dstReg, GetStackAddrMode(lcl, 0));
+        emit.emitIns_R_S(ins, emitTypeSize(dstType), dstReg, GetStackAddrMode(lcl, 0));
     }
-#ifdef TARGET_X86
-    else if (dstType == TYP_LONG)
-    {
-        RegNum srcReg = UseReg(src);
-        GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, bitcast->GetRegNum(0), srcReg, /*canSkip*/ false);
-
-        if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
-        {
-            GetEmitter()->emitIns_R_R_I(INS_pextrd, EA_16BYTE, bitcast->GetRegNum(1), srcReg, 1);
-        }
-        else
-        {
-            RegNum tmpReg = bitcast->GetSingleTempReg();
-
-            GetEmitter()->emitIns_R_R_I(INS_pshufd, EA_16BYTE, tmpReg, srcReg, 0x55);
-            GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, bitcast->GetRegNum(1), tmpReg, /*canSkip*/ false);
-        }
-    }
-#endif
     else
     {
         RegNum srcReg = UseReg(src);
         inst_BitCast(dstType, dstReg, src->GetType(), src->GetRegNum());
     }
-
-#ifdef TARGET_X86
-    if (dstType == TYP_LONG)
-    {
-        DefLongRegs(bitcast);
-        return;
-    }
-#endif
 
     DefReg(bitcast);
 }
