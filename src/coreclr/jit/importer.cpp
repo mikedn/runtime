@@ -1788,6 +1788,10 @@ NOINLINE unsigned Importer::AdvanceStmtOffset(unsigned nextStmtIndex, unsigned o
         if (verCurrentState.esStackDepth != 0)
         {
             EnsureStackSpilled(false DEBUGARG("debug info spill"));
+
+            // EnsureStackSpilled doesn't spill local loads of JIT created temporaries,
+            // we can't rely on AppendTree being called to set impCurStmtOffs.
+            impCurStmtOffs = BAD_IL_OFFSET;
         }
         else if (impCurStmtOffs != BAD_IL_OFFSET)
         {
