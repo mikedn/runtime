@@ -4587,6 +4587,10 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             lastOp->SetContained();
         }
+        else if (!HWIntrinsicInfo::NoJmpTableImm(intrinsic))
+        {
+            return;
+        }
     }
 
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
