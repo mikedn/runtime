@@ -1765,20 +1765,31 @@ void Lowering::InsertLongPutArg(GenTreeCall* call, CallArgInfo* argInfo)
 {
     GenTree* arg = argInfo->GetNode();
 
-#ifdef TARGET_ARM
     if (arg->OperIs(GT_BITCAST))
     {
-        assert(argInfo->GetRegCount() == 2);
+        if (argInfo->GetRegCount() != 0)
+        {
+            assert(argInfo->GetRegCount() == 2);
 
-        GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, TYP_LONG, arg);
-        putArg->SetRegNum(0, argInfo->GetRegNum(0));
-        putArg->SetRegNum(1, argInfo->GetRegNum(1));
-        BlockRange().InsertAfter(arg, putArg);
-        argInfo->SetNode(putArg);
+            GenTree* putArg = comp->gtNewOperNode(GT_PUTARG_REG, TYP_LONG, arg);
+            putArg->SetRegNum(0, argInfo->GetRegNum(0));
+            putArg->SetRegNum(1, argInfo->GetRegNum(1));
+            BlockRange().InsertAfter(arg, putArg);
+            argInfo->SetNode(putArg);
+        }
+        else
+        {
+            BlockRange().Unlink(arg);
+            arg = arg->AsUnOp()->GetOp(0);
+            assert(arg->TypeIs(TYP_DOUBLE X86_ARG(TYP_SIMD8)));
+            argInfo->SetNode(arg);
+            argInfo->SetArgType(arg->GetType());
+            argInfo->GetUse()->SetSigTypeNum(static_cast<unsigned>(arg->GetType()));
+            InsertPutArg(call, argInfo);
+        }
 
         return;
     }
-#endif
 
     noway_assert(arg->OperIs(GT_LONG));
 

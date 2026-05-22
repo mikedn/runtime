@@ -470,7 +470,7 @@ GenTree* DecomposeLongs::DecomposeBitCast(LIR::Use& use)
 {
     assert(use.Def()->OperIs(GT_BITCAST));
 
-    if (!use.IsDummyUse() && use.User()->OperIs(GT_RETURN))
+    if (!use.IsDummyUse() && use.User()->OperIs(GT_RETURN, GT_CALL))
     {
         return use.Def()->gtNext;
     }
