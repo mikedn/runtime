@@ -351,30 +351,6 @@ int HWIntrinsicInfo::GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDep
     }
 }
 
-GenTree* Importer::ImportNonConstFallback(NamedIntrinsic intrinsic, var_types vecType, var_types eltType)
-{
-    assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
-
-    switch (intrinsic)
-    {
-        case NI_SSE2_ShiftLeftLogical:
-        case NI_SSE2_ShiftRightArithmetic:
-        case NI_SSE2_ShiftRightLogical:
-        case NI_AVX2_ShiftLeftLogical:
-        case NI_AVX2_ShiftRightArithmetic:
-        case NI_AVX2_ShiftRightLogical:
-        {
-            GenTree* op2   = impPopStack().val;
-            GenTree* op1   = PopVec(vecType);
-            GenTree* tmpOp = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
-            return NewVecNode(vecType, intrinsic, eltType, op1, tmpOp);
-        }
-
-        default:
-            return nullptr;
-    }
-}
-
 GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (HWIntrinsicInfo::GetIsa(intrinsic))
@@ -730,6 +706,23 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
             return comp->gtNewScalarHWIntrinsicNode(varTypeNodeType(sig.retType), intrinsic, op1, op2);
         }
 
+        case NI_SSE2_ShiftLeftLogical:
+        case NI_SSE2_ShiftRightArithmetic:
+        case NI_SSE2_ShiftRightLogical:
+        {
+            var_types eltType = sig.retLayout->GetElementType();
+
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = PopVec(sig.retType);
+
+            if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
+            {
+                op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
+            }
+
+            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
+        }
+
         default:
             JITDUMP("Not implemented hardware intrinsic");
             return nullptr;
@@ -740,6 +733,23 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
 {
     switch (intrinsic)
     {
+        case NI_AVX2_ShiftLeftLogical:
+        case NI_AVX2_ShiftRightArithmetic:
+        case NI_AVX2_ShiftRightLogical:
+        {
+            var_types eltType = sig.retLayout->GetElementType();
+
+            GenTree* op2 = impPopStack().val;
+            GenTree* op1 = PopVec(sig.retType);
+
+            if (!varTypeIsVec(op2->GetType()) && !op2->IsIntCon())
+            {
+                op2 = NewVecNode(TYP_SIMD16, NI_SSE2_ConvertScalarToVector128Int32, TYP_INT, op2);
+            }
+
+            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2);
+        }
+
         case NI_AVX2_ConvertToInt32:
         case NI_AVX2_ConvertToUInt32:
             return NewVecExtractNode(TYP_INT, PopVec(TYP_SIMD32), comp->gtNewIconNode(0));

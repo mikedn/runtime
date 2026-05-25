@@ -247,16 +247,13 @@ bool HWIntrinsicInfo::IsImmOp(NamedIntrinsic id, const GenTree* op)
     {
         return true;
     }
+
+    return varActualTypeIsInt(op->GetType());
 #elif defined(TARGET_ARM64)
-    if (!HWIntrinsicInfo::HasImmediateOperand(id))
-    {
-        return false;
-    }
+    return HWIntrinsicInfo::HasImmediateOperand(id) && varActualTypeIsInt(op->GetType());
 #else
 #error Unsupported platform
 #endif
-
-    return varActualTypeIsInt(op->GetType());
 }
 
 GenTree* Importer::PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout)
@@ -461,6 +458,32 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
                                      CORINFO_SIG_INFO*     sigInfo,
                                      bool                  mustExpand)
 {
+    GenTree* node = ImportHWIntrinsic2(intrinsic, clsHnd, method, sigInfo, mustExpand);
+
+    if (node != nullptr)
+    {
+        if (HWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
+        {
+            comp->compFloatingPointUsed = true;
+        }
+
+        return node;
+    }
+
+    if (!mustExpand)
+    {
+        return nullptr;
+    }
+
+    return ImportUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_NOT_IMPLEMENTED, method, sigInfo, mustExpand);
+}
+
+GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
+                                      CORINFO_CLASS_HANDLE  clsHnd,
+                                      CORINFO_METHOD_HANDLE method,
+                                      CORINFO_SIG_INFO*     sigInfo,
+                                      bool                  mustExpand)
+{
     HWIntrinsicSignature sig;
     sig.Read(comp, sigInfo);
 
@@ -556,7 +579,51 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         baseType = retType;
     }
 
-    GenTree* immOp = nullptr;
+    GenTree*                  immOp    = nullptr;
+    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
+
+#ifdef TARGET_XARCH
+    constexpr int immLowerBound = 0;
+    int           immUpperBound = 0;
+
+    if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop(0).val))
+    {
+        immOp         = impStackTop(0).val;
+        immUpperBound = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
+
+        if (GenTreeIntCon* immIntCon = immOp->IsIntCon())
+        {
+            const int imm = immIntCon->GetInt32Value();
+            bool      immOutOfRange;
+
+            if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
+            {
+                immOutOfRange = (imm != 1) && (imm != 2) && (imm != 4) && (imm != 8);
+            }
+            else
+            {
+                immOutOfRange = (imm < immLowerBound) || (immUpperBound < imm);
+            }
+
+            if (immOutOfRange)
+            {
+                assert(!mustExpand);
+                return nullptr;
+            }
+        }
+        else
+        {
+            if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
+            {
+                assert(HWIntrinsicInfo::HasSpecialImport(intrinsic));
+            }
+            else if (!mustExpand)
+            {
+                return nullptr;
+            }
+        }
+    }
+#endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
     if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
@@ -601,26 +668,16 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         immOp = impStackTop(2).val;
         assert(HWIntrinsicInfo::IsImmOp(intrinsic, immOp));
     }
-    else
-#endif
-        if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop().val))
+    else if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop(0).val))
     {
         immOp = impStackTop(0).val;
     }
 
-    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-
-#ifdef TARGET_XARCH
-    constexpr
-#endif
-        int immLowerBound = 0;
-    int     immUpperBound = 0;
+    int immLowerBound = 0;
+    int immUpperBound = 0;
 
     if (immOp != nullptr)
     {
-#ifdef TARGET_XARCH
-        immUpperBound = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
-#elif defined(TARGET_ARM64)
         unsigned immVecSize;
 
         if (category != HW_Category_SIMDByIndexedElement)
@@ -657,25 +714,12 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         }
 
         HWIntrinsicInfo::GetImmOpBounds(intrinsic, immVecSize, baseType, &immLowerBound, &immUpperBound);
-#endif
 
         if (GenTreeIntCon* immIntCon = immOp->IsIntCon())
         {
             const int imm = immIntCon->GetInt32Value();
-            bool      immOutOfRange;
 
-#ifdef TARGET_XARCH
-            if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
-            {
-                immOutOfRange = (imm != 1) && (imm != 2) && (imm != 4) && (imm != 8);
-            }
-            else
-#endif
-            {
-                immOutOfRange = (imm < immLowerBound) || (immUpperBound < imm);
-            }
-
-            if (immOutOfRange)
+            if ((imm < immLowerBound) || (immUpperBound < imm))
             {
                 assert(!mustExpand);
                 return nullptr;
@@ -683,30 +727,13 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
         }
         else
         {
-            if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
+            if (HWIntrinsicInfo::NoJmpTableImm(intrinsic) || !mustExpand)
             {
-#ifdef TARGET_XARCH
-                return ImportNonConstFallback(intrinsic, retType, baseType);
-#else
-                return nullptr;
-#endif
-            }
-
-            if (!mustExpand)
-            {
-                // When the imm argument is not a constant and we are not being forced to expand,
-                // we need to return nullptr so a CALL to the intrinsic method is emitted instead.
-                // The intrinsic method is recursive and will be forced to expand, at which point
-                // we emit some less efficient fallback code.
                 return nullptr;
             }
         }
     }
-
-    if (HWIntrinsicInfo::IsFloatingPointUsed(intrinsic))
-    {
-        comp->compFloatingPointUsed = true;
-    }
+#endif // TARGET_ARM64
 
     if (HWIntrinsicInfo::HasSpecialImport(intrinsic))
     {

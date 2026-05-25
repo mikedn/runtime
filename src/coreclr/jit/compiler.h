@@ -1858,6 +1858,12 @@ public:
                                CORINFO_SIG_INFO*     sig,
                                bool                  mustExpand);
 
+    GenTree* ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
+                                CORINFO_CLASS_HANDLE  clsHnd,
+                                CORINFO_METHOD_HANDLE method,
+                                CORINFO_SIG_INFO*     sig,
+                                bool                  mustExpand);
+
     GenTree* impVecExtract(ClassLayout* layout, GenTree* op1, GenTree* op2);
 
     GenTree* ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
@@ -1938,7 +1944,6 @@ public:
     GenTree* impVectorT128Widen(const HWIntrinsicSignature& sig);
     GenTree* impVectorT256Widen(const HWIntrinsicSignature& sig);
 
-    GenTree* ImportNonConstFallback(NamedIntrinsic intrinsic, var_types simdType, var_types baseType);
     GenTree* ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
@@ -2110,10 +2115,10 @@ public:
 
     void impImportLeave(BasicBlock* block);
     void impResetLeaveBlock(BasicBlock* block, IL_OFFSET leaveOffset);
-    GenTree* impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
-                                          CORINFO_METHOD_HANDLE method,
-                                          CORINFO_SIG_INFO*     sig,
-                                          bool                  mustExpand);
+    GenTree* ImportUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
+                                             CORINFO_METHOD_HANDLE method,
+                                             CORINFO_SIG_INFO*     sig,
+                                             bool                  mustExpand);
 
     bool impInlineIsGuaranteedThisDerefBeforeAnySideEffects(GenTree*          additionalTree,
                                                             GenTreeCall::Use* additionalCallArgs,

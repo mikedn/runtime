@@ -2504,23 +2504,17 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
 
             if (ni == NI_Throw_PlatformNotSupportedException)
             {
-                return impUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig, mustExpand);
+                return ImportUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig,
+                                                       mustExpand);
             }
 
 #ifdef FEATURE_HW_INTRINSICS
-            if (NI_HW_INTRINSIC_FIRST <= ni && ni <= NI_HW_INTRINSIC_LAST)
+            if ((NI_HW_INTRINSIC_FIRST <= ni) && (ni <= NI_HW_INTRINSIC_LAST))
             {
-                GenTree* hwintrinsic = ImportHWIntrinsic(ni, clsHnd, method, sig, mustExpand);
-
-                if (mustExpand && (hwintrinsic == nullptr))
-                {
-                    return impUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_NOT_IMPLEMENTED, method, sig, mustExpand);
-                }
-
-                return hwintrinsic;
+                return ImportHWIntrinsic(ni, clsHnd, method, sig, mustExpand);
             }
 
-            if (NI_SIMD_AS_HWINTRINSIC_FIRST <= ni && ni <= NI_SIMD_AS_HWINTRINSIC_LAST)
+            if ((NI_SIMD_AS_HWINTRINSIC_FIRST <= ni) && (ni <= NI_SIMD_AS_HWINTRINSIC_LAST))
             {
                 // These intrinsics aren't defined recursively and so they will never be mustExpand
                 // Instead, they provide software fallbacks that will be executed instead.
@@ -3127,7 +3121,7 @@ GenTree* Importer::impIntrinsic(CORINFO_CALL_INFO*      callInfo,
     if (mustExpand && (retNode == nullptr))
     {
         assert(!"Unhandled must expand intrinsic, throwing PlatformNotSupportedException");
-        return impUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig, mustExpand);
+        return ImportUnsupportedNamedIntrinsic(CORINFO_HELP_THROW_PLATFORM_NOT_SUPPORTED, method, sig, mustExpand);
     }
 
     return retNode;
@@ -3649,22 +3643,10 @@ NamedIntrinsic Compiler::lookupNamedIntrinsic(CORINFO_METHOD_HANDLE method)
     return result;
 }
 
-//------------------------------------------------------------------------
-// impUnsupportedNamedIntrinsic: Throws an exception for an unsupported named intrinsic
-//
-// Arguments:
-//    helper     - JIT helper ID for the exception to be thrown
-//    method     - method handle of the intrinsic function.
-//    sig        - signature of the intrinsic call
-//    mustExpand - true if the intrinsic must return a GenTree*; otherwise, false
-//
-// Return Value:
-//    a gtNewMustThrowException if mustExpand is true; otherwise, nullptr
-//
-GenTree* Importer::impUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
-                                                CORINFO_METHOD_HANDLE method,
-                                                CORINFO_SIG_INFO*     sig,
-                                                bool                  mustExpand)
+GenTree* Importer::ImportUnsupportedNamedIntrinsic(CorInfoHelpFunc       helper,
+                                                   CORINFO_METHOD_HANDLE method,
+                                                   CORINFO_SIG_INFO*     sig,
+                                                   bool                  mustExpand)
 {
     // We've hit some error case and may need to return a node for the given error.
     //
