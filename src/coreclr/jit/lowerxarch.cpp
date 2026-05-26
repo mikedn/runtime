@@ -4583,13 +4583,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         GenTree* lastOp = node->GetLastOp();
         assert(lastOp != nullptr);
 
-        if (HWIntrinsicInfo::IsImmOp(intrinsic, lastOp) && lastOp->IsIntCon())
+        if (lastOp->IsIntCon())
         {
             lastOp->SetContained();
-        }
-        else if (!HWIntrinsicInfo::NoJmpTableImm(intrinsic))
-        {
-            return;
         }
     }
 

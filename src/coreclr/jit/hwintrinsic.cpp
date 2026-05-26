@@ -235,27 +235,6 @@ NamedIntrinsic HWIntrinsicInfo::lookupId(Compiler*             comp,
     return NI_Illegal;
 }
 
-bool HWIntrinsicInfo::IsImmOp(NamedIntrinsic id, const GenTree* op)
-{
-#ifdef TARGET_XARCH
-    if (HWIntrinsicInfo::GetCategory(id) != HW_Category_IMM)
-    {
-        return false;
-    }
-
-    if (!HWIntrinsicInfo::MaybeImm(id))
-    {
-        return true;
-    }
-
-    return varActualTypeIsInt(op->GetType());
-#elif defined(TARGET_ARM64)
-    return HWIntrinsicInfo::HasImmediateOperand(id) && varActualTypeIsInt(op->GetType());
-#else
-#error Unsupported platform
-#endif
-}
-
 GenTree* Importer::PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout)
 {
     if (!varTypeIsStruct(paramType))
@@ -324,16 +303,20 @@ GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
     assert(!HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic));
     assert(lowerBound == 0);
     assert(upperBound <= 255);
-#endif
 
-    if (!mustExpand || !HWIntrinsicInfo::IsImmOp(intrinsic, immOp)
-#ifdef TARGET_XARCH
-        || (upperBound == 255)
-#endif
-            )
+    if (!mustExpand || (upperBound == 255) || (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_IMM) ||
+        !varActualTypeIsInt(immOp->GetType()))
     {
         return immOp;
     }
+#endif
+
+#ifdef TARGET_ARM64
+    if (!mustExpand || !HWIntrinsicInfo::HasImmediateOperand(intrinsic) || !varActualTypeIsInt(immOp->GetType()))
+    {
+        return immOp;
+    }
+#endif
 
     assert(!immOp->IsIntCon());
 
@@ -586,7 +569,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
     constexpr int immLowerBound = 0;
     int           immUpperBound = 0;
 
-    if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop(0).val))
+    if ((sig.paramCount > 0) && (category == HW_Category_IMM) && varActualTypeIsInt(impStackTop(0).val->GetType()))
     {
         immOp         = impStackTop(0).val;
         immUpperBound = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
@@ -611,66 +594,66 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
                 return nullptr;
             }
         }
-        else
+        else if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
         {
-            if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
-            {
-                assert(HWIntrinsicInfo::HasSpecialImport(intrinsic));
-            }
-            else if (!mustExpand)
-            {
-                return nullptr;
-            }
+            assert(HWIntrinsicInfo::HasSpecialImport(intrinsic));
+        }
+        else if (!mustExpand)
+        {
+            return nullptr;
         }
     }
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
-    if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
-        (intrinsic == NI_AdvSimd_LoadAndInsertScalar))
+    if (HWIntrinsicInfo::HasImmediateOperand(intrinsic))
     {
-        assert(sig.paramCount == 3);
-
-        immOp = impStackTop(1).val;
-        assert(HWIntrinsicInfo::IsImmOp(intrinsic, immOp));
-    }
-    else if (intrinsic == NI_AdvSimd_Arm64_InsertSelectedScalar)
-    {
-        assert(sig.paramCount == 4);
-        assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
-
-        GenTree* srcImmOp = impStackTop().val;
-
-        assert(HWIntrinsicInfo::IsImmOp(intrinsic, srcImmOp));
-
-        if (!srcImmOp->IsIntCon())
+        if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
+            (intrinsic == NI_AdvSimd_LoadAndInsertScalar))
         {
-            return nullptr;
+            assert(sig.paramCount == 3);
+
+            immOp = impStackTop(1).val;
+            assert(varActualTypeIsInt(immOp->GetType()));
         }
-
-        ClassLayout* srcVecLayout = sig.paramLayout[2];
-        assert(srcVecLayout->IsVector());
-        assert(srcVecLayout->GetElementType() == baseType);
-        unsigned srcVecSize = srcVecLayout->GetSize();
-
-        int srcImmLowerBound = 0;
-        int srcImmUpperBound = 0;
-        HWIntrinsicInfo::GetImmOpBounds(intrinsic, srcVecSize, baseType, &srcImmLowerBound, &srcImmUpperBound);
-
-        const int srcImmVal = srcImmOp->AsIntCon()->GetInt32Value();
-
-        if ((srcImmVal < srcImmLowerBound) || (srcImmVal > srcImmUpperBound))
+        else if (intrinsic == NI_AdvSimd_Arm64_InsertSelectedScalar)
         {
-            assert(!mustExpand);
-            return nullptr;
-        }
+            assert(sig.paramCount == 4);
+            assert(HWIntrinsicInfo::NoJmpTableImm(intrinsic));
 
-        immOp = impStackTop(2).val;
-        assert(HWIntrinsicInfo::IsImmOp(intrinsic, immOp));
-    }
-    else if ((sig.paramCount > 0) && HWIntrinsicInfo::IsImmOp(intrinsic, impStackTop(0).val))
-    {
-        immOp = impStackTop(0).val;
+            GenTree* srcImmOp = impStackTop().val;
+
+            assert(varActualTypeIsInt(srcImmOp->GetType()));
+
+            if (!srcImmOp->IsIntCon())
+            {
+                return nullptr;
+            }
+
+            ClassLayout* srcVecLayout = sig.paramLayout[2];
+            assert(srcVecLayout->IsVector());
+            assert(srcVecLayout->GetElementType() == baseType);
+            unsigned srcVecSize = srcVecLayout->GetSize();
+
+            int srcImmLowerBound = 0;
+            int srcImmUpperBound = 0;
+            HWIntrinsicInfo::GetImmOpBounds(intrinsic, srcVecSize, baseType, &srcImmLowerBound, &srcImmUpperBound);
+
+            const int srcImmVal = srcImmOp->AsIntCon()->GetInt32Value();
+
+            if ((srcImmVal < srcImmLowerBound) || (srcImmVal > srcImmUpperBound))
+            {
+                assert(!mustExpand);
+                return nullptr;
+            }
+
+            immOp = impStackTop(2).val;
+            assert(varActualTypeIsInt(immOp->GetType()));
+        }
+        else if ((sig.paramCount > 0) && varActualTypeIsInt(impStackTop(0).val->GetType()))
+        {
+            immOp = impStackTop(0).val;
+        }
     }
 
     int immLowerBound = 0;

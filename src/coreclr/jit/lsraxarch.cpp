@@ -1399,15 +1399,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         GenTree* op3    = numOps >= 3 ? node->GetOp(2) : nullptr;
         GenTree* lastOp = node->GetLastOp();
 
-        if ((category == HW_Category_IMM) && !HWIntrinsicInfo::NoJmpTableImm(intrinsicId))
+        if ((category == HW_Category_IMM) && varActualTypeIsInt(lastOp->GetType()) && !lastOp->IsContainedIntCon())
         {
-            if (HWIntrinsicInfo::IsImmOp(intrinsicId, lastOp) && !lastOp->IsContainedIntCon())
-            {
-                // We need two extra reg when lastOp isn't a constant so the offset
-                // into the jump table for the fallback path can be computed.
-                BuildInternalIntDef(node);
-                BuildInternalIntDef(node);
-            }
+            // We need two extra reg when lastOp isn't a constant so the offset
+            // into the jump table for the fallback path can be computed.
+            BuildInternalIntDef(node);
+            BuildInternalIntDef(node);
         }
 
         var_types baseType  = node->GetSimdBaseType();
@@ -1456,7 +1453,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 if (!op1->isContained())
                 {
                     tgtPrefUse = BuildUse(op1);
-                    buildUses = false;
+                    buildUses  = false;
                 }
                 break;
 

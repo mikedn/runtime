@@ -105,10 +105,6 @@ enum HWIntrinsicFlag : unsigned
     // - the immediate value is valid on the full range of imm8 (0-255)
     HW_Flag_FullRangeIMM = 0x200,
 
-    // Maybe IMM
-    // the intrinsic has either imm or Vector overloads
-    HW_Flag_MaybeIMM = 0x400,
-
     // Copy Upper bits
     // some SIMD scalar intrinsics need the semantics of copying upper bits from the source operand
     HW_Flag_CopyUpperBits = 0x800,
@@ -292,8 +288,6 @@ struct HWIntrinsicInfo
 #error Unsupported platform
 #endif
 
-    static bool IsImmOp(NamedIntrinsic id, const GenTree* op);
-
 #ifdef TARGET_XARCH
     static bool IsAvx2GatherIntrinsic(NamedIntrinsic id);
     static int GetImplicitImm(NamedIntrinsic id, bool opportunisticallyDependsOnAVX);
@@ -336,11 +330,6 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_XARCH
-    static bool MaybeImm(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_MaybeIMM);
-    }
-
     static bool CopiesUpperBits(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_CopyUpperBits);
