@@ -296,32 +296,20 @@ GenTree* Importer::PopVecAddrLoad(var_types type)
     return comp->gtNewIndLoad(type, addr);
 }
 
+#ifdef TARGET_ARM64
 GenTree* Importer::AddHWIntrinsicRangeCheckIfNeeded(
     NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int lowerBound, int upperBound)
 {
-#ifdef TARGET_XARCH
-    assert(!HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic));
-    assert(lowerBound == 0);
-    assert(upperBound <= 255);
-
-    if (!mustExpand || (upperBound == 255) || (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_IMM) ||
-        !varActualTypeIsInt(immOp->GetType()))
-    {
-        return immOp;
-    }
-#endif
-
-#ifdef TARGET_ARM64
     if (!mustExpand || !HWIntrinsicInfo::HasImmediateOperand(intrinsic) || !varActualTypeIsInt(immOp->GetType()))
     {
         return immOp;
     }
-#endif
 
     assert(!immOp->IsIntCon());
 
     return AddHWIntrinsicRangeCheck(immOp, lowerBound, upperBound);
 }
+#endif // TARGET_ARM64
 
 GenTree* Importer::AddHWIntrinsicRangeCheck(GenTree* immOp, int lowerBound, int upperBound)
 {
@@ -468,6 +456,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
                                       bool                  mustExpand)
 {
     HWIntrinsicSignature sig;
+    sig.isIntrinsicMethod = mustExpand;
     sig.Read(comp, sigInfo);
 
     var_types    baseType  = TYP_UNDEF;
@@ -562,50 +551,18 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         baseType = retType;
     }
 
-    GenTree*                  immOp    = nullptr;
     const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
 #ifdef TARGET_XARCH
-    constexpr int immLowerBound = 0;
-    int           immUpperBound = 0;
-
     if ((sig.paramCount > 0) && (category == HW_Category_IMM) && varActualTypeIsInt(impStackTop(0).val->GetType()))
     {
-        immOp         = impStackTop(0).val;
-        immUpperBound = HWIntrinsicInfo::GetImmOpUpperBound(intrinsic);
-
-        if (GenTreeIntCon* immIntCon = immOp->IsIntCon())
-        {
-            const int imm = immIntCon->GetInt32Value();
-            bool      immOutOfRange;
-
-            if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
-            {
-                immOutOfRange = (imm != 1) && (imm != 2) && (imm != 4) && (imm != 8);
-            }
-            else
-            {
-                immOutOfRange = (imm < immLowerBound) || (immUpperBound < imm);
-            }
-
-            if (immOutOfRange)
-            {
-                assert(!mustExpand);
-                return nullptr;
-            }
-        }
-        else if (HWIntrinsicInfo::NoJmpTableImm(intrinsic))
-        {
-            assert(HWIntrinsicInfo::HasSpecialImport(intrinsic));
-        }
-        else if (!mustExpand)
-        {
-            return nullptr;
-        }
+        assert((HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) == 255) || HWIntrinsicInfo::HasSpecialImport(intrinsic));
     }
 #endif // TARGET_XARCH
 
 #ifdef TARGET_ARM64
+    GenTree* immOp = nullptr;
+
     if (HWIntrinsicInfo::HasImmediateOperand(intrinsic))
     {
         if ((intrinsic == NI_AdvSimd_Insert) || (intrinsic == NI_AdvSimd_InsertScalar) ||
@@ -800,7 +757,9 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
             }
 #endif
             op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
+#ifdef TARGET_ARM64
             op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
+#endif
             op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
 
             if (!isScalar)
@@ -850,10 +809,10 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
                 op2 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op2, mustExpand, immLowerBound, immUpperBound);
             }
             else
-#endif
             {
                 op3 = AddHWIntrinsicRangeCheckIfNeeded(intrinsic, op3, mustExpand, immLowerBound, immUpperBound);
             }
+#endif
 
             retNode = isScalar ? comp->gtNewScalarHWIntrinsicNode(nodeType, intrinsic, op1, op2, op3)
                                : NewVecNode(nodeType, intrinsic, baseType, vecSize, op1, op2, op3);

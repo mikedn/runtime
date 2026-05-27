@@ -1946,14 +1946,17 @@ public:
 
     GenTree* ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
     GenTree* ImportBMIIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
 #endif // TARGET_XARCH
 
-    GenTree* ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
-    GenTree* PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout);
+#ifdef TARGET_ARM64
     GenTree* AddHWIntrinsicRangeCheckIfNeeded(
         NamedIntrinsic intrinsic, GenTree* immOp, bool mustExpand, int immLowerBound, int immUpperBound);
+#endif
+
+    GenTree* ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig);
+    GenTree* PopHWIntrinsicArg(var_types paramType, ClassLayout* paramLayout);
     GenTree* AddHWIntrinsicRangeCheck(GenTree* immOp, int immLowerBound, int immUpperBound);
 
 #endif // FEATURE_HW_INTRINSICS

@@ -161,7 +161,7 @@ CORINFO_InstructionSet HWIntrinsicInfo::lookupIsa(const char* className, const c
     return lookupInstructionSet(className);
 }
 
-int HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
+unsigned HWIntrinsicInfo::GetImmOpUpperBound(NamedIntrinsic id)
 {
     assert(HWIntrinsicInfo::GetCategory(id) == HW_Category_IMM);
 
@@ -366,8 +366,9 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
         case InstructionSet_SSE42:
         case InstructionSet_SSE42_X64:
             return ImportSSEIntrinsic(intrinsic, sig);
+        case InstructionSet_AVX:
         case InstructionSet_AVX2:
-            return ImportAVX2Intrinsic(intrinsic, sig);
+            return ImportAVXIntrinsic(intrinsic, sig);
         case InstructionSet_BMI1:
         case InstructionSet_BMI1_X64:
         case InstructionSet_BMI2:
@@ -729,15 +730,51 @@ GenTree* Importer::ImportSSEIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsi
     }
 }
 
-GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
+GenTree* Importer::ImportAVXIntrinsic(NamedIntrinsic intrinsic, const HWIntrinsicSignature& sig)
 {
     switch (intrinsic)
     {
+        case NI_AVX_Compare:
+        case NI_AVX_CompareScalar:
+        {
+            assert(varTypeIsTargetVec(sig.retType));
+            assert(sig.paramCount == 3);
+            assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+            assert(sig.paramType[2] == TYP_UBYTE);
+
+            var_types eltType = sig.retLayout->GetElementType();
+            assert(varTypeIsFloating(eltType));
+
+            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
+            {
+                if (imm->GetUInt32Value() > 31)
+                {
+                    return nullptr;
+                }
+            }
+            else if (!sig.isIntrinsicMethod)
+            {
+                return nullptr;
+            }
+
+            GenTree* op3 = impPopStack().val;
+            GenTree* op2 = PopVec(sig.retType);
+            GenTree* op1 = PopVec(sig.retType);
+
+            if (!op3->IsIntCon())
+            {
+                op3 = AddHWIntrinsicRangeCheck(op3, 0, 31);
+            }
+
+            return NewVecNode(sig.retType, intrinsic, eltType, op1, op2, op3);
+        }
+
         case NI_AVX2_ShiftLeftLogical:
         case NI_AVX2_ShiftRightArithmetic:
         case NI_AVX2_ShiftRightLogical:
         {
             var_types eltType = sig.retLayout->GetElementType();
+            assert(varTypeIsIntegral(eltType));
 
             GenTree* op2 = impPopStack().val;
             GenTree* op1 = PopVec(sig.retType);
@@ -803,6 +840,20 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
         {
             assert(sig.paramCount == 3);
 
+            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
+            {
+                int val = imm->GetInt32Value();
+
+                if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
+                {
+                    return nullptr;
+                }
+            }
+            else if (!sig.isIntrinsicMethod)
+            {
+                return nullptr;
+            }
+
             GenTree* op3 = PopHWIntrinsicArg(sig.paramType[2], sig.paramLayout[2]);
             GenTree* op2 = PopHWIntrinsicArg(sig.paramType[1], sig.paramLayout[1]);
             GenTree* op1 = PopHWIntrinsicArg(sig.paramType[0], sig.paramLayout[0]);
@@ -822,6 +873,20 @@ GenTree* Importer::ImportAVX2Intrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_AVX2_GatherMaskVector256:
         {
             assert(sig.paramCount == 5);
+
+            if (GenTreeIntCon* imm = impStackTop(0).val->IsIntCon())
+            {
+                int val = imm->GetInt32Value();
+
+                if ((val != 1) && (val != 2) && (val != 4) && (val != 8))
+                {
+                    return nullptr;
+                }
+            }
+            else if (!sig.isIntrinsicMethod)
+            {
+                return nullptr;
+            }
 
             GenTree* ops[5];
 

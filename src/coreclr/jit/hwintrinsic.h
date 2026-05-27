@@ -280,7 +280,7 @@ struct HWIntrinsicInfo
     static CORINFO_InstructionSet lookupIsa(const char* className, const char* enclosingClassName);
 
 #if defined(TARGET_XARCH)
-    static int GetImmOpUpperBound(NamedIntrinsic intrinsic);
+    static unsigned GetImmOpUpperBound(NamedIntrinsic intrinsic);
 #elif defined(TARGET_ARM64)
     static void GetImmOpBounds(
         NamedIntrinsic intrinsic, unsigned vecSize, var_types eltType, int* lowerBound, int* upperBound);
@@ -395,6 +395,7 @@ struct HWIntrinsicSignature final
     var_types    retType;
     ClassLayout* retLayout;
     bool         hasThisParam;
+    bool         isIntrinsicMethod;
     unsigned     paramCount;
     var_types    paramType[5];
     var_types    paramPointerType[5];
