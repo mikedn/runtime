@@ -86,10 +86,6 @@ enum HWIntrinsicFlag : unsigned
     // Indicates compFloatingPointUsed does not need to be set.
     HW_Flag_NoFloatingPointUsed = 0x20,
 
-    // NoJmpTable IMM
-    // the imm intrinsic does not need jumptable fallback when it gets non-const argument
-    HW_Flag_NoJmpTableIMM = 0x40,
-
     // Special codegen
     // the intrinsics need special rules in CodeGen,
     // but may be table-driven in the front-end
@@ -101,10 +97,6 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_SpecialImport = 0x100,
 
 #if defined(TARGET_XARCH)
-    // Full range IMM intrinsic
-    // - the immediate value is valid on the full range of imm8 (0-255)
-    HW_Flag_FullRangeIMM = 0x200,
-
     // Copy Upper bits
     // some SIMD scalar intrinsics need the semantics of copying upper bits from the source operand
     HW_Flag_CopyUpperBits = 0x800,
@@ -124,6 +116,10 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_NoContainment = 0x8000,
 
 #elif defined(TARGET_ARM64)
+    // NoJmpTable IMM
+    // the imm intrinsic does not need jumptable fallback when it gets non-const argument
+    HW_Flag_NoJmpTableIMM = 0x40,
+
     // The intrinsic has an immediate operand
     // - the value can be (and should be) encoded in a corresponding instruction when the operand value is constant
     HW_Flag_HasImmediateOperand = 0x200,
@@ -346,11 +342,6 @@ struct HWIntrinsicInfo
     }
 #endif
 
-    static bool NoJmpTableImm(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_NoJmpTableIMM);
-    }
-
     static bool BaseTypeFromSecondArg(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_BaseTypeFromSecondArg);
@@ -378,6 +369,11 @@ struct HWIntrinsicInfo
     }
 
 #ifdef TARGET_ARM64
+    static bool NoJmpTableImm(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_NoJmpTableIMM);
+    }
+
     static bool SIMDScalar(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_SIMDScalar);
