@@ -1576,10 +1576,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(numOps == 3);
                 assert(isRMW);
 
-                const bool copiesUpperBits = HWIntrinsicInfo::CopiesUpperBits(intrinsicId);
-
-                // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
-                assert(!copiesUpperBits || !op1->isContained());
+                const bool isScalar = HWIntrinsicInfo::GetCategory(intrinsicId) == HW_Category_SIMDScalar;
 
                 if (op2->isContained())
                 {
@@ -1591,6 +1588,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else if (op1->isContained())
                 {
+                    assert(!isScalar);
+
                     // 231 form: op3 = (op2 * op3) + [op1]
 
                     tgtPrefUse = BuildUse(op3);
@@ -1603,7 +1602,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     tgtPrefUse = BuildUse(op1);
 
-                    if (copiesUpperBits)
+                    if (isScalar)
                     {
                         BuildDelayFreeUse(op2, op1);
                     }

@@ -4830,7 +4830,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     {
                         // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
 
-                        if (!HWIntrinsicInfo::CopiesUpperBits(intrinsic))
+                        if (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_SIMDScalar)
                         {
                             // 231 form: op3 = (op2 * op3) + [op1]
                             MakeHWIntrinsicMemOp(node, op1);
@@ -4842,7 +4842,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
                         // TODO-XArch-CQ: Technically any one of the three operands can
                         //                be reg-optional. With a limitation on op1 where
-                        //                it can only be so if CopyUpperBits is off.
+                        //                it can only be so for non-scalar FMA.
                         //                https://github.com/dotnet/runtime/issues/6358
 
                         // 213 form: op1 = (op2 * op1) + op3

@@ -130,7 +130,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 genConsumeAddress(op1);
                 emit.emitIns_R_A(ins, vecSize, dstReg, op1);
             }
-            else if ((category == HW_Category_SIMDScalar) && HWIntrinsicInfo::CopiesUpperBits(intrinsic))
+            else if (HWIntrinsicInfo::CopiesUpperBits(intrinsic))
             {
                 RegNum op1Reg = UseReg(op1);
 
@@ -1514,13 +1514,9 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
     RegNum op1Reg;
     RegNum op2Reg;
 
-    bool       isCommutative   = false;
-    const bool copiesUpperBits = HWIntrinsicInfo::CopiesUpperBits(intrinsic);
+    const bool isScalar = HWIntrinsicInfo::GetCategory(intrinsic) == HW_Category_SIMDScalar;
 
-    // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
-    assert(!copiesUpperBits || !op1->isContained());
-
-    if (op2->isContained() || op2->isUsedFromSpillTemp())
+    if (!op2->isUsedFromReg())
     {
         // 132 form: op1 = (op1 * op3) + [op2]
 
@@ -1529,11 +1525,13 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
         op2Reg = op3->GetRegNum();
         op3    = op2;
     }
-    else if (op1->isContained() || op1->isUsedFromSpillTemp())
+    else if (!op1->isUsedFromReg())
     {
+        assert(!isScalar);
+
         // 231 form: op3 = (op2 * op3) + [op1]
 
-        ins    = (instruction)(ins + 1);
+        ins    = static_cast<instruction>(ins + 1);
         op1Reg = op3->GetRegNum();
         op2Reg = op2->GetRegNum();
         op3    = op1;
@@ -1545,22 +1543,20 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
         op1Reg = op1->GetRegNum();
         op2Reg = op2->GetRegNum();
 
-        isCommutative = !copiesUpperBits;
-    }
+        if (!isScalar && (op1Reg != dstReg) && (op2Reg == dstReg))
+        {
+            assert(node->IsRMW(compiler));
 
-    if (isCommutative && (op1Reg != dstReg) && (op2Reg == dstReg))
-    {
-        assert(node->IsRMW(compiler));
+            // We have "reg2 = (reg1 * reg2) +/- op3" where "reg1 != reg2" on a RMW intrinsic.
+            //
+            // For non-commutative intrinsics, we should have ensured that op2 was marked
+            // delay free in order to prevent it from getting assigned the same register
+            // as target. However, for commutative intrinsics, we can just swap the operands
+            // in order to have "reg2 = reg2 op reg1" which will end up producing the right code.
 
-        // We have "reg2 = (reg1 * reg2) +/- op3" where "reg1 != reg2" on a RMW intrinsic.
-        //
-        // For non-commutative intrinsics, we should have ensured that op2 was marked
-        // delay free in order to prevent it from getting assigned the same register
-        // as target. However, for commutative intrinsics, we can just swap the operands
-        // in order to have "reg2 = reg2 op reg1" which will end up producing the right code.
-
-        op2Reg = op1Reg;
-        op1Reg = dstReg;
+            op2Reg = op1Reg;
+            op1Reg = dstReg;
+        }
     }
 
     genHWIntrinsic_R_R_R_RM(ins, size, dstReg, op1Reg, op2Reg, op3);
