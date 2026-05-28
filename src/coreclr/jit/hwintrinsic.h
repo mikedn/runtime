@@ -83,9 +83,6 @@ enum HWIntrinsicFlag : unsigned
     // Select base type using the second argument type
     HW_Flag_BaseTypeFromSecondArg = 0x10,
 
-    // Indicates compFloatingPointUsed does not need to be set.
-    HW_Flag_NoFloatingPointUsed = 0x20,
-
     // Special codegen
     // the intrinsics need special rules in CodeGen,
     // but may be table-driven in the front-end
@@ -318,11 +315,6 @@ struct HWIntrinsicInfo
     static bool BaseTypeFromFirstArg(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_BaseTypeFromFirstArg);
-    }
-
-    static bool IsFloatingPointUsed(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_NoFloatingPointUsed);
     }
 
 #ifdef TARGET_XARCH
