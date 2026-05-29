@@ -433,7 +433,7 @@ GenTree* Importer::ImportHWIntrinsic(NamedIntrinsic        intrinsic,
 
     if (node != nullptr)
     {
-        if (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_Scalar)
+        if (varTypeUsesVecReg(node->GetType()))
         {
             comp->compFloatingPointUsed = true;
         }
