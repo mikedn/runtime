@@ -496,9 +496,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerVecRegCast(node);
             return;
 
-        case NI_Vector64_CreateScalarUnsafe:
-        case NI_Vector128_CreateScalarUnsafe:
-            LowerHWIntrinsicCreateScalarUnsafe(node);
+        case NI_VEC_ITOV:
+            LowerVecIToV(node);
             return;
 
         case NI_VEC_SUM:
@@ -529,8 +528,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
            (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
            (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
-           (node->GetIntrinsic() == NI_Vector64_CreateScalarUnsafe) ||
-           (node->GetIntrinsic() == NI_Vector128_CreateScalarUnsafe));
+           (node->GetIntrinsic() == NI_VEC_ITOV));
     assert(node->IsUnary());
     assert(varTypeIsTargetVec(node->GetType()));
 
@@ -558,7 +556,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     return false;
 }
 
-void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
 {
     GenTree* op = node->GetOp(0);
 
@@ -677,7 +675,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             }
             else
             {
-                createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalarUnsafe : NI_Vector128_CreateScalarUnsafe;
+                createScalar = NI_VEC_ITOV;
             }
 
             op  = TryRemoveCastIfPresent(eltType, op);
@@ -1064,9 +1062,8 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             case NI_Vector64_CreateScalar:
             case NI_Vector128_CreateScalar:
-            case NI_Vector64_CreateScalarUnsafe:
-            case NI_Vector128_CreateScalarUnsafe:
             case NI_VEC_SPLAT:
+            case NI_VEC_ITOV:
             case NI_VEC_REGCAST:
                 if (IsValidConstForMovImm(node))
                 {

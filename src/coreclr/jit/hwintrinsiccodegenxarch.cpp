@@ -911,6 +911,18 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
+        case NI_VEC_ITOV:
+        {
+            GenTree* op1 = node->GetOp(0);
+
+            assert(varTypeIsIntegral(eltType));
+            assert(varActualType(eltType) == varActualType(op1->GetType()));
+
+            UseHWIntrinsicOp(op1);
+            genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(eltType), dstReg, op1);
+            break;
+        }
+
         default:
             unreached();
     }
@@ -945,11 +957,6 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (intrinsic)
     {
-        case NI_Vector128_CreateScalarUnsafe:
-        case NI_Vector256_CreateScalarUnsafe:
-            assert(varTypeIsIntegral(eltType));
-            genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(eltType), dstReg, op1);
-            break;
         case NI_Vector128_ToVector256:
             GenMove(EA_16BYTE, /* canSkip */ false);
             break;

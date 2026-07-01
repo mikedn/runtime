@@ -1489,9 +1489,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerVecRegCast(node);
             break;
 
-        case NI_Vector128_CreateScalarUnsafe:
-        case NI_Vector256_CreateScalarUnsafe:
-            LowerHWIntrinsicCreateScalarUnsafe(node);
+        case NI_VEC_ITOV:
+            LowerVecIToV(node);
             break;
 
         case NI_VEC_SUM:
@@ -1775,15 +1774,17 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 }
 
 #ifdef TARGET_X86
-void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecItoVLong(GenTreeHWIntrinsic* node)
 {
+    assert(node->GetIntrinsic() == NI_VEC_ITOV);
+
     GenTree* op = node->GetOp(0);
 
     assert(op->OperIs(GT_LONG));
 
-    if (node->GetIntrinsic() == NI_Vector256_CreateScalarUnsafe)
+    if (node->GetType() == TYP_SIMD32)
     {
-        GenTree* create128 = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, TYP_LONG, op);
+        GenTree* create128 = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_ITOV, TYP_LONG, op);
         BlockRange().InsertAfter(op, create128);
         node->SetIntrinsic(NI_Vector128_ToVector256Unsafe);
         node->SetOp(0, create128);
@@ -1866,14 +1867,16 @@ void Lowering::LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node)
 }
 #endif // TARGET_X86
 
-void Lowering::LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
 {
+    assert(node->GetIntrinsic() == NI_VEC_ITOV);
+
     GenTree* op = node->GetOp(0);
 
 #ifdef TARGET_X86
     if (op->OperIs(GT_LONG))
     {
-        LowerHWIntrinsicCreateScalarUnsafeLong(node);
+        LowerVecItoVLong(node);
         return;
     }
 #endif
@@ -1999,7 +2002,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             return scalar;
         }
 
-        NamedIntrinsic intrinsic = varTypeIsFloating(eltType) ? NI_VEC_REGCAST : NI_Vector128_CreateScalarUnsafe;
+        NamedIntrinsic intrinsic = varTypeIsFloating(eltType) ? NI_VEC_REGCAST : NI_VEC_ITOV;
 
         GenTree* vec = comp->gtNewVecNode(TYP_SIMD16, intrinsic, eltType, scalar);
         BlockRange().InsertAfter(scalar, vec);
@@ -2357,7 +2360,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     else
     {
         op1 = TryRemoveCastIfPresent(eltType, op1);
-        vec = comp->gtNewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, eltType, op1);
+        vec = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_ITOV, eltType, op1);
         BlockRange().InsertAfter(op1, vec);
     }
 
@@ -4324,8 +4327,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                     supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(instr->GetSimdBaseType()));
                     break;
 
-                case NI_Vector128_CreateScalarUnsafe:
-                case NI_Vector256_CreateScalarUnsafe:
+                case NI_VEC_ITOV:
                     assert(varTypeIsIntegral(instr->GetSimdBaseType()));
                     supportsGeneralLoads =
                         (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));

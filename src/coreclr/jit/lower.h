@@ -270,14 +270,14 @@ private:
     void LowerHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition);
     void LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp);
-    void LowerHWIntrinsicCreateScalarUnsafe(GenTreeHWIntrinsic* node);
+    void LowerVecIToV(GenTreeHWIntrinsic* node);
     void LowerVecPack(GenTreeHWIntrinsic* node);
     void LowerVecSplat(GenTreeHWIntrinsic* node);
     void LowerVecRegCast(GenTreeHWIntrinsic* node);
     LclVarDsc* GetSimdMemoryTemp(var_types type);
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_X86
-    void LowerHWIntrinsicCreateScalarUnsafeLong(GenTreeHWIntrinsic* node);
+    void LowerVecItoVLong(GenTreeHWIntrinsic* node);
 #endif
 #ifdef TARGET_XARCH
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);

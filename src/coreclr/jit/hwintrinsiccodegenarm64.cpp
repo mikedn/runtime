@@ -451,8 +451,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector64_CreateScalarUnsafe:
-            case NI_Vector128_CreateScalarUnsafe:
+            case NI_VEC_ITOV:
                 if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
                 {
                     emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);

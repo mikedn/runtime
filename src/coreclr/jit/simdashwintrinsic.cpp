@@ -1230,7 +1230,7 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         else
         {
             intrinsic = NI_AdvSimd_MultiplyByScalar;
-            op2       = NewVecNode(TYP_SIMD16, NI_Vector128_CreateScalarUnsafe, varTypeNodeType(eltType), op2);
+            op2       = NewVecNode(TYP_SIMD16, NI_VEC_ITOV, varTypeNodeType(eltType), op2);
         }
     }
     else

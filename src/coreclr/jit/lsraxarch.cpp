@@ -1457,8 +1457,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector128_CreateScalarUnsafe:
-            case NI_Vector256_CreateScalarUnsafe:
+            case NI_VEC_ITOV:
                 assert(numOps == 1);
                 assert(varTypeIsIntegral(baseType));
                 break;
