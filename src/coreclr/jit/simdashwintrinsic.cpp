@@ -1186,6 +1186,70 @@ GenTree* Importer::impVectorT128Widen(const HWIntrinsicSignature& sig)
     return impVectorStore(TYP_SIMD16, hiAddr, hi);
 }
 
+GenTree* Importer::impVectorTMultiplyLong(const HWIntrinsicSignature& sig)
+{
+    assert(sig.retType == TYP_SIMD16);
+    assert(varTypeIsLong(sig.retLayout->GetElementType()));
+    assert(sig.paramCount == 2);
+
+    GenTree* op1;
+    GenTree* op2;
+
+    if (sig.paramLayout[0] == nullptr)
+    {
+        assert(sig.paramType[0] == TYP_LONG);
+        assert(sig.paramLayout[1] == sig.retLayout);
+
+        op2 = PopVec(sig.paramType[1]);
+        op1 = impPopStack().val;
+    }
+    else if (sig.paramLayout[1] == nullptr)
+    {
+        assert(sig.paramLayout[0] == sig.retLayout);
+        assert(sig.paramType[1] == TYP_LONG);
+
+        op2 = impPopStack().val;
+        op1 = PopVec(sig.paramType[0]);
+    }
+    else
+    {
+        assert((sig.retLayout == sig.paramLayout[0]) && (sig.retLayout == sig.paramLayout[1]));
+
+        op2 = PopVec(sig.paramType[0]);
+        op1 = PopVec(sig.paramType[0]);
+    }
+
+    GenTree* op1Uses[2];
+    GenTree* op2Uses[2];
+
+    if (sig.paramLayout[0] != nullptr)
+    {
+        impMakeMultiUse(op1, op1Uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+        op1Uses[0] = NewVecExtractNode(TYP_LONG, op1Uses[0], comp->gtNewIconNode(0));
+        op1Uses[1] = NewVecExtractNode(TYP_LONG, op1Uses[1], comp->gtNewIconNode(1));
+    }
+    else
+    {
+        impMakeMultiUse(op1, op1Uses, CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+    }
+
+    if (sig.paramLayout[1] != nullptr)
+    {
+        impMakeMultiUse(op2, op2Uses, sig.paramLayout[1], CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+        op2Uses[0] = NewVecExtractNode(TYP_LONG, op2Uses[0], comp->gtNewIconNode(0));
+        op2Uses[1] = NewVecExtractNode(TYP_LONG, op2Uses[1], comp->gtNewIconNode(1));
+    }
+    else
+    {
+        impMakeMultiUse(op2, op2Uses, CHECK_SPILL_ALL DEBUGARG("Vector<long>.Multiply temp"));
+    }
+
+    GenTree* mul1 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op1Uses[0], op2Uses[0]);
+    GenTree* mul2 = comp->gtNewOperNode(GT_MUL, TYP_LONG, op1Uses[1], op2Uses[1]);
+
+    return NewVecNode(TYP_SIMD16, NI_VEC_PACK, TYP_LONG, mul1, mul2);
+}
+
 GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 {
     assert(sig.retType == TYP_SIMD16);
@@ -1193,6 +1257,11 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
 
     var_types vecType = sig.retType;
     var_types eltType = sig.retLayout->GetElementType();
+
+    if (varTypeIsLong(eltType))
+    {
+        return impVectorTMultiplyLong(sig);
+    }
 
     assert(vecType == TYP_SIMD16);
 
@@ -1252,14 +1321,6 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = PopVec(sig.paramType[0]);
         op1 = PopVec(sig.paramType[0]);
     }
-
-    // TODO-MIKE-CQ: Can we handle LONG element type like on XARCH?
-    // The approach used for LONG DotProduct doesn't seem to work so well in this
-    // case. At least on ARM Cortex A72 it is slower than just using the "software"
-    // implementation, likely because inserting/extracting from/to GPRs is rather
-    // slow. For DotProduct we only need extracts but here we'd need to insert
-    // the integer multiplication result back into a vector register and that's
-    // probably costly enough - FMOV has latency 5 and INS has latency 8!!!
 
     return NewVecNode(TYP_SIMD16, intrinsic, eltType, op1, op2);
 }
