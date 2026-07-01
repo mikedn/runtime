@@ -526,8 +526,8 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
-           (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
-           (node->GetIntrinsic() == NI_Vector128_CreateScalar) || (node->GetIntrinsic() == NI_VEC_ITOV));
+           (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_VEC_FTOV) ||
+           (node->GetIntrinsic() == NI_VEC_ITOV));
     assert(node->IsUnary());
     assert(varTypeIsTargetVec(node->GetType()));
 
@@ -535,7 +535,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        if ((node->GetIntrinsic() == NI_Vector64_CreateScalar) || (node->GetIntrinsic() == NI_Vector128_CreateScalar))
+        if (node->GetIntrinsic() == NI_VEC_FTOV)
         {
             return false;
         }
@@ -647,7 +647,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
         }
         else
         {
-            node->SetIntrinsic(type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
+            node->SetIntrinsic(NI_VEC_FTOV, 1);
         }
 
         node->SetOp(0, op);
@@ -692,13 +692,9 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
                     }
                 }
             }
-            else if (hasZeroes)
-            {
-                createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
-            }
             else
             {
-                createScalar = NI_VEC_REGCAST;
+                createScalar = hasZeroes ? NI_VEC_FTOV : NI_VEC_REGCAST;
             }
 
             vec = comp->gtNewVecNode(type, createScalar, eltType, op);
@@ -1082,10 +1078,9 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         switch (node->GetIntrinsic())
         {
-            case NI_Vector64_CreateScalar:
-            case NI_Vector128_CreateScalar:
             case NI_VEC_SPLAT:
             case NI_VEC_ITOV:
+            case NI_VEC_FTOV:
             case NI_VEC_REGCAST:
                 if (IsValidConstForMovImm(node))
                 {

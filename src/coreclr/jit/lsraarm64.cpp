@@ -664,9 +664,10 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         bool vecRegToVecRegMove = false;
 
-        if ((intrin.id == NI_Vector64_CreateScalar) || (intrin.id == NI_Vector128_CreateScalar))
+        if (intrin.id == NI_VEC_FTOV)
         {
-            vecRegToVecRegMove = varTypeIsFloating(intrin.op1->GetType());
+            assert(varTypeIsFloating(intrin.op1->GetType()));
+            vecRegToVecRegMove = true;
         }
         else if (intrin.id == NI_VEC_REGCAST)
         {

@@ -470,8 +470,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector64_CreateScalar:
-            case NI_Vector128_CreateScalar:
+            case NI_VEC_FTOV:
                 if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
                 {
                     emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
