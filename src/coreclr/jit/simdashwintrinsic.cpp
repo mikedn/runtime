@@ -1208,7 +1208,23 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = PopVec(sig.paramType[1]);
         op1 = impPopStack().val;
 
-        op1 = NewVecNode(TYP_SIMD16, NI_VEC_SPLAT, varTypeNodeType(eltType), op1);
+        const bool canSwap = !op1->HasSideEffects() && !op2->HasSideEffects();
+
+        if (varTypeIsFloating(eltType) && canSwap)
+        {
+            intrinsic = eltType == TYP_DOUBLE ? NI_AdvSimd_Arm64_MultiplyByScalar : NI_AdvSimd_MultiplyByScalar;
+
+            op1 = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, eltType, op1);
+        }
+        else
+        {
+            op1 = NewVecNode(TYP_SIMD16, NI_VEC_SPLAT, eltType, op1);
+        }
+
+        if (canSwap)
+        {
+            std::swap(op1, op2);
+        }
     }
     else if (sig.paramLayout[1] == nullptr)
     {
@@ -1218,19 +1234,15 @@ GenTree* Importer::impVectorTMultiply(const HWIntrinsicSignature& sig)
         op2 = impPopStack().val;
         op1 = PopVec(sig.paramType[0]);
 
-        if (varTypeIsByte(eltType))
-        {
-            op2 = NewVecNode(TYP_SIMD16, NI_VEC_SPLAT, eltType, op2);
-        }
-        else if (varTypeIsFloating(eltType))
+        if (varTypeIsFloating(eltType))
         {
             intrinsic = eltType == TYP_DOUBLE ? NI_AdvSimd_Arm64_MultiplyByScalar : NI_AdvSimd_MultiplyByScalar;
-            op2       = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, eltType, op2);
+
+            op2 = NewVecNode(TYP_SIMD16, NI_VEC_REGCAST, eltType, op2);
         }
         else
         {
-            intrinsic = NI_AdvSimd_MultiplyByScalar;
-            op2       = NewVecNode(TYP_SIMD16, NI_VEC_ITOV, varTypeNodeType(eltType), op2);
+            op2 = NewVecNode(TYP_SIMD16, NI_VEC_SPLAT, eltType, op2);
         }
     }
     else
