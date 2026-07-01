@@ -293,6 +293,7 @@ private:
 #endif
 #ifdef TARGET_ARM64
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);
+    bool IsValidConstForFMovImm(GenTreeHWIntrinsic* node);
     void LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node);
     void LowerVecSum(GenTreeHWIntrinsic* node);
     void LowerVecExtract(GenTreeHWIntrinsic* node);

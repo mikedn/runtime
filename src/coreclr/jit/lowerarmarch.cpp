@@ -525,9 +525,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
-           (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_VEC_FTOV) ||
-           (node->GetIntrinsic() == NI_VEC_ITOV));
+    assert(node->GetIntrinsic() == NI_VEC_ITOV);
     assert(node->IsUnary());
     assert(varTypeIsTargetVec(node->GetType()));
 
@@ -535,20 +533,25 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
-        if (node->GetIntrinsic() == NI_VEC_FTOV)
-        {
-            return false;
-        }
-
         emitAttr attr = emitTypeSize(node->GetType());
         insOpts  opt  = GetVecArrangementOpt(attr, node->GetSimdBaseType());
 
         return Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt);
     }
-    else if (GenTreeDblCon* dcon = op1->IsDblCon())
-    {
-        assert(varTypeIsFloating(node->GetSimdBaseType()));
 
+    return false;
+}
+
+bool Lowering::IsValidConstForFMovImm(GenTreeHWIntrinsic* node)
+{
+    assert((node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_VEC_FTOV));
+    assert(node->IsUnary());
+    assert(varTypeIsTargetVec(node->GetType()));
+
+    GenTree* op1 = node->GetOp(0);
+
+    if (GenTreeDblCon* dcon = op1->IsDblCon())
+    {
         return Arm64Imm::IsFMovImm(dcon->GetValue());
     }
 
@@ -627,7 +630,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
         }
     }
 
-    // Only the first operand is non-0, change the original PACK node to ITOV/CreateScalar.
+    // Only the first operand is non-0, change the original PACK node to ITOV/FTOV.
     if (nonZeroOpMask == 1)
     {
         GenTree* op = node->GetOp(0);
@@ -761,7 +764,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 
     VectorConstant vecConst;
 
-    if (!IsValidConstForMovImm(node) && vecConst.Splat(node))
+    if (vecConst.Splat(node))
     {
         LowerVecPackConst(node, vecConst);
         LowerNode(node);
@@ -1078,11 +1081,16 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         switch (node->GetIntrinsic())
         {
-            case NI_VEC_SPLAT:
             case NI_VEC_ITOV:
-            case NI_VEC_FTOV:
-            case NI_VEC_REGCAST:
                 if (IsValidConstForMovImm(node))
+                {
+                    node->GetOp(0)->SetContained();
+                }
+                break;
+
+            case NI_VEC_REGCAST:
+            case NI_VEC_FTOV:
+                if (IsValidConstForFMovImm(node))
                 {
                     node->GetOp(0)->SetContained();
                 }
