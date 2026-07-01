@@ -527,8 +527,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
 {
     assert((node->GetIntrinsic() == NI_VEC_PACK) || (node->GetIntrinsic() == NI_VEC_SPLAT) ||
            (node->GetIntrinsic() == NI_VEC_REGCAST) || (node->GetIntrinsic() == NI_Vector64_CreateScalar) ||
-           (node->GetIntrinsic() == NI_Vector128_CreateScalar) ||
-           (node->GetIntrinsic() == NI_VEC_ITOV));
+           (node->GetIntrinsic() == NI_Vector128_CreateScalar) || (node->GetIntrinsic() == NI_VEC_ITOV));
     assert(node->IsUnary());
     assert(varTypeIsTargetVec(node->GetType()));
 
@@ -618,13 +617,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
     {
         GenTree* op = node->GetOp(i);
 
-        // TODO-MIKE-CQ: This can be extended to small int elements but special handling is
-        // needed to account for CreateScalar not having a small int version. We'd need to
-        // either zero extend the small int value or not skip the first couple of 0 inserts.
-        // Zero extending might be best as uxtb/h is faster than ins and we may get it for
-        // free (e.g. if the operand is an indir or constant).
-
-        if (op->IsDblConPositiveZero() || (!varTypeIsSmall(eltType) && op->IsIntCon(0)))
+        if (op->IsDblConPositiveZero() || op->IsIntCon(0))
         {
             BlockRange().Unlink(op);
         }
@@ -634,11 +627,29 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
         }
     }
 
-    // Only the first operand is non-0, convert to CreateScalar.
+    // Only the first operand is non-0, change the original PACK node to ITOV/CreateScalar.
     if (nonZeroOpMask == 1)
     {
         GenTree* op = node->GetOp(0);
-        node->SetIntrinsic(type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
+
+        if (!varTypeIsFloating(eltType))
+        {
+            node->SetIntrinsic(NI_VEC_ITOV, 1);
+
+            if (varTypeIsSmall(eltType))
+            {
+                op = TryRemoveCastIfPresent(eltType, op);
+
+                GenTree* conv = comp->gtNewOperNode(GT_CONV, varTypeToSmallUnsigned(eltType), op);
+                BlockRange().InsertAfter(op, conv);
+                op = conv;
+            }
+        }
+        else
+        {
+            node->SetIntrinsic(type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar, 1);
+        }
+
         node->SetOp(0, op);
         LowerNode(node);
 
@@ -662,23 +673,34 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 
         if (i == 0)
         {
+            const bool     hasZeroes = nonZeroOpMask != ((1u << numOps) - 1);
             NamedIntrinsic createScalar;
 
-            // If we have 0 operands then use CreateScalar to ensure that upper elements are zeroed.
-            if (nonZeroOpMask != ((1u << numOps) - 1))
+            if (!varTypeIsFloating(eltType))
+            {
+                createScalar = NI_VEC_ITOV;
+
+                if (varTypeIsSmall(eltType))
+                {
+                    op = TryRemoveCastIfPresent(eltType, op);
+
+                    if (hasZeroes)
+                    {
+                        GenTree* conv = comp->gtNewOperNode(GT_CONV, varTypeToSmallUnsigned(eltType), op);
+                        BlockRange().InsertAfter(op, conv);
+                        op = conv;
+                    }
+                }
+            }
+            else if (hasZeroes)
             {
                 createScalar = type == TYP_SIMD8 ? NI_Vector64_CreateScalar : NI_Vector128_CreateScalar;
             }
-            else if (varTypeIsFloating(eltType))
+            else
             {
                 createScalar = NI_VEC_REGCAST;
             }
-            else
-            {
-                createScalar = NI_VEC_ITOV;
-            }
 
-            op  = TryRemoveCastIfPresent(eltType, op);
             vec = comp->gtNewVecNode(type, createScalar, eltType, op);
             BlockRange().InsertAfter(op, vec);
             LowerNode(vec);
