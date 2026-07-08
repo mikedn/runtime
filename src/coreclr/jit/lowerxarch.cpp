@@ -1956,6 +1956,42 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
         return;
     }
 
+    unsigned nonZeroOpMask = 0;
+
+    for (unsigned i = 0; i < numOps; i++)
+    {
+        if (!node->GetOp(i)->IsIntCon(0))
+        {
+            nonZeroOpMask |= 1 << i;
+        }
+    }
+
+    if (!varTypeIsFloating(eltType) && (nonZeroOpMask == 1))
+    {
+        GenTree* op = node->GetOp(0);
+
+        for (unsigned i = 1; i < numOps; i++)
+        {
+            BlockRange().Unlink(node->GetOp(i));
+        }
+
+        node->SetIntrinsic(NI_VEC_ITOV, 1);
+
+        if (varTypeIsSmall(eltType))
+        {
+            op = TryRemoveCastIfPresent(eltType, op);
+
+            GenTree* conv = comp->gtNewOperNode(GT_CONV, varTypeToSmallUnsigned(eltType), op);
+            BlockRange().InsertAfter(op, conv);
+            op = conv;
+        }
+
+        node->SetOp(0, op);
+        LowerNode(node);
+
+        return;
+    }
+
     // TODO-MIKE-Review: Much of this code assumes that operand order matches evaluation order.
     // This assumption only holds because gtSetEvalOrder/GTF_REVERSE_OPS aren't able to control
     // the ordering of intrinsic nodes with more than 2 operands.
