@@ -869,6 +869,23 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
     assert(varTypeIsTargetVec(type) || (node->GetIntrinsic() == NI_VEC_EXTRACT));
     assert(varTypeIsArithmetic(eltType));
 
+    auto GenMove = [&](emitAttr size, bool canSkip) {
+        GenTree*    op1 = node->GetOp(0);
+        instruction ins = HWIntrinsicInfo::GetIns(node->GetIntrinsic(), eltType);
+
+        UseHWIntrinsicOp(op1);
+
+        if (op1->isContained() || op1->isUsedFromSpillTemp())
+        {
+            genHWIntrinsic_R_RM(node, ins, size, dstReg, op1);
+        }
+        else
+        {
+            RegNum op1Reg = op1->GetRegNum();
+            emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, canSkip);
+        }
+    };
+
     switch (node->GetIntrinsic())
     {
         case NI_VEC_ONE_BITS:
@@ -923,6 +940,13 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
             break;
         }
 
+        case NI_VEC_ZEXT:
+            GenMove(EA_16BYTE, /* canSkip */ false);
+            break;
+        case NI_VEC_TRUNC:
+            GenMove(EA_32BYTE, /* canSkip */ true);
+            break;
+
         default:
             unreached();
     }
@@ -957,14 +981,8 @@ void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
 
     switch (intrinsic)
     {
-        case NI_Vector128_ToVector256:
-            GenMove(EA_16BYTE, /* canSkip */ false);
-            break;
         case NI_Vector128_ToVector256Unsafe:
             GenMove(EA_16BYTE, /* canSkip */ true);
-            break;
-        case NI_Vector256_GetLower:
-            GenMove(EA_32BYTE, /* canSkip */ true);
             break;
         default:
             unreached();

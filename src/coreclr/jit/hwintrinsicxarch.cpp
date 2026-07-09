@@ -401,6 +401,12 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_Vector256_AsUInt16:
         case NI_Vector256_AsUInt32:
         case NI_Vector256_AsUInt64:
+            assert(sig.paramCount == 1);
+            assert(sig.paramType[0] == TYP_SIMD32);
+            assert(sig.retType == TYP_SIMD32);
+
+            return PopVec(TYP_SIMD32);
+
         case NI_Vector128_As:
         case NI_Vector128_AsByte:
         case NI_Vector128_AsDouble:
@@ -414,14 +420,15 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
         case NI_Vector128_AsUInt64:
         case NI_Vector128_AsVector4:
             assert(sig.paramCount == 1);
-            assert(sig.paramType[0] == sig.retType);
-            FALLTHROUGH;
+            assert(sig.paramType[0] == TYP_SIMD16);
+            assert(sig.retType == TYP_SIMD16);
+
+            return PopVec(TYP_SIMD16);
+
         case NI_Vector128_AsVector:
         case NI_Vector128_AsVector128:
         case NI_Vector256_AsVector:
         case NI_Vector256_AsVector256:
-        case NI_Vector128_ToVector256:
-        case NI_Vector256_GetLower:
             assert(sig.paramCount == 1);
             assert((sig.paramType[0] == TYP_SIMD16) || (sig.paramType[0] == TYP_SIMD32));
             assert((sig.retType == TYP_SIMD16) || (sig.retType == TYP_SIMD32));
@@ -433,9 +440,27 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
                 return op1;
             }
 
-            intrinsic = sig.retType == TYP_SIMD16 ? NI_Vector256_GetLower : NI_Vector128_ToVector256;
+            intrinsic = sig.retType == TYP_SIMD16 ? NI_VEC_TRUNC : NI_VEC_ZEXT;
             eltType   = varTypeNodeType(sig.paramLayout[0]->GetElementType());
             return NewVecNode(sig.retType, intrinsic, eltType, op1);
+
+        case NI_Vector256_GetLower:
+            assert(sig.paramCount == 1);
+            assert(sig.paramType[0] == TYP_SIMD32);
+            assert(sig.retType == TYP_SIMD16);
+
+            eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+            op1     = PopVec(TYP_SIMD32);
+            return NewVecNode(sig.retType, NI_VEC_TRUNC, eltType, op1);
+
+        case NI_Vector128_ToVector256:
+            assert(sig.paramCount == 1);
+            assert(sig.paramType[0] == TYP_SIMD16);
+            assert(sig.retType == TYP_SIMD32);
+
+            eltType = varTypeNodeType(sig.paramLayout[0]->GetElementType());
+            op1     = PopVec(TYP_SIMD16);
+            return NewVecNode(TYP_SIMD32, NI_VEC_ZEXT, eltType, op1);
 
         case NI_Vector128_ToVector256Unsafe:
             assert(sig.paramCount == 1);

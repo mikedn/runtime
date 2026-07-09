@@ -2664,7 +2664,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
         }
         else
         {
-            vec = comp->gtNewVecNode(TYP_SIMD16, NI_Vector256_GetLower, eltType, vec);
+            vec = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_TRUNC, eltType, vec);
             BlockRange().InsertBefore(node, vec);
         }
 
@@ -2793,7 +2793,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
         }
         else
         {
-            vec = comp->gtNewVecNode(TYP_SIMD16, NI_Vector256_GetLower, eltType, vec);
+            vec = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_TRUNC, eltType, vec);
             BlockRange().InsertBefore(node, vec);
         }
 

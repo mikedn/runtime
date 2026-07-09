@@ -1473,9 +1473,9 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector128_ToVector256:
             case NI_Vector128_ToVector256Unsafe:
-            case NI_Vector256_GetLower:
+            case NI_VEC_ZEXT:
+            case NI_VEC_TRUNC:
                 assert(numOps == 1);
 
                 if (!op1->isContained())

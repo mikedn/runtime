@@ -1655,7 +1655,7 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
 #else
     // TODO-MIKE-Cleanup: These temps should be SIMD16 but we don't have a SIMD16 layout
     // handy so they're SIMD32 instead. This would mean that all the uses should really
-    // be NI_Vector256_GetLower but that's kind of overkill, ignore it for now.
+    // be NI_VEC_TRUNC but that's kind of overkill, ignore it for now.
     GenTree* uses[5];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
@@ -1787,7 +1787,7 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
 
     // TODO-MIKE-Cleanup: These temps should be SIMD16 but we don't have a SIMD16 layout
     // handy so they're SIMD32 instead. This would mean that all the uses should really
-    // be NI_Vector256_GetLower but that's kind of overkill, ignore it for now.
+    // be NI_VEC_TRUNC but that's kind of overkill, ignore it for now.
     GenTree* uses[4];
     impMakeMultiUse(op1, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 

@@ -318,6 +318,15 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
 
             return NewVecNode(varTypeNodeType(sig.retType), NI_AdvSimd_Extract, eltType, vecSize, op1, op2);
 
+        case NI_Vector128_GetLower:
+            assert(sig.paramCount == 1);
+            assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD8));
+
+            eltType = varTypeNodeType(sig.retLayout->GetElementType());
+
+            op1 = PopVec(TYP_SIMD16);
+            return NewVecNode(TYP_SIMD8, NI_VEC_TRUNC, eltType, 16, op1);
+
         case NI_Vector128_GetUpper:
             assert(sig.paramCount == 1);
             assert((sig.paramType[0] == TYP_SIMD16) && (sig.retType == TYP_SIMD8));
@@ -328,7 +337,7 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             op2 = NewVecNode(TYP_SIMD8, NI_VEC_ZERO, eltType);
             op1 = NewVecNode(TYP_SIMD16, NI_AdvSimd_ExtractVector128, eltType, op1, op2,
                              comp->gtNewIconNode(8 / varTypeSize(eltType)));
-            return NewVecNode(TYP_SIMD8, NI_Vector128_GetLower, eltType, 16, op1);
+            return NewVecNode(TYP_SIMD8, NI_VEC_TRUNC, eltType, 16, op1);
 
         case NI_ArmBase_Arm64_MultiplyHigh:
             assert(sig.paramCount == 2);

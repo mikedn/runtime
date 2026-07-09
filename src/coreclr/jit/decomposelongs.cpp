@@ -1251,7 +1251,7 @@ GenTree* DecomposeLongs::DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* 
             }
             else
             {
-                upper = m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_Vector256_GetLower, TYP_LONG, 32, vec);
+                upper = m_compiler->gtNewSimdHWIntrinsicNode(TYP_SIMD16, NI_VEC_TRUNC, TYP_LONG, 32, vec);
                 Range().InsertAfter(vec, upper);
             }
 

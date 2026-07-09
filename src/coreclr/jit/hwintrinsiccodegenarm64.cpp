@@ -555,11 +555,11 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_VEC_ONE_BITS:
                 emit.emitIns_R_I(INS_movi, emitSize, defReg, 0xFF, emitSize == EA_8BYTE ? INS_OPTS_8B : INS_OPTS_16B);
                 break;
-            case NI_Vector64_ToVector128:
+            case NI_VEC_ZEXT:
                 emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false);
                 break;
             case NI_Vector64_ToVector128Unsafe:
-            case NI_Vector128_GetLower:
+            case NI_VEC_TRUNC:
                 emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ true);
                 break;
             case NI_AdvSimd_ReverseElement16:
