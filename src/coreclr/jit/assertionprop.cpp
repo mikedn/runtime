@@ -3156,15 +3156,14 @@ private:
                 return GenTreeWalkResult::Continue;
             }
 
-            if (varTypeIsSIMD(tree->GetType()))
+            if (varTypeIsVec(tree->GetType()))
             {
 #ifdef FEATURE_HW_INTRINSICS
                 if ((user != nullptr) && !tree->HasAnySideEffect(GTF_SIDE_EFFECT))
                 {
-                    ValueNum vn   = m_vnStore->ExtractValue(tree->GetConservativeVN());
-                    VNFunc   func = VNFuncIndex(m_vnStore->GetVNFunc(vn));
+                    ValueNum vn = m_vnStore->ExtractValue(tree->GetConservativeVN());
 
-                    if (func == VNF_HWI_Vector128_get_Zero ARM64_ONLY(|| func == VNF_HWI_Vector64_get_Zero))
+                    if (VNFuncIndex(m_vnStore->GetVNFunc(vn)) == VNF_HWI_VEC_ZERO)
                     {
                         // Due to poor const register reuse in LSRA, attempting to propagate zero vectors is
                         // not always an improvement - on XARCH we simply end up with more XORPS instructions.
