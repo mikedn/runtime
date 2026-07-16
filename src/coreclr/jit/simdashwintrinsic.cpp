@@ -320,28 +320,6 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
 
         case 0:
             assert(varTypeIsVec(signature.retType));
-
-            switch (hwIntrinsic)
-            {
-#ifdef TARGET_ARM64
-                case NI_Vector64_get_Zero:
-#endif
-                case NI_Vector128_get_Zero:
-#ifdef TARGET_XARCH
-                case NI_Vector256_get_Zero:
-#endif
-                    hwIntrinsic = NI_VEC_ZERO;
-                    break;
-                case NI_Vector128_get_AllBitsSet:
-#ifdef TARGET_XARCH
-                case NI_Vector256_get_AllBitsSet:
-#endif
-                    hwIntrinsic = NI_VEC_ONE_BITS;
-                    break;
-                default:
-                    break;
-            }
-
             return NewVecNode(signature.retType, hwIntrinsic, eltType, size);
 
         case 1:

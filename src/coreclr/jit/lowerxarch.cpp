@@ -1518,10 +1518,6 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerVecEquality(node, GT_NE);
             return;
 
-        case NI_Vector128_ToScalar:
-        case NI_Vector256_ToScalar:
-            unreached();
-
         case NI_SSE41_Extract:
             // Make sure the importer did not blindly import intrinsic with bogus return type
             // "float Sse41.Extract(Vector128<float>)", the return type should have been int.
