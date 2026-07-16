@@ -9268,7 +9268,7 @@ bool LinearScan::isMatchingConstant(GenTree* node, GenTree* regNode)
 #if defined(FEATURE_HW_INTRINSICS) && defined(TARGET_XARCH)
         case GT_HWINTRINSIC:
             // XARCH only for now, doesn't seem to be useful on ARM64 due to XZR.
-            return node->IsHWIntrinsicZero() && regNode->IsHWIntrinsicZero();
+            return node->IsVecZero() && regNode->IsVecZero();
 #endif
 
         default:

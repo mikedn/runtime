@@ -139,7 +139,7 @@ void Lowering::LowerArgStore(GenTreeArgStore* store)
     }
 
 #ifdef TARGET_ARM64
-    if (src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
+    if (src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsVecZero())
     {
         src->SetContained();
     }
@@ -914,7 +914,7 @@ void Lowering::ContainCheckIndStore(GenTreeIndStore* store)
     // STORE_BLK.struct<16> works better than STOREIND.simd16 because of this.
     if (store->TypeIs(TYP_SIMD8, TYP_SIMD12))
     {
-        if (value->IsHWIntrinsicZero())
+        if (value->IsVecZero())
         {
             value->SetContained();
         }
@@ -991,7 +991,7 @@ void Lowering::ContainCheckStoreLcl(GenTreeLclRef* store)
     GenTree* src = store->GetOp(0);
 
 #ifdef TARGET_ARM64
-    if (src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero())
+    if (src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsVecZero())
     {
         src->SetContained();
         return;

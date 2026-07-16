@@ -3580,7 +3580,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
             return;
         }
 
-        if (!src->IsHWIntrinsicZero()
+        if (!src->IsVecZero()
 #ifdef TARGET_XARCH
             && !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41)
 #endif
@@ -3652,7 +3652,7 @@ void LinearScan::BuildLclStoreCommon(GenTreeLclRef* store)
             // This is the zero-init case, and we need a register to hold the zero.
             // (On Arm64 we can just store REG_ZR.)
 
-            assert(src->IsHWIntrinsicZero());
+            assert(src->IsVecZero());
             singleUseRef = BuildUse(src->AsHWIntrinsic()->GetOp(0));
         }
 #endif // TARGET_XARCH

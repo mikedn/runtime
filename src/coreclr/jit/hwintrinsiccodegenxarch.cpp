@@ -654,7 +654,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     if (op1->isContained())
     {
         assert(ins == INS_insertps);
-        assert(op1->IsHWIntrinsicZero());
+        assert(op1->IsVecZero());
         assert(op2->isUsedFromReg());
 
         RegNum op2Reg = op2->GetRegNum();

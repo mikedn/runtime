@@ -1491,7 +1491,6 @@ public:
     bool IsDblConPositiveZero() const;
     bool IsDblConNonPositiveZero() const;
     bool IsDblCon2() const;
-    bool IsHWIntrinsicZero() const;
     bool IsVecZero() const;
     bool IsIntegralConst(ssize_t constVal) const;
 
@@ -1699,7 +1698,7 @@ public:
 
     bool IsReuseRegValCandidate() const
     {
-        return OperIsConst() || IsHWIntrinsicZero();
+        return OperIsConst() || IsVecZero();
     }
 
     bool IsReuseRegVal() const
@@ -7521,18 +7520,13 @@ inline bool GenTree::IsDblCon2() const
     return OperIs(GT_CNS_DBL) && (AsDblCon()->GetValue() == 2);
 }
 
-inline bool GenTree::IsHWIntrinsicZero() const
+inline bool GenTree::IsVecZero() const
 {
 #ifdef FEATURE_HW_INTRINSICS
     return OperIs(GT_HWINTRINSIC) && (AsHWIntrinsic()->GetIntrinsic() == NI_VEC_ZERO);
 #else
     return false;
 #endif
-}
-
-inline bool GenTree::IsVecZero() const
-{
-    return IsHWIntrinsicZero();
 }
 
 inline bool GenTree::IsIntegralConst(ssize_t constVal) const

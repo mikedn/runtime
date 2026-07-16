@@ -2261,7 +2261,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
     }
 
     auto UnpackLow = [this](var_types eltType, GenTree* op1, GenTree* op2) -> GenTree* {
-        if (op1->IsHWIntrinsicZero() && op2->IsHWIntrinsicZero())
+        if (op1->IsVecZero() && op2->IsVecZero())
         {
             BlockRange().Unlink(op1);
             return op2;
@@ -3018,7 +3018,7 @@ void Lowering::ContainSse41InsertFloat(GenTreeHWIntrinsic* node)
     // trade-off - only make elt reg optional if it is a LCL_VAR, otherwise it means that it's
     // more likely to already be in a register so reg optional isn't useful.
 
-    if (vec->IsHWIntrinsicZero() && !elt->OperIs(GT_LCL_LOAD) && comp->codeGen->UseVexEncoding())
+    if (vec->IsVecZero() && !elt->OperIs(GT_LCL_LOAD) && comp->codeGen->UseVexEncoding())
     {
         vec->SetContained();
     }

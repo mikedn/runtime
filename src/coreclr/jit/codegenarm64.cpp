@@ -1883,7 +1883,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
             }
             else
             {
-                assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+                assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsVecZero());
 
                 srcReg = REG_ZR;
             }
@@ -1962,7 +1962,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
 
     if (src->isContained())
     {
-        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero() || src->TypeIs(TYP_SIMD12));
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsVecZero() || src->TypeIs(TYP_SIMD12));
 
         srcReg = REG_ZR;
     }
@@ -2408,7 +2408,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     }
     else
     {
-        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsHWIntrinsicZero());
+        assert(src->IsIntCon(0) || src->IsDblConPositiveZero() || src->IsVecZero());
 
         if (type == TYP_SIMD16)
         {
@@ -3059,7 +3059,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (value->isContained())
     {
-        assert(value->IsIntCon(0) || value->IsDblConPositiveZero() || value->IsHWIntrinsicZero());
+        assert(value->IsIntCon(0) || value->IsDblConPositiveZero() || value->IsVecZero());
         assert(varTypeSize(type) <= REGSIZE_BYTES);
 
         valueReg = REG_ZR;
@@ -3622,7 +3622,7 @@ void CodeGen::GenVectorUpperUnspill(GenTreeUnOp* node)
 
 void CodeGen::StoreSIMD12(GenTree* store, const GenAddrMode& dst, GenTree* value)
 {
-    if (value->IsHWIntrinsicZero())
+    if (value->IsVecZero())
     {
         inst_AM_R(INS_str, EA_8BYTE, REG_ZR, dst, 0);
         inst_AM_R(INS_str, EA_4BYTE, REG_ZR, dst, 8);

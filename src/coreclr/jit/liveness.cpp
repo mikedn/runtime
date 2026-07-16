@@ -1232,7 +1232,7 @@ bool Liveness::ComputeLifeLIR(LiveSet& liveOut, LiveSet keepAlive, BasicBlock* b
                 // sure they are correctly marked so we don't accidentally remove side effects.
                 // For now just remove the obviously safe one - 0 - it tends to die due to const
                 // propagation.
-                if (!node->IsHWIntrinsicZero())
+                if (!node->IsVecZero())
                 {
                     break;
                 }

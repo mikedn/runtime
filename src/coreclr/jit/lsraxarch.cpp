@@ -1746,7 +1746,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     {
         RefPosition* def = BuildDef(node X86_ARG(dstCandidates));
 
-        if (node->IsHWIntrinsicZero())
+        if (node->IsVecZero())
         {
             def->getInterval()->isConstant = true;
         }
@@ -1873,7 +1873,7 @@ void LinearScan::BuildIndStore(GenTreeIndir* store)
     }
 
 #ifdef FEATURE_SIMD
-    if (store->TypeIs(TYP_SIMD12) && !value->IsHWIntrinsicZero() &&
+    if (store->TypeIs(TYP_SIMD12) && !value->IsVecZero() &&
         !compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
     {
         BuildInternalFloatDef(store);

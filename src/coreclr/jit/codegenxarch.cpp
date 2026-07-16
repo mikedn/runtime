@@ -7247,7 +7247,7 @@ void CodeGen::StoreSIMD12(GenTree* store, const GenAddrMode& dst, GenTree* value
 
     inst_AM_R(INS_movsd, EA_8BYTE, valueReg, dst, 0);
 
-    if (value->IsHWIntrinsicZero())
+    if (value->IsVecZero())
     {
         inst_AM_R(INS_movss, EA_4BYTE, valueReg, dst, 8);
     }

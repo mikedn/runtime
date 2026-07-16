@@ -385,7 +385,7 @@ void CodeGen::genCodeForBBlist()
             else if (node->IsReuseRegVal())
             {
                 JITDUMP("Node is marked ReuseReg\n");
-                assert(node->OperIs(GT_CNS_INT, GT_CNS_DBL) || node->IsHWIntrinsicZero());
+                assert(node->OperIs(GT_CNS_INT, GT_CNS_DBL) || node->IsVecZero());
             }
             else if (node->isContained())
             {
