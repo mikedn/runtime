@@ -790,15 +790,13 @@ void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant&
 
     if (vecConst.AllBitsZero(type))
     {
-        node->SetIntrinsic(NI_VEC_ZERO);
-        node->SetNumOps(0);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
         return;
     }
 
     if (vecConst.AllBitsOne(type))
     {
-        node->SetIntrinsic(NI_VEC_ONE_BITS);
-        node->SetNumOps(0);
+        node->SetIntrinsic(NI_VEC_ONE_BITS, 0);
         return;
     }
 
