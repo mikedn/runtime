@@ -1376,7 +1376,7 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
 #ifdef FEATURE_HW_INTRINSICS
 void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    if (node->IsSimd())
+    if (node->IsVec())
     {
         SetContainsAVXFlags();
 
@@ -1407,7 +1407,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             BuildInternalIntDef(node);
         }
 
-        var_types baseType  = node->GetSimdBaseType();
+        var_types baseType  = node->GetVecEltType();
         bool      isRMW     = node->IsRMW(compiler);
         bool      buildUses = true;
 

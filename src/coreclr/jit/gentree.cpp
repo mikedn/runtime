@@ -1092,8 +1092,8 @@ AGAIN:
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             hash += tree->AsHWIntrinsic()->GetIntrinsic();
-            hash += tree->AsHWIntrinsic()->GetSimdBaseType();
-            hash += tree->AsHWIntrinsic()->GetSimdSize();
+            hash += tree->AsHWIntrinsic()->GetVecEltType();
+            hash += tree->AsHWIntrinsic()->GetVecSize();
 
             for (GenTreeHWIntrinsic::Use& use : tree->AsHWIntrinsic()->Uses())
             {
@@ -3075,7 +3075,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                     // but due to decomposition it ends up with 4 operands in lowering so we need to
                     // prevent reordering.
                     && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_VEC_PACK) ||
-                        (tree->AsHWIntrinsic()->GetSimdBaseType() != TYP_LONG))
+                        (tree->AsHWIntrinsic()->GetVecEltType() != TYP_LONG))
 #endif
                         )
                 {
@@ -6705,10 +6705,10 @@ void Compiler::gtDispTreeRec(
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
             printf(" %s %s %u", GetHWIntrinsicIdName(tree->AsHWIntrinsic()->GetIntrinsic()),
-                   tree->AsHWIntrinsic()->GetSimdBaseType() == TYP_UNDEF
+                   tree->AsHWIntrinsic()->GetVecEltType() == TYP_UNDEF
                        ? ""
-                       : varTypeName(tree->AsHWIntrinsic()->GetSimdBaseType()),
-                   tree->AsHWIntrinsic()->GetSimdSize());
+                       : varTypeName(tree->AsHWIntrinsic()->GetVecEltType()),
+                   tree->AsHWIntrinsic()->GetVecSize());
 
             gtDispCommonEndLine(tree);
 

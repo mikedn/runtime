@@ -62,7 +62,7 @@ constexpr VNFunc VNFuncHWIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseT
 
 inline VNFunc VNFuncHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetSimdBaseType(), node->GetSimdSize());
+    return VNFuncHWIntrinsic(node->GetIntrinsic(), node->GetVecEltType(), node->GetVecSize());
 }
 
 inline var_types VNFuncSimdBaseType(VNFunc vnf)

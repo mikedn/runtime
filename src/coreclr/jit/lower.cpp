@@ -5422,7 +5422,7 @@ bool Lowering::VectorConstant::Insert(var_types type, int index, GenTree* value)
 bool Lowering::VectorConstant::Pack(GenTreeHWIntrinsic* create)
 {
     unsigned  numOps  = create->GetNumOps();
-    var_types eltType = create->GetSimdBaseType();
+    var_types eltType = create->GetVecEltType();
 
     for (unsigned i = 0; i < numOps; i++)
     {
@@ -5437,7 +5437,7 @@ bool Lowering::VectorConstant::Pack(GenTreeHWIntrinsic* create)
 
 bool Lowering::VectorConstant::Splat(GenTreeHWIntrinsic* create)
 {
-    var_types eltType = create->GetSimdBaseType();
+    var_types eltType = create->GetVecEltType();
     GenTree*  op1     = create->GetOp(0);
 
     if (!Insert(eltType, 0, op1))

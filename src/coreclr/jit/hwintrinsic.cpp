@@ -777,7 +777,7 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
                     case NI_Crc32_ComputeCrc32C:
                     case NI_Crc32_Arm64_ComputeCrc32:
                     case NI_Crc32_Arm64_ComputeCrc32C:
-                        retNode->AsHWIntrinsic()->SetSimdBaseType(sig.paramType[1]);
+                        retNode->AsHWIntrinsic()->SetVecEltType(sig.paramType[1]);
                         break;
                     default:
                         break;

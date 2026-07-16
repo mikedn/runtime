@@ -620,7 +620,7 @@ ClassLayout* Compiler::typGetStructLayout(GenTree* node)
 
 ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
 {
-    assert(varTypeIsSIMD(node->GetType()));
+    assert(varTypeIsVec(node->GetType()));
 
 #ifdef FEATURE_SIMD
     node = node->gtEffectiveVal();
@@ -651,7 +651,7 @@ ClassLayout* Compiler::typGetVectorLayout(GenTree* node)
             return typGetVectorLayout(node->GetType(), TYP_UNDEF);
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
-            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetSimdBaseType());
+            return typGetVectorLayout(node->GetType(), node->AsHWIntrinsic()->GetVecEltType());
 #endif
         default:
             unreached();

@@ -36,10 +36,10 @@ struct ExpandNonConstImmHelper
         }
         else
         {
-            simdSize = intrin->GetSimdSize();
+            simdSize = intrin->GetVecSize();
         }
 
-        HWIntrinsicInfo::GetImmOpBounds(intrin->GetIntrinsic(), simdSize, intrin->GetSimdBaseType(), &immLowerBound,
+        HWIntrinsicInfo::GetImmOpBounds(intrin->GetIntrinsic(), simdSize, intrin->GetVecEltType(), &immLowerBound,
                                         &immUpperBound);
 
         nonConstImmReg = immOp->GetRegNum();
@@ -175,7 +175,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        emitSize = emitVecTypeSize(node->GetSimdSize());
+        emitSize = emitVecTypeSize(node->GetVecSize());
         opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
     }
 
@@ -584,7 +584,7 @@ void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
 
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     GenTree*  vec     = node->GetOp(0);
     GenTree*  index   = node->GetOp(1);
     RegNum    destReg = node->GetRegNum();

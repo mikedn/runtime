@@ -603,12 +603,12 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             assert((node->GetNumOps() == 3) || (node->GetNumOps() == 4));
             var_types indexedElementOpType = node->GetOp(node->GetNumOps() - 2)->GetType();
-            assert(varTypeIsSIMD(indexedElementOpType));
+            assert(varTypeIsVec(indexedElementOpType));
             immVecSize = varTypeSize(indexedElementOpType);
         }
         else
         {
-            immVecSize = node->GetSimdSize();
+            immVecSize = node->GetVecSize();
         }
 
         HWIntrinsicInfo::GetImmOpBounds(intrin.id, immVecSize, intrin.baseType, &immLowerBound, &immUpperBound);

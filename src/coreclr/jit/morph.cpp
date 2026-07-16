@@ -4284,7 +4284,7 @@ GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
     {
         if (GenTreeHWIntrinsic* create = tree->GetOp(0)->IsHWIntrinsic())
         {
-            if ((create->GetIntrinsic() == NI_VEC_PACK) && (create->GetSimdBaseType() == TYP_FLOAT) &&
+            if ((create->GetIntrinsic() == NI_VEC_PACK) && (create->GetVecEltType() == TYP_FLOAT) &&
                 (create->GetNumOps() >= 2) && create->GetOp(0)->IsDblCon() && create->GetOp(1)->IsDblCon())
             {
                 uint64_t bits0 = create->GetOp(0)->AsDblCon()->GetFloatBits();
@@ -7612,10 +7612,10 @@ GenTree* Compiler::abiMorphMultiRegSimdArg(CallArgInfo* argInfo, GenTree* arg)
                 argIsZero = true;
                 break;
             case NI_VEC_PACK:
-                argIsPack = hwi->GetSimdBaseType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
+                argIsPack = hwi->GetVecEltType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
                 break;
             case NI_VEC_SPLAT:
-                argIsSplat = hwi->GetSimdBaseType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
+                argIsSplat = hwi->GetVecEltType() == TYP_FLOAT ARM64_ONLY(&&argInfo->GetRegType() == TYP_FLOAT);
                 break;
             default:
                 break;

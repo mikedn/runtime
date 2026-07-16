@@ -5277,8 +5277,8 @@ public:
 
 private:
     NamedIntrinsic m_intrinsic;
-    var_types      m_simdBaseType;
-    uint8_t        m_simdSize;
+    var_types      m_vecEltType;
+    uint8_t        m_vecSize;
     uint8_t        m_numOps;
     union {
         Use  m_inlineUses[3];
@@ -5286,25 +5286,25 @@ private:
     };
 
 public:
-    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size)
+    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types vecEltType, unsigned vecSize)
         : GenTree(GT_HWINTRINSIC, type)
         , m_intrinsic(intrinsic)
-        , m_simdBaseType(baseType)
-        , m_simdSize(static_cast<uint8_t>(size))
+        , m_vecEltType(vecEltType)
+        , m_vecSize(static_cast<uint8_t>(vecSize))
         , m_numOps(0)
     {
-        assert(size < UINT8_MAX);
+        assert(vecSize < UINT8_MAX);
     }
 
-    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size, GenTree* op1)
+    GenTreeHWIntrinsic(var_types type, NamedIntrinsic intrinsic, var_types vecEltType, unsigned vecSize, GenTree* op1)
         : GenTree(GT_HWINTRINSIC, type)
         , m_intrinsic(intrinsic)
-        , m_simdBaseType(baseType)
-        , m_simdSize(static_cast<uint8_t>(size))
+        , m_vecEltType(vecEltType)
+        , m_vecSize(static_cast<uint8_t>(vecSize))
         , m_numOps(1)
         , m_inlineUses{op1}
     {
-        assert(size < UINT8_MAX);
+        assert(vecSize < UINT8_MAX);
 
         if (IsMemoryStore())
         {
@@ -5315,15 +5315,15 @@ public:
     }
 
     GenTreeHWIntrinsic(
-        var_types type, NamedIntrinsic intrinsic, var_types baseType, unsigned size, GenTree* op1, GenTree* op2)
+        var_types type, NamedIntrinsic intrinsic, var_types vecEltType, unsigned vecSize, GenTree* op1, GenTree* op2)
         : GenTree(GT_HWINTRINSIC, type)
         , m_intrinsic(intrinsic)
-        , m_simdBaseType(baseType)
-        , m_simdSize(static_cast<uint8_t>(size))
+        , m_vecEltType(vecEltType)
+        , m_vecSize(static_cast<uint8_t>(vecSize))
         , m_numOps(2)
         , m_inlineUses{op1, op2}
     {
-        assert(size < UINT8_MAX);
+        assert(vecSize < UINT8_MAX);
 
         if (IsMemoryStore())
         {
@@ -5336,19 +5336,19 @@ public:
 
     GenTreeHWIntrinsic(var_types      type,
                        NamedIntrinsic intrinsic,
-                       var_types      baseType,
-                       unsigned       size,
+                       var_types      vecEltType,
+                       unsigned       vecSize,
                        GenTree*       op1,
                        GenTree*       op2,
                        GenTree*       op3)
         : GenTree(GT_HWINTRINSIC, type)
         , m_intrinsic(intrinsic)
-        , m_simdBaseType(baseType)
-        , m_simdSize(static_cast<uint8_t>(size))
+        , m_vecEltType(vecEltType)
+        , m_vecSize(static_cast<uint8_t>(vecSize))
         , m_numOps(3)
         , m_inlineUses{op1, op2, op3}
     {
-        assert(size < UINT8_MAX);
+        assert(vecSize < UINT8_MAX);
 
         if (IsMemoryStore())
         {
@@ -5363,8 +5363,8 @@ public:
     GenTreeHWIntrinsic(const GenTreeHWIntrinsic* copyFrom, CompAllocator alloc)
         : GenTree(GT_HWINTRINSIC, copyFrom->GetType())
         , m_intrinsic(copyFrom->m_intrinsic)
-        , m_simdBaseType(copyFrom->m_simdBaseType)
-        , m_simdSize(copyFrom->m_simdSize)
+        , m_vecEltType(copyFrom->m_vecEltType)
+        , m_vecSize(copyFrom->m_vecSize)
         , m_numOps(0)
     {
         SetNumOps(copyFrom->GetNumOps(), alloc);
@@ -5393,46 +5393,46 @@ public:
         SetNumOps(numOps);
     }
 
-    void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned numOps)
+    void SetIntrinsic(NamedIntrinsic intrinsic, var_types vecEltType, unsigned numOps)
     {
         SetIntrinsic(intrinsic);
-        SetSimdBaseType(simdBaseType);
+        SetVecEltType(vecEltType);
         SetNumOps(numOps);
     }
 
-    void SetIntrinsic(NamedIntrinsic intrinsic, var_types simdBaseType, unsigned simdSize, unsigned numOps)
+    void SetIntrinsic(NamedIntrinsic intrinsic, var_types vecEltType, unsigned vecSize, unsigned numOps)
     {
         SetIntrinsic(intrinsic);
-        SetSimdBaseType(simdBaseType);
-        SetSimdSize(simdSize);
+        SetVecEltType(vecEltType);
+        SetVecSize(vecSize);
         SetNumOps(numOps);
     }
 
-    var_types GetSimdBaseType() const
+    var_types GetVecEltType() const
     {
-        return m_simdBaseType;
+        return m_vecEltType;
     }
 
-    void SetSimdBaseType(var_types type)
+    void SetVecEltType(var_types type)
     {
         assert(varTypeIsIntegral(type) || varTypeIsFloating(type));
-        m_simdBaseType = type;
+        m_vecEltType = type;
     }
 
-    unsigned GetSimdSize() const
+    unsigned GetVecSize() const
     {
-        return m_simdSize;
+        return m_vecSize;
     }
 
-    void SetSimdSize(unsigned size)
+    void SetVecSize(unsigned size)
     {
         assert(size <= UINT8_MAX);
-        m_simdSize = static_cast<uint8_t>(size);
+        m_vecSize = static_cast<uint8_t>(size);
     }
 
-    bool IsSimd() const
+    bool IsVec() const
     {
-        return m_simdSize != 0;
+        return m_vecSize != 0;
     }
 
     unsigned GetNumOps() const
@@ -5523,7 +5523,7 @@ public:
     static bool Equals(GenTreeHWIntrinsic* simd1, GenTreeHWIntrinsic* simd2)
     {
         if ((simd1->GetType() != simd2->GetType()) || (simd1->m_intrinsic != simd2->m_intrinsic) ||
-            (simd1->m_simdBaseType != simd2->m_simdBaseType) || (simd1->m_simdSize != simd2->m_simdSize) ||
+            (simd1->m_vecEltType != simd2->m_vecEltType) || (simd1->m_vecSize != simd2->m_vecSize) ||
             (simd1->m_numOps != simd2->m_numOps))
         {
             return false;

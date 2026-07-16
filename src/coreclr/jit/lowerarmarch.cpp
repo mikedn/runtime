@@ -513,7 +513,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_AdvSimd_Insert:
-            node->SetOp(2, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(2)));
+            node->SetOp(2, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(2)));
             break;
 
         default:
@@ -534,7 +534,7 @@ bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
     if (GenTreeIntCon* icon = op1->IsIntCon())
     {
         emitAttr attr = emitTypeSize(node->GetType());
-        insOpts  opt  = GetVecArrangementOpt(attr, node->GetSimdBaseType());
+        insOpts  opt  = GetVecArrangementOpt(attr, node->GetVecEltType());
 
         return Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt);
     }
@@ -594,7 +594,7 @@ void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 {
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsTargetVec(type));
@@ -757,7 +757,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     assert(node->GetIntrinsic() == NI_VEC_SPLAT);
     assert(node->IsUnary());
 
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
 
     assert(varTypeIsTargetVec(node->GetType()));
     assert(varTypeIsArithmetic(eltType));
@@ -777,7 +777,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
 {
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsTargetVec(type));
@@ -812,7 +812,7 @@ void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant&
 
 void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
 {
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
 
     assert(varTypeIsArithmetic(eltType));
 
@@ -882,8 +882,8 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecSum(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_SUM);
-    assert(node->GetSimdBaseType() == TYP_FLOAT);
-    assert(node->GetSimdSize() == 16);
+    assert(node->GetVecEltType() == TYP_FLOAT);
+    assert(node->GetVecSize() == 16);
 
     GenTree* vec = node->GetOp(0);
 
@@ -1105,7 +1105,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                     }
                     else if ((index->GetValue() == 0) && value->IsDblCon())
                     {
-                        assert(varTypeIsFloating(node->GetSimdBaseType()));
+                        assert(varTypeIsFloating(node->GetVecEltType()));
 
                         if (Arm64Imm::IsFMovImm(value->AsDblCon()->GetValue()))
                         {

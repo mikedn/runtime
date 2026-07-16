@@ -1525,7 +1525,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_SSE41_Insert:
-            if (node->GetSimdBaseType() == TYP_FLOAT)
+            if (node->GetVecEltType() == TYP_FLOAT)
             {
                 LowerSse41InsertFloat(node);
                 return;
@@ -1538,7 +1538,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // In either case, only gtSIMDBaseType bits are read and so
             // widening or narrowing the operand may be unnecessary and it
             // can just be used directly.
-            node->SetOp(1, TryRemoveCastIfPresent(node->GetSimdBaseType(), node->GetOp(1)));
+            node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
             break;
 
         case NI_SSE42_CRC32B:
@@ -1550,16 +1550,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_SSE2_CompareGreaterThan:
-        {
-            if (node->GetSimdBaseType() != TYP_DOUBLE)
+            if (node->GetVecEltType() != TYP_DOUBLE)
             {
-                assert(varTypeIsIntegral(node->GetSimdBaseType()));
+                assert(varTypeIsIntegral(node->GetVecEltType()));
                 break;
             }
-
             FALLTHROUGH;
-        }
-
         case NI_SSE_CompareGreaterThan:
         case NI_SSE_CompareGreaterThanOrEqual:
         case NI_SSE_CompareNotGreaterThan:
@@ -1567,8 +1563,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE2_CompareGreaterThanOrEqual:
         case NI_SSE2_CompareNotGreaterThan:
         case NI_SSE2_CompareNotGreaterThanOrEqual:
-        {
-            assert((node->GetSimdBaseType() == TYP_FLOAT) || (node->GetSimdBaseType() == TYP_DOUBLE));
+            assert((node->GetVecEltType() == TYP_FLOAT) || (node->GetVecEltType() == TYP_DOUBLE));
 
             if (comp->compOpportunisticallyDependsOn(InstructionSet_AVX))
             {
@@ -1578,22 +1573,20 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // pre-AVX doesn't actually support these intrinsics in hardware so we need to swap the operands around
             std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
             break;
-        }
 
         case NI_SSE2_CompareLessThan:
         case NI_SSE42_CompareLessThan:
         case NI_AVX2_CompareLessThan:
-        {
-            if (node->GetSimdBaseType() == TYP_DOUBLE)
+            if (node->GetVecEltType() == TYP_DOUBLE)
             {
                 break;
             }
-            assert(varTypeIsIntegral(node->GetSimdBaseType()));
+            
+            assert(varTypeIsIntegral(node->GetVecEltType()));
 
             // this isn't actually supported in hardware so we need to swap the operands around
             std::swap(node->GetUse(0).NodeRef(), node->GetUse(1).NodeRef());
             break;
-        }
 
         case NI_SSE_CompareScalarOrderedEqual:
             LowerHWIntrinsicCC(node, NI_SSE_COMISS, GenCondition::FEQ);
@@ -1706,7 +1699,7 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 {
     assert((node->GetIntrinsic() == NI_VEC_EQ) || (node->GetIntrinsic() == NI_VEC_NE));
     assert(node->TypeIs(TYP_UBYTE));
-    assert(varTypeIsIntegral(node->GetSimdBaseType()));
+    assert(varTypeIsIntegral(node->GetVecEltType()));
     assert(comp->opts.IsIsaSupported(InstructionSet_SSE41));
     assert((cmpOp == GT_EQ) || (cmpOp == GT_NE));
 
@@ -1903,7 +1896,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
     assert(node->GetIntrinsic() == NI_VEC_PACK);
 
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsTargetVec(type));
@@ -1931,7 +1924,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
 
         node->SetNumOps(0);
         node->SetNumOps(numOps, comp->getAllocator(CMK_ASTNode));
-        node->SetSimdBaseType(eltType);
+        node->SetVecEltType(eltType);
 
         for (unsigned i = 0; i < numOps; i++)
         {
@@ -2318,7 +2311,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     assert(node->IsUnary());
 
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     GenTree*  op1     = node->GetOp(0);
 
     assert(varTypeIsTargetVec(type));
@@ -2530,7 +2523,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
 void Lowering::LowerVecPackConst(GenTreeHWIntrinsic* node, const VectorConstant& vecConst)
 {
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     unsigned  numOps  = node->GetNumOps();
 
     assert(varTypeIsTargetVec(type));
@@ -2615,7 +2608,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
         return;
     }
 
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
 
     // We should have a bounds check inserted for any index outside the allowed range
     // but we need to generate some code anyways, and so we'll mask here for simplicity.
@@ -2665,7 +2658,7 @@ void Lowering::LowerVecExtract(GenTreeHWIntrinsic* node)
         LowerNode(vec);
 
         node->SetIntrinsic(NI_VEC_EXTRACT);
-        node->SetSimdSize(16);
+        node->SetVecSize(16);
         node->SetOp(0, vec);
     }
 
@@ -2754,7 +2747,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_INSERT);
 
-    var_types      eltType = node->GetSimdBaseType();
+    var_types      eltType = node->GetVecEltType();
     GenTree*       vec     = node->GetOp(0);
     GenTreeIntCon* idx     = node->GetOp(1)->AsIntCon();
     GenTree*       elt     = node->GetOp(2);
@@ -2814,7 +2807,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
         BlockRange().Unlink(elt);
         elt = elt->AsOp()->GetOp(1);
 
-        node->SetSimdBaseType(eltType);
+        node->SetVecEltType(eltType);
         node->SetOp(0, vec);
         idx->SetValue(index);
         node->SetOp(2, elt);
@@ -2933,7 +2926,7 @@ void Lowering::LowerVecInsert(GenTreeHWIntrinsic* node)
 
 void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
+    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetVecEltType() == TYP_FLOAT));
 
     GenTree* vec = node->GetOp(0);
     GenTree* elt = node->GetOp(1);
@@ -2986,7 +2979,7 @@ void Lowering::LowerSse41InsertFloat(GenTreeHWIntrinsic* node)
 
 void Lowering::ContainSse41InsertFloat(GenTreeHWIntrinsic* node)
 {
-    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetSimdBaseType() == TYP_FLOAT));
+    assert((node->GetIntrinsic() == NI_SSE41_Insert) && (node->GetVecEltType() == TYP_FLOAT));
 
     GenTree* vec = node->GetOp(0);
     GenTree* elt = node->GetOp(1);
@@ -3032,8 +3025,8 @@ void Lowering::LowerVecSum128(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_SUM);
 
-    var_types eltType = node->GetSimdBaseType();
-    unsigned  size    = node->GetSimdSize();
+    var_types eltType = node->GetVecEltType();
+    unsigned  size    = node->GetVecSize();
 
     assert(varTypeIsFloating(eltType) || (eltType == TYP_INT) || (eltType == TYP_LONG) || (eltType == TYP_SHORT));
     assert((size == 16) || ((eltType == TYP_FLOAT) && ((size == 8) || (size == 12))));
@@ -3138,7 +3131,7 @@ void Lowering::LowerVecSum256(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_SUM);
 
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     GenTree*  vec     = node->GetOp(0);
 
     assert(vec->TypeIs(TYP_SIMD32));
@@ -4346,21 +4339,21 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                 case NI_SSE41_X64_Insert:
                     assert(instr->GetOp(1) == op);
                     // insertps has its own special handling
-                    assert(instr->GetSimdBaseType() != TYP_FLOAT);
+                    assert(instr->GetVecEltType() != TYP_FLOAT);
                     assert(varTypeIsIntegral(op->GetType()));
 
-                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetSimdBaseType()));
+                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= varTypeSize(instr->GetVecEltType()));
                     break;
 
                 case NI_VEC_REGCAST:
-                    assert(varTypeIsFloating(instr->GetSimdBaseType()));
+                    assert(varTypeIsFloating(instr->GetVecEltType()));
                     supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
                     break;
 
                 case NI_VEC_ITOV:
-                    assert(varTypeIsIntegral(instr->GetSimdBaseType()));
+                    assert(varTypeIsIntegral(instr->GetVecEltType()));
                     supportsGeneralLoads =
-                        (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));
+                        (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
                     break;
 
                 case NI_AVX2_BroadcastScalarToVector128:
@@ -4387,7 +4380,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                     else
                     {
                         supportsGeneralLoads =
-                            (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetSimdBaseType())));
+                            (varTypeSize(op->GetType()) == varTypeSize(varActualType(instr->GetVecEltType())));
                     }
                     break;
 
@@ -4510,7 +4503,7 @@ void Lowering::MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
         {
             case NI_SSE_LoadScalarVector128:
             case NI_SSE2_LoadScalarVector128:
-                intrinsicLoadType = hwi->GetSimdBaseType();
+                intrinsicLoadType = hwi->GetVecEltType();
                 intrinsicLoadAddr = hwi->GetOp(0);
                 break;
             case NI_SSE_LoadAlignedVector128:
@@ -4595,14 +4588,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
-    if ((category != HW_Category_Scalar) && (node->GetSimdSize() < 16))
+    if ((category != HW_Category_Scalar) && (node->GetVecSize() < 16))
     {
         // Ignore anything having a non-target vector size, such
         // intrinsic nodes should not appear but just in case...
         return;
     }
 
-    var_types baseType = node->GetSimdBaseType();
+    var_types baseType = node->GetVecEltType();
 
     if (category == HW_Category_IMM)
     {

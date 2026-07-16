@@ -1225,7 +1225,7 @@ GenTree* DecomposeLongs::DecomposeVecExtract(LIR::Use& use, GenTreeHWIntrinsic* 
     assert(node == use.Def());
     assert(node->GetIntrinsic() == NI_VEC_EXTRACT);
     assert(node->TypeIs(TYP_LONG));
-    assert(node->GetSimdBaseType() == TYP_LONG);
+    assert(node->GetVecEltType() == TYP_LONG);
 
     GenTree* vec = node->GetOp(0);
     GenTree* idx = node->GetOp(1);

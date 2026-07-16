@@ -101,13 +101,13 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
     const NamedIntrinsic intrinsic = node->GetIntrinsic();
     GenTree*             op1       = node->GetOp(0);
     RegNum               dstReg    = node->GetRegNum();
-    var_types            eltType   = node->GetSimdBaseType();
+    var_types            eltType   = node->GetVecEltType();
     Emitter&             emit      = *GetEmitter();
 
     HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
     instruction         ins      = HWIntrinsicInfo::GetIns(intrinsic, eltType);
     assert(ins != INS_invalid);
-    emitAttr vecSize = emitVecTypeSize(node->GetSimdSize());
+    emitAttr vecSize = emitVecTypeSize(node->GetVecSize());
     assert(vecSize != 0);
     int implicitImm = -1;
 
@@ -174,7 +174,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
 
                     RegNum valueReg = UseReg(extract->GetOp(0));
 
-                    ins     = HWIntrinsicInfo::GetIns(extract->GetIntrinsic(), extract->GetSimdBaseType());
+                    ins     = HWIntrinsicInfo::GetIns(extract->GetIntrinsic(), extract->GetVecEltType());
                     int imm = extract->GetOp(1)->AsIntCon()->GetInt32Value();
 
                     emit.emitIns_A_R_I(ins, EA_32BYTE, op1, valueReg, imm);
@@ -518,7 +518,7 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
 {
     RegNum   dstReg = node->GetRegNum();
     GenTree* op1    = node->GetOp(0);
-    emitAttr size   = emitVecTypeSize(node->GetSimdSize());
+    emitAttr size   = emitVecTypeSize(node->GetVecSize());
 
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
@@ -643,7 +643,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     RegNum   dstReg = node->GetRegNum();
     GenTree* op1    = node->GetOp(0);
     GenTree* op2    = node->GetOp(1);
-    emitAttr size   = emitVecTypeSize(node->GetSimdSize());
+    emitAttr size   = emitVecTypeSize(node->GetVecSize());
     Emitter& emit   = *GetEmitter();
 
     assert(dstReg != REG_NA);
@@ -859,7 +859,7 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
 {
     RegNum    dstReg  = node->GetRegNum();
     var_types type    = node->GetType();
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     Emitter&  emit    = *GetEmitter();
 
     assert(varTypeIsTargetVec(type) || (node->GetIntrinsic() == NI_VEC_EXTRACT));
@@ -957,7 +957,7 @@ void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
 
     UseHWIntrinsicOperands(node);
 
-    var_types eltType = node->GetSimdBaseType();
+    var_types eltType = node->GetVecEltType();
     GenTree*  vec     = node->GetOp(0);
     GenTree*  index   = node->GetOp(1);
     RegNum    destReg = node->GetRegNum();
@@ -1103,7 +1103,7 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     var_types      type      = node->GetType();
-    var_types      eltType   = node->GetSimdBaseType();
+    var_types      eltType   = node->GetVecEltType();
     RegNum         dstReg    = node->GetRegNum();
     GenTree*       op1       = node->GetNumOps() >= 1 ? node->GetOp(0) : nullptr;
     GenTree*       op2       = node->GetNumOps() >= 2 ? node->GetOp(1) : nullptr;
@@ -1189,7 +1189,7 @@ void CodeGen::GenSSE41Intrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     RegNum         dstReg    = node->GetRegNum();
-    var_types      eltType   = node->GetSimdBaseType();
+    var_types      eltType   = node->GetVecEltType();
 
     UseHWIntrinsicOperands(node);
 
@@ -1292,7 +1292,7 @@ void CodeGen::GenSSE42Intrinsic(GenTreeHWIntrinsic* node)
 void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
 {
     NamedIntrinsic intrinsic = node->GetIntrinsic();
-    var_types      eltType   = node->GetSimdBaseType();
+    var_types      eltType   = node->GetVecEltType();
     RegNum         dstReg    = node->GetRegNum();
     Emitter&       emit      = *GetEmitter();
 
@@ -1488,7 +1488,7 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
 
     NamedIntrinsic intrinsic = node->GetIntrinsic();
     emitAttr       size      = emitTypeSize(node->GetType());
-    instruction    ins       = HWIntrinsicInfo::GetIns(intrinsic, node->GetSimdBaseType());
+    instruction    ins       = HWIntrinsicInfo::GetIns(intrinsic, node->GetVecEltType());
     GenTree*       op1       = node->GetOp(0);
     GenTree*       op2       = node->GetOp(1);
     GenTree*       op3       = node->GetOp(2);

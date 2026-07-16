@@ -424,7 +424,7 @@ struct HWIntrinsic final
 private:
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
     {
-        baseType = node->GetSimdBaseType();
+        baseType = node->GetVecEltType();
 
         if (baseType == TYP_UNDEF)
         {
