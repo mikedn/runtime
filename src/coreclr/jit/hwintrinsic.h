@@ -399,7 +399,7 @@ struct HWIntrinsic final
 {
     NamedIntrinsic      id;
     HWIntrinsicCategory category;
-    var_types           baseType;
+    var_types           insType;
     unsigned            numOperands;
     GenTree*            op1;
     GenTree*            op2;
@@ -409,7 +409,7 @@ struct HWIntrinsic final
     HWIntrinsic(const GenTreeHWIntrinsic* node)
         : id(node->GetIntrinsic())
         , category(HWIntrinsicInfo::GetCategory(id))
-        , baseType(TYP_UNDEF)
+        , insType(TYP_UNDEF)
         , numOperands(node->GetNumOps())
         , op1(numOperands >= 1 ? node->GetOp(0) : nullptr)
         , op2(numOperands >= 2 ? node->GetOp(1) : nullptr)
@@ -424,9 +424,9 @@ struct HWIntrinsic final
 private:
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
     {
-        baseType = node->GetVecEltType();
+        insType = node->GetVecEltType();
 
-        if (baseType == TYP_UNDEF)
+        if (insType == TYP_UNDEF)
         {
             assert(category == HW_Category_Scalar);
 
@@ -447,11 +447,7 @@ private:
                 op = node;
             }
 
-            // TODO-MIKE-Review: This stuff is dubious. We don't really know if we need
-            // the actual type or the real type. These intrinsics should really use the
-            // "SIMD" base type to store the type on import, when we know the signature
-            // type.
-            baseType = varActualType(op->GetType());
+            insType = varActualType(op->GetType());
         }
     }
 };

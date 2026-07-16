@@ -165,18 +165,18 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (HWIntrinsicInfo::SIMDScalar(intrin.id))
     {
-        emitSize = emitTypeSize(intrin.baseType);
+        emitSize = emitTypeSize(intrin.insType);
         opt      = INS_OPTS_NONE;
     }
     else if (intrin.category == HW_Category_Scalar)
     {
-        emitSize = emitActualTypeSize(intrin.baseType);
+        emitSize = emitActualTypeSize(intrin.insType);
         opt      = INS_OPTS_NONE;
     }
     else
     {
         emitSize = emitVecTypeSize(node->GetVecSize());
-        opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
+        opt      = GetVecArrangementOpt(emitSize, intrin.insType);
     }
 
     const bool isRMW         = node->IsRMW(compiler);
@@ -201,13 +201,12 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
+    const instruction ins = HWIntrinsicInfo::GetIns(intrin.id, intrin.insType);
+    assert(ins != INS_invalid);
     Emitter& emit = *GetEmitter();
 
     if (!HWIntrinsicInfo::HasSpecialCodegen(intrin.id))
     {
-        const instruction ins = HWIntrinsicInfo::GetIns(intrin.id, intrin.baseType);
-        assert(ins != INS_invalid);
-
         if (intrin.category == HW_Category_SIMDByIndexedElement)
         {
             if (isRMW)
@@ -296,10 +295,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
     }
     else
     {
-        instruction ins = HWIntrinsicInfo::GetIns(intrin.id, intrin.baseType);
-
-        assert(ins != INS_invalid);
-
         switch (intrin.id)
         {
             case NI_AdvSimd_BitwiseSelect:
@@ -335,7 +330,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
 
                 emitSize = emitActualTypeSize(node->GetType());
-                opt      = GetVecArrangementOpt(emitSize, intrin.baseType);
+                opt      = GetVecArrangementOpt(emitSize, intrin.insType);
                 assert(opt != INS_OPTS_NONE);
 
                 ExpandNonConstImm(this, intrin.op2, node,
@@ -343,7 +338,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
 
             case NI_AdvSimd_Extract:
-                emitSize = emitTypeSize(intrin.baseType);
+                emitSize = emitTypeSize(intrin.insType);
 
                 ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
                     emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], imm, INS_OPTS_NONE);
@@ -355,7 +350,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 opt = (intrin.id == NI_AdvSimd_ExtractVector64) ? INS_OPTS_8B : INS_OPTS_16B;
 
                 ExpandNonConstImm(this, intrin.op3, node, [&](int imm) {
-                    const int byteIndex = varTypeSize(intrin.baseType) * imm;
+                    const int byteIndex = varTypeSize(intrin.insType) * imm;
                     emit.emitIns_R_R_R_I(ins, emitSize, defReg, regs[0], regs[1], byteIndex, opt);
                 });
                 break;
@@ -385,7 +380,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 assert(defReg != regs[2]);
 
-                if (varTypeIsFloating(intrin.baseType))
+                if (varTypeIsFloating(intrin.insType))
                 {
                     ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
                         emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt);
@@ -439,7 +434,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 else if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
                 {
-                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
+                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.insType), defReg, imm->GetValue());
                 }
                 else
                 {
@@ -448,7 +443,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                     instruction ins = varTypeIsFloating(intrin.op1->GetType()) ? INS_fmov : INS_mov;
 
-                    emit.emitIns_Mov(ins, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ true);
+                    emit.emitIns_Mov(ins, emitActualTypeSize(intrin.insType), defReg, regs[0], /*canSkip*/ true);
                 }
                 break;
 
@@ -460,33 +455,33 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 else
                 {
                     assert(intrin.op1->isUsedFromReg());
-                    assert(varTypeIsIntegral(intrin.baseType));
+                    assert(varTypeIsIntegral(intrin.insType));
 
-                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ false);
+                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.insType), defReg, regs[0], /*canSkip*/ false);
                 }
                 break;
 
             case NI_VEC_FTOV:
                 if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
                 {
-                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.baseType), defReg, imm->GetValue());
+                    emit.emitIns_R_F(INS_fmov, emitTypeSize(intrin.insType), defReg, imm->GetValue());
                 }
                 else
                 {
                     assert(intrin.op1->isUsedFromReg());
 
-                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ false);
+                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.insType), defReg, regs[0], /*canSkip*/ false);
                 }
                 break;
 
             case NI_VEC_SPLAT:
-                if (varTypeIsFloating(intrin.baseType))
+                if (varTypeIsFloating(intrin.insType))
                 {
                     if (GenTreeDblCon* dbl = intrin.op1->IsContainedDblCon())
                     {
                         emit.emitIns_R_F(INS_fmov, emitSize, defReg, dbl->GetValue(), opt);
                     }
-                    else if (node->TypeIs(TYP_SIMD8) && (intrin.baseType == TYP_DOUBLE))
+                    else if (node->TypeIs(TYP_SIMD8) && (intrin.insType == TYP_DOUBLE))
                     {
                         emit.emitIns_Mov(INS_fmov, EA_8BYTE, defReg, regs[0], /* canSkip */ false);
                     }
@@ -499,7 +494,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (GenTreeIntCon* imm = intrin.op1->IsContainedIntCon())
                 {
-                    opt = GetVecArrangementOpt(emitSize, intrin.baseType);
+                    opt = GetVecArrangementOpt(emitSize, intrin.insType);
                     emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
                     break;
                 }
@@ -519,8 +514,12 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
             case NI_AdvSimd_Arm64_StorePairScalar:
             case NI_AdvSimd_Arm64_StorePairScalarNonTemporal:
-                emit.emitIns_R_R_R(ins, emitTypeSize(intrin.baseType), regs[1], regs[2], regs[0]);
+                emit.emitIns_R_R_R(ins, emitTypeSize(intrin.insType), regs[1], regs[2], regs[0]);
                 break;
+            case NI_Crc32_CRC32B:
+            case NI_Crc32_CRC32BC:
+            case NI_Crc32_CRC32H:
+            case NI_Crc32_CRC32HC:
             case NI_Crc32_ComputeCrc32:
             case NI_Crc32_ComputeCrc32C:
             case NI_Crc32_Arm64_ComputeCrc32:

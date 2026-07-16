@@ -369,6 +369,30 @@ GenTree* Importer::ImportSpecialIntrinsic(NamedIntrinsic intrinsic, const HWIntr
             op1 = impPopStack().val;
             return NewVecNode(sig.retType, NI_VEC_SPLAT, eltType, op1);
 
+        case NI_Crc32_ComputeCrc32:
+        case NI_Crc32_ComputeCrc32C:
+            assert(sig.paramCount == 2);
+            assert(sig.retType == TYP_UINT);
+            assert(sig.paramType[0] == TYP_UINT);
+
+            switch (sig.paramType[1])
+            {
+                case TYP_UBYTE:
+                    intrinsic = intrinsic == NI_Crc32_ComputeCrc32 ? NI_Crc32_CRC32B : NI_Crc32_CRC32BC;
+                    break;
+                case TYP_USHORT:
+                    intrinsic = intrinsic == NI_Crc32_ComputeCrc32 ? NI_Crc32_CRC32H : NI_Crc32_CRC32HC;
+                    break;
+                case TYP_UINT:
+                    break;
+                default:
+                    unreached();
+            }
+
+            op2 = impPopStack().val;
+            op1 = impPopStack().val;
+            return comp->gtNewScalarHWIntrinsicNode(TYP_INT, intrinsic, op1, op2);
+
         default:
             return nullptr;
     }

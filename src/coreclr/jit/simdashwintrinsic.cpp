@@ -1175,7 +1175,7 @@ GenTree* Importer::impVectorTMultiplyLong(const HWIntrinsicSignature& sig)
 
     if (sig.paramLayout[0] == nullptr)
     {
-        assert(sig.paramType[0] == TYP_LONG);
+        assert(varTypeIsLong(sig.paramType[0]));
         assert(sig.paramLayout[1] == sig.retLayout);
 
         op2 = PopVec(sig.paramType[1]);
@@ -1184,7 +1184,7 @@ GenTree* Importer::impVectorTMultiplyLong(const HWIntrinsicSignature& sig)
     else if (sig.paramLayout[1] == nullptr)
     {
         assert(sig.paramLayout[0] == sig.retLayout);
-        assert(sig.paramType[1] == TYP_LONG);
+        assert(varTypeIsLong(sig.paramType[1]));
 
         op2 = impPopStack().val;
         op1 = PopVec(sig.paramType[0]);
