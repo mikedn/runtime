@@ -468,7 +468,7 @@ GenTree* Importer::ImportBaseIntrinsic(NamedIntrinsic intrinsic, const HWIntrins
 
             eltType = varTypeNodeType(sig.retLayout->GetElementType());
             op1     = PopVec(TYP_SIMD16);
-            return NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, op1);
+            return NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, 16, op1);
 
         case NI_Vector128_get_Zero:
         case NI_Vector256_get_Zero:

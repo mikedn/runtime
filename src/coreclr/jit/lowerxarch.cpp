@@ -1786,7 +1786,7 @@ void Lowering::LowerVecItoVLong(GenTreeHWIntrinsic* node)
     {
         GenTree* create128 = comp->gtNewVecNode(TYP_SIMD16, NI_VEC_ITOV, TYP_LONG, op);
         BlockRange().InsertAfter(op, create128);
-        node->SetIntrinsic(NI_Vector128_ToVector256Unsafe);
+        node->SetIntrinsic(NI_VEC_REGCAST);
         node->SetOp(0, create128);
         LowerNode(create128);
         LowerNode(node);
@@ -1895,7 +1895,7 @@ void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
     GenTree* op = node->GetOp(0);
     assert(varTypeUsesVecReg(op->GetType()));
 
-    if (op->IsDblConPositiveZero())
+    if (op->IsDblConPositiveZero() || op->IsVecZero())
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
@@ -2347,7 +2347,7 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
         LIR::Use        use(BlockRange(), &node->GetUse(0).NodeRef(), node);
         GenTreeLclLoad* tmp1 = ReplaceWithLclLoad(use);
         GenTreeLclLoad* tmp2 = comp->gtNewLclLoad(tmp1->GetLcl(), TYP_SIMD16);
-        GenTree* vec = comp->gtNewSimdHWIntrinsicNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, eltType, 16, tmp1);
+        GenTree* vec = comp->gtNewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, tmp1);
         GenTree* idx = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, tmp2, vec, idx);
         node->SetIntrinsic(NI_AVX_InsertVector128, 3);
@@ -4360,7 +4360,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
 
                 case NI_VEC_REGCAST:
                     assert(varTypeIsFloating(instr->GetSimdBaseType()));
-                    supportsGeneralLoads = (varTypeSize(op->GetType()) == varTypeSize(instr->GetSimdBaseType()));
+                    supportsGeneralLoads = (varTypeSize(op->GetType()) >= 4);
                     break;
 
                 case NI_VEC_ITOV:

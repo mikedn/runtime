@@ -444,9 +444,11 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 else
                 {
                     assert(intrin.op1->isUsedFromReg());
-                    assert(varTypeIsFloating(intrin.baseType));
+                    assert(varTypeUsesVecReg(intrin.op1->GetType()));
 
-                    emit.emitIns_Mov(INS_fmov, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ true);
+                    instruction ins = varTypeIsFloating(intrin.op1->GetType()) ? INS_fmov : INS_mov;
+
+                    emit.emitIns_Mov(ins, emitActualTypeSize(intrin.baseType), defReg, regs[0], /*canSkip*/ true);
                 }
                 break;
 
@@ -558,7 +560,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_VEC_ZEXT:
                 emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ false);
                 break;
-            case NI_Vector64_ToVector128Unsafe:
             case NI_VEC_TRUNC:
                 emit.emitIns_Mov(ins, emitSize, defReg, regs[0], /* canSkip */ true);
                 break;

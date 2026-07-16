@@ -8358,7 +8358,7 @@ instruction CodeGen::ins_Load(var_types srcType, bool aligned)
     assert(srcType != TYP_STRUCT);
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(srcType))
+    if (varTypeIsVec(srcType))
     {
         if (srcType == TYP_SIMD8)
         {

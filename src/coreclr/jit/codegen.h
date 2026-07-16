@@ -589,7 +589,6 @@ private:
 
     void GenGenericIntrinsic(GenTreeHWIntrinsic* node);
     void GenVecIntrinsic(GenTreeHWIntrinsic* node);
-    void GenVectorNIntrinsic(GenTreeHWIntrinsic* node);
     void GenX86BaseIntrinsic(GenTreeHWIntrinsic* node);
     void GenSSE2Intrinsic(GenTreeHWIntrinsic* node);
     void GenSSE41Intrinsic(GenTreeHWIntrinsic* node);

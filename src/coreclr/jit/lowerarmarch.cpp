@@ -580,7 +580,7 @@ void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
     GenTree* op = node->GetOp(0);
     assert(varTypeUsesVecReg(op->GetType()));
 
-    if (op->IsDblConPositiveZero())
+    if (op->IsDblConPositiveZero() || op->IsVecZero())
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);

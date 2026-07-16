@@ -1448,7 +1448,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             case NI_VEC_REGCAST:
                 assert(numOps == 1);
-                assert(varTypeIsFloating(baseType));
+                assert(varTypeUsesVecReg(op1->GetType()));
 
                 if (!op1->isContained())
                 {
@@ -1473,7 +1473,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 }
                 break;
 
-            case NI_Vector128_ToVector256Unsafe:
             case NI_VEC_ZEXT:
             case NI_VEC_TRUNC:
                 assert(numOps == 1);

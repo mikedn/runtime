@@ -1667,7 +1667,7 @@ GenTree* Importer::impVectorT256ConvertInt64ToDouble(const HWIntrinsicSignature&
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE2_UnpackLow, TYP_DOUBLE, e[0], e[1]);
 
     uses[0] = NewVecNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[4], comp->gtNewIconNode(1));
-    uses[0] = NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, uses[0]);
+    uses[0] = NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, TYP_LONG, uses[0]);
     impMakeMultiUse(uses[0], 4, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     e[2] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64, TYP_LONG, 16, uses[0]);
@@ -1798,7 +1798,7 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
     e[1] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[1]);
 
     uses[3] = NewVecNode(TYP_SIMD16, NI_AVX_ExtractVector128, TYP_FLOAT, 32, uses[3], comp->gtNewIconNode(1));
-    uses[3] = NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, uses[3]);
+    uses[3] = NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, TYP_LONG, uses[3]);
     impMakeMultiUse(uses[3], 3, uses, sig.paramLayout[0], CHECK_SPILL_ALL DEBUGARG("Vector<T>.Convert temp"));
 
     e[2] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, uses[2]);
@@ -1807,7 +1807,7 @@ GenTree* Importer::impVectorT256ConvertDoubleToInt64(const HWIntrinsicSignature&
     e[3] = NewVecNode(TYP_LONG, NI_SSE2_X64_ConvertToInt64WithTruncation, TYP_DOUBLE, 16, e[3]);
 
     e[0] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, e[0], e[1], comp->gtNewIconNode(1));
-    e[0] = NewVecNode(TYP_SIMD32, NI_Vector128_ToVector256Unsafe, TYP_LONG, 16, e[0]);
+    e[0] = NewVecNode(TYP_SIMD32, NI_VEC_REGCAST, TYP_LONG, 16, e[0]);
     e[1] = NewVecNode(TYP_SIMD16, NI_SSE41_X64_Insert, TYP_LONG, e[2], e[3], comp->gtNewIconNode(1));
 
     return NewVecNode(TYP_SIMD32, NI_AVX2_InsertVector128, TYP_LONG, e[0], e[1], comp->gtNewIconNode(1));

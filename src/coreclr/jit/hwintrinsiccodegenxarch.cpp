@@ -46,10 +46,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
         case InstructionSet_ILLEGAL:
             GenVecIntrinsic(node);
             break;
-        case InstructionSet_Vector128:
-        case InstructionSet_Vector256:
-            GenVectorNIntrinsic(node);
-            break;
         case InstructionSet_X86Base:
         case InstructionSet_X86Base_X64:
             GenX86BaseIntrinsic(node);
@@ -913,17 +909,18 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
         {
             GenTree* op1 = node->GetOp(0);
 
-            assert(varTypeIsFloating(eltType));
-            assert(eltType == op1->GetType());
+            assert(varTypeUsesVecReg(op1->GetType()));
+            assert(op1->GetType() != type);
 
             if (op1->isContained() || op1->isUsedFromSpillTemp())
             {
-                genHWIntrinsic_R_RM(node, ins_Load(eltType), emitTypeSize(eltType), dstReg, op1);
+                var_types loadType = op1->GetType();
+                genHWIntrinsic_R_RM(node, ins_Load(loadType), emitTypeSize(loadType), dstReg, op1);
             }
             else
             {
                 RegNum op1Reg = UseReg(op1);
-                emit.emitIns_Mov(INS_movaps, emitTypeSize(type), dstReg, op1Reg, /*canSkip*/ true);
+                emit.emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, op1Reg, /*canSkip*/ true);
             }
             break;
         }
@@ -947,43 +944,6 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
             GenMove(EA_32BYTE, /* canSkip */ true);
             break;
 
-        default:
-            unreached();
-    }
-
-    DefReg(node);
-}
-
-void CodeGen::GenVectorNIntrinsic(GenTreeHWIntrinsic* node)
-{
-    NamedIntrinsic intrinsic = node->GetIntrinsic();
-    RegNum         dstReg    = node->GetRegNum();
-    var_types      eltType   = node->GetSimdBaseType();
-    GenTree*       op1       = node->GetOp(0);
-    instruction    ins       = HWIntrinsicInfo::GetIns(intrinsic, eltType);
-    Emitter&       emit      = *GetEmitter();
-
-    assert(varTypeIsArithmetic(eltType));
-
-    UseHWIntrinsicOp(op1);
-
-    auto GenMove = [&](emitAttr size, bool canSkip) {
-        if (op1->isContained() || op1->isUsedFromSpillTemp())
-        {
-            genHWIntrinsic_R_RM(node, ins, size, dstReg, op1);
-        }
-        else
-        {
-            RegNum op1Reg = op1->GetRegNum();
-            emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, canSkip);
-        }
-    };
-
-    switch (intrinsic)
-    {
-        case NI_Vector128_ToVector256Unsafe:
-            GenMove(EA_16BYTE, /* canSkip */ true);
-            break;
         default:
             unreached();
     }
