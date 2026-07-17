@@ -196,7 +196,7 @@ constexpr bool varTypeIsNonTargetVec(var_types vt)
 #endif
 }
 
-__declspec(noinline) inline var_types varTypeTargetVec(var_types vt)
+inline var_types varTypeTargetVec(var_types vt)
 {
 #ifdef FEATURE_SIMD
     if (varTypeIsNonTargetVec(vt))

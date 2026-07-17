@@ -35,7 +35,7 @@ public:
 
         const char* list() const
         {
-            return const_cast<const char*>(m_list);
+            return m_list;
         }
 
         void initialize(const WCHAR* list, ICorJitHost* host);
