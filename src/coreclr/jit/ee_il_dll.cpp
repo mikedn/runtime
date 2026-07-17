@@ -60,7 +60,6 @@ extern "C" DLLEXPORT void jitStartup(ICorJitHost* jitHost)
 
     g_jitHost = jitHost;
 
-    assert(!JitConfig.isInitialized());
     JitConfig.initialize(jitHost);
 
     INDEBUG(fJitStressRange.EnsureInit(JitConfig.JitStressRange()));

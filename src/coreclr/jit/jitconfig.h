@@ -101,11 +101,6 @@ public:
     JitConfigValues()                        = default;
     JitConfigValues(JitConfigValues&& other) = delete;
 
-    bool isInitialized() const
-    {
-        return m_isInitialized != 0;
-    }
-
     void initialize(ICorJitHost* host);
     void destroy(ICorJitHost* host);
 };
