@@ -516,16 +516,6 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
             case NI_AdvSimd_Arm64_StorePairScalarNonTemporal:
                 emit.emitIns_R_R_R(ins, emitTypeSize(intrin.insType), regs[1], regs[2], regs[0]);
                 break;
-            case NI_Crc32_CRC32B:
-            case NI_Crc32_CRC32BC:
-            case NI_Crc32_CRC32H:
-            case NI_Crc32_CRC32HC:
-            case NI_Crc32_ComputeCrc32:
-            case NI_Crc32_ComputeCrc32C:
-            case NI_Crc32_Arm64_ComputeCrc32:
-            case NI_Crc32_Arm64_ComputeCrc32C:
-                emit.emitIns_R_R_R(ins, emitSize, defReg, regs[0], regs[1], opt);
-                break;
             case NI_AdvSimd_AbsoluteCompareLessThan:
             case NI_AdvSimd_AbsoluteCompareLessThanOrEqual:
             case NI_AdvSimd_CompareLessThan:
