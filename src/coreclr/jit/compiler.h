@@ -1122,29 +1122,8 @@ enum OptFlags : uint8_t
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
 
-#define DEFAULT_MIN_OPTS_CODE_SIZE 60000
-#define DEFAULT_MIN_OPTS_INSTR_COUNT 20000
-#define DEFAULT_MIN_OPTS_BB_COUNT 2000
-#define DEFAULT_MIN_OPTS_LV_NUM_COUNT 2000
-#define DEFAULT_MIN_OPTS_LV_REF_COUNT 8000
-
 // Maximum number of locals before turning off the inlining
 #define MAX_LV_NUM_COUNT_FOR_INLINING 512
-
-// Default numbers used to perform loop alignment. All the numbers are chosen
-// based on experimenting with various benchmarks.
-
-// Default minimum loop block weight required to enable loop alignment.
-#define DEFAULT_ALIGN_LOOP_MIN_BLOCK_WEIGHT 4
-
-// By default a loop will be aligned at 32B address boundary to get better
-// performance as per architecture manuals.
-#define DEFAULT_ALIGN_LOOP_BOUNDARY 0x20
-
-// For non-adaptive loop alignment, by default, only align a loop whose size is
-// at most 3 times the alignment block size. If the loop is bigger than that, it is most
-// likely complicated enough that loop alignment will not impact performance.
-#define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
 
 class CompilerOptions
 {
@@ -5454,13 +5433,6 @@ public:
     void gsCopyShadowParams();     // Identify vulnerable params and create shadow copies
     bool gsFindVulnerableParams(); // Shadow param analysis code
     void gsParamsToShadows();      // Insert copy code and replace param uses by shadow
-
-#define DEFAULT_MAX_INLINE_SIZE 100 // Methods with >  DEFAULT_MAX_INLINE_SIZE IL bytes will never be inlined.
-                                    // This can be overwritten by setting complus_JITInlineSize env variable.
-
-#define DEFAULT_MAX_INLINE_DEPTH 20 // Methods at more than this level deep will not be inlined
-
-#define DEFAULT_MAX_LOCALLOC_TO_LOCAL_SIZE 32 // fixed locallocs of this size or smaller will convert to local buffers
 
 private:
 #ifdef FEATURE_JIT_METHOD_PERF

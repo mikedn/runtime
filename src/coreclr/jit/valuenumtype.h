@@ -131,6 +131,4 @@ public:
     }
 };
 
-constexpr int DefaultVNMapSelectBudget = 100;
-
 INDEBUG(void RunValueNumStoreTests(class Compiler*);)

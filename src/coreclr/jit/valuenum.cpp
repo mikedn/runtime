@@ -224,7 +224,7 @@ ValueNumStore::ValueNumStore(SsaOptimizer& ssa)
     // This value must be non-negative and non-zero, reset the value to DefaultVNMapSelectBudget if it isn't.
     if (m_mapSelectBudget <= 0)
     {
-        m_mapSelectBudget = DefaultVNMapSelectBudget;
+        m_mapSelectBudget = JitConfigValues::DefaultVNMapSelectBudget;
     }
 }
 

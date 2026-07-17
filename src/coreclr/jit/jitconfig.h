@@ -89,7 +89,10 @@ public:
     {                                                                                                                  \
         return m_##name;                                                                                               \
     }
+
+#define CONFIG_DECL
 #include "jitconfigvalues.h"
+#undef CONFIG_DECL
 
 private:
     bool m_isInitialized;
