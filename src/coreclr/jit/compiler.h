@@ -4,17 +4,18 @@
 #pragma once
 
 #include "jit.h"
-#include "opcode.h"
+
+#include "arraystack.h"
+#include "jitexpandarray.h"
 #include "jithashtable.h"
+#include "hashbv.h"
+
+#include "opcode.h"
 #include "gentree.h"
 #include "lir.h"
 #include "block.h"
 #include "inline.h"
 #include "jiteh.h"
-#include "cycletimer.h"
-#include "arraystack.h"
-#include "hashbv.h"
-#include "jitexpandarray.h"
 #include "namedintrinsiclist.h"
 #include "phase.h"
 #include "codegeninterface.h"
@@ -798,9 +799,9 @@ struct CompTimeInfo
     // isn't, this means that we're doing something significant between the end of the last
     // declared subphase and the end of its parent.
     uint64_t m_parentPhaseEndSlop = 0;
-    bool     m_timerFailure       = false;
 
     unsigned m_byteCodeBytes;
+    bool m_timerFailure = false;
 
     CompTimeInfo(unsigned byteCodeBytes) : m_byteCodeBytes(byteCodeBytes)
     {
@@ -896,18 +897,7 @@ public:
     // and adds it to "sum".
     void Terminate(Compiler* comp, CompTimeSummaryInfo& sum, bool includePhases);
 
-    // Attempts to query the cycle counter of the current thread. If successful, returns "true" and sets
-    // *cycles to the cycle counter value.  Otherwise, returns false and sets the "m_timerFailure" flag of
-    // "m_info" to true.
-    bool GetThreadCycles(uint64_t* cycles)
-    {
-        bool res = CycleTimer::GetThreadCyclesS(cycles);
-        if (!res)
-        {
-            m_info.m_timerFailure = true;
-        }
-        return res;
-    }
+    bool GetThreadCycles(uint64_t* cycles);
 
     static void Shutdown();
 };

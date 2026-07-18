@@ -6,6 +6,7 @@
 #include "patchpointinfo.h"
 #include "jitstd/algorithm.h"
 #include "jitgcinfo.h"
+#include "cycletimer.h"
 
 extern ICorJitHost* g_jitHost;
 
@@ -3041,49 +3042,40 @@ void CompTimeSummaryInfo::Print(FILE* f) const
 // x86/x64 we use RDTSC even though it's not thread-safe; GetThreadCycles
 // (which is monotonous) is just too expensive.
 
-#if defined(HOST_X86) || defined(HOST_AMD64)
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && (defined(HOST_X86) || defined(HOST_AMD64))
 
-#include <intrin.h>
-static bool _our_GetThreadCycles(uint64_t* cycleOut)
+bool JitTimer::GetThreadCycles(uint64_t* cycles)
 {
-    *cycleOut = __rdtsc();
+    *cycles = __rdtsc();
     return true;
 }
 
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && (defined(HOST_X86) || defined(HOST_AMD64))
 
-static bool _our_GetThreadCycles(uint64_t* cycleOut)
+bool JitTimer::GetThreadCycles(uint64_t* cycles)
 {
     uint32_t hi, lo;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-    *cycleOut = (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
+    *cycles = (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
     return true;
 }
 
-#else // neither _MSC_VER nor __GNUC__
+#else
 
-// The following *might* work - might as well try.
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
+bool JitTimer::GetThreadCycles(uint64_t* cycles)
+{
+    bool res = CycleTimer::GetThreadCyclesS(cycles);
+    m_info.m_timerFailure |= !res;
+    return res;
+}
 
-#endif
-
-#elif defined(HOST_ARM) || defined(HOST_ARM64)
-// If this doesn't work please see ../gc/gc.cpp for additional ARM
-// info (and possible solutions).
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
-#else // not x86/x64 and not ARM
-// Don't know what this target is, but let's give it a try; if
-// someone really wants to make this work, please add the right
-// code here.
-#define _our_GetThreadCycles(cp) GetThreadCycles(cp)
 #endif
 
 JitTimer::JitTimer(unsigned byteCodeSize) : m_info(byteCodeSize)
 {
     uint64_t threadCurCycles;
 
-    if (_our_GetThreadCycles(&threadCurCycles))
+    if (GetThreadCycles(&threadCurCycles))
     {
         m_start         = threadCurCycles;
         m_curPhaseStart = threadCurCycles;
@@ -3097,7 +3089,7 @@ void JitTimer::EndPhase(Compiler* compiler, Phases phase)
     // assert((int)phase > (int)m_lastPhase);  // We should end phases in increasing order.
 
     uint64_t threadCurCycles;
-    if (_our_GetThreadCycles(&threadCurCycles))
+    if (GetThreadCycles(&threadCurCycles))
     {
         uint64_t phaseCycles = (threadCurCycles - m_curPhaseStart);
 
@@ -3163,32 +3155,17 @@ void JitTimer::EndPhase(Compiler* compiler, Phases phase)
 
 #if MEASURE_CLRAPI_CALLS
 
-//------------------------------------------------------------------------
-// JitTimer::CLRApiCallEnter: Start the stopwatch for an EE call.
-//
-// Arguments:
-//    apix - The API index - an "enum API_ICorJitInfo_Names" value.
-//
-
 void JitTimer::CLRApiCallEnter(unsigned apix)
 {
     assert(m_CLRcallAPInum == -1); // Nested calls not allowed
     m_CLRcallAPInum = apix;
 
     // If we can't get the cycles, we'll just ignore this call
-    if (!_our_GetThreadCycles(&m_CLRcallStart))
+    if (!GetThreadCycles(&m_CLRcallStart))
+    {
         m_CLRcallStart = 0;
+    }
 }
-
-//------------------------------------------------------------------------
-// JitTimer::CLRApiCallLeave: compute / record time spent in an EE call.
-//
-// Arguments:
-//    apix - The API's "enum API_ICorJitInfo_Names" value; this value
-//           should match the value passed to the most recent call to
-//           "CLRApiCallEnter" (i.e. these must come as matched pairs),
-//           and they also may not nest.
-//
 
 void JitTimer::CLRApiCallLeave(unsigned apix)
 {
@@ -3202,7 +3179,7 @@ void JitTimer::CLRApiCallLeave(unsigned apix)
         if (JitConfig.JitEECallTimingInfo())
         {
             uint64_t threadCurCycles;
-            if (_our_GetThreadCycles(&threadCurCycles))
+            if (GetThreadCycles(&threadCurCycles))
             {
                 // Compute the cycles spent in the call.
                 threadCurCycles -= m_CLRcallStart;
