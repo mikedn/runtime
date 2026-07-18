@@ -30,6 +30,9 @@
 // likely complicated enough that loop alignment will not impact performance.
 #define DEFAULT_MAX_LOOPSIZE_FOR_ALIGN DEFAULT_ALIGN_LOOP_BOUNDARY * 3
 
+// Maximum number of locals before turning off the inlining
+#define MAX_LV_NUM_COUNT_FOR_INLINING 512
+
 static constexpr int DefaultVNMapSelectBudget = 100;
 #endif
 

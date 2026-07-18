@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "opcode.h"
 
 void Importer::impPushOnStack(GenTree* tree, typeInfo ti)
 {

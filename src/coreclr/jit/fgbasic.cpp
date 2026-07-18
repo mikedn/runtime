@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #include "jitpch.h"
+#include "opcode.h"
 
 //------------------------------------------------------------------------
 // fgEnsureFirstBBisScratch: Ensure that fgFirstBB is a scratch BasicBlock

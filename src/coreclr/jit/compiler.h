@@ -10,14 +10,13 @@
 #include "jithashtable.h"
 #include "hashbv.h"
 
-#include "opcode.h"
+#include "phase.h"
+#include "openum.h"
 #include "gentree.h"
 #include "lir.h"
 #include "block.h"
 #include "inline.h"
 #include "jiteh.h"
-#include "namedintrinsiclist.h"
-#include "phase.h"
 #include "codegeninterface.h"
 #include "hwintrinsic.h"
 
@@ -1111,9 +1110,6 @@ enum OptFlags : uint8_t
     CLFLG_MINOPT = 0,
     CLFLG_MAXOPT = CLFLG_REGVAR | CLFLG_INLINING | CLFLG_STRUCTPROMOTE | CLFLG_CONSTANTFOLD
 };
-
-// Maximum number of locals before turning off the inlining
-#define MAX_LV_NUM_COUNT_FOR_INLINING 512
 
 class CompilerOptions
 {
