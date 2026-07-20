@@ -682,101 +682,6 @@ inline LclVarDsc* Compiler::lvaNewTemp(GenTree* tree, bool shortLifetime DEBUGAR
     return lcl;
 }
 
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          Optimizer                                        XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-inline LclVarDsc* Compiler::LoopDsc::lpIterVar() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIterTree->GetLcl();
-}
-
-inline int Compiler::LoopDsc::lpIterConst() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIterTree->GetValue()->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
-}
-
-inline genTreeOps Compiler::LoopDsc::lpIterOper() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIterTree->GetValue()->GetOper();
-}
-
-inline bool Compiler::LoopDsc::lpIsReversed() const
-{
-    INDEBUG(VerifyIterator());
-    return lpTestTree->GetOp(1)->OperIs(GT_LCL_LOAD) &&
-           (lpTestTree->GetOp(1)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
-}
-
-inline genTreeOps Compiler::LoopDsc::lpTestOper() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIsReversed() ? GenTree::SwapRelop(lpTestTree->GetOper()) : lpTestTree->GetOper();
-}
-
-inline GenTree* Compiler::LoopDsc::lpIterator() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIsReversed() ? lpTestTree->GetOp(1) : lpTestTree->AsOp()->GetOp(0);
-}
-
-inline GenTree* Compiler::LoopDsc::lpLimit() const
-{
-    INDEBUG(VerifyIterator());
-    return lpIsReversed() ? lpTestTree->GetOp(0) : lpTestTree->GetOp(1);
-}
-
-inline int Compiler::LoopDsc::lpConstLimit() const
-{
-    INDEBUG(VerifyIterator());
-    assert(lpFlags & LPFLG_CONST_LIMIT);
-    return lpLimit()->AsIntCon()->GetInt32Value();
-}
-
-inline LclVarDsc* Compiler::LoopDsc::lpVarLimit() const
-{
-    INDEBUG(VerifyIterator());
-    assert(lpFlags & LPFLG_VAR_LIMIT);
-    return lpLimit()->AsLclLoad()->GetLcl();
-}
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                Optimization activation rules                              XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
-// should we try to replace integer multiplication with lea/add/shift sequences?
-inline bool Compiler::optAvoidIntMult(void) const
-{
-    return compCodeOpt() != SMALL_CODE;
-}
-
-#include "ee_il_dll.hpp"
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                          Compiler                                         XX
-XX                      Inline functions                                     XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
-
 #ifndef DEBUG
 inline bool Compiler::compStressCompile(StressArea stressArea, unsigned percentage)
 {
@@ -793,6 +698,7 @@ inline void Compiler::CLRApiCallEnter(unsigned apix)
         pCompJitTimer->CLRApiCallEnter(apix);
     }
 }
+
 inline void Compiler::CLRApiCallLeave(unsigned apix)
 {
     if (pCompJitTimer != nullptr)

@@ -12,6 +12,7 @@
 
 #include "phase.h"
 #include "openum.h"
+#include "ee_il_dll.hpp"
 #include "gentree.h"
 #include "lir.h"
 #include "block.h"
@@ -800,7 +801,7 @@ struct CompTimeInfo
     uint64_t m_parentPhaseEndSlop = 0;
 
     unsigned m_byteCodeBytes;
-    bool m_timerFailure = false;
+    bool     m_timerFailure = false;
 
     CompTimeInfo(unsigned byteCodeBytes) : m_byteCodeBytes(byteCodeBytes)
     {
@@ -4527,26 +4528,75 @@ public:
         GenTreeLclStore* lpIterTree; // The "i = i <op> const" tree
         GenTreeOp*       lpTestTree; // pointer to the node containing the loop test
 
-        LclVarDsc* lpIterVar() const;   // iterator variable
-        int        lpIterConst() const; // the constant with which the iterator is incremented
-        genTreeOps lpIterOper() const;  // the type of the operation on the iterator (ASG_ADD, ASG_SUB, etc.)
+        // iterator variable
+        LclVarDsc* lpIterVar() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIterTree->GetLcl();
+        }
+
+        // the constant with which the iterator is incremented
+        int lpIterConst() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIterTree->GetValue()->AsOp()->GetOp(1)->AsIntCon()->GetInt32Value();
+        }
+
+        // the iterator node in the loop test
+        genTreeOps lpIterOper() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIterTree->GetValue()->GetOper();
+        }
+
+        // the type of the comparison between the iterator and the limit (LE, GE, etc.)
+        genTreeOps lpTestOper() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIsReversed() ? GenTree::SwapRelop(lpTestTree->GetOper()) : lpTestTree->GetOper();
+        }
+
+        // true if the iterator node is the second operand in the loop condition
+        bool lpIsReversed() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpTestTree->GetOp(1)->OperIs(GT_LCL_LOAD) &&
+                   (lpTestTree->GetOp(1)->AsLclLoad()->GetLcl() == lpIterTree->GetLcl());
+        }
+
+        // the iterator node in the loop test
+        GenTree* lpIterator() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIsReversed() ? lpTestTree->GetOp(1) : lpTestTree->AsOp()->GetOp(0);
+        }
+
+        // the limit node in the loop test
+        GenTree* lpLimit() const
+        {
+            INDEBUG(VerifyIterator());
+            return lpIsReversed() ? lpTestTree->GetOp(0) : lpTestTree->GetOp(1);
+        }
+
+        // Limit constant value of iterator - loop condition is "i RELOP const". Valid if LPFLG_CONST_LIMIT
+        int lpConstLimit() const
+        {
+            INDEBUG(VerifyIterator());
+            assert(lpFlags & LPFLG_CONST_LIMIT);
+            return lpLimit()->AsIntCon()->GetInt32Value();
+        }
+
+        // The lclVar in the loop condition ( "i RELOP lclVar" ). Valid if LPFLG_VAR_LIMIT.
+        LclVarDsc* lpVarLimit() const
+        {
+            INDEBUG(VerifyIterator());
+            assert(lpFlags & LPFLG_VAR_LIMIT);
+            return lpLimit()->AsLclLoad()->GetLcl();
+        }
+
 #ifdef DEBUG
         void VerifyIterator() const;
 #endif
-
-        genTreeOps lpTestOper() const; // the type of the comparison between the iterator and the limit (GT_LE, GT_GE,
-                                       // etc.)
-        bool     lpIsReversed() const; // true if the iterator node is the second operand in the loop condition
-        GenTree* lpIterator() const;   // the iterator node in the loop test
-        GenTree* lpLimit() const;      // the limit node in the loop test
-
-        // Limit constant value of iterator - loop condition is "i RELOP const"
-        // : Valid if LPFLG_CONST_LIMIT
-        int lpConstLimit() const;
-
-        // The lclVar in the loop condition ( "i RELOP lclVar" )
-        // : Valid if LPFLG_VAR_LIMIT
-        LclVarDsc* lpVarLimit() const;
 
         // Returns "true" iff "*this" contains the blk.
         bool lpContains(BasicBlock* blk) const
@@ -4737,7 +4787,10 @@ public:
      *                       Optimization conditions
      *************************************************************************/
 
-    bool optAvoidIntMult() const;
+    bool optAvoidIntMult() const
+    {
+        return compCodeOpt() != SMALL_CODE;
+    }
 
     bool cseCanSwapOrder(GenTree* tree1, GenTree* tree2);
 

@@ -341,6 +341,23 @@ enum class HandleKind : uint8_t
     Count
 };
 
+inline HandleKind TokenToHandleKind(unsigned token)
+{
+    switch (TypeFromToken(token))
+    {
+        case mdtTypeRef:
+        case mdtTypeDef:
+        case mdtTypeSpec:
+            return HandleKind::Class;
+        case mdtMethodDef:
+            return HandleKind::Method;
+        case mdtFieldDef:
+            return HandleKind::Field;
+        default:
+            return HandleKind::Token;
+    }
+}
+
 const char* dmpGetHandleKindName(HandleKind kind);
 
 static_assert(static_cast<unsigned>(HandleKind::Count) <= 16, "HandleKind must fit in GenTreeFlags's upper 4 bits");
