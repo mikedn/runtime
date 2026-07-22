@@ -554,9 +554,14 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
     const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
 #ifdef TARGET_XARCH
-    if ((sig.paramCount > 0) && (category == HW_Category_IMM) && varActualTypeIsInt(impStackTop(0).val->GetType()))
+    if ((sig.paramCount > 0) && (category == HW_Category_IMM) && varActualTypeIsInt(impStackTop().val->GetType()))
     {
         assert((HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) == 255) || HWIntrinsicInfo::HasSpecialImport(intrinsic));
+
+        if (!impStackTop().val->IsIntCon() && !mustExpand)
+        {
+            return nullptr;
+        }
     }
 #endif // TARGET_XARCH
 

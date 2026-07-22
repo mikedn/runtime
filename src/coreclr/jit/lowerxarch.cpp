@@ -4612,6 +4612,10 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             lastOp->SetContained();
         }
+        else if (varActualTypeIsInt(lastOp->GetType()))
+        {
+            return;
+        }
     }
 
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
