@@ -68,8 +68,8 @@ public:
 
 protected:
 #ifdef TARGET_XARCH
-    bool contains256bitAVXInstructions = false;
-    bool containsAVXInstructions       = false;
+    bool containsVex256Instructions = false;
+    bool containsVexInstructions    = false;
 #endif
 #ifdef TARGET_ARM64
     bool genSaveFpLrWithAllCalleeSavedRegisters = false;
@@ -146,14 +146,14 @@ public:
     }
 
 #ifdef TARGET_XARCH
-    void SetContainsAVX()
+    void SetContainsVexInstructions()
     {
-        containsAVXInstructions = true;
+        containsVexInstructions = true;
     }
 
-    void SetContains256bitAVX()
+    void SetContainsVex256Instructions()
     {
-        contains256bitAVXInstructions = true;
+        containsVex256Instructions = true;
     }
 
     void SetUseVexEncoding(bool value);

@@ -1382,7 +1382,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
         if (node->TypeIs(TYP_SIMD32))
         {
-            compiler->codeGen->SetContains256bitAVX();
+            compiler->codeGen->SetContainsVex256Instructions();
         }
     }
 
@@ -1942,7 +1942,7 @@ void LinearScan::SetContainsAVXFlags()
 {
     if (compiler->codeGen->UseVexEncoding())
     {
-        compiler->codeGen->SetContainsAVX();
+        compiler->codeGen->SetContainsVexInstructions();
     }
 }
 

@@ -399,7 +399,8 @@ public:
 #ifdef TARGET_XARCH
     void PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
-    void genVzeroupperIfNeeded(bool check256bitOnly);
+    void GenPrologVzeroupperIfNeeded();
+    void GenEpilogVzeroupperIfNeeded();
 #endif
 
     regNumber PrologChooseInitReg(regMaskTP initRegs);

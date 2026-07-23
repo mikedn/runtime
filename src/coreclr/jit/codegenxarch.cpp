@@ -4266,8 +4266,8 @@ void CodeGen::GenCall(GenTreeCall* call)
     // VZEROUPPER after PInvoke call because transition penalty from legacy SSE to AVX only happens
     // when there's preceding 256-bit AVX to legacy SSE transition penalty.
     // TODO-MIKE-Review: Shouldn't this check IsUnmanaged instead of IsPInvoke? A managed PInvoke
-    // would be a stub compiled by the JIT, that uses AVX-256 if available, like any other method.
-    if (call->IsPInvoke() && call->IsUserCall() && contains256bitAVXInstructions)
+    // would be a stub compiled by the JIT, that uses VEX if available, like any other method.
+    if (call->IsPInvoke() && call->IsUserCall() && containsVex256Instructions)
     {
         assert(UseVexEncoding());
         emit.emitIns(INS_vzeroupper);
@@ -7451,7 +7451,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
 //
 void CodeGen::PrologPreserveCalleeSavedFloatRegs(unsigned lclFrameSize)
 {
-    genVzeroupperIfNeeded(false);
+    GenPrologVzeroupperIfNeeded();
 
 #ifndef WINDOWS_AMD64_ABI
     static_assert_no_msg(RBM_FLT_CALLEE_SAVED == RBM_NONE);
@@ -7538,20 +7538,18 @@ void CodeGen::genRestoreCalleeSavedFltRegs(unsigned lclFrameSize)
 #endif // WINDOWS_AMD64_ABI
 }
 
-// Generate VZEROUPPER instruction as needed to zero out upper 128b-bit of all YMM registers so that the
-// AVX/Legacy SSE transition penalties can be avoided. This function is been used in PrologPreserveCalleeSavedFloatRegs
-// (prolog) and genRestoreCalleeSavedFltRegs (epilog). Issue VZEROUPPER in Prolog if the method contains
-// 128-bit or 256-bit AVX code, to avoid legacy SSE to AVX transition penalty, which could happen when native
-// code contains legacy SSE code calling into JIT AVX code (e.g. reverse PInvoke). Issue VZEROUPPER in Epilog
-// if the method contains 256-bit AVX code, to avoid AVX to legacy SSE transition penalty.
-//
-// check256bitOnly - true to check if the function contains 256-bit AVX instruction and generate VZEROUPPER
-//                   instruction, false to check if the function contains AVX instruction (either 128-bit
-//                   or 256-bit).
-//
-void CodeGen::genVzeroupperIfNeeded(bool check256bitOnly)
+void CodeGen::GenPrologVzeroupperIfNeeded()
 {
-    if (check256bitOnly ? contains256bitAVXInstructions : containsAVXInstructions)
+    if (containsVexInstructions)
+    {
+        assert(UseVexEncoding());
+        GetEmitter()->emitIns(INS_vzeroupper);
+    }
+}
+
+void CodeGen::GenEpilogVzeroupperIfNeeded()
+{
+    if (containsVex256Instructions)
     {
         assert(UseVexEncoding());
         GetEmitter()->emitIns(INS_vzeroupper);
@@ -8009,7 +8007,7 @@ void CodeGen::genFuncletEpilog()
     // Restore callee saved XMM regs from their stack slots before modifying SP
     // to position at callee saved int regs.
     genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
-    genVzeroupperIfNeeded(true);
+    GenEpilogVzeroupperIfNeeded();
     GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, genFuncletInfo.fiSpDelta);
     genPopCalleeSavedRegisters();
     GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
@@ -8091,7 +8089,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
 
     // Restore float registers that were saved to stack before SP is modified.
     genRestoreCalleeSavedFltRegs(lclFrameSize);
-    genVzeroupperIfNeeded(true);
+    GenEpilogVzeroupperIfNeeded();
 
 #ifdef JIT32_GCENCODER
     // When using the JIT32 GC encoder, we do not start the OS-reported portion of the epilog until after

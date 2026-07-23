@@ -1021,7 +1021,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
 
         if (tree->TypeIs(TYP_SIMD32))
         {
-            compiler->codeGen->SetContains256bitAVX();
+            compiler->codeGen->SetContainsVex256Instructions();
         }
     }
 #endif
