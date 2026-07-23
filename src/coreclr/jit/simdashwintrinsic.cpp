@@ -278,13 +278,27 @@ GenTree* Importer::ImportSysNumVecIntrinsic(NamedIntrinsic        intrinsic,
         return impVector234TSpecial(intrinsic, signature, layout, isNewObj);
     }
 
-    if (!comp->compOpportunisticallyDependsOn(HWIntrinsicInfo::GetIsa(hwIntrinsic)))
+    var_types              eltType = layout->GetElementType();
+    unsigned               size    = layout->GetSize();
+    CORINFO_InstructionSet isa     = InstructionSet_ILLEGAL;
+
+    if ((hwIntrinsic == NI_VEC_ZERO) || (hwIntrinsic == NI_VEC_ONE_BITS))
+    {
+#ifdef TARGET_XARCH
+        isa = size <= 16 ? InstructionSet_SSE : InstructionSet_AVX;
+#elif defined(TARGET_ARM64)
+        isa                                 = InstructionSet_AdvSimd;
+#endif
+    }
+    else
+    {
+        isa = HWIntrinsicInfo::GetIsa(hwIntrinsic);
+    }
+
+    if (!comp->compOpportunisticallyDependsOn(isa))
     {
         return nullptr;
     }
-
-    var_types eltType = layout->GetElementType();
-    unsigned  size    = layout->GetSize();
 
     assert(!signature.hasThisParam);
 
