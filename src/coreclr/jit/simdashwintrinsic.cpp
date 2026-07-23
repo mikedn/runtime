@@ -3082,18 +3082,16 @@ void SIMDCoalescingBuffer::ChangeToSIMDLoad(Compiler* compiler, GenTree* load, v
 
             if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
             {
-                // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
+                // If this is the field of a local struct variable then set lvUsedInVecIntrinsic to prevent
                 // the local from being promoted. If it gets promoted then it will be dependent-promoted due
                 // to the indirection we're creating.
 
                 // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
                 // struct local since the whole point is to block poor promotion.
 
-                LclVarDsc* lcl = addr->AsLclAddr()->GetLcl();
-
-                if (varTypeIsSIMD(lcl->GetType()))
+                if (LclVarDsc* lcl = addr->AsLclAddr()->GetLcl(); varTypeIsVec(lcl->GetType()))
                 {
-                    lcl->lvUsedInSIMDIntrinsic = true;
+                    lcl->lvUsedInVecIntrinsic = true;
                 }
             }
 
@@ -3174,18 +3172,16 @@ void SIMDCoalescingBuffer::ChangeToSIMDStore(Compiler* compiler, GenTree* store,
 
         if (addr->OperIs(GT_LCL_ADDR) && (addr->AsLclAddr()->GetLclOffs() == 0))
         {
-            // If this is the field of a local struct variable then set lvUsedInSIMDIntrinsic to prevent
+            // If this is the field of a local struct variable then set lvUsedInVecIntrinsic to prevent
             // the local from being promoted. If it gets promoted then it will be dependent-promoted due
             // to the indirection we're creating.
 
-            // TODO-MIKE-Cleanup: This is done only for SIMD locals but it really should be done for any
-            // struct local since the whole point is to block poor promotion.
+            // TODO-MIKE-Cleanup: This is done only for vector locals but it really should be done for
+            // any struct local since the whole point is to block poor promotion.
 
-            LclVarDsc* lcl = addr->AsLclAddr()->GetLcl();
-
-            if (varTypeIsSIMD(lcl->GetType()))
+            if (LclVarDsc* lcl = addr->AsLclAddr()->GetLcl(); varTypeIsVec(lcl->GetType()))
             {
-                lcl->lvUsedInSIMDIntrinsic = true;
+                lcl->lvUsedInVecIntrinsic = true;
             }
         }
 

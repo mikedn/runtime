@@ -456,7 +456,7 @@ public:
                         LclVarDsc* lcl = value->AsLclLoad()->GetLcl();
 
                         if ((m_compiler->info.retDesc.GetRegCount() == 1) && !lcl->IsImplicitByRefParam() &&
-                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsSIMD(lcl->GetType()))
+                            lcl->IsPromoted() && (lcl->GetPromotedFieldCount() > 1) && !varTypeIsVec(lcl->GetType()))
                         {
                             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_BlockOp));
                         }
@@ -577,7 +577,7 @@ private:
                 {
                     lcl = fieldLcl;
 
-                    if (varTypeIsSIMD(fieldLcl->GetType()))
+                    if (varTypeIsVec(fieldLcl->GetType()))
                     {
                         fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, 0);
                     }
@@ -711,7 +711,7 @@ private:
             FieldSeqNode*  fieldSeq    = GetFieldSequence(lcl->GetLayout()->GetClassHandle(), type, &fieldLayout);
             GenTreeLclFld* fieldStore  = store->ChangeToLclStoreFld(type, lcl, 0, fieldSeq, store->GetValue());
 
-            if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+            if (varTypeIsVec(type) && (fieldLayout != nullptr) && (fieldLayout->GetVectorType() == type))
             {
                 fieldStore->SetLayout(fieldLayout, m_compiler);
             }
@@ -758,7 +758,7 @@ private:
                 lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                if (varTypeIsVec(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
                     fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
                 }
@@ -959,7 +959,7 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && !lcl->lvDoNotEnregister)
+        if (varTypeIsVec(lclType) && (loadType == TYP_FLOAT) && (lclOffs % 4 == 0) && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by GetElement would work. But other vector
@@ -1105,7 +1105,7 @@ private:
                 lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                if (varTypeIsVec(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
                     fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
                 }
@@ -1155,8 +1155,8 @@ private:
         }
 
 #ifdef FEATURE_SIMD
-        if (varTypeIsSIMD(lclType) && (storeType == TYP_FLOAT) && (lclOffs % 4 == 0) &&
-            lcl->lvIsUsedInSIMDIntrinsic() && !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
+        if (varTypeIsVec(lclType) && (storeType == TYP_FLOAT) && (lclOffs % 4 == 0) && lcl->IsUsedInVecIntrinsic() &&
+            !lcl->IsImplicitByRefParam() && !lcl->lvDoNotEnregister)
         {
             // Recognize fields X/Y/Z/W of Vector2/3/4. These fields have type FLOAT so this is the only type
             // we recognize here but any other type supported by InsertElement would work. But other vector
@@ -1175,7 +1175,7 @@ private:
             // in lowering. InsertElement is a bit more cumbersome to handle, though perhaps it would fit
             // into the existing RMW lowering.
 
-            // TODO-MIKE-CQ: The lvIsUsedInSIMDIntrinsic check is bogus. It's really intended to block
+            // TODO-MIKE-CQ: The IsUsedInVecIntrinsic check is bogus. It's really intended to block
             // struct promotion and this transform doesn't have anything to do with that. In fact using
             // it here hurts promotion because SIMD typed promoted fields don't have it set so accessing
             // their X/Y/Z/W fields will just result in DNER.
@@ -1231,7 +1231,7 @@ private:
                 lclSize = varTypeSize(lclType);
                 lclOffs -= fieldLcl->GetPromotedFieldOffset();
 
-                if (varTypeIsSIMD(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
+                if (varTypeIsVec(lclType) && (fieldSeq != nullptr) && fieldSeq->IsField())
                 {
                     fieldSeq = ExtractVectorFieldElementFieldSeq(fieldSeq, fieldLcl, lclOffs);
                 }
@@ -1447,12 +1447,12 @@ private:
         }
 #endif
 
-        // We either have a SIMD field that's returned in multiple registers (e.g. HFA)
+        // We either have a vector field that's returned in multiple registers (e.g. HFA)
         // or perhaps the IL is invalid (e.g. struct with a single DOUBLE field returned
         // as a Vector2 or some other 2 FLOAT field struct that is a HFA).
         // Either way, leave it to morph to produce a FIELD_LIST in this case.
         // We could probably do it here but it's not clear if it has any benefits.
-        assert(varTypeIsSIMD(fieldLcl->GetType()));
+        assert(varTypeIsVec(fieldLcl->GetType()));
 
         return load;
     }
@@ -1792,8 +1792,8 @@ private:
 #endif
 
         // Otherwise we're on arm64 or unix-x64 and we have promoted a single
-        // SIMD field struct that will be transformed during global morph.
-        assert(varTypeIsSIMD(type));
+        // vector field struct that will be transformed during global morph.
+        assert(varTypeIsVec(type));
 
 #ifdef TARGET_ARM64
         assert(call->GetRetLayout()->IsHfa());
@@ -1830,7 +1830,7 @@ private:
             m_compiler->lvaSetDoNotEnregister(lcl DEBUGARG(Compiler::DNER_LocalField));
         }
 
-        if (varTypeIsSIMD(type) && (fieldLayout != nullptr) && (fieldLayout->GetSIMDType() == type))
+        if (varTypeIsVec(type) && (fieldLayout != nullptr) && (fieldLayout->GetVectorType() == type))
         {
             load->AsLclLoadFld()->SetLayout(fieldLayout, m_compiler);
         }
@@ -2055,7 +2055,7 @@ private:
     FieldSeqNode* ExtractVectorFieldElementFieldSeq(FieldSeqNode* fieldSeq, LclVarDsc* fieldLcl, unsigned lclOffs)
     {
         assert(fieldSeq->IsField());
-        assert(varTypeIsSIMD(fieldLcl->GetType()));
+        assert(varTypeIsVec(fieldLcl->GetType()));
 
         FieldSeqNode* elementSeq = fieldSeq->RemovePrefix(fieldLcl->GetPromotedFieldSeq());
 
@@ -2179,7 +2179,7 @@ void Compiler::lvaRecordSimdIntrinsicUse(GenTreeLclLoad* load)
 
 void Compiler::lvaRecordSimdIntrinsicUse(LclVarDsc* lcl)
 {
-    lcl->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInVecIntrinsic = true;
 }
 
 void Compiler::lvaRecordSimdIntrinsicDef(GenTreeLclStore* store, GenTreeHWIntrinsic* src)
@@ -2200,7 +2200,7 @@ void Compiler::lvaRecordSimdIntrinsicDef(LclVarDsc* lcl, GenTreeHWIntrinsic* src
             break;
     }
 
-    lcl->lvUsedInSIMDIntrinsic = true;
+    lcl->lvUsedInVecIntrinsic = true;
 }
 #endif // FEATURE_SIMD
 
@@ -2305,7 +2305,7 @@ bool StructPromotionHelper::CanPromoteStructType(CORINFO_CLASS_HANDLE typeHandle
             unsigned alignment = varTypeSize(field.type);
 
 #ifdef FEATURE_SIMD
-            if (varTypeIsSIMD(field.type) && (field.layout->GetVectorKind() == VectorKind::Vector234))
+            if (varTypeIsVec(field.type) && (field.layout->GetVectorKind() == VectorKind::Vector234))
             {
                 // Vector2/3/4 doesn't have special alignment rules in the VM,
                 // it has only FLOAT fields so it's 4 byte aligned.
@@ -2374,9 +2374,9 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
     assert(varTypeIsStruct(lcl->GetType()));
     assert(!lcl->IsPromoted());
 
-    if (varTypeIsSIMD(lcl->GetType()))
+    if (varTypeIsVec(lcl->GetType()))
     {
-        if (lcl->lvIsUsedInSIMDIntrinsic())
+        if (lcl->IsUsedInVecIntrinsic())
         {
             // If the local is used by vector intrinsics, then we do not want to promote
             // since the cost of packing individual fields into a single SIMD register
@@ -2510,7 +2510,7 @@ bool StructPromotionHelper::CanPromoteStructLocal(LclVarDsc* lcl)
 
     // Prolog codegen also handles the case of a single Vector3/4 field, that
     // is passed in 2 registers.
-    if ((info.fieldCount == 1) && varTypeIsSIMD(info.fields[0].type))
+    if ((info.fieldCount == 1) && varTypeIsVec(info.fields[0].type))
     {
         return true;
     }
@@ -2582,7 +2582,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
     // pressure. The current struct promotion is way too limited to be able to do the right
     // thing in this case.
 
-    if (!lcl->lvFieldAccessed && (info.fieldCount > 3 || varTypeIsSIMD(lcl->GetType())))
+    if (!lcl->lvFieldAccessed && (info.fieldCount > 3 || varTypeIsVec(lcl->GetType())))
     {
         JITDUMP("Not promoting V%02u: type = %s, #fields = %d, fieldAccessed = %d.\n", lcl->GetLclNum(),
                 varTypeName(lcl->GetType()), info.fieldCount, lcl->lvFieldAccessed);
@@ -2606,7 +2606,7 @@ bool StructPromotionHelper::ShouldPromoteStructLocal(LclVarDsc* lcl)
         // on load".
         if (compiler->abiGetStructParamType(lcl->GetLayout(), compiler->info.compIsVarArgs).kind == SPK_ByValue)
         {
-            if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsSIMD(info.fields[0].type)))
+            if ((info.fieldCount != 2) && ((info.fieldCount != 1) || !varTypeIsVec(info.fields[0].type)))
             {
                 JITDUMP("Not promoting multireg param V%02u, #fields != 2 and it's not SIMD.\n", lcl->GetLclNum());
                 return false;
@@ -2782,7 +2782,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
         LclVarDsc* fieldLcl = compiler->lvaAllocTemp(false DEBUGARG("promoted struct field"));
         fieldLcl->MakePromotedField(lcl->GetLclNum(), field.offset, fieldSeq);
 
-        if (varTypeIsSIMD(field.type))
+        if (varTypeIsVec(field.type))
         {
             compiler->lvaSetStruct(fieldLcl, field.layout, false);
         }
@@ -2796,7 +2796,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
 #ifdef TARGET_ARM64
         // TODO-MIKE-Fix: This is rather stupid but some code (the genPrologMoveParamRegs garbage
         // in particular) depends on vector params being marked as HFA even when they're not HFAs.
-        if (lcl->IsHfaParam() && varTypeIsSIMD(fieldLcl->GetType()))
+        if (lcl->IsHfaParam() && varTypeIsVec(fieldLcl->GetType()))
         {
             fieldLcl->SetIsHfaParam();
         }
@@ -2818,7 +2818,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
         }
 
 #ifdef UNIX_AMD64_ABI
-        if (varTypeIsSIMD(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
+        if (varTypeIsVec(fieldLcl->GetType()) && (lcl->GetPromotedFieldCount() == 1))
         {
             fieldLcl->SetParamRegs(lcl->GetParamReg(0), lcl->GetParamReg(1));
         }
@@ -2847,7 +2847,7 @@ void StructPromotionHelper::PromoteStructLocal(LclVarDsc* lcl)
 #elif defined(TARGET_ARM64)
             if ((lcl->GetLayout()->GetHfaElementType() == TYP_FLOAT) && !fieldLcl->TypeIs(TYP_FLOAT))
             {
-                assert(varTypeIsSIMD(fieldLcl->GetType()));
+                assert(varTypeIsVec(fieldLcl->GetType()));
 
                 regCount = varTypeSize(fieldLcl->GetType()) / 4;
             }

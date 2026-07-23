@@ -166,7 +166,7 @@ public:
 #endif
     bool lvLRACandidate : 1; // Tracked for linear scan register allocation purposes
 #ifdef FEATURE_SIMD
-    bool lvUsedInSIMDIntrinsic : 1; // This local is referenced by a SIMD intrinsic
+    bool lvUsedInVecIntrinsic : 1; // This local is referenced by a vector intrinsic
 #endif
     bool lvClassIsExact : 1;              // lvClassHandle is the exact type
     INDEBUG(bool lvClassInfoUpdated : 1;) // true if this var has updated class handle or exactness
@@ -553,10 +553,10 @@ public:
         m_paramInitialReg = static_cast<RegNumSmall>(reg);
     }
 
-    bool lvIsUsedInSIMDIntrinsic() const
+    bool IsUsedInVecIntrinsic() const
     {
 #ifdef FEATURE_SIMD
-        return lvUsedInSIMDIntrinsic;
+        return lvUsedInVecIntrinsic;
 #else
         return false;
 #endif
