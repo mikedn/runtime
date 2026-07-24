@@ -762,6 +762,18 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
     assert(varTypeIsTargetVec(node->GetType()));
     assert(varTypeIsArithmetic(eltType));
 
+    emitAttr attr = emitTypeSize(node->GetType());
+    insOpts  opt  = GetVecArrangementOpt(attr, node->GetVecEltType());
+
+    if (GenTreeIntCon* icon = node->GetOp(0)->IsIntCon())
+    {
+        if (Arm64Imm::IsMoviImm(icon->GetUInt64Value(), opt))
+        {
+            icon->SetContained();
+            return;
+        }
+    }
+
     VectorConstant vecConst;
 
     if (vecConst.Splat(node))
