@@ -475,20 +475,9 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 break;
 
             case NI_VEC_SPLAT:
-                if (varTypeIsFloating(intrin.insType))
+                if (GenTreeDblCon* imm = intrin.op1->IsContainedDblCon())
                 {
-                    if (GenTreeDblCon* dbl = intrin.op1->IsContainedDblCon())
-                    {
-                        emit.emitIns_R_F(INS_fmov, emitSize, defReg, dbl->GetValue(), opt);
-                    }
-                    else if (node->TypeIs(TYP_SIMD8) && (intrin.insType == TYP_DOUBLE))
-                    {
-                        emit.emitIns_Mov(INS_fmov, EA_8BYTE, defReg, regs[0], /* canSkip */ false);
-                    }
-                    else
-                    {
-                        emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], 0, opt);
-                    }
+                    emit.emitIns_R_F(INS_fmov, emitSize, defReg, imm->GetValue(), opt);
                     break;
                 }
 
@@ -496,6 +485,19 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     opt = GetVecArrangementOpt(emitSize, intrin.insType);
                     emit.emitIns_R_I(INS_movi, emitSize, defReg, imm->GetValue(), opt);
+                    break;
+                }
+
+                if (varTypeIsFloating(intrin.insType))
+                {
+                    if (node->TypeIs(TYP_SIMD8) && (intrin.insType == TYP_DOUBLE))
+                    {
+                        emit.emitIns_Mov(INS_fmov, EA_8BYTE, defReg, regs[0], /* canSkip */ false);
+                    }
+                    else
+                    {
+                        emit.emitIns_R_R_I(ins, emitSize, defReg, regs[0], 0, opt);
+                    }
                     break;
                 }
 

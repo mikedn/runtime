@@ -1092,67 +1092,57 @@ static double DecodeFMovImm(int64_t imm8)
 {
     assert((0 <= imm8) && (imm8 <= 0x0ff));
 
-    unsigned sign  = (imm8 >> 7) & 1;
-    unsigned exp   = ((imm8 >> 4) & 7) ^ 0x4;
-    unsigned mant  = (imm8 & 15) + 16;
-    unsigned scale = 16 * 8;
+    constexpr unsigned N = 64;
+    constexpr unsigned E = N == 32 ? 8 : 11;
+    constexpr unsigned F = N - E - 1;
 
-    while (exp > 0)
-    {
-        scale /= 2;
-        exp--;
-    }
+    static auto ones = [](unsigned len) { return (1ull << len) - 1; };
+    static auto notb = [](uint64_t bits, unsigned len) { return bits ^ ones(len); };
+    static auto extr = [](uint64_t bits, unsigned pos, unsigned len) { return (bits >> pos) & ones(len); };
+    static auto repl = [](uint64_t bits, unsigned pos, unsigned len) { return extr(bits, pos, 1) ? ones(len) : 0; };
 
-    double result = static_cast<double>(mant) / static_cast<double>(scale);
+    uint64_t sign = extr(imm8, 7, 1);
+    uint64_t exp  = (notb(extr(imm8, 6, 1), 1) << (E - 1)) | (repl(imm8, 6, E - 3) << 2) | extr(imm8, 4, 2);
+    uint64_t frac = extr(imm8, 0, 4) << (F - 4);
 
-    return sign != 0 ? -result : result;
+    return jitstd::bit_cast<double>((sign << (F + E)) | (exp << F) | frac);
 }
 #endif
 
 static bool IsFMovImm(double value, unsigned* encodedImm)
 {
-    int sign = 0;
+    constexpr unsigned N = 64;
+    constexpr unsigned E = N == 32 ? 8 : 11;
+    constexpr unsigned F = N - E - 1;
 
-    if (value < 0.0)
-    {
-        value = -value;
-        sign  = 1;
-    }
+    static auto ones = [](unsigned len) { return (1ull << len) - 1; };
+    static auto notb = [](uint64_t bits, unsigned len) { return bits ^ ones(len); };
+    static auto extr = [](uint64_t bits, unsigned pos, unsigned len) { return (bits >> pos) & ones(len); };
 
-    int exp = 0;
+    uint64_t bits = jitstd::bit_cast<uint64_t>(value);
+    uint64_t sign = extr(bits, N - 1, 1);
+    uint64_t exp  = extr(bits, F, E);
+    uint64_t frac = extr(bits, 0, F);
 
-    while ((value < 1.0) && (exp >= -4))
-    {
-        value *= 2.0;
-        exp--;
-    }
-
-    while ((value >= 2.0) && (exp <= 5))
-    {
-        value *= 0.5;
-        exp++;
-    }
-
-    exp += 3;
-    value *= 16.0;
-
-    if ((exp < 0) || (exp > 7))
+    if (extr(frac, 0, F - 4) != 0)
     {
         return false;
     }
 
-    int ival = static_cast<int>(value);
+    if (uint64_t r = extr(exp, 2, E - 3); (r != 0) && (r != ones(E - 3)))
+    {
+        return false;
+    }
 
-    if (value != static_cast<double>(ival))
+    if (extr(exp, 2, 1) == extr(exp, E - 1, 1))
     {
         return false;
     }
 
     if (encodedImm != nullptr)
     {
-        ival -= 16;
-        assert((ival >= 0) && (ival <= 15));
-        *encodedImm = (ival & 15) | (((exp ^ 4) & 7) << 4) | ((sign & 1) << 7);
+        *encodedImm =
+            static_cast<unsigned>((sign << 7) | (extr(exp, 2, 1) << 6) | (extr(exp, 0, 2) << 4) | extr(frac, F - 4, 4));
     }
 
     return true;

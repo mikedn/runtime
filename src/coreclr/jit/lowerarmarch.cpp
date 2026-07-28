@@ -774,6 +774,15 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
         }
     }
 
+    if (GenTreeDblCon* icon = node->GetOp(0)->IsDblCon())
+    {
+        if (Arm64Imm::IsFMovImm(icon->GetValue()))
+        {
+            icon->SetContained();
+            return;
+        }
+    }
+
     VectorConstant vecConst;
 
     if (vecConst.Splat(node))
