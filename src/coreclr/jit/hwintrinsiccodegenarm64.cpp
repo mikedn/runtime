@@ -357,40 +357,25 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case NI_AdvSimd_Insert:
                 assert(isRMW);
+                assert(defReg != regs[2]);
 
                 emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
-                if (intrin.op3->isContained())
+                if (intrin.op3->IsIntCon(0) || intrin.op3->IsDblConPositiveZero())
                 {
-                    assert(intrin.op2->isContained());
+                    regs[2] = REG_ZR;
+                }
 
-                    if (intrin.op3->IsIntCon(0) || intrin.op3->IsDblConPositiveZero())
+                ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
+                    if (IsFloatReg(regs[2]))
                     {
-                        ssize_t imm = intrin.op2->AsIntCon()->GetValue();
-                        emit.emitIns_R_R_I(INS_ins, emitSize, defReg, REG_ZR, imm, opt);
+                        emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt);
                     }
                     else
                     {
-                        assert(intrin.op2->IsIntCon(0));
-                        double imm = intrin.op3->AsDblCon()->GetValue();
-                        emit.emitIns_R_F(INS_fmov, emitSize, defReg, imm, opt);
+                        emit.emitIns_R_R_I(ins, emitSize, defReg, regs[2], imm, opt);
                     }
-                    break;
-                }
-
-                assert(defReg != regs[2]);
-
-                if (varTypeIsFloating(intrin.insType))
-                {
-                    ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
-                        emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt);
-                    });
-                }
-                else
-                {
-                    ExpandNonConstImm(this, intrin.op2, node,
-                                      [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[2], imm, opt); });
-                }
+                });
                 break;
 
             case NI_AdvSimd_InsertScalar:

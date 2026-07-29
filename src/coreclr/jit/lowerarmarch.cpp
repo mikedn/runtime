@@ -429,7 +429,7 @@ GenTree* Lowering::LowerJTrue(GenTreeUnOp* jtrue)
 
 #ifdef FEATURE_HW_INTRINSICS
 
-void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
+void Lowering::LowerAdvSimdFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_AdvSimd_FusedMultiplyAddScalar);
 
@@ -478,6 +478,30 @@ void Lowering::LowerHWIntrinsicFusedMultiplyAddScalar(GenTreeHWIntrinsic* node)
     }
 }
 
+void Lowering::LowerAdvSimdInsert(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetIntrinsic() == NI_AdvSimd_Insert);
+    assert(HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()));
+
+    node->SetOp(2, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(2)));
+
+    GenTree* immOp = node->GetOp(1);
+
+    assert(varTypeIsIntegral(immOp->GetType()));
+
+    if (GenTreeIntCon* index = immOp->IsIntCon())
+    {
+        index->SetContained();
+
+        GenTree* value = node->GetOp(2);
+
+        if (value->IsIntCon(0) || value->IsDblConPositiveZero())
+        {
+            value->SetContained();
+        }
+    }
+}
+
 void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(!varTypeIsVec(node->GetType()) || varTypeIsTargetVec(node->GetType()));
@@ -487,40 +511,34 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_VEC_PACK:
             LowerVecPack(node);
             return;
-
         case NI_VEC_SPLAT:
             LowerVecSplat(node);
             return;
-
         case NI_VEC_REGCAST:
             LowerVecRegCast(node);
             return;
-
         case NI_VEC_ITOV:
             LowerVecIToV(node);
             return;
-
+        case NI_VEC_FTOV:
+            LowerVecFToV(node);
+            return;
         case NI_VEC_SUM:
             LowerVecSum(node);
             return;
-
         case NI_VEC_EXTRACT:
             LowerVecExtract(node);
             return;
-
         case NI_AdvSimd_FusedMultiplyAddScalar:
-            LowerHWIntrinsicFusedMultiplyAddScalar(node);
-            break;
-
+            LowerAdvSimdFusedMultiplyAddScalar(node);
+            return;
         case NI_AdvSimd_Insert:
-            node->SetOp(2, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(2)));
-            break;
-
+            LowerAdvSimdInsert(node);
+            return;
         default:
-            break;
+            ContainCheckHWIntrinsic(node);
+            return;
     }
-
-    ContainCheckHWIntrinsic(node);
 }
 
 bool Lowering::IsValidConstForMovImm(GenTreeHWIntrinsic* node)
@@ -567,9 +585,27 @@ void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
     }
-    else
+    else if (IsValidConstForMovImm(node))
     {
-        ContainCheckHWIntrinsic(node);
+        node->GetOp(0)->SetContained();
+    }
+}
+
+void Lowering::LowerVecFToV(GenTreeHWIntrinsic* node)
+{
+    assert(node->GetIntrinsic() == NI_VEC_FTOV);
+
+    GenTree* op = node->GetOp(0);
+    assert(varTypeIsFloating(op->GetType()));
+
+    if (op->IsDblConPositiveZero())
+    {
+        BlockRange().Unlink(op);
+        node->SetIntrinsic(NI_VEC_ZERO, 0);
+    }
+    else if (IsValidConstForFMovImm(node))
+    {
+        node->GetOp(0)->SetContained();
     }
 }
 
@@ -585,9 +621,9 @@ void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
     }
-    else
+    else if (IsValidConstForFMovImm(node))
     {
-        ContainCheckHWIntrinsic(node);
+        node->GetOp(0)->SetContained();
     }
 }
 
@@ -1062,15 +1098,14 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.
 
-    GenTree* immOp = nullptr;
-
     if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
     {
+        GenTree* immOp = nullptr;
+
         // TODO-Mike-Review: What's the point of HasImmediateOperand if you need
         // special casing to figure out which one is the imm operand?!?!
         switch (node->GetIntrinsic())
         {
-            case NI_AdvSimd_Insert:
             case NI_AdvSimd_InsertScalar:
             case NI_AdvSimd_LoadAndInsertScalar:
                 immOp = node->GetOp(1);
@@ -1093,51 +1128,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             assert(node->GetOp(3)->IsIntCon());
 
             node->GetOp(1)->SetContained();
-        }
-    }
-
-    if (HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()))
-    {
-        switch (node->GetIntrinsic())
-        {
-            case NI_VEC_ITOV:
-                if (IsValidConstForMovImm(node))
-                {
-                    node->GetOp(0)->SetContained();
-                }
-                break;
-
-            case NI_VEC_REGCAST:
-            case NI_VEC_FTOV:
-                if (IsValidConstForFMovImm(node))
-                {
-                    node->GetOp(0)->SetContained();
-                }
-                break;
-
-            case NI_AdvSimd_Insert:
-                if (GenTreeIntCon* index = immOp->IsIntCon())
-                {
-                    GenTree* value = node->GetOp(2);
-
-                    if (value->IsIntCon(0) || value->IsDblConPositiveZero())
-                    {
-                        value->SetContained();
-                    }
-                    else if ((index->GetValue() == 0) && value->IsDblCon())
-                    {
-                        assert(varTypeIsFloating(node->GetVecEltType()));
-
-                        if (Arm64Imm::IsFMovImm(value->AsDblCon()->GetValue()))
-                        {
-                            value->SetContained();
-                        }
-                    }
-                }
-                break;
-
-            default:
-                unreached();
         }
     }
 }
