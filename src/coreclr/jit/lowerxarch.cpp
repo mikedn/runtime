@@ -1581,7 +1581,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 break;
             }
-            
+
             assert(varTypeIsIntegral(node->GetVecEltType()));
 
             // this isn't actually supported in hardware so we need to swap the operands around
@@ -1688,11 +1688,19 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerFusedMultiplyAdd(node);
             break;
 
+        case NI_AVX2_GATHERD:
+        case NI_AVX2_GATHERQ:
+            node->GetLastOp()->SetContained();
+            break;
+
         default:
             break;
     }
 
-    ContainCheckHWIntrinsic(node);
+    if (HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()))
+    {
+        ContainCheckHWIntrinsic(node);
+    }
 }
 
 void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
@@ -2336,8 +2344,8 @@ void Lowering::LowerVecSplat(GenTreeHWIntrinsic* node)
         LIR::Use        use(BlockRange(), &node->GetUse(0).NodeRef(), node);
         GenTreeLclLoad* tmp1 = ReplaceWithLclLoad(use);
         GenTreeLclLoad* tmp2 = comp->gtNewLclLoad(tmp1->GetLcl(), TYP_SIMD16);
-        GenTree* vec = comp->gtNewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, tmp1);
-        GenTree* idx = comp->gtNewIconNode(1);
+        GenTree*        vec  = comp->gtNewVecNode(TYP_SIMD32, NI_VEC_REGCAST, eltType, tmp1);
+        GenTree*        idx  = comp->gtNewIconNode(1);
         BlockRange().InsertBefore(node, tmp2, vec, idx);
         node->SetIntrinsic(NI_AVX_InsertVector128, 3);
         node->SetOp(0, vec);
@@ -4574,19 +4582,10 @@ void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
 
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
-    NamedIntrinsic intrinsic = node->GetIntrinsic();
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
 
-    if (!HWIntrinsicInfo::SupportsContainment(intrinsic))
-    {
-        if (HWIntrinsicInfo::IsAvx2GatherIntrinsic(intrinsic))
-        {
-            node->GetLastOp()->SetContained();
-        }
-
-        return;
-    }
-
-    HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
+    NamedIntrinsic      intrinsic = node->GetIntrinsic();
+    HWIntrinsicCategory category  = HWIntrinsicInfo::GetCategory(intrinsic);
 
     if ((category != HW_Category_Scalar) && (node->GetVecSize() < 16))
     {
