@@ -129,9 +129,6 @@ enum HWIntrinsicFlag : unsigned
     // - the upper part of the destination register is zeroed
     HW_Flag_SIMDScalar = 0x800,
 
-    // The intrinsic supports some sort of containment analysis
-    HW_Flag_SupportsContainment = 0x1000
-
 #else
 #error Unsupported platform
 #endif
@@ -296,28 +293,42 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_Commutative);
     }
 
-    static bool RequiresCodegen(NamedIntrinsic id)
-    {
-        return !HasFlag(id, HW_Flag_NoCodeGen);
-    }
-
-    static bool SupportsContainment(NamedIntrinsic id)
-    {
-#if defined(TARGET_XARCH)
-        return !HasFlag(id, HW_Flag_NoContainment);
-#elif defined(TARGET_ARM64)
-        return HasFlag(id, HW_Flag_SupportsContainment);
-#else
-#error Unsupported platform
-#endif
-    }
-
     static bool BaseTypeFromFirstArg(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_BaseTypeFromFirstArg);
     }
 
+    static bool BaseTypeFromSecondArg(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_BaseTypeFromSecondArg);
+    }
+
+    static bool HasSpecialImport(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_SpecialImport);
+    }
+
+    static bool HasSpecialCodegen(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_SpecialCodeGen);
+    }
+
+    static bool RequiresCodegen(NamedIntrinsic id)
+    {
+        return !HasFlag(id, HW_Flag_NoCodeGen);
+    }
+
 #ifdef TARGET_XARCH
+    static bool HasRMWSemantics(NamedIntrinsic id)
+    {
+        return !HasFlag(id, HW_Flag_NoRMWSemantics);
+    }
+
+    static bool SupportsContainment(NamedIntrinsic id)
+    {
+        return !HasFlag(id, HW_Flag_NoContainment);
+    }
+
     static bool CopiesUpperBits(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_CopyUpperBits);
@@ -334,33 +345,12 @@ struct HWIntrinsicInfo
     }
 #endif
 
-    static bool BaseTypeFromSecondArg(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_BaseTypeFromSecondArg);
-    }
-
-    static bool HasSpecialCodegen(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_SpecialCodeGen);
-    }
-
+#ifdef TARGET_ARM64
     static bool HasRMWSemantics(NamedIntrinsic id)
     {
-#if defined(TARGET_XARCH)
-        return !HasFlag(id, HW_Flag_NoRMWSemantics);
-#elif defined(TARGET_ARM64)
         return HasFlag(id, HW_Flag_HasRMWSemantics);
-#else
-#error Unsupported platform
-#endif
     }
 
-    static bool HasSpecialImport(NamedIntrinsic id)
-    {
-        return HasFlag(id, HW_Flag_SpecialImport);
-    }
-
-#ifdef TARGET_ARM64
     static bool NoJmpTableImm(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_NoJmpTableIMM);
@@ -375,7 +365,7 @@ struct HWIntrinsicInfo
     {
         return HasFlag(id, HW_Flag_HasImmediateOperand);
     }
-#endif // TARGET_ARM64
+#endif
 };
 
 struct HWIntrinsicSignature final

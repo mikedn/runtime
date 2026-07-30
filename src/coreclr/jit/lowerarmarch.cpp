@@ -535,8 +535,30 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_AdvSimd_Insert:
             LowerAdvSimdInsert(node);
             return;
+        case NI_AdvSimd_Arm64_InsertSelectedScalar:
+            if (GenTreeIntCon* immOp = node->GetOp(3)->IsIntCon())
+            {
+                immOp->SetContained();
+            }
+            FALLTHROUGH;
+        case NI_AdvSimd_LoadAndInsertScalar:
+        case NI_AdvSimd_InsertScalar:
+            if (GenTreeIntCon* immOp = node->GetOp(1)->IsIntCon())
+            {
+                immOp->SetContained();
+            }
+            return;
         default:
-            ContainCheckHWIntrinsic(node);
+            if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
+            {
+                GenTree* immOp = node->GetLastOp();
+                assert(varTypeIsIntegral(immOp->GetType()));
+
+                if (immOp->IsIntCon())
+                {
+                    immOp->SetContained();
+                }
+            }
             return;
     }
 }
@@ -1092,45 +1114,5 @@ void Lowering::ContainCheckBoundsChk(GenTreeBoundsChk* node)
         ContainImmOperand(node, node->GetLength());
     }
 }
-
-#ifdef FEATURE_HW_INTRINSICS
-void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
-{
-    // TODO-MIKE-CQ: It seems that there's no support for generating vector immediate ORR/BIC.
-
-    if (HWIntrinsicInfo::HasImmediateOperand(node->GetIntrinsic()))
-    {
-        GenTree* immOp = nullptr;
-
-        // TODO-Mike-Review: What's the point of HasImmediateOperand if you need
-        // special casing to figure out which one is the imm operand?!?!
-        switch (node->GetIntrinsic())
-        {
-            case NI_AdvSimd_InsertScalar:
-            case NI_AdvSimd_LoadAndInsertScalar:
-                immOp = node->GetOp(1);
-                break;
-            default:
-                immOp = node->GetLastOp();
-                break;
-        }
-
-        assert(varTypeIsIntegral(immOp->GetType()));
-
-        if (immOp->IsIntCon())
-        {
-            immOp->SetContained();
-        }
-
-        if (node->GetIntrinsic() == NI_AdvSimd_Arm64_InsertSelectedScalar)
-        {
-            assert(node->GetOp(1)->IsIntCon());
-            assert(node->GetOp(3)->IsIntCon());
-
-            node->GetOp(1)->SetContained();
-        }
-    }
-}
-#endif // FEATURE_HW_INTRINSICS
 
 #endif // TARGET_ARMARCH

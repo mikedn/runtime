@@ -275,11 +275,11 @@ private:
     void LowerVecSplat(GenTreeHWIntrinsic* node);
     void LowerVecRegCast(GenTreeHWIntrinsic* node);
     LclVarDsc* GetSimdMemoryTemp(var_types type);
-    void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_X86
     void LowerVecItoVLong(GenTreeHWIntrinsic* node);
 #endif
 #ifdef TARGET_XARCH
+    void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
     void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
     void LowerVecSum128(GenTreeHWIntrinsic* node);
     void LowerVecSum256(GenTreeHWIntrinsic* node);

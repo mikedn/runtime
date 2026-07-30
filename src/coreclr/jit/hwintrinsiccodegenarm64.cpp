@@ -369,11 +369,11 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
                     if (IsFloatReg(regs[2]))
                     {
-                        emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt);
+                        emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], imm, 0, opt);
                     }
                     else
                     {
-                        emit.emitIns_R_R_I(ins, emitSize, defReg, regs[2], imm, opt);
+                        emit.emitIns_R_R_I(INS_ins, emitSize, defReg, regs[2], imm, opt);
                     }
                 });
                 break;
@@ -384,8 +384,9 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
 
                 emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
-                ExpandNonConstImm(this, intrin.op2, node,
-                                  [&](int imm) { emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], imm, 0, opt); });
+                ExpandNonConstImm(this, intrin.op2, node, [&](int imm) {
+                    emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], imm, 0, opt);
+                });
                 break;
 
             case NI_AdvSimd_Arm64_InsertSelectedScalar:
@@ -393,7 +394,7 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(defReg != regs[2]);
 
                 emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
-                emit.emitIns_R_R_I_I(ins, emitSize, defReg, regs[2], intrin.op2->AsIntCon()->GetInt32Value(),
+                emit.emitIns_R_R_I_I(INS_ins, emitSize, defReg, regs[2], intrin.op2->AsIntCon()->GetInt32Value(),
                                      intrin.op4->AsIntCon()->GetInt32Value(), opt);
                 break;
 
@@ -404,12 +405,12 @@ void CodeGen::GenHWIntrinsic(GenTreeHWIntrinsic* node)
                 emit.emitIns_Mov(INS_mov, attr, defReg, regs[0], /* canSkip */ true);
 
                 ExpandNonConstImm(this, intrin.op2, node,
-                                  [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, defReg, regs[2], imm); });
+                                  [&](int imm) { emit.emitIns_R_R_I(INS_ld1, emitSize, defReg, regs[2], imm); });
                 break;
 
             case NI_AdvSimd_StoreSelectedScalar:
                 ExpandNonConstImm(this, intrin.op3, node,
-                                  [&](int imm) { emit.emitIns_R_R_I(ins, emitSize, regs[1], regs[0], imm, opt); });
+                                  [&](int imm) { emit.emitIns_R_R_I(INS_st1, emitSize, regs[1], regs[0], imm, opt); });
                 break;
 
             case NI_VEC_REGCAST:
