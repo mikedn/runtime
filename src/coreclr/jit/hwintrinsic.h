@@ -78,10 +78,12 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_NoCodeGen = 0x2,
 
     // Select base type using the first argument type
-    HW_Flag_BaseTypeFromFirstArg = 0x8,
+    HW_Flag_BaseTypeFromArg0     = 0x8,
+    HW_Flag_BaseTypeFromFirstArg = HW_Flag_BaseTypeFromArg0,
 
     // Select base type using the second argument type
-    HW_Flag_BaseTypeFromSecondArg = 0x10,
+    HW_Flag_BaseTypeFromArg1      = 0x10,
+    HW_Flag_BaseTypeFromSecondArg = HW_Flag_BaseTypeFromArg1,
 
     // Special codegen
     // the intrinsics need special rules in CodeGen,
@@ -293,14 +295,14 @@ struct HWIntrinsicInfo
         return HasFlag(id, HW_Flag_Commutative);
     }
 
-    static bool BaseTypeFromFirstArg(NamedIntrinsic id)
+    static bool BaseTypeFromArg0(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_BaseTypeFromFirstArg);
+        return HasFlag(id, HW_Flag_BaseTypeFromArg0);
     }
 
-    static bool BaseTypeFromSecondArg(NamedIntrinsic id)
+    static bool BaseTypeFromArg1(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_BaseTypeFromSecondArg);
+        return HasFlag(id, HW_Flag_BaseTypeFromArg1);
     }
 
     static bool HasSpecialImport(NamedIntrinsic id)
@@ -391,54 +393,47 @@ struct HWIntrinsic final
     HWIntrinsicCategory category;
     var_types           insType;
     unsigned            numOperands;
-    GenTree*            op1;
-    GenTree*            op2;
-    GenTree*            op3;
-    GenTree*            op4;
+    GenTree*            ops[4];
 
     HWIntrinsic(const GenTreeHWIntrinsic* node)
         : id(node->GetIntrinsic())
         , category(HWIntrinsicInfo::GetCategory(id))
-        , insType(TYP_UNDEF)
+        , insType(node->GetVecEltType())
         , numOperands(node->GetNumOps())
-        , op1(numOperands >= 1 ? node->GetOp(0) : nullptr)
-        , op2(numOperands >= 2 ? node->GetOp(1) : nullptr)
-        , op3(numOperands >= 3 ? node->GetOp(2) : nullptr)
-        , op4(numOperands >= 4 ? node->GetOp(3) : nullptr)
+        , ops{numOperands >= 1 ? node->GetOp(0) : nullptr, numOperands >= 2 ? node->GetOp(1) : nullptr,
+              numOperands >= 3 ? node->GetOp(2) : nullptr, numOperands >= 4 ? node->GetOp(3) : nullptr}
     {
         assert(HWIntrinsicInfo::RequiresCodegen(id));
 
-        InitializeBaseType(node);
+        if (insType == TYP_UNDEF)
+        {
+            InitializeBaseType(node);
+        }
     }
 
 private:
     void InitializeBaseType(const GenTreeHWIntrinsic* node)
     {
-        insType = node->GetVecEltType();
+        assert(category == HW_Category_Scalar);
 
-        if (insType == TYP_UNDEF)
+        const GenTree* op;
+
+        if (HWIntrinsicInfo::BaseTypeFromArg0(id))
         {
-            assert(category == HW_Category_Scalar);
-
-            const GenTree* op;
-
-            if (HWIntrinsicInfo::BaseTypeFromFirstArg(id))
-            {
-                assert(op1 != nullptr);
-                op = op1;
-            }
-            else if (HWIntrinsicInfo::BaseTypeFromSecondArg(id))
-            {
-                assert(op2 != nullptr);
-                op = op2;
-            }
-            else
-            {
-                op = node;
-            }
-
-            insType = varActualType(op->GetType());
+            assert(ops[0] != nullptr);
+            op = ops[0];
         }
+        else if (HWIntrinsicInfo::BaseTypeFromArg1(id))
+        {
+            assert(ops[1] != nullptr);
+            op = ops[1];
+        }
+        else
+        {
+            op = node;
+        }
+
+        insType = varActualType(op->GetType());
     }
 };
 

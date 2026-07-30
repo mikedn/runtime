@@ -477,10 +477,10 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
 
     unsigned vecSize = GetVecSize(intrinsic);
 
-    if (HWIntrinsicInfo::BaseTypeFromFirstArg(intrinsic) || HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic))
+    if (HWIntrinsicInfo::BaseTypeFromArg0(intrinsic) || HWIntrinsicInfo::BaseTypeFromArg1(intrinsic))
     {
         ClassLayout* argLayout = nullptr;
-        baseType = sig.GetBaseTypeFromParam(HWIntrinsicInfo::BaseTypeFromSecondArg(intrinsic), &argLayout);
+        baseType = sig.GetBaseTypeFromParam(HWIntrinsicInfo::BaseTypeFromArg1(intrinsic), &argLayout);
 
         if (argLayout != nullptr)
         {

@@ -660,32 +660,32 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
     // is not allocated the same register as the target.
     const bool isRMW = node->IsRMW(compiler);
 
-    if (intrin.op1 != nullptr)
+    if (intrin.ops[0] != nullptr)
     {
         bool vecRegToVecRegMove = false;
 
         if (intrin.id == NI_VEC_FTOV)
         {
-            assert(varTypeIsFloating(intrin.op1->GetType()));
+            assert(varTypeIsFloating(intrin.ops[0]->GetType()));
             vecRegToVecRegMove = true;
         }
         else if (intrin.id == NI_VEC_REGCAST)
         {
-            assert(varTypeUsesVecReg(intrin.op1->GetType()));
+            assert(varTypeUsesVecReg(intrin.ops[0]->GetType()));
             vecRegToVecRegMove = true;
         }
         else if (intrin.id == NI_VEC_SPLAT)
         {
-            vecRegToVecRegMove = node->TypeIs(TYP_SIMD8) && intrin.op1->TypeIs(TYP_DOUBLE);
+            vecRegToVecRegMove = node->TypeIs(TYP_SIMD8) && intrin.ops[0]->TypeIs(TYP_DOUBLE);
         }
 
         if (node->IsMemoryLoadOrStore())
         {
-            BuildAddrUses(intrin.op1);
+            BuildAddrUses(intrin.ops[0]);
         }
-        else if (!intrin.op1->isContained())
+        else if (!intrin.ops[0]->isContained())
         {
-            RefPosition* use = BuildUse(intrin.op1);
+            RefPosition* use = BuildUse(intrin.ops[0]);
 
             // If we have an RMW intrinsic or an intrinsic with simple move semantic
             // between two SIMD registers, we want to preference op1Reg to the target
@@ -702,31 +702,31 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         // Some "Advanced SIMD scalar x indexed element" and "Advanced SIMD vector x indexed element"
         // instructions (e.g. "MLA (by element)") have encoding that restricts what registers that
         // can be used for the indexed element when the element size is H (i.e. 2 bytes).
-        assert(intrin.op2 != nullptr);
+        assert(intrin.ops[1] != nullptr);
 
         GenTree* immOp;
 
-        if ((intrin.op4 != nullptr) || ((intrin.op3 != nullptr) && !hasImmediateOperand))
+        if ((intrin.ops[3] != nullptr) || ((intrin.ops[2] != nullptr) && !hasImmediateOperand))
         {
             if (isRMW)
             {
-                BuildDelayFreeUse(intrin.op2, nullptr);
-                BuildDelayFreeUse(intrin.op3, nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildDelayFreeUse(intrin.ops[1], nullptr);
+                BuildDelayFreeUse(intrin.ops[2], nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
             else
             {
-                BuildUse(intrin.op2);
-                BuildUse(intrin.op3, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildUse(intrin.ops[1]);
+                BuildUse(intrin.ops[2], RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
 
-            immOp = intrin.op4;
+            immOp = intrin.ops[3];
         }
         else
         {
             assert(!isRMW);
 
-            BuildUse(intrin.op2, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
-            immOp = intrin.op3;
+            BuildUse(intrin.ops[1], RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+            immOp = intrin.ops[2];
         }
 
         if (immOp != nullptr)
