@@ -2230,7 +2230,7 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             if (i < numOps - 1)
             {
                 vec = comp->gtNewVecNode(TYP_SIMD16, insert, eltType, vec, op, idx);
-                BlockRange().InsertAfter(op, idx, vec);
+                BlockRange().InsertBefore(node, idx, vec);
                 LowerNode(vec);
             }
             else

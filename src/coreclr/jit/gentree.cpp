@@ -3068,16 +3068,7 @@ unsigned Compiler::gtSetOrder(GenTree* tree)
                 unsigned level1 = gtSetOrder(op1);
                 unsigned level2 = gtSetOrder(op2);
 
-                if ((level1 < level2) && gtCanSwapOrder(op1, op2)
-#ifndef TARGET_64BIT
-                    // VecPack lowering depends on the evaluation ordering matching the operand order
-                    // if there are more than 2 operands. Vector128.Create<long> starts with 2 operands
-                    // but due to decomposition it ends up with 4 operands in lowering so we need to
-                    // prevent reordering.
-                    && ((tree->AsHWIntrinsic()->GetIntrinsic() != NI_VEC_PACK) ||
-                        (tree->AsHWIntrinsic()->GetVecEltType() != TYP_LONG))
-#endif
-                        )
+                if ((level1 < level2) && gtCanSwapOrder(op1, op2))
                 {
                     tree->gtFlags ^= GTF_REVERSE_OPS;
                     std::swap(level1, level2);
