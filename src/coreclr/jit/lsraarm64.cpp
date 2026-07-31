@@ -447,11 +447,8 @@ void LinearScan::BuildCmpXchg(GenTreeCmpXchg* cmpxchg)
     // For ARMv8.1 atomic cas the lifetime of the addr and data must be extended to prevent
     // them being reused as the target register which must be destroyed early
 
-    RefPosition* locationUse = BuildUse(cmpxchg->GetOp(0));
-    setDelayFree(locationUse);
-
-    RefPosition* valueUse = BuildUse(cmpxchg->GetOp(1));
-    setDelayFree(valueUse);
+    RefPosition* locationUse = BuildDelayFreeUse(cmpxchg->GetOp(0));
+    RefPosition* valueUse    = BuildDelayFreeUse(cmpxchg->GetOp(1));
 
     if (!cmpxchg->GetOp(2)->isContained())
     {
@@ -710,8 +707,8 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         {
             if (isRMW)
             {
-                BuildDelayFreeUse(intrin.ops[1], nullptr);
-                BuildDelayFreeUse(intrin.ops[2], nullptr, RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
+                BuildDelayFreeUse(intrin.ops[1]);
+                BuildDelayFreeUse(intrin.ops[2], RBM_ASIMD_INDEXED_H_ELEMENT_ALLOWED_REGS);
             }
             else
             {

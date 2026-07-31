@@ -3262,7 +3262,6 @@ RefPosition* LinearScan::BuildDef(GenTree* node, var_types regType, regMaskTP re
     if (pendingDelayFree)
     {
         interval->hasInterferingUses = true;
-        // pendingDelayFree = false;
     }
 
     RefPosition* defRefPosition = newRefPosition(interval, currentLoc + 1, RefTypeDef, node, regCandidates, regIndex);
@@ -3395,28 +3394,31 @@ unsigned LinearScan::BuildAddrModeUses(GenTreeAddrMode* addrMode, regMaskTP cand
 }
 
 #if defined(TARGET_XARCH) || defined(TARGET_ARM64)
-void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
+void LinearScan::BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candidates)
 {
-    assert(!op->isContained());
-
     RefPosition* use = BuildUse(op, candidates);
 
-    Interval* rmwInterval  = nullptr;
-    bool      rmwIsLastUse = false;
-
-    if ((rmwNode != nullptr) && IsRegCandidateLclLoad(rmwNode))
+    if (IsRegCandidateLclLoad(rmwOp))
     {
-        GenTreeLclLoad* load = rmwNode->AsLclLoad();
-
-        rmwInterval = getIntervalForLocalVarNode(load);
+        GenTreeLclLoad* load = rmwOp->AsLclLoad();
         assert(!load->IsMultiReg());
-        rmwIsLastUse = load->IsLastUse(0);
+
+        if ((use->getInterval() != getIntervalForLocalVarNode(load)) || (!load->IsLastUse(0) && !use->lastUse))
+        {
+            setDelayFree(use);
+        }
+
+        return;
     }
 
-    if ((use->getInterval() != rmwInterval) || (!rmwIsLastUse && !use->lastUse))
-    {
-        setDelayFree(use);
-    }
+    setDelayFree(use);
+}
+
+RefPosition* LinearScan::BuildDelayFreeUse(GenTree* op, regMaskTP candidates)
+{
+    RefPosition* use = BuildUse(op, candidates);
+    setDelayFree(use);
+    return use;
 }
 #endif // defined(TARGET_XARCH) || defined(TARGET_ARM64)
 

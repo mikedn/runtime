@@ -1314,8 +1314,9 @@ private:
     void BuildKills(GenTree* node, regMaskTP killMask);
 #ifdef TARGET_XARCH
     RefPosition* BuildOperandUses(GenTree* node X86_ARG(regMaskTP candidates = RBM_NONE));
-    void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
-    void BuildDelayFreeOperandUses(GenTree* node, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
+    void BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candidates = RBM_NONE);
+    RefPosition* BuildDelayFreeUse(GenTree* op, regMaskTP candidates = RBM_NONE);
+    void BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwOp, regMaskTP candidates = RBM_NONE);
     void BuildRMWUses(GenTreeOp* node);
 #endif
     void BuildAddrUses(GenTree* addr, regMaskTP candidates = RBM_NONE);
@@ -1369,7 +1370,8 @@ private:
 #ifdef FEATURE_HW_INTRINSICS
     void BuildHWIntrinsic(GenTreeHWIntrinsic* node);
 #ifdef TARGET_ARM64
-    void BuildDelayFreeUse(GenTree* op, GenTree* rmwNode = nullptr, regMaskTP candidates = RBM_NONE);
+    void BuildDelayFreeUse(GenTree* op, GenTree* rmwOp, regMaskTP candidates = RBM_NONE);
+    RefPosition* BuildDelayFreeUse(GenTree* op, regMaskTP candidates = RBM_NONE);
     void BuildVecExtract(GenTreeHWIntrinsic* node);
 #endif
 #endif

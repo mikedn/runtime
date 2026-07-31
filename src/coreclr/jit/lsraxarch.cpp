@@ -448,11 +448,8 @@ void LinearScan::BuildInterlocked(GenTreeOp* interlocked)
 {
     GenTree* addr  = interlocked->GetOp(0);
     GenTree* value = interlocked->GetOp(1);
-    assert(!addr->isContained());
-    RefPosition* addrUse = BuildUse(addr);
-    setDelayFree(addrUse);
-    tgtPrefUse = addrUse;
-    assert(!value->isContained());
+
+    tgtPrefUse = BuildDelayFreeUse(addr);
     BuildUse(value);
     BuildDef(interlocked);
 }
@@ -607,19 +604,23 @@ void LinearScan::BuildRMWUses(GenTreeOp* node)
     }
 }
 
-void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwNode, regMaskTP candidates)
+void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwOp, regMaskTP candidates)
 {
     if (!op->isContained())
     {
-        BuildDelayFreeUse(op, rmwNode, candidates);
+        BuildDelayFreeUse(op, rmwOp, candidates);
+        return;
     }
+
 #ifdef FEATURE_HW_INTRINSICS
-    else if (GenTreeHWIntrinsic* hwIntrinsicNode = op->IsHWIntrinsic())
+    if (GenTreeHWIntrinsic* hwIntrinsicNode = op->IsHWIntrinsic())
     {
-        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), rmwNode, candidates);
+        BuildDelayFreeUse(hwIntrinsicNode->GetOp(0), rmwOp, candidates);
+        return;
     }
 #endif
-    else if (GenTreeIndir* indir = op->IsIndir())
+
+    if (GenTreeIndir* indir = op->IsIndir())
     {
         GenTree* addr = indir->GetAddr();
 
@@ -631,18 +632,18 @@ void LinearScan::BuildDelayFreeOperandUses(GenTree* op, GenTree* rmwNode, regMas
             // mode needs. Some callers pass candidates such as XMM0 or "byte regs"
             // on x86...
 
-            BuildDelayFreeUse(addr, rmwNode, candidates);
+            BuildDelayFreeUse(addr, rmwOp, candidates);
         }
         else if (GenTreeAddrMode* const addrMode = addr->IsAddrMode())
         {
             if (GenTree* base = addrMode->GetBase())
             {
-                BuildDelayFreeUse(base, rmwNode, candidates);
+                BuildDelayFreeUse(base, rmwOp, candidates);
             }
 
             if (GenTree* index = addrMode->GetIndex())
             {
-                BuildDelayFreeUse(index, rmwNode, candidates);
+                BuildDelayFreeUse(index, rmwOp, candidates);
             }
         }
     }
