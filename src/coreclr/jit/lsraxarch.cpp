@@ -915,7 +915,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
                     )
             {
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsAVXFlags();
+                SetContainsVexInstructions();
             }
 
 #ifdef TARGET_X86
@@ -931,7 +931,7 @@ void LinearScan::BuildStructStore(GenTree* store, StructStoreKind kind, ClassLay
             if (size >= XMM_REGSIZE_BYTES)
             {
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsAVXFlags();
+                SetContainsVexInstructions();
             }
 
 #ifdef TARGET_X86
@@ -1195,13 +1195,13 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
 #endif
                 {
                     BuildInternalFloatDef(store, internalFloatRegCandidates());
-                    SetContainsAVXFlags();
+                    SetContainsVexInstructions();
                 }
                 break;
 
             case GenTreeArgStore::Kind::RepInstrXMM:
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsAVXFlags();
+                SetContainsVexInstructions();
                 FALLTHROUGH;
             case GenTreeArgStore::Kind::RepInstr:
                 BuildInternalIntDef(store, RBM_RDI);
@@ -1211,7 +1211,7 @@ void LinearScan::BuildArgStore(GenTreeArgStore* store)
 
             case GenTreeArgStore::Kind::GCUnrollXMM:
                 BuildInternalFloatDef(store, internalFloatRegCandidates());
-                SetContainsAVXFlags();
+                SetContainsVexInstructions();
                 FALLTHROUGH;
             case GenTreeArgStore::Kind::GCUnroll:
                 BuildInternalIntDef(store);
@@ -1374,12 +1374,20 @@ void LinearScan::BuildIntrinsic(GenTreeIntrinsic* tree)
     BuildDef(tree);
 }
 
+void LinearScan::SetContainsVexInstructions()
+{
+    if (compiler->codeGen->UseVexEncoding())
+    {
+        compiler->codeGen->SetContainsVexInstructions();
+    }
+}
+
 #ifdef FEATURE_HW_INTRINSICS
 void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     if (node->IsVec())
     {
-        SetContainsAVXFlags();
+        SetContainsVexInstructions();
 
         if (node->TypeIs(TYP_SIMD32))
         {
@@ -1936,14 +1944,6 @@ void LinearScan::BuildMulLong(GenTreeOp* mul)
 #endif
     {
         BuildDef(mul, RBM_RDX);
-    }
-}
-
-void LinearScan::SetContainsAVXFlags()
-{
-    if (compiler->codeGen->UseVexEncoding())
-    {
-        compiler->codeGen->SetContainsVexInstructions();
     }
 }
 

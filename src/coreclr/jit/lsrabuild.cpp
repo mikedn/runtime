@@ -1017,7 +1017,7 @@ void LinearScan::buildRefPositionsForNode(GenTree* tree)
 #ifdef TARGET_XARCH
     if (varTypeUsesFloatReg(tree->GetType()))
     {
-        SetContainsAVXFlags();
+        SetContainsVexInstructions();
 
         if (tree->TypeIs(TYP_SIMD32))
         {

@@ -1381,7 +1381,7 @@ private:
     bool HandleFloatVarArgs(GenTreeCall* call, GenTree* argNode);
 #endif
 #ifdef TARGET_XARCH
-    void SetContainsAVXFlags();
+    void SetContainsVexInstructions();
 #endif
 
     RegRecord    physRegs[REG_COUNT];
