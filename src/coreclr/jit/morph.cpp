@@ -6776,15 +6776,24 @@ void Compiler::abiMorphSingleRegStructArg(CallArgInfo* argInfo, GenTree* arg)
     }
 
 #ifdef TARGET_64BIT
-    if (arg->TypeIs(TYP_SIMD8) && (argRegType == TYP_LONG))
+    if (varTypeIsVec(arg->GetType()) && (argRegType == TYP_LONG))
     {
-        // win-x64 and win-arm64 varargs pass SIMD8 in a LONG register.
-        argInfo->SetNode(gtNewBitCastNode(argRegType, arg));
+        // win-x64 and win-arm64 varargs pass Vector2 in a LONG register.
+        if (arg->TypeIs(TYP_SIMD8))
+        {
+            argInfo->SetNode(gtNewBitCastNode(argRegType, arg));
+        }
+        else
+        {
+            assert(arg->TypeIs(TYP_SIMD16));
+            argInfo->SetNode(gtNewVecExtractNode(TYP_LONG, arg, gtNewIconNode(0)));
+        }
+
         return;
     }
 #endif
 
-    // At this point we have either an arbitrary SIMD tree or a LCL_VAR|FLD of
+    // At this point we have either an arbitrary SIMD tree or a local load of
     // either SIMD or primitive type. The arbitrary SIMD tree should already be
     // using the correct register type but the LCL_VAR may have the wrong type
     // due to reinterpretation.
