@@ -391,28 +391,28 @@ struct HWIntrinsic final
 {
     NamedIntrinsic      id;
     HWIntrinsicCategory category;
-    var_types           insType;
+    var_types           vecEltType;
     unsigned            numOperands;
     GenTree*            ops[4];
 
     HWIntrinsic(const GenTreeHWIntrinsic* node)
         : id(node->GetIntrinsic())
         , category(HWIntrinsicInfo::GetCategory(id))
-        , insType(node->GetVecEltType())
+        , vecEltType(node->GetVecEltType())
         , numOperands(node->GetNumOps())
         , ops{numOperands >= 1 ? node->GetOp(0) : nullptr, numOperands >= 2 ? node->GetOp(1) : nullptr,
               numOperands >= 3 ? node->GetOp(2) : nullptr, numOperands >= 4 ? node->GetOp(3) : nullptr}
     {
         assert(HWIntrinsicInfo::RequiresCodegen(id));
 
-        if (insType == TYP_UNDEF)
+        if (vecEltType == TYP_UNDEF)
         {
-            InitializeBaseType(node);
+            vecEltType = InitializeScalarType(node);
         }
     }
 
 private:
-    void InitializeBaseType(const GenTreeHWIntrinsic* node)
+    var_types InitializeScalarType(const GenTreeHWIntrinsic* node) const
     {
         assert(category == HW_Category_Scalar);
 
@@ -433,7 +433,7 @@ private:
             op = node;
         }
 
-        insType = varActualType(op->GetType());
+        return varActualType(op->GetType());
     }
 };
 

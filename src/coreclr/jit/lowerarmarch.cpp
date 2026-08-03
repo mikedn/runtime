@@ -609,6 +609,7 @@ void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
     }
     else if (IsValidConstForMovImm(node))
     {
+        node->SetIntrinsic(NI_VEC_SPLAT);
         node->GetOp(0)->SetContained();
     }
 }
@@ -645,6 +646,7 @@ void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
     }
     else if (IsValidConstForFMovImm(node))
     {
+        node->SetIntrinsic(NI_VEC_FTOV);
         node->GetOp(0)->SetContained();
     }
 }
@@ -693,7 +695,11 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
     {
         GenTree* op = node->GetOp(0);
 
-        if (!varTypeIsFloating(eltType))
+        if (varTypeIsFloating(eltType))
+        {
+            node->SetIntrinsic(NI_VEC_FTOV, 1);
+        }
+        else
         {
             node->SetIntrinsic(NI_VEC_ITOV, 1);
 
@@ -705,10 +711,6 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
                 BlockRange().InsertAfter(op, conv);
                 op = conv;
             }
-        }
-        else
-        {
-            node->SetIntrinsic(NI_VEC_FTOV, 1);
         }
 
         node->SetOp(0, op);
@@ -737,7 +739,11 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
             const bool     hasZeroes = nonZeroOpMask != ((1u << numOps) - 1);
             NamedIntrinsic createScalar;
 
-            if (!varTypeIsFloating(eltType))
+            if (varTypeIsFloating(eltType))
+            {
+                createScalar = hasZeroes ? NI_VEC_FTOV : NI_VEC_REGCAST;
+            }
+            else
             {
                 createScalar = NI_VEC_ITOV;
 
@@ -752,10 +758,6 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
                         op = conv;
                     }
                 }
-            }
-            else
-            {
-                createScalar = hasZeroes ? NI_VEC_FTOV : NI_VEC_REGCAST;
             }
 
             vec = comp->gtNewVecNode(type, createScalar, eltType, op);

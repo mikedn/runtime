@@ -608,7 +608,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             immVecSize = node->GetVecSize();
         }
 
-        HWIntrinsicInfo::GetImmOpBounds(intrin.id, immVecSize, intrin.insType, &immLowerBound, &immUpperBound);
+        HWIntrinsicInfo::GetImmOpBounds(intrin.id, immVecSize, intrin.vecEltType, &immLowerBound, &immUpperBound);
         GenTree* immOp = nullptr;
 
         if ((immLowerBound != 0) || (immUpperBound != 1))
@@ -694,7 +694,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
-    if ((intrin.category == HW_Category_SIMDByIndexedElement) && (varTypeSize(intrin.insType) == 2))
+    if ((intrin.category == HW_Category_SIMDByIndexedElement) && (varTypeSize(intrin.vecEltType) == 2))
     {
         // Some "Advanced SIMD scalar x indexed element" and "Advanced SIMD vector x indexed element"
         // instructions (e.g. "MLA (by element)") have encoding that restricts what registers that

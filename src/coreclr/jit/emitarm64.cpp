@@ -3768,6 +3768,8 @@ void Arm64Emitter::emitIns_R_F(instruction ins, emitAttr attr, RegNum reg, doubl
 void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srcReg, bool canSkip, insOpts opt)
 {
     assert(IsMovIns(ins));
+    assert(dstReg != REG_NA);
+    assert(srcReg != REG_NA);
 
     emitAttr  size     = EA_SIZE(attr);
     emitAttr  elemsize = EA_UNKNOWN;
@@ -3776,7 +3778,6 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
     switch (ins)
     {
         case INS_mov:
-        {
             assert(insOptsNone(opt));
 
             if (EA_IS_GCREF_OR_BYREF(attr) && (dstReg == srcReg))
@@ -3829,7 +3830,6 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
                 fmt = IF_DR_2E;
             }
             break;
-        }
 
         case INS_sxtw:
             assert(size == EA_8BYTE);
@@ -3852,7 +3852,6 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
             break;
 
         case INS_fmov:
-        {
             assert(isValidVectorElemsizeFloat(size));
 
             if (canSkip && (dstReg == srcReg))
@@ -3897,7 +3896,6 @@ void Arm64Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, Re
                 fmt = IF_DV_2H;
             }
             break;
-        }
 
         default:
             unreached();

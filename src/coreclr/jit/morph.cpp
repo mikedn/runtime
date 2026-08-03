@@ -10862,7 +10862,7 @@ GenTree* Compiler::moMorphStructInitConstant(GenTreeIntCon* initVal,
     }
 
 #ifdef FEATURE_SIMD
-    if (varTypeIsSIMD(type))
+    if (varTypeIsVec(type))
     {
         if (initPattern == 0)
         {
