@@ -4304,13 +4304,13 @@ GenTree* Compiler::moMorphHWIntrinsic(GenTreeHWIntrinsic* tree)
 
     GenTreeFlags sideEffects = GTF_NONE;
 
-    if (tree->IsMemoryLoadOrStore())
+    if (tree->IsMemoryLoad())
     {
         sideEffects |= GTF_EXCEPT | GTF_GLOB_REF;
-        if (tree->IsMemoryStore())
-        {
-            sideEffects |= GTF_ASG;
-        }
+    }
+    else if (tree->IsMemoryStore())
+    {
+        sideEffects |= GTF_EXCEPT | GTF_GLOB_REF | GTF_ASG;
     }
 
     for (GenTreeHWIntrinsic::Use& use : tree->Uses())
@@ -5107,7 +5107,7 @@ void CallInfo::SpillArgs(Compiler* compiler, GenTreeCall* call, CallArgInfo** so
                 unreached();
 #else
                 compiler->lvaSetStruct(tempLcl, compiler->typGetObjLayout(compiler->impGetRefAnyClass()), false);
-                setupArg = compiler->abiMorphMkRefAnyToStore(tempLcl, arg->AsOp());
+                setupArg  = compiler->abiMorphMkRefAnyToStore(tempLcl, arg->AsOp());
 #endif
             }
 #endif

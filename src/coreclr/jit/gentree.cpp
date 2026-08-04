@@ -11271,18 +11271,18 @@ bool GenTreeHWIntrinsic::IsMemoryLoad() const
 #ifdef TARGET_XARCH
     if (HWIntrinsicInfo::MaybeMemoryLoad(m_intrinsic))
     {
-        if (m_intrinsic == NI_SSE41_ConvertToVector128Int16 || m_intrinsic == NI_SSE41_ConvertToVector128Int32 ||
-            m_intrinsic == NI_SSE41_ConvertToVector128Int64 || m_intrinsic == NI_AVX2_ConvertToVector256Int16 ||
-            m_intrinsic == NI_AVX2_ConvertToVector256Int32 || m_intrinsic == NI_AVX2_ConvertToVector256Int64 ||
-            m_intrinsic == NI_AVX2_BroadcastScalarToVector128 || m_intrinsic == NI_AVX2_BroadcastScalarToVector256)
+        if ((m_intrinsic == NI_AVX2_GATHERD) || (m_intrinsic == NI_AVX2_GATHERQ))
         {
-            // These have overloads that take a memory address and those are loads.
-            return varTypeIsI(GetOp(0)->GetType());
+            return true;
         }
 
-        assert(m_intrinsic == NI_AVX2_GATHERD || m_intrinsic == NI_AVX2_GATHERQ);
+        // These have overloads that take a memory address and those are loads.
+        assert(m_intrinsic == NI_SSE41_ConvertToVector128Int16 || m_intrinsic == NI_SSE41_ConvertToVector128Int32 ||
+               m_intrinsic == NI_SSE41_ConvertToVector128Int64 || m_intrinsic == NI_AVX2_ConvertToVector256Int16 ||
+               m_intrinsic == NI_AVX2_ConvertToVector256Int32 || m_intrinsic == NI_AVX2_ConvertToVector256Int64 ||
+               m_intrinsic == NI_AVX2_BroadcastScalarToVector128 || m_intrinsic == NI_AVX2_BroadcastScalarToVector256);
 
-        return true;
+        return varTypeIsI(GetOp(0)->GetType());
     }
 #endif
 

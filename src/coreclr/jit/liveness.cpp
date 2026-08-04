@@ -414,14 +414,13 @@ void Liveness::PerNodeLiveness(GenTree* tree)
 #ifdef FEATURE_HW_INTRINSICS
         case GT_HWINTRINSIC:
         {
-            GenTreeHWIntrinsic* hwIntrinsicNode = tree->AsHWIntrinsic();
+            GenTreeHWIntrinsic* hwi = tree->AsHWIntrinsic();
 
-            if (hwIntrinsicNode->IsMemoryStore())
+            if (hwi->IsMemoryStore())
             {
                 state.memoryDef = true;
             }
-
-            if (hwIntrinsicNode->IsMemoryLoad())
+            else if (hwi->IsMemoryLoad())
             {
                 state.memoryUse = true;
             }
