@@ -280,7 +280,8 @@ private:
 #endif
 #ifdef TARGET_XARCH
     void ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node);
-    void LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node);
+    void LowerFmaIntrinsic(GenTreeHWIntrinsic* node);
+    void ContainFmaIntrinsic(GenTreeHWIntrinsic* node);
     void LowerVecSum128(GenTreeHWIntrinsic* node);
     void LowerVecSum256(GenTreeHWIntrinsic* node);
     void LowerVecExtract(GenTreeHWIntrinsic* node);

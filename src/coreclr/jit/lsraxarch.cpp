@@ -1433,7 +1433,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
             {
                 BuildAddrModeUses(addrMode);
             }
-#ifdef FEATURE_HW_INTRINSICS
             else if (GenTreeHWIntrinsic* hwi = node->IsHWIntrinsic())
             {
                 if (hwi->IsMemoryLoad())
@@ -1446,7 +1445,6 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                     BuildUse(hwi->GetOp(0));
                 }
             }
-#endif // FEATURE_HW_INTRINSICS
         };
 
         // Create internal temps, and handle any other special requirements.

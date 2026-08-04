@@ -1340,15 +1340,6 @@ GenTreeCC* Lowering::LowerNodeCC(GenTree* node, GenCondition condition)
     return cc;
 }
 
-//----------------------------------------------------------------------------------------------
-// LowerHWIntrinsicCC: Lowers a hardware intrinsic node that produces a boolean value by
-//     setting the condition flags.
-//
-//  Arguments:
-//     node - The hardware intrinsic node
-//     newIntrinsicId - The intrinsic id of the lowered intrinsic node
-//     condition - The condition code of the generated SETCC/JCC node
-//
 void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIntrinsicId, GenCondition condition)
 {
     GenTreeCC* cc = LowerNodeCC(node, condition);
@@ -1422,7 +1413,7 @@ void Lowering::LowerHWIntrinsicCC(GenTreeHWIntrinsic* node, NamedIntrinsic newIn
     }
 }
 
-void Lowering::LowerFusedMultiplyAdd(GenTreeHWIntrinsic* node)
+void Lowering::LowerFmaIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_FMA_MultiplyAddScalar);
     assert(node->IsTernary());
@@ -1487,7 +1478,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_VEC_REGCAST:
             LowerVecRegCast(node);
-            break;
+            return;
 
         case NI_VEC_ITOV:
             LowerVecIToV(node);
@@ -1685,13 +1676,24 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             break;
 
         case NI_FMA_MultiplyAddScalar:
-            LowerFusedMultiplyAdd(node);
-            break;
+            LowerFmaIntrinsic(node);
+            FALLTHROUGH;
+        case NI_FMA_MultiplyAdd:
+        case NI_FMA_MultiplyAddNegated:
+        case NI_FMA_MultiplyAddNegatedScalar:
+        case NI_FMA_MultiplyAddSubtract:
+        case NI_FMA_MultiplySubtract:
+        case NI_FMA_MultiplySubtractAdd:
+        case NI_FMA_MultiplySubtractNegated:
+        case NI_FMA_MultiplySubtractScalar:
+        case NI_FMA_MultiplySubtractNegatedScalar:
+            ContainFmaIntrinsic(node);
+            return;
 
         case NI_AVX2_GATHERD:
         case NI_AVX2_GATHERQ:
             node->GetLastOp()->SetContained();
-            break;
+            return;
 
         default:
             break;
@@ -4580,6 +4582,56 @@ void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
     }
 }
 
+void Lowering::ContainFmaIntrinsic(GenTreeHWIntrinsic* node)
+{
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(node->GetVecSize() >= 16);
+    assert(node->GetNumOps() == 3);
+
+    NamedIntrinsic intrinsic = node->GetIntrinsic();
+
+    assert((intrinsic >= NI_FMA_MultiplyAdd) && (intrinsic <= NI_FMA_MultiplySubtractNegatedScalar));
+
+    GenTree* op1 = node->GetOp(0);
+    GenTree* op2 = node->GetOp(1);
+    GenTree* op3 = node->GetOp(2);
+
+    bool supportsRegOptional = false;
+
+    if (IsHWIntrinsicMemOp(node, op3, &supportsRegOptional))
+    {
+        // 213 form: op1 = (op2 * op1) + [op3]
+        MakeHWIntrinsicMemOp(node, op3);
+    }
+    else if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
+    {
+        // 132 form: op1 = (op1 * op3) + [op2]
+        MakeHWIntrinsicMemOp(node, op2);
+    }
+    else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
+    {
+        // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
+
+        if (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_SIMDScalar)
+        {
+            // 231 form: op3 = (op2 * op3) + [op1]
+            MakeHWIntrinsicMemOp(node, op1);
+        }
+    }
+    else
+    {
+        assert(supportsRegOptional);
+
+        // TODO-XArch-CQ: Technically any one of the three operands can
+        //                be reg-optional. With a limitation on op1 where
+        //                it can only be so for non-scalar FMA.
+        //                https://github.com/dotnet/runtime/issues/6358
+
+        // 213 form: op1 = (op2 * op1) + op3
+        op3->SetRegOptional();
+    }
+}
+
 void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
@@ -4596,14 +4648,10 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     var_types baseType = node->GetVecEltType();
 
+    assert((intrinsic != NI_SSE41_Insert) || (baseType != TYP_FLOAT));
+
     if (category == HW_Category_IMM)
     {
-        if ((intrinsic == NI_SSE41_Insert) && (baseType == TYP_FLOAT))
-        {
-            ContainSse41InsertFloat(node);
-            return;
-        }
-
         GenTree* lastOp = node->GetLastOp();
         assert(lastOp != nullptr);
 
@@ -4840,82 +4888,45 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             case HW_Category_SimpleSIMD:
             case HW_Category_SIMDScalar:
             case HW_Category_Scalar:
-                if ((intrinsic >= NI_FMA_MultiplyAdd) && (intrinsic <= NI_FMA_MultiplySubtractNegatedScalar))
+                assert((intrinsic < NI_FMA_MultiplyAdd) || (NI_FMA_MultiplySubtractNegatedScalar < intrinsic));
+
+                switch (intrinsic)
                 {
-                    bool supportsRegOptional = false;
+                    case NI_SSE41_BlendVariable:
+                    case NI_AVX_BlendVariable:
+                    case NI_AVX2_BlendVariable:
+                        TryMakeHWIntrinsicMemOp(node, op2);
+                        break;
 
-                    if (IsHWIntrinsicMemOp(node, op3, &supportsRegOptional))
-                    {
-                        // 213 form: op1 = (op2 * op1) + [op3]
-                        MakeHWIntrinsicMemOp(node, op3);
-                    }
-                    else if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                    {
-                        // 132 form: op1 = (op1 * op3) + [op2]
-                        MakeHWIntrinsicMemOp(node, op2);
-                    }
-                    else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                    {
-                        // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
+                    case NI_AVXVNNI_MultiplyWideningAndAdd:
+                    case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+                        TryMakeHWIntrinsicMemOp(node, op3);
+                        break;
 
-                        if (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_SIMDScalar)
+                    case NI_BMI2_MultiplyNoFlags:
+                    case NI_BMI2_X64_MultiplyNoFlags:
+                        bool supportsRegOptional;
+                        supportsRegOptional = false;
+
+                        if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
                         {
-                            // 231 form: op3 = (op2 * op3) + [op1]
-                            MakeHWIntrinsicMemOp(node, op1);
+                            MakeHWIntrinsicMemOp(node, op2);
                         }
-                    }
-                    else
-                    {
-                        assert(supportsRegOptional);
+                        else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
+                        {
+                            std::swap(op1, op2);
+                            node->SetOp(0, op2);
+                            node->SetOp(1, op1);
+                            MakeHWIntrinsicMemOp(node, op2);
+                        }
+                        else if (supportsRegOptional)
+                        {
+                            op2->SetRegOptional();
+                        }
+                        break;
 
-                        // TODO-XArch-CQ: Technically any one of the three operands can
-                        //                be reg-optional. With a limitation on op1 where
-                        //                it can only be so for non-scalar FMA.
-                        //                https://github.com/dotnet/runtime/issues/6358
-
-                        // 213 form: op1 = (op2 * op1) + op3
-                        op3->SetRegOptional();
-                    }
-                }
-                else
-                {
-                    bool supportsRegOptional = false;
-
-                    switch (intrinsic)
-                    {
-                        case NI_SSE41_BlendVariable:
-                        case NI_AVX_BlendVariable:
-                        case NI_AVX2_BlendVariable:
-                            TryMakeHWIntrinsicMemOp(node, op2);
-                            break;
-
-                        case NI_AVXVNNI_MultiplyWideningAndAdd:
-                        case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-                            TryMakeHWIntrinsicMemOp(node, op3);
-                            break;
-
-                        case NI_BMI2_MultiplyNoFlags:
-                        case NI_BMI2_X64_MultiplyNoFlags:
-                            if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                            {
-                                MakeHWIntrinsicMemOp(node, op2);
-                            }
-                            else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                            {
-                                std::swap(op1, op2);
-                                node->SetOp(0, op2);
-                                node->SetOp(1, op1);
-                                MakeHWIntrinsicMemOp(node, op2);
-                            }
-                            else if (supportsRegOptional)
-                            {
-                                op2->SetRegOptional();
-                            }
-                            break;
-
-                        default:
-                            unreached();
-                    }
+                    default:
+                        unreached();
                 }
                 break;
 
