@@ -291,6 +291,7 @@ private:
     void TryMakeHWIntrinsicAddrMode(GenTreeHWIntrinsic* node, GenTree* addr);
     void MakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
     void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op);
+    void TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op1, GenTree* op2, bool commutative);
 #endif
 #ifdef TARGET_ARM64
     bool IsValidConstForMovImm(GenTreeHWIntrinsic* node);

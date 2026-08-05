@@ -4772,6 +4772,33 @@ void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op)
     }
 }
 
+void Lowering::TryMakeHWIntrinsicMemOp(GenTreeHWIntrinsic* node, GenTree* op1, GenTree* op2, bool commutative)
+{
+    // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
+
+    bool op2SupportsRegOptional = false;
+    bool op1SupportsRegOptional = false;
+
+    if (IsHWIntrinsicMemOp(node, op2, &op2SupportsRegOptional))
+    {
+        MakeHWIntrinsicMemOp(node, op2);
+    }
+    else if (commutative && IsHWIntrinsicMemOp(node, op1, &op1SupportsRegOptional))
+    {
+        std::swap(op1, op2);
+        node->SetOp(0, op1);
+        node->SetOp(1, op2);
+        MakeHWIntrinsicMemOp(node, op2);
+    }
+    else if (op2SupportsRegOptional)
+    {
+        op2->SetRegOptional();
+
+        // TODO-XArch-CQ: For commutative nodes, either operand can be reg-optional.
+        //                https://github.com/dotnet/runtime/issues/6358
+    }
+}
+
 void Lowering::ContainFmaIntrinsic(GenTreeHWIntrinsic* node)
 {
     assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
@@ -4836,113 +4863,46 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
-    var_types baseType = node->GetVecEltType();
+    assert((intrinsic != NI_SSE41_Insert) || (node->GetVecEltType() != TYP_FLOAT));
 
-    assert((intrinsic != NI_SSE41_Insert) || (baseType != TYP_FLOAT));
+    unsigned numArgs = node->GetNumOps();
+    GenTree* op1     = node->GetOp(0);
+    GenTree* op2     = numArgs > 1 ? node->GetOp(1) : nullptr;
 
-    if (category == HW_Category_IMM)
+    switch (category)
     {
-        GenTree* lastOp = node->GetLastOp();
-        assert(lastOp != nullptr);
-
-        if (lastOp->IsIntCon())
-        {
-            lastOp->SetContained();
-        }
-        else if (varActualTypeIsInt(lastOp->GetType()))
-        {
+        case HW_Category_MemoryLoad:
+            assert((numArgs == 1) || (numArgs == 2));
+            TryMakeHWIntrinsicAddrMode(node, numArgs == 1 ? op1 : op2);
             return;
-        }
-    }
 
-    // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
+        case HW_Category_MemoryStore:
+            assert((numArgs == 2) || (numArgs == 3));
+            TryMakeHWIntrinsicAddrMode(node, op1);
+            return;
 
-    const unsigned numArgs = node->GetNumOps();
-
-    if (numArgs == 1)
-    {
-        switch (category)
-        {
-            case HW_Category_MemoryLoad:
-                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-                break;
-            case HW_Category_SimpleSIMD:
-            case HW_Category_SIMDScalar:
-            case HW_Category_Scalar:
-                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
-                break;
-            default:
-                unreached();
-        }
-    }
-    else if (numArgs == 2)
-    {
-        const bool isCommutative = HWIntrinsicInfo::IsCommutative(intrinsic);
-        GenTree*   op1           = node->GetOp(0);
-        GenTree*   op2           = node->GetOp(1);
-
-        switch (category)
-        {
-            case HW_Category_MemoryLoad:
-                TryMakeHWIntrinsicAddrMode(node, op2);
-                break;
-            case HW_Category_MemoryStore:
-                TryMakeHWIntrinsicAddrMode(node, op1);
-                break;
-
-            case HW_Category_SimpleSIMD:
-            case HW_Category_SIMDScalar:
-            case HW_Category_Scalar:
+        case HW_Category_IMM:
+            if (GenTree* lastOp = node->GetLastOp(); lastOp->IsIntCon())
             {
-                bool op2SupportsRegOptional = false;
-                bool op1SupportsRegOptional = false;
-
-                if (IsHWIntrinsicMemOp(node, op2, &op2SupportsRegOptional))
-                {
-                    MakeHWIntrinsicMemOp(node, op2);
-                }
-                else if (isCommutative && IsHWIntrinsicMemOp(node, op1, &op1SupportsRegOptional))
-                {
-                    std::swap(op1, op2);
-                    node->SetOp(0, op1);
-                    node->SetOp(1, op2);
-                    MakeHWIntrinsicMemOp(node, op2);
-                }
-                else if (op2SupportsRegOptional)
-                {
-                    op2->SetRegOptional();
-
-                    // TODO-XArch-CQ: For commutative nodes, either operand can be reg-optional.
-                    //                https://github.com/dotnet/runtime/issues/6358
-                }
-                break;
+                lastOp->SetContained();
             }
+            return;
 
-            case HW_Category_IMM:
-                break;
-            default:
-                unreached();
-        }
-    }
-    else if (numArgs == 3)
-    {
-        switch (category)
-        {
-            case HW_Category_MemoryStore:
-                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-                break;
-            case HW_Category_SimpleSIMD:
-            case HW_Category_SIMDScalar:
-            case HW_Category_Scalar:
-            case HW_Category_IMM:
-                break;
-            default:
-                unreached();
-        }
-    }
-    else
-    {
-        unreached();
+        case HW_Category_SimpleSIMD:
+        case HW_Category_SIMDScalar:
+        case HW_Category_Scalar:
+            if (numArgs == 1)
+            {
+                TryMakeHWIntrinsicMemOp(node, op1);
+            }
+            else if (numArgs == 2)
+            {
+                TryMakeHWIntrinsicMemOp(node, op1, op2, HWIntrinsicInfo::IsCommutative(intrinsic));
+            }
+            return;
+
+        default:
+            unreached();
     }
 }
 
