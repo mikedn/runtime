@@ -4530,9 +4530,16 @@ private:
             switch (ins)
             {
                 case INS_movss:
+                case INS_sqrtss:
+                case INS_rcpss:
+                case INS_roundss:
                     mattr = EA_4BYTE;
                     break;
                 case INS_movsd:
+                case INS_cvtsd2si:
+                case INS_cvttsd2si:
+                case INS_sqrtsd:
+                case INS_roundsd:
                     mattr = EA_8BYTE;
                     break;
                 case INS_vextractf128:

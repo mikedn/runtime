@@ -1476,13 +1476,28 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerNode(node);
             return;
 
+        case NI_VEC_ITOV:
+            LowerVecIToV(node);
+            FALLTHROUGH;
+        case NI_VEC_ZEXT:
+        case NI_VEC_TRUNC:
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+            return;
+
         case NI_VEC_REGCAST:
             LowerVecRegCast(node);
             return;
 
-        case NI_VEC_ITOV:
-            LowerVecIToV(node);
-            break;
+        case NI_VEC_ZERO:
+        case NI_VEC_ONE_BITS:
+            return;
+
+        case NI_VEC_EXTRACT:
+            LowerVecExtract(node);
+            return;
+        case NI_VEC_INSERT:
+            LowerVecInsert(node);
+            return;
 
         case NI_VEC_SUM:
             if (node->GetOp(0)->TypeIs(TYP_SIMD32))
@@ -1495,13 +1510,6 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             return;
 
-        case NI_VEC_EXTRACT:
-            LowerVecExtract(node);
-            return;
-        case NI_VEC_INSERT:
-            LowerVecInsert(node);
-            return;
-
         case NI_VEC_EQ:
             LowerVecEquality(node, GT_EQ);
             return;
@@ -1509,11 +1517,33 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerVecEquality(node, GT_NE);
             return;
 
+        case NI_SSE_Store:
+        case NI_SSE2_Store:
+            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+
+            if (GenTreeHWIntrinsic* op2 = node->GetOp(1)->IsHWIntrinsic();
+                (op2 != nullptr) && ((op2->GetIntrinsic() == NI_AVX_ExtractVector128) ||
+                                     (op2->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
+                op2->GetOp(1)->IsIntCon())
+            {
+                op2->SetContained();
+            }
+            return;
+
         case NI_SSE41_Extract:
+        case NI_SSE41_X64_Extract:
             // Make sure the importer did not blindly import intrinsic with bogus return type
             // "float Sse41.Extract(Vector128<float>)", the return type should have been int.
             assert(!varTypeIsFloating(node->GetType()));
-            break;
+            FALLTHROUGH;
+        case NI_SSE2_Extract:
+        case NI_AVX_ExtractVector128:
+        case NI_AVX2_ExtractVector128:
+            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+            {
+                imm->SetContained();
+            }
+            return;
 
         case NI_SSE41_Insert:
             if (node->GetVecEltType() == TYP_FLOAT)
@@ -1530,7 +1560,13 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             // widening or narrowing the operand may be unnecessary and it
             // can just be used directly.
             node->SetOp(1, TryRemoveCastIfPresent(node->GetVecEltType(), node->GetOp(1)));
-            break;
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+
+            if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
+            {
+                imm->SetContained();
+            }
+            return;
 
         case NI_SSE42_CRC32B:
             node->SetOp(1, TryRemoveCastIfPresent(TYP_BYTE, node->GetOp(1)));
@@ -1539,6 +1575,31 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE42_CRC32W:
             node->SetOp(1, TryRemoveCastIfPresent(TYP_SHORT, node->GetOp(1)));
             break;
+
+        case NI_SSE2_ConvertToInt32:
+        case NI_SSE2_X64_ConvertToInt64:
+            if (varTypeIsFloating(node->GetVecEltType()))
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+            }
+            return;
+
+        case NI_SSE_ReciprocalScalar:
+        case NI_SSE_ReciprocalSqrtScalar:
+        case NI_SSE_SqrtScalar:
+        case NI_SSE2_SqrtScalar:
+        case NI_SSE41_CeilingScalar:
+        case NI_SSE41_FloorScalar:
+        case NI_SSE41_RoundCurrentDirectionScalar:
+        case NI_SSE41_RoundToNearestIntegerScalar:
+        case NI_SSE41_RoundToNegativeInfinityScalar:
+        case NI_SSE41_RoundToPositiveInfinityScalar:
+        case NI_SSE41_RoundToZeroScalar:
+            if (node->GetNumOps() > 1)
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+            }
+            return;
 
         case NI_SSE2_CompareGreaterThan:
             if (node->GetVecEltType() != TYP_DOUBLE)
@@ -1675,6 +1736,121 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             LowerHWIntrinsicCC(node, NI_AVX_PTEST, GenCondition::UGT);
             break;
 
+        case NI_SSE41_ConvertToVector128Int16:
+        case NI_SSE41_ConvertToVector128Int32:
+        case NI_SSE41_ConvertToVector128Int64:
+        case NI_AVX2_ConvertToVector256Int16:
+        case NI_AVX2_ConvertToVector256Int32:
+        case NI_AVX2_ConvertToVector256Int64:
+            if (!varTypeIsVec(node->GetOp(0)->GetType()))
+            {
+                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+            }
+            else
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+            }
+            return;
+
+        case NI_SSE2_ShiftLeftLogical:
+        case NI_SSE2_ShiftRightArithmetic:
+        case NI_SSE2_ShiftRightLogical:
+        case NI_AVX2_ShiftLeftLogical:
+        case NI_AVX2_ShiftRightArithmetic:
+        case NI_AVX2_ShiftRightLogical:
+            if (varTypeIsVec(node->GetOp(1)->GetType()))
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+            }
+            else if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+            {
+                imm->SetContained();
+            }
+            return;
+
+        case NI_SSE2_Shuffle:
+            if (GenTreeIntCon* imm = node->GetLastOp()->IsIntCon())
+            {
+                imm->SetContained();
+
+                if (node->GetNumOps() == 3)
+                {
+                    TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+                }
+                else
+                {
+                    TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+                }
+            }
+            return;
+
+        case NI_AVX2_Shuffle:
+            if (varTypeIsByte(node->GetVecEltType()))
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+                return;
+            }
+            FALLTHROUGH;
+        case NI_SSE2_ShuffleHigh:
+        case NI_SSE2_ShuffleLow:
+        case NI_AVX_Permute:
+        case NI_AVX2_Permute4x64:
+        case NI_AVX2_ShuffleHigh:
+        case NI_AVX2_ShuffleLow:
+        case NI_AES_KeygenAssist:
+            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
+                imm->SetContained();
+            }
+            return;
+
+        case NI_SSE2_ShiftLeftLogical128BitLane:
+        case NI_SSE2_ShiftRightLogical128BitLane:
+        case NI_AVX2_ShiftLeftLogical128BitLane:
+        case NI_AVX2_ShiftRightLogical128BitLane:
+            if (GenTreeIntCon* imm = node->GetOp(1)->IsIntCon())
+            {
+                imm->SetContained();
+            }
+            return;
+
+        case NI_SSE_Shuffle:
+        case NI_SSSE3_AlignRight:
+        case NI_SSE41_Blend:
+        case NI_SSE41_DotProduct:
+        case NI_SSE41_MultipleSumAbsoluteDifferences:
+        case NI_AVX_Blend:
+        case NI_AVX_Compare:
+        case NI_AVX_CompareScalar:
+        case NI_AVX_DotProduct:
+        case NI_AVX_InsertVector128:
+        case NI_AVX_Permute2x128:
+        case NI_AVX_Shuffle:
+        case NI_AVX2_AlignRight:
+        case NI_AVX2_Blend:
+        case NI_AVX2_InsertVector128:
+        case NI_AVX2_MultipleSumAbsoluteDifferences:
+        case NI_AVX2_Permute2x128:
+        case NI_PCLMULQDQ_CarrylessMultiply:
+            if (GenTreeIntCon* imm = node->GetOp(2)->IsIntCon())
+            {
+                TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+                imm->SetContained();
+            }
+            return;
+
+        case NI_SSE41_BlendVariable:
+        case NI_AVX_BlendVariable:
+        case NI_AVX2_BlendVariable:
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(1));
+            return;
+
+        case NI_AVXVNNI_MultiplyWideningAndAdd:
+        case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
+            TryMakeHWIntrinsicMemOp(node, node->GetOp(2));
+            return;
+
         case NI_FMA_MultiplyAddScalar:
             LowerFmaIntrinsic(node);
             FALLTHROUGH;
@@ -1693,6 +1869,15 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
         case NI_AVX2_GATHERD:
         case NI_AVX2_GATHERQ:
             node->GetLastOp()->SetContained();
+            return;
+
+        case NI_AVX_MaskLoad:
+        case NI_AVX2_MaskLoad:
+            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+            return;
+
+        case NI_BMI2_MultiplyNoFlags:
+        case NI_BMI2_X64_MultiplyNoFlags:
             return;
 
         default:
@@ -4667,105 +4852,37 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
 
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
 
-    const bool     isCommutative = HWIntrinsicInfo::IsCommutative(intrinsic);
-    const unsigned numArgs       = node->GetNumOps();
+    const unsigned numArgs = node->GetNumOps();
 
     if (numArgs == 1)
     {
-        assert(!isCommutative);
-
         switch (category)
         {
             case HW_Category_MemoryLoad:
                 TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
                 break;
-
             case HW_Category_SimpleSIMD:
             case HW_Category_SIMDScalar:
             case HW_Category_Scalar:
-            {
-                switch (intrinsic)
-                {
-                    case NI_SSE_ReciprocalScalar:
-                    case NI_SSE_ReciprocalSqrtScalar:
-                    case NI_SSE_SqrtScalar:
-                    case NI_SSE2_SqrtScalar:
-                    case NI_SSE41_CeilingScalar:
-                    case NI_SSE41_FloorScalar:
-                    case NI_SSE41_RoundCurrentDirectionScalar:
-                    case NI_SSE41_RoundToNearestIntegerScalar:
-                    case NI_SSE41_RoundToNegativeInfinityScalar:
-                    case NI_SSE41_RoundToPositiveInfinityScalar:
-                    case NI_SSE41_RoundToZeroScalar:
-                        // These intrinsics have both 1 and 2-operand overloads.
-                        // The 1-operand overload basically does `intrinsic(op1, op1)`
-                        // Because of this, the operand must be loaded into a register
-                        // and cannot be contained.
-                        return;
-
-                    case NI_SSE2_ConvertToInt32:
-                    case NI_SSE2_X64_ConvertToInt64:
-                        if (varTypeIsIntegral(baseType))
-                        {
-                            // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm" and don't
-                            // currently support containment.
-                            return;
-                        }
-                        break;
-
-                    case NI_SSE41_ConvertToVector128Int16:
-                    case NI_SSE41_ConvertToVector128Int32:
-                    case NI_SSE41_ConvertToVector128Int64:
-                    case NI_AVX2_ConvertToVector256Int16:
-                    case NI_AVX2_ConvertToVector256Int32:
-                    case NI_AVX2_ConvertToVector256Int64:
-                        if (!varTypeIsVec(node->GetOp(0)->GetType()))
-                        {
-                            TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-                            return;
-                        }
-                        break;
-
-                    default:
-                        break;
-                }
-
                 TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
                 break;
-            }
-
             default:
                 unreached();
         }
     }
     else if (numArgs == 2)
     {
-        GenTree* op1 = node->GetOp(0);
-        GenTree* op2 = node->GetOp(1);
+        const bool isCommutative = HWIntrinsicInfo::IsCommutative(intrinsic);
+        GenTree*   op1           = node->GetOp(0);
+        GenTree*   op2           = node->GetOp(1);
 
         switch (category)
         {
             case HW_Category_MemoryLoad:
-                if ((intrinsic == NI_AVX_MaskLoad) || (intrinsic == NI_AVX2_MaskLoad))
-                {
-                    TryMakeHWIntrinsicAddrMode(node, op1);
-                }
-                else
-                {
-                    TryMakeHWIntrinsicAddrMode(node, op2);
-                }
+                TryMakeHWIntrinsicAddrMode(node, op2);
                 break;
-
             case HW_Category_MemoryStore:
-                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
-
-                if (((intrinsic == NI_SSE_Store) || (intrinsic == NI_SSE2_Store)) && op2->IsHWIntrinsic() &&
-                    ((op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX_ExtractVector128) ||
-                     (op2->AsHWIntrinsic()->GetIntrinsic() == NI_AVX2_ExtractVector128)) &&
-                    op2->AsHWIntrinsic()->GetOp(1)->IsIntCon())
-                {
-                    op2->SetContained();
-                }
+                TryMakeHWIntrinsicAddrMode(node, op1);
                 break;
 
             case HW_Category_SimpleSIMD:
@@ -4779,9 +4896,7 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     MakeHWIntrinsicMemOp(node, op2);
                 }
-                else if ((isCommutative || (intrinsic == NI_BMI2_MultiplyNoFlags) ||
-                          (intrinsic == NI_BMI2_X64_MultiplyNoFlags)) &&
-                         IsHWIntrinsicMemOp(node, op1, &op1SupportsRegOptional))
+                else if (isCommutative && IsHWIntrinsicMemOp(node, op1, &op1SupportsRegOptional))
                 {
                     std::swap(op1, op2);
                     node->SetOp(0, op1);
@@ -4799,173 +4914,23 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             }
 
             case HW_Category_IMM:
-            {
-                assert(!isCommutative);
-                bool supportsRegOptional = false;
-
-                switch (intrinsic)
-                {
-                    case NI_SSE41_X64_Extract:
-                        assert(!varTypeIsFloating(baseType));
-                        FALLTHROUGH;
-                    case NI_SSE2_Extract:
-                    case NI_AVX_ExtractVector128:
-                    case NI_AVX2_ExtractVector128:
-                        // TODO-XARCH-CQ: These intrinsics are "ins reg/mem, xmm, imm8" and don't
-                        // currently support containment.
-                        break;
-
-                    case NI_SSE2_ShiftLeftLogical:
-                    case NI_SSE2_ShiftRightArithmetic:
-                    case NI_SSE2_ShiftRightLogical:
-                    case NI_AVX2_ShiftLeftLogical:
-                    case NI_AVX2_ShiftRightArithmetic:
-                    case NI_AVX2_ShiftRightLogical:
-                        if (varTypeIsVec(op2->GetType()))
-                        {
-                            TryMakeHWIntrinsicMemOp(node, op2);
-                        }
-                        break;
-
-                    case NI_AVX2_Shuffle:
-                        if (varTypeIsVec(op2->GetType()))
-                        {
-                            TryMakeHWIntrinsicMemOp(node, op2);
-                            break;
-                        }
-                        FALLTHROUGH;
-                    case NI_SSE2_Shuffle:
-                    case NI_SSE2_ShuffleHigh:
-                    case NI_SSE2_ShuffleLow:
-                    case NI_AVX2_Permute4x64:
-                    case NI_AVX2_ShuffleHigh:
-                    case NI_AVX2_ShuffleLow:
-                    case NI_SSE41_Extract:
-                    case NI_AVX_Permute:
-                    case NI_AES_KeygenAssist:
-                        TryMakeHWIntrinsicMemOp(node, op1);
-                        break;
-
-                    case NI_SSE2_ShiftLeftLogical128BitLane:
-                    case NI_SSE2_ShiftRightLogical128BitLane:
-                    case NI_AVX2_ShiftLeftLogical128BitLane:
-                    case NI_AVX2_ShiftRightLogical128BitLane:
-                        // These have been handled by the general-purpose handling at the start of this function.
-                        break;
-
-                    default:
-                        assert(!"Unhandled containment for binary hardware intrinsic with immediate indir1");
-                        break;
-                }
-
                 break;
-            }
-
-            case HW_Category_Helper:
-                // We don't currently have any IMM intrinsics which are also commutative
-                assert(!isCommutative);
-                assert(!"Unhandled containment for helper binary hardware intrinsic");
-                break;
-
             default:
                 unreached();
         }
     }
     else if (numArgs == 3)
     {
-        assert(!isCommutative);
-
-        GenTree* op1 = node->GetOp(0);
-        GenTree* op2 = node->GetOp(1);
-        GenTree* op3 = node->GetOp(2);
-
         switch (category)
         {
             case HW_Category_MemoryStore:
-                TryMakeHWIntrinsicAddrMode(node, op1);
+                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
                 break;
-
             case HW_Category_SimpleSIMD:
             case HW_Category_SIMDScalar:
             case HW_Category_Scalar:
-                assert((intrinsic < NI_FMA_MultiplyAdd) || (NI_FMA_MultiplySubtractNegatedScalar < intrinsic));
-
-                switch (intrinsic)
-                {
-                    case NI_SSE41_BlendVariable:
-                    case NI_AVX_BlendVariable:
-                    case NI_AVX2_BlendVariable:
-                        TryMakeHWIntrinsicMemOp(node, op2);
-                        break;
-
-                    case NI_AVXVNNI_MultiplyWideningAndAdd:
-                    case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
-                        TryMakeHWIntrinsicMemOp(node, op3);
-                        break;
-
-                    case NI_BMI2_MultiplyNoFlags:
-                    case NI_BMI2_X64_MultiplyNoFlags:
-                        bool supportsRegOptional;
-                        supportsRegOptional = false;
-
-                        if (IsHWIntrinsicMemOp(node, op2, &supportsRegOptional))
-                        {
-                            MakeHWIntrinsicMemOp(node, op2);
-                        }
-                        else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
-                        {
-                            std::swap(op1, op2);
-                            node->SetOp(0, op2);
-                            node->SetOp(1, op1);
-                            MakeHWIntrinsicMemOp(node, op2);
-                        }
-                        else if (supportsRegOptional)
-                        {
-                            op2->SetRegOptional();
-                        }
-                        break;
-
-                    default:
-                        unreached();
-                }
-                break;
-
             case HW_Category_IMM:
-                switch (intrinsic)
-                {
-                    case NI_SSE41_Insert:
-                        assert(baseType != TYP_FLOAT);
-                        FALLTHROUGH;
-                    case NI_SSE_Shuffle:
-                    case NI_SSE2_Insert:
-                    case NI_SSE2_Shuffle:
-                    case NI_SSSE3_AlignRight:
-                    case NI_SSE41_Blend:
-                    case NI_SSE41_DotProduct:
-                    case NI_SSE41_X64_Insert:
-                    case NI_SSE41_MultipleSumAbsoluteDifferences:
-                    case NI_AVX_Blend:
-                    case NI_AVX_Compare:
-                    case NI_AVX_CompareScalar:
-                    case NI_AVX_DotProduct:
-                    case NI_AVX_InsertVector128:
-                    case NI_AVX_Permute2x128:
-                    case NI_AVX_Shuffle:
-                    case NI_AVX2_AlignRight:
-                    case NI_AVX2_Blend:
-                    case NI_AVX2_InsertVector128:
-                    case NI_AVX2_MultipleSumAbsoluteDifferences:
-                    case NI_AVX2_Permute2x128:
-                    case NI_PCLMULQDQ_CarrylessMultiply:
-                        TryMakeHWIntrinsicMemOp(node, op2);
-                        break;
-
-                    default:
-                        assert(!"Unhandled containment for ternary hardware intrinsic with immediate indir1");
-                        break;
-                }
                 break;
-
             default:
                 unreached();
         }
