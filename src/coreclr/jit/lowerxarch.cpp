@@ -2419,6 +2419,11 @@ void Lowering::LowerVecPack(GenTreeHWIntrinsic* node)
                 vec = comp->gtNewVecNode(TYP_SIMD16, insert, eltType, vec, op, idx);
                 BlockRange().InsertBefore(node, idx, vec);
                 LowerNode(vec);
+
+                if (op->IsNumericConst())
+                {
+                    BlockRange().MoveBefore(vec, op);
+                }
             }
             else
             {
