@@ -4496,10 +4496,25 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
 
     switch (category)
     {
+        case HW_Category_Scalar:
+            switch (intrinsic)
+            {
+                case NI_SSE42_CRC32B:
+                    supportsGeneralLoads = true;
+                    break;
+                case NI_SSE42_CRC32W:
+                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
+                    break;
+                default:
+                    assert(varTypeIsIntegral(op->GetType()));
+                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
+                    break;
+            }
+            break;
+
         case HW_Category_SimpleSIMD:
         case HW_Category_IMM:
         case HW_Category_SIMDScalar:
-        case HW_Category_Scalar:
             switch (intrinsic)
             {
                 case NI_SSE41_ConvertToVector128Int16:
@@ -4584,23 +4599,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                     }
                     break;
 
-                case NI_SSE42_CRC32B:
-                    supportsGeneralLoads = true;
-                    break;
-
-                case NI_SSE42_CRC32W:
-                    supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(TYP_SHORT);
-                    break;
-
                 default:
-                    if (category == HW_Category_Scalar)
-                    {
-                        assert(varTypeIsIntegral(op->GetType()));
-
-                        supportsGeneralLoads = varTypeSize(op->GetType()) >= varTypeSize(instr->GetType());
-                        break;
-                    }
-
                     if (category == HW_Category_SIMDScalar)
                     {
                         if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
