@@ -17,6 +17,10 @@ class X86Emitter final : public EmitterBase
     friend class X86AsmPrinter;
     friend class EmitterBase;
 
+    using Ins     = instruction;
+    using InsAttr = emitAttr;
+    using InsFmt  = insFormat;
+
 private:
     bool useVEXEncodings = false;
 
@@ -124,62 +128,50 @@ public:
 #ifdef TARGET_X86
     void emitIns_R_L(RegNum reg, ConstData* data);
 #endif
-    void emitIns_R_AH(instruction ins, RegNum ireg, void* addr);
-    void emitIns_AR(instruction ins, emitAttr attr, RegNum base, int32_t disp);
-    void emitIns_ARX(instruction ins, emitAttr attr, RegNum base, RegNum index, unsigned scaled, int32_t disp);
-    void emitIns_R_AR(instruction ins, emitAttr attr, RegNum reg, RegNum base, int32_t disp);
-    void emitIns_AR_R(instruction ins, emitAttr attr, RegNum reg, RegNum base, int32_t disp);
-    void emitIns_ARX_I(
-        instruction ins, emitAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
-    void emitIns_R_ARX(
-        instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
-    void emitIns_ARX_R(
-        instruction ins, emitAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
-    void Ins_ARX_R_I(instruction ins,
-                     emitAttr    attr,
-                     RegNum      base,
-                     RegNum      index,
-                     unsigned    scale,
-                     int32_t     disp,
-                     RegNum      reg,
-                     int32_t     imm);
-    void Ins_R_ARX_I(instruction ins,
-                     emitAttr    attr,
-                     RegNum      reg,
-                     RegNum      base,
-                     RegNum      index,
-                     unsigned    scale,
-                     int32_t     disp,
-                     int32_t     imm);
-    void emitIns_AR_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
+    void emitIns_R_AH(Ins ins, RegNum ireg, void* addr);
+    void emitIns_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp);
+    void emitIns_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scaled, int32_t disp);
+    void emitIns_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
+    void emitIns_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
+    void emitIns_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
+    void emitIns_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
+    void emitIns_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
+    void Ins_ARX_R_I(
+        Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg, int32_t imm);
+    void Ins_R_ARX_I(
+        Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
+    void emitIns_AR_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
     void emitIns_R_AR_R(
-        instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum base, RegNum index, int scale, int32_t disp);
-    void emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
-    void emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
-    void emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
-    void emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum op2Reg);
-    void emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
-    void emitIns_SIMD_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
-    void emitIns_SIMD_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum op1Reg, ConstData* data, int32_t imm);
-    void emitIns_SIMD_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum op1Reg, RegNum op2Reg, int32_t imm);
-    void emitIns_SIMD_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm);
-    void emitIns_SIMD_R_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
-    void emitIns_SIMD_R_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data);
-    void emitIns_SIMD_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
-    void emitIns_SIMD_R_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
-    void emitIns_SIMD_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
-    void emitIns_SIMD_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
+        Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, RegNum index, int scale, int32_t disp);
 
-    void emitIns_Call(insFormat format,
-                      void*     addr,
-                      RegNum    amBase,
-                      RegNum    amIndex,
-                      unsigned  amScale,
-                      int32_t   amDisp,
-                      bool      isJump,
-                      emitAttr  retRegAttr,
+    void VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
+    void VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
+    void VexIns_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
+    void VexIns_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
+    void VexIns_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
+
+    void VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
+    void VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm);
+    void VexIns_R_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
+    void VexIns_R_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data);
+    void VexIns_R_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
+
+    void VexIns_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
+    void VexIns_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
+    void VexIns_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm);
+    void VexIns_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
+    void VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm);
+
+    void emitIns_Call(InsFmt   format,
+                      void*    addr,
+                      RegNum   amBase,
+                      RegNum   amIndex,
+                      unsigned amScale,
+                      int32_t  amDisp,
+                      bool     isJump,
+                      InsAttr  retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                      emitAttr retReg2Attr,
+                      InsAttr retReg2Attr,
 #endif
 #ifdef TARGET_X86
                       int32_t argSize,

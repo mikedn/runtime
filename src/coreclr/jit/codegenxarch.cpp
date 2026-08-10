@@ -1248,7 +1248,7 @@ void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
             unreached();
     }
 
-    // TODO-MIKE-Cleanup: This shouldn't be needed but emitIns_SIMD_R_R_I is messed up.
+    // TODO-MIKE-Cleanup: This shouldn't be needed but VexIns_R_R_I is messed up.
     if (srcNode->isUsedFromReg())
     {
         GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
@@ -1279,7 +1279,7 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
     RegNum dstReg = node->GetRegNum();
     RegNum srcReg = UseReg(node->GetOp(0));
 
-    GetEmitter()->emitIns_SIMD_R_R_C(INS_andps, EA_16BYTE, dstReg, srcReg, maskField);
+    GetEmitter()->VexIns_R_R_C(INS_andps, EA_16BYTE, dstReg, srcReg, maskField);
 }
 
 void CodeGen::GenFloatNegate(GenTreeUnOp* node)
@@ -1301,7 +1301,7 @@ void CodeGen::GenFloatNegate(GenTreeUnOp* node)
     RegNum dstReg = node->GetRegNum();
     RegNum srcReg = UseReg(node->GetOp(0));
 
-    GetEmitter()->emitIns_SIMD_R_R_C(INS_xorps, EA_16BYTE, dstReg, srcReg, maskField);
+    GetEmitter()->VexIns_R_R_C(INS_xorps, EA_16BYTE, dstReg, srcReg, maskField);
 
     DefReg(node);
 }
@@ -1331,7 +1331,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     {
         instruction ins = insMap[0][node->GetType() - TYP_FLOAT];
 
-        GetEmitter()->emitIns_SIMD_R_R_R(ins, size, node->GetRegNum(), op1Reg, op1Reg);
+        GetEmitter()->VexIns_R_R_R(ins, size, node->GetRegNum(), op1Reg, op1Reg);
     }
     else
     {

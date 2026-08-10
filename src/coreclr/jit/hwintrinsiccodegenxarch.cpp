@@ -133,11 +133,11 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 if (implicitImm != -1)
                 {
                     assert((implicitImm >= 0) && (implicitImm <= 127));
-                    emit.emitIns_SIMD_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg, static_cast<int8_t>(implicitImm));
+                    emit.VexIns_R_R_R_I(ins, vecSize, dstReg, op1Reg, op1Reg, static_cast<int8_t>(implicitImm));
                 }
                 else
                 {
-                    emit.emitIns_SIMD_R_R_R(ins, vecSize, dstReg, op1Reg, op1Reg);
+                    emit.VexIns_R_R_R(ins, vecSize, dstReg, op1Reg, op1Reg);
                 }
             }
             else
@@ -232,11 +232,11 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
                 {
-                    emit.emitIns_SIMD_R_R_S(ins, vecSize, dstReg, otherReg, GetStackAddrMode(lclAddr));
+                    emit.VexIns_R_R_S(ins, vecSize, dstReg, otherReg, GetStackAddrMode(lclAddr));
                 }
                 else
                 {
-                    emit.emitIns_SIMD_R_R_A(ins, vecSize, dstReg, otherReg, addr);
+                    emit.VexIns_R_R_A(ins, vecSize, dstReg, otherReg, addr);
                 }
             }
             else if ((category == HW_Category_IMM) && varActualTypeIsInt(op2->GetType()))
@@ -543,7 +543,7 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree
 
     if (rmOp->isUsedFromReg())
     {
-        emit.emitIns_SIMD_R_R_I(ins, attr, reg1, rmOp->GetRegNum(), imm);
+        emit.VexIns_R_R_I(ins, attr, reg1, rmOp->GetRegNum(), imm);
 
         return;
     }
@@ -611,7 +611,7 @@ void CodeGen::inst_RV_RV_TT(instruction ins, emitAttr size, RegNum dstReg, RegNu
             op1Reg = dstReg;
         }
 
-        emit.emitIns_SIMD_R_R_R(ins, size, dstReg, op1Reg, op2Reg);
+        emit.VexIns_R_R_R(ins, size, dstReg, op1Reg, op2Reg);
 
         return;
     }
@@ -626,15 +626,15 @@ void CodeGen::inst_RV_RV_TT(instruction ins, emitAttr size, RegNum dstReg, RegNu
     }
     else if (addr != nullptr)
     {
-        emit.emitIns_SIMD_R_R_A(ins, size, dstReg, op1Reg, addr);
+        emit.VexIns_R_R_A(ins, size, dstReg, op1Reg, addr);
     }
     else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_C(ins, size, dstReg, op1Reg, data);
+        emit.VexIns_R_R_C(ins, size, dstReg, op1Reg, data);
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S(ins, size, dstReg, op1Reg, s);
+        emit.VexIns_R_R_S(ins, size, dstReg, op1Reg, s);
     }
 }
 
@@ -659,7 +659,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
         RegNum op2Reg = op2->GetRegNum();
         imm |= 0b1111 & ~(1 << ((imm >> 4) & 0b11));
-        emit.emitIns_SIMD_R_R_R_I(ins, size, dstReg, op2Reg, op2Reg, imm);
+        emit.VexIns_R_R_R_I(ins, size, dstReg, op2Reg, op2Reg, imm);
 
         return;
     }
@@ -685,7 +685,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
             op1Reg = dstReg;
         }
 
-        emit.emitIns_SIMD_R_R_R_I(ins, size, dstReg, op1Reg, op2Reg, imm);
+        emit.VexIns_R_R_R_I(ins, size, dstReg, op1Reg, op2Reg, imm);
 
         return;
     }
@@ -695,7 +695,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
         assert(ins == INS_insertps);
 
         imm |= 1 << ((imm >> 4) & 0b11);
-        emit.emitIns_SIMD_R_R_R_I(ins, size, dstReg, op1Reg, op1Reg, imm);
+        emit.VexIns_R_R_R_I(ins, size, dstReg, op1Reg, op1Reg, imm);
 
         return;
     }
@@ -713,15 +713,15 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     }
     else if (addr != nullptr)
     {
-        emit.emitIns_SIMD_R_R_A_I(ins, size, dstReg, op1Reg, addr, imm);
+        emit.VexIns_R_R_A_I(ins, size, dstReg, op1Reg, addr, imm);
     }
     else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_C_I(ins, size, dstReg, op1Reg, data, imm);
+        emit.VexIns_R_R_C_I(ins, size, dstReg, op1Reg, data, imm);
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S_I(ins, size, dstReg, op1Reg, s, imm);
+        emit.VexIns_R_R_S_I(ins, size, dstReg, op1Reg, s, imm);
     }
 }
 
@@ -743,7 +743,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 
     if (op2->isUsedFromReg())
     {
-        emit.emitIns_SIMD_R_R_R_R(ins, size, dstReg, op1Reg, op2->GetRegNum(), op3Reg);
+        emit.VexIns_R_R_R_R(ins, size, dstReg, op1Reg, op2->GetRegNum(), op3Reg);
 
         return;
     }
@@ -761,7 +761,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else if (addr != nullptr)
     {
-        emit.emitIns_SIMD_R_R_A_R(ins, size, dstReg, op1Reg, op3Reg, addr);
+        emit.VexIns_R_R_A_R(ins, size, dstReg, op1Reg, op3Reg, addr);
     }
     else if (data != nullptr)
     {
@@ -770,7 +770,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else
     {
-        emit.emitIns_SIMD_R_R_S_R(ins, size, dstReg, op1Reg, op3Reg, s);
+        emit.VexIns_R_R_S_R(ins, size, dstReg, op1Reg, op3Reg, s);
     }
 }
 
@@ -785,7 +785,7 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
 
     if (op3->isUsedFromReg())
     {
-        emit.emitIns_SIMD_R_R_R_R(ins, attr, dstReg, op1Reg, op2Reg, op3->GetRegNum());
+        emit.VexIns_R_R_R_R(ins, attr, dstReg, op1Reg, op2Reg, op3->GetRegNum());
 
         return;
     }
@@ -800,15 +800,15 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     }
     else if (addr != nullptr)
     {
-        emit.emitIns_SIMD_R_R_R_A(ins, attr, dstReg, op1Reg, op2Reg, addr);
+        emit.VexIns_R_R_R_A(ins, attr, dstReg, op1Reg, op2Reg, addr);
     }
     else if (data != nullptr)
     {
-        emit.emitIns_SIMD_R_R_R_C(ins, attr, dstReg, op1Reg, op2Reg, data);
+        emit.VexIns_R_R_R_C(ins, attr, dstReg, op1Reg, op2Reg, data);
     }
     else
     {
-        emit.emitIns_SIMD_R_R_R_S(ins, attr, dstReg, op1Reg, op2Reg, s);
+        emit.VexIns_R_R_R_S(ins, attr, dstReg, op1Reg, op2Reg, s);
     }
 }
 
@@ -888,17 +888,17 @@ void CodeGen::GenVecIntrinsic(GenTreeHWIntrinsic* node)
             if ((type != TYP_SIMD16) && !compiler->compOpportunisticallyDependsOn(InstructionSet_AVX2))
             {
                 assert(compiler->opts.IsIsaSupported(InstructionSet_AVX));
-                emit.emitIns_SIMD_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
-                emit.emitIns_SIMD_R_R_R_I(INS_cmpps, EA_32BYTE, dstReg, dstReg, dstReg, 15);
+                emit.VexIns_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
+                emit.VexIns_R_R_R_I(INS_cmpps, EA_32BYTE, dstReg, dstReg, dstReg, 15);
             }
             else
             {
-                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, emitTypeSize(type), dstReg, dstReg, dstReg);
+                emit.VexIns_R_R_R(INS_pcmpeqd, emitTypeSize(type), dstReg, dstReg, dstReg);
             }
             break;
 
         case NI_VEC_ZERO:
-            emit.emitIns_SIMD_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
+            emit.VexIns_R_R_R(INS_xorps, EA_16BYTE, dstReg, dstReg, dstReg);
             break;
 
         case NI_VEC_EXTRACT:
@@ -1049,17 +1049,17 @@ void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
             }
             else
             {
-                emit.emitIns_SIMD_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, 0x55);
+                emit.VexIns_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, 0x55);
             }
         }
         else if (indexValue == 2)
         {
-            emit.emitIns_SIMD_R_R_R(INS_unpckhps, EA_16BYTE, destReg, srcReg, srcReg);
+            emit.VexIns_R_R_R(INS_unpckhps, EA_16BYTE, destReg, srcReg, srcReg);
         }
         else
         {
             assert(indexValue == 3);
-            emit.emitIns_SIMD_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, -1);
+            emit.VexIns_R_R_R_I(INS_shufps, EA_16BYTE, destReg, srcReg, srcReg, -1);
         }
     }
     else
@@ -1067,7 +1067,7 @@ void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
         assert(eltType == TYP_DOUBLE);
         assert(indexValue == 1);
 
-        emit.emitIns_SIMD_R_R_R(INS_unpckhpd, EA_16BYTE, destReg, srcReg, srcReg);
+        emit.VexIns_R_R_R(INS_unpckhpd, EA_16BYTE, destReg, srcReg, srcReg);
     }
 }
 
@@ -1349,7 +1349,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
                 indexOp = node->GetOp(1);
                 scaleOp = node->GetOp(2);
 
-                emit.emitIns_SIMD_R_R_R(INS_pcmpeqd, size, maskDstReg, maskDstReg, maskDstReg);
+                emit.VexIns_R_R_R(INS_pcmpeqd, size, maskDstReg, maskDstReg, maskDstReg);
             }
 
             instruction ins = HWIntrinsicInfo::GetIns(intrinsic, eltType);

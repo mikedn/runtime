@@ -3101,7 +3101,7 @@ void X86Emitter::Ins_R_ARX_I(
     currentIGCodeSize += size;
 }
 
-void X86Emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
+void X86Emitter::VexIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
 {
     if (UseVEXEncoding() || IsSseDstSrcImm(ins))
     {
@@ -3114,11 +3114,11 @@ void X86Emitter::emitIns_SIMD_R_R_I(instruction ins, emitAttr attr, RegNum reg1,
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr)
+void X86Emitter::VexIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
+        VexIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
     }
     else if (UseVEXEncoding())
     {
@@ -3131,7 +3131,7 @@ void X86Emitter::emitIns_SIMD_R_R_A(instruction ins, emitAttr attr, RegNum reg1,
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data)
+void X86Emitter::VexIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data)
 {
     if (UseVEXEncoding())
     {
@@ -3144,7 +3144,7 @@ void X86Emitter::emitIns_SIMD_R_R_C(instruction ins, emitAttr attr, RegNum reg1,
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
+void X86Emitter::VexIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
 {
     if (UseVEXEncoding())
     {
@@ -3168,7 +3168,7 @@ void X86Emitter::emitIns_SIMD_R_R_R(instruction ins, emitAttr attr, RegNum reg1,
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s)
+void X86Emitter::VexIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
     if (UseVEXEncoding())
     {
@@ -3181,12 +3181,11 @@ void X86Emitter::emitIns_SIMD_R_R_S(instruction ins, emitAttr attr, RegNum reg1,
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_A_I(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm)
+void X86Emitter::VexIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
+        VexIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
     }
     else if (UseVEXEncoding())
     {
@@ -3199,8 +3198,7 @@ void X86Emitter::emitIns_SIMD_R_R_A_I(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_C_I(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm)
+void X86Emitter::VexIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm)
 {
     if (UseVEXEncoding())
     {
@@ -3213,8 +3211,7 @@ void X86Emitter::emitIns_SIMD_R_R_C_I(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R_I(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm)
+void X86Emitter::VexIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm)
 {
     if (UseVEXEncoding())
     {
@@ -3230,8 +3227,7 @@ void X86Emitter::emitIns_SIMD_R_R_R_I(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_S_I(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm)
+void X86Emitter::VexIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm)
 {
     if (UseVEXEncoding())
     {
@@ -3244,12 +3240,11 @@ void X86Emitter::emitIns_SIMD_R_R_S_I(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R_A(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
+void X86Emitter::VexIns_R_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
 {
     if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
     {
-        emitIns_SIMD_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetData());
+        VexIns_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetData());
         return;
     }
 
@@ -3263,8 +3258,7 @@ void X86Emitter::emitIns_SIMD_R_R_R_A(
     emitIns_R_R_A(ins, attr, reg1, reg3, addr);
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R_C(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
+void X86Emitter::VexIns_R_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
 {
     assert(IsFMAInstruction(ins));
     assert(UseVEXEncoding());
@@ -3276,8 +3270,7 @@ void X86Emitter::emitIns_SIMD_R_R_R_C(
     emitIns_R_R_C(ins, attr, reg1, reg3, data);
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R_R(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
+void X86Emitter::VexIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
     if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
     {
@@ -3314,8 +3307,7 @@ void X86Emitter::emitIns_SIMD_R_R_R_R(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_R_S(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
+void X86Emitter::VexIns_R_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(UseVEXEncoding());
@@ -3327,8 +3319,7 @@ void X86Emitter::emitIns_SIMD_R_R_R_S(
     emitIns_R_R_S(ins, attr, reg1, reg3, s);
 }
 
-void X86Emitter::emitIns_SIMD_R_R_A_R(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
+void X86Emitter::VexIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
 {
     if (UseVEXEncoding())
     {
@@ -3345,8 +3336,7 @@ void X86Emitter::emitIns_SIMD_R_R_A_R(
     }
 }
 
-void X86Emitter::emitIns_SIMD_R_R_S_R(
-    instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
+void X86Emitter::VexIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
 {
     if (UseVEXEncoding())
     {
