@@ -2366,7 +2366,7 @@ void X86Emitter::Ins_R_C_I(Ins ins, InsAttr attr, RegNum reg1, ConstData* data, 
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
+void X86Emitter::Ins_RWR_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
 {
     assert(reg != REG_NA);
 
@@ -2383,7 +2383,7 @@ void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, i
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
+void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -3144,7 +3144,6 @@ void X86Emitter::VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, R
     }
     else
     {
-        // Ensure we aren't overwriting op2
         assert((reg3 != reg1) || (reg2 == reg1));
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
@@ -3211,7 +3210,6 @@ void X86Emitter::VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     }
     else
     {
-        // Ensure we aren't overwriting op2
         assert((reg3 != reg1) || (reg2 == reg1));
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
@@ -3228,7 +3226,7 @@ void X86Emitter::VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S_I(ins, attr, reg1, s, imm);
+        Ins_R_S_I(ins, attr, reg1, s, imm);
     }
 }
 
@@ -3242,8 +3240,6 @@ void X86Emitter::VexIns_R_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
 
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(useVexEncoding);
-
-    // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
@@ -3254,8 +3250,6 @@ void X86Emitter::VexIns_R_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
 {
     assert(IsFMAInstruction(ins));
     assert(useVexEncoding);
-
-    // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
@@ -3267,8 +3261,6 @@ void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
     {
         assert(useVexEncoding);
-
-        // Ensure we aren't overwriting op2 or op3
         assert((reg3 != reg1) || (reg2 == reg1));
         assert((reg4 != reg1) || (reg2 == reg1));
 
@@ -3282,8 +3274,6 @@ void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     else
     {
         assert(IsSse41Blendv(ins));
-
-        // Ensure we aren't overwriting op1 or op2
         assert((reg2 != REG_XMM0) || (reg4 == REG_XMM0));
         assert((reg3 != REG_XMM0) || (reg4 == REG_XMM0));
 
@@ -3303,8 +3293,6 @@ void X86Emitter::VexIns_R_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(useVexEncoding);
-
-    // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
 
     emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);

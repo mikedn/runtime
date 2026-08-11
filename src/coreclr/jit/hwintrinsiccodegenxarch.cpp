@@ -566,7 +566,7 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree
     }
     else
     {
-        emit.emitIns_R_S_I(ins, attr, reg1, s, imm);
+        emit.Ins_R_S_I(ins, attr, reg1, s, imm);
     }
 }
 
