@@ -157,11 +157,6 @@ static bool IsPrefetch(instruction ins)
     return (ins == INS_prefetcht0) || (ins == INS_prefetcht1) || (ins == INS_prefetcht2) || (ins == INS_prefetchnta);
 }
 
-bool X86Emitter::UseVEXEncoding() const
-{
-    return useVEXEncodings;
-}
-
 enum insFlags : uint32_t
 {
     INS_FLAGS_None = 0,
@@ -311,7 +306,7 @@ static bool IsVexDstDstSrc(instruction ins, bool vexAvailable)
 
 bool X86Emitter::IsVexDstDstSrc(instruction ins) const
 {
-    return ::IsVexDstDstSrc(ins, UseVEXEncoding());
+    return ::IsVexDstDstSrc(ins, useVexEncoding);
 }
 
 #ifdef TARGET_AMD64
@@ -333,7 +328,7 @@ static bool IsVexDstSrcSrc(instruction ins, bool vexAvailable)
 
 bool X86Emitter::IsVexDstSrcSrc(instruction ins) const
 {
-    return ::IsVexDstSrcSrc(ins, UseVEXEncoding());
+    return ::IsVexDstSrcSrc(ins, useVexEncoding);
 }
 
 #ifdef DEBUG
@@ -344,7 +339,7 @@ static bool IsVexTernary(instruction ins, bool vexAvailable)
 
 bool X86Emitter::IsVexTernary(instruction ins) const
 {
-    return ::IsVexTernary(ins, UseVEXEncoding());
+    return ::IsVexTernary(ins, useVexEncoding);
 }
 
 static bool IsReallyVexTernary(instruction ins, bool vexAvailable)
@@ -360,7 +355,7 @@ static bool IsReallyVexTernary(instruction ins, bool vexAvailable)
 
 bool X86Emitter::IsReallyVexTernary(instruction ins) const
 {
-    return ::IsReallyVexTernary(ins, UseVEXEncoding());
+    return ::IsReallyVexTernary(ins, useVexEncoding);
 }
 #endif
 
@@ -505,7 +500,7 @@ static bool TakesVexPrefix(instruction ins, bool vexAvailable)
 
 bool X86Emitter::TakesVexPrefix(instruction ins) const
 {
-    return ::TakesVexPrefix(ins, UseVEXEncoding());
+    return ::TakesVexPrefix(ins, useVexEncoding);
 }
 
 constexpr unsigned PrefixesBitOffset = 16;
@@ -2070,7 +2065,7 @@ bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegN
         case INS_movupd:
         case INS_movups:
             // non EA_32BYTE moves clear the upper bits under VEX encoding
-            hasSideEffect = UseVEXEncoding() && (size != EA_32BYTE);
+            hasSideEffect = useVexEncoding && (size != EA_32BYTE);
             break;
         case INS_movd:
 #ifdef TARGET_AMD64
@@ -2082,7 +2077,7 @@ bool X86Emitter::IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegN
         case INS_movsd:
         case INS_movss:
             // Clears the upper bits under VEX encoding
-            hasSideEffect = UseVEXEncoding();
+            hasSideEffect = useVexEncoding;
             break;
         case INS_movsx:
         case INS_movzx:
@@ -2608,7 +2603,7 @@ static int8_t EncodeXmmRegAsImm(RegNum reg)
 
 void X86Emitter::emitIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
 {
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2634,7 +2629,7 @@ void X86Emitter::emitIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
 void X86Emitter::emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
 {
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2655,7 +2650,7 @@ void X86Emitter::emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, Re
 
 void X86Emitter::emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
 {
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
     assert(IsAvxBlendv(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2676,7 +2671,7 @@ void X86Emitter::emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, Re
 void X86Emitter::emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
     assert(IsAvxBlendv(ins));
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = NewInstrCns(EncodeXmmRegAsImm(reg4));
@@ -3103,7 +3098,7 @@ void X86Emitter::Ins_R_ARX_I(
 
 void X86Emitter::VexIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
 {
-    if (UseVEXEncoding() || IsSseDstSrcImm(ins))
+    if (useVexEncoding || IsSseDstSrcImm(ins))
     {
         emitIns_R_R_I(ins, attr, reg1, reg2, imm);
     }
@@ -3120,7 +3115,7 @@ void X86Emitter::VexIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNu
     {
         VexIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
     }
-    else if (UseVEXEncoding())
+    else if (useVexEncoding)
     {
         emitIns_R_R_A(ins, attr, reg1, reg2, addr);
     }
@@ -3133,7 +3128,7 @@ void X86Emitter::VexIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNu
 
 void X86Emitter::VexIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_C(ins, attr, reg1, reg2, data);
     }
@@ -3146,7 +3141,7 @@ void X86Emitter::VexIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNu
 
 void X86Emitter::VexIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_R(ins, attr, reg1, reg2, reg3);
     }
@@ -3170,7 +3165,7 @@ void X86Emitter::VexIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNu
 
 void X86Emitter::VexIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_S(ins, attr, reg1, reg2, s);
     }
@@ -3187,7 +3182,7 @@ void X86Emitter::VexIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, Reg
     {
         VexIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
     }
-    else if (UseVEXEncoding())
+    else if (useVexEncoding)
     {
         emitIns_R_R_A_I(ins, attr, reg1, reg2, addr, imm);
     }
@@ -3200,7 +3195,7 @@ void X86Emitter::VexIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 void X86Emitter::VexIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_C_I(ins, attr, reg1, reg2, data, imm);
     }
@@ -3213,7 +3208,7 @@ void X86Emitter::VexIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 void X86Emitter::VexIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_R_I(ins, attr, reg1, reg2, reg3, imm);
     }
@@ -3229,7 +3224,7 @@ void X86Emitter::VexIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 void X86Emitter::VexIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_S_I(ins, attr, reg1, reg2, s, imm);
     }
@@ -3249,7 +3244,7 @@ void X86Emitter::VexIns_R_R_R_A(instruction ins, emitAttr attr, RegNum reg1, Reg
     }
 
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
 
     // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
@@ -3261,7 +3256,7 @@ void X86Emitter::VexIns_R_R_R_A(instruction ins, emitAttr attr, RegNum reg1, Reg
 void X86Emitter::VexIns_R_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
 {
     assert(IsFMAInstruction(ins));
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
 
     // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
@@ -3274,7 +3269,7 @@ void X86Emitter::VexIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Reg
 {
     if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
     {
-        assert(UseVEXEncoding());
+        assert(useVexEncoding);
 
         // Ensure we aren't overwriting op2 or op3
         assert((reg3 != reg1) || (reg2 == reg1));
@@ -3283,7 +3278,7 @@ void X86Emitter::VexIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Reg
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
         emitIns_R_R_R(ins, attr, reg1, reg3, reg4);
     }
-    else if (UseVEXEncoding())
+    else if (useVexEncoding)
     {
         emitIns_R_R_R_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, reg4);
     }
@@ -3310,7 +3305,7 @@ void X86Emitter::VexIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, Reg
 void X86Emitter::VexIns_R_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
-    assert(UseVEXEncoding());
+    assert(useVexEncoding);
 
     // Ensure we aren't overwriting op2
     assert((reg3 != reg1) || (reg2 == reg1));
@@ -3321,7 +3316,7 @@ void X86Emitter::VexIns_R_R_R_S(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 void X86Emitter::VexIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_A_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, addr);
     }
@@ -3338,7 +3333,7 @@ void X86Emitter::VexIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, Reg
 
 void X86Emitter::VexIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
 {
-    if (UseVEXEncoding())
+    if (useVexEncoding)
     {
         emitIns_R_R_S_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, s);
     }
@@ -4960,7 +4955,7 @@ void X86Emitter::PrintInstr(instrDesc* id)
     {
         JITDUMP("IN%04X: ", id->idDebugOnlyInfo()->idNum);
 
-        X86AsmPrinter printer(compiler, codeGen, false, UseVEXEncoding());
+        X86AsmPrinter printer(compiler, codeGen, false, useVexEncoding);
 #if !FEATURE_FIXED_OUT_ARGS
         printer.SetStackLevel(stackLevel);
 #endif
@@ -5247,7 +5242,7 @@ class X86Encoder final : public Encoder
     const bool m_useVex;
 
 public:
-    X86Encoder(X86Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo), m_useVex(emit.useVEXEncodings)
+    X86Encoder(X86Emitter& emit, GCInfo& gcInfo) : Encoder(emit, gcInfo), m_useVex(emit.useVexEncoding)
     {
     }
 

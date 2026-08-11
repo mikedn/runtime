@@ -22,7 +22,7 @@ class X86Emitter final : public EmitterBase
     using InsFmt  = insFormat;
 
 private:
-    bool useVEXEncodings = false;
+    bool useVexEncoding = false;
 
 public:
     X86Emitter(Compiler* compiler, CodeGen* codeGen, ICorJitInfo* jitInfo) : EmitterBase(compiler, codeGen, jitInfo)
@@ -31,12 +31,12 @@ public:
 
     void SetUseVexEncoding(bool value)
     {
-        useVEXEncodings = value;
+        useVexEncoding = value;
     }
 
     bool UseVexEncoding() const
     {
-        return useVEXEncodings;
+        return useVexEncoding;
     }
 
     // code_t is a type used to accumulate bits of opcode + prefixes. On amd64, it must be 64 bits
@@ -184,8 +184,6 @@ public:
                       );
 
 private:
-    bool UseVEXEncoding() const;
-
     unsigned EncodingSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
     unsigned EncodingSizeR(instruction ins, emitAttr size, RegNum reg);
     unsigned EncodingSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm);
