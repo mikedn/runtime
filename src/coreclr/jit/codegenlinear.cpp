@@ -1012,7 +1012,7 @@ void CodeGen::GenNode(GenTree* node, BasicBlock* block)
             break;
         case GT_NO_OP:
 #ifdef TARGET_XARCH
-            GetEmitter()->emitIns_Nop(1);
+            GetEmitter()->Ins_Nop(1);
 #else
             GetEmitter()->emitIns(INS_nop);
 #endif
@@ -1882,7 +1882,7 @@ void CodeGen::SpillST0(GenTreeCall* call)
 
     JITDUMP("Spilling register ST0 after [%06u]\n", call->GetID());
 
-    GetEmitter()->emitIns_S(INS_fstp, emitTypeSize(type), GetStackAddrMode(temp));
+    GetEmitter()->Ins_S(INS_fstp, emitTypeSize(type), GetStackAddrMode(temp));
 
     call->SetRegSpill(0, false);
     call->SetRegSpilled(0, true);
@@ -1921,7 +1921,7 @@ void CodeGen::UnspillST0(GenTree* node)
     JITDUMP("Unspilling ST0 from [%06u]\n", getRegName(oldReg), node->GetID());
 
     var_types regType = temp->GetType();
-    GetEmitter()->emitIns_S(INS_fld, emitTypeSize(regType), GetStackAddrMode(temp));
+    GetEmitter()->Ins_S(INS_fld, emitTypeSize(regType), GetStackAddrMode(temp));
 }
 #endif // TARGET_X86
 

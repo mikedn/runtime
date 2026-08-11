@@ -68,80 +68,77 @@ public:
     void emitIns(instruction ins, emitAttr attr);
     void emitIns_J(instruction ins, insGroup* label);
     void emitIns_J(instruction ins, int instrCount = 0);
-    void emitInsRMW_A(instruction ins, emitAttr attr, GenTree* addr);
-    void emitInsRMW_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
-    void emitInsRMW_A_R(instruction ins, emitAttr attr, GenTree* addr, RegNum reg);
-    void emitIns_Nop(unsigned size);
-    void emitIns_Lock();
+    void InsRMW_A(Ins ins, InsAttr attr, GenTree* addr);
+    void InsRMW_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
+    void InsRMW_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg);
+    void Ins_Nop(unsigned size);
+    void Ins_Lock();
 #ifdef TARGET_AMD64
     void emitIns_CallFinally(insGroup* label);
 #endif
 #ifdef TARGET_X86
-    void emitIns_H(instruction ins, void* addr);
-    void emitIns_L(instruction ins, insGroup* label);
+    void Ins_H(Ins ins, void* addr);
+    void Ins_L(Ins ins, insGroup* label);
 #endif
 #ifdef WINDOWS_X86_ABI
-    void emitInsMov_R_FS(RegNum reg, int32_t disp);
+    void InsMov_R_FS(RegNum reg, int32_t disp);
 #endif
-    void emitIns_I(instruction ins, emitAttr attr, int32_t val);
-    void emitIns_R(instruction ins, emitAttr attr, RegNum reg);
-    void emitIns_C(instruction ins, emitAttr attr, ConstData* data);
-    void emitIns_R_H(instruction ins, RegNum reg, void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
-    void emitIns_R_I(instruction ins,
-                     emitAttr    attr,
-                     RegNum      reg,
-                     ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
-    void emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegNum srgReg, bool canSkip);
-    void emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2);
-    void emitIns_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
-    void emitIns_A(instruction ins, emitAttr attr, GenTree* addr);
-    void emitIns_A_I(instruction ins, emitAttr attr, GenTree* addr, int32_t imm);
-    void emitIns_A_R(instruction ins, emitAttr attr, GenTree* addr, RegNum reg);
-    void emitIns_R_A(instruction ins, emitAttr attr, RegNum reg1, GenTree* addr);
-    void emitIns_R_A_I(instruction ins, emitAttr attr, RegNum reg1, GenTree* addr, int32_t imm);
-    void emitIns_R_C_I(instruction ins, emitAttr attr, RegNum reg1, ConstData* data, int32_t imm);
-    void emitIns_R_S_I(instruction ins, emitAttr attr, RegNum reg1, StackAddrMode s, int32_t imm);
-    void emitIns_R_R_A(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
-    void emitIns_R_R_C(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
-    void emitIns_R_R_S(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
-    void emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
-    void emitIns_R_R_A_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
-    void Ins_S_R_I(instruction ins, emitAttr attr, StackAddrMode s, RegNum reg, int32_t imm);
-    void Ins_R_S_I(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s, int32_t imm);
-    void emitIns_A_R_I(instruction ins, emitAttr attr, GenTree* addr, RegNum reg, int32_t imm);
-    void emitIns_C_R_I(instruction ins, emitAttr attr, ConstData* data, RegNum reg, int32_t imm);
-    void emitIns_R_R_C_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm);
-    void emitIns_R_R_R_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm);
-    void emitIns_R_R_S_I(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm);
-    void emitIns_R_R_A_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
-    void emitIns_R_R_C_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data);
-    void emitIns_R_R_S_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
-    void emitIns_R_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
-    void emitIns_S(instruction ins, emitAttr attr, StackAddrMode s);
-    void emitIns_S_R(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
-    void emitIns_R_S(instruction ins, emitAttr attr, RegNum reg, StackAddrMode s);
-    void emitIns_S_I(instruction ins, emitAttr attr, StackAddrMode s, int32_t imm);
-    void emitIns_R_C(instruction ins, emitAttr attr, RegNum reg, ConstData* data);
-    void emitIns_C_R(instruction ins, emitAttr attr, ConstData* data, RegNum reg);
-    void emitIns_C_I(instruction ins, emitAttr attr, ConstData* data, int32_t imm);
+    void emitIns_I(Ins ins, InsAttr attr, int32_t val);
+    void emitIns_R(Ins ins, InsAttr attr, RegNum reg);
+    void Ins_C(Ins ins, InsAttr attr, ConstData* data);
+    void Ins_R_H(Ins ins, RegNum reg, void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
+    void emitIns_R_I(Ins ins, InsAttr attr, RegNum reg, ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
+    void emitIns_Mov(Ins ins, InsAttr attr, RegNum dstReg, RegNum srgReg, bool canSkip);
+    void emitIns_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2);
+    void emitIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
+    void Ins_A(Ins ins, InsAttr attr, GenTree* addr);
+    void Ins_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
+    void Ins_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg);
+    void Ins_R_A(Ins ins, InsAttr attr, RegNum reg1, GenTree* addr);
+    void Ins_R_A_I(Ins ins, InsAttr attr, RegNum reg1, GenTree* addr, int32_t imm);
+    void Ins_R_C_I(Ins ins, InsAttr attr, RegNum reg1, ConstData* data, int32_t imm);
+    void emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg1, StackAddrMode s, int32_t imm);
+    void Ins_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
+    void Ins_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
+    void Ins_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
+    void emitIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
+    void Ins_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
+    void Ins_S_R_I(Ins ins, InsAttr attr, StackAddrMode s, RegNum reg, int32_t imm);
+    void Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm);
+    void Ins_A_R_I(Ins ins, InsAttr attr, GenTree* addr, RegNum reg, int32_t imm);
+    void Ins_C_R_I(Ins ins, InsAttr attr, ConstData* data, RegNum reg, int32_t imm);
+    void Ins_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm);
+    void Ins_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, int32_t imm);
+    void Ins_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, int32_t imm);
+    void Ins_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
+    void Ins_R_R_C_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data);
+    void Ins_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
+    void Ins_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
+    void Ins_S(Ins ins, InsAttr attr, StackAddrMode s);
+    void emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
+    void emitIns_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
+    void emitIns_S_I(Ins ins, InsAttr attr, StackAddrMode s, int32_t imm);
+    void emitIns_R_C(Ins ins, InsAttr attr, RegNum reg, ConstData* data);
+    void Ins_C_R(Ins ins, InsAttr attr, ConstData* data, RegNum reg);
+    void Ins_C_I(Ins ins, InsAttr attr, ConstData* data, int32_t imm);
     void emitIns_R_L(RegNum reg, insGroup* label);
 #ifdef TARGET_X86
     void emitIns_R_L(RegNum reg, ConstData* data);
 #endif
     void emitIns_R_AH(Ins ins, RegNum ireg, void* addr);
-    void emitIns_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp);
-    void emitIns_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scaled, int32_t disp);
-    void emitIns_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
-    void emitIns_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
-    void emitIns_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
-    void emitIns_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
-    void emitIns_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
+    void Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp);
+    void Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scaled, int32_t disp);
+    void Ins_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
+    void Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
+    void Ins_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
+    void Ins_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
+    void Ins_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp);
     void Ins_ARX_R_I(
         Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg, int32_t imm);
     void Ins_R_ARX_I(
         Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
-    void emitIns_AR_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
-    void emitIns_R_AR_R(
+    void Ins_AR_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
+    void Ins_R_AR_R(
         Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, RegNum index, int scale, int32_t disp);
 
     void VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);

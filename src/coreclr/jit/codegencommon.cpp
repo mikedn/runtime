@@ -3160,7 +3160,7 @@ void CodeGen::PrologInitOsrLocals()
                     lcl->GetLclNum(), stkOffs, originalFrameSize, genSPtoFPdelta(), offset, offset);
 
 #ifdef TARGET_XARCH
-            GetEmitter()->emitIns_R_AR(ins_Load(lclTyp), size, lcl->GetRegNum(), genFramePointerReg(), offset);
+            GetEmitter()->Ins_R_AR(ins_Load(lclTyp), size, lcl->GetRegNum(), genFramePointerReg(), offset);
 #else
             // TODO-MIKE-Review: Looks like ARM64 doesn't support OSR.
             NYI("OSR local init");
@@ -3232,7 +3232,7 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
         reg             = initReg;
         *pInitRegZeroed = false;
 
-        GetEmitter()->emitIns_R_AR(INS_mov, EA_4BYTE, reg, genFramePointerReg(), lcl->GetStackOffset());
+        GetEmitter()->Ins_R_AR(INS_mov, EA_4BYTE, reg, genFramePointerReg(), lcl->GetStackOffset());
 #elif defined(TARGET_ARM)
         if (isFramePointerUsed())
         {
@@ -3260,7 +3260,7 @@ void CodeGen::PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZer
 #elif defined(TARGET_ARM)
     GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, reg, genFramePointerReg(), cachedGenericContextArgOffset);
 #elif defined(TARGET_XARCH)
-    GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, reg, genFramePointerReg(), cachedGenericContextArgOffset);
+    GetEmitter()->Ins_AR_R(INS_mov, EA_PTRSIZE, reg, genFramePointerReg(), cachedGenericContextArgOffset);
 #else
 #error Unknown target
 #endif
@@ -3808,8 +3808,8 @@ void CodeGen::genFnProlog()
         assert((paramRegState.intRegLiveIn & RBM_SECRET_STUB_PARAM) != RBM_NONE);
 
 #ifdef TARGET_XARCH
-        GetEmitter()->emitIns_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
-                                   compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
+        GetEmitter()->Ins_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
+                               compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
         GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
                               GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
