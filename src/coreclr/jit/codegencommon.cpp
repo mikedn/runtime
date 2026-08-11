@@ -2102,7 +2102,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 size = EA_GCREF;
             }
 
-            GetEmitter()->emitIns_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
+            GetEmitter()->Ins_R_R(INS_xchg, size, srcLcl->GetRegNum(), srcLcl->GetParamReg());
 
             paramRegs[destRegIndex].processed = true;
             paramRegs[srcRegIndex].processed  = true;
@@ -2424,7 +2424,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
                 }
                 else
                 {
-                    GetEmitter()->emitIns_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
+                    GetEmitter()->Ins_R_R(INS_movlhps, EA_16BYTE, destRegNum, nextRegNum);
                 }
 
                 // Set destRegNum to regNum so that we skip the setting of the register below,

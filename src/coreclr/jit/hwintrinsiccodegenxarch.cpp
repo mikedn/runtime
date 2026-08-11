@@ -317,7 +317,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                     assert(dstReg == REG_NA);
 
                     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, op3Reg, /* canSkip */ true);
-                    emit.emitIns_R_R(ins, vecSize, op1Reg, op2Reg);
+                    emit.Ins_R_R(ins, vecSize, op1Reg, op2Reg);
                 }
             }
             else
@@ -483,7 +483,7 @@ void CodeGen::genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emi
         }
         else
         {
-            emit.emitIns_R_R(ins, attr, reg, rmOp->GetRegNum());
+            emit.Ins_R_R(ins, attr, reg, rmOp->GetRegNum());
         }
 
         return;
@@ -832,7 +832,7 @@ void CodeGen::GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     emit.emitIns_R_C(INS_lea, EA_PTRSIZE, offsReg, data);
     emit.Ins_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
     emit.emitIns_R_L(baseReg, compiler->fgFirstBB->emitLabel);
-    emit.emitIns_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
+    emit.Ins_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
     emit.emitIns_R(INS_i_jmp, EA_PTRSIZE, offsReg);
 
     insGroup* switchTableEnd = emit.CreateTempLabel();
@@ -1045,7 +1045,7 @@ void CodeGen::GenVecExtract(GenTreeHWIntrinsic* node)
         {
             if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE3))
             {
-                emit.emitIns_R_R(INS_movshdup, EA_16BYTE, destReg, srcReg);
+                emit.Ins_R_R(INS_movshdup, EA_16BYTE, destReg, srcReg);
             }
             else
             {
@@ -1613,7 +1613,7 @@ void CodeGen::GenXCNTIntrinsic(GenTreeHWIntrinsic* node, instruction ins)
 
     if ((dstReg != sourceReg1) && (dstReg != sourceReg2))
     {
-        GetEmitter()->emitIns_R_R(INS_xor, EA_4BYTE, dstReg, dstReg);
+        GetEmitter()->Ins_R_R(INS_xor, EA_4BYTE, dstReg, dstReg);
     }
 
     genHWIntrinsic_R_RM(node, ins, emitTypeSize(node->GetType()), dstReg, op1);

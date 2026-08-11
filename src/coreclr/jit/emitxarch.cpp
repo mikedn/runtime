@@ -2207,7 +2207,7 @@ void X86Emitter::emitIns_Mov(instruction ins, emitAttr attr, RegNum dstReg, RegN
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2)
+void X86Emitter::Ins_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     assert(!IsMovIns(ins));
@@ -3155,7 +3155,7 @@ void X86Emitter::VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, R
         }
         else
         {
-            emitIns_R_R(ins, attr, reg1, reg3);
+            Ins_R_R(ins, attr, reg1, reg3);
         }
     }
 }
@@ -3295,7 +3295,7 @@ void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
         assert(reg1 != REG_XMM0);
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_R(ins, attr, reg1, reg3);
+        Ins_R_R(ins, attr, reg1, reg3);
     }
 }
 

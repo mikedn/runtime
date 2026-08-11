@@ -89,7 +89,7 @@ public:
     void Ins_R_H(Ins ins, RegNum reg, void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
     void emitIns_R_I(Ins ins, InsAttr attr, RegNum reg, ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
     void emitIns_Mov(Ins ins, InsAttr attr, RegNum dstReg, RegNum srgReg, bool canSkip);
-    void emitIns_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2);
+    void Ins_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2);
     void emitIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
     void Ins_A(Ins ins, InsAttr attr, GenTree* addr);
     void Ins_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
