@@ -2377,7 +2377,7 @@ void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, i
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
-    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
     id->idCodeSize(sz);
     PrintInstr(id);
     currentIGCodeSize += sz;
@@ -2385,7 +2385,7 @@ void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, i
 
 void X86Emitter::emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
 {
-    assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
+    assert(IsSSEOrAVXOrBMIInstruction(ins));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 

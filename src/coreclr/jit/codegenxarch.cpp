@@ -626,6 +626,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
     RegNum   dstReg = mul->GetRegNum();
     emitAttr size   = emitTypeSize(mul->GetType());
+    Emitter& emit   = *GetEmitter();
 
     UseRMRegs(op1);
 
@@ -637,24 +638,24 @@ void CodeGen::GenMul(GenTreeOp* mul)
         if (!checkOverflow && op1->isUsedFromReg() && ((imm == 3) || (imm == 5) || (imm == 9)))
         {
             unsigned scale = static_cast<unsigned>(imm - 1);
-            GetEmitter()->Ins_R_ARX(INS_lea, size, dstReg, op1->GetRegNum(), op1->GetRegNum(), scale, 0);
+            emit.Ins_R_ARX(INS_lea, size, dstReg, op1->GetRegNum(), op1->GetRegNum(), scale, 0);
         }
         else if (!checkOverflow && op1->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
         {
-            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
             inst_RV_SH(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
         }
         else if (op1->isUsedFromReg())
         {
-            GetEmitter()->Ins_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
+            emit.Ins_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
         }
         else if (IsLocalMemoryOperand(op1, &s))
         {
-            GetEmitter()->emitIns_R_S_I(INS_imuli, size, dstReg, s, static_cast<int32_t>(imm));
+            emit.Ins_R_S_I(INS_imuli, size, dstReg, s, static_cast<int32_t>(imm));
         }
         else
         {
-            GetEmitter()->Ins_R_A_I(INS_imuli, size, dstReg, op1->AsIndLoad()->GetAddr(), static_cast<int32_t>(imm));
+            emit.Ins_R_A_I(INS_imuli, size, dstReg, op1->AsIndLoad()->GetAddr(), static_cast<int32_t>(imm));
         }
     }
     else
@@ -662,7 +663,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         UseRMRegs(op2);
 
         instruction ins       = INS_imul;
-        regNumber   mulDstReg = dstReg;
+        RegNum      mulDstReg = dstReg;
         GenTree*    regOp     = op1;
         GenTree*    rmOp      = op2;
 
@@ -679,12 +680,12 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
         assert(regOp->isUsedFromReg());
 
-        GetEmitter()->emitIns_Mov(INS_mov, size, mulDstReg, regOp->GetRegNum(), /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, size, mulDstReg, regOp->GetRegNum(), /* canSkip */ true);
 
         if (ins == INS_mulEAX)
         {
             emitInsRM(ins, size, rmOp);
-            GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, REG_RAX, /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, size, dstReg, REG_RAX, /* canSkip */ true);
         }
         else
         {
