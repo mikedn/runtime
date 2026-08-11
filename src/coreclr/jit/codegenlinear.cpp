@@ -1828,7 +1828,7 @@ void CodeGen::ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dst
         assert(store->HasTempReg(sizeReg));
 
 #ifdef TARGET_XARCH
-        emit.emitIns_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
+        emit.Ins_R_I(INS_mov, EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
 #else
         instGen_Set_Reg_To_Imm(EA_4BYTE, sizeReg, static_cast<ssize_t>(layout->GetSize()));
 #endif

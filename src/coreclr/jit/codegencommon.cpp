@@ -3753,7 +3753,7 @@ void CodeGen::genFnProlog()
 
     if (IsFramePointerRequired())
     {
-        GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_FPBASE);
+        GetEmitter()->Ins_R(INS_push, EA_PTRSIZE, REG_FPBASE);
         unwindPush(REG_FPBASE);
 
 #ifndef TARGET_AMD64
@@ -3765,7 +3765,7 @@ void CodeGen::genFnProlog()
         {
             noway_assert(!isFramePointerUsed());
 
-            GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, REG_ESP, -8);
+            GetEmitter()->Ins_R_I(INS_and, EA_4BYTE, REG_ESP, -8);
         }
 #endif
     }
@@ -5420,7 +5420,7 @@ void CodeGen::genPoisonFrame(regMaskTP regLiveIn)
             immReg = REG_SCRATCH;
 
 #ifdef TARGET_XARCH
-            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, immReg, imm);
+            GetEmitter()->Ins_R_I(INS_mov, EA_PTRSIZE, immReg, imm);
 #else
             instGen_Set_Reg_To_Imm(EA_PTRSIZE, immReg, imm);
 #endif

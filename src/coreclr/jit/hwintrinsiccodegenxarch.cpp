@@ -506,7 +506,7 @@ void CodeGen::genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emi
     }
     else if (data != nullptr)
     {
-        emit.emitIns_R_C(ins, attr, reg, data);
+        emit.Ins_R_C(ins, attr, reg, data);
     }
     else
     {
@@ -829,11 +829,11 @@ void CodeGen::GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     insGroup** labels;
     ConstData* data = emit.CreateTempLabelTable(&labels, maxByte, true);
 
-    emit.emitIns_R_C(INS_lea, EA_PTRSIZE, offsReg, data);
+    emit.Ins_R_C(INS_lea, EA_PTRSIZE, offsReg, data);
     emit.Ins_R_ARX(INS_mov, EA_4BYTE, offsReg, offsReg, nonConstImmReg, 4, 0);
-    emit.emitIns_R_L(baseReg, compiler->fgFirstBB->emitLabel);
+    emit.Ins_R_L(baseReg, compiler->fgFirstBB->emitLabel);
     emit.Ins_R_R(INS_add, EA_PTRSIZE, offsReg, baseReg);
-    emit.emitIns_R(INS_i_jmp, EA_PTRSIZE, offsReg);
+    emit.Ins_R(INS_i_jmp, EA_PTRSIZE, offsReg);
 
     insGroup* switchTableEnd = emit.CreateTempLabel();
 

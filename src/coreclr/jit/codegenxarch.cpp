@@ -20,7 +20,7 @@ void CodeGen::GenKeepAlive(GenTreeUnOp* node)
 void CodeGen::GenLabel(GenTree* label)
 {
     genPendingCallLabel = GetEmitter()->CreateTempLabel();
-    GetEmitter()->emitIns_R_L(label->GetRegNum(), genPendingCallLabel);
+    GetEmitter()->Ins_R_L(label->GetRegNum(), genPendingCallLabel);
     // TODO-MIKE-Review: Hmm, no DefReg call?
 }
 
@@ -37,14 +37,14 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
 #ifdef TARGET_AMD64
         if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, initReg, m_gsCookieVal);
+            GetEmitter()->Ins_R_I(INS_mov, EA_8BYTE, initReg, m_gsCookieVal);
             GetEmitter()->emitIns_S_R(INS_mov, EA_8BYTE, initReg, s);
             *initRegZeroed = false;
         }
         else
 #endif
         {
-            GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
+            GetEmitter()->Ins_S_I(INS_mov, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -53,7 +53,7 @@ void CodeGen::PrologSetGSSecurityCookie(regNumber initReg, bool* initRegZeroed)
         // On x64, if we're not moving into RAX, and the address isn't RIP relative, we can't encode it.
         //  mov   eax, dword ptr [compiler->gsGlobalSecurityCookieAddr]
         //  mov   dword ptr [frame.GSSecurityCookie], eax
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_EAX, m_gsCookieAddr);
+        GetEmitter()->Ins_R_AH(INS_mov, REG_EAX, m_gsCookieAddr);
         GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_EAX, s);
 
         if (initReg == REG_EAX)
@@ -107,13 +107,13 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
 #ifdef TARGET_AMD64
         if (!FitsIn<int32_t>(m_gsCookieVal))
         {
-            emit.emitIns_R_I(INS_mov, EA_8BYTE, regGSCheck, m_gsCookieVal);
+            emit.Ins_R_I(INS_mov, EA_8BYTE, regGSCheck, m_gsCookieVal);
             emit.emitIns_S_R(INS_cmp, EA_8BYTE, regGSCheck, s);
         }
         else
 #endif
         {
-            emit.emitIns_S_I(INS_cmp, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
+            emit.Ins_S_I(INS_cmp, EA_PTRSIZE, s, static_cast<int>(m_gsCookieVal));
         }
     }
     else
@@ -179,7 +179,7 @@ var_types CodeGen::PushTempReg(regNumber reg)
         type = TYP_INT;
     }
 
-    GetEmitter()->emitIns_R(INS_push, emitTypeSize(type), reg);
+    GetEmitter()->Ins_R(INS_push, emitTypeSize(type), reg);
     AddStackLevel(REGSIZE_BYTES);
     liveness.RemoveGCRegs(regMask);
 
@@ -190,7 +190,7 @@ void CodeGen::PopTempReg(regNumber reg, var_types type)
 {
     assert(varTypeIsI(type));
 
-    GetEmitter()->emitIns_R(INS_pop, emitTypeSize(type), reg);
+    GetEmitter()->Ins_R(INS_pop, emitTypeSize(type), reg);
     SubtractStackLevel(REGSIZE_BYTES);
 
     if (varTypeIsGC(type))
@@ -214,7 +214,7 @@ void CodeGen::SetThrowHelperBlockStackLevel(BasicBlock* block)
         if (genStackLevel != 0)
         {
             GetEmitter()->SetStackLevel(genStackLevel);
-            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(genStackLevel));
+            GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(genStackLevel));
             SetStackLevel(0);
         }
     }
@@ -366,10 +366,8 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     unsigned curNestingSlotOffs = (unsigned)(filterEndOffsetSlotOffs - ((finallyNesting + 1) * REGSIZE_BYTES));
 
     // Zero out the slot for the next nesting level
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs - REGSIZE_BYTES),
-                              0);
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs),
-                              LCL_FINALLY_MARK);
+    GetEmitter()->Ins_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs - REGSIZE_BYTES), 0);
+    GetEmitter()->Ins_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSlotsLcl, curNestingSlotOffs), LCL_FINALLY_MARK);
 
     // Now push the address where the finally funclet should return to directly.
     if ((block->bbFlags & BBF_RETLESS_CALL) == 0)
@@ -380,7 +378,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     else
     {
         // EE expects a DWORD, so we provide 0
-        GetEmitter()->emitIns_I(INS_push_hide, EA_4BYTE, 0);
+        GetEmitter()->Ins_I(INS_push_hide, EA_4BYTE, 0);
     }
 
     // Jump to the finally BB
@@ -397,7 +395,7 @@ void CodeGen::genEHCatchRet(BasicBlock* block)
     // Generate a RIP-relative
     //         lea reg, [rip + disp32] ; the RIP is implicit
     // which will be position-independent.
-    GetEmitter()->emitIns_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
+    GetEmitter()->Ins_R_L(REG_INTRET, block->bbJumpDest->emitLabel);
 }
 
 #else // !FEATURE_EH_FUNCLETS
@@ -418,8 +416,8 @@ void CodeGen::genEHFinallyOrFilterRet(BasicBlock* block)
         // the finally with a jmp, this leaves the x86 call-ret stack
         // balanced in the normal flow of path.
 
-        GetEmitter()->emitIns_R(INS_pop_hide, EA_PTRSIZE, REG_EAX);
-        GetEmitter()->emitIns_R(INS_i_jmp, EA_PTRSIZE, REG_EAX);
+        GetEmitter()->Ins_R(INS_pop_hide, EA_PTRSIZE, REG_EAX);
+        GetEmitter()->Ins_R(INS_i_jmp, EA_PTRSIZE, REG_EAX);
     }
     else
     {
@@ -444,7 +442,7 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
     unsigned filterEndOffsetSlotOffs = shadowSPSlotsLcl->GetBlockSize() - REGSIZE_BYTES;
 
     unsigned curNestingSlotOffs = filterEndOffsetSlotOffs - (finallyNesting + 1) * REGSIZE_BYTES;
-    GetEmitter()->emitIns_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSPSlotsLcl, curNestingSlotOffs), 0);
+    GetEmitter()->Ins_S_I(INS_mov, EA_PTRSIZE, GetStackAddrMode(shadowSPSlotsLcl, curNestingSlotOffs), 0);
 }
 
 #endif // !FEATURE_EH_FUNCLETS
@@ -452,9 +450,9 @@ void CodeGen::GenEndLFin(GenTreeEndLFin* node)
 void CodeGen::GenConstAddr(GenTreeConstAddr* node)
 {
 #ifdef TARGET_X86
-    GetEmitter()->emitIns_R_L(node->GetRegNum(), node->GetData());
+    GetEmitter()->Ins_R_L(node->GetRegNum(), node->GetData());
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), node->GetData());
+    GetEmitter()->Ins_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), node->GetData());
 #endif
 
     DefReg(node);
@@ -477,7 +475,7 @@ void CodeGen::instGen_Set_Reg_To_Addr(regNumber reg, void* addr DEBUGARG(void* h
         }
         else
         {
-            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, reg, reinterpret_cast<ssize_t>(addr));
+            GetEmitter()->Ins_R_I(INS_mov, EA_PTRSIZE, reg, reinterpret_cast<ssize_t>(addr));
         }
 
         return;
@@ -493,7 +491,7 @@ void CodeGen::instGen_Set_Reg_To_Reloc(regNumber reg, void* addr DEBUGARG(void* 
 #ifdef TARGET_AMD64
     if (compiler->eeIsRIPRelativeAddress(addr))
     {
-        GetEmitter()->emitIns_R_AH(INS_lea, reg, addr);
+        GetEmitter()->Ins_R_AH(INS_lea, reg, addr);
     }
     else
 #endif
@@ -540,7 +538,7 @@ void CodeGen::GenIntCon(GenTreeIntCon* node, regNumber reg, var_types type)
     noway_assert(type != TYP_REF);
 
     // TODO-XArch-CQ: needs all the optimized cases
-    GetEmitter()->emitIns_R_I(INS_mov, emitActualTypeSize(type), reg, node->GetValue() DEBUGARG(node->GetHandleKind()));
+    GetEmitter()->Ins_R_I(INS_mov, emitActualTypeSize(type), reg, node->GetValue() DEBUGARG(node->GetHandleKind()));
 }
 
 void CodeGen::GenDblCon(GenTreeDblCon* node)
@@ -559,7 +557,7 @@ void CodeGen::GenDblCon(GenTreeDblCon* node, regNumber reg, var_types type)
     }
 
     ConstData* data = GetEmitter()->GetFloatConst(node->GetValue(), node->GetType());
-    GetEmitter()->emitIns_R_C(ins_Load(type), emitTypeSize(node->GetType()), reg, data);
+    GetEmitter()->Ins_R_C(ins_Load(type), emitTypeSize(node->GetType()), reg, data);
 }
 
 void CodeGen::GenNegNot(GenTreeUnOp* node)
@@ -572,7 +570,7 @@ void CodeGen::GenNegNot(GenTreeUnOp* node)
     RegNum      srcReg = UseReg(node->GetOp(0));
 
     GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R(ins, size, dstReg);
+    GetEmitter()->Ins_R(ins, size, dstReg);
 
     DefReg(node);
 }
@@ -593,11 +591,11 @@ void CodeGen::GenBswap(GenTreeUnOp* bswap)
 
     if (bswap->OperIs(GT_BSWAP))
     {
-        GetEmitter()->emitIns_R(INS_bswap, size, dstReg);
+        GetEmitter()->Ins_R(INS_bswap, size, dstReg);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_ror_N, EA_2BYTE, dstReg, 8);
+        GetEmitter()->Ins_R_I(INS_ror_N, EA_2BYTE, dstReg, 8);
     }
 
     DefReg(bswap);
@@ -612,8 +610,8 @@ void CodeGen::GenSatInc(GenTreeUnOp* inc)
     emitAttr size   = emitActualTypeSize(inc->GetType());
 
     GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, srcReg, /* canSkip */ true);
-    GetEmitter()->emitIns_R_I(INS_add, size, dstReg, 1);
-    GetEmitter()->emitIns_R_I(INS_sbb, size, dstReg, 0);
+    GetEmitter()->Ins_R_I(INS_add, size, dstReg, 1);
+    GetEmitter()->Ins_R_I(INS_sbb, size, dstReg, 0);
 
     DefReg(inc);
 }
@@ -796,13 +794,13 @@ void CodeGen::GenURemLong(GenTreeOp* node)
     emit.emitIns_Mov(INS_mov, EA_4BYTE, tempReg, REG_EAX, /* canSkip */ false);
     emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, REG_EDX, /* canSkip */ false);
     emit.Ins_R_R(INS_xor, EA_4BYTE, REG_EDX, REG_EDX);
-    emit.emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
+    emit.Ins_R(INS_div, EA_4BYTE, divisor->GetRegNum());
     emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, tempReg, /* canSkip */ false);
 
     // noOverflow:
     //   div divisor->GetRegNum()
     emit.DefineTempLabel(noOverflow);
-    emit.emitIns_R(INS_div, EA_4BYTE, divisor->GetRegNum());
+    emit.Ins_R(INS_div, EA_4BYTE, divisor->GetRegNum());
 
     emit.emitIns_Mov(INS_mov, EA_4BYTE, node->GetRegNum(), REG_RDX, /* canSkip */ true);
 
@@ -950,7 +948,7 @@ void CodeGen::GenShift(GenTreeOp* shift)
 
         emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_RCX, shiftByReg, /* canSkip */ true);
         emit.emitIns_Mov(INS_mov, size, dstReg, valueReg, /* canSkip */ true);
-        emit.emitIns_R(ins, size, dstReg);
+        emit.Ins_R(ins, size, dstReg);
     }
     else
     {
@@ -1003,11 +1001,11 @@ void CodeGen::GenShift(GenTreeOp* shift)
 
             if (imm == 1)
             {
-                emit.emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, dstReg);
+                emit.Ins_R(MapShiftInsToShiftBy1Ins(ins), size, dstReg);
             }
             else
             {
-                emit.emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, dstReg, imm);
+                emit.Ins_R_I(MapShiftInsToShiftByImmIns(ins), size, dstReg, imm);
             }
         }
     }
@@ -1146,20 +1144,20 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
         {
             if (imm->GetValue() == 1)
             {
-                emit.emitIns_R(INS_inc, attr, dstReg);
+                emit.Ins_R(INS_inc, attr, dstReg);
                 DefReg(node);
                 return;
             }
 
             if (imm->GetValue() == -1)
             {
-                emit.emitIns_R(INS_dec, attr, dstReg);
+                emit.Ins_R(INS_dec, attr, dstReg);
                 DefReg(node);
                 return;
             }
         }
 
-        emit.emitIns_R_I(GetOperIns(node->GetOper()), attr, dstReg, imm->GetValue());
+        emit.Ins_R_I(GetOperIns(node->GetOper()), attr, dstReg, imm->GetValue());
     }
     else
     {
@@ -1501,7 +1499,7 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
     const GenConditionDesc& desc = GenConditionDesc::Get(condition);
     Emitter&                emit = *GetEmitter();
 
-    emit.emitIns_R(JumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
+    emit.Ins_R(JumpKindToSetcc(desc.jumpKind1), EA_1BYTE, dstReg);
 
     if (desc.oper != GT_NONE)
     {
@@ -1509,7 +1507,7 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
 
         insGroup* labelNext = emit.CreateTempLabel();
         emit.emitIns_J(JumpKindToJcc(jcc), labelNext);
-        emit.emitIns_R(JumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
+        emit.Ins_R(JumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
         emit.DefineTempLabel(labelNext);
     }
 
@@ -1562,12 +1560,12 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     if (frameSize == REGSIZE_BYTES)
     {
         // Frame size is the same as register size.
-        GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_EAX);
+        GetEmitter()->Ins_R(INS_push, EA_PTRSIZE, REG_EAX);
         unwindAllocStack(frameSize);
     }
     else if (frameSize < pageSize)
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
+        GetEmitter()->Ins_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
         unwindAllocStack(frameSize);
 
         const unsigned lastProbedLocToFinalSp = frameSize;
@@ -1588,7 +1586,7 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
         if (compiler->info.compPublishStubParam)
         {
-            GetEmitter()->emitIns_R(INS_push, EA_PTRSIZE, REG_SECRET_STUB_PARAM);
+            GetEmitter()->Ins_R(INS_push, EA_PTRSIZE, REG_SECRET_STUB_PARAM);
             spOffset += REGSIZE_BYTES;
         }
 
@@ -1597,8 +1595,8 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
 
         if (compiler->info.compPublishStubParam)
         {
-            GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_SECRET_STUB_PARAM);
-            GetEmitter()->emitIns_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
+            GetEmitter()->Ins_R(INS_pop, EA_PTRSIZE, REG_SECRET_STUB_PARAM);
+            GetEmitter()->Ins_R_I(INS_sub, EA_PTRSIZE, REG_SPBASE, frameSize);
         }
         else
         {
@@ -1665,7 +1663,7 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
     assert((target_size_t)(-spDelta) <= compiler->eeGetPageSize());
 
 #ifdef TARGET_AMD64
-    GetEmitter()->emitIns_R_I(INS_sub, EA_8BYTE, REG_SPBASE, -spDelta);
+    GetEmitter()->Ins_R_I(INS_sub, EA_8BYTE, REG_SPBASE, -spDelta);
 #else
     if (regTmp != REG_NA)
     {
@@ -1675,12 +1673,12 @@ void CodeGen::genStackPointerConstantAdjustment(ssize_t spDelta, regNumber regTm
         // creating a way to temporarily turn off the emitter's tracking of ESP, maybe marking instrDescs as "don't
         // track".
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, regTmp, REG_SPBASE, /* canSkip */ false);
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, regTmp, static_cast<int32_t>(-spDelta));
+        GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, regTmp, static_cast<int32_t>(-spDelta));
         GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, regTmp, /* canSkip */ false);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(-spDelta));
+        GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(-spDelta));
     }
 #endif // TARGET_X86
 }
@@ -1799,7 +1797,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     // Subtract a page from ESP. This is a trick to avoid the emitter trying to track the
     // decrement of the ESP - we do the subtraction in another reg instead of adjusting ESP directly.
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, regTmp, REG_SPBASE, /* canSkip */ false);
-    emit.emitIns_R_I(INS_sub, EA_PTRSIZE, regTmp, compiler->eeGetPageSize());
+    emit.Ins_R_I(INS_sub, EA_PTRSIZE, regTmp, compiler->eeGetPageSize());
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp, /* canSkip */ false);
 
     emit.Ins_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
@@ -1901,7 +1899,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
         //      add reg, 15
         //      shr reg, 4
 
-        emit.emitIns_R_I(INS_add, attr, regCnt, STACK_ALIGN - 1);
+        emit.Ins_R_I(INS_add, attr, regCnt, STACK_ALIGN - 1);
 
         if (compiler->info.compInitMem)
         {
@@ -1920,7 +1918,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
         else
         {
             // Otherwise, mask off the low bits to align the byte count.
-            emit.emitIns_R_I(INS_and, attr, regCnt, ~(STACK_ALIGN - 1));
+            emit.Ins_R_I(INS_and, attr, regCnt, ~(STACK_ALIGN - 1));
         }
     }
 
@@ -1955,7 +1953,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
             goto ALLOC_DONE;
         }
 
-        emit.emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, outgoingArgSpaceSize);
+        emit.Ins_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, outgoingArgSpaceSize);
         stackAdjustment += static_cast<target_size_t>(outgoingArgSpaceSize);
         locAllocStackOffset = stackAdjustment;
     }
@@ -1975,7 +1973,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
         {
             for (; cntRegSizedWords != 0; cntRegSizedWords--)
             {
-                emit.emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+                emit.Ins_I(INS_push_hide, EA_PTRSIZE, 0);
             }
 
             lastTouchDelta = 0;
@@ -2026,8 +2024,8 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
             amount /= STACK_ALIGN;
         }
 
-        emit.emitIns_R_I(INS_mov, AMD64_ONLY(amount > UINT32_MAX ? EA_8BYTE :) EA_4BYTE, regCnt,
-                         static_cast<ssize_t>(amount));
+        emit.Ins_R_I(INS_mov, AMD64_ONLY(amount > UINT32_MAX ? EA_8BYTE :) EA_4BYTE, regCnt,
+                     static_cast<ssize_t>(amount));
     }
 
     if (compiler->info.compInitMem)
@@ -2047,12 +2045,12 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 
         for (unsigned i = 0; i < count; i++)
         {
-            emit.emitIns_I(INS_push_hide, EA_PTRSIZE, 0);
+            emit.Ins_I(INS_push_hide, EA_PTRSIZE, 0);
         }
         // Note that the stack must always be aligned to STACK_ALIGN bytes
 
         // Decrement the loop counter and loop if not done.
-        emit.emitIns_R(INS_dec, EA_PTRSIZE, regCnt);
+        emit.Ins_R(INS_dec, EA_PTRSIZE, regCnt);
         emit.emitIns_J(INS_jne, loop);
 
         lastTouchDelta = 0;
@@ -2063,7 +2061,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
         // Negate this shift before calling the function to adjust the stack (which
         // adds to ESP).
 
-        emit.emitIns_R(INS_neg, EA_PTRSIZE, regCnt);
+        emit.Ins_R(INS_neg, EA_PTRSIZE, regCnt);
         genStackPointerDynamicAdjustmentWithProbe(regCnt, node->GetSingleTempReg());
 
         // lastTouchDelta is dynamic, and can be up to a page. So if we have outgoing arg space,
@@ -2375,7 +2373,7 @@ void CodeGen::GenStructStoreUnrollInit(GenTree* store, ClassLayout* layout)
     {
         if (dstLcl != nullptr)
         {
-            emit.emitIns_S_I(INS_mov, EA_1BYTE, GetStackAddrMode(dstLcl, dstOffset), 0);
+            emit.Ins_S_I(INS_mov, EA_1BYTE, GetStackAddrMode(dstLcl, dstOffset), 0);
         }
         else
         {
@@ -2779,7 +2777,7 @@ void CodeGen::GenStructStoreUnrollRegs(GenTree* store, ClassLayout* layout)
 
             if (regShift != 0)
             {
-                emit.emitIns_R_I(INS_shr_N, regShift >= 4 ? EA_8BYTE : EA_4BYTE, reg, regShift * 8);
+                emit.Ins_R_I(INS_shr_N, regShift >= 4 ? EA_8BYTE : EA_4BYTE, reg, regShift * 8);
             }
 
             emitAttr attr = EA_ATTR(regSize);
@@ -2857,7 +2855,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
         {
             assert(store->HasTempReg(REG_RCX));
 
-            GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, slotCount);
+            GetEmitter()->Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, slotCount);
             GetEmitter()->emitIns(INS_rep_movs, EA_PTRSIZE);
         }
     }
@@ -2891,7 +2889,7 @@ void CodeGen::GenStructStoreUnrollCopyWB(GenTree* store, ClassLayout* layout)
                 {
                     assert(store->HasTempReg(REG_RCX));
 
-                    GetEmitter()->emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonWBSequenceLength);
+                    GetEmitter()->Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, nonWBSequenceLength);
                     GetEmitter()->emitIns(INS_rep_movs, EA_PTRSIZE);
                 }
             }
@@ -2983,9 +2981,9 @@ void CodeGen::GenJmpTable(GenTree* node, const BBswtDesc& switchDesc)
     // TODO-MIKE-CQ: This needs to be folded into the address mode of the SWITCH_TABLE generated load.
     // Can't do that easily though since there's no Ins_ARX version that accepts a .rodata offset
     // as displacement. It's probably more trouble than it's worth to add that to x86 at this point.
-    GetEmitter()->emitIns_R_L(node->GetRegNum(), data);
+    GetEmitter()->Ins_R_L(node->GetRegNum(), data);
 #else
-    GetEmitter()->emitIns_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), data);
+    GetEmitter()->Ins_R_C(INS_lea, EA_8BYTE, node->GetRegNum(), data);
 #endif
 
     DefReg(node);
@@ -3003,9 +3001,9 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
 #ifdef TARGET_X86
     if (compiler->opts.compReloc)
     {
-        emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+        emit.Ins_R_L(tempReg, compiler->fgFirstBB->emitLabel);
         emit.Ins_R_ARX(INS_add, EA_4BYTE, tempReg, baseReg, indexReg, 4, 0);
-        emit.emitIns_R(INS_i_jmp, EA_4BYTE, tempReg);
+        emit.Ins_R(INS_i_jmp, EA_4BYTE, tempReg);
     }
     else
     {
@@ -3019,9 +3017,9 @@ void CodeGen::GenSwitchTable(GenTreeOp* node)
     // we don't know the delta between code and data sections.
     // Also, is there any point in having a separate JMPTABLE node? It seems like it would
     // only complicate this further.
-    emit.emitIns_R_L(tempReg, compiler->fgFirstBB->emitLabel);
+    emit.Ins_R_L(tempReg, compiler->fgFirstBB->emitLabel);
     emit.Ins_R_R(INS_add, EA_8BYTE, baseReg, tempReg);
-    emit.emitIns_R(INS_i_jmp, EA_8BYTE, baseReg);
+    emit.Ins_R(INS_i_jmp, EA_8BYTE, baseReg);
 #endif
 }
 
@@ -3286,7 +3284,7 @@ void CodeGen::GenLclStoreFld(GenTreeLclStoreFld* store)
     }
     else if (GenTreeIntCon* imm = src->IsIntCon())
     {
-        emit.emitIns_S_I(ins_Store(type), emitTypeSize(type), GetStackAddrMode(store), imm->GetInt32Value());
+        emit.Ins_S_I(ins_Store(type), emitTypeSize(type), GetStackAddrMode(store), imm->GetInt32Value());
     }
     else if (src->OperIsRMWMemOp())
     {
@@ -3401,7 +3399,7 @@ void CodeGen::GenLclStore(GenTreeLclStore* store)
                 }
                 else
                 {
-                    GetEmitter()->emitIns_S_I(ins, attr, s, static_cast<int>(src->AsIntCon()->GetValue()));
+                    GetEmitter()->Ins_S_I(ins, attr, s, static_cast<int>(src->AsIntCon()->GetValue()));
                 }
             }
             else
@@ -3666,7 +3664,7 @@ void CodeGen::GenStoreLclRMW(var_types type, StackAddrMode s, GenTree* src)
                 ins = MapShiftInsToShiftByImmIns(ins);
             }
 
-            GetEmitter()->emitIns_S_I(ins, attr, s, imm);
+            GetEmitter()->Ins_S_I(ins, attr, s, imm);
         }
 
         return;
@@ -4148,7 +4146,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
                 noway_assert((callTargetMask & liveness.GetLiveLclRegs()) == RBM_NONE);
             }
 
-            GetEmitter()->emitIns_R_I(INS_mov, EA_PTRSIZE, tempReg, reinterpret_cast<ssize_t>(pAddr));
+            GetEmitter()->Ins_R_I(INS_mov, EA_PTRSIZE, tempReg, reinterpret_cast<ssize_t>(pAddr));
 
             format  = IF_ARD;
             addrReg = tempReg;
@@ -4466,8 +4464,8 @@ void CodeGen::GenCall(GenTreeCall* call)
                     // Clear the upper 32 bits by two shift instructions.
                     // retReg = retReg << 96
                     // retReg = retReg >> 96
-                    emit.emitIns_R_I(INS_pslldq, EA_16BYTE, returnReg, 12);
-                    emit.emitIns_R_I(INS_psrldq, EA_16BYTE, returnReg, 12);
+                    emit.Ins_R_I(INS_pslldq, EA_16BYTE, returnReg, 12);
+                    emit.Ins_R_I(INS_psrldq, EA_16BYTE, returnReg, 12);
                 }
 #endif // FEATURE_SIMD
             }
@@ -4518,7 +4516,7 @@ void CodeGen::GenCall(GenTreeCall* call)
             // after pushing all the stack arguments, but the caller popped the arguments, so we need
             // to do some math to figure a good comparison.
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_ARG_0, REG_SPBASE, /* canSkip */ false);
-            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_ARG_0, stackArgBytes);
+            emit.Ins_R_I(INS_sub, EA_4BYTE, REG_ARG_0, stackArgBytes);
             emit.emitIns_S_R(INS_cmp, EA_4BYTE, REG_ARG_0, GetStackAddrMode(compiler->lvaCallSpCheckLcl, 0));
             spRegCheck = REG_ARG_0;
         }
@@ -4795,7 +4793,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         }
         else
         {
-            GetEmitter()->emitIns_R(INS_rex_jmp, EA_PTRSIZE, REG_RAX);
+            GetEmitter()->Ins_R(INS_rex_jmp, EA_PTRSIZE, REG_RAX);
         }
 #endif // TARGET_AMD64
     }
@@ -4913,10 +4911,10 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
 
                 if (cmp->OperIs(GT_GE))
                 {
-                    GetEmitter()->emitIns_R(INS_not, attr, dstReg);
+                    GetEmitter()->Ins_R(INS_not, attr, dstReg);
                 }
 
-                GetEmitter()->emitIns_R_I(INS_shr_N, attr, dstReg, EA_SIZE(attr) * 8 - 1);
+                GetEmitter()->Ins_R_I(INS_shr_N, attr, dstReg, EA_SIZE(attr) * 8 - 1);
                 DefReg(cmp);
 
                 return;
@@ -5034,12 +5032,12 @@ void CodeGen::GenOvfConv(GenTreeUnOp* cast)
             break;
     }
 
-    GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, maxValue);
+    GetEmitter()->Ins_R_I(INS_cmp, size, srcReg, maxValue);
     genJumpToThrowHlpBlk(minValue == 0 ? EJ_a : EJ_g, ThrowHelperKind::Overflow);
 
     if (minValue != 0)
     {
-        GetEmitter()->emitIns_R_I(INS_cmp, size, srcReg, minValue);
+        GetEmitter()->Ins_R_I(INS_cmp, size, srcReg, minValue);
         genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
     }
 
@@ -5107,7 +5105,7 @@ void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
         emit.emitIns_J(INS_jmp, success);
 
         emit.DefineTempLabel(allOne);
-        emit.emitIns_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
+        emit.Ins_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
 
         emit.DefineTempLabel(success);
@@ -5135,20 +5133,20 @@ void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
         const RegNum tempReg = node->GetSingleTempReg();
         assert(tempReg != srcReg);
         emit.emitIns_Mov(INS_mov, EA_8BYTE, tempReg, srcReg, /* canSkip */ false);
-        emit.emitIns_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
+        emit.Ins_R_I(INS_shr_N, EA_8BYTE, tempReg, 32);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
     }
     else if (node->OperIs(GT_OVF_STRUNC))
     {
-        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
+        emit.Ins_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
         genJumpToThrowHlpBlk(EJ_g, ThrowHelperKind::Overflow);
-        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MIN);
+        emit.Ins_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MIN);
         genJumpToThrowHlpBlk(EJ_l, ThrowHelperKind::Overflow);
     }
     else
     {
         assert(node->OperIs(GT_OVF_TRUNC));
-        emit.emitIns_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
+        emit.Ins_R_I(INS_cmp, EA_8BYTE, srcReg, INT32_MAX);
         genJumpToThrowHlpBlk(EJ_a, ThrowHelperKind::Overflow);
     }
 
@@ -5352,7 +5350,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
         insGroup* label = emit.CreateTempLabel();
         emit.Ins_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
         emit.emitIns_J(INS_jge, label);
-        emit.emitIns_R_C(ins, size, dstReg, data);
+        emit.Ins_R_C(ins, size, dstReg, data);
         emit.DefineTempLabel(label);
     }
 #endif
@@ -5415,11 +5413,11 @@ void CodeGen::GenCkfinite(GenTree* node)
 
     if (type == TYP_DOUBLE)
     {
-        GetEmitter()->emitIns_R_I(INS_shr_N, EA_8BYTE, tmpReg, 32);
+        GetEmitter()->Ins_R_I(INS_shr_N, EA_8BYTE, tmpReg, 32);
     }
 
-    GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
-    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->Ins_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->Ins_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
     genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
     GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg, /* canSkip */ true);
@@ -5471,8 +5469,8 @@ void CodeGen::GenCkfinite(GenTree* node)
     // Copy only the low 32 bits. This will be the high order 32 bits of the floating-point
     // shift, no matter the floating-point type.
     GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, tmpReg, copyToTmpSrcReg, /* canSkip */ false);
-    GetEmitter()->emitIns_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
-    GetEmitter()->emitIns_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->Ins_R_I(INS_and, EA_4BYTE, tmpReg, expMask);
+    GetEmitter()->Ins_R_I(INS_cmp, EA_4BYTE, tmpReg, expMask);
     genJumpToThrowHlpBlk(EJ_e, ThrowHelperKind::Arithmetic);
 
     if ((type == TYP_DOUBLE) && (dstReg == srcReg))
@@ -5721,7 +5719,7 @@ void CodeGen::AlignStackBeforeCall(GenTreeCall* call)
 
     if (stackAlignPadding != 0)
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(stackAlignPadding));
+        GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(stackAlignPadding));
         AddStackLevel(stackAlignPadding);
         AddNestedAlignment(stackAlignPadding);
     }
@@ -5737,7 +5735,7 @@ void CodeGen::RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias)
 
     if (unsigned adjust = stackAlignPadding + bias)
     {
-        GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(adjust));
+        GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(adjust));
         SubtractStackLevel(stackAlignPadding);
         SubtractNestedAlignment(stackAlignPadding);
     }
@@ -5746,11 +5744,11 @@ void CodeGen::RemoveStackAlignmentAfterCall(GenTreeCall* call, unsigned bias)
     {
         if (bias == 4)
         {
-            GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+            GetEmitter()->Ins_R(INS_pop, EA_4BYTE, REG_ECX);
         }
         else
         {
-            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(bias));
+            GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(bias));
         }
     }
 #endif
@@ -5773,7 +5771,7 @@ void CodeGen::PreAdjustStackForArgStore(unsigned argSize)
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(argSize));
+        GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(argSize));
     }
 
     AddStackLevel(argSize);
@@ -5824,7 +5822,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     {
         if (unsigned pushSize = store->GetPushSize())
         {
-            emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, pushSize);
+            emit.Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, pushSize);
             AddStackLevel(pushSize);
         }
 
@@ -5847,7 +5845,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     {
         for (unsigned i = 0; i < store->GetPushSize() - REGSIZE_BYTES; i += REGSIZE_BYTES)
         {
-            emit.emitIns_I(INS_push, EA_4BYTE, 0);
+            emit.Ins_I(INS_push, EA_4BYTE, 0);
             AddStackLevel(REGSIZE_BYTES);
         }
     }
@@ -5872,7 +5870,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
         }
         else
         {
-            emit.emitIns_I(INS_push, EA_4BYTE, src->AsIntCon()->GetInt32Value());
+            emit.Ins_I(INS_push, EA_4BYTE, src->AsIntCon()->GetInt32Value());
         }
 
         AddStackLevel(REGSIZE_BYTES);
@@ -5888,7 +5886,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
         assert(genIsValidFloatReg(srcReg));
 
         unsigned size = store->GetPushSize();
-        emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
+        emit.Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
         AddStackLevel(size);
 
         if (type == TYP_SIMD12)
@@ -5926,7 +5924,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EAX, srcReg, /*canSkip*/ true);
             PreAdjustStackForArgStore(store->GetPushSize());
             emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_EDI, REG_SPBASE, /* canSkip */ false);
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_ECX, size / REGSIZE_BYTES);
+            emit.Ins_R_I(INS_mov, EA_4BYTE, REG_ECX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_4BYTE);
         }
         else if (store->GetKind() == GenTreeArgStore::Kind::Push)
@@ -5936,7 +5934,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
 
             for (unsigned i = 0; i < roundUp(size, REGSIZE_BYTES) / REGSIZE_BYTES; i++)
             {
-                emit.emitIns_I(INS_push, EA_4BYTE, 0);
+                emit.Ins_I(INS_push, EA_4BYTE, 0);
                 AddStackLevel(4);
             }
         }
@@ -6064,7 +6062,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
                                    srcAddrIndexScale, srcOffset);
                 }
 
-                emit.emitIns_R(INS_push, EA_4BYTE, intTmpReg);
+                emit.Ins_R(INS_push, EA_4BYTE, intTmpReg);
             }
             else if ((size == 4) || (size == 12))
             {
@@ -6093,7 +6091,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
                                    srcOffset);
                 }
 
-                emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 8);
+                emit.Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 8);
                 emit.Ins_AR_R(INS_movq, EA_8BYTE, xmmTmpReg, REG_SPBASE, 0);
                 AddStackLevel(8);
             }
@@ -6193,7 +6191,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store)
 
     assert(!layout->HasGCPtr());
 
-    emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
+    emit.Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
     emit.emitIns(INS_rep_movs, EA_1BYTE);
 }
 
@@ -6249,7 +6247,7 @@ void CodeGen::GenArgStore(GenTreeArgStore* store)
     else
     {
         assert(src->IsContainedIntCon());
-        emit.emitIns_S_I(INS_mov, emitTypeSize(type), {argLclNum, argLclOffs}, src->AsIntCon()->GetInt32Value());
+        emit.Ins_S_I(INS_mov, emitTypeSize(type), {argLclNum, argLclOffs}, src->AsIntCon()->GetInt32Value());
     }
 }
 
@@ -6277,7 +6275,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
             RegNum srcReg = UseReg(src);
             emit.emitIns_Mov(INS_mov, EA_8BYTE, REG_RAX, srcReg, /*canSkip*/ true);
             emit.emitIns_R_S(INS_lea, EA_8BYTE, REG_RDI, {argLclNum, argLclOffs});
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, size / REGSIZE_BYTES);
+            emit.Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, size / REGSIZE_BYTES);
             emit.emitIns(INS_rep_stos, EA_8BYTE);
         }
         else
@@ -6437,7 +6435,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
         if (!layout->HasGCPtr())
         {
             assert(store->GetKind() == GenTreeArgStore::Kind::RepInstr);
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
+            emit.Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, layout->GetSize());
             emit.emitIns(INS_rep_movs, EA_1BYTE);
             return;
         }
@@ -6534,8 +6532,8 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
 
         if (srcOffset != 0)
         {
-            emit.emitIns_R_I(INS_add, srcAddrAttr, REG_RSI, srcOffset);
-            emit.emitIns_R_I(INS_add, EA_PTRSIZE, REG_RDI, srcOffset);
+            emit.Ins_R_I(INS_add, srcAddrAttr, REG_RSI, srcOffset);
+            emit.Ins_R_I(INS_add, EA_PTRSIZE, REG_RDI, srcOffset);
             srcOffset = 0;
         }
 
@@ -6548,7 +6546,7 @@ void CodeGen::GenStructArgStore(GenTreeArgStore* store, unsigned argLclNum DEBUG
         }
         else
         {
-            emit.emitIns_R_I(INS_mov, EA_4BYTE, REG_RCX, nonGCSequenceLength);
+            emit.Ins_R_I(INS_mov, EA_4BYTE, REG_RCX, nonGCSequenceLength);
             emit.emitIns(INS_rep_movs, EA_PTRSIZE);
         }
 
@@ -6612,12 +6610,12 @@ void CodeGen::PushReg(var_types type, RegNum srcReg)
     {
         assert(size <= 4);
         assert(genIsValidIntReg(srcReg));
-        GetEmitter()->emitIns_R(INS_push, emitActualTypeSize(type), srcReg);
+        GetEmitter()->Ins_R(INS_push, emitActualTypeSize(type), srcReg);
     }
     else
     {
         assert(genIsValidFloatReg(srcReg));
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
+        GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, size);
         GetEmitter()->Ins_AR_R(ins_Store(type), emitTypeSize(type), srcReg, REG_SPBASE, 0);
     }
 
@@ -6762,7 +6760,7 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 
 #ifdef UNIX_X86_ABI
     // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::AlignStackBeforeCall
-    GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
+    GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
 #endif
 
     if (compiler->opts.compProfilerMethHndIndirected)
@@ -6774,7 +6772,7 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
         int32_t profilerMethodAddr =
             static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->opts.compProfilerMethHnd));
 
-        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
+        GetEmitter()->Ins_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
     // This will emit either
@@ -6784,7 +6782,7 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
 
 #ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
-    GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
+    GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
 #endif
 
     SetStackLevel(saveStackLvl2);
@@ -6820,7 +6818,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #ifdef UNIX_X86_ABI
     // Manually align the stack to be 16-byte aligned. This is similar to CodeGen::AlignStackBeforeCall
-    GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
+    GetEmitter()->Ins_R_I(INS_sub, EA_4BYTE, REG_SPBASE, 0xC);
     AddStackLevel(0xC);
     AddNestedAlignment(0xC);
 #endif
@@ -6834,7 +6832,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
         int32_t profilerMethodAddr =
             static_cast<int32_t>(reinterpret_cast<intptr_t>(compiler->opts.compProfilerMethHnd));
 
-        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, profilerMethodAddr);
+        GetEmitter()->Ins_I(INS_push, EA_4BYTE, profilerMethodAddr);
     }
 
     AddStackLevel(REGSIZE_BYTES);
@@ -6848,7 +6846,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
 
 #ifdef UNIX_X86_ABI
     // Restoring alignment manually. This is similar to CodeGen::genRemoveAlignmentAfterCall
-    GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
+    GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, 0x10);
     SubtractStackLevel(0x10);
     SubtractNestedAlignment(0xC);
 #endif
@@ -6908,12 +6906,12 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
     {
         // Profiler hooks enabled during NGen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
+        GetEmitter()->Ins_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
+        GetEmitter()->Ins_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                              reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -6981,12 +6979,12 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of a pointer.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_PROFILER_ENTER_ARG_0, compiler->opts.compProfilerMethHnd);
+        GetEmitter()->Ins_R_AH(INS_mov, REG_PROFILER_ENTER_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
+        GetEmitter()->Ins_R_I(INS_mov, EA_8BYTE, REG_PROFILER_ENTER_ARG_0,
+                              reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // R15 = caller's SP
@@ -7046,12 +7044,12 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     {
         // Profiler hooks enabled during Ngen time.
         // Profiler handle needs to be accessed through an indirection of an address.
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
+        GetEmitter()->Ins_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
+        GetEmitter()->Ins_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                              reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RDX = caller's SP
@@ -7088,12 +7086,12 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     // RDI = ProfilerMethHnd
     if (compiler->opts.compProfilerMethHndIndirected)
     {
-        GetEmitter()->emitIns_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
+        GetEmitter()->Ins_R_AH(INS_mov, REG_ARG_0, compiler->opts.compProfilerMethHnd);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
-                                  reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
+        GetEmitter()->Ins_R_I(INS_mov, EA_8BYTE, REG_ARG_0,
+                              reinterpret_cast<ssize_t>(compiler->opts.compProfilerMethHnd));
     }
 
     // RSI = caller's SP
@@ -7410,7 +7408,7 @@ void CodeGen::PrologPushCalleeSavedRegisters()
 
         if ((regBit & rsPushRegs) != RBM_NONE)
         {
-            GetEmitter()->emitIns_R(INS_push, EA_GCREF, reg);
+            GetEmitter()->Ins_R(INS_push, EA_GCREF, reg);
             unwindPush(reg);
             rsPushRegs &= ~regBit;
         }
@@ -7432,7 +7430,7 @@ void CodeGen::genPopCalleeSavedRegisters(bool jmpEpilog)
         {
             popRegs &= ~regMask;
             popCount++;
-            GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, reg);
+            GetEmitter()->Ins_R(INS_pop, EA_PTRSIZE, reg);
         }
     }
 
@@ -7753,13 +7751,13 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, RegNum initReg
             assert((alignedLclHi - (blkSize + extraSimd * XMM_REGSIZE_BYTES)) == alignedLclLo);
 
             // Set loop counter
-            emit.emitIns_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
+            emit.Ins_R_I(INS_mov, EA_PTRSIZE, initReg, -(ssize_t)blkSize);
             // Loop start
             emit.Ins_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1, alignedLclHi);
             emit.Ins_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1, alignedLclHi + XMM_REGSIZE_BYTES);
             emit.Ins_ARX_R(simdMov, EA_16BYTE, zeroSIMDReg, frameReg, initReg, 1, alignedLclHi + 2 * XMM_REGSIZE_BYTES);
 
-            emit.emitIns_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
+            emit.Ins_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
             // Loop until counter is 0
             emit.emitIns_J(INS_jne, -5);
 
@@ -7953,7 +7951,7 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
     // We do need to allocate the outgoing argument space, in case there are calls here. This must be the same
     // size as the parent frame's outgoing argument space, to keep the PSPSym offset the same.
 
-    GetEmitter()->emitIns_R(INS_push, EA_GCREF, REG_FPBASE);
+    GetEmitter()->Ins_R(INS_push, EA_GCREF, REG_FPBASE);
     unwindPush(REG_FPBASE);
 
     // Callee saved int registers are pushed to stack.
@@ -8005,9 +8003,9 @@ void CodeGen::genFuncletEpilog()
     // to position at callee saved int regs.
     genRestoreCalleeSavedFltRegs(genFuncletInfo.fiSpDelta);
     GenEpilogVzeroupperIfNeeded();
-    GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, genFuncletInfo.fiSpDelta);
+    GetEmitter()->Ins_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, genFuncletInfo.fiSpDelta);
     genPopCalleeSavedRegisters();
-    GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
+    GetEmitter()->Ins_R(INS_pop, EA_PTRSIZE, REG_EBP);
     GetEmitter()->emitIns(INS_ret);
 }
 
@@ -8136,12 +8134,12 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             if ((lclFrameSize == REGSIZE_BYTES) && !compiler->compJmpOpUsed)
             {
                 // Pop a scratch register, it's smaller than ADD.
-                GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+                GetEmitter()->Ins_R(INS_pop, EA_4BYTE, REG_ECX);
             }
             else
 #endif // TARGET_X86
             {
-                GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_RSP, static_cast<int>(lclFrameSize));
+                GetEmitter()->Ins_R_I(INS_add, EA_PTRSIZE, REG_RSP, static_cast<int>(lclFrameSize));
             }
         }
 
@@ -8152,7 +8150,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         // but we do have a pushed frame pointer and established frame chain, we do need to pop RBP.
         if (isFramePointerUsed())
         {
-            GetEmitter()->emitIns_R(INS_pop, EA_8BYTE, REG_RBP);
+            GetEmitter()->Ins_R(INS_pop, EA_8BYTE, REG_RBP);
         }
 #endif // TARGET_AMD64
 
@@ -8170,8 +8168,8 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             //
             // If we ever allow the original method to have localloc this will
             // need to change.
-            GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize);
-            GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
+            GetEmitter()->Ins_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize);
+            GetEmitter()->Ins_R(INS_pop, EA_PTRSIZE, REG_EBP);
         }
     }
     else
@@ -8193,7 +8191,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             // also complicates the code manager. Hence, we ignore that case.
 
             noway_assert(lclFrameSize != 0);
-            GetEmitter()->emitIns_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(lclFrameSize));
+            GetEmitter()->Ins_R_I(INS_add, EA_4BYTE, REG_SPBASE, static_cast<int32_t>(lclFrameSize));
 
             needMovEspEbp = true;
         }
@@ -8222,7 +8220,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
                 else if (lclFrameSize == REGSIZE_BYTES)
                 {
                     // Pop a scratch register, it's smaller than LEA.
-                    GetEmitter()->emitIns_R(INS_pop, EA_4BYTE, REG_ECX);
+                    GetEmitter()->Ins_R(INS_pop, EA_4BYTE, REG_ECX);
                 }
                 else
 #endif // TARGET_X86
@@ -8282,7 +8280,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
             //
             // If we ever allow the original method to have localloc this will
             // need to change.
-            GetEmitter()->emitIns_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE);
+            GetEmitter()->Ins_R_I(INS_add, EA_PTRSIZE, REG_SPBASE, originalFrameSize + TARGET_POINTER_SIZE);
         }
 #endif
 
@@ -8293,7 +8291,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
         }
 #endif
 
-        GetEmitter()->emitIns_R(INS_pop, EA_PTRSIZE, REG_EBP);
+        GetEmitter()->Ins_R(INS_pop, EA_PTRSIZE, REG_EBP);
     }
 
 #ifdef JIT32_GCENCODER
@@ -8316,7 +8314,7 @@ void CodeGen::genFnEpilog(BasicBlock* block)
     }
     else
     {
-        GetEmitter()->emitIns_I(INS_ret, EA_4BYTE, paramsStackSize);
+        GetEmitter()->Ins_I(INS_ret, EA_4BYTE, paramsStackSize);
     }
 #endif // TARGET_X86
 }
@@ -8413,11 +8411,11 @@ void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned
 
     if (val == 1)
     {
-        GetEmitter()->emitIns_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
+        GetEmitter()->Ins_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
     }
     else
     {
-        GetEmitter()->emitIns_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
+        GetEmitter()->Ins_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
     }
 }
 
@@ -8428,7 +8426,7 @@ void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
 
     if (src->isUsedFromReg())
     {
-        emit.emitIns_R(ins, attr, src->GetRegNum());
+        emit.Ins_R(ins, attr, src->GetRegNum());
     }
     else if (IsLocalMemoryOperand(src, &s))
     {
@@ -8455,7 +8453,7 @@ void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTre
     }
     else if (GenTreeDblCon* dbl = rm->IsDblCon())
     {
-        emit.emitIns_R_C(ins, attr, reg, emit.GetFloatConst(dbl->GetValue(), dbl->GetType()));
+        emit.Ins_R_C(ins, attr, reg, emit.GetFloatConst(dbl->GetValue(), dbl->GetType()));
     }
     else
     {
@@ -8527,7 +8525,7 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
     {
         assert(!op1->isContained());
 
-        emit.emitIns_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
+        emit.Ins_R_I(ins, attr, regOp->GetRegNum(), immOp->AsIntCon()->GetValue());
 
         return;
     }
@@ -8542,7 +8540,7 @@ void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* 
         }
         else if (immOp != nullptr)
         {
-            emit.emitIns_S_I(ins, attr, s, immOp->AsIntCon()->GetInt32Value());
+            emit.Ins_S_I(ins, attr, s, immOp->AsIntCon()->GetInt32Value());
         }
         else
         {

@@ -83,11 +83,11 @@ public:
 #ifdef WINDOWS_X86_ABI
     void InsMov_R_FS(RegNum reg, int32_t disp);
 #endif
-    void emitIns_I(Ins ins, InsAttr attr, int32_t val);
-    void emitIns_R(Ins ins, InsAttr attr, RegNum reg);
+    void Ins_I(Ins ins, InsAttr attr, int32_t val);
+    void Ins_R(Ins ins, InsAttr attr, RegNum reg);
     void Ins_C(Ins ins, InsAttr attr, ConstData* data);
     void Ins_R_H(Ins ins, RegNum reg, void* addr DEBUGARG(HandleKind handleKind = HandleKind::None));
-    void emitIns_R_I(Ins ins, InsAttr attr, RegNum reg, ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
+    void Ins_R_I(Ins ins, InsAttr attr, RegNum reg, ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
     void emitIns_Mov(Ins ins, InsAttr attr, RegNum dstReg, RegNum srgReg, bool canSkip);
     void Ins_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2);
     void emitIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
@@ -117,15 +117,15 @@ public:
     void Ins_S(Ins ins, InsAttr attr, StackAddrMode s);
     void emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
     void emitIns_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
-    void emitIns_S_I(Ins ins, InsAttr attr, StackAddrMode s, int32_t imm);
-    void emitIns_R_C(Ins ins, InsAttr attr, RegNum reg, ConstData* data);
+    void Ins_S_I(Ins ins, InsAttr attr, StackAddrMode s, int32_t imm);
+    void Ins_R_C(Ins ins, InsAttr attr, RegNum reg, ConstData* data);
     void Ins_C_R(Ins ins, InsAttr attr, ConstData* data, RegNum reg);
     void Ins_C_I(Ins ins, InsAttr attr, ConstData* data, int32_t imm);
-    void emitIns_R_L(RegNum reg, insGroup* label);
+    void Ins_R_L(RegNum reg, insGroup* label);
 #ifdef TARGET_X86
-    void emitIns_R_L(RegNum reg, ConstData* data);
+    void Ins_R_L(RegNum reg, ConstData* data);
 #endif
-    void emitIns_R_AH(Ins ins, RegNum ireg, void* addr);
+    void Ins_R_AH(Ins ins, RegNum ireg, void* addr);
     void Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp);
     void Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scaled, int32_t disp);
     void Ins_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp);
