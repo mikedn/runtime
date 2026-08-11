@@ -2459,7 +2459,7 @@ void X86Emitter::Ins_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, Cons
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_R_R(instruction ins, emitAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
+void X86Emitter::Ins_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -3140,7 +3140,7 @@ void X86Emitter::VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, R
 {
     if (useVexEncoding)
     {
-        emitIns_R_R_R(ins, attr, reg1, reg2, reg3);
+        Ins_R_R_R(ins, attr, reg1, reg2, reg3);
     }
     else
     {
@@ -3273,7 +3273,7 @@ void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
         assert((reg4 != reg1) || (reg2 == reg1));
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_R_R(ins, attr, reg1, reg3, reg4);
+        Ins_R_R_R(ins, attr, reg1, reg3, reg4);
     }
     else if (useVexEncoding)
     {
