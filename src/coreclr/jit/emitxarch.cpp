@@ -1456,7 +1456,7 @@ void X86Emitter::emitIns(Ins ins)
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns(instruction ins, emitAttr attr)
+void X86Emitter::emitIns(Ins ins, InsAttr attr)
 {
     assert((ins == INS_cdq) || (ins == INS_cdqe) || (ins == INS_movs) || (ins == INS_stos) || (ins == INS_rep_movs) ||
            (ins == INS_rep_stos));
@@ -2228,7 +2228,7 @@ void X86Emitter::Ins_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2)
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
+void X86Emitter::Ins_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -3097,7 +3097,7 @@ void X86Emitter::VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, i
 {
     if (useVexEncoding || IsSseDstSrcImm(ins))
     {
-        emitIns_R_R_I(ins, attr, reg1, reg2, imm);
+        Ins_R_R_I(ins, attr, reg1, reg2, imm);
     }
     else
     {
@@ -3215,7 +3215,7 @@ void X86Emitter::VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
         assert((reg3 != reg1) || (reg2 == reg1));
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_R_I(ins, attr, reg1, reg3, imm);
+        Ins_R_R_I(ins, attr, reg1, reg3, imm);
     }
 }
 
@@ -3463,7 +3463,7 @@ void X86Emitter::emitIns_CallFinally(insGroup* label)
 }
 #endif // TARGET_AMD64
 
-void X86Emitter::emitIns_J(instruction ins, int instrCount)
+void X86Emitter::emitIns_J(Ins ins, int instrCount)
 {
     assert(IsMainProlog(currentIG));
     assert(IsJccInstruction(ins));
@@ -3479,7 +3479,7 @@ void X86Emitter::emitIns_J(instruction ins, int instrCount)
     currentIGCodeSize += JMP_JCC_SIZE_SMALL;
 }
 
-void X86Emitter::emitIns_J(instruction ins, insGroup* label)
+void X86Emitter::emitIns_J(Ins ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
     assert(currentIG->GetFuncletIndex() == label->GetFuncletIndex());

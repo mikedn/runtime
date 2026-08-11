@@ -64,10 +64,10 @@ public:
     /*           The public entry points to output instructions             */
     /************************************************************************/
 
-    void emitIns(instruction ins);
-    void emitIns(instruction ins, emitAttr attr);
-    void emitIns_J(instruction ins, insGroup* label);
-    void emitIns_J(instruction ins, int instrCount = 0);
+    void emitIns(Ins ins);
+    void emitIns(Ins ins, InsAttr attr);
+    void emitIns_J(Ins ins, insGroup* label);
+    void emitIns_J(Ins ins, int instrCount = 0);
     void InsRMW_A(Ins ins, InsAttr attr, GenTree* addr);
     void InsRMW_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
     void InsRMW_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg);
@@ -90,7 +90,7 @@ public:
     void Ins_R_I(Ins ins, InsAttr attr, RegNum reg, ssize_t val DEBUGARG(HandleKind handleKind = HandleKind::None));
     void emitIns_Mov(Ins ins, InsAttr attr, RegNum dstReg, RegNum srgReg, bool canSkip);
     void Ins_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2);
-    void emitIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
+    void Ins_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);
     void Ins_A(Ins ins, InsAttr attr, GenTree* addr);
     void Ins_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
     void Ins_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg);

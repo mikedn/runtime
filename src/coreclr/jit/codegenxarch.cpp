@@ -646,7 +646,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         }
         else if (op1->isUsedFromReg())
         {
-            GetEmitter()->emitIns_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
+            GetEmitter()->Ins_R_R_I(INS_imuli, size, dstReg, op1->GetRegNum(), static_cast<int32_t>(imm));
         }
         else if (IsLocalMemoryOperand(op1, &s))
         {
@@ -993,7 +993,7 @@ void CodeGen::GenShift(GenTreeOp* shift)
         }
         else if (ins == INS_rorx)
         {
-            emit.emitIns_R_R_I(INS_rorx, size, dstReg, valueReg, imm);
+            emit.Ins_R_R_I(INS_rorx, size, dstReg, valueReg, imm);
         }
         else
         {
@@ -1054,7 +1054,7 @@ void CodeGen::GenShiftLong(GenTreeOp* shift)
     Emitter& emit = *GetEmitter();
 
     emit.emitIns_Mov(INS_mov, EA_4BYTE, dstReg, reg1, /* canSkip */ true);
-    emit.emitIns_R_R_I(ins, EA_4BYTE, dstReg, reg2, imm);
+    emit.Ins_R_R_I(ins, EA_4BYTE, dstReg, reg2, imm);
 
     DefReg(shift);
 }
@@ -1248,7 +1248,7 @@ void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
     // TODO-MIKE-Cleanup: This shouldn't be needed but VexIns_R_R_I is messed up.
     if (srcNode->isUsedFromReg())
     {
-        GetEmitter()->emitIns_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
+        GetEmitter()->Ins_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
     }
     else
     {
@@ -3760,7 +3760,7 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 #else
             tmpReg = node->GetSingleTempReg();
 #endif
-            GetEmitter()->emitIns_R_R_I(INS_imuli, EA_PTRSIZE, tmpReg, indexReg, static_cast<int32_t>(scale));
+            GetEmitter()->Ins_R_R_I(INS_imuli, EA_PTRSIZE, tmpReg, indexReg, static_cast<int32_t>(scale));
             scale = 1;
             break;
     }
@@ -5458,7 +5458,7 @@ void CodeGen::GenCkfinite(GenTree* node)
     if (type == TYP_DOUBLE)
     {
         GetEmitter()->emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, srcReg, /* canSkip */ true);
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
+        GetEmitter()->Ins_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
         copyToTmpSrcReg = dstReg;
     }
     else
@@ -5476,7 +5476,7 @@ void CodeGen::GenCkfinite(GenTree* node)
     if ((type == TYP_DOUBLE) && (dstReg == srcReg))
     {
         // We need to re-shuffle the targetReg to get the correct result.
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
+        GetEmitter()->Ins_R_R_I(INS_shufps, EA_16BYTE, dstReg, dstReg, 0xffffffb1);
     }
     else
     {
@@ -5620,7 +5620,7 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 
         if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
         {
-            emit.emitIns_R_R_I(INS_pinsrd, EA_4BYTE, dstReg, srcReg1, 1);
+            emit.Ins_R_R_I(INS_pinsrd, EA_4BYTE, dstReg, srcReg1, 1);
         }
         else
         {
@@ -5648,13 +5648,13 @@ void CodeGen::GenBitCast(GenTreeUnOp* bitcast)
 
             if (compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
             {
-                emit.emitIns_R_R_I(INS_pextrd, EA_16BYTE, dstRegs[1], srcReg, 1);
+                emit.Ins_R_R_I(INS_pextrd, EA_16BYTE, dstRegs[1], srcReg, 1);
             }
             else
             {
                 RegNum tmpReg = bitcast->GetSingleTempReg();
 
-                emit.emitIns_R_R_I(INS_pshufd, EA_16BYTE, tmpReg, srcReg, 0x55);
+                emit.Ins_R_R_I(INS_pshufd, EA_16BYTE, tmpReg, srcReg, 0x55);
                 emit.emitIns_Mov(INS_movd, EA_4BYTE, dstRegs[1], tmpReg, /*canSkip*/ false);
             }
         }
@@ -7327,7 +7327,7 @@ void CodeGen::GenVectorUpperSpill(GenTreeUnOp* node)
 
     if (dstReg != REG_NA)
     {
-        GetEmitter()->emitIns_R_R_I(INS_vextractf128, EA_32BYTE, dstReg, srcReg, 1);
+        GetEmitter()->Ins_R_R_I(INS_vextractf128, EA_32BYTE, dstReg, srcReg, 1);
         DefReg(node);
     }
     else

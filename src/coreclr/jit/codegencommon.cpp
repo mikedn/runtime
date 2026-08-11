@@ -2420,7 +2420,7 @@ void CodeGen::genPrologMoveParamRegs(ParamRegInfo* paramRegs,
 
                 if (lcl->TypeIs(TYP_SIMD12) && compiler->compOpportunisticallyDependsOn(InstructionSet_SSE41))
                 {
-                    GetEmitter()->emitIns_R_R_I(INS_insertps, EA_16BYTE, destRegNum, nextRegNum, 0x28);
+                    GetEmitter()->Ins_R_R_I(INS_insertps, EA_16BYTE, destRegNum, nextRegNum, 0x28);
                 }
                 else
                 {
@@ -4906,7 +4906,7 @@ void CodeGen::GenLongReturn(GenTree* src)
         // registers straight from memory (this happens in UnmanagedCallersOnly methods and
         // there's normally a reverse PInvoke helper call just before return that may result
         // in spilling).
-        GetEmitter()->emitIns_R_R_I(INS_shufps, EA_16BYTE, srcReg, srcReg, 0x55);
+        GetEmitter()->Ins_R_R_I(INS_shufps, EA_16BYTE, srcReg, srcReg, 0x55);
         GetEmitter()->emitIns_Mov(INS_movd, EA_4BYTE, REG_RDX, srcReg, /* canSkip */ false);
 
         return;
