@@ -604,7 +604,7 @@ void CodeGen::genCodeForBBlist()
 #ifdef TARGET_ARMARCH
                 GetEmitter()->emitIns_J(INS_b, block->bbJumpDest->emitLabel);
 #else
-                GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest->emitLabel);
+                GetEmitter()->Ins_J(INS_jmp, block->bbJumpDest->emitLabel);
 #endif
                 FALLTHROUGH;
             case BBJ_COND:

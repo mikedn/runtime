@@ -841,7 +841,7 @@ void CodeGen::GenHWIntrinsicJumpTableFallback(NamedIntrinsic            intrinsi
     {
         emit.DefineTempLabel(labels[i]);
         emitSwCase(static_cast<int8_t>(i));
-        emit.emitIns_J(INS_jmp, switchTableEnd);
+        emit.Ins_J(INS_jmp, switchTableEnd);
     }
 
     emit.DefineTempLabel(switchTableEnd);

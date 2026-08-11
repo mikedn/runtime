@@ -131,7 +131,7 @@ void CodeGen::EpilogGSCookieCheck(bool tailCallEpilog)
     }
 
     insGroup* gsCheckEndLabel = emit.CreateTempLabel();
-    emit.emitIns_J(INS_je, gsCheckEndLabel);
+    emit.Ins_J(INS_je, gsCheckEndLabel);
     GenHelperCall(CORINFO_HELP_FAIL_FAST);
     emit.DefineTempLabel(gsCheckEndLabel);
 
@@ -153,7 +153,7 @@ void CodeGen::genStackPointerCheck()
     GetEmitter()->emitIns_S_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
 
     insGroup* spCheckEndLabel = GetEmitter()->CreateTempLabel();
-    GetEmitter()->emitIns_J(INS_je, spCheckEndLabel);
+    GetEmitter()->Ins_J(INS_je, spCheckEndLabel);
     GetEmitter()->emitIns(INS_BREAKPOINT);
     GetEmitter()->DefineTempLabel(spCheckEndLabel);
 }
@@ -325,7 +325,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         }
         else
         {
-            GetEmitter()->emitIns_J(INS_jmp, block->bbNext->bbJumpDest->emitLabel);
+            GetEmitter()->Ins_J(INS_jmp, block->bbNext->bbJumpDest->emitLabel);
         }
 
 #ifndef JIT32_GCENCODER
@@ -382,7 +382,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     }
 
     // Jump to the finally BB
-    GetEmitter()->emitIns_J(INS_jmp, block->bbJumpDest->emitLabel);
+    GetEmitter()->Ins_J(INS_jmp, block->bbJumpDest->emitLabel);
 
 #endif // !FEATURE_EH_FUNCLETS
 }
@@ -784,7 +784,7 @@ void CodeGen::GenURemLong(GenTreeOp* node)
     //   cmp edx, divisor->GetRegNum()
     //   jb noOverflow
     emit.Ins_R_R(INS_cmp, EA_PTRSIZE, REG_EDX, divisor->GetRegNum());
-    emit.emitIns_J(INS_jb, noOverflow);
+    emit.Ins_J(INS_jb, noOverflow);
 
     //   mov temp, eax
     //   mov eax, edx
@@ -1475,19 +1475,19 @@ void CodeGen::inst_JCC(GenCondition condition, insGroup* label)
 
     if (desc.oper == GT_NONE)
     {
-        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.Ins_J(JumpKindToJcc(desc.jumpKind1), label);
     }
     else if (desc.oper == GT_OR)
     {
-        emit.emitIns_J(JumpKindToJcc(desc.jumpKind1), label);
-        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
+        emit.Ins_J(JumpKindToJcc(desc.jumpKind1), label);
+        emit.Ins_J(JumpKindToJcc(desc.jumpKind2), label);
     }
     else
     {
         assert(desc.oper == GT_AND);
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
-        emit.emitIns_J(JumpKindToJcc(desc.jumpKind2), label);
+        emit.Ins_J(JumpKindToJcc(ReverseJumpKind(desc.jumpKind1)), labelNext);
+        emit.Ins_J(JumpKindToJcc(desc.jumpKind2), label);
         emit.DefineTempLabel(labelNext);
     }
 }
@@ -1507,7 +1507,7 @@ void CodeGen::inst_SETCC(GenCondition condition, var_types type, regNumber dstRe
         emitJumpKind jcc = (desc.oper == GT_OR) ? desc.jumpKind1 : ReverseJumpKind(desc.jumpKind1);
 
         insGroup* labelNext = emit.CreateTempLabel();
-        emit.emitIns_J(JumpKindToJcc(jcc), labelNext);
+        emit.Ins_J(JumpKindToJcc(jcc), labelNext);
         emit.Ins_R(JumpKindToSetcc(desc.jumpKind2), EA_1BYTE, dstReg);
         emit.DefineTempLabel(labelNext);
     }
@@ -1531,7 +1531,7 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
 
     GetEmitter()->Ins_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
     insGroup* skipLabel = GetEmitter()->CreateTempLabel();
-    GetEmitter()->emitIns_J(INS_je, skipLabel);
+    GetEmitter()->Ins_J(INS_je, skipLabel);
     GenHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN NOT_X86_ARG(tmpReg));
     GetEmitter()->DefineTempLabel(skipLabel);
 }
@@ -1787,7 +1787,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     emit.Ins_R_R(INS_add, EA_PTRSIZE, regSpDelta, REG_SPBASE);
 
     insGroup* loop = emit.CreateTempLabel();
-    emit.emitIns_J(INS_jb, loop);
+    emit.Ins_J(INS_jb, loop);
     emit.Ins_R_R(INS_xor, EA_4BYTE, regSpDelta, regSpDelta);
     emit.DefineTempLabel(loop);
 
@@ -1802,7 +1802,7 @@ void CodeGen::genStackPointerDynamicAdjustmentWithProbe(regNumber regSpDelta, re
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regTmp, /* canSkip */ false);
 
     emit.Ins_R_R(INS_cmp, EA_PTRSIZE, REG_SPBASE, regSpDelta);
-    emit.emitIns_J(INS_jae, loop);
+    emit.Ins_J(INS_jae, loop);
 
     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_SPBASE, regSpDelta, /* canSkip */ false);
 }
@@ -1871,7 +1871,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
         emit.emitIns_Mov(INS_mov, attr, targetReg, sizeReg, /*canSkip*/ true);
         endLabel = emit.CreateTempLabel();
         emit.Ins_R_R(INS_test, attr, targetReg, targetReg);
-        emit.emitIns_J(INS_je, endLabel);
+        emit.Ins_J(INS_je, endLabel);
 
         // Compute the size of the block to allocate and perform alignment.
         // If compInitMem=true, we can reuse targetReg as regcnt,
@@ -2052,7 +2052,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 
         // Decrement the loop counter and loop if not done.
         emit.Ins_R(INS_dec, EA_PTRSIZE, regCnt);
-        emit.emitIns_J(INS_jne, loop);
+        emit.Ins_J(INS_jne, loop);
 
         lastTouchDelta = 0;
     }
@@ -4524,7 +4524,7 @@ void CodeGen::GenCall(GenTreeCall* call)
 
         insGroup* spCheckEndLabel = emit.CreateTempLabel();
         emit.emitIns_S_R(INS_cmp, EA_4BYTE, spRegCheck, GetStackAddrMode(compiler->lvaCallSpCheckLcl, 0));
-        emit.emitIns_J(INS_je, spCheckEndLabel);
+        emit.Ins_J(INS_je, spCheckEndLabel);
         emit.emitIns(INS_BREAKPOINT);
         emit.DefineTempLabel(spCheckEndLabel);
     }
@@ -5098,12 +5098,12 @@ void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
     {
         emit.Ins_R_R(INS_test, EA_4BYTE, loSrcReg, loSrcReg);
         insGroup* allOne = emit.CreateTempLabel();
-        emit.emitIns_J(INS_js, allOne);
+        emit.Ins_J(INS_js, allOne);
 
         emit.Ins_R_R(INS_test, EA_4BYTE, hiSrcReg, hiSrcReg);
         genJumpToThrowHlpBlk(EJ_ne, ThrowHelperKind::Overflow);
         insGroup* success = emit.CreateTempLabel();
-        emit.emitIns_J(INS_jmp, success);
+        emit.Ins_J(INS_jmp, success);
 
         emit.DefineTempLabel(allOne);
         emit.Ins_R_I(INS_cmp, EA_4BYTE, hiSrcReg, -1);
@@ -5350,7 +5350,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 
         insGroup* label = emit.CreateTempLabel();
         emit.Ins_R_R(INS_test, EA_8BYTE, srcReg, srcReg);
-        emit.emitIns_J(INS_jge, label);
+        emit.Ins_J(INS_jge, label);
         emit.Ins_R_C(ins, size, dstReg, data);
         emit.DefineTempLabel(label);
     }
@@ -7760,7 +7760,7 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, RegNum initReg
 
             emit.Ins_R_I(INS_add, EA_PTRSIZE, initReg, XMM_REGSIZE_BYTES * 3);
             // Loop until counter is 0
-            emit.emitIns_J(INS_jne, -5);
+            emit.Ins_J(INS_jne, -5);
 
             // initReg will be zero at end of the loop
             *pInitRegZeroed = true;
@@ -8615,12 +8615,12 @@ void CodeGen::genJumpToThrowHlpBlk(emitJumpKind condition, ThrowHelperKind throw
         }
 #endif
 
-        GetEmitter()->emitIns_J(JumpKindToJcc(condition), throwBlock->emitLabel);
+        GetEmitter()->Ins_J(JumpKindToJcc(condition), throwBlock->emitLabel);
     }
     else
     {
         insGroup* label = GetEmitter()->CreateTempLabel();
-        GetEmitter()->emitIns_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
+        GetEmitter()->Ins_J(JumpKindToJcc(ReverseJumpKind(condition)), label);
         GenHelperCall(Compiler::GetThrowHelperCall(throwKind));
         GetEmitter()->DefineTempLabel(label);
     }

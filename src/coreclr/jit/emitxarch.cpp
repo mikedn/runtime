@@ -3463,7 +3463,7 @@ void X86Emitter::emitIns_CallFinally(insGroup* label)
 }
 #endif // TARGET_AMD64
 
-void X86Emitter::emitIns_J(Ins ins, int instrCount)
+void X86Emitter::Ins_J(Ins ins, int instrCount)
 {
     assert(IsMainProlog(currentIG));
     assert(IsJccInstruction(ins));
@@ -3479,7 +3479,7 @@ void X86Emitter::emitIns_J(Ins ins, int instrCount)
     currentIGCodeSize += JMP_JCC_SIZE_SMALL;
 }
 
-void X86Emitter::emitIns_J(Ins ins, insGroup* label)
+void X86Emitter::Ins_J(Ins ins, insGroup* label)
 {
     assert((ins == INS_jmp) || IsJccInstruction(ins));
     assert(currentIG->GetFuncletIndex() == label->GetFuncletIndex());

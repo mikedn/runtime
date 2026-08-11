@@ -66,8 +66,8 @@ public:
 
     void emitIns(Ins ins);
     void emitIns(Ins ins, InsAttr attr);
-    void emitIns_J(Ins ins, insGroup* label);
-    void emitIns_J(Ins ins, int instrCount = 0);
+    void Ins_J(Ins ins, insGroup* label);
+    void Ins_J(Ins ins, int instrCount = 0);
     void InsRMW_A(Ins ins, InsAttr attr, GenTree* addr);
     void InsRMW_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm);
     void InsRMW_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg);
