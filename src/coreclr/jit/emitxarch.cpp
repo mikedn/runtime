@@ -2366,20 +2366,37 @@ void X86Emitter::Ins_R_C_I(Ins ins, InsAttr attr, RegNum reg1, ConstData* data, 
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg1, StackAddrMode s, int32_t imm)
+void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
+{
+    assert(reg != REG_NA);
+
+    instrDesc* id = NewInstrCns(imm);
+    id->idIns(ins);
+    id->idOpSize(attr);
+    id->idInsFmt(IF_RWR_SRD_CNS);
+    id->idReg1(reg);
+    SetInstrLclAddrMode(id, s);
+
+    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
+    id->idCodeSize(sz);
+    PrintInstr(id);
+    currentIGCodeSize += sz;
+}
+
+void X86Emitter::emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
 {
     assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
 
-    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg1)));
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = NewInstrCns(imm);
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
     id->idInsFmt(IF_RRW_SRD_CNS);
-    id->idReg1(reg1);
+    id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
     unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
@@ -2873,23 +2890,6 @@ void X86Emitter::Ins_S_R_I(Ins ins, InsAttr attr, StackAddrMode s, RegNum reg, i
     SetInstrLclAddrMode(id, s);
 
     unsigned sz = EncodingSizeSV(id, GetCodeMR(ins)) + 1;
-    id->idCodeSize(sz);
-    PrintInstr(id);
-    currentIGCodeSize += sz;
-}
-
-void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
-{
-    assert(reg != REG_NA);
-
-    instrDesc* id = NewInstrCns(imm);
-    id->idIns(ins);
-    id->idOpSize(attr);
-    id->idInsFmt(IF_RWR_SRD_CNS);
-    id->idReg1(reg);
-    SetInstrLclAddrMode(id, s);
-
-    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + 1;
     id->idCodeSize(sz);
     PrintInstr(id);
     currentIGCodeSize += sz;

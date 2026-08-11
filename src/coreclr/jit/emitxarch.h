@@ -97,7 +97,6 @@ public:
     void Ins_R_A(Ins ins, InsAttr attr, RegNum reg1, GenTree* addr);
     void Ins_R_A_I(Ins ins, InsAttr attr, RegNum reg1, GenTree* addr, int32_t imm);
     void Ins_R_C_I(Ins ins, InsAttr attr, RegNum reg1, ConstData* data, int32_t imm);
-    void emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg1, StackAddrMode s, int32_t imm);
     void Ins_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
     void Ins_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
     void Ins_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
@@ -105,6 +104,7 @@ public:
     void Ins_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm);
     void Ins_S_R_I(Ins ins, InsAttr attr, StackAddrMode s, RegNum reg, int32_t imm);
     void Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm);
+    void emitIns_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm);
     void Ins_A_R_I(Ins ins, InsAttr attr, GenTree* addr, RegNum reg, int32_t imm);
     void Ins_C_R_I(Ins ins, InsAttr attr, ConstData* data, RegNum reg, int32_t imm);
     void Ins_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data, int32_t imm);
