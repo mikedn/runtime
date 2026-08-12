@@ -234,6 +234,10 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 {
                     emit.VexIns_R_R_S(ins, vecSize, dstReg, otherReg, GetStackAddrMode(lclAddr));
                 }
+                else if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
+                {
+                    emit.VexIns_R_R_C(ins, vecSize, dstReg, otherReg, constAddr->GetData());
+                }
                 else
                 {
                     emit.VexIns_R_R_A(ins, vecSize, dstReg, otherReg, addr);
@@ -441,6 +445,11 @@ bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, Con
         *s    = GetStackAddrMode(lclAddr);
         *addr = nullptr;
         *data = nullptr;
+    }
+    else if (GenTreeConstAddr* constAddr = loadAddr->IsConstAddr())
+    {
+        *addr = nullptr;
+        *data = constAddr->GetData();
     }
     else
     {

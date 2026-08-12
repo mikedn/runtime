@@ -2393,12 +2393,6 @@ void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, i
 
 void X86Emitter::Ins_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr)
 {
-    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-    {
-        Ins_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
-        return;
-    }
-
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
     instrDesc* id = NewInstrAMDisp(GetAddrModeDisp(addr));
@@ -2507,12 +2501,6 @@ void X86Emitter::Ins_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, Stac
 
 void X86Emitter::Ins_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-    {
-        Ins_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
-        return;
-    }
-
     assert(IsVexTernary(ins));
     assert(!EA_IS_CNS_RELOC(attr) && !EA_IS_GCREF_OR_BYREF(attr));
     assert(IsImm8(imm));
@@ -3118,11 +3106,7 @@ void X86Emitter::VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, i
 
 void X86Emitter::VexIns_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr)
 {
-    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-    {
-        VexIns_R_R_C(ins, attr, reg1, reg2, constAddr->GetData());
-    }
-    else if (useVexEncoding)
+    if (useVexEncoding)
     {
         Ins_R_R_A(ins, attr, reg1, reg2, addr);
     }
@@ -3176,11 +3160,7 @@ void X86Emitter::VexIns_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, S
 
 void X86Emitter::VexIns_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, int32_t imm)
 {
-    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-    {
-        VexIns_R_R_C_I(ins, attr, reg1, reg2, constAddr->GetData(), imm);
-    }
-    else if (useVexEncoding)
+    if (useVexEncoding)
     {
         Ins_R_R_A_I(ins, attr, reg1, reg2, addr, imm);
     }
