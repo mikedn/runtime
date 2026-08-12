@@ -368,6 +368,11 @@ void CodeGen::genCodeForBBlist()
             // handled correctly.
             INDEBUG(lastConsumedNode = nullptr);
 
+            if (node->isContained())
+            {
+                continue;
+            }
+
             if (GenTreeILOffset* ilOffset = node->IsILOffset())
             {
                 if (compiler->opts.compDbgInfo)
@@ -386,10 +391,6 @@ void CodeGen::genCodeForBBlist()
             {
                 JITDUMP("Node is marked ReuseReg\n");
                 assert(node->OperIs(GT_CNS_INT, GT_CNS_DBL) || node->IsVecZero());
-            }
-            else if (node->isContained())
-            {
-                JITDUMP("Node is contained\n")
             }
             else
             {
