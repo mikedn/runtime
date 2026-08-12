@@ -302,39 +302,6 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                     GenHWIntrinsicJumpTableFallback(intrinsic, op3Reg, baseReg, offsReg, emitSwCase);
                 }
             }
-            else if (category == HW_Category_MemoryStore)
-            {
-                if ((intrinsic == NI_AVX_MaskStore) || (intrinsic == NI_AVX2_MaskStore))
-                {
-                    RegNum   baseReg  = op1Reg;
-                    RegNum   indexReg = REG_NA;
-                    unsigned scale    = 0;
-                    int      disp     = 0;
-
-                    if (op1->isContained())
-                    {
-                        GenTreeAddrMode* am = op1->AsAddrMode();
-                        baseReg             = am->GetBase()->GetRegNum();
-
-                        if (am->HasIndex())
-                        {
-                            indexReg = am->GetIndex()->GetRegNum();
-                        }
-
-                        scale = am->GetScale();
-                        disp  = am->GetOffset();
-                    }
-
-                    emit.Ins_ARX_R_R(ins, vecSize, baseReg, indexReg, scale, disp, op2Reg, op3Reg);
-                }
-                else
-                {
-                    assert(intrinsic == NI_SSE2_MaskMove);
-
-                    emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, op3Reg, /* canSkip */ true);
-                    emit.Ins_R_R(ins, vecSize, op1Reg, op2Reg);
-                }
-            }
             else
             {
                 switch (intrinsic)
@@ -1158,23 +1125,29 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
             genHWIntrinsic_R_RM(node, INS_movd, emitActualTypeSize(op1->GetType()), dstReg, op1);
             break;
 
+        case NI_SSE2_MaskMove:
+            assert(HWIntrinsicInfo::GetIns(intrinsic, eltType) == INS_maskmovdqu);
+            emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, node->GetOp(2)->GetRegNum(), /* canSkip */ true);
+            emit.Ins_R_R(INS_maskmovdqu, emitVecTypeSize(node->GetVecSize()), op1->GetRegNum(), op2->GetRegNum());
+            return;
+
         case NI_SSE_StoreFence:
             assert(op1 == nullptr);
             assert(op2 == nullptr);
             emit.emitIns(INS_sfence);
-            break;
+            return;
 
         case NI_SSE2_LoadFence:
             assert(op1 == nullptr);
             assert(op2 == nullptr);
             emit.emitIns(INS_lfence);
-            break;
+            return;
 
         case NI_SSE2_MemoryFence:
             assert(op1 == nullptr);
             assert(op2 == nullptr);
             emit.emitIns(INS_mfence);
-            break;
+            return;
 
         case NI_SSE_Prefetch0:
         case NI_SSE_Prefetch1:
@@ -1182,7 +1155,7 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE_PrefetchNonTemporal:
             assert((op1 != nullptr) && !op1->isContained());
             emit.Ins_AR(HWIntrinsicInfo::GetIns(intrinsic, eltType), EA_1BYTE, op1->GetRegNum(), 0);
-            break;
+            return;
 
         case NI_SSE2_StoreNonTemporal:
         case NI_SSE2_X64_StoreNonTemporal:
@@ -1190,7 +1163,7 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
             assert(op1 != nullptr);
             assert(op2 != nullptr);
             emit.Ins_A_R(INS_movnti, emitTypeSize(eltType), op1, op2->GetRegNum());
-            break;
+            return;
 
         default:
             unreached();
@@ -1333,6 +1306,43 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
                 genHWIntrinsic_R_RM(node, ins, EA_32BYTE, dstReg, op1);
             }
             break;
+        }
+
+        case NI_AVX_MaskStore:
+        case NI_AVX2_MaskStore:
+        {
+            instruction ins      = HWIntrinsicInfo::GetIns(intrinsic, eltType);
+            emitAttr    size     = emitVecTypeSize(node->GetVecSize());
+            GenTree*    addr     = node->GetOp(0);
+            RegNum      baseReg  = REG_NA;
+            RegNum      indexReg = REG_NA;
+            unsigned    scale    = 0;
+            int         disp     = 0;
+            RegNum      maskReg  = node->GetOp(1)->GetRegNum();
+            RegNum      valueReg = node->GetOp(2)->GetRegNum();
+
+            if (addr->isUsedFromReg())
+            {
+                baseReg = addr->GetRegNum();
+            }
+            else
+            {
+                GenTreeAddrMode* am = addr->AsAddrMode();
+
+                baseReg = am->GetBase()->GetRegNum();
+
+                if (am->HasIndex())
+                {
+                    indexReg = am->GetIndex()->GetRegNum();
+                }
+
+                scale = am->GetScale();
+                disp  = am->GetOffset();
+            }
+
+            emit.Ins_ARX_R_R(ins, size, baseReg, indexReg, scale, disp, maskReg, valueReg);
+
+            return;
         }
 
         case NI_AVX2_GATHERD:
