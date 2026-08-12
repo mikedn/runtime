@@ -1742,7 +1742,7 @@ void X86Emitter::InsRMW_A(Ins ins, InsAttr attr, GenTree* addr)
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::InsRMW_A_I(Ins ins, InsAttr attr, GenTree* addr, int32_t imm)
+void X86Emitter::InsRMW_A_I(Ins ins, InsAttr attr, GenTree* addr, Imm32 imm)
 {
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
 
@@ -2248,7 +2248,7 @@ void X86Emitter::Ins_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int3
 }
 
 void X86Emitter::Ins_ARX_R_R(
-    Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg1, RegNum reg2)
+    Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp, RegNum reg1, RegNum reg2)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2423,7 +2423,7 @@ static bool IsAVX2GatherInstruction(instruction ins)
 #endif
 
 void X86Emitter::Ins_R_ARX_R(
-    Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg2)
+    Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, Scale scale, Disp32 disp, RegNum reg2)
 {
     assert(IsAVX2GatherInstruction(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2936,7 +2936,7 @@ void X86Emitter::Ins_C_R_I(Ins ins, InsAttr attr, ConstData* data, RegNum reg, i
     currentIGCodeSize += size;
 }
 
-void X86Emitter::Ins_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm)
+void X86Emitter::Ins_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp, Imm32 imm)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_8BYTE));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
@@ -2956,12 +2956,12 @@ void X86Emitter::Ins_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, uns
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::Ins_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp)
+void X86Emitter::Ins_R_AR(Ins ins, InsAttr attr, RegNum reg, RegNum base, Disp32 disp)
 {
     Ins_R_ARX(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void X86Emitter::Ins_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp)
+void X86Emitter::Ins_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, Scale scale, Disp32 disp)
 {
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE) && (reg != REG_NA));
     X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
@@ -3007,7 +3007,7 @@ void X86Emitter::Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp)
 }
 
 #ifdef TARGET_X86
-void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp)
+void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp)
 {
     assert(!IsReallyVexTernary(ins));
 
@@ -3031,12 +3031,12 @@ void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsig
 }
 #endif // TARGET_X86
 
-void X86Emitter::Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp)
+void X86Emitter::Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, Disp32 disp)
 {
     Ins_ARX_R(ins, attr, reg, base, REG_NA, 1, disp);
 }
 
-void X86Emitter::Ins_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp)
+void X86Emitter::Ins_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, Scale scale, Disp32 disp)
 {
     assert(!IsReallyVexTernary(ins));
     assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
@@ -3064,7 +3064,7 @@ void X86Emitter::Ins_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNu
 }
 
 void X86Emitter::Ins_ARX_R_I(
-    Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg, int32_t imm)
+    Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp, RegNum reg, Imm32 imm)
 {
     assert(reg != REG_NA);
 
@@ -3084,7 +3084,7 @@ void X86Emitter::Ins_ARX_R_I(
 }
 
 void X86Emitter::Ins_R_ARX_I(
-    Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm)
+    Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, Scale scale, Disp32 disp, Imm32 imm)
 {
     assert(reg != REG_NA);
 
