@@ -137,9 +137,9 @@ public:
         Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg, int32_t imm);
     void Ins_R_ARX_I(
         Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp, int32_t imm);
-    void Ins_AR_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, int32_t disp);
-    void Ins_R_AR_R(
-        Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum base, RegNum index, int scale, int32_t disp);
+    void Ins_AR_R_R(Ins ins, InsAttr attr, RegNum base, int32_t disp, RegNum reg1, RegNum reg2);
+    void Ins_R_ARX_R(
+        Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, int scale, int32_t disp, RegNum reg2);
 
     void VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
     void VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int32_t imm);

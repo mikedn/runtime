@@ -7194,14 +7194,15 @@ void CodeGen::inst_R_AM_I(instruction ins, emitAttr attr, RegNum reg, const GenA
 
 void CodeGen::inst_AM_R(instruction ins, emitAttr attr, RegNum reg, const GenAddrMode& addrMode, unsigned offset)
 {
+    Emitter& emit = *GetEmitter();
+
     if (addrMode.IsLcl())
     {
-        GetEmitter()->emitIns_S_R(ins, attr, reg, GetStackAddrMode(addrMode.LclNum(), addrMode.Disp(offset)));
+        emit.emitIns_S_R(ins, attr, reg, GetStackAddrMode(addrMode.LclNum(), addrMode.Disp(offset)));
     }
     else
     {
-        GetEmitter()->Ins_ARX_R(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(),
-                                addrMode.Disp(offset));
+        emit.Ins_ARX_R(ins, attr, reg, addrMode.Base(), addrMode.Index(), addrMode.Scale(), addrMode.Disp(offset));
     }
 }
 

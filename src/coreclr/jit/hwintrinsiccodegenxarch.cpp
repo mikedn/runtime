@@ -309,7 +309,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (intrinsic == NI_AVX_MaskStore || intrinsic == NI_AVX2_MaskStore)
                 {
-                    emit.Ins_AR_R_R(ins, vecSize, op2Reg, op3Reg, op1Reg, 0);
+                    emit.Ins_AR_R_R(ins, vecSize, op1Reg, 0, op2Reg, op3Reg);
                 }
                 else
                 {
@@ -573,9 +573,6 @@ void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree
 void CodeGen::genHWIntrinsic_R_R_RM(
     GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum dstReg, RegNum op1Reg, GenTree* op2)
 {
-    assert(dstReg != REG_NA);
-    assert(op1Reg != REG_NA);
-
     if (op2->isContained() || op2->isUsedFromSpillTemp())
     {
         assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
@@ -588,6 +585,8 @@ void CodeGen::genHWIntrinsic_R_R_RM(
 void CodeGen::inst_RV_RV_TT(instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, GenTree* op2, bool isRMW)
 {
     assert(size != EA_1BYTE);
+    assert(dstReg != REG_NA);
+    assert(op1Reg != REG_NA);
 
     // TODO-XArch-CQ: Commutative operations can have op1 be contained
     // TODO-XArch-CQ: Non-VEX encoded instructions can have both ops contained
@@ -1202,7 +1201,7 @@ void CodeGen::GenSSE41Intrinsic(GenTreeHWIntrinsic* node)
             instruction ins = HWIntrinsicInfo::GetIns(intrinsic, eltType);
             GenTree*    op1 = node->GetOp(0);
 
-            if (!varTypeIsSIMD(op1->GetType()))
+            if (!varTypeIsVec(op1->GetType()))
             {
                 GetEmitter()->Ins_R_A(ins, EA_16BYTE, node->GetRegNum(), op1);
             }
@@ -1310,7 +1309,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
             GenTree*    op1 = node->GetOp(0);
             instruction ins = HWIntrinsicInfo::GetIns(intrinsic, eltType);
 
-            if (!varTypeIsSIMD(op1->GetType()))
+            if (!varTypeIsVec(op1->GetType()))
             {
                 emit.Ins_R_A(ins, EA_32BYTE, node->GetRegNum(), op1);
             }
@@ -1369,7 +1368,7 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
             assert(maskDstReg != indexReg);
             assert((scale >= 0) && (scale <= 8));
 
-            emit.Ins_R_AR_R(ins, size, dstReg, maskDstReg, baseReg, indexReg, static_cast<int8_t>(scale), 0);
+            emit.Ins_R_ARX_R(ins, size, dstReg, baseReg, indexReg, static_cast<int8_t>(scale), 0, maskDstReg);
 
             break;
         }
