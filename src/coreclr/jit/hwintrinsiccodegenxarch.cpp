@@ -309,7 +309,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
 
                 if (intrinsic == NI_AVX_MaskStore || intrinsic == NI_AVX2_MaskStore)
                 {
-                    emit.Ins_AR_R_R(ins, vecSize, op1Reg, 0, op2Reg, op3Reg);
+                    emit.Ins_ARX_R_R(ins, vecSize, op1Reg, REG_NA, 0, 0, op2Reg, op3Reg);
                 }
                 else
                 {

@@ -2247,23 +2247,8 @@ void X86Emitter::Ins_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, int3
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp)
-{
-    assert(IsPrefetch(ins) && (attr == EA_1BYTE));
-
-    instrDesc* id = NewInstrAMDisp(disp);
-    id->idIns(ins);
-    id->idInsFmt(IF_ARD);
-    id->idAddr()->iiaAddrMode.base  = base;
-    id->idAddr()->iiaAddrMode.index = REG_NA;
-
-    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
-    id->idCodeSize(sz);
-    PrintInstr(id);
-    currentIGCodeSize += sz;
-}
-
-void X86Emitter::Ins_AR_R_R(Ins ins, InsAttr attr, RegNum base, int32_t disp, RegNum reg1, RegNum reg2)
+void X86Emitter::Ins_ARX_R_R(
+    Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg1, RegNum reg2)
 {
     assert(IsVexTernary(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -2275,7 +2260,8 @@ void X86Emitter::Ins_AR_R_R(Ins ins, InsAttr attr, RegNum base, int32_t disp, Re
     id->idReg2(reg2);
     id->idInsFmt(IF_AWR_RRD_RRD);
     id->idAddr()->iiaAddrMode.base  = base;
-    id->idAddr()->iiaAddrMode.index = REG_NA;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
 
     unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
     id->idCodeSize(sz);
@@ -2437,7 +2423,7 @@ static bool IsAVX2GatherInstruction(instruction ins)
 #endif
 
 void X86Emitter::Ins_R_ARX_R(
-    Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, int scale, int32_t disp, RegNum reg2)
+    Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, unsigned scale, int32_t disp, RegNum reg2)
 {
     assert(IsAVX2GatherInstruction(ins) && !EA_IS_GCREF_OR_BYREF(attr));
 
@@ -3004,10 +2990,46 @@ void X86Emitter::Ins_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNu
     currentIGCodeSize += sz;
 }
 
+void X86Emitter::Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp)
+{
+    assert(IsPrefetch(ins) && (attr == EA_1BYTE));
+
+    instrDesc* id = NewInstrAMDisp(disp);
+    id->idIns(ins);
+    id->idInsFmt(IF_ARD);
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = REG_NA;
+
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
+    id->idCodeSize(sz);
+    PrintInstr(id);
+    currentIGCodeSize += sz;
+}
+
+#ifdef TARGET_X86
 void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, unsigned scale, int32_t disp)
 {
-    Ins_ARX_R(ins, attr, REG_NA, base, index, scale, disp);
+    assert(!IsReallyVexTernary(ins));
+
+    instrDesc* id = NewInstrAMDisp(disp);
+    id->idIns(ins);
+    id->idOpSize(EA_SIZE(attr));
+    id->idGCref(EA_GC_TYPE(attr));
+    id->idInsFmt(MapFormat(ins, IF_ARD));
+    id->idAddr()->iiaAddrMode.base  = base;
+    id->idAddr()->iiaAddrMode.index = index;
+    id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
+
+    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
+    id->idCodeSize(sz);
+    PrintInstr(id);
+    currentIGCodeSize += sz;
+
+#if !FEATURE_FIXED_OUT_ARGS
+    UpdateStackLevel(ins);
+#endif
 }
+#endif // TARGET_X86
 
 void X86Emitter::Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_t disp)
 {
@@ -3017,28 +3039,16 @@ void X86Emitter::Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, int32_
 void X86Emitter::Ins_ARX_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNum index, unsigned scale, int32_t disp)
 {
     assert(!IsReallyVexTernary(ins));
+    assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
+    assert(reg != REG_NA);
+    X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
     instrDesc* id = NewInstrAMDisp(disp);
-    insFormat  fmt;
-
-    if (reg == REG_NA)
-    {
-        fmt = MapFormat(ins, IF_ARD);
-    }
-    else
-    {
-        fmt = MapFormat(ins, IF_ARD_RRD);
-
-        X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
-        assert(!IsX87LdSt(ins) && (EA_SIZE(attr) <= EA_32BYTE));
-
-        id->idReg1(reg);
-    }
-
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
+    id->idReg1(reg);
     id->idGCref(EA_GC_TYPE(attr));
-    id->idInsFmt(fmt);
+    id->idInsFmt(MapFormat(ins, IF_ARD_RRD));
     id->idAddr()->iiaAddrMode.base  = base;
     id->idAddr()->iiaAddrMode.index = index;
     id->idAddr()->iiaAddrMode.scale = ScaleEncoding(scale);
