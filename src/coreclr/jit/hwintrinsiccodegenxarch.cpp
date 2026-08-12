@@ -304,17 +304,32 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
             }
             else if (category == HW_Category_MemoryStore)
             {
-                // The Mask instructions do not currently support containment of the address.
-                assert(!op2->isContained());
-
-                if (intrinsic == NI_AVX_MaskStore || intrinsic == NI_AVX2_MaskStore)
+                if ((intrinsic == NI_AVX_MaskStore) || (intrinsic == NI_AVX2_MaskStore))
                 {
-                    emit.Ins_ARX_R_R(ins, vecSize, op1Reg, REG_NA, 0, 0, op2Reg, op3Reg);
+                    RegNum   baseReg  = op1Reg;
+                    RegNum   indexReg = REG_NA;
+                    unsigned scale    = 0;
+                    int      disp     = 0;
+
+                    if (op1->isContained())
+                    {
+                        GenTreeAddrMode* am = op1->AsAddrMode();
+                        baseReg             = am->GetBase()->GetRegNum();
+
+                        if (am->HasIndex())
+                        {
+                            indexReg = am->GetIndex()->GetRegNum();
+                        }
+
+                        scale = am->GetScale();
+                        disp  = am->GetOffset();
+                    }
+
+                    emit.Ins_ARX_R_R(ins, vecSize, baseReg, indexReg, scale, disp, op2Reg, op3Reg);
                 }
                 else
                 {
                     assert(intrinsic == NI_SSE2_MaskMove);
-                    assert(dstReg == REG_NA);
 
                     emit.emitIns_Mov(INS_mov, EA_PTRSIZE, REG_RDI, op3Reg, /* canSkip */ true);
                     emit.Ins_R_R(ins, vecSize, op1Reg, op2Reg);

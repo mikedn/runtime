@@ -1530,6 +1530,14 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             return;
 
+        case NI_AVX_MaskStore:
+        case NI_AVX2_MaskStore:
+            if (node->GetOp(0)->OperIs(GT_ADD, GT_LEA))
+            {
+                TryMakeHWIntrinsicAddrMode(node, node->GetOp(0));
+            }
+            return;
+
         case NI_SSE41_Extract:
         case NI_SSE41_X64_Extract:
             // Make sure the importer did not blindly import intrinsic with bogus return type
