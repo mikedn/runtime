@@ -758,15 +758,23 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 void CodeGen::genHWIntrinsic_R_R_R_RM(
     instruction ins, emitAttr attr, RegNum dstReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3)
 {
+    assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(dstReg != REG_NA);
     assert(op1Reg != REG_NA);
     assert(op2Reg != REG_NA);
+    assert((op2Reg != dstReg) || (op1Reg == dstReg));
 
     Emitter& emit = *GetEmitter();
+    assert(emit.UseVexEncoding());
+
+    emit.emitIns_Mov(INS_movaps, attr, dstReg, op1Reg, /* canSkip */ true);
 
     if (op3->isUsedFromReg())
     {
-        emit.VexIns_R_R_R_R(ins, attr, dstReg, op1Reg, op2Reg, op3->GetRegNum());
+        RegNum op3Reg = op3->GetRegNum();
+        assert((op3Reg != dstReg) || (op1Reg == dstReg));
+
+        emit.Ins_R_R_R(ins, attr, dstReg, op2Reg, op3Reg);
 
         return;
     }
@@ -781,15 +789,15 @@ void CodeGen::genHWIntrinsic_R_R_R_RM(
     }
     else if (addr != nullptr)
     {
-        emit.VexIns_R_R_R_A(ins, attr, dstReg, op1Reg, op2Reg, addr);
+        emit.Ins_R_R_A(ins, attr, dstReg, op2Reg, addr);
     }
     else if (data != nullptr)
     {
-        emit.VexIns_R_R_R_C(ins, attr, dstReg, op1Reg, op2Reg, data);
+        emit.Ins_R_R_C(ins, attr, dstReg, op2Reg, data);
     }
     else
     {
-        emit.VexIns_R_R_R_S(ins, attr, dstReg, op1Reg, op2Reg, s);
+        emit.Ins_R_R_S(ins, attr, dstReg, op2Reg, s);
     }
 }
 

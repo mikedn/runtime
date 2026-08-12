@@ -155,9 +155,6 @@ public:
 
     void VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
     void VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, Imm32 imm);
-    void VexIns_R_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
-    void VexIns_R_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data);
-    void VexIns_R_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
 
     void VexIns_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
     void VexIns_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, Imm32 imm);
@@ -256,5 +253,10 @@ private:
 };
 
 using ArchEmitter = X86Emitter;
+
+#ifdef DEBUG
+bool IsFMAInstruction(instruction ins);
+bool IsAVXVNNIInstruction(instruction ins);
+#endif
 
 #endif // TARGET_XARCH

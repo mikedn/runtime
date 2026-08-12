@@ -142,12 +142,12 @@ static bool IsSSEOrAVXOrBMIInstruction(instruction ins)
     return (ins >= INS_FIRST_SSE_INSTRUCTION) && (ins <= INS_LAST_VEX_INSTRUCTION);
 }
 
-static bool IsFMAInstruction(instruction ins)
+bool IsFMAInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_FMA_INSTRUCTION) && (ins <= INS_LAST_FMA_INSTRUCTION);
 }
 
-static bool IsAVXVNNIInstruction(instruction ins)
+bool IsAVXVNNIInstruction(instruction ins)
 {
     return (ins >= INS_FIRST_AVXVNNI_INSTRUCTION) && (ins <= INS_LAST_AVXVNNI_INSTRUCTION);
 }
@@ -3232,44 +3232,9 @@ void X86Emitter::VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     }
 }
 
-void X86Emitter::VexIns_R_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
-{
-    if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-    {
-        VexIns_R_R_R_C(ins, attr, reg1, reg2, reg3, constAddr->GetData());
-        return;
-    }
-
-    assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
-    assert(useVexEncoding);
-    assert((reg3 != reg1) || (reg2 == reg1));
-
-    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    Ins_R_R_A(ins, attr, reg1, reg3, addr);
-}
-
-void X86Emitter::VexIns_R_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, ConstData* data)
-{
-    assert(IsFMAInstruction(ins));
-    assert(useVexEncoding);
-    assert((reg3 != reg1) || (reg2 == reg1));
-
-    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    Ins_R_R_C(ins, attr, reg1, reg3, data);
-}
-
 void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
 {
-    if (IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins))
-    {
-        assert(useVexEncoding);
-        assert((reg3 != reg1) || (reg2 == reg1));
-        assert((reg4 != reg1) || (reg2 == reg1));
-
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        Ins_R_R_R(ins, attr, reg1, reg3, reg4);
-    }
-    else if (useVexEncoding)
+    if (useVexEncoding)
     {
         Ins_R_R_R_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, reg4);
     }
@@ -3289,16 +3254,6 @@ void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
         Ins_R_R(ins, attr, reg1, reg3);
     }
-}
-
-void X86Emitter::VexIns_R_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
-{
-    assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
-    assert(useVexEncoding);
-    assert((reg3 != reg1) || (reg2 == reg1));
-
-    emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-    Ins_R_R_S(ins, attr, reg1, reg3, s);
 }
 
 void X86Emitter::VexIns_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
