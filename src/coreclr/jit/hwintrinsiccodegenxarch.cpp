@@ -1170,8 +1170,7 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
         case NI_SSE_Prefetch1:
         case NI_SSE_Prefetch2:
         case NI_SSE_PrefetchNonTemporal:
-            assert((op1 != nullptr) && !op1->isContained());
-            emit.Ins_AR(HWIntrinsicInfo::GetIns(intrinsic, eltType), EA_1BYTE, op1->GetRegNum(), 0);
+            emit.Ins_A(HWIntrinsicInfo::GetIns(intrinsic, eltType), EA_1BYTE, op1);
             return;
 
         case NI_SSE2_StoreNonTemporal:

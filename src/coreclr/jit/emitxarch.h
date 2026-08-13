@@ -129,10 +129,8 @@ public:
     void Ins_R_L(RegNum reg, ConstData* data);
 #endif
     void Ins_R_AH(Ins ins, RegNum ireg, void* addr);
-    void Ins_AR(Ins ins, InsAttr attr, RegNum base, Disp32 disp);
-#ifdef TARGET_X86
-    void Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scaled, Disp32 disp);
-#endif
+
+    void Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp);
 
     void Ins_ARX_I(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp, Imm32 imm);
     void Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, Disp32 disp);

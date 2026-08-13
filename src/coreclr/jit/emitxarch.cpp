@@ -2978,23 +2978,6 @@ void X86Emitter::Ins_R_ARX(Ins ins, InsAttr attr, RegNum reg, RegNum base, RegNu
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::Ins_AR(Ins ins, InsAttr attr, RegNum base, int32_t disp)
-{
-    assert(IsPrefetch(ins) && (attr == EA_1BYTE));
-
-    instrDesc* id = NewInstrAMDisp(disp);
-    id->idIns(ins);
-    id->idInsFmt(IF_ARD);
-    id->idAddr()->iiaAddrMode.base  = base;
-    id->idAddr()->iiaAddrMode.index = REG_NA;
-
-    unsigned sz = EncodingSizeAM(id, GetCodeMR(ins));
-    id->idCodeSize(sz);
-    PrintInstr(id);
-    currentIGCodeSize += sz;
-}
-
-#ifdef TARGET_X86
 void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale scale, Disp32 disp)
 {
     assert(!IsReallyVexTernary(ins));
@@ -3017,7 +3000,6 @@ void X86Emitter::Ins_ARX(Ins ins, InsAttr attr, RegNum base, RegNum index, Scale
     UpdateStackLevel(ins);
 #endif
 }
-#endif // TARGET_X86
 
 void X86Emitter::Ins_AR_R(Ins ins, InsAttr attr, RegNum reg, RegNum base, Disp32 disp)
 {

@@ -1530,6 +1530,10 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             }
             return;
 
+        case NI_SSE_Prefetch0:
+        case NI_SSE_Prefetch1:
+        case NI_SSE_Prefetch2:
+        case NI_SSE_PrefetchNonTemporal:
         case NI_AVX_MaskStore:
         case NI_AVX2_MaskStore:
             if (node->GetOp(0)->OperIs(GT_ADD, GT_LEA))
