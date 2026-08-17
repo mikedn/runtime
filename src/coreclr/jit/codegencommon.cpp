@@ -3855,7 +3855,7 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
+        GetEmitter()->Ins_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3867,7 +3867,7 @@ void CodeGen::genFnProlog()
 #ifdef JIT32_GCENCODER
     if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->emitIns_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
+        GetEmitter()->Ins_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -3933,7 +3933,7 @@ void CodeGen::genFnProlog()
     if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
+        GetEmitter()->Ins_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -4083,7 +4083,7 @@ void CodeGen::PrologSetPSPSym(regNumber initReg, bool* pInitRegZeroed)
 
     LclVarDsc* pspSymLcl = compiler->lvaGetDesc(compiler->lvaPSPSym);
 
-    GetEmitter()->emitIns_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
+    GetEmitter()->Ins_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(pspSymLcl, 0));
 
 #else // TARGET*
 

@@ -118,8 +118,8 @@ public:
     void Ins_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
     void Ins_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
     void Ins_S(Ins ins, InsAttr attr, StackAddrMode s);
-    void emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
-    void emitIns_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
+    void Ins_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
+    void Ins_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s);
     void Ins_S_I(Ins ins, InsAttr attr, StackAddrMode s, Imm32 imm);
     void Ins_R_C(Ins ins, InsAttr attr, RegNum reg, ConstData* data);
     void Ins_C_R(Ins ins, InsAttr attr, ConstData* data, RegNum reg);
@@ -180,6 +180,16 @@ public:
                       CORINFO_SIG_INFO* sigInfo = nullptr
 #endif
                       );
+
+    void emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
+    {
+        Ins_S_R(ins, attr, reg, s);
+    }
+
+    void emitIns_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
+    {
+        Ins_R_S(ins, attr, reg, s);
+    }
 
 private:
     unsigned EncodingSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);

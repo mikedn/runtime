@@ -1708,7 +1708,7 @@ void X86Emitter::Ins_A_R(Ins ins, InsAttr attr, GenTree* addr, RegNum reg)
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
         assert(lclAddr->GetLcl()->IsAddressExposed());
-        emitIns_S_R(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
+        Ins_S_R(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -2282,7 +2282,7 @@ void X86Emitter::Ins_R_A(Ins ins, InsAttr attr, RegNum reg, GenTree* addr)
     if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
     {
         assert(lclAddr->GetLcl()->IsAddressExposed());
-        emitIns_R_S(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
+        Ins_R_S(ins, attr, reg, codeGen->GetStackAddrMode(lclAddr));
 
         return;
     }
@@ -3136,7 +3136,7 @@ void X86Emitter::VexIns_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, S
     else
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S(ins, attr, reg1, s);
+        Ins_R_S(ins, attr, reg1, s);
     }
 }
 
@@ -3248,7 +3248,7 @@ void X86Emitter::VexIns_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
 
         emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        emitIns_R_S(ins, attr, reg1, s);
+        Ins_R_S(ins, attr, reg1, s);
     }
 }
 
@@ -3271,7 +3271,7 @@ void X86Emitter::Ins_S(Ins ins, InsAttr attr, StackAddrMode s)
 #endif
 }
 
-void X86Emitter::emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
+void X86Emitter::Ins_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(!IsReallyVexTernary(ins));
     X86_ONLY(assert((attr != EA_1BYTE) || isByteReg(reg)));
@@ -3290,7 +3290,7 @@ void X86Emitter::emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::emitIns_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
+void X86Emitter::Ins_R_S(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
 {
     assert(!HasImplicitRegPairDest(ins) && (ins != INS_imuli));
     X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
