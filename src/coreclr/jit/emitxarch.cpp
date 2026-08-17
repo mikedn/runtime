@@ -2352,28 +2352,12 @@ void X86Emitter::Ins_R_C_I(Ins ins, InsAttr attr, RegNum reg1, ConstData* data, 
     currentIGCodeSize += sz;
 }
 
-void X86Emitter::Ins_RWR_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
-{
-    assert(reg != REG_NA);
-
-    instrDesc* id = NewInstrCns(imm);
-    id->idIns(ins);
-    id->idOpSize(attr);
-    id->idInsFmt(IF_RWR_SRD_CNS);
-    id->idReg1(reg);
-    SetInstrLclAddrMode(id, s);
-
-    unsigned sz = EncodingSizeSV(id, GetCodeRM(ins)) + ImmEncodingSize(ins, attr, imm);
-    id->idCodeSize(sz);
-    PrintInstr(id);
-    currentIGCodeSize += sz;
-}
-
 void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, int32_t imm)
 {
-    assert(IsSSEOrAVXOrBMIInstruction(ins));
+    assert(IsSSEOrAVXOrBMIInstruction(ins) || (ins == INS_imuli));
     AMD64_ONLY(assert(!EA_IS_CNS_RELOC(attr)));
     assert(!EA_IS_GCREF_OR_BYREF(attr));
+    assert(reg != REG_NA);
 
     X86_ONLY(noway_assert(VerifyEncodable(ins, attr, reg)));
 
@@ -2381,7 +2365,7 @@ void X86Emitter::Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, i
     id->idIns(ins);
     id->idOpSize(EA_SIZE(attr));
     X86_ONLY(id->idSetIsCnsReloc(EA_IS_CNS_RELOC(attr) && compiler->opts.compReloc));
-    id->idInsFmt(IF_RRW_SRD_CNS);
+    id->idInsFmt(IF_RWR_SRD_CNS);
     id->idReg1(reg);
     SetInstrLclAddrMode(id, s);
 
@@ -5888,11 +5872,11 @@ uint8_t* X86Encoder::EncodeAM(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
     {
         switch (id->idInsFmt())
         {
-            case IF_RWR_ARD:
             case IF_RRW_ARD:
+            case IF_RWR_ARD:
             case IF_RRW_ARD_CNS:
-            case IF_RWR_RRD_ARD:
             case IF_RWR_ARD_CNS:
+            case IF_RWR_RRD_ARD:
             case IF_RWR_ARD_RRD:
             case IF_RWR_RRD_ARD_CNS:
             case IF_RWR_RRD_ARD_RRD:
@@ -6060,10 +6044,10 @@ uint8_t* X86Encoder::EncodeSV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
         switch (id->idInsFmt())
         {
             case IF_RRW_SRD:
-            case IF_RRW_SRD_CNS:
             case IF_RWR_SRD:
-            case IF_RWR_RRD_SRD:
+            case IF_RRW_SRD_CNS:
             case IF_RWR_SRD_CNS:
+            case IF_RWR_RRD_SRD:
             case IF_RWR_RRD_SRD_CNS:
             case IF_RWR_RRD_SRD_RRD:
                 if (IsGeneralRegister(id->idReg1()))
@@ -6254,8 +6238,8 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
         switch (id->idInsFmt())
         {
             case IF_RRW_MRD:
-            case IF_RRW_MRD_CNS:
             case IF_RWR_MRD:
+            case IF_RRW_MRD_CNS:
             case IF_RWR_RRD_MRD:
             case IF_RWR_MRD_CNS:
             case IF_RWR_RRD_MRD_CNS:

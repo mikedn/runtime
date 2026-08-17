@@ -651,7 +651,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         }
         else if (IsLocalMemoryOperand(op1, &s))
         {
-            emit.Ins_RWR_S_I(INS_imuli, size, dstReg, s, static_cast<int32_t>(imm));
+            emit.Ins_R_S_I(INS_imuli, size, dstReg, s, static_cast<int32_t>(imm));
         }
         else
         {
@@ -7183,7 +7183,7 @@ void CodeGen::inst_R_AM_I(instruction ins, emitAttr attr, RegNum reg, const GenA
 
     if (am.IsLcl())
     {
-        emit.Ins_RWR_S_I(ins, attr, reg, GetStackAddrMode(am.LclNum(), am.Disp() + offset), imm);
+        emit.Ins_R_S_I(ins, attr, reg, GetStackAddrMode(am.LclNum(), am.Disp() + offset), imm);
     }
     else
     {

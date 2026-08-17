@@ -106,7 +106,6 @@ public:
     void Ins_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
     void Ins_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, Imm32 imm);
     void Ins_S_R_I(Ins ins, InsAttr attr, StackAddrMode s, RegNum reg, Imm32 imm);
-    void Ins_RWR_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, Imm32 imm);
     void Ins_R_S_I(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s, Imm32 imm);
     void Ins_A_R_I(Ins ins, InsAttr attr, GenTree* addr, RegNum reg, Imm32 imm);
     void Ins_C_R_I(Ins ins, InsAttr attr, ConstData* data, RegNum reg, Imm32 imm);

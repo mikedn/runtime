@@ -112,7 +112,7 @@ INST3(movsx,            "movsx",            WR, NA,                NA,          
 INST3(lea,              "lea",              WR, NA,                NA,           0x8D,                        RexW)
                                                                                      
 INST3(imul,             "imul",             RW, NA,                NA,           h0F(0xAF),                   RexW | ImulFlags)
-INST3(imuli,            "imul",             RD, NA,                NA,           0x69,                        RexW | ImulFlags)
+INST3(imuli,            "imul",             WR, NA,                NA,           0x69,                        RexW | ImulFlags)
                                                                        
 INST3(bt,               "bt",               RD, h0F(0xA3),         NA,           h0F(0xA3),                   RexW | BitTestFlags)
 INST3(bsf,              "bsf",              WR, NA,                NA,           h0F(0xBC),                   RexW | BitScanFlags)
