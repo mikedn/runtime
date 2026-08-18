@@ -7105,7 +7105,7 @@ void Arm64Emitter::emitIns_J(instruction ins, insGroup* label)
     AppendInstr(id);
 }
 
-void Arm64Emitter::emitIns_CallFinally(insGroup* label)
+void Arm64Emitter::Ins_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     INDEBUG(VerifyCallFinally(label));
@@ -7118,11 +7118,11 @@ void Arm64Emitter::emitIns_CallFinally(insGroup* label)
     AppendInstr(id);
 }
 
-void Arm64Emitter::emitIns_Call(RegNum reg,
-                                void*  addr,
-                                jitstd::pair<emitAttr, emitAttr> retRegAttr,
-                                bool                  isJump,
-                                CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
+void Arm64Emitter::Ins_Call(RegNum reg,
+                            void*  addr,
+                            jitstd::pair<emitAttr, emitAttr> retRegAttr,
+                            bool                  isJump,
+                            CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
 {
     instrDesc* id = NewInstrCall(methodHandle, retRegAttr.first, retRegAttr.second);
 

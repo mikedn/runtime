@@ -71,7 +71,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
     // The funclet prolog/epilog will do "push {lr}" / "pop {pc}" to do the return.
     genMov32RelocatableDisplacement(block->bbNext->bbJumpDest->emitLabel, REG_LR);
 
-    GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
+    GetEmitter()->Ins_CallFinally(block->bbJumpDest->emitLabel);
 }
 
 void CodeGen::genEHCatchRet(BasicBlock* block)
@@ -1480,7 +1480,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(
+    GetEmitter()->Ins_Call(
         addrReg, addr,
         retRegAttr,
         false,

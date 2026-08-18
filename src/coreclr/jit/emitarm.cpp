@@ -3681,7 +3681,7 @@ void ArmEmitter::emitIns_J_R(instruction ins, emitAttr attr, insGroup* label, Re
     AppendInstr(id);
 }
 
-void ArmEmitter::emitIns_CallFinally(insGroup* label)
+void ArmEmitter::Ins_CallFinally(insGroup* label)
 {
     INDEBUG(VerifyCallFinally(label));
 
@@ -3750,11 +3750,11 @@ void ArmEmitter::emitIns_R_D(instruction ins, RegNum reg, ConstData* data)
     AppendInstr(id);
 }
 
-void ArmEmitter::emitIns_Call(RegNum                reg,
-                              void*                 addr,
-                              emitAttr              regRegAttr,
-                              bool                  isJump,
-                              CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
+void ArmEmitter::Ins_Call(RegNum                reg,
+                          void*                 addr,
+                          emitAttr              regRegAttr,
+                          bool                  isJump,
+                          CORINFO_METHOD_HANDLE methodHandle DEBUGARG(CORINFO_SIG_INFO* sigInfo))
 {
     instrDesc* id = NewInstrCall(methodHandle, regRegAttr);
 

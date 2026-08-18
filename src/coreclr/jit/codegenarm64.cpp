@@ -1390,7 +1390,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         GetEmitter()->emitIns_Mov(INS_mov, EA_8BYTE, REG_R0, REG_SPBASE, /* canSkip */ false);
     }
 
-    GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
+    GetEmitter()->Ins_CallFinally(block->bbJumpDest->emitLabel);
 
     if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
@@ -3553,7 +3553,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(
+    GetEmitter()->Ins_Call(
         addrReg, addr,
         { retRegAttr, EA_UNKNOWN },
         false,

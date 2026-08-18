@@ -1379,7 +1379,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 
     // clang-format off
-    emit.emitIns_Call(
+    emit.Ins_Call(
         callReg, callAddr,
 #ifdef TARGET_ARM64
         { retReg0Attr, regReg1Attr },
@@ -1716,7 +1716,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         }
 
         // clang-format off
-        GetEmitter()->emitIns_Call(
+        GetEmitter()->Ins_Call(
             addrReg, addr,
 #ifdef TARGET_ARM64
             { EA_UNKNOWN, EA_UNKNOWN },
@@ -1748,7 +1748,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             assert(call->m_entryPointAccessType == IAT_VALUE);
 
             // clang-format off
-            GetEmitter()->emitIns_Call(
+            GetEmitter()->Ins_Call(
                 REG_NA, call->m_entryPointAddr,
                 { EA_UNKNOWN, EA_UNKNOWN },
                 true,

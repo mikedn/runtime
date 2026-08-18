@@ -3337,7 +3337,7 @@ void X86Emitter::Ins_L(Ins ins, insGroup* label)
 #endif // TARGET_X86
 
 #ifdef TARGET_AMD64
-void X86Emitter::emitIns_CallFinally(insGroup* label)
+void X86Emitter::Ins_CallFinally(insGroup* label)
 {
     assert(codeGen->GetCurrentBlock()->bbJumpKind == BBJ_CALLFINALLY);
     INDEBUG(VerifyCallFinally(label));
@@ -3525,26 +3525,26 @@ void X86Emitter::UpdateStackLevel(instruction ins, ssize_t val)
 
 #endif // !FEATURE_FIXED_OUT_ARGS
 
-void X86Emitter::emitIns_Call(insFormat format,
-                              void*     addr,
-                              RegNum    amBase,
-                              RegNum    amIndex,
-                              unsigned  amScale,
-                              int32_t   amDisp,
-                              bool      isJump,
-                              emitAttr  retRegAttr,
+void X86Emitter::Ins_Call(insFormat format,
+                          void*     addr,
+                          RegNum    amBase,
+                          RegNum    amIndex,
+                          unsigned  amScale,
+                          int32_t   amDisp,
+                          bool      isJump,
+                          emitAttr  retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                              emitAttr retReg2Attr,
+                          emitAttr retReg2Attr,
 #endif
 #ifdef TARGET_X86
-                              int32_t argSize,
+                          int32_t argSize,
 #endif
-                              CORINFO_METHOD_HANDLE methodHandle
+                          CORINFO_METHOD_HANDLE methodHandle
 #ifdef DEBUG
-                              ,
-                              CORINFO_SIG_INFO* sigInfo
+                          ,
+                          CORINFO_SIG_INFO* sigInfo
 #endif
-                              )
+                          )
 {
     assert((format != IF_METHOD && format != IF_METHPTR) ||
            (amBase == REG_NA && amIndex == REG_NA && amScale == 0 && amDisp == 0));

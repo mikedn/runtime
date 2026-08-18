@@ -289,7 +289,7 @@ void CodeGen::GenCallFinally(BasicBlock* block)
         GetEmitter()->Ins_R_S(INS_mov, EA_PTRSIZE, REG_ARG_0, GetStackAddrMode(compiler->lvaPSPSym, 0));
     }
 
-    GetEmitter()->emitIns_CallFinally(block->bbJumpDest->emitLabel);
+    GetEmitter()->Ins_CallFinally(block->bbJumpDest->emitLabel);
 
     if ((block->bbFlags & BBF_RETLESS_CALL) != 0)
     {
@@ -4092,7 +4092,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, int argSize, emitAttr retReg
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(
+    GetEmitter()->Ins_Call(
         format,
         addr,
         REG_NA, REG_NA, 0, 0,
@@ -4155,7 +4155,7 @@ void CodeGen::GenHelperCall(CorInfoHelpFunc helper, emitAttr retRegAttr, RegNum 
     }
 
     // clang-format off
-    GetEmitter()->emitIns_Call(
+    GetEmitter()->Ins_Call(
         format,
         addr,
         addrReg, REG_NA, 0, 0,
@@ -4395,7 +4395,7 @@ void CodeGen::GenCall(GenTreeCall* call)
     }
 
     // clang-format off
-    emit.emitIns_Call(
+    emit.Ins_Call(
         format,
         callAddr,
         amBaseReg, amIndexReg, amIndexScale, amOffset,
@@ -4746,7 +4746,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
         }
 
         // clang-format off
-        GetEmitter()->emitIns_Call(
+        GetEmitter()->Ins_Call(
             format,
             addr,
             amBaseReg, REG_NA, 0, 0, 
@@ -4779,7 +4779,7 @@ void CodeGen::GenJmpEpilog(BasicBlock* block)
             assert(call->m_entryPointAccessType == IAT_VALUE);
 
             // clang-format off
-            GetEmitter()->emitIns_Call(
+            GetEmitter()->Ins_Call(
                 IF_METHOD,
                 call->m_entryPointAddr,
                 REG_NA, REG_NA, 0, 0,

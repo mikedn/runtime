@@ -77,7 +77,7 @@ public:
     void Ins_Nop(unsigned size);
     void Ins_Lock();
 #ifdef TARGET_AMD64
-    void emitIns_CallFinally(insGroup* label);
+    void Ins_CallFinally(insGroup* label);
 #endif
 #ifdef TARGET_X86
     void Ins_H(Ins ins, void* addr);
@@ -159,26 +159,26 @@ public:
     void VexIns_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
     void VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, Imm32 imm);
 
-    void emitIns_Call(InsFmt   format,
-                      void*    addr,
-                      RegNum   amBase,
-                      RegNum   amIndex,
-                      unsigned amScale,
-                      Disp32   amDisp,
-                      bool     isJump,
-                      InsAttr  retRegAttr,
+    void Ins_Call(InsFmt   format,
+                  void*    addr,
+                  RegNum   amBase,
+                  RegNum   amIndex,
+                  unsigned amScale,
+                  Disp32   amDisp,
+                  bool     isJump,
+                  InsAttr  retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                      InsAttr retReg2Attr,
+                  InsAttr retReg2Attr,
 #endif
 #ifdef TARGET_X86
-                      int32_t argSize,
+                  int32_t argSize,
 #endif
-                      CORINFO_METHOD_HANDLE methodHandle
+                  CORINFO_METHOD_HANDLE methodHandle
 #ifdef DEBUG
-                      ,
-                      CORINFO_SIG_INFO* sigInfo = nullptr
+                  ,
+                  CORINFO_SIG_INFO* sigInfo = nullptr
 #endif
-                      );
+                  );
 
     void emitIns_S_R(Ins ins, InsAttr attr, RegNum reg, StackAddrMode s)
     {
