@@ -3107,7 +3107,15 @@ void X86Emitter::VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, R
         assert((reg3 != reg1) || (reg2 == reg1));
 
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        Ins_R_R(ins, attr, reg1, reg3);
+
+        if (IsMovIns(ins))
+        {
+            emitIns_Mov(ins, attr, reg1, reg3, /* canSkip */ true);
+        }
+        else
+        {
+            Ins_R_R(ins, attr, reg1, reg3);
+        }
     }
 }
 
