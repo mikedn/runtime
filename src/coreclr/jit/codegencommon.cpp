@@ -3904,7 +3904,13 @@ void CodeGen::genFnProlog()
 
     if ((initRegs ARM_ONLY(| initDblRegs)) != RBM_NONE)
     {
-        PrologZeroRegs(initRegs, initRegZeroed ? initReg : REG_NA ARM_ARG(initDblRegs));
+#ifndef TARGET_ARM
+        if (initRegZeroed)
+        {
+            initRegs &= ~genRegMask(initReg);
+        }
+#endif
+        PrologZeroRegs(initRegs ARM_ARG(initRegZeroed ? initReg : REG_NA) ARM_ARG(initDblRegs));
     }
 
     // Increase the prolog size here only if fully interruptible.

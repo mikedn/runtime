@@ -403,15 +403,15 @@ public:
     void GenEpilogVzeroupperIfNeeded();
 #endif
 
-    regNumber PrologChooseInitReg(regMaskTP initRegs);
-    void PrologBlockInitLocals(int untrackedLo, int untrackedHi, regNumber initReg, bool* initRegZeroed);
-    void PrologZeroInitUntrackedLocals(regNumber initReg, bool* initRegZeroed);
+    RegNum PrologChooseInitReg(regMaskTP initRegs);
+    void PrologBlockInitLocals(int untrackedLo, int untrackedHi, RegNum initReg, bool* initRegZeroed);
+    void PrologZeroInitUntrackedLocals(RegNum initReg, bool* initRegZeroed);
     void PrologInitOsrLocals();
-    void PrologZeroRegs(regMaskTP initRegs, regNumber initReg ARM_ARG(regMaskTP doubleRegs));
+    void PrologZeroRegs(regMaskTP initRegs ARM_ARG(RegNum initReg) ARM_ARG(regMaskTP doubleRegs));
 
-    void PrologReportGenericContextArg(regNumber initReg, bool* pInitRegZeroed);
+    void PrologReportGenericContextArg(RegNum initReg, bool* pInitRegZeroed);
 
-    void PrologSetGSSecurityCookie(regNumber initReg, bool* pInitRegZeroed);
+    void PrologSetGSSecurityCookie(RegNum initReg, bool* pInitRegZeroed);
 
     void genFinalizeFrame();
 
@@ -433,7 +433,7 @@ public:
     void genFnProlog();
     void genFnEpilog(BasicBlock* block);
     void UpdateParamsWithInitialReg();
-    void PrologMoveParams(regNumber initReg, bool* initRegZeroed);
+    void PrologMoveParams(RegNum initReg, bool* initRegZeroed);
 #ifdef TARGET_X86
     void PrologInitVarargsStackParamsBaseOffset();
 #endif

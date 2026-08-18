@@ -2238,16 +2238,18 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     noway_assert(uCntBytes == 0);
 }
 
-void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP doubleRegs)
+void CodeGen::PrologZeroRegs(regMaskTP initRegs, RegNum initReg, regMaskTP doubleRegs)
 {
-    for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
+    Emitter& emit = *GetEmitter();
+
+    for (RegNum reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
     {
         if (((initRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
         {
             continue;
         }
 
-        instGen_Set_Reg_To_Zero(EA_4BYTE, reg);
+        emit.emitIns_R_I(INS_mov, EA_4BYTE, reg, 0);
         initReg = reg;
     }
 
@@ -2259,14 +2261,14 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
     if (initReg == REG_NA)
     {
         initReg = REG_SCRATCH;
-        instGen_Set_Reg_To_Zero(EA_4BYTE, initReg);
+        emit.emitIns_R_I(INS_mov, EA_4BYTE, initReg, 0);
     }
 
-    regNumber fltInitReg = REG_NA;
-    regNumber dblInitReg = REG_NA;
+    RegNum    fltInitReg = REG_NA;
+    RegNum    dblInitReg = REG_NA;
     regMaskTP regMask    = genRegMask(REG_FP_FIRST);
 
-    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg), regMask <<= 1)
+    for (RegNum reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg), regMask <<= 1)
     {
         if ((initRegs & regMask) != RBM_NONE)
         {
@@ -2274,18 +2276,18 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
             {
                 if (dblInitReg != REG_NA)
                 {
-                    GetEmitter()->emitIns_R_R(INS_vcvt_d2f, EA_4BYTE, reg, dblInitReg);
+                    emit.emitIns_R_R(INS_vcvt_d2f, EA_4BYTE, reg, dblInitReg);
                 }
                 else
                 {
-                    GetEmitter()->emitIns_Mov(INS_vmov_i2f, EA_4BYTE, reg, initReg, /* canSkip */ false);
+                    emit.emitIns_Mov(INS_vmov_i2f, EA_4BYTE, reg, initReg, /* canSkip */ false);
                 }
 
                 fltInitReg = reg;
                 continue;
             }
 
-            GetEmitter()->emitIns_Mov(INS_vmov, EA_4BYTE, reg, fltInitReg, /* canSkip */ false);
+            emit.emitIns_Mov(INS_vmov, EA_4BYTE, reg, fltInitReg, /* canSkip */ false);
         }
         else if ((regMask & doubleRegs) != RBM_NONE)
         {
@@ -2293,18 +2295,18 @@ void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg, regMaskTP do
             {
                 if (fltInitReg != REG_NA)
                 {
-                    GetEmitter()->emitIns_R_R(INS_vcvt_f2d, EA_8BYTE, reg, fltInitReg);
+                    emit.emitIns_R_R(INS_vcvt_f2d, EA_8BYTE, reg, fltInitReg);
                 }
                 else
                 {
-                    GetEmitter()->emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, reg, initReg, initReg);
+                    emit.emitIns_R_R_R(INS_vmov_i2d, EA_8BYTE, reg, initReg, initReg);
                 }
 
                 dblInitReg = reg;
             }
             else
             {
-                GetEmitter()->emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
+                emit.emitIns_Mov(INS_vmov, EA_8BYTE, reg, dblInitReg, /* canSkip */ false);
             }
 
             reg = REG_NEXT(reg);

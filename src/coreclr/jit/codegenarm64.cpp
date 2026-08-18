@@ -9562,36 +9562,28 @@ void CodeGen::PrologBlockInitLocals(int untrLclLo, int untrLclHi, regNumber init
     assert(bytesToWrite == 0);
 }
 
-void CodeGen::PrologZeroRegs(regMaskTP initRegs, regNumber initReg)
+void CodeGen::PrologZeroRegs(regMaskTP initRegs)
 {
-    for (regNumber reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
-    {
-        if (((initRegs & genRegMask(reg)) == RBM_NONE) || (reg == initReg))
-        {
-            continue;
-        }
+    Emitter& emit = *GetEmitter();
 
-        instGen_Set_Reg_To_Zero(EA_8BYTE, reg);
-    }
-
-    // TODO-MIKE-CQ: Copying from another reg instead of just zeroing with movi is dubious...
-    regNumber zeroReg = REG_NA;
-
-    for (regNumber reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg))
+    for (RegNum reg = REG_INT_FIRST; reg <= REG_INT_LAST; reg = REG_NEXT(reg))
     {
         if ((initRegs & genRegMask(reg)) == RBM_NONE)
         {
             continue;
         }
 
-        if (zeroReg == REG_NA)
+        emit.emitIns_R_I(INS_mov, EA_8BYTE, reg, 0);
+    }
+
+    for (RegNum reg = REG_FP_FIRST; reg <= REG_FP_LAST; reg = REG_NEXT(reg))
+    {
+        if ((initRegs & genRegMask(reg)) == RBM_NONE)
         {
-            GetEmitter()->emitIns_R_I(INS_movi, EA_16BYTE, reg, 0, INS_OPTS_16B);
-            zeroReg = reg;
             continue;
         }
 
-        GetEmitter()->emitIns_Mov(INS_fmov, EA_8BYTE, reg, zeroReg, /* canSkip */ false);
+        emit.emitIns_R_I(INS_movi, EA_16BYTE, reg, 0, INS_OPTS_16B);
     }
 }
 
