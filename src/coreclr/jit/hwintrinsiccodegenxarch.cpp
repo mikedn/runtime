@@ -313,14 +313,14 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                     case NI_SSE41_BlendVariable:
                     case NI_AVX_BlendVariable:
                     case NI_AVX2_BlendVariable:
-                        genHWIntrinsic_R_R_RM_R(node, ins);
+                        inst_BlendV_R_R_RM_R(node, ins);
                         break;
                     case NI_AVXVNNI_MultiplyWideningAndAdd:
                     case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
                         assert(dstReg != REG_NA);
                         assert(op1Reg != REG_NA);
                         assert(op2Reg != REG_NA);
-                        genHWIntrinsic_R_R_R_RM(ins, vecSize, dstReg, op1Reg, op2Reg, op3);
+                        inst_VexRMW_R_R_RM(ins, vecSize, dstReg, op1Reg, op2Reg, op3);
                         break;
                     default:
                         unreached();
@@ -501,7 +501,7 @@ void CodeGen::genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emi
     }
     else
     {
-        emit.emitIns_R_S(ins, attr, reg, s);
+        emit.Ins_R_S(ins, attr, reg, s);
     }
 }
 
@@ -523,10 +523,10 @@ void CodeGen::genHWIntrinsic_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, i
         assert(IsHWIntrinsicMemOp(compiler, node, op1));
     }
 
-    inst_RV_TT_IV(ins, size, dstReg, op1, imm);
+    inst_R_RM_I(ins, size, dstReg, op1, imm);
 }
 
-void CodeGen::inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree* rmOp, int imm)
+void CodeGen::inst_R_RM_I(instruction ins, emitAttr attr, RegNum reg1, GenTree* rmOp, int imm)
 {
     assert(attr != EA_1BYTE);
 
@@ -570,10 +570,10 @@ void CodeGen::genHWIntrinsic_R_R_RM(
         assert(IsHWIntrinsicMemOp(compiler, node, op2));
     }
 
-    inst_RV_RV_TT(ins, attr, dstReg, op1Reg, op2, node->IsRMW(compiler));
+    inst_R_R_RM(ins, attr, dstReg, op1Reg, op2, node->IsRMW(compiler));
 }
 
-void CodeGen::inst_RV_RV_TT(instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, GenTree* op2, bool isRMW)
+void CodeGen::inst_R_R_RM(instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, GenTree* op2, bool isRMW)
 {
     assert(size != EA_1BYTE);
     assert(dstReg != REG_NA);
@@ -625,6 +625,44 @@ void CodeGen::inst_RV_RV_TT(instruction ins, emitAttr size, RegNum dstReg, RegNu
     else
     {
         emit.VexIns_R_R_S(ins, size, dstReg, op1Reg, s);
+    }
+}
+
+void CodeGen::inst_Vex_R_R_RM(instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, GenTree* op2)
+{
+    assert(UseVexEncoding());
+    assert((size == EA_4BYTE) || (size == EA_8BYTE));
+    assert(dstReg != REG_NA);
+    assert(op1Reg != REG_NA);
+
+    Emitter& emit = *GetEmitter();
+
+    if (op2->isUsedFromReg())
+    {
+        emit.Ins_R_R_R(ins, size, dstReg, op1Reg, op2->GetRegNum());
+
+        return;
+    }
+
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
+
+    if (!IsMemoryOperand(op2, &s, &addr, &data))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.Ins_R_R_A(ins, size, dstReg, op1Reg, addr);
+    }
+    else if (data != nullptr)
+    {
+        unreached();
+    }
+    else
+    {
+        emit.Ins_R_R_S(ins, size, dstReg, op1Reg, s);
     }
 }
 
@@ -715,7 +753,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
     }
 }
 
-void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
+void CodeGen::inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 {
     RegNum   dstReg = node->GetRegNum();
     GenTree* op1    = node->GetOp(0);
@@ -764,7 +802,7 @@ void CodeGen::genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
 }
 
-void CodeGen::genHWIntrinsic_R_R_R_RM(
+void CodeGen::inst_VexRMW_R_R_RM(
     instruction ins, emitAttr attr, RegNum dstReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
@@ -1226,7 +1264,7 @@ void CodeGen::GenSSE41Intrinsic(GenTreeHWIntrinsic* node)
             GenTree*    op1  = node->GetOp(0);
             GenTree*    op2  = node->GetOp(1);
 
-            auto emitSwCase = [&](int8_t i) { inst_RV_TT_IV(ins, attr, dstReg, op1, i); };
+            auto emitSwCase = [&](int8_t i) { inst_R_RM_I(ins, attr, dstReg, op1, i); };
 
             if (op2->IsIntCon())
             {
@@ -1449,7 +1487,7 @@ void CodeGen::GenBMIIntrinsic(GenTreeHWIntrinsic* node)
         case NI_BMI2_ZeroHighBits:
         case NI_BMI2_X64_ZeroHighBits:
             assert((dstType == TYP_INT) || (dstType == TYP_LONG));
-            genHWIntrinsic_R_R_RM(node, ins, emitTypeSize(dstType), dstReg, op1->GetRegNum(), node->GetOp(1));
+            inst_Vex_R_R_RM(ins, emitTypeSize(dstType), dstReg, op1->GetRegNum(), node->GetOp(1));
             break;
 
         case NI_BMI1_ExtractLowestSetBit:
@@ -1505,7 +1543,7 @@ void CodeGen::GenBMIIntrinsic(GenTreeHWIntrinsic* node)
             assert((op2Reg != REG_EDX) || (op1Reg == REG_EDX));
             GetEmitter()->emitIns_Mov(INS_mov, attr, REG_EDX, op1Reg, /* canSkip */ true);
 
-            genHWIntrinsic_R_R_RM(node, ins, attr, dstReg, lowReg, op2);
+            inst_Vex_R_R_RM(ins, attr, dstReg, lowReg, op2);
 
             if (node->GetNumOps() == 3)
             {
@@ -1584,7 +1622,7 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
         }
     }
 
-    genHWIntrinsic_R_R_R_RM(ins, size, dstReg, op1Reg, op2Reg, op3);
+    inst_VexRMW_R_R_RM(ins, size, dstReg, op1Reg, op2Reg, op3);
     DefReg(node);
 }
 

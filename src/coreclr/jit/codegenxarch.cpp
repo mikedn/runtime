@@ -643,7 +643,7 @@ void CodeGen::GenMul(GenTreeOp* mul)
         else if (!checkOverflow && op1->isUsedFromReg() && (imm != 0) && (imm == genFindLowestBit(imm)))
         {
             emit.emitIns_Mov(INS_mov, size, dstReg, op1->GetRegNum(), /* canSkip */ true);
-            inst_RV_SH(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
+            inst_Shift_R_I(INS_shl, size, dstReg, genLog2(static_cast<uint64_t>(static_cast<size_t>(imm))));
         }
         else if (op1->isUsedFromReg())
         {
@@ -684,12 +684,12 @@ void CodeGen::GenMul(GenTreeOp* mul)
 
         if (ins == INS_mulEAX)
         {
-            emitInsRM(ins, size, rmOp);
+            inst_RM(ins, size, rmOp);
             emit.emitIns_Mov(INS_mov, size, dstReg, REG_RAX, /* canSkip */ true);
         }
         else
         {
-            emitInsRegRM(ins, size, mul->GetRegNum(), rmOp);
+            inst_R_RM(ins, size, mul->GetRegNum(), rmOp);
         }
     }
 
@@ -722,7 +722,7 @@ void CodeGen::GenMulLong(GenTreeOp* mul)
     }
 
     GetEmitter()->emitIns_Mov(INS_mov, size, REG_RAX, regOp->GetRegNum(), /* canSkip */ true);
-    emitInsRM(mul->OperIs(GT_UMULH X86_ARG(GT_UMULL)) ? INS_mulEAX : INS_imulEAX, size, rmOp);
+    inst_RM(mul->OperIs(GT_UMULH X86_ARG(GT_UMULL)) ? INS_mulEAX : INS_imulEAX, size, rmOp);
 
 #ifdef TARGET_X86
     if (mul->OperIs(GT_SMULL, GT_UMULL))
@@ -845,7 +845,7 @@ void CodeGen::GenDivRem(GenTreeOp* div)
 
     liveness.RemoveGCRegs(RBM_RDX);
 
-    emitInsRM(isUnsigned ? INS_div : INS_idiv, size, op2);
+    inst_RM(isUnsigned ? INS_div : INS_idiv, size, op2);
     GetEmitter()->emitIns_Mov(INS_mov, size, dstReg, isDiv ? REG_RAX : REG_RDX, true);
 
     DefReg(div);
@@ -1162,7 +1162,7 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
     }
     else
     {
-        emitInsRegRM(GetOperIns(node->GetOper()), attr, dstReg, src);
+        inst_R_RM(GetOperIns(node->GetOper()), attr, dstReg, src);
     }
 
     if (node->IsOverflowOp())
@@ -1205,7 +1205,7 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
             assert(src->GetType() == node->GetType());
             UseRMRegs(src);
             instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
-            emitInsRegRM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
+            inst_R_RM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
             break;
         }
 
@@ -1254,7 +1254,7 @@ void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
     else
     {
         // TODO-MIKE-CQ: Remove false dependency.
-        inst_RV_TT_IV(ins, size, dstReg, srcNode, imm);
+        inst_R_RM_I(ins, size, dstReg, srcNode, imm);
     }
 }
 
@@ -1336,7 +1336,7 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
         instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
 
         UseRMRegs(op2);
-        inst_RV_RV_TT(ins, size, node->GetRegNum(), op1Reg, op2, !UseVexEncoding());
+        inst_R_R_RM(ins, size, node->GetRegNum(), op1Reg, op2, !UseVexEncoding());
     }
 
     DefReg(node);
@@ -1914,7 +1914,7 @@ void CodeGen::GenLclAlloc(GenTreeUnOp* node)
 
             // --- shr regCnt, 2 (or 4) ---
             // TODO-MIKE-Review: Shouldn't this PTRSIZE be emitActualTypeSize(type)?
-            inst_RV_SH(INS_shr, EA_PTRSIZE, regCnt, STACK_ALIGN_SHIFT);
+            inst_Shift_R_I(INS_shr, EA_PTRSIZE, regCnt, STACK_ALIGN_SHIFT);
         }
         else
         {
@@ -3184,7 +3184,7 @@ void CodeGen::GenBoundsCheck(GenTreeBoundsChk* bndsChk)
     // The type of the bounds check should always wide enough to compare against the index.
     assert(emitTypeSize(bndsChkType) >= emitTypeSize(src1->GetType()));
 
-    emitInsCmp(cmpIns, emitTypeSize(bndsChkType), src1, src2);
+    inst_Cmp_RM_RM(cmpIns, emitTypeSize(bndsChkType), src1, src2);
     genJumpToThrowHlpBlk(jmpKind, bndsChk->GetThrowKind(), bndsChk->GetThrowBlock());
 }
 
@@ -4838,7 +4838,7 @@ void CodeGen::GenFloatCompare(GenTreeOp* cmp)
 
     assert(op1->isUsedFromReg());
 
-    emitInsRegRM(ins_FloatCompare(type), emitTypeSize(type), op1->GetRegNum(), op2);
+    inst_R_RM(ins_FloatCompare(type), emitTypeSize(type), op1->GetRegNum(), op2);
 
     if (cmp->GetRegNum() == REG_NA)
     {
@@ -4988,7 +4988,7 @@ void CodeGen::GenIntCompare(GenTreeOp* cmp)
     }
     else
     {
-        emitInsCmp(ins, attr, op1, op2);
+        inst_Cmp_RM_RM(ins, attr, op1, op2);
     }
 
     if (dstReg == REG_NA)
@@ -5173,7 +5173,7 @@ void CodeGen::GenConv(GenTreeUnOp* cast)
     if (srcReg == REG_NA)
     {
         UseRMRegs(src);
-        emitInsRegRM(ins, size, dstReg, src);
+        inst_R_RM(ins, size, dstReg, src);
     }
     else
     {
@@ -5209,7 +5209,7 @@ void CodeGen::GenSignExtend(GenTreeUnOp* sxt)
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movsx : INS_movsxd;
 
         UseRMRegs(src);
-        emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
+        inst_R_RM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else if ((dstReg == REG_RAX) && (srcReg == REG_EAX))
     {
@@ -5236,7 +5236,7 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
         instruction ins = varTypeIsSmall(src->GetType()) ? INS_movzx : INS_mov;
 
         UseRMRegs(src);
-        emitInsRegRM(ins, emitTypeSize(src->GetType()), dstReg, src);
+        inst_R_RM(ins, emitTypeSize(src->GetType()), dstReg, src);
     }
     else
     {
@@ -5256,7 +5256,7 @@ void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
     assert(value->TypeIs(TYP_DOUBLE));
 
     UseRMRegs(value);
-    emitInsRegRM(INS_cvtsd2ss, EA_4BYTE, node->GetRegNum(), value);
+    inst_R_RM(INS_cvtsd2ss, EA_4BYTE, node->GetRegNum(), value);
     DefReg(node);
 }
 
@@ -5268,7 +5268,7 @@ void CodeGen::GenFloatExtend(GenTreeUnOp* node)
     assert(value->TypeIs(TYP_FLOAT));
 
     UseRMRegs(value);
-    emitInsRegRM(INS_cvtss2sd, EA_8BYTE, node->GetRegNum(), value);
+    inst_R_RM(INS_cvtss2sd, EA_8BYTE, node->GetRegNum(), value);
     DefReg(node);
 }
 
@@ -5309,7 +5309,7 @@ void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
     instruction ins  = dstType == TYP_FLOAT ? INS_cvtsi2ss : INS_cvtsi2sd;
     emitAttr    size = emitTypeSize(srcType);
 
-    emitInsRegRM(ins, size, cast->GetRegNum(), src);
+    inst_R_RM(ins, size, cast->GetRegNum(), src);
 
 #ifdef TARGET_64BIT
     // SSE2 conversion instructions only support signed integers so we need to adjust
@@ -5385,7 +5385,7 @@ void CodeGen::GenFloatToInt(GenTreeUnOp* cast)
     assert(!src->isUsedFromReg() || genIsValidFloatReg(src->GetRegNum()));
 
     instruction ins = srcType == TYP_FLOAT ? INS_cvttss2si : INS_cvttsd2si;
-    emitInsRegRM(ins, size, cast->GetRegNum(), src);
+    inst_R_RM(ins, size, cast->GetRegNum(), src);
 
     DefReg(cast);
 }
@@ -8395,29 +8395,25 @@ instruction CodeGen::ins_Store(var_types dstType, bool aligned)
     return INS_mov;
 }
 
-void CodeGen::inst_RV_SH(instruction ins, emitAttr size, regNumber reg, unsigned val)
+void CodeGen::inst_Shift_R_I(instruction ins, emitAttr size, RegNum reg, unsigned imm)
 {
 #ifdef TARGET_AMD64
-    // X64 JB BE insures only encodable values make it here.
-    // x86 can encode 8 bits, though it masks down to 5 or 6
-    // depending on 32-bit or 64-bit registers are used.
-    // Here we will allow anything that is encodable.
-    assert(val < 256);
+    assert(imm < 256);
 #endif
 
     Emitter& emit = *GetEmitter();
 
-    if (val == 1)
+    if (imm == 1)
     {
         emit.Ins_R(MapShiftInsToShiftBy1Ins(ins), size, reg);
     }
     else
     {
-        emit.Ins_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, val);
+        emit.Ins_R_I(MapShiftInsToShiftByImmIns(ins), size, reg, imm);
     }
 }
 
-void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
+void CodeGen::inst_RM(instruction ins, emitAttr attr, GenTree* src)
 {
     Emitter&      emit = *GetEmitter();
     StackAddrMode s;
@@ -8436,7 +8432,7 @@ void CodeGen::emitInsRM(instruction ins, emitAttr attr, GenTree* src)
     }
 }
 
-void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTree* rm)
+void CodeGen::inst_R_RM(instruction ins, emitAttr attr, regNumber reg, GenTree* rm)
 {
     Emitter&      emit = *GetEmitter();
     StackAddrMode s;
@@ -8459,7 +8455,7 @@ void CodeGen::emitInsRegRM(instruction ins, emitAttr attr, regNumber reg, GenTre
     }
 }
 
-void CodeGen::emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2)
+void CodeGen::inst_Cmp_RM_RM(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2)
 {
     // We only need this to support CMP, with its reg,rm and rm,reg forms.
     // TEST doesn't really support the reg,rm form but the emitter deals with it.

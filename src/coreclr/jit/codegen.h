@@ -584,8 +584,8 @@ private:
     void genHWIntrinsic_R_R_RM(
         GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, GenTree* op2);
     void genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t imm);
-    void genHWIntrinsic_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins);
-    void genHWIntrinsic_R_R_R_RM(
+    void inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins);
+    void inst_VexRMW_R_R_RM(
         instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3);
 
     void GenGenericIntrinsic(GenTreeHWIntrinsic* node);
@@ -835,13 +835,15 @@ public:
     bool IsLocalMemoryOperand(GenTree* op, StackAddrMode* s);
 
 #ifdef TARGET_XARCH
-    void inst_RV_SH(instruction ins, emitAttr size, RegNum reg, unsigned val);
     bool IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, ConstData** data);
-    void emitInsRM(instruction ins, emitAttr attr, GenTree* src);
-    void emitInsRegRM(instruction ins, emitAttr attr, RegNum reg, GenTree* mem);
-    void emitInsCmp(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
-    void inst_RV_TT_IV(instruction ins, emitAttr attr, RegNum reg1, GenTree* rmOp, int ival);
-    void inst_RV_RV_TT(instruction ins, emitAttr size, RegNum targetReg, RegNum op1Reg, GenTree* op2, bool isRMW);
+
+    void inst_Shift_R_I(instruction ins, emitAttr size, RegNum reg, unsigned val);
+    void inst_RM(instruction ins, emitAttr attr, GenTree* rm);
+    void inst_R_RM(instruction ins, emitAttr attr, RegNum reg, GenTree* rm);
+    void inst_Cmp_RM_RM(instruction ins, emitAttr attr, GenTree* op1, GenTree* op2);
+    void inst_R_RM_I(instruction ins, emitAttr attr, RegNum reg1, GenTree* rm, int imm);
+    void inst_R_R_RM(instruction ins, emitAttr size, RegNum reg1, RegNum reg2, GenTree* rm, bool isRMW);
+    void inst_Vex_R_R_RM(instruction ins, emitAttr size, RegNum reg1, RegNum reg2, GenTree* rm);
 #endif
 
 #ifdef TARGET_ARM
