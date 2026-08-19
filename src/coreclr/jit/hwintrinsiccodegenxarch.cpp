@@ -1264,7 +1264,10 @@ void CodeGen::GenSSE41Intrinsic(GenTreeHWIntrinsic* node)
             GenTree*    op1  = node->GetOp(0);
             GenTree*    op2  = node->GetOp(1);
 
-            auto emitSwCase = [&](int8_t i) { inst_R_RM_I(ins, attr, dstReg, op1, i); };
+            assert(op1->isUsedFromReg());
+            RegNum srcReg = op1->GetRegNum();
+
+            auto emitSwCase = [&](int8_t i) { GetEmitter()->Ins_R_R_I(ins, attr, dstReg, srcReg, i); };
 
             if (op2->IsIntCon())
             {
