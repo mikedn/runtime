@@ -156,16 +156,16 @@ public:
     void VexIns_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data, Imm32 imm);
     void VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, Imm32 imm);
 
-    void Ins_Call(InsFmt  format,
-                  void*   addr,
-                  RegNum  amBase,
-                  RegNum  amIndex,
-                  Scale   amScale,
-                  Disp32  amDisp,
-                  bool    isJump,
-                  InsAttr retRegAttr,
+    void Ins_Call(InsFmt   format,
+                  void*    addr,
+                  RegNum   amBase,
+                  RegNum   amIndex,
+                  Scale    amScale,
+                  Disp32   amDisp,
+                  bool     isJump,
+                  emitAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
-                  InsAttr retReg2Attr,
+                  emitAttr retReg2Attr,
 #endif
 #ifdef TARGET_X86
                   int32_t argSize,
@@ -188,24 +188,24 @@ public:
     }
 
 private:
-    unsigned EncodingSize(instruction ins, emitAttr attr, code_t code, bool isRR = false);
-    unsigned EncodingSizeR(instruction ins, emitAttr size, RegNum reg);
-    unsigned EncodingSizeRI(instruction ins, emitAttr size, RegNum reg, ssize_t imm);
-    unsigned EncodingSizeRR(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
-    unsigned EncodingSizeRRI(instruction ins, emitAttr size, RegNum reg1, RegNum reg2);
-    unsigned EncodingSizeRRR(instruction ins, emitAttr size, RegNum reg3);
+    unsigned EncodingSize(Ins ins, InsAttr size, code_t code, bool isRR = false);
+    unsigned EncodingSizeR(Ins ins, InsAttr size, RegNum reg);
+    unsigned EncodingSizeRI(Ins ins, InsAttr size, RegNum reg, ssize_t imm);
+    unsigned EncodingSizeRR(Ins ins, InsAttr size, RegNum reg1, RegNum reg2);
+    unsigned EncodingSizeRRI(Ins ins, InsAttr size, RegNum reg1, RegNum reg2);
+    unsigned EncodingSizeRRR(Ins ins, InsAttr size, RegNum reg3);
     unsigned EncodingSizeSV(instrDesc* id, code_t code);
     unsigned EncodingSizeAM(instrDesc* id, code_t code);
     unsigned EncodingSizeCV(instrDesc* id, code_t code);
 
-    bool IsRedundantMov(instruction ins, emitAttr size, RegNum dst, RegNum src, bool canIgnoreSideEffects);
+    bool IsRedundantMov(Ins ins, InsAttr size, RegNum dst, RegNum src, bool canIgnoreSideEffects);
 
-    bool TakesVexPrefix(instruction ins) const;
+    bool TakesVexPrefix(Ins ins) const;
 
-    bool IsVexDstDstSrc(instruction ins) const;
-    bool IsVexDstSrcSrc(instruction ins) const;
-    INDEBUG(bool IsVexTernary(instruction ins) const;)
-    INDEBUG(bool IsReallyVexTernary(instruction ins) const;)
+    bool IsVexDstDstSrc(Ins ins) const;
+    bool IsVexDstSrcSrc(Ins ins) const;
+    INDEBUG(bool IsVexTernary(Ins ins) const;)
+    INDEBUG(bool IsReallyVexTernary(Ins ins) const;)
 
     bool AreFlagsAlwaysModified(instrDesc* id);
 
@@ -221,10 +221,8 @@ private:
     template <typename T>
     T* AllocInstr(bool updateLastIns = true);
 
-    instrDesc*     NewInstr();
-    instrDesc*     NewInstrSmall();
-    instrDescJmp*  NewInstrJmp();
-    instrDescCGCA* AllocInstrCGCA();
+    instrDesc* NewInstr();
+    instrDesc* NewInstrSmall();
     instrDesc* NewInstrSmall(ssize_t imm);
     instrDesc* NewInstrCns(Imm32 imm);
 #ifdef TARGET_X86
@@ -241,11 +239,13 @@ private:
 #ifdef TARGET_X86
                             int argSlotCount,
 #endif
-                            Disp32 disp);
+                            int32_t disp);
+    instrDescJmp*  NewInstrJmp();
+    instrDescCGCA* AllocInstrCGCA();
 
 #if !FEATURE_FIXED_OUT_ARGS
-    void UpdateStackLevel(instruction ins);
-    void UpdateStackLevel(instruction ins, ssize_t val);
+    void UpdateStackLevel(Ins ins);
+    void UpdateStackLevel(Ins ins, ssize_t val);
 #endif
 
     void emitLoopAlign(uint16_t paddingBytes);
