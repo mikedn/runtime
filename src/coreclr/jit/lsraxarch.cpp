@@ -1503,26 +1503,22 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
             case NI_SSE41_BlendVariable:
                 assert(numOps == 3);
+                assert(isRMW);
+                assert(!compiler->codeGen->UseVexEncoding());
 
-                if (!compiler->codeGen->UseVexEncoding())
+                tgtPrefUse = BuildUse(op1);
+
+                if (op2->isContained())
                 {
-                    assert(isRMW);
-
-                    // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-                    tgtPrefUse = BuildUse(op1);
-
-                    if (op2->isContained())
-                    {
-                        BuildOperand(op2);
-                    }
-                    else
-                    {
-                        BuildDelayFreeUse(op2, op1);
-                    }
-
-                    BuildDelayFreeUse(op3, op1, RBM_XMM0);
-                    buildUses = false;
+                    BuildOperand(op2);
                 }
+                else
+                {
+                    BuildDelayFreeUse(op2, op1);
+                }
+
+                BuildDelayFreeUse(op3, op1, RBM_XMM0);
+                buildUses = false;
                 break;
 
             case NI_SSE41_Extract:

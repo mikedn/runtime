@@ -1853,6 +1853,12 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
             return;
 
         case NI_SSE41_BlendVariable:
+            if (comp->codeGen->UseVexEncoding())
+            {
+                node->SetIntrinsic(varTypeIsFloating(node->GetVecEltType()) ? NI_AVX_BlendVariable
+                                                                            : NI_AVX2_BlendVariable);
+            }
+            FALLTHROUGH;
         case NI_AVX_BlendVariable:
         case NI_AVX2_BlendVariable:
             TryMakeHWIntrinsicMemOp(node, node->GetOp(1));

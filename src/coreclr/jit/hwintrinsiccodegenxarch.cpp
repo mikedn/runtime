@@ -311,9 +311,11 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 switch (intrinsic)
                 {
                     case NI_SSE41_BlendVariable:
+                        inst_BlendV_R_R_RM_R(node, ins);
+                        break;
                     case NI_AVX_BlendVariable:
                     case NI_AVX2_BlendVariable:
-                        inst_BlendV_R_R_RM_R(node, ins);
+                        inst_VexBlendV_R_R_RM_R(node, ins);
                         break;
                     case NI_AVXVNNI_MultiplyWideningAndAdd:
                     case NI_AVXVNNI_MultiplyWideningAndAddSaturate:
@@ -755,11 +757,14 @@ void CodeGen::genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins,
 
 void CodeGen::inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 {
+    assert(!UseVexEncoding());
+    assert(IsSse41Blendv(ins));
+    assert(node->GetType() == TYP_SIMD16);
+
     RegNum   dstReg = node->GetRegNum();
     GenTree* op1    = node->GetOp(0);
     GenTree* op2    = node->GetOp(1);
     GenTree* op3    = node->GetOp(2);
-    emitAttr size   = emitTypeSize(node->GetType());
     Emitter& emit   = *GetEmitter();
 
     RegNum op1Reg = op1->GetRegNum();
@@ -769,9 +774,14 @@ void CodeGen::inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     assert(op1Reg != REG_NA);
     assert(op3Reg != REG_NA);
 
+    // TODO-MIKE-Review: Check if these moves are actually correct...
+    emit.emitIns_Mov(INS_movaps, EA_16BYTE, REG_XMM0, op3Reg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_movaps, EA_16BYTE, dstReg, op1Reg, /* canSkip */ true);
+
     if (op2->isUsedFromReg())
     {
-        emit.VexIns_R_R_R_R(ins, size, dstReg, op1Reg, op2->GetRegNum(), op3Reg);
+        RegNum op2Reg = op2->GetRegNum();
+        emit.Ins_R_R(ins, EA_16BYTE, dstReg, op2Reg);
 
         return;
     }
@@ -789,16 +799,66 @@ void CodeGen::inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
     }
     else if (addr != nullptr)
     {
-        emit.VexIns_R_R_A_R(ins, size, dstReg, op1Reg, op3Reg, addr);
+        emit.Ins_R_A(ins, EA_16BYTE, dstReg, addr);
     }
     else if (data != nullptr)
     {
-        // We can't have a DblCon operand on blend instructions.
-        unreached();
+        emit.Ins_R_C(ins, EA_16BYTE, dstReg, data);
     }
     else
     {
-        emit.VexIns_R_R_S_R(ins, size, dstReg, op1Reg, op3Reg, s);
+        emit.Ins_R_S(ins, EA_16BYTE, dstReg, s);
+    }
+}
+
+void CodeGen::inst_VexBlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
+{
+    assert(UseVexEncoding());
+    assert(IsAvxBlendv(ins));
+
+    RegNum   dstReg = node->GetRegNum();
+    GenTree* op1    = node->GetOp(0);
+    GenTree* op2    = node->GetOp(1);
+    GenTree* op3    = node->GetOp(2);
+    emitAttr size   = emitTypeSize(node->GetType());
+    Emitter& emit   = *GetEmitter();
+
+    RegNum op1Reg = op1->GetRegNum();
+    RegNum op3Reg = op3->GetRegNum();
+
+    assert(dstReg != REG_NA);
+    assert(op1Reg != REG_NA);
+    assert(op3Reg != REG_NA);
+
+    if (op2->isUsedFromReg())
+    {
+        emit.Ins_R_R_R_R(ins, size, dstReg, op1Reg, op2->GetRegNum(), op3Reg);
+
+        return;
+    }
+
+    assert(HWIntrinsicInfo::SupportsContainment(node->GetIntrinsic()));
+    assert(IsHWIntrinsicMemOp(compiler, node, op2));
+
+    StackAddrMode s;
+    GenTree*      addr;
+    ConstData*    data;
+
+    if (!IsMemoryOperand(op2, &s, &addr, &data))
+    {
+        unreached();
+    }
+    else if (addr != nullptr)
+    {
+        emit.Ins_R_R_A_R(ins, size, dstReg, op1Reg, op3Reg, addr);
+    }
+    else if (data != nullptr)
+    {
+        emit.Ins_R_R_C_R(ins, size, dstReg, op1Reg, op3Reg, data);
+    }
+    else
+    {
+        emit.Ins_R_R_S_R(ins, size, dstReg, op1Reg, op3Reg, s);
     }
 }
 

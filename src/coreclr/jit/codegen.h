@@ -585,6 +585,7 @@ private:
         GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, GenTree* op2);
     void genHWIntrinsic_R_R_RM_I(GenTreeHWIntrinsic* node, instruction ins, int8_t imm);
     void inst_BlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins);
+    void inst_VexBlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins);
     void inst_VexRMW_R_R_RM(
         instruction ins, emitAttr attr, RegNum targetReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3);
 

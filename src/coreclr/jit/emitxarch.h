@@ -144,29 +144,26 @@ public:
     void Ins_R_ARX_R(
         Ins ins, InsAttr attr, RegNum reg1, RegNum base, RegNum index, Scale scale, Disp32 disp, RegNum reg2);
 
-    void VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
     void VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, Imm32 imm);
+
+    void VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3);
     void VexIns_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr);
     void VexIns_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data);
     void VexIns_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s);
 
-    void VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4);
     void VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, Imm32 imm);
-
-    void VexIns_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr);
     void VexIns_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, GenTree* addr, Imm32 imm);
     void VexIns_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, ConstData* data, Imm32 imm);
-    void VexIns_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s);
     void VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, StackAddrMode s, Imm32 imm);
 
-    void Ins_Call(InsFmt   format,
-                  void*    addr,
-                  RegNum   amBase,
-                  RegNum   amIndex,
-                  unsigned amScale,
-                  Disp32   amDisp,
-                  bool     isJump,
-                  InsAttr  retRegAttr,
+    void Ins_Call(InsFmt  format,
+                  void*   addr,
+                  RegNum  amBase,
+                  RegNum  amIndex,
+                  Scale   amScale,
+                  Disp32  amDisp,
+                  bool    isJump,
+                  InsAttr retRegAttr,
 #ifdef UNIX_AMD64_ABI
                   InsAttr retReg2Attr,
 #endif
@@ -262,6 +259,8 @@ private:
 using ArchEmitter = X86Emitter;
 
 #ifdef DEBUG
+bool IsSse41Blendv(instruction ins);
+bool IsAvxBlendv(instruction ins);
 bool IsFMAInstruction(instruction ins);
 bool IsAVXVNNIInstruction(instruction ins);
 #endif

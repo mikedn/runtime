@@ -109,12 +109,12 @@ static bool HasImplicitRegPairDest(instruction ins)
     return (ins == INS_mulEAX) || (ins == INS_imulEAX) || (ins == INS_div) || (ins == INS_idiv);
 }
 
-static bool IsAvxBlendv(instruction ins)
+bool IsAvxBlendv(instruction ins)
 {
     return ins == INS_vblendvps || ins == INS_vblendvpd || ins == INS_vpblendvb;
 }
 
-static bool IsSse41Blendv(instruction ins)
+bool IsSse41Blendv(instruction ins)
 {
     return ins == INS_blendvps || ins == INS_blendvpd || ins == INS_pblendvb;
 }
@@ -3183,64 +3183,6 @@ void X86Emitter::VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     {
         emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
         Ins_R_S_I(ins, attr, reg1, s, imm);
-    }
-}
-
-void X86Emitter::VexIns_R_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, RegNum reg4)
-{
-    if (useVexEncoding)
-    {
-        Ins_R_R_R_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, reg4);
-    }
-    else
-    {
-        assert(IsSse41Blendv(ins));
-        assert((reg2 != REG_XMM0) || (reg4 == REG_XMM0));
-        assert((reg3 != REG_XMM0) || (reg4 == REG_XMM0));
-
-        // SSE4.1 blendv* hardcode the mask vector (op3) in XMM0
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg4, /* canSkip */ true);
-
-        // Ensure we aren't overwriting op2 or oop3 (which should be REG_XMM0)
-        assert((reg3 != reg1) || (reg2 == reg1));
-        assert(reg1 != REG_XMM0);
-
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        Ins_R_R(ins, attr, reg1, reg3);
-    }
-}
-
-void X86Emitter::VexIns_R_R_A_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, GenTree* addr)
-{
-    if (useVexEncoding)
-    {
-        Ins_R_R_A_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, addr);
-    }
-    else
-    {
-        assert(IsSse41Blendv(ins));
-        assert((reg1 != REG_XMM0) && (reg2 != REG_XMM0));
-
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        Ins_R_A(ins, attr, reg1, addr);
-    }
-}
-
-void X86Emitter::VexIns_R_R_S_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, RegNum reg3, StackAddrMode s)
-{
-    if (useVexEncoding)
-    {
-        Ins_R_R_S_R(MapSse41BlendvToAvxBlendv(ins), attr, reg1, reg2, reg3, s);
-    }
-    else
-    {
-        assert(IsSse41Blendv(ins));
-        assert((reg1 != REG_XMM0) && (reg2 != REG_XMM0));
-
-        emitIns_Mov(INS_movaps, attr, REG_XMM0, reg3, /* canSkip */ true);
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
-        Ins_R_S(ins, attr, reg1, s);
     }
 }
 
