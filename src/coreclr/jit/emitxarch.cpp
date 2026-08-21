@@ -3065,7 +3065,7 @@ void X86Emitter::VexIns_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, I
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_I(ins, attr, reg1, imm);
     }
 }
@@ -3078,7 +3078,7 @@ void X86Emitter::VexIns_R_R_A(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, G
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_A(ins, attr, reg1, addr);
     }
 }
@@ -3091,7 +3091,7 @@ void X86Emitter::VexIns_R_R_C(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, C
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_C(ins, attr, reg1, data);
     }
 }
@@ -3106,7 +3106,7 @@ void X86Emitter::VexIns_R_R_R(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, R
     {
         assert((reg3 != reg1) || (reg2 == reg1));
 
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
 
         if (IsMovIns(ins))
         {
@@ -3127,7 +3127,7 @@ void X86Emitter::VexIns_R_R_S(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2, S
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_S(ins, attr, reg1, s);
     }
 }
@@ -3140,7 +3140,7 @@ void X86Emitter::VexIns_R_R_A_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_A_I(ins, attr, reg1, addr, imm);
     }
 }
@@ -3153,7 +3153,7 @@ void X86Emitter::VexIns_R_R_C_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_C_I(ins, attr, reg1, data, imm);
     }
 }
@@ -3168,7 +3168,7 @@ void X86Emitter::VexIns_R_R_R_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     {
         assert((reg3 != reg1) || (reg2 == reg1));
 
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_R_I(ins, attr, reg1, reg3, imm);
     }
 }
@@ -3181,7 +3181,7 @@ void X86Emitter::VexIns_R_R_S_I(Ins ins, InsAttr attr, RegNum reg1, RegNum reg2,
     }
     else
     {
-        emitIns_Mov(INS_movaps, attr, reg1, reg2, /* canSkip */ true);
+        emitIns_Mov(INS_movaps, EA_16BYTE, reg1, reg2, /* canSkip */ true);
         Ins_R_S_I(ins, attr, reg1, s, imm);
     }
 }
@@ -4356,6 +4356,10 @@ private:
                 case INS_sqrtss:
                 case INS_rcpss:
                 case INS_roundss:
+                case INS_addss:
+                case INS_subss:
+                case INS_mulss:
+                case INS_divss:
                     mattr = EA_4BYTE;
                     break;
                 case INS_movsd:
@@ -4363,6 +4367,10 @@ private:
                 case INS_cvttsd2si:
                 case INS_sqrtsd:
                 case INS_roundsd:
+                case INS_addsd:
+                case INS_subsd:
+                case INS_mulsd:
+                case INS_divsd:
                     mattr = EA_8BYTE;
                     break;
                 case INS_vextractf128:
@@ -6045,10 +6053,18 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
         case INS_vbroadcastss:
         case INS_insertps:
         case INS_movss:
+        case INS_addss:
+        case INS_subss:
+        case INS_mulss:
+        case INS_divss:
             align = 4;
             break;
         case INS_vbroadcastsd:
         case INS_movsd:
+        case INS_addsd:
+        case INS_subsd:
+        case INS_mulsd:
+        case INS_divsd:
             align = 8;
             break;
         case INS_vinsertf128:

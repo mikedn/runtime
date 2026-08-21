@@ -1329,14 +1329,14 @@ void CodeGen::GenFloatBinaryOp(GenTreeOp* node)
     {
         instruction ins = insMap[0][node->GetType() - TYP_FLOAT];
 
-        GetEmitter()->VexIns_R_R_R(ins, size, node->GetRegNum(), op1Reg, op1Reg);
+        GetEmitter()->VexIns_R_R_R(ins, EA_16BYTE, node->GetRegNum(), op1Reg, op1Reg);
     }
     else
     {
         instruction ins = insMap[node->GetOper() - GT_FADD][node->GetType() - TYP_FLOAT];
 
         UseRMRegs(op2);
-        inst_R_R_RM(ins, size, node->GetRegNum(), op1Reg, op2, !UseVexEncoding());
+        inst_R_R_RM(ins, EA_16BYTE, node->GetRegNum(), op1Reg, op2, !UseVexEncoding());
     }
 
     DefReg(node);

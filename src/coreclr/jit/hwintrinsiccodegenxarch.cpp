@@ -596,7 +596,7 @@ void CodeGen::inst_R_R_RM(instruction ins, emitAttr size, RegNum dstReg, RegNum 
 void CodeGen::inst_Vex_R_R_RM(instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, GenTree* op2)
 {
     assert(UseVexEncoding());
-    assert((size == EA_4BYTE) || (size == EA_8BYTE));
+    assert((size == EA_4BYTE) || (size == EA_8BYTE) || (size == EA_16BYTE) || (size == EA_32BYTE));
     assert(dstReg != REG_NA);
     assert(op1Reg != REG_NA);
 
@@ -623,7 +623,7 @@ void CodeGen::inst_Vex_R_R_RM(instruction ins, emitAttr size, RegNum dstReg, Reg
     }
     else if (data != nullptr)
     {
-        unreached();
+        emit.Ins_R_R_C(ins, size, dstReg, op1Reg, data);
     }
     else
     {
@@ -826,7 +826,7 @@ void CodeGen::inst_VexBlendV_R_R_RM_R(GenTreeHWIntrinsic* node, instruction ins)
 }
 
 void CodeGen::inst_VexRMW_R_R_RM(
-    instruction ins, emitAttr attr, RegNum dstReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3)
+    instruction ins, emitAttr size, RegNum dstReg, RegNum op1Reg, RegNum op2Reg, GenTree* op3)
 {
     assert(IsFMAInstruction(ins) || IsAVXVNNIInstruction(ins));
     assert(dstReg != REG_NA);
@@ -837,14 +837,14 @@ void CodeGen::inst_VexRMW_R_R_RM(
     Emitter& emit = *GetEmitter();
     assert(emit.UseVexEncoding());
 
-    emit.emitIns_Mov(INS_movaps, attr, dstReg, op1Reg, /* canSkip */ true);
+    emit.emitIns_Mov(INS_movaps, size, dstReg, op1Reg, /* canSkip */ true);
 
     if (op3->isUsedFromReg())
     {
         RegNum op3Reg = op3->GetRegNum();
         assert((op3Reg != dstReg) || (op1Reg == dstReg));
 
-        emit.Ins_R_R_R(ins, attr, dstReg, op2Reg, op3Reg);
+        emit.Ins_R_R_R(ins, size, dstReg, op2Reg, op3Reg);
 
         return;
     }
@@ -859,15 +859,15 @@ void CodeGen::inst_VexRMW_R_R_RM(
     }
     else if (addr != nullptr)
     {
-        emit.Ins_R_R_A(ins, attr, dstReg, op2Reg, addr);
+        emit.Ins_R_R_A(ins, size, dstReg, op2Reg, addr);
     }
     else if (data != nullptr)
     {
-        emit.Ins_R_R_C(ins, attr, dstReg, op2Reg, data);
+        emit.Ins_R_R_C(ins, size, dstReg, op2Reg, data);
     }
     else
     {
-        emit.Ins_R_R_S(ins, attr, dstReg, op2Reg, s);
+        emit.Ins_R_R_S(ins, size, dstReg, op2Reg, s);
     }
 }
 
@@ -1564,16 +1564,16 @@ void CodeGen::GenBMIIntrinsic(GenTreeHWIntrinsic* node)
             }
 
             assert(!op2->isContained());
-            emitAttr attr = emitTypeSize(dstType);
+            emitAttr size = emitTypeSize(dstType);
 
             assert((op2Reg != REG_EDX) || (op1Reg == REG_EDX));
-            GetEmitter()->emitIns_Mov(INS_mov, attr, REG_EDX, op1Reg, /* canSkip */ true);
+            GetEmitter()->emitIns_Mov(INS_mov, size, REG_EDX, op1Reg, /* canSkip */ true);
 
-            inst_Vex_R_R_RM(ins, attr, dstReg, lowReg, op2);
+            inst_Vex_R_R_RM(ins, size, dstReg, lowReg, op2);
 
             if (node->GetNumOps() == 3)
             {
-                GetEmitter()->Ins_AR_R(INS_mov, attr, lowReg, op3Reg, 0);
+                GetEmitter()->Ins_AR_R(INS_mov, size, lowReg, op3Reg, 0);
             }
 
             break;
