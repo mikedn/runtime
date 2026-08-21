@@ -355,9 +355,9 @@ void CodeGen::UseHWIntrinsicOp(GenTree* op)
         return;
     }
 
-    if (op->IsIndir())
+    if (op->OperIs(GT_IND_LOAD))
     {
-        genConsumeAddress(op->AsIndir()->GetAddr());
+        genConsumeAddress(op->AsIndLoad()->GetAddr());
         return;
     }
 
@@ -374,30 +374,6 @@ void CodeGen::UseHWIntrinsicOp(GenTree* op)
 
         return;
     }
-
-#ifdef FEATURE_HW_INTRINSICS
-    if (GenTreeHWIntrinsic* hwi = op->IsHWIntrinsic())
-    {
-        if (hwi->GetNumOps() != 0)
-        {
-            HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(hwi->GetIntrinsic());
-            assert((category == HW_Category_MemoryLoad) || (category == HW_Category_MemoryStore));
-            genConsumeAddress(hwi->GetOp(0));
-
-            if (category == HW_Category_MemoryStore)
-            {
-                assert(hwi->IsBinary());
-                UseReg(hwi->GetOp(1));
-            }
-            else
-            {
-                assert(hwi->IsUnary());
-            }
-        }
-
-        return;
-    }
-#endif
 
     assert(op->OperIsLeaf());
 }
@@ -420,46 +396,33 @@ bool CodeGen::IsMemoryOperand(GenTree* op, StackAddrMode* s, GenTree** addr, Con
         return true;
     }
 
-    GenTree* loadAddr;
-
     if (op->OperIs(GT_IND_LOAD))
     {
-        loadAddr = op->AsIndLoad()->GetAddr();
-    }
-#ifdef FEATURE_HW_INTRINSICS
-    else if (GenTreeHWIntrinsic* intrin = op->IsHWIntrinsic())
-    {
-        assert(intrin->IsMemoryLoad());
-        assert(intrin->IsUnary());
+        GenTree* loadAddr = op->AsIndLoad()->GetAddr();
 
-        loadAddr = intrin->GetOp(0);
-    }
-#endif
-    else
-    {
-        return false;
-    }
+        if (GenTreeLclAddr* lclAddr = loadAddr->IsLclAddr())
+        {
+            assert(lclAddr->isContained());
 
-    if (GenTreeLclAddr* lclAddr = loadAddr->IsLclAddr())
-    {
-        assert(lclAddr->isContained());
+            *s    = GetStackAddrMode(lclAddr);
+            *addr = nullptr;
+            *data = nullptr;
+        }
+        else if (GenTreeConstAddr* constAddr = loadAddr->IsConstAddr())
+        {
+            *addr = nullptr;
+            *data = constAddr->GetData();
+        }
+        else
+        {
+            *addr = loadAddr;
+            *data = nullptr;
+        }
 
-        *s    = GetStackAddrMode(lclAddr);
-        *addr = nullptr;
-        *data = nullptr;
-    }
-    else if (GenTreeConstAddr* constAddr = loadAddr->IsConstAddr())
-    {
-        *addr = nullptr;
-        *data = constAddr->GetData();
-    }
-    else
-    {
-        *addr = loadAddr;
-        *data = nullptr;
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 void CodeGen::genHWIntrinsic_R_RM(GenTreeHWIntrinsic* node, instruction ins, emitAttr attr, RegNum reg, GenTree* rmOp)
