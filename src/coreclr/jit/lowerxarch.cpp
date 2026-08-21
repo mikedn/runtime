@@ -1478,7 +1478,7 @@ void Lowering::LowerHWIntrinsic(GenTreeHWIntrinsic* node)
 
         case NI_VEC_ITOV:
             LowerVecIToV(node);
-            FALLTHROUGH;
+            return;
         case NI_VEC_ZEXT:
         case NI_VEC_TRUNC:
             TryMakeHWIntrinsicMemOp(node, node->GetOp(0));
@@ -1976,7 +1976,7 @@ void Lowering::LowerVecEquality(GenTreeHWIntrinsic* node, genTreeOps cmpOp)
 }
 
 #ifdef TARGET_X86
-void Lowering::LowerVecItoVLong(GenTreeHWIntrinsic* node)
+void Lowering::LowerVecIToVLong(GenTreeHWIntrinsic* node)
 {
     assert(node->GetIntrinsic() == NI_VEC_ITOV);
 
@@ -2078,7 +2078,7 @@ void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
 #ifdef TARGET_X86
     if (op->OperIs(GT_LONG))
     {
-        LowerVecItoVLong(node);
+        LowerVecIToVLong(node);
         return;
     }
 #endif
@@ -2087,7 +2087,10 @@ void Lowering::LowerVecIToV(GenTreeHWIntrinsic* node)
     {
         BlockRange().Unlink(op);
         node->SetIntrinsic(NI_VEC_ZERO, 0);
+        return;
     }
+
+    TryMakeHWIntrinsicMemOp(node, op);
 }
 
 void Lowering::LowerVecRegCast(GenTreeHWIntrinsic* node)
