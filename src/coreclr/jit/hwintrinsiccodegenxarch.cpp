@@ -215,33 +215,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
             }
             else if (category == HW_Category_MemoryLoad)
             {
-                // Get the address and the 'other' register.
-                GenTree* addr;
-                RegNum   otherReg;
-
-                if (intrinsic == NI_AVX_MaskLoad || intrinsic == NI_AVX2_MaskLoad)
-                {
-                    addr     = op1;
-                    otherReg = op2Reg;
-                }
-                else
-                {
-                    addr     = op2;
-                    otherReg = op1Reg;
-                }
-
-                if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
-                {
-                    emit.VexIns_R_R_S(ins, vecSize, dstReg, otherReg, GetStackAddrMode(lclAddr));
-                }
-                else if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
-                {
-                    emit.VexIns_R_R_C(ins, vecSize, dstReg, otherReg, constAddr->GetData());
-                }
-                else
-                {
-                    emit.VexIns_R_R_A(ins, vecSize, dstReg, otherReg, addr);
-                }
+                unreached();
             }
             else if ((category == HW_Category_IMM) && varActualTypeIsInt(op2->GetType()))
             {
@@ -1172,6 +1146,31 @@ void CodeGen::GenSSE2Intrinsic(GenTreeHWIntrinsic* node)
 
     switch (intrinsic)
     {
+        case NI_SSE_LoadLow:
+        case NI_SSE_LoadHigh:
+        case NI_SSE2_LoadLow:
+        case NI_SSE2_LoadHigh:
+        {
+            assert(node->TypeIs(TYP_SIMD16));
+
+            instruction ins      = HWIntrinsicInfo::GetIns(intrinsic, eltType);
+            RegNum      otherReg = op1->GetRegNum();
+
+            if (GenTreeLclAddr* lclAddr = op2->IsLclAddr())
+            {
+                emit.VexIns_R_R_S(ins, EA_16BYTE, dstReg, otherReg, GetStackAddrMode(lclAddr));
+            }
+            else if (GenTreeConstAddr* constAddr = op2->IsConstAddr())
+            {
+                emit.VexIns_R_R_C(ins, EA_16BYTE, dstReg, otherReg, constAddr->GetData());
+            }
+            else
+            {
+                emit.VexIns_R_R_A(ins, EA_16BYTE, dstReg, otherReg, op2);
+            }
+            break;
+        }
+
         case NI_SSE_ConvertToInt32:
         case NI_SSE2_ConvertToInt32:
         case NI_SSE_X64_ConvertToInt64:
@@ -1384,6 +1383,33 @@ void CodeGen::GenAVXIntrinsic(GenTreeHWIntrinsic* node)
             else
             {
                 genHWIntrinsic_R_RM(node, ins, EA_32BYTE, dstReg, op1);
+            }
+            break;
+        }
+
+        case NI_AVX_MaskLoad:
+        case NI_AVX2_MaskLoad:
+        {
+            assert(varTypeIsTargetVec(node->GetType()));
+
+            GenTree* addr = node->GetOp(0);
+            GenTree* mask = node->GetOp(1);
+
+            instruction ins     = HWIntrinsicInfo::GetIns(intrinsic, eltType);
+            emitAttr    size    = emitTypeSize(node->GetType());
+            RegNum      maskReg = mask->GetRegNum();
+
+            if (GenTreeLclAddr* lclAddr = addr->IsLclAddr())
+            {
+                emit.Ins_R_R_S(ins, size, dstReg, maskReg, GetStackAddrMode(lclAddr));
+            }
+            else if (GenTreeConstAddr* constAddr = addr->IsConstAddr())
+            {
+                emit.Ins_R_R_C(ins, size, dstReg, maskReg, constAddr->GetData());
+            }
+            else
+            {
+                emit.Ins_R_R_A(ins, size, dstReg, maskReg, addr);
             }
             break;
         }
