@@ -1185,30 +1185,27 @@ void CodeGen::GenAddSubBitwise(GenTreeOp* node)
 
 void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
 {
-    assert(varTypeIsFloating(node->GetType()));
+    GenTree* src = node->GetOp(0);
+    assert(varTypeIsFloating(node->GetType()) && (src->GetType() == node->GetType()));
+    UseRMRegs(src);
 
     switch (node->GetIntrinsic())
     {
         case NI_System_Math_Abs:
-            GenFloatAbs(node);
+            GenFloatAbs(node, src);
             break;
-
         case NI_System_Math_Ceiling:
+            GenFloatRound(node, src, 10);
+            break;
         case NI_System_Math_Floor:
+            GenFloatRound(node, src, 9);
+            break;
         case NI_System_Math_Round:
-            GenFloatRound(node);
+            GenFloatRound(node, src, 4);
             break;
-
         case NI_System_Math_Sqrt:
-        {
-            GenTree* src = node->GetOp(0);
-            assert(src->GetType() == node->GetType());
-            UseRMRegs(src);
-            instruction ins = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
-            inst_R_RM(ins, emitTypeSize(node->GetType()), node->GetRegNum(), src);
+            GenFloatSqrt(node, src);
             break;
-        }
-
         default:
             unreached();
     }
@@ -1216,54 +1213,37 @@ void CodeGen::GenIntrinsic(GenTreeIntrinsic* node)
     DefReg(node);
 }
 
-void CodeGen::GenFloatRound(GenTreeIntrinsic* round)
+void CodeGen::GenFloatRound(GenTreeIntrinsic* node, GenTree* src, int imm)
 {
     assert(compiler->opts.IsIsaSupported(InstructionSet_SSE41));
 
-    GenTree* srcNode = round->GetOp(0);
+    instruction ins    = node->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
+    RegNum      dstReg = node->GetRegNum();
 
-    assert(varTypeIsFloating(srcNode->GetType()) && (srcNode->GetType() == round->GetType()));
+    // TODO-MIKE-CQ: Remove false dependency, this depends on the previous value of dstReg.
 
-    UseRMRegs(srcNode);
-
-    instruction ins    = round->TypeIs(TYP_FLOAT) ? INS_roundss : INS_roundsd;
-    emitAttr    size   = emitTypeSize(round->GetType());
-    RegNum      dstReg = round->GetRegNum();
-    int32_t     imm    = 0;
-
-    switch (round->AsIntrinsic()->GetIntrinsic())
+    if (src->isUsedFromReg())
     {
-        case NI_System_Math_Round:
-            imm = 4;
-            break;
-        case NI_System_Math_Ceiling:
-            imm = 10;
-            break;
-        case NI_System_Math_Floor:
-            imm = 9;
-            break;
-        default:
-            unreached();
-    }
-
-    // TODO-MIKE-Cleanup: This shouldn't be needed but VexIns_R_R_I is messed up.
-    if (srcNode->isUsedFromReg())
-    {
-        GetEmitter()->Ins_R_R_I(ins, size, dstReg, srcNode->GetRegNum(), imm);
+        // TODO-MIKE-Cleanup: This shouldn't be needed but VexIns_R_R_I is messed up.
+        GetEmitter()->Ins_R_R_I(ins, EA_16BYTE, dstReg, src->GetRegNum(), imm);
     }
     else
     {
-        // TODO-MIKE-CQ: Remove false dependency.
-        inst_R_RM_I(ins, size, dstReg, srcNode, imm);
+        inst_R_RM_I(ins, EA_16BYTE, dstReg, src, imm);
     }
 }
 
-void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
+void CodeGen::GenFloatSqrt(GenTreeIntrinsic* node, GenTree* src)
 {
-    assert((node->GetIntrinsic() == NI_System_Math_Abs) && varTypeIsFloating(node->GetType()));
-    assert(node->GetOp(0)->GetType() == node->GetType());
-    assert(node->GetRegNum() != REG_NA);
+    instruction ins    = node->TypeIs(TYP_FLOAT) ? INS_sqrtss : INS_sqrtsd;
+    RegNum      dstReg = node->GetRegNum();
 
+    // TODO-MIKE-CQ: Remove false dependency, this depends on the previous value of dstReg.
+    inst_R_RM(ins, EA_16BYTE, dstReg, src);
+}
+
+void CodeGen::GenFloatAbs(GenTreeIntrinsic* node, GenTree* src)
+{
     ConstData*& maskField = node->TypeIs(TYP_FLOAT) ? absBitmaskFlt : absBitmaskDbl;
 
     if (maskField == nullptr)
@@ -1275,9 +1255,37 @@ void CodeGen::GenFloatAbs(GenTreeIntrinsic* node)
     }
 
     RegNum dstReg = node->GetRegNum();
-    RegNum srcReg = UseReg(node->GetOp(0));
+    RegNum srcReg = src->GetRegNum();
 
     GetEmitter()->VexIns_R_R_C(INS_andps, EA_16BYTE, dstReg, srcReg, maskField);
+}
+
+void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT));
+
+    GenTree* value = node->GetOp(0);
+    assert(value->TypeIs(TYP_DOUBLE));
+
+    UseRMRegs(value);
+
+    // TODO-MIKE-CQ: Remove false dependency, this depends on the previous value of dstReg.
+    inst_R_RM(INS_cvtsd2ss, EA_16BYTE, node->GetRegNum(), value);
+    DefReg(node);
+}
+
+void CodeGen::GenFloatExtend(GenTreeUnOp* node)
+{
+    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE));
+
+    GenTree* value = node->GetOp(0);
+    assert(value->TypeIs(TYP_FLOAT));
+
+    UseRMRegs(value);
+
+    // TODO-MIKE-CQ: Remove false dependency, this depends on the previous value of dstReg.
+    inst_R_RM(INS_cvtss2sd, EA_16BYTE, node->GetRegNum(), value);
+    DefReg(node);
 }
 
 void CodeGen::GenFloatNegate(GenTreeUnOp* node)
@@ -1409,8 +1417,8 @@ void CodeGen::GenBitTest(GenTreeOp* bt)
     assert(op1->isUsedFromReg() && op2->isUsedFromReg());
     assert((varTypeSize(type) >= varTypeSize(TYP_INT)) && (varTypeSize(type) <= varTypeSize(TYP_I_IMPL)));
 
-    regNumber srcReg1 = UseReg(op1);
-    regNumber srcReg2 = UseReg(op2);
+    RegNum srcReg1 = UseReg(op1);
+    RegNum srcReg2 = UseReg(op2);
 
     GetEmitter()->Ins_R_R(INS_bt, emitTypeSize(type), srcReg1, srcReg2);
 }
@@ -4838,7 +4846,7 @@ void CodeGen::GenFloatCompare(GenTreeOp* cmp)
 
     assert(op1->isUsedFromReg());
 
-    inst_R_RM(ins_FloatCompare(type), emitTypeSize(type), op1->GetRegNum(), op2);
+    inst_R_RM(ins_FloatCompare(type), EA_16BYTE, op1->GetRegNum(), op2);
 
     if (cmp->GetRegNum() == REG_NA)
     {
@@ -5247,30 +5255,6 @@ void CodeGen::GenUnsignedExtend(GenTreeUnOp* uxt)
     DefReg(uxt);
 }
 #endif
-
-void CodeGen::GenFloatTruncate(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_FTRUNC) && node->TypeIs(TYP_FLOAT));
-
-    GenTree* value = node->GetOp(0);
-    assert(value->TypeIs(TYP_DOUBLE));
-
-    UseRMRegs(value);
-    inst_R_RM(INS_cvtsd2ss, EA_4BYTE, node->GetRegNum(), value);
-    DefReg(node);
-}
-
-void CodeGen::GenFloatExtend(GenTreeUnOp* node)
-{
-    assert(node->OperIs(GT_FXT) && node->TypeIs(TYP_DOUBLE));
-
-    GenTree* value = node->GetOp(0);
-    assert(value->TypeIs(TYP_FLOAT));
-
-    UseRMRegs(value);
-    inst_R_RM(INS_cvtss2sd, EA_8BYTE, node->GetRegNum(), value);
-    DefReg(node);
-}
 
 void CodeGen::GenIntToFloat(GenTreeUnOp* cast)
 {

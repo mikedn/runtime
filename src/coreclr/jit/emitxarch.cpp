@@ -296,9 +296,6 @@ static bool IsSseDstSrcImm(instruction ins)
 // Returns true if the AVX instruction is a binary operator that requires 3 operands.
 // When we emit an instruction with only two operands, we will duplicate the destination
 // as a source.
-// TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
-// be formalized by adding an additional field to instruction table to
-// to indicate whether a 3-operand instruction.
 static bool IsVexDstDstSrc(instruction ins, bool vexAvailable)
 {
     return ((InsFlags(ins) & INS_Flags_VexDstDstSrc) != 0) && vexAvailable;
@@ -318,9 +315,6 @@ static bool IsVexCommute(instruction ins)
 
 // Returns true if the AVX instruction requires 3 operands that duplicate the source
 // register in the vvvv field.
-// TODO-XArch-Cleanup: This is a temporary solution for now. Eventually this needs to
-// be formalized by adding an additional field to instruction table to
-// to indicate whether a 3-operand instruction.
 static bool IsVexDstSrcSrc(instruction ins, bool vexAvailable)
 {
     return ((InsFlags(ins) & INS_Flags_VexDstSrcSrc) != 0) && vexAvailable;
@@ -4353,6 +4347,9 @@ private:
             switch (ins)
             {
                 case INS_movss:
+                case INS_cvtss2sd:
+                case INS_cvtss2si:
+                case INS_cvttss2si:
                 case INS_sqrtss:
                 case INS_rcpss:
                 case INS_roundss:
@@ -4360,9 +4357,16 @@ private:
                 case INS_subss:
                 case INS_mulss:
                 case INS_divss:
+                case INS_minss:
+                case INS_maxss:
+                case INS_cmpss:
+                case INS_comiss:
+                case INS_ucomiss:
+                case INS_vbroadcastss:
                     mattr = EA_4BYTE;
                     break;
                 case INS_movsd:
+                case INS_cvtsd2ss:
                 case INS_cvtsd2si:
                 case INS_cvttsd2si:
                 case INS_sqrtsd:
@@ -4371,6 +4375,12 @@ private:
                 case INS_subsd:
                 case INS_mulsd:
                 case INS_divsd:
+                case INS_minsd:
+                case INS_maxsd:
+                case INS_cmpsd:
+                case INS_comisd:
+                case INS_ucomisd:
+                case INS_vbroadcastsd:
                     mattr = EA_8BYTE;
                     break;
                 case INS_vextractf128:
@@ -4395,13 +4405,11 @@ private:
                 case INS_pextrd:
                 case INS_pinsrd:
                 case INS_vpbroadcastd:
-                case INS_vbroadcastss:
                     mattr = EA_4BYTE;
                     break;
                 case INS_pextrq:
                 case INS_pinsrq:
                 case INS_vpbroadcastq:
-                case INS_vbroadcastsd:
                     mattr = EA_8BYTE;
                     break;
                 case INS_vbroadcasti128:
@@ -6048,23 +6056,37 @@ uint8_t* X86Encoder::EncodeCV(uint8_t* dst, instrDesc* id, code_t code, ssize_t*
 
     switch (ins)
     {
-        case INS_cvttss2si:
-        case INS_cvtss2sd:
-        case INS_vbroadcastss:
-        case INS_insertps:
         case INS_movss:
+        case INS_insertps:
+        case INS_cvtss2sd:
+        case INS_cvtss2si:
+        case INS_cvttss2si:
         case INS_addss:
         case INS_subss:
         case INS_mulss:
         case INS_divss:
+        case INS_minss:
+        case INS_maxss:
+        case INS_cmpss:
+        case INS_comiss:
+        case INS_ucomiss:
+        case INS_vbroadcastss:
             align = 4;
             break;
-        case INS_vbroadcastsd:
         case INS_movsd:
+        case INS_cvtsd2ss:
+        case INS_cvtsd2si:
+        case INS_cvttsd2si:
         case INS_addsd:
         case INS_subsd:
         case INS_mulsd:
         case INS_divsd:
+        case INS_minsd:
+        case INS_maxsd:
+        case INS_cmpsd:
+        case INS_comisd:
+        case INS_ucomisd:
+        case INS_vbroadcastsd:
             align = 8;
             break;
         case INS_vinsertf128:

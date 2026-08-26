@@ -91,8 +91,9 @@ private:
     ConstData* u8ToDblBitmask = nullptr;
     ConstData* u8ToFltBitmask = nullptr;
 
-    void GenFloatAbs(GenTreeIntrinsic* node);
-    void GenFloatRound(GenTreeIntrinsic* node);
+    void GenFloatAbs(GenTreeIntrinsic* node, GenTree* src);
+    void GenFloatRound(GenTreeIntrinsic* node, GenTree* src, int imm);
+    void GenFloatSqrt(GenTreeIntrinsic* node, GenTree* src);
 #endif
 
     void genMarkLabelsForCodegen();
