@@ -2969,7 +2969,7 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
 
 void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 {
-    genConsumeAddress(check->GetAddr());
+    UseAddrRegs(check->GetAddr());
     emitInsLoad(INS_ldr, EA_4BYTE, REG_ZR, check);
 }
 
@@ -3009,7 +3009,7 @@ void CodeGen::GenIndLoad(GenTreeIndLoad* load)
         }
     }
 
-    genConsumeAddress(load->GetAddr());
+    UseAddrRegs(load->GetAddr());
     emitInsLoad(ins, emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
 
     if (emitBarrier)
@@ -3037,25 +3037,24 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
-        RegNum addrReg  = UseReg(addr);
-        RegNum valueReg = UseReg(value);
+        RegNum   addrReg  = UseReg(addr);
+        RegNum   valueReg = UseReg(value);
+        Emitter& emit     = *GetEmitter();
 
         noway_assert(valueReg != REG_WRITE_BARRIER_DST_BYREF);
 
-        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_WRITE_BARRIER_DST, addrReg,
-                                  /* canSkip */ true);
-        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_WRITE_BARRIER_SRC, valueReg,
-                                  /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_WRITE_BARRIER_DST, addrReg,
+                         /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_WRITE_BARRIER_SRC, valueReg,
+                         /* canSkip */ true);
         genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
 
-    // We must consume the operands in the proper execution order,
-    // so that liveness is updated appropriately.
-    genConsumeAddress(addr);
+    UseAddrRegs(addr);
     var_types type = store->GetType();
-    regNumber valueReg;
+    RegNum    valueReg;
 
     if (value->isContained())
     {

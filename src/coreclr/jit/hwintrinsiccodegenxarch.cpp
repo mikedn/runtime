@@ -123,7 +123,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
         {
             if (node->IsMemoryLoad())
             {
-                genConsumeAddress(op1);
+                UseAddrRegs(op1);
                 emit.Ins_R_A(ins, vecSize, dstReg, op1);
             }
             else if (HWIntrinsicInfo::CopiesUpperBits(intrinsic))
@@ -163,7 +163,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
 
             if (category == HW_Category_MemoryStore)
             {
-                genConsumeAddress(op1);
+                UseAddrRegs(op1);
 
                 if (((intrinsic == NI_SSE_Store) || (intrinsic == NI_SSE2_Store)) && op2->isContained())
                 {
@@ -331,13 +331,13 @@ void CodeGen::UseHWIntrinsicOp(GenTree* op)
 
     if (op->OperIs(GT_IND_LOAD))
     {
-        genConsumeAddress(op->AsIndLoad()->GetAddr());
+        UseAddrRegs(op->AsIndLoad()->GetAddr());
         return;
     }
 
-    if (op->IsAddrMode())
+    if (GenTreeAddrMode* am = op->IsAddrMode())
     {
-        genConsumeAddress(op);
+        UseAddrRegs(am);
         return;
     }
 

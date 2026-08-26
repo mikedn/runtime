@@ -630,14 +630,18 @@ private:
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     void UnspillRegsIfNeeded(GenTree* node);
     IntRegMask GetNodeRegMask(GenTree* node);
+
     RegNum UseReg(GenTree* node);
+    RegNum UseReg(GenTree* node, unsigned regIndex);
     RegNum UseRegCandidateLclLoad(GenTreeLclLoad* node);
     void UseRegs(GenTree* node);
-    RegNum UseReg(GenTree* node, unsigned regIndex);
+    void UseAddrRegs(GenTree* addr);
+    void UseAddrModeRegs(GenTreeAddrMode* addr);
+
     void CopyReg(GenTreeCopyOrReload* copy);
     void CopyRegs(GenTreeCopyOrReload* copy);
     RegNum CopyReg(GenTreeCopyOrReload* copy, unsigned regIndex);
-    void genConsumeAddress(GenTree* addr);
+
     void ConsumeStructStore(GenTree* store, ClassLayout* layout, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
     void ConsumeDynBlk(GenTreeDynBlk* store, RegNum dstReg, RegNum srcReg, RegNum sizeReg);
 #ifdef DEBUG

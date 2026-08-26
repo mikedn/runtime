@@ -2132,7 +2132,7 @@ void CodeGen::UseOperandRegs(GenTree* op)
 
     if (op->IsIndLoad())
     {
-        genConsumeAddress(op->AsIndLoad()->GetAddr());
+        UseAddrRegs(op->AsIndLoad()->GetAddr());
         return;
     }
 

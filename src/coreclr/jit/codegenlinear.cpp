@@ -1709,7 +1709,7 @@ void CodeGen::CopyRegs(GenTreeCopyOrReload* copy)
     }
 }
 
-void CodeGen::genConsumeAddress(GenTree* addr)
+void CodeGen::UseAddrRegs(GenTree* addr)
 {
     if (!addr->isContained())
     {
@@ -1717,15 +1717,22 @@ void CodeGen::genConsumeAddress(GenTree* addr)
     }
     else if (GenTreeAddrMode* am = addr->IsAddrMode())
     {
-        if (GenTree* base = am->GetBase())
-        {
-            UseReg(base);
-        }
+        UseAddrModeRegs(am);
+    }
+}
 
-        if (GenTree* index = am->GetIndex())
-        {
-            UseReg(index);
-        }
+void CodeGen::UseAddrModeRegs(GenTreeAddrMode* am)
+{
+    assert(am->isContained());
+
+    if (GenTree* base = am->GetBase())
+    {
+        UseReg(base);
+    }
+
+    if (GenTree* index = am->GetIndex())
+    {
+        UseReg(index);
     }
 }
 

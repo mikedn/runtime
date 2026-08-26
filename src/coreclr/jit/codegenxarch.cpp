@@ -1530,18 +1530,20 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
 {
     assert(tree->OperIs(GT_RETURNTRAP));
 
-    GenTreeIndir* mem = tree->GetOp(0)->AsIndir();
+    GenTreeIndLoad* mem = tree->GetOp(0)->AsIndLoad();
     assert(mem->isContained());
-    genConsumeAddress(mem->GetAddr());
+    GenTree* addr = mem->GetAddr();
+    UseAddrRegs(addr);
 
     RegNum tmpReg = tree->GetSingleTempReg(RBM_ALLINT);
     assert(genIsValidIntReg(tmpReg));
 
-    GetEmitter()->Ins_A_I(INS_cmp, EA_4BYTE, mem->GetAddr(), 0);
+    Emitter& emit = *GetEmitter();
+    emit.Ins_A_I(INS_cmp, EA_4BYTE, addr, 0);
     insGroup* skipLabel = GetEmitter()->CreateTempLabel();
-    GetEmitter()->Ins_J(INS_je, skipLabel);
+    emit.Ins_J(INS_je, skipLabel);
     GenHelperCall(CORINFO_HELP_STOP_FOR_GC, EA_UNKNOWN NOT_X86_ARG(tmpReg));
-    GetEmitter()->DefineTempLabel(skipLabel);
+    emit.DefineTempLabel(skipLabel);
 }
 
 // Probe the stack and allocate the local stack frame - subtract from SP.
@@ -1552,10 +1554,7 @@ void CodeGen::GenReturnTrap(GenTreeOp* tree)
 //                          this call sets 'initReg' to a non-zero shift.
 // maskArgRegsLiveIn - incoming argument registers that are currently live.
 //
-void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
-                                  regNumber initReg,
-                                  bool*     pInitRegZeroed,
-                                  regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* pInitRegZeroed, regMaskTP maskArgRegsLiveIn)
 {
     assert(generatingProlog);
 
@@ -3785,6 +3784,8 @@ void CodeGen::GenIndexAddr(GenTreeIndexAddr* node)
 
 void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
+    Emitter& emit = *GetEmitter();
+
 #ifdef FEATURE_SIMD
     if (load->TypeIs(TYP_SIMD12))
     {
@@ -3796,14 +3797,13 @@ void CodeGen::GenIndLoad(GenTreeIndLoad* load)
         if (GenTreeIntCon* tls = load->GetAddr()->IsIntCon(HandleKind::TLS))
     {
         noway_assert(load->TypeIs(TYP_INT));
-        GetEmitter()->InsMov_R_FS(load->GetRegNum(), tls->GetInt32Value());
+        emit.InsMov_R_FS(load->GetRegNum(), tls->GetInt32Value());
     }
     else
 #endif
     {
-        genConsumeAddress(load->GetAddr());
-        GetEmitter()->Ins_R_A(ins_Load(load->GetType()), emitTypeSize(load->GetType()), load->GetRegNum(),
-                              load->GetAddr());
+        UseAddrRegs(load->GetAddr());
+        emit.Ins_R_A(ins_Load(load->GetType()), emitTypeSize(load->GetType()), load->GetRegNum(), load->GetAddr());
     }
 
     DefReg(load);
@@ -3822,6 +3822,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     GenTree*  addr  = store->GetAddr();
     GenTree*  value = store->GetValue();
     var_types type  = store->GetType();
+    Emitter&  emit  = *GetEmitter();
 
     assert(IsValidSourceType(type, value->GetType()));
 
@@ -3834,8 +3835,8 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
         {
             noway_assert(valueReg != REG_ARG_0);
 
-            GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
-            GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
+            emit.emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
             genGCWriteBarrier(store, writeBarrierForm);
         }
 
@@ -3844,19 +3845,19 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     emitAttr attr = emitTypeSize(type);
 
-    genConsumeAddress(addr);
+    UseAddrRegs(addr);
 
     if (!value->isContained())
     {
         RegNum reg = UseReg(value);
-        GetEmitter()->Ins_A_R(ins_Store(type), attr, addr, reg);
+        emit.Ins_A_R(ins_Store(type), attr, addr, reg);
 
         return;
     }
 
     if (GenTreeIntCon* imm = value->IsIntCon())
     {
-        GetEmitter()->Ins_A_I(ins_Store(type), attr, addr, imm->GetInt32Value());
+        emit.Ins_A_I(ins_Store(type), attr, addr, imm->GetInt32Value());
 
         return;
     }
@@ -3868,7 +3869,7 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
         INDEBUG(GenTreeIndir* load = value->AsUnOp()->GetOp(0)->AsIndir());
         assert(load->isUsedFromMemory() && load->isContained());
 
-        GetEmitter()->InsRMW_A(GetOperIns(value->GetOper()), attr, addr);
+        emit.InsRMW_A(GetOperIns(value->GetOper()), attr, addr);
 
         return;
     }
@@ -3886,8 +3887,6 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
     {
         assert(src->IsContainedIntCon());
     }
-
-    Emitter& emit = *GetEmitter();
 
     if (value->OperIs(GT_ADD) && (src->IsIntCon(1) || src->IsIntCon(-1)))
     {
@@ -8619,7 +8618,7 @@ void CodeGen::UseRMRegs(GenTree* op)
 
     if (op->OperIs(GT_IND_LOAD))
     {
-        genConsumeAddress(op->AsIndLoad()->GetAddr());
+        UseAddrRegs(op->AsIndLoad()->GetAddr());
         return;
     }
 

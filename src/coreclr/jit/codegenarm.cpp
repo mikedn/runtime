@@ -1279,7 +1279,7 @@ void CodeGen::GenNullCheck(GenTreeNullCheck* check)
 
 void CodeGen::GenIndLoad(GenTreeIndLoad* load)
 {
-    genConsumeAddress(load->GetAddr());
+    UseAddrRegs(load->GetAddr());
     emitInsLoad(ins_Load(load->GetType()), emitActualTypeSize(load->GetType()), load->GetRegNum(), load);
 
     if (load->IsVolatile())
@@ -1300,29 +1300,28 @@ void CodeGen::GenIndStore(GenTreeIndStore* store)
 
     if (GCInfo::WriteBarrierForm writeBarrierForm = GCInfo::GetWriteBarrierForm(store))
     {
-        RegNum addrReg  = UseReg(addr);
-        RegNum valueReg = UseReg(value);
+        RegNum   addrReg  = UseReg(addr);
+        RegNum   valueReg = UseReg(value);
+        Emitter& emit     = *GetEmitter();
 
         noway_assert(valueReg != REG_ARG_0);
 
-        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
-        GetEmitter()->emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, emitTypeSize(addr->GetType()), REG_ARG_0, addrReg, /* canSkip */ true);
+        emit.emitIns_Mov(INS_mov, emitTypeSize(value->GetType()), REG_ARG_1, valueReg, /* canSkip */ true);
         genGCWriteBarrier(store, writeBarrierForm);
 
         return;
     }
 
-    // We must consume the operands in the proper execution order,
-    // so that liveness is updated appropriately.
-    genConsumeAddress(addr);
-    regNumber dataReg = UseReg(value);
+    UseAddrRegs(addr);
+    RegNum valueReg = UseReg(value);
 
     if (store->IsVolatile())
     {
         instGen_MemoryBarrier();
     }
 
-    emitInsStore(ins_Store(type), emitActualTypeSize(type), dataReg, store);
+    emitInsStore(ins_Store(type), emitActualTypeSize(type), valueReg, store);
 }
 
 void CodeGen::GenOvfTruncate(GenTreeUnOp* node)
