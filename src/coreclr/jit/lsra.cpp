@@ -4033,7 +4033,7 @@ void LinearScan::resolveLocalRef(BasicBlock* block, GenTreeLclVar* node, RefPosi
 
 void LinearScan::writeRegisters(RefPosition* currentRefPosition, GenTree* node)
 {
-    if (IntRegMask mask = currentRefPosition->registerAssignment)
+    if (RegSet mask = currentRefPosition->registerAssignment)
     {
         node->SetRegNum(currentRefPosition->GetRegIndex(), genRegNumFromMask(mask));
     }

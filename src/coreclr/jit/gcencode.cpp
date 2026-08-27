@@ -3568,7 +3568,7 @@ class GCEncoder : private GcInfoEncoder
 
     using StackSlotLifetime = GCInfo::StackSlotLifetime;
     using RegArgChangeKind  = GCInfo::RegArgChangeKind;
-    using RegSet            = GCInfo::RegSet;
+    using GCRegSet          = GCInfo::GCRegSet;
     using RegArgChange      = GCInfo::RegArgChange;
     using CallSite          = GCInfo::CallSite;
 
@@ -3655,7 +3655,7 @@ public:
 
     void SetHeaderInfo(unsigned codeSize, unsigned prologSize, ReturnKind returnKind);
     void AddTrackedStackSlots(StackSlotLifetime* firstStackSlotLifetime);
-    void AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, RegSet regs, RegSet byrefRegs);
+    void AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, GCRegSet regs, GCRegSet byrefRegs);
     void AddCallArgStackSlot(RegArgChange* argChange);
     void RemoveCallArgStackSlots(unsigned codeOffset, RegArgChange* firstArgChange, RegArgChange* killArgsChange);
     void AddUntrackedStackSlots();
@@ -4329,7 +4329,7 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
 {
     assert(isFullyInterruptible);
 
-    RegSet        gcRegs         = RBM_NONE;
+    GCRegSet      gcRegs         = RBM_NONE;
     RegArgChange* firstArgChange = nullptr;
 
     for (RegArgChange* change = firstRegArgChange; change != nullptr; change = change->next)
@@ -4356,8 +4356,8 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
         {
             assert(change->gcType != GCT_NONE);
 
-            RegSet regs      = change->regs & ~gcRegs;
-            RegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            GCRegSet regs      = change->regs & ~gcRegs;
+            GCRegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
             AddRegSlotChange(change->codeOffs, GC_SLOT_LIVE, regs, byrefRegs);
             gcRegs |= regs;
         }
@@ -4366,8 +4366,8 @@ void GCEncoder::AddFullyInterruptibleSlots(RegArgChange* firstRegArgChange)
             assert(change->kind == RegArgChangeKind::RemoveRegs);
             assert(change->gcType != GCT_NONE);
 
-            RegSet regs      = change->regs & gcRegs;
-            RegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
+            GCRegSet regs      = change->regs & gcRegs;
+            GCRegSet byrefRegs = change->gcType == GCT_BYREF ? regs : RBM_NONE;
             AddRegSlotChange(change->codeOffs, GC_SLOT_DEAD, regs, byrefRegs);
             gcRegs &= ~regs;
         }
@@ -4439,12 +4439,12 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
 
     for (CallSite* call = firstCallSite; call != nullptr; call = call->next)
     {
-        RegSet refRegs   = call->refRegs & RBM_CALLEE_SAVED;
-        RegSet byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
+        GCRegSet refRegs   = call->refRegs & RBM_CALLEE_SAVED;
+        GCRegSet byrefRegs = call->byrefRegs & RBM_CALLEE_SAVED;
 
         assert((refRegs & byrefRegs) == RBM_NONE);
 
-        RegSet gcRegs = refRegs | byrefRegs;
+        GCRegSet gcRegs = refRegs | byrefRegs;
 
         if (noTrackedGCSlots && (gcRegs == RBM_NONE))
         {
@@ -4479,11 +4479,11 @@ void GCEncoder::AddPartiallyInterruptibleSlots(CallSite* firstCallSite)
     }
 }
 
-void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, RegSet regs, RegSet byrefRegs)
+void GCEncoder::AddRegSlotChange(unsigned codeOffset, GcSlotState slotState, GCRegSet regs, GCRegSet byrefRegs)
 {
     assert((byrefRegs & ~regs) == RBM_NONE);
 
-    for (RegSet regMask; regs != RBM_NONE; regs &= ~regMask)
+    for (GCRegSet regMask; regs != RBM_NONE; regs &= ~regMask)
     {
         regMask = genFindLowestBit(regs);
         assert(regMask != RBM_NONE);

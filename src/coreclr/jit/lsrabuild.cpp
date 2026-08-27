@@ -425,22 +425,22 @@ regMaskTP LinearScan::getKillSetForCall(GenTreeCall* call)
 #endif
 
     // If the method does not use FP registers, we can ignore the FP kills
-    IntRegMask killMask = compiler->compFloatingPointUsed ? RBM_CALLEE_TRASH : RBM_INT_CALLEE_TRASH;
+    RegSet killSet = compiler->compFloatingPointUsed ? RBM_CALLEE_TRASH : RBM_INT_CALLEE_TRASH;
 
 #ifdef TARGET_ARM
     if (call->IsVirtualStub())
     {
-        killMask |= genRegMask(compiler->info.virtualStubParamRegNum);
+        killSet |= genRegMask(compiler->info.virtualStubParamRegNum);
     }
 #else
     // Verify that the special virtual stub call register is in the kill mask.
     // We don't just add it unconditionally to the killMask because for most
     // architectures it is already in the RBM_CALLEE_TRASH set, and we don't
     // want to introduce extra checks and calls in this hot function.
-    assert(!call->IsVirtualStub() || ((killMask & genRegMask(compiler->info.virtualStubParamRegNum)) != RBM_NONE));
+    assert(!call->IsVirtualStub() || ((killSet & genRegMask(compiler->info.virtualStubParamRegNum)) != RBM_NONE));
 #endif
 
-    return killMask;
+    return killSet;
 }
 
 regMaskTP LinearScan::getKillSetForStructStore(StructStoreKind kind)

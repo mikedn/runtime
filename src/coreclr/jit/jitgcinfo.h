@@ -57,7 +57,7 @@ public:
     // 32 integer registers, we can get away with using uint32_t instead of uint64_t
     // on ARM and ARM64.
     static_assert_no_msg(REG_INT_LAST < 32);
-    using RegSet = uint32_t;
+    using GCRegSet = uint32_t;
 
     struct RegArgChange
     {
@@ -72,7 +72,7 @@ public:
 #endif
 
         union {
-            RegSet regs;
+            GCRegSet regs;
 #ifdef JIT32_GCENCODER
             unsigned argOffset;
 #else
@@ -84,8 +84,8 @@ public:
     struct CallSite
     {
         CallSite* next = nullptr;
-        RegSet    refRegs;
-        RegSet    byrefRegs;
+        GCRegSet  refRegs;
+        GCRegSet  byrefRegs;
         unsigned  codeOffs;
 #ifdef JIT32_GCENCODER
         unsigned argCount;

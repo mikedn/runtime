@@ -631,7 +631,7 @@ private:
     void UnspillRegCandidateLclLoad(GenTreeLclLoad* node);
     void UnspillRegIfNeeded(GenTree* node, unsigned regIndex);
     void UnspillRegsIfNeeded(GenTree* node);
-    IntRegMask GetNodeRegMask(GenTree* node);
+    RegSet GetNodeRegMask(GenTree* node);
 
     RegNum UseReg(GenTree* node);
     RegNum UseReg(GenTree* node, unsigned regIndex);

@@ -1509,13 +1509,13 @@ RegNum CodeGen::UseReg(GenTree* node, unsigned regIndex)
     return reg;
 }
 
-IntRegMask CodeGen::GetNodeRegMask(GenTree* node)
+RegSet CodeGen::GetNodeRegMask(GenTree* node)
 {
 #if FEATURE_MULTIREG_RET
     if (node->IsMultiRegCall())
     {
         GenTreeCall* call = node->AsCall();
-        IntRegMask   mask = RBM_NONE;
+        RegSet       mask = RBM_NONE;
 
         for (unsigned i = 0; i < MAX_MULTIREG_COUNT; ++i)
         {
@@ -1536,7 +1536,7 @@ IntRegMask CodeGen::GetNodeRegMask(GenTree* node)
     if (node->IsCopyOrReloadOfMultiRegCall())
     {
         GenTreeCopyOrReload* copy = node->AsCopyOrReload();
-        IntRegMask           mask = RBM_NONE;
+        RegSet               mask = RBM_NONE;
 
         for (unsigned i = 0, regCount = copy->GetOp(0)->AsCall()->GetRegCount(); i < regCount; ++i)
         {

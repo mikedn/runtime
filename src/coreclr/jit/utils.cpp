@@ -107,7 +107,7 @@ regMaskTP genRegMask(RegNum reg)
     // (L1 latency on sandy bridge is 4 cycles for [base] and 5 for [base + index*c] )
     // the reason this is AMD-only is because the x86 BE will try to get reg masks for REG_STK
     // and the result needs to be zero.
-    regMaskTP result = IntRegMask(1) << reg;
+    regMaskTP result = RegSet(1) << reg;
     assert(result == regMasks[reg]);
     return result;
 #else

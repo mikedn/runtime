@@ -6799,12 +6799,12 @@ void CodeGen::PrologProfilingEnterCallback(RegNum initReg, bool* initRegZeroed)
     assert(generatingProlog);
     assert(compiler->opts.IsProfilerHookNeeded());
 
+    Emitter& emit = *GetEmitter();
+
 #ifdef WINDOWS_AMD64_ABI
     // Since the method needs to make a profiler callback, it should have out-going arg space allocated.
     noway_assert(compiler->lvaOutgoingArgSpaceVar != BAD_VAR_NUM);
     noway_assert(outgoingArgSpaceSize >= 4 * REGSIZE_BYTES);
-
-    Emitter& emit = *GetEmitter();
 
     // Home all arguments passed in arg registers (RCX, RDX, R8 and R9).
     // In case of vararg methods, arg regs are already homed.
@@ -7020,6 +7020,7 @@ void CodeGen::genProfilingLeaveCallback(CorInfoHelpFunc helper)
     GenHelperCall(helper, EA_UNKNOWN, REG_ARG_2);
 
 #else // UNIX_AMD64_ABI
+    Emitter& emit = *GetEmitter();
 
     // RDI = ProfilerMethHnd
     if (compiler->opts.compProfilerMethHndIndirected)

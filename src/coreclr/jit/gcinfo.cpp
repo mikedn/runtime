@@ -281,7 +281,7 @@ void GCInfo::AddLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::AddRegs;
     change->gcType       = type;
-    change->regs         = static_cast<RegSet>(regs);
+    change->regs         = static_cast<GCRegSet>(regs);
 }
 
 void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
@@ -294,7 +294,7 @@ void GCInfo::RemoveLiveRegs(GCtype type, regMaskTP regs, unsigned codeOffs)
     change->codeOffs     = codeOffs;
     change->kind         = RegArgChangeKind::RemoveRegs;
     change->gcType       = type;
-    change->regs         = static_cast<RegSet>(regs);
+    change->regs         = static_cast<GCRegSet>(regs);
 }
 
 void GCInfo::AddLiveReg(GCtype type, RegNum reg, unsigned codeOffs)
@@ -696,8 +696,8 @@ void GCInfo::AddCallSite(unsigned stackLevel, unsigned codeOffs)
 
     lastCallSite = call;
 
-    call->refRegs   = static_cast<RegSet>(liveRefRegs);
-    call->byrefRegs = static_cast<RegSet>(liveByrefRegs);
+    call->refRegs   = static_cast<GCRegSet>(liveRefRegs);
+    call->byrefRegs = static_cast<GCRegSet>(liveByrefRegs);
     call->codeOffs  = codeOffs;
 
 #if !FEATURE_FIXED_OUT_ARGS
@@ -794,8 +794,8 @@ void GCInfo::AddCallSite(unsigned callOffs, unsigned callEndOffs)
 
     lastCallSite = call;
 
-    call->refRegs     = static_cast<RegSet>(liveRefRegs);
-    call->byrefRegs   = static_cast<RegSet>(liveByrefRegs);
+    call->refRegs     = static_cast<GCRegSet>(liveRefRegs);
+    call->byrefRegs   = static_cast<GCRegSet>(liveByrefRegs);
     call->codeOffs    = callOffs;
     call->codeEndOffs = callEndOffs;
 }

@@ -26,17 +26,17 @@
 #endif
 
 #if defined(TARGET_ARM)
-using IntRegNum  = uint32_t;
-using IntRegMask = uint64_t;
+using RegNumIntType = uint32_t;
+using RegSetIntType = uint64_t;
 #elif defined(TARGET_ARM64)
-using IntRegNum  = uint32_t;
-using IntRegMask = uint64_t;
+using RegNumIntType = uint32_t;
+using RegSetIntType = uint64_t;
 #elif defined(TARGET_AMD64)
-using IntRegNum  = uint32_t;
-using IntRegMask = uint32_t;
+using RegNumIntType = uint32_t;
+using RegSetIntType = uint32_t;
 #elif defined(TARGET_X86)
-using IntRegNum  = uint32_t;
-using IntRegMask = uint32_t;
+using RegNumIntType = uint32_t;
+using RegSetIntType = uint32_t;
 #else
 #error Unsupported target architecture
 #endif
@@ -47,7 +47,7 @@ using IntRegMask = uint32_t;
 //    REG_STK - Used to indicate something evaluated onto the stack.
 //    REG_NA  - Used to indicate that a register is either not yet assigned or not required.
 //
-enum RegNum : IntRegNum
+enum RegNum : RegNumIntType
 {
 #define REGDEF(name, ...) REG_##name,
 #include "register.h"
@@ -60,7 +60,7 @@ enum RegNum : IntRegNum
 #ifdef TARGET_ARM64
     REG_LAST = REG_STK - 2,
 #else
-    REG_LAST     = REG_STK - 1,
+    REG_LAST        = REG_STK - 1,
 #endif
     REG_COUNT = REG_LAST + 1,
 #define REGALIAS(alias, name) REG_##alias = REG_##name,
@@ -68,24 +68,26 @@ enum RegNum : IntRegNum
     REG_INT_COUNT = REG_INT_LAST - REG_INT_FIRST + 1,
 };
 
-using regNumber      = RegNum;
-using regNumberSmall = uint8_t;
-using RegNumSmall    = uint8_t;
+using regNumber   = RegNum;
+using RegNumSmall = uint8_t;
+
+using regMaskTP = RegSetIntType;
+using RegSet    = RegSetIntType;
 
 static_assert_no_msg(static_cast<RegNum>(static_cast<RegNumSmall>(REG_NA)) == REG_NA);
 
 #define REG_NEXT(reg) static_cast<RegNum>((reg) + 1)
 #define REG_PREV(reg) static_cast<RegNum>((reg)-1)
 
-constexpr IntRegMask GetRegSetBit(RegNum reg)
+constexpr RegSet GetRegSetBit(RegNum reg)
 {
     // ARM64 has the special SP reg, which is only used by the instruction encoder and
     // it's never allocated by register allocator and not included in any register sets
     // (which are limited to 64 bits).
-    return (reg >= sizeof(IntRegMask) * 8) ? 0 : (IntRegMask(1) << reg);
+    return (reg >= sizeof(RegSet) * 8) ? 0 : (RegSet(1) << reg);
 }
 
-enum RegMask : IntRegMask
+enum RegMask : RegSetIntType
 {
     RBM_NONE = 0,
 #define REGDEF(name, ...) RBM_##name = GetRegSetBit(REG_##name),
@@ -98,8 +100,6 @@ enum RegMask : IntRegMask
 static_assert_no_msg(REG_FIRST == 0);
 static_assert_no_msg(REG_INT_FIRST < REG_INT_LAST);
 static_assert_no_msg(REG_FP_FIRST < REG_FP_LAST);
-
-using regMaskTP = IntRegMask;
 
 #define LEA_AVAILABLE 1
 
