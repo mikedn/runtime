@@ -8381,27 +8381,7 @@ void CodeGen::genArm64EmitterUnitTests()
 }
 #endif // DEBUG
 
-// Probe the stack.
-//
-// This only does the probing; allocating the frame is done when callee-saved registers are saved.
-// This is done before anything has been pushed. The previous frame might have a large outgoing argument
-// space that has been allocated, but the lowest addresses have not been touched. Our frame setup might
-// not touch up to the first 504 bytes. This means we could miss a guard page. On Windows, however,
-// there are always three guard pages, so we will not miss them all. On Linux, there is only one guard
-// page by default, so we need to be more careful. We do an extra probe if we might not have probed
-// recently enough. That is, if a call and prolog establishment might lead to missing a page. We do this
-// on Windows as well just to be consistent, even though it should not be necessary.
-//
-// frameSize         - the size of the stack frame being allocated.
-// initReg           - register to use as a scratch register.
-// pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                     this call sets 'initReg' to a non-zero value. Otherwise, it is unchanged.
-// maskArgRegsLiveIn - incoming argument registers that are currently live.
-//
-void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
-                                  regNumber initReg,
-                                  bool*     pInitRegZeroed,
-                                  regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* initRegZeroed, regMaskTP maskArgRegsLiveIn)
 {
     assert(generatingProlog);
 
@@ -8409,6 +8389,15 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     {
         return;
     }
+
+    // This only does the probing; allocating the frame is done when callee-saved registers are saved.
+    // This is done before anything has been pushed. The previous frame might have a large outgoing argument
+    // space that has been allocated, but the lowest addresses have not been touched. Our frame setup might
+    // not touch up to the first 504 bytes. This means we could miss a guard page. On Windows, however,
+    // there are always three guard pages, so we will not miss them all. On Linux, there is only one guard
+    // page by default, so we need to be more careful. We do an extra probe if we might not have probed
+    // recently enough. That is, if a call and prolog establishment might lead to missing a page. We do this
+    // on Windows as well just to be consistent, even though it should not be necessary.
 
     const target_size_t pageSize = compiler->eeGetPageSize();
 
@@ -8420,6 +8409,8 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     target_size_t lastTouchDelta = 0;
 
     assert(!compiler->info.compPublishStubParam || (REG_SECRET_STUB_PARAM != initReg));
+
+    Emitter& emit = *GetEmitter();
 
     if (frameSize < pageSize)
     {
@@ -8443,8 +8434,8 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
             //    ldr wzr, [sp + initReg]
 
             instGen_Set_Reg_To_Imm(EA_8BYTE, initReg, -(ssize_t)probeOffset);
-            GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
-            *pInitRegZeroed = false; // The initReg does not contain zero
+            emit.emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
+            *initRegZeroed = false;
 
             lastTouchDelta -= pageSize;
         }
@@ -8462,8 +8453,8 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         availMask &= ~maskArgRegsLiveIn;   // Remove all of the incoming argument registers as they are currently live
         availMask &= ~genRegMask(initReg); // Remove the pre-calculated initReg
 
-        regNumber rOffset = initReg;
-        regNumber rLimit;
+        RegNum    rOffset = initReg;
+        RegNum    rLimit;
         regMaskTP tempMask;
 
         // We pick the next lowest register number for rLimit
@@ -8489,15 +8480,15 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         instGen_Set_Reg_To_Imm(EA_8BYTE, rOffset, -(ssize_t)pageSize);
         instGen_Set_Reg_To_Imm(EA_8BYTE, rLimit, -(ssize_t)frameSize);
 
-        // There's a "virtual" label here. But we can't create a label in the prolog, so we use the magic
-        // `emitIns_J` with a negative `instrCount` to branch back a specific number of instructions.
+        // We can't create a label in the prolog, so we use the magic `emitIns_J` with a negative `instrCount`
+        // to branch back a specific number of instructions.
 
-        GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, rOffset);
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_8BYTE, rOffset, rOffset, pageSize);
-        GetEmitter()->emitIns_R_R(INS_cmp, EA_8BYTE, rLimit, rOffset); // If equal, we need to probe again
-        GetEmitter()->emitIns_J(INS_bls, -4);
+        emit.emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, rOffset);
+        emit.emitIns_R_R_I(INS_sub, EA_8BYTE, rOffset, rOffset, pageSize);
+        emit.emitIns_R_R(INS_cmp, EA_8BYTE, rLimit, rOffset); // If equal, we need to probe again
+        emit.emitIns_J(INS_bls, -4);
 
-        *pInitRegZeroed = false; // The initReg does not contain zero
+        *initRegZeroed = false;
 
         unwindPadding();
 
@@ -8508,10 +8499,10 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
     {
         assert(lastTouchDelta + STACK_PROBE_BOUNDARY_THRESHOLD_BYTES < 2 * pageSize);
         instGen_Set_Reg_To_Imm(EA_8BYTE, initReg, -(ssize_t)frameSize);
-        GetEmitter()->emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
+        emit.emitIns_R_R_R(INS_ldr, EA_4BYTE, REG_ZR, REG_SPBASE, initReg);
         unwindPadding();
 
-        *pInitRegZeroed = false; // The initReg does not contain zero
+        *initRegZeroed = false;
     }
 }
 

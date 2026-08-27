@@ -300,7 +300,9 @@ public:
 #ifdef TARGET_ARM
     void PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed);
 #endif
-    void PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* initRegZeroed, regMaskTP maskArgRegsLiveIn);
+    void PrologAllocLclFrame(unsigned frameSize,
+                             RegNum   initReg,
+                             bool* initRegZeroed ARM64_ARG(regMaskTP maskArgRegsLiveIn));
 
     void genPoisonFrame(regMaskTP bbRegLiveIn);
 

@@ -3618,7 +3618,7 @@ void CodeGen::genFinalizeFrame()
 #endif // DEBUG
 }
 
-regNumber CodeGen::PrologChooseInitReg(regMaskTP initRegs)
+RegNum CodeGen::PrologChooseInitReg(regMaskTP initRegs)
 {
     regMaskTP excludeRegs = paramRegState.intRegLiveIn | RBM_ALLFLOAT;
 #ifdef TARGET_ARMARCH
@@ -3683,7 +3683,8 @@ void CodeGen::genFnProlog()
 
     ScopedSetVariable<bool> _setGeneratingProlog(&generatingProlog, true);
     funSetCurrentFunc(0);
-    GetEmitter()->BeginMainProlog();
+    Emitter& emit = *GetEmitter();
+    emit.BeginMainProlog();
     unwindBegProlog();
     liveness.BeginPrologEpilogCodeGen();
 
@@ -3705,8 +3706,8 @@ void CodeGen::genFnProlog()
     {
         // Put a nop first because the debugger and other tools are likely to
         // put an int3 at the beginning and we don't want to confuse them.
-        GetEmitter()->emitIns(INS_nop);
-        GetEmitter()->emitIns(INS_BREAKPOINT);
+        emit.emitIns(INS_nop);
+        emit.emitIns(INS_BREAKPOINT);
 
 #ifdef TARGET_ARMARCH
         // Avoid asserts in the unwind info because these instructions aren't accounted for.
@@ -3738,7 +3739,7 @@ void CodeGen::genFnProlog()
 
     if (regMaskTP preSpillRegs = GetPreSpillRegs())
     {
-        GetEmitter()->emitIns_I(INS_push, EA_4BYTE, static_cast<int>(preSpillRegs));
+        emit.emitIns_I(INS_push, EA_4BYTE, static_cast<int>(preSpillRegs));
         unwindPushMaskInt(preSpillRegs);
     }
 #endif
@@ -3747,13 +3748,13 @@ void CodeGen::genFnProlog()
 #ifdef TARGET_AMD64
     if (compiler->info.compIsVarArgs && !compiler->opts.IsOSR())
     {
-        GetEmitter()->PrologSpillParamRegsToShadowSlots();
+        emit.PrologSpillParamRegsToShadowSlots();
     }
 #endif
 
     if (IsFramePointerRequired())
     {
-        GetEmitter()->Ins_R(INS_push, EA_PTRSIZE, REG_FPBASE);
+        emit.Ins_R(INS_push, EA_PTRSIZE, REG_FPBASE);
         unwindPush(REG_FPBASE);
 
 #ifndef TARGET_AMD64
@@ -3765,13 +3766,13 @@ void CodeGen::genFnProlog()
         {
             noway_assert(!isFramePointerUsed());
 
-            GetEmitter()->Ins_R_I(INS_and, EA_4BYTE, REG_ESP, -8);
+            emit.Ins_R_I(INS_and, EA_4BYTE, REG_ESP, -8);
         }
 #endif
     }
 #endif // TARGET_XARCH
 
-    regNumber initReg = PrologChooseInitReg(initRegs);
+    RegNum initReg = PrologChooseInitReg(initRegs);
 
     // Track if initReg holds non-zero value. Start conservative and assume it has non-zero value.
     // If initReg is ever set to zero, this variable is set to true and zero initializing initReg
@@ -3789,7 +3790,7 @@ void CodeGen::genFnProlog()
 
 #ifdef TARGET_XARCH
     PrologPushCalleeSavedRegisters();
-    PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed, paramRegState.intRegLiveIn);
+    PrologAllocLclFrame(lclFrameSize, initReg, &initRegZeroed);
     PrologPreserveCalleeSavedFloatRegs(lclFrameSize);
 
 #ifdef TARGET_AMD64
@@ -3808,11 +3809,10 @@ void CodeGen::genFnProlog()
         assert((paramRegState.intRegLiveIn & RBM_SECRET_STUB_PARAM) != RBM_NONE);
 
 #ifdef TARGET_XARCH
-        GetEmitter()->Ins_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
-                               compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
+        emit.Ins_AR_R(INS_mov, EA_PTRSIZE, REG_SECRET_STUB_PARAM, genFramePointerReg(),
+                      compiler->lvaGetDesc(compiler->lvaStubArgumentVar)->GetStackOffset());
 #else
-        GetEmitter()->Ins_R_S(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM,
-                              GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
+        emit.Ins_R_S(INS_str, EA_PTRSIZE, REG_SECRET_STUB_PARAM, GetStackAddrMode(compiler->lvaStubArgumentVar, 0));
 #endif
 
         // It's no longer live; clear it out so it can be used after this in the prolog
@@ -3855,7 +3855,7 @@ void CodeGen::genFnProlog()
             initRegZeroed = true;
         }
 
-        GetEmitter()->Ins_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
+        emit.Ins_S_R(INS_mov, EA_PTRSIZE, initReg, GetStackAddrMode(shadowSlotsLcl, firstSlotOffs));
     }
 #endif // !FEATURE_EH_FUNCLETS
 
@@ -3867,7 +3867,7 @@ void CodeGen::genFnProlog()
 #ifdef JIT32_GCENCODER
     if (LclVarDsc* lcl = compiler->lvaLocAllocSPLcl)
     {
-        GetEmitter()->Ins_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
+        emit.Ins_S_R(INS_mov, EA_4BYTE, REG_ESP, GetStackAddrMode(lcl, 0));
     }
 #endif
 
@@ -3890,7 +3890,7 @@ void CodeGen::genFnProlog()
         // For fully-interruptible methods, we extend the prolog so that
         // we do not need to track GC information while shuffling the
         // arguments.
-        GetEmitter()->MarkMainPrologNoGCEnd();
+        emit.MarkMainPrologNoGCEnd();
     }
 
     UpdateParamsWithInitialReg();
@@ -3917,7 +3917,7 @@ void CodeGen::genFnProlog()
 
     if (GetInterruptible())
     {
-        GetEmitter()->MarkMainPrologNoGCEnd();
+        emit.MarkMainPrologNoGCEnd();
     }
 
     if (compiler->opts.compDbgInfo && (compiler->info.compVarScopesCount > 0))
@@ -3939,11 +3939,11 @@ void CodeGen::genFnProlog()
     if (LclVarDsc* lcl = compiler->lvaReturnSpCheckLcl)
     {
         assert(lcl->lvOnFrame && lcl->lvDoNotEnregister);
-        GetEmitter()->Ins_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
+        emit.Ins_S_R(INS_mov, EA_PTRSIZE, REG_SPBASE, GetStackAddrMode(lcl, 0));
     }
 #endif
 
-    GetEmitter()->EndMainProlog();
+    emit.EndMainProlog();
 }
 
 #ifdef FEATURE_EH_FUNCLETS

@@ -1646,7 +1646,7 @@ void CodeGen::PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed)
 
     if (genStackAllocRegisterMask(lclFrameSize, calleeSavedModifiedRegs) == RBM_NONE)
     {
-        PrologAllocLclFrame(lclFrameSize, initReg, initRegZeroed, paramRegState.intRegLiveIn);
+        PrologAllocLclFrame(lclFrameSize, initReg, initRegZeroed);
     }
 
     if (compiler->compLocallocUsed)
@@ -1661,25 +1661,7 @@ void CodeGen::PrologAllocMainLclFrame(RegNum initReg, bool* initRegZeroed)
     }
 }
 
-// Probe the stack and allocate the local stack frame - subtract from SP.
-//
-// The first instruction of the prolog is always a push (which touches the lowest address
-// of the stack), either of the LR register or of some argument registers, e.g., in the case of
-// pre-spilling. The LR register is always pushed because we require it to allow for GC return
-// address hijacking (see the comment in CodeGen::PrologPushCalleeSavedRegisters()). These pushes
-// happen immediately before calling this function, so the SP at the current location has already
-// been touched.
-//
-// frameSize         - the size of the stack frame being allocated.
-// initReg           - register to use as a scratch register.
-// pInitRegZeroed    - OUT parameter. *pInitRegZeroed is set to 'false' if and only if
-//                          this call sets 'initReg' to a non-zero value.
-// maskArgRegsLiveIn - incoming argument registers that are currently live.
-//
-void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
-                                  regNumber initReg,
-                                  bool*     pInitRegZeroed,
-                                  regMaskTP maskArgRegsLiveIn)
+void CodeGen::PrologAllocLclFrame(unsigned frameSize, RegNum initReg, bool* initRegZeroed)
 {
     assert(generatingProlog);
 
@@ -1688,25 +1670,33 @@ void CodeGen::PrologAllocLclFrame(unsigned  frameSize,
         return;
     }
 
-    const target_size_t pageSize = compiler->eeGetPageSize();
-
     assert(!compiler->info.compPublishStubParam || (REG_SECRET_STUB_PARAM != initReg));
+
+    const target_size_t pageSize = compiler->eeGetPageSize();
+    Emitter&            emit     = *GetEmitter();
 
     if (frameSize < pageSize)
     {
-        GetEmitter()->emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, frameSize);
+        // The first instruction of the prolog is always a push (which touches the lowest address
+        // of the stack), either of the LR register or of some argument registers, e.g., in the case of
+        // pre-spilling. The LR register is always pushed because we require it to allow for GC return
+        // address hijacking (see the comment in CodeGen::PrologPushCalleeSavedRegisters()). These pushes
+        // happen immediately before calling this function, so the SP at the current location has already
+        // been touched.
+
+        emit.emitIns_R_I(INS_sub, EA_4BYTE, REG_SPBASE, frameSize);
     }
     else
     {
         genInstrWithConstant(INS_sub, REG_STACK_PROBE_HELPER_ARG, REG_SPBASE, frameSize, REG_STACK_PROBE_HELPER_ARG);
         GenHelperCall(CORINFO_HELP_STACK_PROBE, EA_UNKNOWN, REG_STACK_PROBE_HELPER_CALL_TARGET);
         unwindPadding();
-        GetEmitter()->emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
+        emit.emitIns_Mov(INS_mov, EA_4BYTE, REG_SPBASE, REG_STACK_PROBE_HELPER_ARG, /* canSkip */ false);
 
         if ((genRegMask(initReg) & (RBM_STACK_PROBE_HELPER_ARG | RBM_STACK_PROBE_HELPER_CALL_TARGET |
                                     RBM_STACK_PROBE_HELPER_TRASH)) != RBM_NONE)
         {
-            *pInitRegZeroed = false;
+            *initRegZeroed = false;
         }
     }
 
@@ -2650,12 +2640,12 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
         maskArgRegsLiveIn = RBM_R0;
     }
 
-    regNumber initReg       = REG_R3; // R3 is never live on entry to a funclet, so it can be trashed
-    bool      initRegZeroed = false;
+    RegNum initReg       = REG_R3; // R3 is never live on entry to a funclet, so it can be trashed
+    bool   initRegZeroed = false;
 
     if (maskStackAlloc == RBM_NONE)
     {
-        PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed, maskArgRegsLiveIn);
+        PrologAllocLclFrame(genFuncletInfo.fiSpDelta, initReg, &initRegZeroed);
     }
 
     // This is the end of the OS-reported prolog for purposes of unwinding
@@ -2667,19 +2657,21 @@ void CodeGen::genFuncletProlog(BasicBlock* block)
         return;
     }
 
+    Emitter& emit = *GetEmitter();
+
     if (isFilter)
     {
         // This is the first block of a filter
 
-        GetEmitter()->emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
-        GetEmitter()->emitIns_R_R_I(INS_sub, EA_4BYTE, REG_FPBASE, REG_R1, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        emit.emitIns_R_R_I(INS_ldr, EA_4BYTE, REG_R1, REG_R1, genFuncletInfo.fiPSP_slot_CallerSP_offset);
+        emit.emitIns_R_R_I(INS_str, EA_4BYTE, REG_R1, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+        emit.emitIns_R_R_I(INS_sub, EA_4BYTE, REG_FPBASE, REG_R1, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
     }
     else
     {
         // This is a non-filter funclet
-        GetEmitter()->emitIns_R_R_I(INS_add, EA_4BYTE, REG_R3, REG_FPBASE, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
-        GetEmitter()->emitIns_R_R_I(INS_str, EA_4BYTE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
+        emit.emitIns_R_R_I(INS_add, EA_4BYTE, REG_R3, REG_FPBASE, genFuncletInfo.fiFunctionCallerSPtoFPdelta);
+        emit.emitIns_R_R_I(INS_str, EA_4BYTE, REG_R3, REG_SPBASE, genFuncletInfo.fiPSP_slot_SP_offset);
     }
 }
 
