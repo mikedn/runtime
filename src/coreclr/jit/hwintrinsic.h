@@ -14,10 +14,6 @@ enum HWIntrinsicCategory : unsigned
     // - the codegen of overloads can be determined by intrinsicID and base type of returned vector
     HW_Category_SimpleSIMD,
 
-    // IMM intrinsics
-    // - some SIMD intrinsics requires immediate value (i.e. imm8) to generate instruction
-    HW_Category_IMM,
-
     // Scalar intrinsics
     // - operate over general purpose registers, like crc32, lzcnt, popcnt, etc.
     HW_Category_Scalar,
@@ -113,6 +109,8 @@ enum HWIntrinsicFlag : unsigned
     // the intrinsic cannot be handled by containment,
     // all the intrinsic that have explicit memory load/store semantics should have this flag
     HW_Flag_NoContainment = 0x8000,
+
+    HW_Flag_IMM = 0x10000,
 
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
@@ -324,6 +322,11 @@ struct HWIntrinsicInfo
     static bool HasRMWSemantics(NamedIntrinsic id)
     {
         return !HasFlag(id, HW_Flag_NoRMWSemantics);
+    }
+
+    static bool HasIMM(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_IMM);
     }
 
     static bool SupportsContainment(NamedIntrinsic id)

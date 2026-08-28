@@ -1400,15 +1400,15 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
 
     if (numOps != 0)
     {
-        NamedIntrinsic      intrinsicId = node->GetIntrinsic();
-        HWIntrinsicCategory category    = HWIntrinsicInfo::GetCategory(intrinsicId);
+        NamedIntrinsic intrinsicId = node->GetIntrinsic();
 
         GenTree* op1    = node->GetOp(0);
         GenTree* op2    = numOps >= 2 ? node->GetOp(1) : nullptr;
         GenTree* op3    = numOps >= 3 ? node->GetOp(2) : nullptr;
         GenTree* lastOp = node->GetLastOp();
 
-        if ((category == HW_Category_IMM) && varActualTypeIsInt(lastOp->GetType()) && !lastOp->IsContainedIntCon())
+        if (HWIntrinsicInfo::HasIMM(intrinsicId) && varActualTypeIsInt(lastOp->GetType()) &&
+            !lastOp->IsContainedIntCon())
         {
             // We need two extra reg when lastOp isn't a constant so the offset
             // into the jump table for the fallback path can be computed.

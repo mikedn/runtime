@@ -4534,7 +4534,6 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
             break;
 
         case HW_Category_SimpleSIMD:
-        case HW_Category_IMM:
         case HW_Category_SIMDScalar:
             switch (intrinsic)
             {
@@ -4621,6 +4620,11 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                     break;
 
                 default:
+                    if (HWIntrinsicInfo::HasIMM(intrinsic))
+                    {
+                        break;
+                    }
+
                     if (category == HW_Category_SIMDScalar)
                     {
                         if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
@@ -4628,11 +4632,6 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                             supportsScalarVecLoads = true;
                             supportsGeneralLoads   = true;
                         }
-                        break;
-                    }
-
-                    if (category == HW_Category_IMM)
-                    {
                         break;
                     }
                     FALLTHROUGH;
@@ -4883,6 +4882,16 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         return;
     }
 
+    if (HWIntrinsicInfo::HasIMM(intrinsic))
+    {
+        if (GenTree* lastOp = node->GetLastOp(); lastOp->IsIntCon())
+        {
+            lastOp->SetContained();
+        }
+
+        return;
+    }
+
     assert((intrinsic != NI_SSE41_Insert) || (node->GetVecEltType() != TYP_FLOAT));
 
     unsigned numArgs = node->GetNumOps();
@@ -4899,13 +4908,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
         case HW_Category_MemoryStore:
             assert((numArgs == 2) || (numArgs == 3));
             TryMakeHWIntrinsicAddrMode(node, op1);
-            return;
-
-        case HW_Category_IMM:
-            if (GenTree* lastOp = node->GetLastOp(); lastOp->IsIntCon())
-            {
-                lastOp->SetContained();
-            }
             return;
 
         case HW_Category_SimpleSIMD:

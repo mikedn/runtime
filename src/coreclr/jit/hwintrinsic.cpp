@@ -551,10 +551,9 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         baseType = retType;
     }
 
-    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
-
 #ifdef TARGET_XARCH
-    if ((sig.paramCount > 0) && (category == HW_Category_IMM) && varActualTypeIsInt(impStackTop().val->GetType()))
+    if ((sig.paramCount > 0) && (HWIntrinsicInfo::HasIMM(intrinsic)) &&
+        varActualTypeIsInt(impStackTop().val->GetType()))
     {
         assert((HWIntrinsicInfo::GetImmOpUpperBound(intrinsic) == 255) || HWIntrinsicInfo::HasSpecialImport(intrinsic));
 
@@ -564,6 +563,8 @@ GenTree* Importer::ImportHWIntrinsic2(NamedIntrinsic        intrinsic,
         }
     }
 #endif // TARGET_XARCH
+
+    const HWIntrinsicCategory category = HWIntrinsicInfo::GetCategory(intrinsic);
 
 #ifdef TARGET_ARM64
     GenTree* immOp = nullptr;
