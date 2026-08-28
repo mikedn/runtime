@@ -88,9 +88,8 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_SpecialImport = 0x100,
 
 #if defined(TARGET_XARCH)
-    // Copy Upper bits
-    // some SIMD scalar intrinsics need the semantics of copying upper bits from the source operand
-    HW_Flag_CopyUpperBits = 0x800,
+    // Treat an unary intrinsic as binary by duplicating the operand in codegen.
+    HW_Flag_DupUnaryOp = 0x800,
 
     // Maybe Memory Load/Store
     // - some intrinsics may have pointer overloads but without HW_Category_MemoryLoad/HW_Category_MemoryStore
@@ -336,9 +335,9 @@ struct HWIntrinsicInfo
         return !HasFlag(id, HW_Flag_NoContainment);
     }
 
-    static bool CopiesUpperBits(NamedIntrinsic id)
+    static bool DupUnaryOp(NamedIntrinsic id)
     {
-        return HasFlag(id, HW_Flag_CopyUpperBits);
+        return HasFlag(id, HW_Flag_DupUnaryOp);
     }
 
     static bool MaybeMemoryLoad(NamedIntrinsic id)

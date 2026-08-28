@@ -126,7 +126,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
                 UseAddrRegs(op1);
                 emit.Ins_R_A(ins, vecSize, dstReg, op1);
             }
-            else if (HWIntrinsicInfo::CopiesUpperBits(intrinsic))
+            else if (HWIntrinsicInfo::DupUnaryOp(intrinsic))
             {
                 RegNum op1Reg = UseReg(op1);
 
@@ -217,7 +217,7 @@ void CodeGen::GenGenericIntrinsic(GenTreeHWIntrinsic* node)
             {
                 unreached();
             }
-            else if ((HWIntrinsicInfo::HasIMM(intrinsic)) && varActualTypeIsInt(op2->GetType()))
+            else if (HWIntrinsicInfo::HasIMM(intrinsic) && varActualTypeIsInt(op2->GetType()))
             {
                 assert(implicitImm == -1);
                 auto emitSwCase = [&](int8_t i) { genHWIntrinsic_R_RM_I(node, ins, i); };
