@@ -1577,7 +1577,7 @@ void LinearScan::BuildHWIntrinsic(GenTreeHWIntrinsic* node)
                 assert(numOps == 3);
                 assert(isRMW);
 
-                const bool isScalar = HWIntrinsicInfo::GetCategory(intrinsicId) == HW_Category_SIMDScalar;
+                const bool isScalar = HWIntrinsicInfo::IsXmmScalar(intrinsicId);
 
                 if (op2->isContained())
                 {

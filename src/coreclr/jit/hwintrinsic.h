@@ -18,10 +18,6 @@ enum HWIntrinsicCategory : unsigned
     // - operate over general purpose registers, like crc32, lzcnt, popcnt, etc.
     HW_Category_Scalar,
 
-    // SIMD scalar
-    // - operate over vector registers(XMM), but just compute on the first element
-    HW_Category_SIMDScalar,
-
     // Memory access intrinsics
     // - e.g., Avx.Load, Avx.Store, Sse.LoadAligned
     HW_Category_MemoryLoad,
@@ -111,6 +107,7 @@ enum HWIntrinsicFlag : unsigned
     HW_Flag_NoContainment = 0x8000,
 
     HW_Flag_IMM = 0x10000,
+    HW_Flag_XmmScalar = 0x20000
 
 #elif defined(TARGET_ARM64)
     // NoJmpTable IMM
@@ -327,6 +324,11 @@ struct HWIntrinsicInfo
     static bool HasIMM(NamedIntrinsic id)
     {
         return HasFlag(id, HW_Flag_IMM);
+    }
+
+    static bool IsXmmScalar(NamedIntrinsic id)
+    {
+        return HasFlag(id, HW_Flag_XmmScalar);
     }
 
     static bool SupportsContainment(NamedIntrinsic id)

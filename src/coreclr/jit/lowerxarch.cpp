@@ -4534,7 +4534,6 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
             break;
 
         case HW_Category_SimpleSIMD:
-        case HW_Category_SIMDScalar:
             switch (intrinsic)
             {
                 case NI_SSE41_ConvertToVector128Int16:
@@ -4625,7 +4624,7 @@ bool Lowering::IsHWIntrinsicMemOp(Compiler* comp, GenTreeHWIntrinsic* instr, Gen
                         break;
                     }
 
-                    if (category == HW_Category_SIMDScalar)
+                    if (HWIntrinsicInfo::IsXmmScalar(intrinsic))
                     {
                         if (op->TypeIs(TYP_SIMD16, TYP_SIMD32))
                         {
@@ -4846,9 +4845,8 @@ void Lowering::ContainFmaIntrinsic(GenTreeHWIntrinsic* node)
     }
     else if (IsHWIntrinsicMemOp(node, op1, &supportsRegOptional))
     {
-        // Intrinsics with CopyUpperBits semantics cannot have op1 be contained
-
-        if (HWIntrinsicInfo::GetCategory(intrinsic) != HW_Category_SIMDScalar)
+        // Scalar intrinsics cannot have op1 be contained
+        if (!HWIntrinsicInfo::IsXmmScalar(intrinsic))
         {
             // 231 form: op3 = (op2 * op3) + [op1]
             MakeHWIntrinsicMemOp(node, op1);
@@ -4911,7 +4909,6 @@ void Lowering::ContainCheckHWIntrinsic(GenTreeHWIntrinsic* node)
             return;
 
         case HW_Category_SimpleSIMD:
-        case HW_Category_SIMDScalar:
         case HW_Category_Scalar:
             if (numArgs == 1)
             {

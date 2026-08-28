@@ -1629,7 +1629,7 @@ void CodeGen::GenFMAIntrinsic(GenTreeHWIntrinsic* node)
     RegNum op1Reg;
     RegNum op2Reg;
 
-    const bool isScalar = HWIntrinsicInfo::GetCategory(intrinsic) == HW_Category_SIMDScalar;
+    const bool isScalar = HWIntrinsicInfo::IsXmmScalar(intrinsic);
 
     if (!op2->isUsedFromReg())
     {
